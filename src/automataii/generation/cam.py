@@ -7,27 +7,19 @@ def generate_cam_profile(follower_path: QPainterPath, cam_center: QPointF, num_s
     """Generates a cam profile based on a follower path and cam center.
 
     Args:
-        follower_path: The QPainterPath representing the desired motion of the follower
-                       (in scene coordinates).
-        cam_center: The desired rotation center of the cam (in scene coordinates).
-        num_steps: The number of steps to sample along the follower path.
+        follower_path: The QPainterPath the follower should trace (in scene coordinates).
+        cam_center: The QPointF representing the cam's rotation center (in scene coordinates).
+        num_steps: Number of points to sample along the path.
 
     Returns:
-        A QPainterPath representing the cam profile (coordinates relative to cam_center).
-        Returns an empty path if generation fails.
+        A QPainterPath representing the cam profile (relative to cam_center),
+        or an empty path if generation fails.
     """
-    if follower_path.isEmpty():
-        logging.warning("Cannot generate cam profile: Follower path is empty.")
-        return QPainterPath()
-    if num_steps < 4:
-        logging.warning("Cannot generate cam profile: num_steps must be at least 4.")
+    if not follower_path or follower_path.isEmpty() or not cam_center:
+        logging.error("generate_cam_profile: Invalid input path or center.")
         return QPainterPath()
 
-    cam_profile = QPainterPath()
-    cam_points = []
-
-    logging.info(f"Generating cam profile with {num_steps} steps from center {cam_center}")
-
+    cam_points = [] # List to store (angle_rad, radius) pairs
     min_radius = float('inf') # Track minimum radius to handle path passing through center
 
     # Sample points along the follower path
@@ -41,52 +33,61 @@ def generate_cam_profile(follower_path: QPainterPath, cam_center: QPointF, num_s
 
         # Calculate radius (distance) and angle
         radius = math.sqrt(delta_x * delta_x + delta_y * delta_y)
-        angle_rad = math.atan2(delta_y, delta_x) # Angle in radians
+        # Angle of the vector from center to path point (atan2 handles quadrants)
+        path_point_angle_rad = math.atan2(delta_y, delta_x)
+
+        # Assume cam rotation angle corresponds directly to path percent
+        # This is a simplification - real mapping might be more complex
+        cam_angle_rad = percent * 2 * math.pi
+
+        # Calculate the cam profile point for this cam angle.
+        # When the cam is rotated by cam_angle_rad, the point on its profile
+        # currently at path_point_angle_rad must have the calculated radius.
+        # So, the point on the base cam profile (at angle 0)
+        # corresponding to this follower position must be at:
+        # Angle = path_point_angle_rad - cam_angle_rad
+        # Radius = radius
+        profile_angle_rad = path_point_angle_rad - cam_angle_rad
 
         if radius < 1e-6:
-            # Avoid issues if path goes directly through cam center
-            # Option 1: Skip this point (might create discontinuity)
-            # Option 2: Use a minimum radius (creates a small circle at center)
-             logging.warning(f"Follower path is very close to cam center at step {i}. Using minimum radius substitute.")
-             # We will handle minimum radius later
-             radius = 0 # Mark as zero for now
-             # Keep the angle as is
+            logging.warning(f"Follower path is very close to cam center at step {i}. Using minimum radius substitute later.")
+            radius = 0 # Mark as zero for now
 
         min_radius = min(min_radius, radius if radius > 1e-6 else float('inf'))
 
-        # Store angle and radius
-        # We need angle to sort points later to construct the path correctly
-        cam_points.append((angle_rad, radius))
+        # Store the BASE profile angle and the required radius at that angle
+        cam_points.append((profile_angle_rad, radius))
 
-    # --- Handle minimum radius ---
-    # If the path went through the center, ensure the cam has a minimum size
-    # Choose a small default radius if needed (e.g., 5 units)
-    effective_min_radius = max(5.0, min_radius / 4.0) if min_radius != float('inf') else 5.0
+    # --- Handle minimum radius --- #
+    effective_min_radius = max(5.0, min_radius / 2.0) if min_radius != float('inf') else 5.0
+    logging.info(f"Cam generation: Min follower radius={min_radius:.2f}, Effective min cam radius={effective_min_radius:.2f}")
 
     processed_cam_points = []
     for angle_rad, radius in cam_points:
-        # Ensure a minimum radius, especially if path went through center
         current_radius = radius if radius > 1e-6 else effective_min_radius
         processed_cam_points.append((angle_rad, current_radius))
 
     # Sort points by angle to construct the path correctly
     processed_cam_points.sort(key=lambda p: p[0])
 
-    # Convert polar coordinates (angle, radius) to Cartesian (x, y) relative to cam center
-    cartesian_points = []
+    # Create the cam profile path (relative to cam center)
+    cam_profile = QPainterPath()
+    first_point = True
     for angle_rad, radius in processed_cam_points:
+        # Convert polar coordinates (angle, radius) to Cartesian (x, y)
         x = radius * math.cos(angle_rad)
         y = radius * math.sin(angle_rad)
-        cartesian_points.append(QPointF(x, y))
+        point = QPointF(x, y) # Point relative to cam center
 
-    # Build the QPainterPath
-    if cartesian_points:
-        cam_profile.moveTo(cartesian_points[0])
-        for point in cartesian_points[1:]:
+        if first_point:
+            cam_profile.moveTo(point)
+            first_point = False
+        else:
             cam_profile.lineTo(point)
-        cam_profile.closeSubpath() # Close the loop
 
-    logging.info(f"Generated cam profile path with {len(cartesian_points)} points.")
+    cam_profile.closeSubpath() # Close the profile
+
+    logging.info(f"Generated cam profile with {len(processed_cam_points)} points.")
     return cam_profile
 
 # Example usage (for testing)

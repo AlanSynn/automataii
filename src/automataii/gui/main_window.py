@@ -12,10 +12,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QGraphicsScene, QFileDialog, QSplitter, QLabel, QListWidget, QListWidgetItem,
     QDoubleSpinBox, QCheckBox, QFormLayout, QTabWidget, QMessageBox, QProgressDialog,
     QGraphicsPathItem, QGroupBox, QApplication, QStyle, QDialog, QToolBar, QComboBox, QGraphicsItem,
-    QScrollArea, QSizePolicy
+    QScrollArea, QSizePolicy, QGraphicsEllipseItem
 )
-from PyQt6.QtGui import QColor, QPen, QAction, QPainterPath, QPixmap, QPolygonF, QTransform, QBrush, QImage, QFontDatabase
-from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSlot, QSize
+from PyQt6.QtGui import QColor, QPen, QAction, QPainterPath, QPixmap, QPolygonF, QTransform, QBrush, QImage, QFontDatabase, QPainterPathStroker
+from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSlot, QSize, QLineF
 from pathlib import Path
 
 # Local imports (adjust paths as needed)
@@ -58,10 +58,8 @@ class AutomataDesigner(QMainWindow):
         self.simulation_items = {} # part_name: CharacterPartItem (in simulation scene)
         self.joints = [] # List of Joint objects
         self.kinematic_chains = {} # end_effector_name: list[CharacterPartItem]
-        self.cam_profile_item = None # QGraphicsPathItem for cam profile viz
-        self.driving_cam_center = QPointF(0, 0)
-        self.cam_follower_item = None # CharacterPartItem designated as follower
-        self.cam_center_marker = None # QGraphicsItem for cam center viz
+        self.mechanism_visuals = {} # layer_name: list[QGraphicsItem]
+        self.layer_checkboxes = {} # layer_name: QCheckBox
 
         # Image processing workflow data
         self.input_image_path = None
@@ -308,21 +306,23 @@ class AutomataDesigner(QMainWindow):
         panel_layout.addWidget(motion_sim_group)
 
         # Group 5: Cam Mechanism (RESTORED)
-        cam_group = QGroupBox("Cam Mechanism")
-        cam_group.setEnabled(False) # Disable group initially
-        cam_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        cam_layout = QVBoxLayout(cam_group)
-        cam_layout.setSpacing(8)
-        self.set_cam_center_btn = QPushButton(" Set Cam Center")
-        self.set_cam_center_btn.setToolTip("Click the rotation center for the driving cam in the view")
-        self.set_cam_follower_btn = QPushButton(" Set as Cam Follower")
-        self.set_cam_follower_btn.setToolTip("Designate the selected part (with a motion path) as the cam follower")
-        self.generate_cam_btn = QPushButton(" Generate Cam Profile")
-        self.generate_cam_btn.setToolTip("Generate the cam shape based on follower's motion path and cam center")
-        cam_layout.addWidget(self.set_cam_center_btn)
-        cam_layout.addWidget(self.set_cam_follower_btn)
-        cam_layout.addWidget(self.generate_cam_btn)
-        panel_layout.addWidget(cam_group)
+        # Simplified Mechanism Generation
+        mechanism_group = QGroupBox("Mechanism Generation")
+        mechanism_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        mechanism_layout = QVBoxLayout(mechanism_group)
+        self.generate_mechanism_btn = QPushButton("Generate Mechanism")
+        self.generate_mechanism_btn.setToolTip("Automatically generate a cam mechanism based on the selected part's motion path, using the torso center as the cam center.")
+        self.generate_mechanism_btn.setEnabled(False) # Disable initially
+        mechanism_layout.addWidget(self.generate_mechanism_btn)
+        panel_layout.addWidget(mechanism_group)
+
+        # Group 5.5: Mechanism Layers
+        self.layer_group = QGroupBox("Mechanism Layers")
+        self.layer_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.layer_layout = QVBoxLayout(self.layer_group)
+        self.layer_layout.setSpacing(6)
+        # Layer checkboxes will be added dynamically
+        panel_layout.addWidget(self.layer_group)
 
         # Group 6: Export (RESTORED)
         export_group = QGroupBox("Export")
@@ -442,9 +442,10 @@ class AutomataDesigner(QMainWindow):
         self.define_joint_btn.toggled.connect(self._toggle_define_joint_mode)
         self.show_skeleton_btn.toggled.connect(self._show_skeleton_and_joints)
         self.define_motion_btn.toggled.connect(self._toggle_define_motion_path_mode)
-        self.set_cam_center_btn.clicked.connect(self._start_cam_center_selection)
-        self.set_cam_follower_btn.clicked.connect(self.set_cam_follower)
-        self.generate_cam_btn.clicked.connect(self.generate_cam_mechanism)
+        # self.set_cam_center_btn.clicked.connect(self._start_cam_center_selection)
+        # self.set_cam_follower_btn.clicked.connect(self.set_cam_follower)
+        # self.generate_cam_btn.clicked.connect(self.generate_cam_mechanism)
+        self.generate_mechanism_btn.clicked.connect(self._generate_mechanism_auto) # Connect new button
         self.play_btn.clicked.connect(self.play_simulation)
         self.stop_btn.clicked.connect(self.stop_simulation)
         self.reset_sim_btn.clicked.connect(self.reset_simulation)
@@ -519,6 +520,26 @@ class AutomataDesigner(QMainWindow):
         if not is_part_selected:
             self.z_value_spin.setEnabled(False)
             self.fixed_part_check.setEnabled(False)
+
+        selected_item = self.get_selected_editor_item() # Get current selection reliably
+
+        # Determine if generate mechanism button should be enabled
+        can_generate_mechanism = False
+        if selected_item and selected_item.motion_path and not selected_item.motion_path.isEmpty():
+            # Add a log to confirm the check passes
+            logging.debug(f"Enabling Generate Mechanism for {selected_item.part_info.name}. Path exists and is not empty.")
+            can_generate_mechanism = True
+        else:
+            # Add a log for why it's disabled
+            if not selected_item:
+                logging.debug("Disabling Generate Mechanism: No item selected.")
+            elif selected_item and not selected_item.motion_path:
+                logging.debug(f"Disabling Generate Mechanism for {selected_item.part_info.name}: motion_path is None.")
+            elif selected_item and selected_item.motion_path.isEmpty():
+                logging.debug(f"Disabling Generate Mechanism for {selected_item.part_info.name}: motion_path is empty.")
+
+        # Enable Generate Mechanism button if part selected and has path
+        self.generate_mechanism_btn.setEnabled(can_generate_mechanism)
 
     # Slot for clicking item in list (redundant with selection change?)
     def _handle_part_list_click(self, list_item):
@@ -1009,10 +1030,10 @@ class AutomataDesigner(QMainWindow):
         self.parts.clear()
         self.joints.clear()
         self.kinematic_chains.clear()
-        self.cam_profile_item = None
-        self.cam_follower_item = None
-        self.driving_cam_center = QPointF(0, 0)
-        self.cam_center_marker = None
+        self._clear_mechanism_visuals() # Clear mechanism visuals and layers
+        # self.cam_follower_item = None # No longer needed with automatic approach
+        # self.driving_cam_center = None # No longer needed with automatic approach
+
         # Reset property widgets
         self.z_value_spin.setValue(0)
         self.z_value_spin.setEnabled(False)
@@ -1159,8 +1180,8 @@ class AutomataDesigner(QMainWindow):
         if not self.editor_scene:
             return
         # Remove old marker
-        if self.cam_center_marker and self.cam_center_marker.scene() == self.editor_scene:
-            self.editor_scene.removeItem(self.cam_center_marker)
+        if self.mechanism_visuals.get('cam_center') and self.mechanism_visuals['cam_center'].scene():
+            self.editor_scene.removeItem(self.mechanism_visuals['cam_center'])
         # Create new marker (cross shape)
         path = QPainterPath()
         size = 10
@@ -1168,9 +1189,11 @@ class AutomataDesigner(QMainWindow):
         path.lineTo(size, 0)
         path.moveTo(0, -size)
         path.lineTo(0, size)
-        self.cam_center_marker = self.editor_scene.addPath(path, QPen(QColor("cyan"), 2))
-        self.cam_center_marker.setPos(self.driving_cam_center)
-        self.cam_center_marker.setZValue(100) # Ensure visible
+        self.mechanism_visuals['cam_center'] = self.editor_scene.addPath(path, QPen(QColor("cyan"), 2))
+        self.mechanism_visuals['cam_center'].setPos(self.driving_cam_center)
+        self.mechanism_visuals['cam_center'].setZValue(100) # Ensure visible
+
+        self._update_generate_cam_button_state()
 
     def set_cam_follower(self):
         """Sets the currently selected part as the cam follower."""
@@ -1186,8 +1209,15 @@ class AutomataDesigner(QMainWindow):
         logging.info(f"Part '{item.part_info.name}' set as cam follower.")
         self.statusBar().showMessage(f"'{item.part_info.name}' set as cam follower.")
 
+        self._update_generate_cam_button_state()
+
+    def _update_generate_cam_button_state(self):
+        """Enables the Generate Cam button only if center and follower are set."""
+        can_generate = self.driving_cam_center is not None and self.cam_follower_item is not None
+        self.generate_cam_btn.setEnabled(can_generate)
+
     def generate_cam_mechanism(self):
-        """Generates the cam profile based on the follower's path and center."""
+        """Generates the cam profile based on the selected follower's path and the torso center."""
         if not self.driving_cam_center:
             QMessageBox.warning(self, "Cam Generation Error", "Please set the cam center point first.")
             return
@@ -1208,13 +1238,14 @@ class AutomataDesigner(QMainWindow):
                 raise ValueError("Generated cam path is empty or invalid.")
 
             # Remove previous profile visualization
-            if self.cam_profile_item and self.cam_profile_item.scene():
-                 self.editor_scene.removeItem(self.cam_profile_item)
+            if self.mechanism_visuals.get('cam_profile') and self.mechanism_visuals['cam_profile'].scene():
+                 self.editor_scene.removeItem(self.mechanism_visuals['cam_profile'])
 
             # Add new profile visualization
-            self.cam_profile_item = self.editor_scene.addPath(cam_path, QPen(QColor("magenta"), 2))
-            self.cam_profile_item.setZValue(-10) # Draw behind parts
-            self.cam_profile_item.setPos(self.driving_cam_center) # Position relative to center
+            self.mechanism_visuals['cam_profile'] = self.editor_scene.addPath(cam_path, QPen(QColor("magenta"), 2))
+            self.mechanism_visuals['cam_profile'].setZValue(-10) # Draw behind parts
+            # The cam_path is already relative to the center, so position the item at the center
+            self.mechanism_visuals['cam_profile'].setPos(self.driving_cam_center)
 
             self.statusBar().showMessage("Cam profile generated successfully.")
             logging.info("Cam profile generated and visualized.")
@@ -1222,9 +1253,158 @@ class AutomataDesigner(QMainWindow):
         except Exception as e:
             logging.error(f"Error generating cam profile: {e}\n{traceback.format_exc()}")
             QMessageBox.critical(self, "Cam Generation Error", f"Failed to generate cam profile: {e}")
-            if self.cam_profile_item and self.cam_profile_item.scene():
-                 self.editor_scene.removeItem(self.cam_profile_item)
-            self.cam_profile_item = None
+            if self.mechanism_visuals.get('cam_profile') and self.mechanism_visuals['cam_profile'].scene():
+                 self.editor_scene.removeItem(self.mechanism_visuals['cam_profile'])
+            self.mechanism_visuals['cam_profile'] = None
+
+    # --- Simplified Mechanism Generation Action --- #
+    def _generate_mechanism_auto(self):
+        """Generates cam profiles for ALL parts with motion paths and visualizes linkage placeholders."""
+        self._clear_mechanism_visuals() # Clear previous visuals first
+
+        found_path = False
+        generated_count = 0
+
+        # Find the torso item (needed for cam center)
+        torso_item = self.editor_items.get("torso")
+        if not torso_item or not torso_item.scene():
+            QMessageBox.warning(self, "Mechanism Generation Error", "Cannot find the 'torso' part to use as the cam center reference.")
+            return
+
+        # Get the fixed cam center from torso
+        torso_local_center = torso_item.boundingRect().center()
+        cam_center_scene = torso_item.mapToScene(torso_local_center)
+
+        # Iterate through all loaded parts
+        for part_name, follower_item in self.editor_items.items():
+            if not isinstance(follower_item, CharacterPartItem): continue # Skip non-part items
+
+            motion_path = follower_item.motion_path
+            if not motion_path or motion_path.isEmpty():
+                continue # Skip parts without a valid motion path
+
+            found_path = True # Mark that at least one part had a path
+            logging.info(f"Generating cam mechanism for follower '{follower_item.part_info.name}' using torso local center {torso_local_center} mapped to scene {cam_center_scene}")
+
+            try:
+                # Call the generation function
+                cam_path = generate_cam_profile(motion_path, cam_center_scene)
+                if not cam_path or cam_path.isEmpty():
+                    raise ValueError("Generated cam path is empty or invalid.")
+
+                # Add cam visual to its layer
+                cam_layer_name = f"Cam: {follower_item.part_info.name}"
+                # Create the QGraphicsPathItem (but don't add to scene here)
+                cam_item = QGraphicsPathItem(cam_path)
+                cam_item.setPen(QPen(QColor("magenta"), 2))
+                cam_item.setZValue(-10) # Draw behind most parts
+                cam_item.setPos(cam_center_scene)
+                self._add_mechanism_visual(cam_layer_name, cam_item) # Add to scene via helper
+                logging.info(f"Cam profile generated and visualized for {follower_item.part_info.name}.")
+                generated_count += 1
+
+            except Exception as e:
+                logging.error(f"Error generating cam profile for {follower_item.part_info.name}: {e}\n{traceback.format_exc()}")
+                QMessageBox.critical(self, "Cam Generation Error", f"Failed to generate cam profile for {follower_item.part_info.name}: {e}")
+                # Continue to next part even if one fails
+
+        # After attempting cam generation for all parts, create linkage placeholders
+        linkage_count = self._visualize_identified_linkages()
+
+        if generated_count > 0 or linkage_count > 0:
+            self.statusBar().showMessage(f"Generated {generated_count} cam(s) and visualized {linkage_count} linkage structure item(s).")
+        elif not found_path:
+             QMessageBox.information(self, "Mechanism Generation", "No parts with motion paths found. Cannot generate cams.")
+        else:
+             self.statusBar().showMessage("Mechanism generation complete (no new items created). Check logs for errors.")
+
+    def _visualize_identified_linkages(self):
+        """Finds and visualizes identified linkage structures (e.g., 4-bar loops)."""
+        loops = self._find_four_bar_loops()
+        if not loops:
+            logging.info("No specific linkage structures (like 4-bar loops) identified to visualize.")
+            return 0
+
+        linkage_item_count = 0
+        for i, loop_joints in enumerate(loops):
+            layer_name = f"4-Bar Loop {i+1}"
+            logging.info(f"Visualizing {layer_name} involving joints: {[j.name for j in loop_joints]}")
+            for joint in loop_joints:
+                # Reuse the placeholder creation for each joint in the identified loop
+                placeholder_items = self._create_linkage_placeholder(joint)
+                if placeholder_items:
+                    for item in placeholder_items:
+                        self._add_mechanism_visual(layer_name, item, visible=True)
+                        linkage_item_count += 1
+                else:
+                    logging.warning(f"Could not create placeholder visuals for joint {joint.name} in {layer_name}")
+
+        logging.info(f"Visualized {linkage_item_count} items for {len(loops)} identified linkage structure(s).")
+        return linkage_item_count # Return count of individual items (bar+circles)
+
+    def _find_four_bar_loops(self):
+        """Attempts to find closed 4-bar linkage loops connected to a fixed item."""
+        loops = []
+        fixed_items = [item for item in self.editor_items.values() if isinstance(item, CharacterPartItem) and item.is_fixed]
+        if not fixed_items:
+            logging.debug("Cannot find 4-bar loops: No fixed item found.")
+            return loops
+
+        # Simple approach: Check joints connected to the fixed item
+        # A more robust approach would involve graph traversal
+        processed_joints = set()
+        for fixed_item in fixed_items:
+            logging.debug(f"Searching for loops starting from fixed item: {fixed_item.part_info.name}")
+            # Find joints directly connected to the fixed item
+            connected_joints = [j for j in self.joints if j.parent_item == fixed_item or j.child_item == fixed_item]
+
+            # Check pairs of these connected joints to see if they form a 4-bar loop
+            # This is a very simplified check and might miss complex configurations
+            # It assumes Fixed -> A -> B -> C -> Fixed structure
+            for i in range(len(connected_joints)):
+                joint1 = connected_joints[i]
+                if joint1 in processed_joints: continue
+
+                # Get the first moving link (Link A)
+                link_a = joint1.child_item if joint1.parent_item == fixed_item else joint1.parent_item
+                if not link_a or link_a == fixed_item: continue # Ensure it's a different link
+
+                # Find joints connected to Link A (excluding joint1)
+                joints_on_a = [j for j in self.joints if (j.parent_item == link_a or j.child_item == link_a) and j != joint1]
+
+                for joint2 in joints_on_a:
+                    # Get the second moving link (Link B)
+                    link_b = joint2.child_item if joint2.parent_item == link_a else joint2.parent_item
+                    if not link_b or link_b == link_a or link_b == fixed_item: continue
+
+                    # Find joints connected to Link B (excluding joint2)
+                    joints_on_b = [j for j in self.joints if (j.parent_item == link_b or j.child_item == link_b) and j != joint2]
+
+                    for joint3 in joints_on_b:
+                        # Get the third moving link (Link C)
+                        link_c = joint3.child_item if joint3.parent_item == link_b else joint3.parent_item
+                        if not link_c or link_c == link_b or link_c == link_a or link_c == fixed_item: continue
+
+                        # Find joints connected to Link C (excluding joint3) that also connect back to *a* fixed item
+                        joints_on_c = [j for j in self.joints if ((j.parent_item == link_c and j.child_item in fixed_items) or \
+                                                                (j.child_item == link_c and j.parent_item in fixed_items)) and j != joint3]
+
+                        for joint4 in joints_on_c:
+                             # Found a potential loop: Fixed -> A -> B -> C -> Fixed
+                             loop_joints = [joint1, joint2, joint3, joint4]
+                             # Avoid duplicates by checking if all joints are already processed in another loop
+                             is_new_loop = True
+                             for existing_loop in loops:
+                                 if set(loop_joints) == set(existing_loop):
+                                     is_new_loop = False
+                                     break
+                             if is_new_loop:
+                                 loops.append(loop_joints)
+                                 processed_joints.update(loop_joints)
+                                 logging.info(f"Found potential 4-bar loop: {[j.name for j in loop_joints]}")
+                                 break # Found one loop involving joint3 & link_c
+
+        return loops
 
     # --- Simulation Actions ---
     def build_kinematic_chains(self):
@@ -1552,6 +1732,60 @@ class AutomataDesigner(QMainWindow):
         self.active_camera_dialogs.clear()
         super().closeEvent(event)
 
+    # --- Layer Management --- #
+
+    def _clear_mechanism_visuals(self):
+        """Removes all generated mechanism visuals and layer controls."""
+        logging.debug("Clearing all mechanism visuals and layers.")
+        # Remove items from scene
+        for layer_name, items in self.mechanism_visuals.items():
+            for item in items:
+                if item and item.scene():
+                    self.editor_scene.removeItem(item)
+        self.mechanism_visuals.clear()
+
+        # Remove checkboxes from UI
+        for checkbox in self.layer_checkboxes.values():
+            self.layer_layout.removeWidget(checkbox)
+            checkbox.deleteLater()
+        self.layer_checkboxes.clear()
+
+    def _add_mechanism_visual(self, layer_name: str, item: QGraphicsItem, visible: bool = True):
+        """Adds a visual item to a specific layer and creates a toggle checkbox if needed."""
+        if not item:
+            return
+
+        # Add item to the internal dictionary
+        if layer_name not in self.mechanism_visuals:
+            self.mechanism_visuals[layer_name] = []
+        self.mechanism_visuals[layer_name].append(item)
+
+        # Add item to the scene
+        if item.scene() != self.editor_scene:
+             self.editor_scene.addItem(item)
+        item.setVisible(visible) # Set initial visibility
+
+        # Create checkbox if it doesn't exist for this layer
+        if layer_name not in self.layer_checkboxes:
+            checkbox = QCheckBox(layer_name)
+            checkbox.setChecked(visible)
+            checkbox.toggled.connect(lambda checked, ln=layer_name: self._toggle_layer_visibility(ln, checked))
+            self.layer_layout.addWidget(checkbox)
+            self.layer_checkboxes[layer_name] = checkbox
+        else:
+            # Ensure checkbox reflects the desired initial visibility if layer already exists
+            self.layer_checkboxes[layer_name].setChecked(visible)
+
+    def _toggle_layer_visibility(self, layer_name: str, visible: bool):
+        """Shows or hides all items associated with a specific layer."""
+        logging.debug(f"Toggling layer '{layer_name}' visibility to {visible}")
+        if layer_name in self.mechanism_visuals:
+            for item in self.mechanism_visuals[layer_name]:
+                if item:
+                    item.setVisible(visible)
+        else:
+             logging.warning(f"Attempted to toggle visibility for non-existent layer: {layer_name}")
+
     # --- Options Tab Slots ---
     def _update_animation_duration(self, value: float):
         """Updates the simulation animation duration."""
@@ -1633,3 +1867,52 @@ class AutomataDesigner(QMainWindow):
         else:
             # Hide the visualization
             self.editor_view._clear_skeleton_visualization()
+
+    def _create_linkage_placeholder(self, joint: Joint):
+        """Creates visual placeholders for a linkage bar and joint."""
+        if not joint or not joint.parent_item or not joint.child_item:
+            return None, None
+
+        parent_item = joint.parent_item
+        child_item = joint.child_item
+
+        # Get joint positions in scene coordinates
+        parent_joint_scene = parent_item.mapToScene(joint.parent_pos)
+        child_joint_scene = child_item.mapToScene(joint.child_pos)
+
+        # --- Create Linkage Bar --- #
+        line = QLineF(parent_joint_scene, child_joint_scene)
+        link_path = QPainterPath()
+        pen_width = 8 # Thickness of the bar
+        link_path.moveTo(line.p1())
+        link_path.lineTo(line.p2())
+
+        # Use QPainterPathStroker for rounded ends
+        stroker = QPainterPathStroker()
+        stroker.setWidth(pen_width)
+        stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+        stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        stroked_path = stroker.createStroke(link_path)
+
+        link_item = QGraphicsPathItem(stroked_path)
+        link_item.setPen(QPen(Qt.PenStyle.NoPen)) # No outline
+        link_color = QColor("green")
+        link_color.setAlphaF(0.6) # Semi-transparent
+        link_item.setBrush(QBrush(link_color))
+        link_item.setZValue(200) # Draw on top
+
+        # --- Create Joint Circles --- #
+        joint_radius = 5
+        parent_joint_circle = QGraphicsEllipseItem(-joint_radius, -joint_radius, joint_radius*2, joint_radius*2)
+        parent_joint_circle.setPos(parent_joint_scene)
+        parent_joint_circle.setBrush(QBrush(QColor("yellow")))
+        parent_joint_circle.setPen(QPen(Qt.PenStyle.NoPen))
+        parent_joint_circle.setZValue(210) # Draw on top of linkage bar
+
+        child_joint_circle = QGraphicsEllipseItem(-joint_radius, -joint_radius, joint_radius*2, joint_radius*2)
+        child_joint_circle.setPos(child_joint_scene)
+        child_joint_circle.setBrush(QBrush(QColor("yellow")))
+        child_joint_circle.setPen(QPen(Qt.PenStyle.NoPen))
+        child_joint_circle.setZValue(210)
+
+        return [link_item, parent_joint_circle, child_joint_circle]

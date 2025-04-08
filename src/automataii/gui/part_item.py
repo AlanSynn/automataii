@@ -186,7 +186,7 @@ class CharacterPartItem(QGraphicsItem):
         if path and not path.isEmpty() and self.scene():
             pen = QPen(QColor(0, 180, 0, 120), 1.5, Qt.PenStyle.SolidLine) # Thin green line
             self.motion_path_visual_item = self.scene().addPath(path, pen)
-            self.motion_path_visual_item.setZValue(-1) # Draw behind most items
+            self.motion_path_visual_item.setZValue(100) # Draw above most items (adjust as needed)
             logging.debug(f"Added persistent motion path visual for {self.part_info.name}")
 
     def set_motion_path(self, path, end_effector_point=None):
