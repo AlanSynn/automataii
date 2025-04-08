@@ -1,0 +1,41 @@
+[project]
+name = "automataii"
+version = "0.1.0"
+description = "Automata II Project"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.9"
+dependencies = [
+    # Add your project dependencies here
+    # e.g., "fastapi", "numpy"
+    "PyQt6",
+    "numpy",
+    "opencv-python",
+    "PyYAML",
+    "svgpathtools", # Added dependency
+    "scikit-image>=0.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    # Add other development dependencies
+]
+
+[project.scripts]
+# Corrected entry point: Use the package name directly
+automataii = "automataii.__main__:main"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]  # Enable basic flake8 rules + isort
+
+# Add this section to tell setuptools where the package lives
+[tool.setuptools.packages.find]
+where = ["src"]  # Look for packages in the src directory
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
