@@ -34,7 +34,7 @@ class CharacterPartItem(QGraphicsItem):
 
         # Motion path for animation
         self.motion_path = None
-        self.motion_path_item = None
+        self.motion_path_visual_item = None # Item to visually show the path in the scene
         self.mechanism_path = None
         self.mechanism_path_item = None
 
@@ -64,6 +64,8 @@ class CharacterPartItem(QGraphicsItem):
             logging.debug(f"No ROI found for {self.part_info.name}. Using original path coordinates.")
             self.shape_path_for_drawing = QPainterPath(original_path) # Use a copy
         # --- End Path Translation --- #
+
+        self._path_points = []
 
     def boundingRect(self):
         """Return the bounding rect of the part, relative to the item's local origin (0,0)."""
@@ -106,6 +108,8 @@ class CharacterPartItem(QGraphicsItem):
 
             painter.setBrush(QBrush(brush_color))
             painter.drawPath(self.shape_path_for_drawing) # Draw the translated path
+
+            # NOTE: Assigned motion path is drawn separately by update_motion_path_visual
 
         # Draw fixed marker if part is fixed
         if self.is_fixed:
@@ -155,35 +159,39 @@ class CharacterPartItem(QGraphicsItem):
         self.update()  # Trigger repaint
         super().hoverLeaveEvent(event)
 
+    def update_motion_path_visual(self, path: QPainterPath = None):
+        """Updates the persistent visual representation of the assigned motion path."""
+        self.motion_path = path # Store the actual path data
+
+        # --- Set End Effector Offset to Center if Path is Assigned --- #
+        if path and not path.isEmpty():
+            center_offset = self.boundingRect().center()
+            if self.end_effector_offset != center_offset:
+                self.end_effector_offset = center_offset
+                self._update_end_effector_marker() # Update visual marker
+                logging.debug(f"Set end effector offset for {self.part_info.name} to center: {center_offset}")
+        else:
+            # Clear offset if path is removed
+            if self.end_effector_offset is not None:
+                self.end_effector_offset = None
+                self._update_end_effector_marker()
+        # --- End End Effector Offset --- #
+
+        # Remove existing visual item first
+        if self.motion_path_visual_item and self.motion_path_visual_item.scene():
+            self.scene().removeItem(self.motion_path_visual_item)
+            self.motion_path_visual_item = None
+
+        # Create new visual item if path is valid
+        if path and not path.isEmpty() and self.scene():
+            pen = QPen(QColor(0, 180, 0, 120), 1.5, Qt.PenStyle.SolidLine) # Thin green line
+            self.motion_path_visual_item = self.scene().addPath(path, pen)
+            self.motion_path_visual_item.setZValue(-1) # Draw behind most items
+            logging.debug(f"Added persistent motion path visual for {self.part_info.name}")
+
     def set_motion_path(self, path, end_effector_point=None):
-        """Set motion path for this part and visualize it"""
-        if path is None:
-            # Clear existing path if path is None
-            if self.motion_path_item and self.scene():
-                self.scene().removeItem(self.motion_path_item)
-            self.motion_path_item = None
-            self.motion_path = None
-            self.end_effector_offset = None
-            self._update_end_effector_marker()
-            return
-
-        self.motion_path = QPainterPath(path)  # Create a copy of the path
-        self.end_effector_offset = end_effector_point
-
-        # Remove existing path visualization if any
-        if self.motion_path_item and self.scene():
-            self.scene().removeItem(self.motion_path_item)
-            self.motion_path_item = None
-
-        # Create visual representation of the path
-        if self.scene():
-            # Green color for user-defined path
-            pen = QPen(QColor(0, 200, 0), 3, Qt.PenStyle.SolidLine)
-            self.motion_path_item = self.scene().addPath(self.motion_path, pen)
-            self.motion_path_item.setZValue(self.zValue() - 0.1)  # Slightly behind the part
-
-        # Update end effector marker
-        self._update_end_effector_marker()
+        """DEPRECATED: Use update_motion_path_visual instead. Kept for potential compatibility."""
+        logging.warning("set_motion_path is deprecated. Use update_motion_path_visual.")
 
     def set_mechanism_path(self, path):
         """Set mechanism-generated path for this part and visualize it"""
@@ -211,3 +219,17 @@ class CharacterPartItem(QGraphicsItem):
 
         # Update end effector marker
         self._update_end_effector_marker()
+
+    # --- End Effector Selection --- #
+
+    def start_select_end_effector(self):
+        """Starts the mode to select the end effector point on the selected part."""
+        self._path_points = []
+
+    # --- Center Offset Calculation --- #
+    def get_center_offset(self):
+        """Calculates the offset from the item's origin (0,0) to its visual center."""
+        # Use bounding rect center as a simple approximation
+        return self.boundingRect().center()
+
+    # --- End Effector Selection --- #

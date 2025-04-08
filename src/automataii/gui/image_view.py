@@ -1,7 +1,7 @@
 import os
 import logging
 import yaml
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsTextItem
 from PyQt6.QtGui import QPainter, QPixmap, QColor, QBrush, QPen
 from PyQt6.QtCore import Qt, QPointF, QLineF, QEvent, QRectF
 
@@ -37,6 +37,7 @@ class ImageProcessingView(QGraphicsView):
         # Scene items management
         self.image_item = None
         self.joints = {} # Dict mapping joint name (str) to SkeletonJoint
+        self.joint_labels = {} # Dict mapping joint name (str) to QGraphicsTextItem
         self.lines = [] # List of SkeletonLine items
 
         # Data state
@@ -202,11 +203,20 @@ class ImageProcessingView(QGraphicsView):
             rect_item.setZValue(1) # Ensure it's drawn above the image but below joints potentially
             self.scene().addItem(rect_item)
 
+        # Clear joint labels if reloading image
+        self._clear_joint_labels()
         # Attempt to load associated bounding box data
         self._load_bounding_box(image_path)
 
         self.reset_view() # Fit image in view
         return True
+
+    def _clear_joint_labels(self):
+        """Removes all joint label text items from the scene."""
+        for label_item in self.joint_labels.values():
+            if label_item.scene():
+                self.scene().removeItem(label_item)
+        self.joint_labels.clear()
 
     def _load_bounding_box(self, image_path: str):
         """Loads bounding box data from a YAML file and creates debug rectangle."""
@@ -422,6 +432,18 @@ class ImageProcessingView(QGraphicsView):
                 self.joints[name] = skel_joint
                 joint_details[name] = {'joint': skel_joint, 'parent': parent}
 
+                # Add joint label (if not root)
+                if parent is not None:
+                    label_text = f"{name}\n -> {parent}"
+                    label_item = QGraphicsTextItem(label_text)
+                    label_item.setDefaultTextColor(QColor("red"))
+                    # Position label slightly offset from the joint
+                    label_item.setPos(skel_joint.pos() + QPointF(5, -10))
+                    label_item.setZValue(101) # Above joints/lines
+                    label_item.setVisible(self.debug_mode) # Only show in debug mode
+                    self.scene().addItem(label_item)
+                    self.joint_labels[name] = label_item
+
             # Create lines from parent info
             for name, details in joint_details.items():
                 parent_name = details['parent']
@@ -459,6 +481,20 @@ class ImageProcessingView(QGraphicsView):
                 skel_joint.setParentItem(self.image_item)
                 self.joints[name] = skel_joint
                 # We don't have parent info directly here, rely on bone_list
+
+                # Add joint label (if not root)
+                if name in joint_data and 'parent' in joint_data:
+                    parent_name = joint_data['parent']
+                    if parent_name is not None and parent_name in self.joints:
+                        label_text = f"{name}\n -> {parent_name}"
+                        label_item = QGraphicsTextItem(label_text)
+                        label_item.setDefaultTextColor(QColor("red"))
+                        # Position label slightly offset from the joint
+                        label_item.setPos(skel_joint.pos() + QPointF(5, -10))
+                        label_item.setZValue(101) # Above joints/lines
+                        label_item.setVisible(self.debug_mode) # Only show in debug mode
+                        self.scene().addItem(label_item)
+                        self.joint_labels[name] = label_item
 
             # Create lines from bone_list
             bone_list = skeleton_data_dict.get('bone_list', JOINT_CONNECTIONS) # Use default if not present
@@ -498,6 +534,7 @@ class ImageProcessingView(QGraphicsView):
             if line.scene(): self.scene().removeItem(line)
         self.joints.clear()
         self.lines.clear()
+        self._clear_joint_labels() # Also clear labels when clearing skeleton
 
     # --- Skeleton Data Retrieval ---
 
@@ -569,3 +606,20 @@ class ImageProcessingView(QGraphicsView):
         elif self.joints: # Fit skeleton if no image
              rect = self.scene().itemsBoundingRect()
              if rect.isValid(): self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def _update_joint_label_position(self, joint_name: str):
+        """Updates the position of a joint's label based on the joint's current position."""
+        if joint_name in self.joints and joint_name in self.joint_labels:
+            joint_item = self.joints[joint_name]
+            label_item = self.joint_labels[joint_name]
+            label_item.setPos(joint_item.pos() + QPointF(5, -10))
+
+    def _update_lines(self, joint_item: SkeletonJoint):
+        """Updates the lines connected to a moved joint."""
+        joint_name = joint_item.name
+        for line in self.lines:
+            if line.joint1 == joint_name or line.joint2 == joint_name:
+                line.update_position()
+
+        # Update label position when joint moves
+        self._update_joint_label_position(joint_name)

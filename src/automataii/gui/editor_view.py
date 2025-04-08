@@ -79,6 +79,13 @@ class EditorView(QGraphicsView):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
 
+        # Skeleton visualization attributes
+        self._skeleton_viz_items = []
+        self._skeleton_viz_timer = QTimer(self)
+        self._skeleton_viz_timer.setSingleShot(True)
+        self._skeleton_viz_timer.setInterval(3000) # Display for 3 seconds
+        self._skeleton_viz_timer.timeout.connect(self._clear_skeleton_visualization)
+
     # --- Mode Management ---
 
     def set_mode(self, mode: str):
@@ -248,15 +255,16 @@ class EditorView(QGraphicsView):
         """Show context menu for the view."""
         menu = QMenu(self)
         zoom_in_action = menu.addAction("Zoom In")
-        zoom_in_action.triggered.connect(lambda: self.scale(1.15, 1.15))
         zoom_out_action = menu.addAction("Zoom Out")
-        zoom_out_action.triggered.connect(lambda: self.scale(1 / 1.15, 1 / 1.15))
         zoom_fit_action = menu.addAction("Zoom to Fit")
-        zoom_fit_action.triggered.connect(self.zoom_to_fit)
         menu.addSeparator()
         reset_action = menu.addAction("Reset View")
+
+        # Connect actions
+        zoom_in_action.triggered.connect(lambda: self.scale(1.15, 1.15))
+        zoom_out_action.triggered.connect(lambda: self.scale(1 / 1.15, 1 / 1.15))
+        zoom_fit_action.triggered.connect(self.zoom_to_fit)
         reset_action.triggered.connect(self.reset_view)
-        menu.addSeparator()
 
         selected_item = self.get_selected_item()
         if selected_item:
@@ -359,18 +367,23 @@ class EditorView(QGraphicsView):
     # --- Motion Path Definition --- #
 
     def start_define_motion_path(self):
-        """Starts the motion path drawing mode for the selected part."""
+        """Starts the motion path drawing mode for the selected part. Returns True on success, False otherwise."""
         selected_item = self.get_selected_item()
         if not selected_item:
             self._show_status_message("Define Motion Path: Please select a part first.")
-            return
+            return False # Indicate failure
 
+        # Set target and mode *before* cleanup
         self._target_part_for_path = selected_item
         self.set_mode('define_motion_path')
+
+        # Now cleanup visuals from any previous attempts
         self._motion_path = QPainterPath()
         self._path_points = []
-        self._cleanup_path_visuals() # Clear any previous drawing artifacts
+        self._cleanup_path_visuals(keep_target=True) # CRITICAL: Keep target during start cleanup
+
         self._show_status_message(f"Define Path for '{selected_item.part_info.name}': Click to add points. Press Esc or Right-click to cancel.")
+        return True # Indicate success
 
     def _handle_motion_path_click(self, scene_pos: QPointF):
         """Handles clicks during motion path definition."""
@@ -387,9 +400,23 @@ class EditorView(QGraphicsView):
             self._show_status_message("Define Path: First point added. Click to add more, Esc/Right-click to cancel, Uncheck button to finish.")
         # Subsequent points
         else:
-            self._path_points.append(scene_pos)
-            self._add_path_point_marker(scene_pos)
-            self._update_interpolated_path_visual()
+            # Check if clicking near the start point to close the path
+            start_point = self._path_points[0]
+            dist_to_start = QLineF(scene_pos, start_point).length()
+            close_threshold = 10.0 # Scene units threshold for closing
+
+            if len(self._path_points) >= 2 and dist_to_start < close_threshold:
+                logging.info(f"Clicked near start point (dist: {dist_to_start:.1f}). Finishing path.")
+                # We don't add the last click position, just finish with existing points
+                self.finish_motion_path_drawing()
+                # Uncheck the button in the main window
+                if self.parent_window and hasattr(self.parent_window, 'define_motion_btn'):
+                    self.parent_window.define_motion_btn.setChecked(False)
+            else:
+                # Add the new point as usual
+                self._path_points.append(scene_pos)
+                self._add_path_point_marker(scene_pos)
+                self._update_interpolated_path_visual()
 
     def _update_interpolated_path_visual(self):
         """Updates the visual representation of the motion path using smooth curves."""
@@ -410,27 +437,56 @@ class EditorView(QGraphicsView):
         self._motion_path = QPainterPath() # Start fresh
         self._motion_path.moveTo(self._path_points[0])
 
-        # Catmull-Rom spline generation (or similar) could be used here
-        # Simple cubic bezier for now:
-        for i in range(len(self._path_points) - 1):
-            p0 = self._path_points[i]
-            p1 = self._path_points[i+1]
+        # Check selected path type
+        path_type = "Bézier" # Default to Bézier
+        if self.parent_window and hasattr(self.parent_window, 'path_type_combo'):
+            path_type = self.parent_window.path_type_combo.currentText()
 
-            # Draw straight dashed line segment for reference
-            line_item = QGraphicsLineItem(QLineF(p0, p1))
-            line_item.setPen(QPen(QColor(100, 200, 100, 100), 1, Qt.PenStyle.DashLine))
-            line_item.setZValue(49)
-            self.scene().addItem(line_item)
-            self._connection_lines.append(line_item)
+        if path_type == "Bézier" and len(self._path_points) > 1:
+            # Generate Bezier curve segments
+            control_points1 = [self._path_points[0]] # First control point is the first point
+            control_points2 = []
 
-            # --- Simple Bezier Calculation ---
-            # This is a very basic approach; more sophisticated needed for smoothness
-            mid_point = (p0 + p1) / 2
-            # For simplicity, just lineTo for now, replace with bezier later
-            # TODO: Implement proper bezier control point calculation
-            self._motion_path.lineTo(p1)
-            # Example cubicTo (needs control points c1, c2):
-            # self._motion_path.cubicTo(c1, c2, p1)
+            # Calculate control points for intermediate segments
+            for i in range(len(self._path_points) - 1):
+                p0 = self._path_points[i]
+                p1 = self._path_points[i+1]
+                p_prev = self._path_points[i-1] if i > 0 else p0 # Point before p0
+                p_next = self._path_points[i+2] if i < len(self._path_points) - 2 else p1 # Point after p1
+
+                # Control point calculation (simple approach, adjust tension/smoothness as needed)
+                smoothness = 0.25 # Adjust for curve tightness
+                cp1_vec = (p1 - p_prev)
+                cp2_vec = (p0 - p_next)
+                cp1 = p0 + cp1_vec * smoothness
+                cp2 = p1 + cp2_vec * smoothness
+
+                control_points1.append(cp1)
+                control_points2.append(cp2)
+
+            control_points2.append(self._path_points[-1]) # Last control point is the last point
+
+            # Create cubic Bezier segments
+            for i in range(len(self._path_points) - 1):
+                p_start = self._path_points[i]
+                p_end = self._path_points[i+1]
+                cp1 = control_points1[i+1]
+                cp2 = control_points2[i]
+                self._motion_path.cubicTo(cp1, cp2, p_end)
+        else: # Default to Freehand (lineTo)
+            # Draw straight line segments (Freehand)
+            for i in range(len(self._path_points) - 1):
+                p0 = self._path_points[i]
+                p1 = self._path_points[i+1]
+
+                # Draw straight dashed line segment for reference (optional)
+                # line_item = QGraphicsLineItem(QLineF(p0, p1))
+                # line_item.setPen(QPen(QColor(100, 200, 100, 100), 1, Qt.PenStyle.DashLine))
+                # line_item.setZValue(49)
+                # self.scene().addItem(line_item)
+                # self._connection_lines.append(line_item)
+
+                self._motion_path.lineTo(p1)
 
         # Update the visible path item
         if self._temp_path_item:
@@ -450,42 +506,69 @@ class EditorView(QGraphicsView):
 
     def finish_motion_path_drawing(self):
         """Finalizes the motion path and assigns it to the target part."""
-        if self.current_mode != 'define_motion_path' or not self._target_part_for_path or self._motion_path.isEmpty():
-            logging.warning("Cannot finish motion path: Invalid state.")
-            self._cleanup_path_visuals()
-            self.set_mode('select')
+        if self.current_mode != 'define_motion_path' or not self._target_part_for_path:
+            # Add more detail to the warning
+            reason = []
+            if self.current_mode != 'define_motion_path': reason.append(f"mode='{self.current_mode}'")
+            if not self._target_part_for_path: reason.append("target_part=None")
+            logging.warning(f"Cannot finish motion path: Invalid state ({', '.join(reason)}).")
+            self._cancel_motion_path_drawing() # Cancel instead of just returning
+            return
+
+        # Check if enough points were added for a valid path
+        if len(self._path_points) < 2:
+            logging.warning("Cannot finish motion path: Not enough points added (minimum 2 required).")
+            self._cancel_motion_path_drawing() # Cancel if not enough points
             return
 
         # Smooth the final path if needed (re-run interpolation)
-        self._update_interpolated_path_visual() # Ensure final path is smooth
+        self._update_interpolated_path_visual()
+
+        # --- Explicitly close the path here before assigning --- #
+        if len(self._path_points) >= 2:
+            final_path = QPainterPath(self._motion_path) # Make a copy
+
+            # Check loop type preference
+            loop_type = "Closed Loop" # Default
+            if self.parent_window and hasattr(self.parent_window, 'loop_type_combo'):
+                loop_type = self.parent_window.loop_type_combo.currentText()
+
+            if loop_type == "Closed Loop":
+                # Check if already closed (unlikely with current logic, but safe)
+                if final_path.currentPosition() != self._path_points[0]:
+                    # For Bezier, might need a closing curve segment?
+                    # For simplicity, just use lineTo to close for now.
+                    final_path.lineTo(self._path_points[0]) # Add closing line segment
+                final_path.closeSubpath() # Mark the subpath as closed
+                logging.debug("Closed motion path for assignment (Closed Loop selected).")
+            else:
+                logging.debug("Assigned open motion path (Open Loop selected).")
+        else:
+            final_path = QPainterPath(self._motion_path) # Use the path as is (likely just a point or nothing)
+        # --- End Closing Path --- #
 
         # Assign path to the part
-        # End effector point should ideally be selected *before* path definition
-        # Or prompted now. Using default if not set.
-        end_effector = self._target_part_for_path.end_effector_offset
-        if not end_effector:
-            bbox = self._target_part_for_path.boundingRect()
-            end_effector = QPointF(bbox.right(), bbox.center().y())
-            self._target_part_for_path.end_effector_offset = end_effector
-            logging.warning(f"End effector for {self._target_part_for_path.part_info.name} not set, using default.")
+        self._target_part_for_path.update_motion_path_visual(final_path)
+        logging.info(f"Motion path visual updated for {self._target_part_for_path.part_info.name}. Path length: {final_path.length():.2f}")
+        # Clear temporary path drawing data but keep the target part reference
+        self._cleanup_path_visuals(keep_target=True)
 
-        self._target_part_for_path.set_motion_path(self._motion_path, end_effector)
-
-        self._show_status_message(f"Motion path assigned to '{self._target_part_for_path.part_info.name}'")
-        self._cleanup_path_visuals()
+        self._show_status_message(f"Motion path visual updated for '{self._target_part_for_path.part_info.name}'")
         self.set_mode('select')
 
     def _cancel_motion_path_drawing(self):
         """Cancels the current motion path drawing operation."""
+        logging.debug(f"_cancel_motion_path_drawing called. Current target: {self._target_part_for_path.part_info.name if self._target_part_for_path else 'None'}")
         if self.current_mode == 'define_motion_path':
             self._cleanup_path_visuals()
-            self._target_part_for_path = None
+            self._target_part_for_path = None # Target cleared here
             self.drawing_cancelled.emit()
             self.set_mode('select')
             self._show_status_message("Motion path cancelled")
 
-    def _cleanup_path_visuals(self):
+    def _cleanup_path_visuals(self, keep_target=False):
         """Removes temporary visuals used during path drawing."""
+        logging.debug(f"_cleanup_path_visuals called with keep_target={keep_target}")
         if self._temp_path_item:
             if self._temp_path_item.scene(): self.scene().removeItem(self._temp_path_item)
             self._temp_path_item = None
@@ -497,6 +580,9 @@ class EditorView(QGraphicsView):
         self._connection_lines.clear()
         self._motion_path = QPainterPath()
         self._path_points = []
+        if not keep_target:
+            logging.debug(f"   Clearing _target_part_for_path (was: {self._target_part_for_path.part_info.name if self._target_part_for_path else 'None'})")
+            self._target_part_for_path = None
 
     # --- End Effector Selection --- #
 
@@ -558,21 +644,84 @@ class EditorView(QGraphicsView):
     def _save_original_transforms(self):
         """Saves the current transforms of all part items."""
         self._original_transforms.clear()
-        for item in self.scene().items():
-            if isinstance(item, CharacterPartItem):
-                self._original_transforms[item] = item.transform()
+        logging.debug("Saving original item transforms.")
+        for item_name, item in self.parent_window.editor_items.items(): # Use main window's dictionary
+            if isinstance(item, CharacterPartItem) and item.scene() == self.scene():
+                self._original_transforms[item_name] = item.transform() # Store the full QTransform
+                # logging.debug(f"  Saved {item_name}: transform={item.transform()}")
 
     def _restore_original_transforms(self):
         """Restores the saved transforms of all part items."""
-        for item, transform in self._original_transforms.items():
-            if item.scene(): # Check if item still exists
-                item.setTransform(transform)
+        logging.debug(f"Restoring {len(self._original_transforms)} original item transforms.")
+        for item_name, initial_transform in self._original_transforms.items():
+            item = self.parent_window.editor_items.get(item_name)
+            if item and item.scene() == self.scene(): # Check if item still exists in the scene
+                # logging.debug(f"  Restoring {item_name}: transform={initial_transform}")
+                item.setTransform(initial_transform)
+            else:
+                logging.warning(f"Could not restore transform for {item_name}: Item not found or not in scene.")
+
         self.scene().update()
 
     def _reset_simulation_state(self):
         """Ensures the view is interactive after simulation stops/resets."""
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setInteractive(True)
+
+    # --- Skeleton Visualization --- #
+
+    def visualize_skeleton(self, skeleton_data: dict, joint_items: list):
+        """Temporarily draws the skeleton structure and joints on the scene."""
+        self._clear_skeleton_visualization() # Clear previous visualization
+
+        if not skeleton_data or 'skeleton' not in skeleton_data or not isinstance(skeleton_data['skeleton'], list):
+            logging.warning("visualize_skeleton called with invalid or missing skeleton data.")
+            return
+
+        skeleton_list = skeleton_data['skeleton']
+        joint_locations = {j['name']: QPointF(float(j['loc'][0]), float(j['loc'][1]))
+                           for j in skeleton_list if j.get('name') and j.get('loc') and len(j.get('loc')) >= 2}
+
+        bone_pen = QPen(QColor("#FF5733"), 2, Qt.PenStyle.SolidLine) # Bright orange for bones
+        joint_brush = QBrush(QColor("#FFC300")) # Yellow for joints
+        joint_pen = QPen(QColor("#C70039"), 1)    # Dark red outline for joints
+        joint_radius = 4
+
+        # Draw bones
+        for joint_info in skeleton_list:
+            child_name = joint_info.get('name')
+            parent_name = joint_info.get('parent')
+
+            if child_name in joint_locations and parent_name and parent_name in joint_locations:
+                p1 = joint_locations[parent_name]
+                p2 = joint_locations[child_name]
+                bone_line = QGraphicsLineItem(QLineF(p1, p2))
+                bone_line.setPen(bone_pen)
+                bone_line.setZValue(500) # Draw on top
+                self.scene().addItem(bone_line)
+                self._skeleton_viz_items.append(bone_line)
+
+        # Draw joints (circles)
+        for name, loc in joint_locations.items():
+            joint_circle = QGraphicsEllipseItem(loc.x() - joint_radius, loc.y() - joint_radius,
+                                                joint_radius * 2, joint_radius * 2)
+            joint_circle.setBrush(joint_brush)
+            joint_circle.setPen(joint_pen)
+            joint_circle.setZValue(501) # Draw on top of bones
+            self.scene().addItem(joint_circle)
+            self._skeleton_viz_items.append(joint_circle)
+
+        logging.info(f"Visualizing skeleton with {len(joint_locations)} joints and associated bones.")
+        self._skeleton_viz_timer.start() # Start timer to auto-clear visualization
+
+    def _clear_skeleton_visualization(self):
+        """Removes temporary skeleton visualization items from the scene."""
+        if not self._skeleton_viz_items:
+            return
+        logging.debug(f"Clearing {len(self._skeleton_viz_items)} skeleton visualization items.")
+        for item in self._skeleton_viz_items:
+            self.scene().removeItem(item)
+        self._skeleton_viz_items.clear()
 
     # --- Utility --- #
 

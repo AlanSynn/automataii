@@ -1,6 +1,7 @@
 import math
 import logging
 from PyQt6.QtCore import QPointF, QLineF
+from PyQt6.QtGui import QTransform
 
 def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
     """Solve inverse kinematics using Cyclic Coordinate Descent algorithm.
@@ -94,20 +95,45 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
 
                 angle_diff_deg = math.degrees(angle_diff_rad)
 
-                # Update joint angle (apply rotation to the parent item's transform)
-                # We adjust the rotation of the parent_item (chain[i])
-                # The angle adjustment needs to be applied relative to the parent item's orientation
-                # Assuming rotation is around Z-axis
-                current_rotation = parent_item.rotation()
-                new_rotation = current_rotation + angle_diff_deg
+                # --- Apply Rotation around Joint using QTransform --- #
+                # Get the joint position in the parent's local coordinates
+                joint_local_pos = joint.parent_pos
 
-                # TODO: Add joint angle limits here
-                # if lower_limit <= new_rotation <= upper_limit:
-                #     parent_item.setRotation(new_rotation)
-                # else:
-                #     # Clamp to limits? Or stop adjustment?
-                #     pass
-                parent_item.setRotation(new_rotation)
+                # Get the current transform of the parent item
+                current_transform = parent_item.transform()
+
+                # Create a new transform that applies the rotation around the local joint point
+                # 1. Translate origin to joint position
+                # 2. Rotate
+                # 3. Translate origin back
+                new_transform = QTransform().translate(joint_local_pos.x(), joint_local_pos.y())\
+                                          .rotate(angle_diff_deg)\
+                                          .translate(-joint_local_pos.x(), -joint_local_pos.y()) \
+                                          * current_transform # Apply rotation ON TOP of current transform
+
+                # TODO: Apply joint angle limits by clamping angle_diff_deg if needed
+
+                # --- Apply Transform only if parent is not the fixed base --- #
+                if i > 0: # chain[0] is the fixed base, don't rotate it
+                    parent_item.setTransform(new_transform)
+                elif i == 0: # Special case for the joint connected to the fixed base
+                    # Apply the rotation to the child item (chain[1]) instead
+                    # We need the transform relative to the child's coordinate system
+                    # This requires careful recalculation or assumptions.
+                    # --- SIMPLIFICATION ATTEMPT: Apply world rotation to child ---
+                    # This is likely NOT mathematically correct for nested rotations,
+                    # but might visually work for a 2-link chain like torso-head.
+                    # Get the joint position in the CHILD's local coordinates
+                    child_joint_local_pos = joint.child_pos
+                    child_current_transform = child_item.transform()
+                    # Transform to apply rotation around child's joint pos
+                    child_new_transform = QTransform().translate(child_joint_local_pos.x(), child_joint_local_pos.y())\
+                                                    .rotate(angle_diff_deg)\
+                                                    .translate(-child_joint_local_pos.x(), -child_joint_local_pos.y()) \
+                                                    * child_current_transform
+                    child_item.setTransform(child_new_transform)
+                    logging.debug(f"Applied rotation to child ({child_item.part_info.name}) for base joint.")
+                # --- End QTransform Rotation --- #
 
                 # --- Important: Update transforms for all items affected by this rotation ---
                 # This requires knowing the hierarchy. If items are parented correctly

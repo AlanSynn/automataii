@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 <Role>
 You are a world-class Python developer and help to design and create code blocks/modules as per the user specification.

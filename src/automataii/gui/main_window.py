@@ -11,10 +11,12 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QGraphicsScene, QFileDialog, QSplitter, QLabel, QListWidget, QListWidgetItem,
     QDoubleSpinBox, QCheckBox, QFormLayout, QTabWidget, QMessageBox, QProgressDialog,
-    QGraphicsPathItem, QGroupBox, QApplication, QStyle, QDialog, QToolBar, QComboBox, QGraphicsItem
+    QGraphicsPathItem, QGroupBox, QApplication, QStyle, QDialog, QToolBar, QComboBox, QGraphicsItem,
+    QScrollArea, QSizePolicy
 )
-from PyQt6.QtGui import QColor, QPen, QAction, QPainterPath
+from PyQt6.QtGui import QColor, QPen, QAction, QPainterPath, QPixmap, QPolygonF, QTransform, QBrush, QImage, QFontDatabase
 from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSlot, QSize
+from pathlib import Path
 
 # Local imports (adjust paths as needed)
 from .editor_view import EditorView
@@ -71,7 +73,10 @@ class AutomataDesigner(QMainWindow):
         self.timer.setInterval(30) # Approx 33 FPS
         self.timer.timeout.connect(self.update_simulation)
         self.animation_time = 0.0
-        self.animation_duration = 5.0 # Default duration
+        self.animation_duration = 0.5 # Default duration set to 0.5s
+
+        # --- Toolbar Reference ---
+        self.main_toolbar = None
 
         # Tracking active dialogs
         self.active_camera_dialogs = []
@@ -79,6 +84,12 @@ class AutomataDesigner(QMainWindow):
         # --- Stylesheet Data --- (No longer need _define_stylesheets method)
         self.light_style = LIGHT_STYLE
         self.dark_style = DARK_STYLE
+
+        # Load Parts and Styles
+        self.load_initial_data()
+
+        # Load custom application fonts
+        self._load_custom_fonts()
 
         # Setup UI, Menus, Toolbar, and connections
         self._init_ui() # Applies initial theme
@@ -102,11 +113,11 @@ class AutomataDesigner(QMainWindow):
 
         # --- Tab 1: Image Processing ---
         image_proc_tab = self._create_image_processing_tab()
-        self.tab_widget.addTab(image_proc_tab, "1. Image Processing")
+        self.tab_widget.addTab(image_proc_tab, "Character")
 
         # --- Tab 2: Editor & Simulation ---
         editor_tab = self._create_editor_tab()
-        self.tab_widget.addTab(editor_tab, "2. Editor & Simulation")
+        self.tab_widget.addTab(editor_tab, "Mechanism Design")
 
         # --- Tab 3: Options ---
         self.options_tab = OptionsTab(initial_anim_duration=self.animation_duration)
@@ -115,6 +126,7 @@ class AutomataDesigner(QMainWindow):
         # --- Connect Signals from Options Tab ---
         self.options_tab.animationDurationChanged.connect(self._update_animation_duration)
         self.options_tab.themeChanged.connect(self._apply_theme)
+        self.options_tab.toolbarVisibilityChanged.connect(self._toggle_toolbar_visibility) # Connect new signal
         # Connect debug mode signal to the image view's slot
         self.options_tab.debugModeChanged.connect(self.image_proc_view.set_debug_mode)
 
@@ -129,17 +141,22 @@ class AutomataDesigner(QMainWindow):
 
         # Left Control Panel
         control_panel = QWidget()
-        control_panel.setFixedWidth(250)
+        # Restore preferred size policy for this tab's panel
+        control_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        # control_panel.setMaximumWidth(scroll_area.width() - scroll_area.verticalScrollBar().sizeHint().width() - 5) # Ensure content fits width
+        # Let setWidgetResizable handle the width constraint, focus on vertical layout
         panel_layout = QVBoxLayout(control_panel)
         panel_layout.setContentsMargins(0, 5, 0, 0)
         panel_layout.setSpacing(10)
+        panel_layout.setContentsMargins(5, 10, 5, 10) # Add some horizontal margins too
+        panel_layout.setSpacing(15) # Increase spacing between groups
 
         # Input Group
         input_group = QGroupBox("Input Drawing")
         input_layout = QVBoxLayout(input_group)
         style = self.style()
-        self.load_image_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton), " Load Image...")
-        self.capture_image_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), " Capture Image...") # Placeholder icon
+        self.load_image_btn = QPushButton("Load Image")
+        self.capture_image_btn = QPushButton("Capture Camera") # Placeholder icon
         input_layout.addWidget(self.load_image_btn)
         input_layout.addWidget(self.capture_image_btn)
         panel_layout.addWidget(input_group)
@@ -148,17 +165,17 @@ class AutomataDesigner(QMainWindow):
         proc_group = QGroupBox("Processing")
         proc_layout = QVBoxLayout(proc_group)
         self.process_image_btn = QPushButton(" Process Image")
-        self.edit_skeleton_btn = QPushButton(" Edit Skeleton")
+        # self.edit_skeleton_btn = QPushButton(" Edit Skeleton")
         proc_layout.addWidget(self.process_image_btn)
-        proc_layout.addWidget(self.edit_skeleton_btn)
+        # proc_layout.addWidget(self.edit_skeleton_btn)
         panel_layout.addWidget(proc_group)
 
         # Output Group
         output_group = QGroupBox("Output")
         output_layout = QVBoxLayout(output_group)
-        self.save_skeleton_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), " Save Skeleton")
-        self.create_parts_btn = QPushButton(" Create Parts from Skeleton")
-        output_layout.addWidget(self.save_skeleton_btn)
+        # self.save_skeleton_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), " Save Skeleton")
+        self.create_parts_btn = QPushButton(" Generate Body Parts")
+        # output_layout.addWidget(self.save_skeleton_btn)
         output_layout.addWidget(self.create_parts_btn)
         panel_layout.addWidget(output_group)
 
@@ -177,98 +194,155 @@ class AutomataDesigner(QMainWindow):
         widget = QWidget()
         layout = QHBoxLayout(widget)
 
-        # Left Control Panel
-        control_panel = QWidget()
-        control_panel.setFixedWidth(250)
-        panel_layout = QVBoxLayout(control_panel)
-        panel_layout.setContentsMargins(0, 5, 0, 0)
-        panel_layout.setSpacing(10)
+        # --- Left Control Panel (Rebuilt) ---
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFixedWidth(280) # Adjusted width
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # Parts List Group
+        control_panel = QWidget() # Container widget for the scroll area
+        # Allow vertical expansion, but let horizontal size be ignored by layout if needed
+        control_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        # control_panel.setMaximumWidth(scroll_area.width() - scroll_area.verticalScrollBar().sizeHint().width() - 5) # Ensure content fits width
+        # Let setWidgetResizable handle the width constraint, focus on vertical layout
+        panel_layout = QVBoxLayout(control_panel)
+        panel_layout.setContentsMargins(10, 10, 10, 10) # Increased margins
+        panel_layout.setSpacing(12) # Adjusted spacing
+
+        # Group 1: Parts List
         parts_group = QGroupBox("Character Parts")
+        parts_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         parts_layout = QVBoxLayout(parts_group)
         self.parts_list = QListWidget()
         self.parts_list.setToolTip("List of loaded character parts")
+        self.parts_list.setMinimumHeight(100) # Ensure it doesn't collapse too much
         parts_layout.addWidget(self.parts_list)
         panel_layout.addWidget(parts_group)
 
-        # Properties Group
+        # Group 2: Selected Part Properties
         props_group = QGroupBox("Selected Part Properties")
+        props_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.part_props = QFormLayout(props_group)
+        self.part_props.setSpacing(8) # Spacing within the form
         self.z_value_spin = QDoubleSpinBox()
         self.z_value_spin.setRange(-100, 100)
         self.z_value_spin.setSingleStep(0.1)
         self.z_value_spin.setToolTip("Adjust Z-depth (layering)")
+        self.z_value_spin.setEnabled(False) # Initially disabled
         self.fixed_part_check = QCheckBox("Fixed in Place")
         self.fixed_part_check.setToolTip("Prevent this part from moving during simulation or IK")
+        self.fixed_part_check.setEnabled(False) # Initially disabled
         self.part_props.addRow("Z-Value:", self.z_value_spin)
         self.part_props.addRow(self.fixed_part_check)
+        props_group.setEnabled(False) # Disable group initially
         panel_layout.addWidget(props_group)
 
-        # Assembly Group
+        # Group 3: Assembly & Joints
         assembly_group = QGroupBox("Assembly & Joints")
-        assembly_layout = QVBoxLayout(assembly_group)
+        assembly_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        assembly_layout = QHBoxLayout(assembly_group) # Use QHBoxLayout for horizontal buttons
+        assembly_layout.setSpacing(10)
+
         self.define_joint_btn = QPushButton(" Define Joint")
         self.define_joint_btn.setCheckable(True)
-        self.define_joint_btn.setToolTip("Click parts to define a joint between them")
+        self.define_joint_btn.setToolTip("Click two parts in the view to define a joint between them")
+        self.define_joint_btn.setEnabled(False) # Disable initially
+
+        self.show_skeleton_btn = QPushButton(" Show Skeleton")
+        self.show_skeleton_btn.setCheckable(True) # Make it a toggle button
+        self.show_skeleton_btn.setToolTip("Temporarily display the skeleton structure and auto-generated joints")
+        self.show_skeleton_btn.setEnabled(False) # Disable initially (needs skeleton data)
+
         assembly_layout.addWidget(self.define_joint_btn)
+        assembly_layout.addWidget(self.show_skeleton_btn)
+
         panel_layout.addWidget(assembly_group)
 
-        # Motion Group
-        motion_group = QGroupBox("Motion Definition")
-        motion_layout = QVBoxLayout(motion_group)
+        # Group 4: Motion & Simulation
+        motion_sim_group = QGroupBox("Motion & Simulation")
+        motion_sim_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        motion_sim_layout = QFormLayout(motion_sim_group)
+        motion_sim_layout.setSpacing(10) # Adjust spacing for form layout
+
+        # Path Type Selection
+        self.path_type_combo = QComboBox()
+        self.path_type_combo.addItems(["Freehand", "Bézier"]) # Add Bézier option
+        self.path_type_combo.setCurrentText("Bézier") # Default to Bézier
+        self.path_type_combo.setToolTip("Select the drawing method for the motion path.")
+        motion_sim_layout.addRow("Path Type:", self.path_type_combo)
+
+        # Loop Type Selection
+        self.loop_type_combo = QComboBox()
+        self.loop_type_combo.addItems(["Closed Loop", "Open Loop"])
+        self.loop_type_combo.setCurrentText("Closed Loop") # Default to Closed Loop
+        self.loop_type_combo.setToolTip("Choose if the path should automatically close.")
+        motion_sim_layout.addRow("Loop:", self.loop_type_combo)
+
+        # Motion Definition
         self.define_motion_btn = QPushButton(" Define Motion Path")
         self.define_motion_btn.setCheckable(True)
-        self.define_motion_btn.setToolTip("Draw the desired motion path for the selected part")
-        self.set_effector_btn = QPushButton(" Set End Effector Point")
-        self.set_effector_btn.setToolTip("Click the point on the selected part that should follow the path")
-        self.preview_motion_btn = QPushButton(" Preview Path Motion")
-        motion_layout.addWidget(self.define_motion_btn)
-        motion_layout.addWidget(self.set_effector_btn)
-        motion_layout.addWidget(self.preview_motion_btn)
-        panel_layout.addWidget(motion_group)
+        self.define_motion_btn.setToolTip("Draw the desired motion path for the selected part's center")
+        self.define_motion_btn.setEnabled(False) # Disabled until a non-fixed part is selected
+        motion_sim_layout.addRow(self.define_motion_btn)
 
-        # Cam Mechanism Group
+        # Simulation Controls
+        sim_button_layout = QHBoxLayout()
+        sim_button_layout.setSpacing(6)
+        style = self.style()
+        self.play_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "")
+        self.play_btn.setToolTip("Play Simulation")
+        self.stop_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), "")
+        self.stop_btn.setToolTip("Stop Simulation")
+        self.stop_btn.setEnabled(False)
+        self.reset_sim_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), "")
+        self.reset_sim_btn.setToolTip("Restart Simulation")
+        self.reset_sim_btn.setEnabled(False)
+        sim_button_layout.addWidget(self.play_btn)
+        sim_button_layout.addWidget(self.stop_btn)
+        sim_button_layout.addWidget(self.reset_sim_btn)
+
+        # Add simulation buttons spanning both columns
+        motion_sim_layout.addRow(sim_button_layout)
+
+        panel_layout.addWidget(motion_sim_group)
+
+        # Group 5: Cam Mechanism (RESTORED)
         cam_group = QGroupBox("Cam Mechanism")
+        cam_group.setEnabled(False) # Disable group initially
+        cam_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         cam_layout = QVBoxLayout(cam_group)
+        cam_layout.setSpacing(8)
         self.set_cam_center_btn = QPushButton(" Set Cam Center")
-        self.set_cam_center_btn.setToolTip("Click the rotation center for the driving cam")
+        self.set_cam_center_btn.setToolTip("Click the rotation center for the driving cam in the view")
         self.set_cam_follower_btn = QPushButton(" Set as Cam Follower")
-        self.set_cam_follower_btn.setToolTip("Designate the selected part as the cam follower")
+        self.set_cam_follower_btn.setToolTip("Designate the selected part (with a motion path) as the cam follower")
         self.generate_cam_btn = QPushButton(" Generate Cam Profile")
-        self.generate_cam_btn.setToolTip("Generate the cam shape based on follower path and center")
+        self.generate_cam_btn.setToolTip("Generate the cam shape based on follower's motion path and cam center")
         cam_layout.addWidget(self.set_cam_center_btn)
         cam_layout.addWidget(self.set_cam_follower_btn)
         cam_layout.addWidget(self.generate_cam_btn)
         panel_layout.addWidget(cam_group)
 
-        # Simulation Group
-        sim_group = QGroupBox("Simulation")
-        sim_layout = QHBoxLayout(sim_group)
-        style = self.style()
-        self.play_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), " Play")
-        self.stop_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), " Stop")
-        self.reset_sim_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaSkipBackward), " Reset") # Placeholder icon
-        sim_layout.addWidget(self.play_btn)
-        sim_layout.addWidget(self.stop_btn)
-        sim_layout.addWidget(self.reset_sim_btn)
-        panel_layout.addWidget(sim_group)
-
-        # Blueprint Group
+        # Group 6: Export (RESTORED)
         export_group = QGroupBox("Export")
+        export_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         export_layout = QVBoxLayout(export_group)
         self.blueprint_btn = QPushButton(" Generate Blueprint (SVG)")
-        self.blueprint_btn.setToolTip("Generate an SVG blueprint for fabrication")
+        self.blueprint_btn.setToolTip("Generate an SVG blueprint of all parts for fabrication")
         export_layout.addWidget(self.blueprint_btn)
         panel_layout.addWidget(export_group)
 
-        panel_layout.addStretch()
+        panel_layout.addStretch() # Add stretch at the end (RESTORED)
 
-        # Right View Area (Editor)
+        scroll_area.setWidget(control_panel) # Put the panel inside the scroll area
+
+        # --- Right View Area (Editor) ---
         self.editor_scene = QGraphicsScene()
         self.editor_view = EditorView(self.editor_scene, self)
 
-        layout.addWidget(control_panel)
+        # Add the scroll area (containing the panel) and the view to the main layout
+        layout.addWidget(scroll_area)
         layout.addWidget(self.editor_view, 1)
         return widget
 
@@ -315,17 +389,17 @@ class AutomataDesigner(QMainWindow):
     # --- Toolbar Creation ---
     def _create_toolbar(self):
         """Creates the main application toolbar."""
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False) # Keep it fixed
-        toolbar.setIconSize(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton).actualSize(QSize(16, 16))) # Smaller icons?
+        self.main_toolbar = QToolBar("Main Toolbar") # Store reference
+        self.main_toolbar.setMovable(False) # Keep it fixed
+        # Use a slightly larger icon size for the updated style
+        icon_size = QSize(20, 20)
+        self.main_toolbar.setIconSize(icon_size)
 
         # Use standard icons for a cleaner look
         style = self.style()
         # Ensure actions are created before adding them
         if not hasattr(self, 'action_load_parts'):
             self.action_load_parts = QAction(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton), "Open...", self)
-            # Connect signal here if menus aren't the primary connection point anymore
-            # self.action_load_parts.triggered.connect(self.load_parts)
         else:
             self.action_load_parts.setText("Open...") # Shorter text for toolbar
             self.action_load_parts.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
@@ -333,8 +407,6 @@ class AutomataDesigner(QMainWindow):
         if not hasattr(self, 'action_save_project'):
             self.action_save_project = QAction(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), "Save...", self)
             self.action_save_project.setShortcut("Ctrl+S")
-             # Connect signal here if menus aren't the primary connection point anymore
-            # self.action_save_project.triggered.connect(self.save_project)
         else:
             self.action_save_project.setText("Save...")
             self.action_save_project.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
@@ -343,13 +415,13 @@ class AutomataDesigner(QMainWindow):
         action_new = QAction(style.standardIcon(QStyle.StandardPixmap.SP_FileIcon), "New", self) # Placeholder icon
         action_export = QAction(style.standardIcon(QStyle.StandardPixmap.SP_ArrowRight), "Export", self) # Placeholder icon
 
-        toolbar.addAction(action_new)
-        toolbar.addAction(self.action_load_parts)
-        toolbar.addAction(self.action_save_project)
-        toolbar.addAction(action_export)
-        # Add separator? toolbar.addSeparator()
+        self.main_toolbar.addAction(action_new)
+        self.main_toolbar.addAction(self.action_load_parts)
+        self.main_toolbar.addAction(self.action_save_project)
+        self.main_toolbar.addAction(action_export)
 
-        self.addToolBar(toolbar)
+        self.addToolBar(self.main_toolbar)
+        self.main_toolbar.hide() # Hide by default
 
     # --- Signal Connections ---
     def _connect_ui_actions(self):
@@ -358,8 +430,8 @@ class AutomataDesigner(QMainWindow):
         self.load_image_btn.clicked.connect(self.load_input_image)
         self.capture_image_btn.clicked.connect(self.capture_image)
         self.process_image_btn.clicked.connect(self.process_image)
-        self.edit_skeleton_btn.clicked.connect(self.edit_skeleton)
-        self.save_skeleton_btn.clicked.connect(self.save_skeleton)
+        # self.edit_skeleton_btn.clicked.connect(self.edit_skeleton)
+        # self.save_skeleton_btn.clicked.connect(self.save_skeleton)
         self.create_parts_btn.clicked.connect(self.create_parts_from_skeleton)
 
         # Tab 2: Editor
@@ -368,9 +440,8 @@ class AutomataDesigner(QMainWindow):
         self.z_value_spin.valueChanged.connect(self._update_selected_part_z)
         self.fixed_part_check.stateChanged.connect(self._update_selected_part_fixed)
         self.define_joint_btn.toggled.connect(self._toggle_define_joint_mode)
+        self.show_skeleton_btn.toggled.connect(self._show_skeleton_and_joints)
         self.define_motion_btn.toggled.connect(self._toggle_define_motion_path_mode)
-        self.set_effector_btn.clicked.connect(self._start_end_effector_selection)
-        self.preview_motion_btn.clicked.connect(self.preview_motion_path)
         self.set_cam_center_btn.clicked.connect(self._start_cam_center_selection)
         self.set_cam_follower_btn.clicked.connect(self.set_cam_follower)
         self.generate_cam_btn.clicked.connect(self.generate_cam_mechanism)
@@ -381,13 +452,14 @@ class AutomataDesigner(QMainWindow):
 
         # Editor View Signals
         self.editor_view.joint_defined.connect(self.request_create_joint)
-        self.editor_view.end_effector_selected.connect(self._handle_end_effector_set) # Connect signal
+        # self.editor_view.end_effector_selected.connect(self._handle_end_effector_set) # Removed in UI cleanup
         self.editor_view.cam_center_selected.connect(self._handle_cam_center_set)
         self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancel)
 
         # Tab 3: Options (Connect signals from OptionsTab instance)
         self.options_tab.animationDurationChanged.connect(self._update_animation_duration)
-        self.options_tab.themeChanged.connect(self._apply_theme) # Re-add theme connection
+        self.options_tab.themeChanged.connect(self._apply_theme)
+        self.options_tab.toolbarVisibilityChanged.connect(self._toggle_toolbar_visibility) # Connect new signal
 
         # Menu Actions (Ensure these are still connected)
         if hasattr(self, 'action_load_parts'):
@@ -406,15 +478,45 @@ class AutomataDesigner(QMainWindow):
 
     # Slot for part selection change in list
     def _handle_part_selection_change(self, current_item, previous_item):
+        can_define_path = False
+        is_part_selected = current_item is not None
+
         if current_item:
             self.update_part_properties(current_item, previous_item)
             # Select in scene as well
             part_name = current_item.data(Qt.ItemDataRole.UserRole)
-            if part_name in self.editor_items:
+            item = self.editor_items.get(part_name)
+            if item:
                 self.editor_scene.clearSelection()
-                self.editor_items[part_name].setSelected(True)
+                item.setSelected(True)
+                # Only enable if the selected item exists and is not fixed
+                if not item.is_fixed:
+                    can_define_path = True
         else:
             # Clear properties if nothing selected
+            self.z_value_spin.setEnabled(False)
+            self.fixed_part_check.setEnabled(False)
+
+        # Enable/disable UI elements based on selection
+        # Find the QGroupBox by iterating through children of panel_layout's parent (control_panel)
+        control_panel = self.parts_list.parent().parent() # Assuming Parts List -> Parts Group -> Control Panel
+        props_group = control_panel.findChild(QGroupBox, "Selected Part Properties")
+        cam_group = control_panel.findChild(QGroupBox, "Cam Mechanism")
+
+        if props_group: props_group.setEnabled(is_part_selected)
+        if cam_group: cam_group.setEnabled(is_part_selected)
+
+        self.define_joint_btn.setEnabled(is_part_selected)
+
+        # Motion path button depends on selection AND fixed status
+        self.define_motion_btn.setEnabled(can_define_path)
+
+        # If selection cleared, ensure define motion mode is off
+        if not can_define_path and self.define_motion_btn.isChecked():
+            self.define_motion_btn.setChecked(False)
+
+        # Disable properties directly if nothing selected (redundant if group is disabled, but safe)
+        if not is_part_selected:
             self.z_value_spin.setEnabled(False)
             self.fixed_part_check.setEnabled(False)
 
@@ -749,7 +851,16 @@ class AutomataDesigner(QMainWindow):
 
                     # Restore other saved properties
                     editor_item.setZValue(info.get('z_value', 0))
-                    editor_item.is_fixed = info.get('is_fixed', False)
+                    # Check if this part should be fixed (either from data or if it's the torso)
+                    is_fixed_from_data = info.get('is_fixed', False)
+                    if name == "torso":
+                        editor_item.is_fixed = True
+                        editor_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+                        logging.info(f"Part '{name}' automatically marked as fixed (torso).")
+                    else:
+                        editor_item.is_fixed = is_fixed_from_data
+                        # Explicitly set movable flag based on loaded fixed state
+                        editor_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not is_fixed_from_data)
                     if 'transform' in info:
                          # TODO: Implement _dict_to_transform
                          pass # editor_item.setTransform(_dict_to_transform(info['transform']))
@@ -763,17 +874,92 @@ class AutomataDesigner(QMainWindow):
                              editor_item.end_effector_offset = QPointF(ee.get('x', 0), ee.get('y', 0))
                              editor_item._update_end_effector_marker()
 
+                    # Add item to the scene FIRST, then update properties
                     self.editor_scene.addItem(editor_item)
+                    # STORE the created item in the dictionary
                     self.editor_items[name] = editor_item
 
-                    # Add to list widget
+                    # Add name to the list widget in the UI
                     list_item = QListWidgetItem(name)
                     list_item.setData(Qt.ItemDataRole.UserRole, name)
                     self.parts_list.addItem(list_item)
                 else:
                     logging.warning(f"Part '{name}' has no visual representation (SVG or Image). Skipping add to scene.")
 
-            # Load joints if they exist in the data
+            # --- Automatic Joint Creation from Skeleton --- #
+            # Use skeleton data from the loaded parts_info.json directly if available
+            skeleton_from_parts_info = character_data.get('skeleton')
+
+            # Define mapping from skeleton joint names to part names
+            # This mapping might need adjustment based on the specific character structure
+            skeleton_to_part_map = {
+                # Skeleton Name : Part Name
+                "neck": "head",
+                "torso": "torso", # Direct match
+                "left_shoulder": "left_arm_upper",
+                "left_elbow": "left_arm_lower",
+                "right_shoulder": "right_arm_upper",
+                "right_elbow": "right_arm_lower",
+                "left_hip": "left_leg_upper",
+                "left_knee": "left_leg_lower",
+                "right_hip": "right_leg_upper",
+                "right_knee": "right_leg_lower",
+                # Names without direct part correspondence (e.g., end points or base)
+                "root": "torso", # Often root connects to torso or a base
+                "hip": "torso",
+                "left_hand": "left_arm_lower", # Hand connects to lower arm
+                "right_hand": "right_arm_lower",
+                "left_foot": "left_leg_lower",
+                "right_foot": "right_leg_lower",
+            }
+
+            if isinstance(skeleton_from_parts_info, list) and skeleton_from_parts_info:
+                logging.info("Attempting to create joints automatically based on skeleton in parts_info.json...")
+                joint_count = 0
+                for joint_info in skeleton_from_parts_info:
+                    child_skeleton_name = joint_info.get('name')
+                    parent_skeleton_name = joint_info.get('parent')
+                    loc_data = joint_info.get('loc')
+
+                    if child_skeleton_name and parent_skeleton_name and loc_data and len(loc_data) >= 2:
+                        # Use the map to get the actual part names
+                        child_part_name = skeleton_to_part_map.get(child_skeleton_name)
+                        parent_part_name = skeleton_to_part_map.get(parent_skeleton_name)
+
+                        if not child_part_name or not parent_part_name:
+                            logging.debug(f"Skipping auto-joint: Could not map skeleton names '{parent_skeleton_name}' or '{child_skeleton_name}' to part names.")
+                            continue
+
+                        child_item = self.editor_items.get(child_part_name)
+                        parent_item = self.editor_items.get(parent_part_name)
+
+                        if child_item and parent_item:
+                            try:
+                                # Joint location is usually the child's pivot point in world coordinates
+                                joint_loc_scene = QPointF(float(loc_data[0]), float(loc_data[1]))
+
+                                # Map scene location to local coordinates for each part
+                                parent_joint_pos_local = parent_item.mapFromScene(joint_loc_scene)
+                                child_joint_pos_local = child_item.mapFromScene(joint_loc_scene)
+
+                                # Create the joint
+                                self._create_and_add_joint(parent_item, child_item,
+                                                          parent_joint_pos_local, child_joint_pos_local)
+                                joint_count += 1
+                            except Exception as e:
+                                logging.warning(f"Could not automatically create joint between mapped parts '{parent_part_name}' and '{child_part_name}' (from skeleton {parent_skeleton_name} -> {child_skeleton_name}) at {loc_data}: {e}")
+                        else:
+                            logging.debug(f"Skipping auto-joint: Mapped Parent ('{parent_part_name}') or Child ('{child_part_name}') item not found in editor_items.")
+                    else:
+                         logging.debug(f"Skipping auto-joint: Missing info in skeleton entry: {joint_info}")
+
+                if joint_count > 0:
+                    logging.info(f"Automatically created {joint_count} joints from skeleton data.")
+            else:
+                 logging.info("No skeleton data found in parts_info.json or it's empty. Skipping automatic joint creation.")
+            # --- End Automatic Joint Creation ---
+
+            # Load joints if they exist in the data (Saved project joints - might overlap with auto-created)
             joints_structure = loaded_data.get('joints', [])
             for joint_data in joints_structure:
                  parent_name = joint_data.get('parent')
@@ -812,11 +998,15 @@ class AutomataDesigner(QMainWindow):
             self._clear_editor_state()
 
     def _clear_editor_state(self):
-        """Clears all items and data related to the editor tab."""
-        self.editor_scene.clear()
-        self.parts_list.clear()
-        self.parts.clear()
+        """Clears all parts, joints, and related state from the editor."""
+        logging.debug("Clearing editor state...")
+        # Clear parts and their visuals from the scene and list
+        for item in self.editor_items.values():
+            item.update_motion_path_visual(None) # Clear persistent path visual
+            if item.scene() == self.editor_scene:
+                self.editor_scene.removeItem(item)
         self.editor_items.clear()
+        self.parts.clear()
         self.joints.clear()
         self.kinematic_chains.clear()
         self.cam_profile_item = None
@@ -936,65 +1126,19 @@ class AutomataDesigner(QMainWindow):
             # Uncheck other mode buttons
             if self.define_joint_btn.isChecked():
                 self.define_joint_btn.setChecked(False)
-            self.editor_view.start_define_motion_path()
+            # Try to start the mode, uncheck button if it fails (e.g., no part selected)
+            if not self.editor_view.start_define_motion_path():
+                # Block signals to prevent recursion when setting checked state
+                self.define_motion_btn.blockSignals(True)
+                self.define_motion_btn.setChecked(False)
+                self.define_motion_btn.blockSignals(False)
         else:
-             # If user unchecks button, finish the path drawing
-            if self.editor_view.current_mode == 'define_motion_path':
-                self.editor_view.finish_motion_path_drawing()
-
-    def _start_end_effector_selection(self):
-        """Initiates the end effector point selection mode."""
-        self.editor_view.start_select_end_effector()
-
-    @pyqtSlot(QPointF, QPointF)
-    def _handle_end_effector_set(self, local_pos: QPointF, scene_pos: QPointF):
-        """Handles the signal emitted when the end effector point is set in the view."""
-        item = self.get_selected_editor_item()
-        if item:
-             # The view already updated the item's offset and marker
-             logging.info(f"End effector point set for '{item.part_info.name}' at local {local_pos}")
-             self.statusBar().showMessage(f"End effector set for '{item.part_info.name}'")
-        else:
-             logging.warning("End effector set signal received, but no item selected?")
-
-    def preview_motion_path(self):
-        """Previews the motion of the selected part along its defined path."""
-        item = self.get_selected_editor_item()
-        if not item:
-            QMessageBox.warning(self, "Preview Error", "Please select a part with a motion path.")
-            return
-        if not item.motion_path or item.motion_path.isEmpty():
-             QMessageBox.warning(self, "Preview Error", "Selected part has no motion path defined.")
-             return
-
-        # --- Simple Preview Animation --- #
-        if hasattr(self, "_preview_timer") and self._preview_timer.isActive():
-            self._preview_timer.stop()
-
-        self._preview_item = item
-        self._preview_original_pos = item.pos()
-        self._preview_time = 0.0
-        self._preview_duration = 3.0 # 3 second preview
-
-        self._preview_timer = QTimer(self)
-        self._preview_timer.setInterval(20) # 50 FPS
-
-        def update_preview_frame():
-            self._preview_time += self._preview_timer.interval() / 1000.0
-            progress = (self._preview_time % self._preview_duration) / self._preview_duration
-            if self._preview_time > self._preview_duration:
-                 self._preview_item.setPos(self._preview_original_pos)
-                 self._preview_timer.stop()
-                 self.statusBar().showMessage("Motion preview finished.")
-                 del self._preview_timer # Clean up timer
-                 return
-
-            path_pos = self._preview_item.motion_path.pointAtPercent(progress)
-            self._preview_item.setPos(path_pos)
-
-        self._preview_timer.timeout.connect(update_preview_frame)
-        self._preview_timer.start()
-        self.statusBar().showMessage(f"Previewing motion for '{item.part_info.name}'...")
+             # If user unchecks button, finish the path drawing,
+             # but only call finish if the mode is still correct in the view
+             # (it might have already been finished by clicking near the start point)
+             if self.editor_view.current_mode == 'define_motion_path':
+                 self.editor_view.finish_motion_path_drawing()
+             # Else: The mode was likely changed by finish_motion_path_drawing triggered by click
 
     # --- Cam Mechanism Actions ---
 
@@ -1083,69 +1227,99 @@ class AutomataDesigner(QMainWindow):
             self.cam_profile_item = None
 
     # --- Simulation Actions ---
-
     def build_kinematic_chains(self):
         """Builds the kinematic chains required for IK simulation."""
         self.kinematic_chains.clear()
-        items_with_paths = [item for item in self.editor_items.values() if item.motion_path and not item.motion_path.isEmpty()]
+        # Find all items that have motion paths defined - these are potential end effectors
+        potential_end_effectors = [item for item in self.editor_items.values()
+                                   if item.motion_path and not item.motion_path.isEmpty()]
 
-        if not items_with_paths:
-            QMessageBox.information(self, "Build Chains", "No motion paths found on any parts. Cannot build chains.")
+        if not potential_end_effectors:
+            # No need to show message box here, simulation just won't run for IK
+            logging.info("Build Chains: No motion paths found on any parts. Cannot build chains for IK.")
+            self.statusBar().showMessage("Ready (No motion paths for IK)")
             return
 
         built_chains_count = 0
-        for end_effector_item in items_with_paths:
+        for end_effector_item in potential_end_effectors:
             chain = []
+            logging.debug(f"Building chain starting from potential end effector: {end_effector_item.part_info.name}")
             current_item = end_effector_item
             visited = set()
+
+            # Traverse up the hierarchy using parent_joint links
             while current_item and current_item not in visited:
                 visited.add(current_item)
                 chain.insert(0, current_item) # Prepend to get base -> tip order
-                if current_item.is_fixed:
-                    break # Found the root
-                # Traverse up the hierarchy using parent_joint
-                if hasattr(current_item, 'parent_joint') and current_item.parent_joint:
-                    current_item = current_item.parent_joint.parent_item
-                else:
-                    current_item = None # Reached top without fixed base
+                logging.debug(f"  Added to chain: {current_item.part_info.name} (Fixed: {current_item.is_fixed})")
 
-            # Check if chain is valid (ends with a fixed part)
+                if current_item.is_fixed: # Found the fixed base (e.g., torso)
+                    logging.debug(f"    Found fixed base: {current_item.part_info.name}")
+                    break
+
+                # Move to the parent item through the joint connection
+                # Assumes CharacterPartItem has a 'parent_joint' attribute referencing a Joint object
+                # And Joint object has a 'parent_item' attribute
+                if hasattr(current_item, 'parent_joint') and current_item.parent_joint and hasattr(current_item.parent_joint, 'parent_item'):
+                    parent_via_joint = current_item.parent_joint.parent_item
+                    logging.debug(f"    Moving up via parent_joint. Parent item: {parent_via_joint.part_info.name if parent_via_joint else 'None'}")
+                    current_item = parent_via_joint
+                else:
+                    logging.debug(f"    No valid parent_joint found for {current_item.part_info.name}. Stopping chain traversal.")
+                    # Reached the top of this branch without finding a fixed base
+                    current_item = None
+                    chain = [] # Invalidate the chain if no fixed base found
+                    break
+
+            # Log the result before the final check
+            chain_names = [item.part_info.name for item in chain] if chain else []
+            base_is_fixed = chain[0].is_fixed if chain else False
+            logging.debug(f"  Finished traversal. Chain: {chain_names}, Base Fixed: {base_is_fixed}")
+
+            # Check if a valid chain ending in a fixed part was found
             if chain and chain[0].is_fixed:
-                self.kinematic_chains[end_effector_item.part_info.name] = chain
-                built_chains_count += 1
-                logging.info(f"Built chain for '{end_effector_item.part_info.name}': {[item.part_info.name for item in chain]}")
-            elif chain:
-                logging.warning(f"Kinematic chain for '{end_effector_item.part_info.name}' does not end in a fixed part. Discarding.")
-            else:
-                logging.warning(f"Could not build valid kinematic chain for '{end_effector_item.part_info.name}'. Check joints and fixed parts.")
+                # Ensure the identified end effector is indeed the last item
+                if chain[-1] == end_effector_item:
+                    chain_name = end_effector_item.part_info.name
+                    self.kinematic_chains[chain_name] = chain
+                    built_chains_count += 1
+                    logging.info(f"Built chain for '{chain_name}': {[item.part_info.name for item in chain]}")
+                else:
+                    logging.warning(f"Chain found for part '{end_effector_item.part_info.name}', but it wasn't the end effector? Chain: {[item.part_info.name for item in chain]}")
+            elif end_effector_item: # Only warn if we started with a valid item
+                logging.warning(f"Kinematic chain for '{end_effector_item.part_info.name}' does not end in a fixed part or is invalid. Discarding.")
 
         if built_chains_count > 0:
             self.statusBar().showMessage(f"Built {built_chains_count} kinematic chain(s). Ready for simulation.")
         else:
-            self.statusBar().showMessage("Could not build any valid kinematic chains. Check joints and ensure at least one part is fixed.")
-            QMessageBox.warning(self, "Build Chains Failed", "Could not build any valid kinematic chains. Ensure parts are connected by joints and at least one part in each chain is marked as fixed.")
+            self.statusBar().showMessage("Could not build any valid kinematic chains for defined paths.")
+            QMessageBox.warning(self, "Build Chains Failed",
+                                "Could not build valid kinematic chains for parts with motion paths. \
+                                Ensure parts are connected by joints and chains end at a fixed part (like the torso)." )
 
     def play_simulation(self):
-        """Starts the kinematic simulation."""
-        if not self.editor_items:
-            QMessageBox.warning(self, "Simulation Error", "No parts loaded in the editor.")
-            return
-        # Ensure chains are built
+        """Starts the kinematic simulation based on defined motion paths using IK."""
+        # Ensure chains are built or try building them
         if not self.kinematic_chains:
             self.build_kinematic_chains()
+            # Check again if chains were successfully built
             if not self.kinematic_chains:
-                 # build_kinematic_chains already showed a message
-                 return
+                # build_kinematic_chains already showed a message
+                self.statusBar().showMessage("Cannot start simulation: No valid kinematic chains found.")
+                return
 
-        logging.info("Starting simulation...")
-        # Prepare simulation scene (copy state from editor)
-        self._copy_state_to_simulation_scene()
+        logging.info("Starting IK-based simulation...")
+        # Ensure simulation mode is set in view (disables direct interaction)
+        self.editor_view.set_mode('simulation')
+        # Store initial state using the view's method
+        self.editor_view._save_original_transforms()
 
         self.animation_time = 0.0
-        self.timer.start()
-        self.statusBar().showMessage("Simulation running...")
-        # Disable editor interactions during simulation?
-        self.editor_view.set_mode('simulation') # Use editor view's mode management
+        self.timer.start() # Use the existing timer
+        self.statusBar().showMessage("IK Simulation running...")
+        self.play_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.reset_sim_btn.setEnabled(True)
 
     def stop_simulation(self):
         """Stops the kinematic simulation."""
@@ -1154,6 +1328,8 @@ class AutomataDesigner(QMainWindow):
             self.timer.stop()
             self.statusBar().showMessage("Simulation stopped.")
             self.editor_view.set_mode('select') # Restore editor interaction
+            self.play_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
         else:
              self.statusBar().showMessage("Simulation not running.")
 
@@ -1163,45 +1339,71 @@ class AutomataDesigner(QMainWindow):
         logging.info("Resetting simulation state.")
         self.editor_view.reset_simulation() # Let the view handle resetting transforms
         self.animation_time = 0.0
-        # Clear any simulation-specific visualizations if needed
+        # Ensure buttons are in correct state after reset
+        self.play_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.reset_sim_btn.setEnabled(False) # Can't reset if already reset
         self.statusBar().showMessage("Simulation reset.")
 
     def update_simulation(self):
-        """Performs one step of the simulation (called by timer)."""
+        """Performs one step of the IK simulation (called by timer)."""
+        if not self.timer.isActive():
+            return
+
         delta_time = self.timer.interval() / 1000.0
         self.animation_time += delta_time
-        # Use modulo for looping animation
         progress = (self.animation_time % self.animation_duration) / self.animation_duration
 
+        # --- Debug Logging Start ---
+        logging.debug(f"--- Sim Update: Time={self.animation_time:.2f} Prog={progress:.3f} ---")
+
         if not self.kinematic_chains:
-            logging.warning("Update simulation called with no kinematic chains.")
+            logging.warning("Update simulation called with no kinematic chains. Stopping.")
             self.stop_simulation()
             return
 
-        # Process each defined kinematic chain
+        # --- IK Simulation Step --- #
+        ik_updated = False
         for end_effector_name, chain in self.kinematic_chains.items():
-            # Get the corresponding items in the *editor* scene (simulation happens here)
+            # Ensure the chain and end effector item still exist in the editor
             editor_chain = [self.editor_items.get(item.part_info.name) for item in chain]
-            editor_end_effector = editor_chain[-1] if editor_chain else None
+            if not all(editor_chain):
+                logging.warning(f"Skipping chain for '{end_effector_name}': Parts missing from editor.")
+                continue
 
-            if not editor_end_effector or not editor_end_effector.motion_path or editor_end_effector.motion_path.isEmpty():
-                continue # Skip chains without a valid end effector or path
+            editor_end_effector = editor_chain[-1]
+            if not editor_end_effector.motion_path or editor_end_effector.motion_path.isEmpty():
+                continue # Skip chains where end effector has no path
 
-            # 1. Calculate Target Position on the path
-            target_pos = editor_end_effector.motion_path.pointAtPercent(progress)
-            # Visualize target? (Optional)
-            # if not hasattr(self, 'ik_target_marker'): self.ik_target_marker = ...
-            # self.ik_target_marker.setPos(target_pos)
+            # 1. Calculate Target Position on the path (in scene coordinates)
+            target_pos_scene = editor_end_effector.motion_path.pointAtPercent(progress)
+
+            logging.debug(f"  Chain '{end_effector_name}': Target Scene Pos = ({target_pos_scene.x():.1f}, {target_pos_scene.y():.1f})")
 
             # 2. Call IK Solver
-            # Ensure all items in the chain exist
-            if all(item is not None for item in editor_chain):
-                solve_ik_ccd(editor_chain, target_pos, iterations=15, tolerance=0.5)
-            else:
-                logging.warning(f"Skipping IK for chain '{end_effector_name}' due to missing items.")
+            # The solver should update the transformations of items in editor_chain
+            try:
+                # Log position before IK
+                pre_ik_pos = editor_end_effector.mapToScene(editor_end_effector.boundingRect().center())
+                logging.debug(f"    End Effector Pos BEFORE IK: ({pre_ik_pos.x():.1f}, {pre_ik_pos.y():.1f})")
 
-        # Update the scene to show results
-        self.editor_scene.update()
+                ik_success = solve_ik_ccd(editor_chain, target_pos_scene, iterations=15, tolerance=1.0)
+                ik_updated = True
+
+                # Log position after IK
+                post_ik_pos = editor_end_effector.mapToScene(editor_end_effector.boundingRect().center())
+                logging.debug(f"    IK Success: {ik_success}. End Effector Pos AFTER IK: ({post_ik_pos.x():.1f}, {post_ik_pos.y():.1f})")
+
+            except Exception as e:
+                 logging.error(f"Error solving IK for chain '{end_effector_name}': {e}", exc_info=True)
+                 # Optionally stop simulation on error?
+                 # self.stop_simulation()
+                 # return
+
+        # Update the scene once after all chains are processed if any IK happened
+        if ik_updated:
+            logging.debug(f"--- End Sim Update: Updating Scene --- ")
+            self.editor_scene.update()
 
     def _copy_state_to_simulation_scene(self):
         """Copies the current state (transforms, etc.) from editor items.
@@ -1357,6 +1559,12 @@ class AutomataDesigner(QMainWindow):
         logging.info(f"Animation duration set to {value} seconds.")
         self.statusBar().showMessage(f"Animation duration: {value:.1f} s")
 
+    def _toggle_toolbar_visibility(self, visible: bool):
+        """Shows or hides the main toolbar."""
+        if self.main_toolbar:
+            self.main_toolbar.setVisible(visible)
+            logging.info(f"Toolbar visibility set to: {visible}")
+
     # Re-add _apply_theme method
     def _apply_theme(self, theme_name: str):
         """Applies the selected theme (Light or Dark)."""
@@ -1366,3 +1574,62 @@ class AutomataDesigner(QMainWindow):
         else: # Default to Light
             self.setStyleSheet(self.light_style)
         self.statusBar().showMessage(f"Theme changed to {theme_name}")
+
+    def _load_custom_fonts(self):
+        """Loads custom fonts from the gui/fonts directory."""
+        fonts_dir = Path(__file__).parent / "fonts"
+        font_files = [
+            "Segoe UI.ttf",
+            "Segoe UI Italic.ttf",
+            "Segoe UI Bold.ttf",
+            "Segoe UI Bold Italic.ttf"
+        ]
+        loaded_families = set()
+
+        for font_file in font_files:
+            font_path = fonts_dir / font_file
+            if font_path.exists():
+                font_id = QFontDatabase.addApplicationFont(str(font_path))
+                if font_id != -1:
+                    families = QFontDatabase.applicationFontFamilies(font_id)
+                    if families:
+                        loaded_families.update(families)
+                        logging.debug(f"Successfully loaded font: {families[0]} from {font_file}")
+                    else:
+                        logging.warning(f"Could not retrieve font family name from {font_file}")
+                else:
+                    logging.error(f"Failed to load font: {font_file} (ID was -1)")
+            else:
+                logging.warning(f"Font file not found: {font_path}")
+
+        if loaded_families:
+            logging.info(f"Loaded custom font families: {', '.join(loaded_families)}")
+        else:
+            logging.warning("No custom fonts were loaded.")
+
+    def load_initial_data(self):
+        """Loads any initial data needed for the application (placeholder)."""
+        logging.info("Loading initial application data...")
+        # TODO: Implement loading of default parts, configurations, etc. if needed
+        pass
+
+    # --- Skeleton Visualization --- #
+    def _show_skeleton_and_joints(self, checked: bool):
+        """Triggers the visualization of the skeleton and joints in the editor view."""
+        logging.debug(f"Show Skeleton button toggled: {checked}")
+        if checked:
+            if not self.skeleton_data:
+                logging.warning("Cannot show skeleton: No skeleton data loaded.")
+                QMessageBox.information(self, "Show Skeleton", "No skeleton data is currently loaded.")
+                # Uncheck the button if data is missing
+                self.show_skeleton_btn.blockSignals(True)
+                self.show_skeleton_btn.setChecked(False)
+                self.show_skeleton_btn.blockSignals(False)
+                return
+
+            # Pass skeleton data and potentially joint data to the view
+            # The view will be responsible for drawing temporary items
+            self.editor_view.visualize_skeleton(self.skeleton_data, self.joints)
+        else:
+            # Hide the visualization
+            self.editor_view._clear_skeleton_visualization()

@@ -585,7 +585,9 @@ def process_character(char_dir, output_dir):
         'character': {
             'width': int(width),
             'height': int(height),
-            'parts': {}
+            'parts': {},
+            'joint_map': joint_map,
+            'skeleton': char_cfg['skeleton']
         }
     }
 

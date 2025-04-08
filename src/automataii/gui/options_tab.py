@@ -1,8 +1,9 @@
 import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout,
-    QDoubleSpinBox, QLabel, QComboBox, QCheckBox
+    QLineEdit, QLabel, QComboBox, QCheckBox, QHBoxLayout, QButtonGroup
 )
+from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtCore import Qt, pyqtSignal
 
 class OptionsTab(QWidget):
@@ -11,8 +12,9 @@ class OptionsTab(QWidget):
     animationDurationChanged = pyqtSignal(float)
     themeChanged = pyqtSignal(str)
     debugModeChanged = pyqtSignal(bool)
+    toolbarVisibilityChanged = pyqtSignal(bool)
 
-    def __init__(self, initial_anim_duration=5.0, parent=None):
+    def __init__(self, initial_anim_duration=0.5, parent=None):
         super().__init__(parent)
         self._init_ui(initial_anim_duration)
         self._connect_signals()
@@ -24,49 +26,58 @@ class OptionsTab(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.setSpacing(15)
 
-        # --- General Settings ---
-        general_group = QGroupBox("General")
-        general_layout = QFormLayout(general_group)
-
-        # Theme Selection
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["Light", "Dark"])
-        self.theme_combo.setToolTip("Change the application's color theme.")
-        general_layout.addRow("Theme:", self.theme_combo)
-
-        # Debug Mode Checkbox
-        self.debug_mode_check = QCheckBox("Enable Debug Visualization")
-        self.debug_mode_check.setToolTip("Show bounding boxes and coordinate info in Image Processing tab.")
-        general_layout.addRow(self.debug_mode_check)
-
-        layout.addWidget(general_group)
-
         # --- Simulation Settings ---
         sim_group = QGroupBox("Simulation")
-        sim_layout = QFormLayout(sim_group)
+        sim_layout = QVBoxLayout(sim_group)
+        sim_layout.setSpacing(10)
 
-        self.anim_duration_spin = QDoubleSpinBox()
-        self.anim_duration_spin.setRange(0.1, 60.0)
-        self.anim_duration_spin.setSingleStep(0.1)
-        self.anim_duration_spin.setSuffix(" s")
-        self.anim_duration_spin.setValue(initial_anim_duration)
-        self.anim_duration_spin.setToolTip("Set the duration of one simulation loop.")
-        sim_layout.addRow("Animation Duration:", self.anim_duration_spin)
+        # Animation Duration (Using QLineEdit)
+        anim_duration_layout = QHBoxLayout()
+        anim_label = QLabel("Animation Duration:")
+        self.anim_duration_edit = QLineEdit()
+        self.anim_duration_edit.setValidator(QDoubleValidator(0.01, 60.0, 2)) # Allow 0.01 to 60.0 with 2 decimals
+        self.anim_duration_edit.setText(str(initial_anim_duration))
+        self.anim_duration_edit.setToolTip("Enter the duration (in seconds) of one simulation loop.")
+        self.anim_duration_edit.setMaximumWidth(80) # Limit width
+        unit_label = QLabel(" s")
+        anim_duration_layout.addWidget(anim_label)
+        anim_duration_layout.addWidget(self.anim_duration_edit)
+        anim_duration_layout.addWidget(unit_label)
+        anim_duration_layout.addStretch()
+        sim_layout.addLayout(anim_duration_layout)
+
         layout.addWidget(sim_group)
 
         # --- Appearance Settings ---
         appearance_group = QGroupBox("Appearance")
         appearance_layout = QFormLayout(appearance_group)
 
-        # Re-add Theme ComboBox
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["Light", "Dark"])
-        self.theme_combo.setToolTip("Select the application theme.")
-        appearance_layout.addRow("Theme:", self.theme_combo)
+        # Theme Selection (Checkboxes behaving like radio buttons)
+        theme_layout = QHBoxLayout()
+        self.theme_light_check = QCheckBox("Light")
+        self.theme_dark_check = QCheckBox("Dark")
+        self.theme_group = QButtonGroup(self) # Button group for exclusivity
+        self.theme_group.addButton(self.theme_light_check)
+        self.theme_group.addButton(self.theme_dark_check)
+        self.theme_group.setExclusive(True) # Only one can be checked
+        theme_layout.addWidget(self.theme_light_check)
+        theme_layout.addWidget(self.theme_dark_check)
+        theme_layout.addStretch()
+        appearance_layout.addRow("Theme:", theme_layout)
 
-        # Placeholder for other appearance options
-        font_label = QLabel("(Font options placeholder)")
-        appearance_layout.addRow(font_label)
+        # Set initial theme state
+        self.set_theme("Light") # Default to light
+
+        # Debug Mode Checkbox
+        self.debug_mode_check = QCheckBox("Enable Debug Visualization")
+        self.debug_mode_check.setToolTip("Show bounding boxes and coordinate info in Image Processing tab.")
+        appearance_layout.addRow(self.debug_mode_check)
+
+        # Toolbar Visibility Checkbox
+        self.show_toolbar_check = QCheckBox("Show Toolbar")
+        self.show_toolbar_check.setToolTip("Toggle visibility of the main toolbar.")
+        self.show_toolbar_check.setChecked(False)
+        appearance_layout.addRow(self.show_toolbar_check)
 
         layout.addWidget(appearance_group)
 
@@ -81,32 +92,74 @@ class OptionsTab(QWidget):
 
     def _connect_signals(self):
         """Connects internal widget signals to the class's public signals."""
-        self.anim_duration_spin.valueChanged.connect(self.animationDurationChanged)
-        self.theme_combo.currentTextChanged.connect(self.themeChanged)
+        # Connect animation duration line edit (editingFinished is better than textChanged)
+        self.anim_duration_edit.editingFinished.connect(self._emit_anim_duration)
+        # Connect theme checkboxes
+        self.theme_light_check.toggled.connect(self._on_theme_toggled)
+        self.theme_dark_check.toggled.connect(self._on_theme_toggled)
         self.debug_mode_check.stateChanged.connect(self.on_debug_mode_changed)
+        self.show_toolbar_check.stateChanged.connect(self.on_toolbar_visibility_changed)
+
+    def _emit_anim_duration(self):
+        """Emits the animation duration when editing is finished."""
+        try:
+            value = float(self.anim_duration_edit.text())
+            self.animationDurationChanged.emit(value)
+            logging.debug(f"Animation duration emitted: {value}")
+        except ValueError:
+            logging.warning(f"Invalid animation duration input: {self.anim_duration_edit.text()}")
+            # Optionally reset to previous valid value
+
+    def _on_theme_toggled(self, checked):
+        """Handles toggling of theme checkboxes and emits the themeChanged signal."""
+        if not checked:
+            return # Only react when a box is checked
+
+        if self.theme_light_check.isChecked():
+            self.themeChanged.emit("Light")
+        elif self.theme_dark_check.isChecked():
+            self.themeChanged.emit("Dark")
 
     # --- Public Methods (Getters/Setters) ---
     def get_animation_duration(self) -> float:
-        """Returns the current value of the animation duration spinbox."""
-        return self.anim_duration_spin.value()
+        """Returns the current valid value of the animation duration edit."""
+        try:
+            return float(self.anim_duration_edit.text())
+        except ValueError:
+            return 0.1 # Return default or last known good value
 
     def set_animation_duration(self, duration: float):
-        """Sets the value of the animation duration spinbox."""
-        self.anim_duration_spin.blockSignals(True)
-        self.anim_duration_spin.setValue(duration)
-        self.anim_duration_spin.blockSignals(False)
+        """Sets the text of the animation duration edit."""
+        self.anim_duration_edit.blockSignals(True)
+        self.anim_duration_edit.setText(f"{duration:.2f}") # Format to 2 decimal places
+        self.anim_duration_edit.blockSignals(False)
 
     def get_selected_theme(self) -> str:
-        """Returns the currently selected theme name."""
-        return self.theme_combo.currentText()
+        """Returns the currently selected theme name based on checkboxes."""
+        if self.theme_light_check.isChecked():
+            return "Light"
+        elif self.theme_dark_check.isChecked():
+            return "Dark"
+        else:
+            return "Light" # Default
 
     def set_theme(self, theme_name: str):
-        """Sets the selected theme in the combo box without emitting the signal."""
-        self.theme_combo.blockSignals(True)
-        self.theme_combo.setCurrentText(theme_name)
-        self.theme_combo.blockSignals(False)
+        """Sets the selected theme checkbox without emitting the signal."""
+        self.theme_light_check.blockSignals(True)
+        self.theme_dark_check.blockSignals(True)
+        if theme_name == "Dark":
+            self.theme_dark_check.setChecked(True)
+        else:
+            self.theme_light_check.setChecked(True)
+        self.theme_light_check.blockSignals(False)
+        self.theme_dark_check.blockSignals(False)
 
     def on_debug_mode_changed(self, state):
         """Internal slot to handle checkbox state change and emit signal."""
         is_checked = (state == Qt.CheckState.Checked.value)
         self.debugModeChanged.emit(is_checked)
+
+    def on_toolbar_visibility_changed(self, state):
+        """Internal slot for toolbar visibility checkbox change."""
+        is_checked = (state == Qt.CheckState.Checked.value)
+        self.toolbarVisibilityChanged.emit(is_checked)
