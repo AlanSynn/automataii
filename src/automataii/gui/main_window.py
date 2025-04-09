@@ -7,6 +7,8 @@ import time
 import tempfile
 import yaml
 import cv2
+import random
+import math
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QGraphicsScene, QFileDialog, QSplitter, QLabel, QListWidget, QListWidgetItem,
@@ -857,9 +859,14 @@ class AutomataDesigner(QMainWindow):
                             # Fallback to skeleton if ROI is invalid
                             if name in skeleton_map:
                                 loc = skeleton_map[name]
+                                # Check and set position *inside* this block
                                 if len(loc) >= 2:
-                                     editor_item.setPos(loc[0], loc[1])
-                                     logging.debug(f"Positioning '{name}' using skeleton (ROI fallback): {loc}")
+                                    editor_item.setPos(loc[0], loc[1])
+                                    logging.debug(f"Positioning '{name}' using skeleton (ROI fallback): {loc}")
+                                else:
+                                    logging.warning(f"Invalid skeleton location data for '{name}' during ROI fallback: {loc}")
+                            else:
+                                logging.warning(f"Could not find skeleton data for '{name}' during ROI fallback.")
                     elif name in skeleton_map: # 3. Fallback to skeleton joint location
                         loc = skeleton_map[name]
                         if len(loc) >= 2:
@@ -1157,8 +1164,8 @@ class AutomataDesigner(QMainWindow):
              # If user unchecks button, finish the path drawing,
              # but only call finish if the mode is still correct in the view
              # (it might have already been finished by clicking near the start point)
-             if self.editor_view.current_mode == 'define_motion_path':
-                 self.editor_view.finish_motion_path_drawing()
+            if self.editor_view.current_mode == 'define_motion_path':
+                self.editor_view.finish_motion_path_drawing()
              # Else: The mode was likely changed by finish_motion_path_drawing triggered by click
 
     # --- Cam Mechanism Actions ---
@@ -1259,64 +1266,164 @@ class AutomataDesigner(QMainWindow):
 
     # --- Simplified Mechanism Generation Action --- #
     def _generate_mechanism_auto(self):
-        """Generates cam profiles for ALL parts with motion paths and visualizes linkage placeholders."""
+        """Generates cam profiles, linkage placeholders, and path connection hints."""
         self._clear_mechanism_visuals() # Clear previous visuals first
 
         found_path = False
-        generated_count = 0
+        generated_cam_count = 0
+        generated_hint_count = 0
 
-        # Find the torso item (needed for cam center)
+        # Find the torso item (needed for cam center) *once*
         torso_item = self.editor_items.get("torso")
         if not torso_item or not torso_item.scene():
             QMessageBox.warning(self, "Mechanism Generation Error", "Cannot find the 'torso' part to use as the cam center reference.")
             return
 
-        # Get the fixed cam center from torso
+        # Get the fixed cam center from torso *once*
         torso_local_center = torso_item.boundingRect().center()
         cam_center_scene = torso_item.mapToScene(torso_local_center)
 
         # Iterate through all loaded parts
         for part_name, follower_item in self.editor_items.items():
-            if not isinstance(follower_item, CharacterPartItem): continue # Skip non-part items
+            if not isinstance(follower_item, CharacterPartItem):
+                continue # Skip non-part items
 
             motion_path = follower_item.motion_path
             if not motion_path or motion_path.isEmpty():
                 continue # Skip parts without a valid motion path
 
             found_path = True # Mark that at least one part had a path
-            logging.info(f"Generating cam mechanism for follower '{follower_item.part_info.name}' using torso local center {torso_local_center} mapped to scene {cam_center_scene}")
 
+            # --- Generate Cam Profile --- #
+            logging.info(f"Generating cam for {part_name}...")
             try:
-                # Call the generation function
                 cam_path = generate_cam_profile(motion_path, cam_center_scene)
                 if not cam_path or cam_path.isEmpty():
                     raise ValueError("Generated cam path is empty or invalid.")
-
-                # Add cam visual to its layer
-                cam_layer_name = f"Cam: {follower_item.part_info.name}"
-                # Create the QGraphicsPathItem (but don't add to scene here)
+                cam_layer_name = f"Cam: {part_name}"
                 cam_item = QGraphicsPathItem(cam_path)
                 cam_item.setPen(QPen(QColor("magenta"), 2))
-                cam_item.setZValue(-10) # Draw behind most parts
+                cam_item.setZValue(-10)
                 cam_item.setPos(cam_center_scene)
-                self._add_mechanism_visual(cam_layer_name, cam_item) # Add to scene via helper
-                logging.info(f"Cam profile generated and visualized for {follower_item.part_info.name}.")
-                generated_count += 1
-
+                self._add_mechanism_visual(cam_layer_name, cam_item)
+                generated_cam_count += 1
             except Exception as e:
-                logging.error(f"Error generating cam profile for {follower_item.part_info.name}: {e}\n{traceback.format_exc()}")
-                QMessageBox.critical(self, "Cam Generation Error", f"Failed to generate cam profile for {follower_item.part_info.name}: {e}")
-                # Continue to next part even if one fails
+                logging.error(f"Error generating cam profile for {part_name}: {e}\n{traceback.format_exc()}")
+                # Optionally show a non-blocking message here
 
-        # After attempting cam generation for all parts, create linkage placeholders
-        linkage_count = self._visualize_identified_linkages()
+            # --- Create Path Connection Hints --- #
+            logging.info(f"Creating path hints for {part_name}...")
+            try:
+                # --- Visualize Actual Motion Path (Red) --- #
+                actual_motion_path = QPainterPath(motion_path) # Create a copy
+                actual_motion_item = QGraphicsPathItem(actual_motion_path)
+                actual_motion_item.setPen(QPen(QColor("red"), 2, Qt.PenStyle.SolidLine))
+                actual_motion_item.setZValue(150) # Above parts, below approx links
+                # The path is local to the follower, so position the item at the follower's origin
+                # NOTE: This assumes the follower doesn't move. If it does, this needs adjustment.
+                actual_motion_item.setPos(follower_item.scenePos()) # Position it with the follower item
+                actual_motion_item.setRotation(follower_item.rotation()) # Align rotation
+                self._add_mechanism_visual(f"Actual Motion: {part_name}", actual_motion_item, visible=True)
 
-        if generated_count > 0 or linkage_count > 0:
-            self.statusBar().showMessage(f"Generated {generated_count} cam(s) and visualized {linkage_count} linkage structure item(s).")
+                # Renamed function for approximate 2-bar visualization
+                hint_items = self._create_approx_2bar_visuals(follower_item, cam_center_scene, motion_path)
+                if hint_items:
+                    hint_layer_name = f"Approx. 2-Bar: {part_name}" # Updated layer name
+                    for item in hint_items:
+                        self._add_mechanism_visual(hint_layer_name, item, visible=True)
+                    generated_hint_count += len(hint_items)
+            except Exception as e:
+                logging.error(f"Error creating path connection hints for {part_name}: {e}", exc_info=True)
+
+        # Identified linkages visualization is removed as we now generate random ones unconditionally
+        identified_linkage_item_count = 0 # Set to zero
+
+        # --- Update Status Bar --- #
+        total_items = generated_cam_count + generated_hint_count # Exclude identified linkage count
+        if total_items > 0:
+            random_link_count = generated_hint_count // 7 # Approx 7 items per random 4-bar (4 pivots, 3 links)
+            actual_motion_count = random_link_count # One red path per random link set
+            self.statusBar().showMessage(f"Generated: {generated_cam_count} Cam(s), {random_link_count} Random Link(s), {actual_motion_count} Motion Path(s).")
         elif not found_path:
-             QMessageBox.information(self, "Mechanism Generation", "No parts with motion paths found. Cannot generate cams.")
+            QMessageBox.information(self, "Mechanism Generation", "No parts with motion paths found. Cannot generate mechanisms.")
         else:
-             self.statusBar().showMessage("Mechanism generation complete (no new items created). Check logs for errors.")
+            self.statusBar().showMessage("Mechanism generation complete. Check logs for details or errors.")
+
+    def _create_approx_2bar_visuals(self, follower_item: CharacterPartItem, pivot_a: QPointF, path: QPainterPath):
+        """Creates visuals of a *random* 4-bar linkage somewhat related to the path start."""
+        if path.isEmpty():
+            return []
+
+        p_start_local = path.pointAtPercent(0)
+        p_start_scene = follower_item.mapToScene(p_start_local)
+
+        # --- Define 4 Pivots (A, B, C, D) --- #
+        # A = base_point (torso center, passed in)
+        # D = another fixed pivot, near A but offset randomly
+        pivot_d = pivot_a + QPointF(random.uniform(60, 100), random.uniform(-20, 20))
+
+        # Estimate reasonable link lengths based on distances
+        dist_ad = QLineF(pivot_a, pivot_d).length()
+        dist_ap = QLineF(pivot_a, p_start_scene).length()
+
+        # B = connected to A, somewhat towards P
+        len_ab = dist_ap * random.uniform(0.6, 1.2) # Link AB length
+        angle_ab_rad = math.atan2(p_start_scene.y() - pivot_a.y(), p_start_scene.x() - pivot_a.x())
+        angle_ab_rad += random.uniform(-math.pi/6, math.pi/6) # Add some randomness to angle
+        pivot_b = pivot_a + QPointF(len_ab * math.cos(angle_ab_rad), len_ab * math.sin(angle_ab_rad))
+
+        # C = connected to D, length somewhat related to AD
+        len_cd = dist_ad * random.uniform(0.8, 1.5)
+        # Random angle for CD (could be more constrained in a real solver)
+        angle_cd_rad = random.uniform(0, 2 * math.pi)
+        pivot_c = pivot_d + QPointF(len_cd * math.cos(angle_cd_rad), len_cd * math.sin(angle_cd_rad))
+
+        # Coupler point P is p_start_scene, attached to link BC (conceptually)
+
+        hint_items = []
+        link_pen = QPen(QColor("black"), 6, Qt.PenStyle.SolidLine) # Even thicker black bars
+        pivot_brush = QBrush(QColor("black"))
+        point_radius = 6 # Slightly larger pivots
+        z_value_lines = 300 # Keep high Z-value
+        z_value_points = 310 # Keep high Z-value
+
+        # Link AB
+        line_ab = QGraphicsLineItem(QLineF(pivot_a, pivot_b))
+        line_ab.setPen(link_pen)
+        line_ab.setZValue(z_value_lines)
+        hint_items.append(line_ab)
+
+        # Link BC
+        line_bc = QGraphicsLineItem(QLineF(pivot_b, pivot_c))
+        line_bc.setPen(link_pen)
+        line_bc.setZValue(z_value_lines)
+        hint_items.append(line_bc)
+
+        # Link CD
+        line_cd = QGraphicsLineItem(QLineF(pivot_c, pivot_d))
+        line_cd.setPen(link_pen)
+        line_cd.setZValue(z_value_lines)
+        hint_items.append(line_cd)
+
+        # Link AD (Fixed Base - Optional visualization)
+        # line_ad = QGraphicsLineItem(QLineF(pivot_a, pivot_d))
+        # line_ad.setPen(QPen(QColor("gray"), 1, Qt.PenStyle.DashLine))
+        # line_ad.setZValue(z_value_lines - 10)
+        # hint_items.append(line_ad)
+
+        # --- Pivots --- #
+        pivots = [pivot_a, pivot_b, pivot_c, pivot_d]
+        for p in pivots:
+            circle = QGraphicsEllipseItem(-point_radius, -point_radius, point_radius*2, point_radius*2)
+            circle.setPos(p)
+            circle.setBrush(pivot_brush)
+            circle.setPen(QPen(Qt.PenStyle.NoPen))
+            circle.setZValue(z_value_points)
+            hint_items.append(circle)
+
+        # Note: This linkage does NOT necessarily trace the path. It's a random visual.
+
+        return hint_items
 
     def _visualize_identified_linkages(self):
         """Finds and visualizes identified linkage structures (e.g., 4-bar loops)."""
@@ -1330,7 +1437,6 @@ class AutomataDesigner(QMainWindow):
             layer_name = f"4-Bar Loop {i+1}"
             logging.info(f"Visualizing {layer_name} involving joints: {[j.name for j in loop_joints]}")
             for joint in loop_joints:
-                # Reuse the placeholder creation for each joint in the identified loop
                 placeholder_items = self._create_linkage_placeholder(joint)
                 if placeholder_items:
                     for item in placeholder_items:
@@ -1484,7 +1590,7 @@ class AutomataDesigner(QMainWindow):
             self.build_kinematic_chains()
             # Check again if chains were successfully built
             if not self.kinematic_chains:
-                # build_kinematic_chains already showed a message
+                 # build_kinematic_chains already showed a message
                 self.statusBar().showMessage("Cannot start simulation: No valid kinematic chains found.")
                 return
 
@@ -1583,7 +1689,7 @@ class AutomataDesigner(QMainWindow):
         # Update the scene once after all chains are processed if any IK happened
         if ik_updated:
             logging.debug(f"--- End Sim Update: Updating Scene --- ")
-            self.editor_scene.update()
+        self.editor_scene.update()
 
     def _copy_state_to_simulation_scene(self):
         """Copies the current state (transforms, etc.) from editor items.
@@ -1883,7 +1989,7 @@ class AutomataDesigner(QMainWindow):
         # --- Create Linkage Bar --- #
         line = QLineF(parent_joint_scene, child_joint_scene)
         link_path = QPainterPath()
-        pen_width = 8 # Thickness of the bar
+        pen_width = 12 # Increased thickness
         link_path.moveTo(line.p1())
         link_path.lineTo(line.p2())
 
@@ -1897,22 +2003,22 @@ class AutomataDesigner(QMainWindow):
         link_item = QGraphicsPathItem(stroked_path)
         link_item.setPen(QPen(Qt.PenStyle.NoPen)) # No outline
         link_color = QColor("green")
-        link_color.setAlphaF(0.6) # Semi-transparent
+        link_color.setAlphaF(0.7) # Slightly less transparent
         link_item.setBrush(QBrush(link_color))
-        link_item.setZValue(200) # Draw on top
+        link_item.setZValue(300) # Increase Z-value significantly
 
         # --- Create Joint Circles --- #
-        joint_radius = 5
+        joint_radius = 6 # Slightly larger joints
         parent_joint_circle = QGraphicsEllipseItem(-joint_radius, -joint_radius, joint_radius*2, joint_radius*2)
         parent_joint_circle.setPos(parent_joint_scene)
         parent_joint_circle.setBrush(QBrush(QColor("yellow")))
         parent_joint_circle.setPen(QPen(Qt.PenStyle.NoPen))
-        parent_joint_circle.setZValue(210) # Draw on top of linkage bar
+        parent_joint_circle.setZValue(310) # Keep above bar
 
         child_joint_circle = QGraphicsEllipseItem(-joint_radius, -joint_radius, joint_radius*2, joint_radius*2)
         child_joint_circle.setPos(child_joint_scene)
         child_joint_circle.setBrush(QBrush(QColor("yellow")))
         child_joint_circle.setPen(QPen(Qt.PenStyle.NoPen))
-        child_joint_circle.setZValue(210)
+        child_joint_circle.setZValue(310)
 
         return [link_item, parent_joint_circle, child_joint_circle]
