@@ -268,7 +268,7 @@ class AutomataDesigner(QMainWindow):
         # Path Type Selection
         self.path_type_combo = QComboBox()
         self.path_type_combo.addItems(["Freehand", "Bézier"]) # Add Bézier option
-        self.path_type_combo.setCurrentText("Bézier") # Default to Bézier
+        self.path_type_combo.setCurrentText("Freehand") # Default to Freehand
         self.path_type_combo.setToolTip("Select the drawing method for the motion path.")
         motion_sim_layout.addRow("Path Type:", self.path_type_combo)
 
@@ -725,7 +725,7 @@ class AutomataDesigner(QMainWindow):
             QMessageBox.warning(self, "Missing Character Data",
                                 "Please load an image or ensure the character data directory is set correctly.")
             logging.warning("Cannot create parts: character_dir not set or invalid.")
-            return
+            return # Correct indentation
 
         # Check for required files in character_dir
         required_files = ['char_cfg.yaml', 'image.png', 'mask.png']
@@ -858,12 +858,12 @@ class AutomataDesigner(QMainWindow):
                             logging.warning(f"Invalid ROI data for '{name}': {roi_data}. Falling back to skeleton.")
                             # Fallback to skeleton if ROI is invalid
                             if name in skeleton_map:
-                                loc = skeleton_map[name]
+                                loc = skeleton_map[name] # Correct indentation
                                 # Check and set position *inside* this block
-                                if len(loc) >= 2:
+                                if len(loc) >= 2: # Correct indentation
                                     editor_item.setPos(loc[0], loc[1])
                                     logging.debug(f"Positioning '{name}' using skeleton (ROI fallback): {loc}")
-                                else:
+                                else: # Correct indentation
                                     logging.warning(f"Invalid skeleton location data for '{name}' during ROI fallback: {loc}")
                             else:
                                 logging.warning(f"Could not find skeleton data for '{name}' during ROI fallback.")
@@ -1154,8 +1154,11 @@ class AutomataDesigner(QMainWindow):
             # Uncheck other mode buttons
             if self.define_joint_btn.isChecked():
                 self.define_joint_btn.setChecked(False)
-            # Try to start the mode, uncheck button if it fails (e.g., no part selected)
-            if not self.editor_view.start_define_motion_path():
+            # Get current settings
+            path_type = self.path_type_combo.currentText()
+            loop_type = self.loop_type_combo.currentText()
+            # Try to start the mode with settings, uncheck button if it fails
+            if not self.editor_view.start_define_motion_path(path_type, loop_type):
                 # Block signals to prevent recursion when setting checked state
                 self.define_motion_btn.blockSignals(True)
                 self.define_motion_btn.setChecked(False)
@@ -1288,19 +1291,27 @@ class AutomataDesigner(QMainWindow):
             if not isinstance(follower_item, CharacterPartItem):
                 continue # Skip non-part items
 
-            motion_path = follower_item.motion_path
-            if not motion_path or motion_path.isEmpty():
+            raw_motion_path = follower_item.motion_path
+            if not raw_motion_path or raw_motion_path.isEmpty():
                 continue # Skip parts without a valid motion path
+
+            # --- Resample the path --- #
+            # Use the resampled path for mechanism generation and target visualization
+            smoothed_target_path = self._resample_path_as_polygon(raw_motion_path)
+            if smoothed_target_path.isEmpty():
+                logging.warning(f"Could not resample motion path for {part_name}. Skipping mechanism generation.")
+                continue
 
             found_path = True # Mark that at least one part had a path
 
             # --- Generate Cam Profile --- #
             logging.info(f"Generating cam for {part_name}...")
             try:
-                cam_path = generate_cam_profile(motion_path, cam_center_scene)
+                cam_path = generate_cam_profile(smoothed_target_path, cam_center_scene) # Use smoothed path
                 if not cam_path or cam_path.isEmpty():
                     raise ValueError("Generated cam path is empty or invalid.")
                 cam_layer_name = f"Cam: {part_name}"
+
                 cam_item = QGraphicsPathItem(cam_path)
                 cam_item.setPen(QPen(QColor("magenta"), 2))
                 cam_item.setZValue(-10)
@@ -1314,19 +1325,18 @@ class AutomataDesigner(QMainWindow):
             # --- Create Path Connection Hints --- #
             logging.info(f"Creating path hints for {part_name}...")
             try:
-                # --- Visualize Actual Motion Path (Red) --- #
-                actual_motion_path = QPainterPath(motion_path) # Create a copy
+                # --- Visualize Target Path (Red, using smoothed path) --- #
+                actual_motion_path = QPainterPath(smoothed_target_path) # Use the smoothed path
                 actual_motion_item = QGraphicsPathItem(actual_motion_path)
                 actual_motion_item.setPen(QPen(QColor("red"), 2, Qt.PenStyle.SolidLine))
                 actual_motion_item.setZValue(150) # Above parts, below approx links
-                # The path is local to the follower, so position the item at the follower's origin
                 # NOTE: This assumes the follower doesn't move. If it does, this needs adjustment.
                 actual_motion_item.setPos(follower_item.scenePos()) # Position it with the follower item
                 actual_motion_item.setRotation(follower_item.rotation()) # Align rotation
                 self._add_mechanism_visual(f"Actual Motion: {part_name}", actual_motion_item, visible=True)
 
                 # Renamed function for approximate 2-bar visualization
-                hint_items = self._create_approx_2bar_visuals(follower_item, cam_center_scene, motion_path)
+                hint_items = self._create_approx_2bar_visuals(follower_item, cam_center_scene, smoothed_target_path) # Use smoothed path
                 if hint_items:
                     hint_layer_name = f"Approx. 2-Bar: {part_name}" # Updated layer name
                     for item in hint_items:
@@ -1348,6 +1358,26 @@ class AutomataDesigner(QMainWindow):
             QMessageBox.information(self, "Mechanism Generation", "No parts with motion paths found. Cannot generate mechanisms.")
         else:
             self.statusBar().showMessage("Mechanism generation complete. Check logs for details or errors.")
+
+    def _resample_path_as_polygon(self, input_path: QPainterPath, num_points: int = 30) -> QPainterPath:
+        """Samples points from a path and returns a new path connecting them with lines."""
+        if input_path.isEmpty() or num_points < 2:
+            return QPainterPath()
+
+        new_path = QPainterPath()
+        start_point = input_path.pointAtPercent(0)
+        new_path.moveTo(start_point)
+
+        for i in range(1, num_points):
+            percent = float(i) / (num_points - 1)
+            point = input_path.pointAtPercent(percent)
+            new_path.lineTo(point)
+
+        # Optionally close the path if the original seems closed (heuristic)
+        if input_path.currentPosition() == start_point or QLineF(input_path.currentPosition(), start_point).length() < 1.0:
+            new_path.closeSubpath()
+
+        return new_path
 
     def _create_approx_2bar_visuals(self, follower_item: CharacterPartItem, pivot_a: QPointF, path: QPainterPath):
         """Creates visuals of a *random* 4-bar linkage somewhat related to the path start."""
@@ -1563,17 +1593,19 @@ class AutomataDesigner(QMainWindow):
             logging.debug(f"  Finished traversal. Chain: {chain_names}, Base Fixed: {base_is_fixed}")
 
             # Check if a valid chain ending in a fixed part was found
-            if chain and chain[0].is_fixed:
+            if chain and chain[0].is_fixed: # Check if chain exists and starts with a fixed part
                 # Ensure the identified end effector is indeed the last item
                 if chain[-1] == end_effector_item:
                     chain_name = end_effector_item.part_info.name
                     self.kinematic_chains[chain_name] = chain
-                    built_chains_count += 1
-                    logging.info(f"Built chain for '{chain_name}': {[item.part_info.name for item in chain]}")
-                else:
-                    logging.warning(f"Chain found for part '{end_effector_item.part_info.name}', but it wasn't the end effector? Chain: {[item.part_info.name for item in chain]}")
-            elif end_effector_item: # Only warn if we started with a valid item
-                logging.warning(f"Kinematic chain for '{end_effector_item.part_info.name}' does not end in a fixed part or is invalid. Discarding.")
+                    built_chains_count += 1 # Correct indentation
+                    logging.info(f"Built chain for '{chain_name}': {[item.part_info.name for item in chain]}") # Correct indentation
+            else:
+                     logging.warning(f"Chain found for part '{end_effector_item.part_info.name}', but it wasn't the end effector? Chain: {[item.part_info.name for item in chain]}")
+            # This elif corresponds to the outer 'if chain and chain[0].is_fixed:'
+            # It handles cases where chain traversal finished but didn't find a valid fixed base
+            elif end_effector_item: # Correct indentation for elif block
+                logging.warning(f"Kinematic chain for '{end_effector_item.part_info.name}' does not end in a fixed part or is invalid. Discarding.") # Correct indentation for logging line
 
         if built_chains_count > 0:
             self.statusBar().showMessage(f"Built {built_chains_count} kinematic chain(s). Ready for simulation.")
@@ -1592,7 +1624,7 @@ class AutomataDesigner(QMainWindow):
             if not self.kinematic_chains:
                  # build_kinematic_chains already showed a message
                 self.statusBar().showMessage("Cannot start simulation: No valid kinematic chains found.")
-                return
+                return # Correct indentation
 
         logging.info("Starting IK-based simulation...")
         # Ensure simulation mode is set in view (disables direct interaction)

@@ -146,6 +146,7 @@ LIGHT_STYLE = """
     }
      QLineEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {
           border-color: #a7c7e7; /* Pastel blue focus */
+          box-shadow: 0 0 0 0.2rem rgba(167, 199, 231, 0.3); /* Subtle glow */
      }
      QLineEdit:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
          background-color: #f8fafd;
