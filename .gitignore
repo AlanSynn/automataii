@@ -323,3 +323,6 @@ tbd/
 
 examples/peppa/character_data/
 examples/peppa/body_parts_output/
+
+.cursor/
+.cursorignore
