@@ -123,7 +123,10 @@ def animate_mechanisms(mechanisms: List[Dict[str, Any]], title: str, output_dir:
 
 def main():
     parser = argparse.ArgumentParser(description="Generate and visualize mechanism animations.")
-    parser.add_argument("--output_dir",type=str, default=os.path.join(os.path.dirname(__file__), "..", "generated_mechanisms", "animations"))
+    from .utils.paths import get_project_root
+    project_root = get_project_root()
+    default_output = project_root / "generated_mechanisms" / "animations"
+    parser.add_argument("--output_dir",type=str, default=str(default_output))
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
