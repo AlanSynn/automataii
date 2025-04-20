@@ -463,8 +463,10 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
 
 def main():
     parser = argparse.ArgumentParser(description="Generate and visualize mechanism datasets.")
-    base_dir = os.path.join(os.path.dirname(__file__), "..", "..", "generated_mechanisms")
-    parser.add_argument("--output_dir", type=str, default=os.path.join(base_dir, "animations"))
+    from automataii.utils.paths import get_project_root
+    project_root = get_project_root()
+    base_dir = project_root / "generated_mechanisms"
+    parser.add_argument("--output_dir", type=str, default=str(base_dir / "animations"))
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
     print("\n=== Mechanism Animation and Dataset Generator ===\n")
@@ -484,8 +486,9 @@ def main():
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dataset_filename = f"generated_mechanism_paths_{timestamp}.json"
-    dataset_path = os.path.join(os.path.dirname(__file__), "..", "kinematics", dataset_filename)
-    os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
+    kinematics_dir = project_root / "src" / "automataii" / "kinematics"
+    dataset_path = kinematics_dir / dataset_filename
+    dataset_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"\nCreating new dataset with {len(all_mechanisms_data)} mechanisms at: {dataset_path}")
     try:
         with open(dataset_path, 'w') as f:
