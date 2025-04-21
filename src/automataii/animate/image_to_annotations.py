@@ -21,7 +21,8 @@ except ImportError:
     ort = None
     logging.warning("ONNXRuntime not available. Install with: pip install onnxruntime")
 
-from ..utils.paths import get_session_temp_dir
+from automataii.utils.paths import get_session_temp_dir, resolve_path
+from automataii.utils.model_downloader import ModelDownloader
 
 
 class AnnotationResults(TypedDict):
@@ -47,9 +48,8 @@ class ONNXImageProcessor:
         self.detector_session = None
         self.pose_session = None
 
-        # Default model paths relative to package
-        pkg_dir = Path(__file__).parent.parent.parent.parent
-        models_dir = pkg_dir / "models"
+        # resolve_path를 사용하여 개발 및 번들 환경 모두에서 모델 경로를 찾습니다.
+        models_dir = resolve_path("models")
 
         if detector_onnx is None:
             detector_onnx = models_dir / "onnx" / "detector_backbone.onnx"
@@ -62,9 +62,12 @@ class ONNXImageProcessor:
         self._load_models()
 
     def _load_models(self):
-        """Load ONNX models"""
+        """Load ONNX models, downloading if necessary"""
         if not ort:
             raise ImportError("ONNXRuntime required. Install with: pip install onnxruntime")
+
+        # Initialize model downloader for large model files
+        downloader = ModelDownloader()
 
         # Load detector
         if self.detector_path.exists():
@@ -75,6 +78,8 @@ class ONNXImageProcessor:
                 logging.warning(f"Failed to load detector: {e}")
         else:
             logging.warning(f"Detector model not found: {self.detector_path}")
+            # Note: ONNX models are included in the build, so this shouldn't happen
+            # But if it does, we could implement download logic here
 
         # Load pose model
         if self.pose_path.exists():
@@ -85,6 +90,26 @@ class ONNXImageProcessor:
                 logging.warning(f"Failed to load pose model: {e}")
         else:
             logging.warning(f"Pose model not found: {self.pose_path}")
+            # Note: ONNX models are included in the build, so this shouldn't happen
+
+        # Check if we need any PyTorch models (which are excluded from build)
+        weights_dir = self.detector_path.parent.parent / "weights"
+        if weights_dir.exists():
+            # Check for PyTorch models and download if needed
+            pytorch_models = ["detector_latest.pth", "pose_best_AP_epoch_72.pth"]
+            for model_name in pytorch_models:
+                model_path = weights_dir / model_name
+                if not model_path.exists():
+                    logging.info(f"PyTorch model {model_name} not found locally")
+                    try:
+                        # Try to download large PyTorch models on-demand
+                        downloaded_path = downloader.download_model(model_name)
+                        if downloaded_path:
+                            logging.info(f"Downloaded {model_name} to {downloaded_path}")
+                        else:
+                            logging.warning(f"Could not download {model_name}")
+                    except Exception as e:
+                        logging.warning(f"Failed to download {model_name}: {e}")
 
     def preprocess_for_detection(self, image):
         """Preprocess image for detection - Exact MMDetection pipeline"""

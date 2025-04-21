@@ -5,7 +5,7 @@ import numpy as np
 import os
 import logging
 from scipy.ndimage import distance_transform_edt
-from .arap import ARAP
+from automataii.animate.arap import ARAP
 
 
 def deform_body_part(part_image, part_mask, control_points, target_points):

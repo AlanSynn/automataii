@@ -15,10 +15,10 @@ from collections import defaultdict
 import random
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-from .body_parts_animation import animate_body_part, save_animation
-from .part_definitions import BODY_PARTS
-from .templates import HTML_VIEWER_TEMPLATE, PART_CARD_TEMPLATE
-from ..utils.image_utils import save_image
+from automataii.animate.body_parts_animation import animate_body_part, save_animation
+from automataii.animate.part_definitions import BODY_PARTS
+from automataii.animate.templates import HTML_VIEWER_TEMPLATE, PART_CARD_TEMPLATE
+from automataii.utils.image_utils import save_image
 
 
 class FastSkeletonSegmenter:
