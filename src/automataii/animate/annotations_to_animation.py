@@ -76,7 +76,9 @@ def annotations_to_animation(
 
 
 if __name__ == "__main__":
-    log_dir = Path("./logs")
+    from ..utils.paths import get_project_root
+    project_root = get_project_root()
+    log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True, parents=True)
     logging.basicConfig(filename=f"{log_dir}/log.txt", level=logging.DEBUG)
 
