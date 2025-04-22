@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 from datetime import datetime
 
-from ..container import Injectable
+from automataii.core.container import Injectable
 from .project_format import AtiiProject
 
 

@@ -66,7 +66,7 @@ except ImportError:
             def blue(self): return self._b
             def alpha(self): return self._a
 
-from ..serialization.base import Serializable
+from automataii.core.serialization.base import Serializable
 
 
 class SerializationFormat(Enum):

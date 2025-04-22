@@ -10,7 +10,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QPointF
 from pydantic import ValidationError
 
 # Import the new standardized models
-from .models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
+from automataii.core.models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
 
 # Define a structure for standardized joint info if needed, or use Dicts for now
 # For example:
