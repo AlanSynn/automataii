@@ -16,8 +16,8 @@ from pydantic import (
 )
 
 # Import runtime PartInfo and Pydantic models
-from .models import PartInfo  # Runtime PartInfo class
-from .models_pydantic import (
+from automataii.core.models import PartInfo  # Runtime PartInfo class
+from automataii.core.models_pydantic import (
     ProjectFileModel as PydanticProjectFileModel,
     CharacterDataModel as PydanticCharacterDataModel,
     PartInfoModel as PydanticPartInfoModel,
@@ -543,13 +543,15 @@ if __name__ == "__main__":
             ],
         }
     }
-    dummy_filepath = "./dummy_project_pydantic.json"
+    from ..utils.paths import get_project_root
+    project_root = get_project_root()
+    dummy_filepath = project_root / "dummy_project_pydantic.json"
     with open(dummy_filepath, "w") as f:
         json.dump(dummy_parts_info_content, f, indent=4)
 
     # Test with an invalid file (e.g. missing character key)
     invalid_dummy_content = {"char": {}}
-    invalid_filepath = "./invalid_project_pydantic.json"
+    invalid_filepath = project_root / "invalid_project_pydantic.json"
     with open(invalid_filepath, "w") as f:
         json.dump(invalid_dummy_content, f, indent=4)
 
@@ -591,7 +593,7 @@ if __name__ == "__main__":
 
     # Test saving
     if manager._validated_project_data:  # Check if data loaded successfully
-        save_test_path = "./dummy_project_pydantic_saved.json"
+        save_test_path = project_root / "dummy_project_pydantic_saved.json"
         logging.info(f"--- PYDANTIC TEST: Saving to {save_test_path} ---")
         manager.save_project_to_file(save_test_path)
         # Try loading the saved file

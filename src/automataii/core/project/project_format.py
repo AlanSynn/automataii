@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 
-from ..serialization.base import Serializable
-from ..events import EventBus, get_global_event_bus
-from ..events.base import ProjectLoaded, ProjectSaved
+from automataii.core.serialization.base import Serializable
+from automataii.core.events import EventBus, get_global_event_bus
+from automataii.core.events.base import ProjectLoaded, ProjectSaved
 
 
 @dataclass

@@ -11,9 +11,9 @@ from datetime import datetime, timedelta
 import logging
 import weakref
 
-from ..container import Injectable
-from ..events import EventBus, get_global_event_bus
-from ..events.base import (
+from automataii.core.container import Injectable
+from automataii.core.events import EventBus, get_global_event_bus
+from automataii.core.events.base import (
     ProjectLoaded, ProjectSaved, ProjectCreated, ProjectClosed,
     AutoSaveTriggered, ProjectModified
 )

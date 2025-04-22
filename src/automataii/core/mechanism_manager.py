@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 from PyQt6.QtCore import QObject, pyqtSignal, QPointF
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsItem
 
-from .models import PartInfo  # Assuming PartInfo is in core.models
+from automataii.core.models import PartInfo  # Assuming PartInfo is in core.models
 
 
 class MechanismManager(QObject):
