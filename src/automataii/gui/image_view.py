@@ -12,9 +12,9 @@ from PyQt6.QtCore import Qt, QPointF, QLineF, QEvent, QRectF
 from typing import Optional, Dict, Any
 from PyQt6.QtWidgets import QApplication
 
-from ..core.models import PartInfo
-from .graphics_items.part_item import CharacterPartItem  # UPDATED
-from .widgets.view_controls import HoverViewControls
+from automataii.core.models import PartInfo
+from automataii.gui.graphics_items.part_item import CharacterPartItem  # UPDATED
+from automataii.gui.widgets.view_controls import HoverViewControls
 
 # from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED # Commented out
 

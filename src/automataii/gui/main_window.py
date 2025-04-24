@@ -21,36 +21,36 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
 # Local imports (adjust paths as needed)
-from .views.editor_view import EditorView  # ADD THIS IMPORT
-from .graphics_items.part_item import CharacterPartItem
-from ..utils.styling import LIGHT_STYLE, DARK_STYLE
+from automataii.gui.views.editor_view import EditorView  # ADD THIS IMPORT
+from automataii.gui.graphics_items.part_item import CharacterPartItem
+from automataii.utils.styling import LIGHT_STYLE, DARK_STYLE
 
-from ..core.models import PartInfo  # ProjectFileModel is in models_pydantic
-from ..core.models_pydantic import (
+from automataii.core.models import PartInfo  # ProjectFileModel is in models_pydantic
+from automataii.core.models_pydantic import (
     ProjectFileModel,
 )  # Added ProjectFileModel from correct location
 
 # Import new tab modules
-from .tabs.landing_tab import LandingTab
-from .tabs.image_processing_tab import ImageProcessingTab
-from .tabs.editor_tab import EditorTab
-from .tabs.mechanism_design_tab import MechanismDesignTab
-from .tabs.options_tab import OptionsTab
+from automataii.gui.tabs.landing_tab import LandingTab
+from automataii.gui.tabs.image_processing_tab import ImageProcessingTab
+from automataii.gui.tabs.editor_tab import EditorTab
+from automataii.gui.tabs.mechanism_design_tab import MechanismDesignTab
+from automataii.gui.tabs.options_tab import OptionsTab
 
 # Import ActionManager for centralized action management
-from .actions.action_manager import ActionManager
+from automataii.gui.actions.action_manager import ActionManager
 
 # Import SkeletonManager
-from ..core.skeleton_manager import SkeletonManager
+from automataii.core.skeleton_manager import SkeletonManager
 
 # Import IKManager
-from ..kinematics.ik_manager import IKManager
+from automataii.kinematics.ik_manager import IKManager
 
 # Import ProjectDataManager
-from ..core.project_data_manager import ProjectDataManager
+from automataii.core.project_data_manager import ProjectDataManager
 
 # Import MechanismManager
-from ..core.mechanism_manager import MechanismManager
+from automataii.core.mechanism_manager import MechanismManager
 
 
 # from qframelesswindow import FramelessMainWindow
@@ -72,6 +72,9 @@ class AutomataDesigner(QMainWindow):
         self.resize(1200, 680)
         self.setMinimumHeight(600)
         logging.info("Initializing AutomataDesigner...")
+
+        # Initialize updater (will be set from main)
+        self.updater = None
 
         # Create action manager for centralized action management
         self.action_manager = ActionManager(self)
@@ -161,6 +164,26 @@ class AutomataDesigner(QMainWindow):
 
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
+    
+    def set_updater(self, updater):
+        """Set the auto-updater instance"""
+        self.updater = updater
+        logging.info("Auto-updater set in main window")
+        
+        # Update the action manager with updater
+        if hasattr(self.action_manager, 'set_updater'):
+            self.action_manager.set_updater(updater)
+    
+    def check_for_updates(self):
+        """Check for updates manually"""
+        if self.updater:
+            self.updater.check_for_updates(show_ui=True)
+        else:
+            QMessageBox.information(
+                self,
+                "Updates",
+                "Auto-updater is not available on this platform."
+            )
 
     # --- UI Initialization ---
 

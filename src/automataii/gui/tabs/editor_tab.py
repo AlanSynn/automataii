@@ -20,9 +20,9 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QBrush, QPainterPath, QColor
 
-from ..views.editor_view import EditorView
+from automataii.gui.views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene
-from ..graphics_items.part_item import CharacterPartItem
+from automataii.gui.graphics_items.part_item import CharacterPartItem
 from automataii.core.models import PartInfo
 
 

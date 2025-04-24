@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QPointF
 
-from ..views.editor_view import EditorView
-from ...core.models_pydantic import (
+from automataii.gui.views.editor_view import EditorView
+from automataii.core.models_pydantic import (
     MechanismModel,
     PartModel,
     LinkageMechanismModel,

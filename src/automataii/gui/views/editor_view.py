@@ -25,12 +25,12 @@ from PyQt6.QtCore import (
 )
 from typing import Optional, Dict, List, Any, Tuple
 
-from ..graphics_items.part_item import CharacterPartItem  # UPDATED
-from ..graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
-from ..widgets.view_controls import HoverViewControls
+from automataii.gui.graphics_items.part_item import CharacterPartItem  # UPDATED
+from automataii.gui.graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
+from automataii.gui.widgets.view_controls import HoverViewControls
 
 # from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
-from ...config.z_indices import (
+from automataii.config.z_indices import (
     Z_MOTION_PATH_PREVIEW,
     Z_SKELETON_OVERLAY,
 )  # Added Z_SKELETON_OVERLAY

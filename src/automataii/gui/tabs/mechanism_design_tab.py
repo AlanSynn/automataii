@@ -25,7 +25,7 @@ from PyQt6.QtCore import pyqtSignal, QPointF, Qt, QTimer, QLineF
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QPainterPath, QPen, QColor, QBrush, QPolygonF
 
-from ..views.editor_view import EditorView
+from automataii.gui.views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem, QGraphicsPolygonItem
 from automataii.core.models import PartInfo
 from automataii.kinematics.mechanism import (
@@ -33,13 +33,13 @@ from automataii.kinematics.mechanism import (
 )
 from automataii.kinematics.motion_database import MotionDatabase
 from automataii.kinematics.mechanism_simulator import MechanismSimulator
-from ..graphics_items.part_item import CharacterPartItem
+from automataii.gui.graphics_items.part_item import CharacterPartItem
 
-from ..dialogs.recommendation_dialog import (
+from automataii.gui.dialogs.recommendation_dialog import (
     MechanismRecommendationDialog,
     qpainterpath_to_numpy_array,
 )
-from .mechanism_design_utils import (
+from automataii.gui.tabs.mechanism_design_utils import (
     qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
     convert_json_params_to_internal
 )
