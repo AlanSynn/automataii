@@ -19,6 +19,8 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPalette, QCursor
 from PyQt6.QtSvg import QSvgRenderer
 
+from automataii.utils.paths import resolve_path, get_project_root
+
 
 class ExampleImageWidget(QFrame):
     """Widget displaying a single example image that can be clicked."""
@@ -135,9 +137,14 @@ class LandingTab(QWidget):
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
+
+        # Use resolve_path to find examples directory in both development and bundled environments
         self.example_dirs = [
-            Path(__file__).parent.parent.parent.parent.parent / "src" / "examples",
+            resolve_path("src/examples"),
+            # Add fallback paths if needed
+            get_project_root() / "src" / "examples",
         ]
+
         self.image_widgets: List[ExampleImageWidget] = []
         self._init_ui()
         self._load_example_images()
@@ -287,16 +294,19 @@ class LandingTab(QWidget):
 
         for example_dir in self.example_dirs:
             if example_dir.exists():
+                logging.info(f"Looking for example images in: {example_dir}")
                 for format_pattern in supported_formats:
                     # Get direct images in examples directory
                     for img_path in example_dir.glob(format_pattern):
                         if img_path.is_file():
                             image_paths.append(img_path)
+                            logging.debug(f"Found example image: {img_path}")
 
                     # Also check one level deep for character folders
                     for img_path in example_dir.glob(f"*/{format_pattern}"):
                         if img_path.is_file() and "character_data" not in str(img_path):
                             image_paths.append(img_path)
+                            logging.debug(f"Found example image in subfolder: {img_path}")
 
         # Remove duplicates and sort
         image_paths = sorted(list(set(image_paths)))
@@ -304,6 +314,7 @@ class LandingTab(QWidget):
         if not image_paths:
             self.status_label.setText("No example images found")
             self.status_label.setVisible(True)
+            logging.warning("No example images found in any of the example directories")
             return
         else:
             self.status_label.setVisible(False)

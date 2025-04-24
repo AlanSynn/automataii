@@ -28,6 +28,7 @@ class ActionManager(QObject):
         super().__init__(parent)
         self.parent = parent
         self.actions: Dict[str, QAction] = {}
+        self.updater = None
         self._initialize_actions()
 
     def _initialize_actions(self):
@@ -118,6 +119,13 @@ class ActionManager(QObject):
             text="&About...",
             tooltip="Show information about the application",
             status_tip="Show information about the application",
+        )
+        
+        self.create_action(
+            action_id="check_updates",
+            text="Check for &Updates...",
+            tooltip="Check for application updates",
+            status_tip="Check for application updates",
         )
 
         # Toolbar-specific actions (placeholders)
@@ -300,6 +308,8 @@ class ActionManager(QObject):
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
+        help_menu.addAction(self.get_action("check_updates"))
+        help_menu.addSeparator()
         help_menu.addAction(self.get_action("about"))
 
         # Initially disable project-specific actions
@@ -321,11 +331,11 @@ class ActionManager(QObject):
 
         for action_id in project_dependent_actions:
             self.set_action_enabled(action_id, project_loaded)
-
-        # Actions that are always enabled (or managed elsewhere)
-        # self.set_action_enabled("load_parts", True)
-        # self.set_action_enabled("new_project", True)
-        # self.set_action_enabled("exit", True)
-        logging.debug(
-            f"ActionManager: Updated project-dependent actions enabled state to: {project_loaded}"
-        )
+    
+    def set_updater(self, updater):
+        """Set the auto-updater and connect the update action"""
+        self.updater = updater
+        
+        # Connect the check_updates action to the main window's check method
+        if hasattr(self.parent, 'check_for_updates'):
+            self.connect_action("check_updates", self.parent.check_for_updates)
