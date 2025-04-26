@@ -11,8 +11,8 @@ from automataii.kinematics.mechanism import (
     PrecomputedMotionEntry,
     MechanismCandidate,
 )
-from .mechanism_simulator import MechanismSimulator
-from .curve_similarity import CurveSimilarity
+from automataii.kinematics.mechanism_simulator import MechanismSimulator
+from automataii.kinematics.curve_similarity import CurveSimilarity
 
 
 class MotionDatabase:

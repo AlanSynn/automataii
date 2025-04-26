@@ -20,12 +20,12 @@ from PyQt6.QtGui import QTransform, QPainterPath
 # Assuming StandardizedSkeletonModel and StandardizedJointModel are now the primary way
 # SkeletonManager provides data, even if it's as a dictionary dump.
 # IKManager will need to understand this structure.
-from ..core.models_skeleton import (
+from automataii.core.models_skeleton import (
     StandardizedSkeletonModel,
     StandardizedJointModel,
 )  # For type hinting if directly using models
-from ..core.models import PartInfo  # For PartInfo type hint
-from ..gui.graphics_items.part_item import (
+from automataii.core.models import PartInfo  # For PartInfo type hint
+from automataii.gui.graphics_items.part_item import (
     CharacterPartItem,
 )  # For CharacterPartItem type hint
 
