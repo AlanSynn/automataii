@@ -1,28 +1,65 @@
 import cv2
 import numpy as np
 import onnxruntime as ort
+import logging
 from pathlib import Path
+from typing import Union, Optional
+
+from automataii.utils.paths import resolve_path
+
+logger = logging.getLogger(__name__)
 
 class InferenceService:
-    def __init__(self, model_dir: Path):
+    def __init__(self, model_dir: Union[str, Path], providers=None):
         """
         Initializes the ONNX inference service.
 
         Args:
             model_dir: Path to the directory containing 'detector.onnx' and 'pose.onnx'.
+            providers: ONNX Runtime execution providers (default: ['CPUExecutionProvider'])
         """
-        detector_path = model_dir / "detector.onnx"
-        pose_path = model_dir / "pose.onnx"
+        if providers is None:
+            providers = ['CPUExecutionProvider']
+
+        # Resolve the model directory path using the utility function
+        if isinstance(model_dir, str):
+            model_dir = Path(model_dir)
+
+        # Try to resolve paths in different ways to handle both development and bundled environments
+        resolved_model_dir = resolve_path(model_dir)
+        detector_path = resolved_model_dir / "detector.onnx"
+        pose_path = resolved_model_dir / "pose.onnx"
+
+        # Fallback to detector_backbone.onnx if detector.onnx doesn't exist
+        if not detector_path.exists():
+            detector_path = resolved_model_dir / "detector_backbone.onnx"
+
+        # Fallback to pose_model.onnx if pose.onnx doesn't exist
+        if not pose_path.exists():
+            pose_path = resolved_model_dir / "pose_model.onnx"
+
+        logger.info(f"Looking for ONNX models in: {resolved_model_dir}")
+        logger.info(f"Detector path: {detector_path} (exists: {detector_path.exists()})")
+        logger.info(f"Pose path: {pose_path} (exists: {pose_path.exists()})")
 
         if not detector_path.exists() or not pose_path.exists():
             raise FileNotFoundError(
-                f"ONNX models not found in {model_dir}. "
-                "Please run the 'tools/export_to_onnx.sh' script first."
+                f"ONNX models not found in {resolved_model_dir}. "
+                "Please ensure the models are in the correct location."
             )
 
         # Create inference sessions
-        self.detector_session = ort.InferenceSession(str(detector_path))
-        self.pose_session = ort.InferenceSession(str(pose_path))
+        try:
+            logger.info(f"Creating detector session with providers: {providers}")
+            self.detector_session = ort.InferenceSession(str(detector_path), providers=providers)
+
+            logger.info(f"Creating pose session with providers: {providers}")
+            self.pose_session = ort.InferenceSession(str(pose_path), providers=providers)
+
+            logger.info("ONNX sessions created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create ONNX sessions: {e}")
+            raise
 
         # Get input details
         self.detector_input_name = self.detector_session.get_inputs()[0].name
@@ -30,6 +67,9 @@ class InferenceService:
 
         self.pose_input_name = self.pose_session.get_inputs()[0].name
         self.pose_input_shape = self.pose_session.get_inputs()[0].shape[2:]  # (height, width)
+
+        logger.info(f"Detector input shape: {self.detector_input_shape}")
+        logger.info(f"Pose input shape: {self.pose_input_shape}")
 
     def _preprocess_image(self, image: np.ndarray, target_shape: tuple) -> np.ndarray:
         """
@@ -68,7 +108,7 @@ class InferenceService:
         # Post-processing will be required here to decode the model output
         # into bounding boxes, scores, and labels. This is highly model-specific.
         # Example: bboxes = self._postprocess_detection(outputs)
-        print("Detector output shape:", [o.shape for o in outputs])
+        logger.debug("Detector output shape:", [o.shape for o in outputs])
         return outputs # Returning raw output for now
 
     def run_pose_estimation(self, image: np.ndarray, bboxes: list) -> list:
@@ -95,17 +135,23 @@ class InferenceService:
             outputs = self.pose_session.run(None, {self.pose_input_name: input_tensor})
 
             # Post-processing is needed to convert output into keypoints.
-            print("Pose output shape:", [o.shape for o in outputs])
+            logger.debug("Pose output shape:", [o.shape for o in outputs])
             all_poses.append(outputs)
 
         return all_poses
 
 # Example usage (for testing)
 if __name__ == '__main__':
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+
     # This assumes you have run the export script and have the onnx models
     # and a sample image file.
     try:
-        models_path = Path(__file__).parent.parent / "models" / "onnx"
+        # Use resolve_path to find the models directory
+        models_path = resolve_path("models/onnx")
+        logger.info(f"Using models path: {models_path}")
+
         service = InferenceService(models_path)
 
         sample_image_path = "peppa_pig.jpg" # A placeholder, use a real image path
@@ -120,7 +166,9 @@ if __name__ == '__main__':
             # poses = service.run_pose_estimation(img, mock_bboxes)
             # print("Pose estimation complete.")
         else:
-            print(f"Sample image not found at {sample_image_path}, skipping example run.")
+            logger.info(f"Sample image not found at {sample_image_path}, skipping example run.")
 
     except FileNotFoundError as e:
-        print(e)
+        logger.error(f"Error: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
