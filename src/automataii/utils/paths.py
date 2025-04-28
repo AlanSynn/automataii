@@ -3,7 +3,9 @@ from pathlib import Path
 import shutil
 import logging
 import uuid
-from typing import Optional
+import sys
+import os
+from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -11,12 +13,26 @@ logger = logging.getLogger(__name__)
 def get_project_root() -> Path:
     """Get the project root directory"""
     # Start from this file and go up to find the project root
-    current_path = Path(__file__).parent
+    current_path = Path(__file__).parent.resolve()
+
+    # Try to find the project root by looking for src/automataii structure
     while current_path.parent != current_path:
         if (current_path / "src" / "automataii").exists():
             return current_path
         current_path = current_path.parent
-    
+
+    # Check if we're running from a PyInstaller bundle
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # We're running from a PyInstaller bundle
+        # Try to find project root from the bundle's location
+        bundle_path = Path(sys.executable).parent
+        if bundle_path.name.endswith('.app'):
+            # macOS app bundle - go up to find the project root
+            return bundle_path.parent
+        else:
+            # Windows/Linux executable
+            return bundle_path
+
     # Fallback: return the automataii package directory
     return Path(__file__).parent.parent
 
@@ -90,6 +106,53 @@ def get_session_temp_dir(
     return project_temp_dir
 
 
+def get_base_path() -> Path:
+    """
+    Returns the base path for resource resolution.
+    For a bundled app, this is the _MEIPASS directory.
+    For a regular script, this is the project root.
+
+    Returns:
+        Path: Base path for resource resolution
+    """
+    # Check if we're running from a PyInstaller bundle
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # We're running from a PyInstaller bundle
+        return Path(sys._MEIPASS)
+
+    # Otherwise, use project root
+    return get_project_root()
+
+
+def resolve_path(relative_path: Union[str, Path]) -> Path:
+    """
+    Resolves a relative path to an absolute path, correctly handling
+    both bundled and development environments.
+
+    This function is critical for finding resources (models, images, etc.)
+    regardless of whether the app is run from source or as a bundled app.
+
+    Args:
+        relative_path (Union[str, Path]): A path relative to the project root
+                                         (e.g., "models/onnx/pose_model.onnx")
+
+    Returns:
+        Path: An absolute Path object pointing to the resource
+    """
+    base_path = get_base_path()
+
+    # Convert to Path if it's a string
+    if isinstance(relative_path, str):
+        relative_path = Path(relative_path)
+
+    resolved_path = base_path / relative_path
+
+    # Log the resolved path at debug level
+    logger.debug(f"Resolved path '{relative_path}' to '{resolved_path}'")
+
+    return resolved_path
+
+
 if __name__ == "__main__":
     # Configure logging for testing
     logging.basicConfig(level=logging.DEBUG)
@@ -129,5 +192,10 @@ if __name__ == "__main__":
     print(f"Session temp dir 4 (problem_id sanitized): {session_dir4}")
     assert session_dir4.exists()
     assert session_dir4.name != problem_id  # Name should be sanitized
+
+    # Test resolve_path
+    print(f"Base path: {get_base_path()}")
+    test_path = resolve_path("models/onnx/test.onnx")
+    print(f"Resolved path: {test_path}")
 
     print("Path utility tests completed.")

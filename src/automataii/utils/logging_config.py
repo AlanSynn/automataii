@@ -13,7 +13,9 @@ def setup_logging(console_log_level: int = logging.INFO):
                                  Defaults to logging.INFO.
     """
     # Create logs directory if it doesn't exist
-    log_dir = Path("./logs")  # Consider making this path configurable or user-specific
+    from .paths import get_project_root
+    project_root = get_project_root()
+    log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True, parents=True)
 
     # Configure file handler (always DEBUG)
