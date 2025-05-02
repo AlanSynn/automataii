@@ -1,7 +1,7 @@
 """Module for generating gear mechanisms."""
 import logging
 import math
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from PyQt6.QtCore import QPointF, QLineF
 from PyQt6.QtGui import QPainterPath
 
@@ -9,130 +9,132 @@ from PyQt6.QtGui import QPainterPath
 # from ...core.models import Gear, etc.
 
 def generate_gear_pair(
-    driver_motion_path: Optional[QPainterPath] = None, # Motion of the driving element
-    driver_center: Optional[QPointF] = None,      # Center of the driver gear
-    driven_center: Optional[QPointF] = None,      # Center of the driven gear
-    gear_ratio: float = 1.0,                   # Ratio of driven gear speed to driver gear speed
-    # Could also take desired output path, number of teeth, module, etc.
-) -> Optional[Dict]:
+    center_pos: QPointF = QPointF(0,0), # Center of the first gear, or midpoint between gears
+    r1: float = 30.0,
+    r2: float = 20.0,
+    num_teeth1: Optional[int] = None,
+    num_teeth2: Optional[int] = None,
+    gear_distance_offset: float = 0, # Additional distance between gear centers beyond r1+r2
+    angle_deg1: float = 0 # Initial angle of gear1 (for drawing teeth)
+) -> Optional[Dict[str, Any]]:
     """
-    Generates a simple pair of spur gears.
+    Generates data for a pair of simple spur gears.
 
     Args:
-        driver_motion_path: Optional motion path of the driver component.
-        driver_center: The center point of the driver gear (scene coordinates).
-        driven_center: The center point of the driven gear (scene coordinates).
-        gear_ratio: The desired gear ratio (driven_speed / driver_speed).
-                  A ratio > 1 means driven gear is smaller/faster.
-                  A ratio < 1 means driven gear is larger/slower.
+        center_pos: QPointF, reference position. If only one gear, its center.
+                      If two, can be gear1's center or a reference for placing both.
+        r1: Radius of the first gear.
+        r2: Radius of the second gear. If 0 or None, only one gear is generated.
+        num_teeth1: Number of teeth for gear 1. If None, estimated from radius.
+        num_teeth2: Number of teeth for gear 2. If None, estimated from radius.
+        gear_distance_offset: Additional distance to add between gear centers (r1+r2 + offset).
+        angle_deg1: Initial rotation angle for gear 1 (affects tooth phase).
 
     Returns:
-        A dictionary containing the gear data (centers, radii, paths, etc.)
-        for visualization, or None if generation failed.
-        Example structure:
-        {
-            "type": "gear_pair",
-            "driver_gear": {
-                "center": QPointF,
-                "radius": float,
-                "path": QPainterPath, # Outline of the gear
-                "teeth": int
-            },
-            "driven_gear": {
-                "center": QPointF,
-                "radius": float,
-                "path": QPainterPath,
-                "teeth": int
-            },
-            "gear_ratio": float
-        }
+        A dictionary containing gear data, or None if inputs are invalid.
+        Structure includes a list of gear dictionaries, each with center, radius, teeth, etc.
     """
-    logging.info(f"Attempting to generate gear pair. Ratio: {gear_ratio}")
-
-    if driver_center is None or driven_center is None:
-        logging.warning("Driver or driven gear center is not specified.")
+    if r1 <= 0:
         return None
 
-    # --- Placeholder Implementation ---
-    # This is a very simplified placeholder.
-    # Actual gear design involves pitch circle, addendum, dedendum, tooth profile (e.g., involute).
+    gears_data_list = []
 
-    # Simplistic radius calculation based on distance and ratio
-    # This doesn't guarantee proper meshing or realistic sizes without more constraints.
-    distance_centers = QLineF(driver_center, driven_center).length()
-    if distance_centers <= 0:
-        logging.warning("Gear centers are coincident or invalid.")
-        return None
+    # Estimate number of teeth if not provided (e.g., 1 tooth per 5-10 units of circumference)
+    # Module (m) = Diameter / NumTeeth. Or NumTeeth = Pi * Diameter / (Pi * m)
+    # Let's assume a default module or tooth size for estimation.
+    # Pitch = Pi * Module. Roughly, tooth width ~ Pitch / 2.
+    # Let tooth width be ~5-10 units. So, Circumference / (tooth_width * 2) = NumTeeth
+    default_tooth_pitch_approx = 15 # Approximate pitch (circumferential distance per tooth)
 
-    # driver_radius + driven_radius = distance_centers
-    # driver_radius / driven_radius = gear_ratio (if ratio is defined as driver_size/driven_size)
-    # Or, if ratio = driven_speed / driver_speed, then driver_radius / driven_radius = 1 / gear_ratio
-    # Let's assume gear_ratio = N_driver / N_driven = R_driver / R_driven for simplicity of radius calc
-    # If ratio is speed_driven/speed_driver, then R_driver / R_driven = speed_driven / speed_driver = gear_ratio.
-    # So, R_driver = gear_ratio * R_driven.
-    # (gear_ratio * R_driven) + R_driven = distance_centers
-    # R_driven * (gear_ratio + 1) = distance_centers
-    # R_driven = distance_centers / (gear_ratio + 1)
-    # R_driver = distance_centers - R_driven
+    if num_teeth1 is None:
+        num_teeth1 = max(3, int( (2 * math.pi * r1) / default_tooth_pitch_approx ))
 
-    # Re-evaluating based on common definition: gear_ratio = teeth_driven / teeth_driver = radius_driven / radius_driver
-    # So, R_driven = gear_ratio * R_driver
-    # R_driver + R_driven = distance_centers => R_driver + gear_ratio * R_driver = distance_centers
-    # R_driver * (1 + gear_ratio) = distance_centers
+    gear1_center = center_pos
+    gear1_data = {
+        "center": [gear1_center.x(), gear1_center.y()],
+        "radius": r1,
+        "num_teeth": num_teeth1,
+        "tooth_height": r1 * 0.2, # Example, can be calculated from module later
+        "angle_deg": angle_deg1,
+        "name": "Gear 1"
+    }
+    gears_data_list.append(gear1_data)
 
-    if (1 + gear_ratio) == 0: # Avoid division by zero if gear_ratio is -1
-        logging.warning(f"Invalid gear_ratio {gear_ratio} results in division by zero.")
-        return None
+    if r2 > 0: # Generate a second gear
+        if num_teeth2 is None:
+            num_teeth2 = max(3, int( (2 * math.pi * r2) / default_tooth_pitch_approx ))
 
-    driver_radius = distance_centers / (1 + gear_ratio)
-    driven_radius = distance_centers - driver_radius
+        # Position second gear relative to the first
+        # Assume they are meshing externally, typically along x-axis for default placement
+        total_radius_sum = r1 + r2
+        gear2_center_x = gear1_center.x() + total_radius_sum + gear_distance_offset
+        gear2_center_y = gear1_center.y() # Align centers vertically for simple pair
 
-    if driver_radius <= 0 or driven_radius <= 0:
-        logging.warning(f"Calculated non-positive gear radii (R1={driver_radius:.2f}, R2={driven_radius:.2f}) with given ratio and distance.")
-        return None
+        # Angle of gear2: if meshing, teeth should align.
+        # If gear1 rotates by theta, gear2 rotates by -theta * (r1/r2) or -theta * (N1/N2)
+        # For initial alignment, consider the phase. If gear1 has tooth at top (0 deg),
+        # gear2 should have a valley or tooth appropriately. This is complex for exact mesh visuals.
+        # For now, a simple angle offset might be enough for visuals.
+        # If N1 teeth on G1, N2 on G2. Angle per tooth G1 = 360/N1. G2 = 360/N2.
+        # Offset angle for G2 so teeth mesh: (360 / N1) / 2 for G1, then adjust G2.
+        # Or simply angle_deg2 = -angle_deg1 * (r1/r2) or a fixed offset for visual.
+        angle_deg2 = -angle_deg1 * (num_teeth1 / num_teeth2) + (180 / num_teeth2) # Initial phase offset
 
-    # Create simple circular paths for gears
-    driver_path = QPainterPath()
-    driver_path.addEllipse(driver_center, driver_radius, driver_radius)
+        gear2_data = {
+            "center": [gear2_center_x, gear2_center_y],
+            "radius": r2,
+            "num_teeth": num_teeth2,
+            "tooth_height": r2 * 0.2,
+            "angle_deg": angle_deg2,
+            "name": "Gear 2"
+        }
+        gears_data_list.append(gear2_data)
 
-    driven_path = QPainterPath()
-    driven_path.addEllipse(driven_center, driven_radius, driven_radius)
-
-    logging.warning("Gear generation is currently a placeholder (simple circles).")
     return {
-        "type": "gear_pair",
-        "driver_gear": {
-            "center": driver_center,
-            "radius": driver_radius,
-            "path": driver_path,
-            "teeth": 30 # Mock
-        },
-        "driven_gear": {
-            "center": driven_center,
-            "radius": driven_radius,
-            "path": driven_path,
-            "teeth": int(30 * gear_ratio) # Mock, assumes teeth proportional to radius
-        },
-        "gear_ratio": gear_ratio,
-        "message": "Placeholder for gear pair data (simple circles)"
+        "type": "gears",
+        "name": "Generated Gear Pair" if r2 > 0 else "Generated Single Gear",
+        "gears": gears_data_list,
+        "thickness": min(r1, r2 if r2 > 0 else r1) * 0.3 # Example thickness based on smaller gear
     }
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    print("--- Testing Gear Generation ---")
 
-    # Mock data for testing
-    center1 = QPointF(50, 50)
-    center2 = QPointF(150, 50)
-    ratio = 2.0 # Driven gear is twice the size of driver, or driver is twice as fast
+    # Test single gear
+    single_gear = generate_gear_pair(center_pos=QPointF(0,0), r1=50, r2=0)
+    if single_gear:
+        print("\nSingle Gear Data:")
+        for key, value in single_gear.items():
+            if key == "gears":
+                print(f"  {key}:")
+                for i, g_data in enumerate(value):
+                    print(f"    Gear {i+1}: {g_data}")
+            else:
+                print(f"  {key}: {value}")
+    else:
+        print("Failed to generate single gear.")
 
-    print("--- Testing Gear Pair Generation (Placeholder) ---")
-    gear_data = generate_gear_pair(driver_center=center1, driven_center=center2, gear_ratio=ratio)
-    if gear_data:
-        print(f"Generated gear data: {gear_data.get('message')}")
-        print(f"  Driver Radius: {gear_data['driver_gear']['radius']:.2f}, Driven Radius: {gear_data['driven_gear']['radius']:.2f}")
+    # Test gear pair
+    gear_pair_data = generate_gear_pair(center_pos=QPointF(-50, 50), r1=40, r2=25, num_teeth1=20, num_teeth2=12, angle_deg1=15)
+    if gear_pair_data:
+        print("\nGear Pair Data:")
+        for key, value in gear_pair_data.items():
+            if key == "gears":
+                print(f"  {key}:")
+                for i, g_data in enumerate(value):
+                    print(f"    Gear {i+1}: {g_data}")
+            else:
+                print(f"  {key}: {value}")
     else:
         print("Failed to generate gear pair.")
 
-    gear_data_fail = generate_gear_pair(driver_center=center1, driven_center=center1, gear_ratio=1.0)
-    if not gear_data_fail:
-        print("Correctly failed to generate gears with coincident centers.")
+    # Test with default teeth numbers
+    gear_pair_default_teeth = generate_gear_pair(r1=60, r2=30)
+    if gear_pair_default_teeth:
+        print("\nGear Pair (Default Teeth) Data:")
+        g1_info = gear_pair_default_teeth["gears"][0]
+        g2_info = gear_pair_default_teeth["gears"][1]
+        print(f"  Gear 1: Radius={g1_info['radius']}, Teeth={g1_info['num_teeth']}")
+        print(f"  Gear 2: Radius={g2_info['radius']}, Teeth={g2_info['num_teeth']}")
+    else:
+        print("Failed to generate gear pair with default teeth.")

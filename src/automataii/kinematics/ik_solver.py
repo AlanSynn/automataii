@@ -18,131 +18,92 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
         return
 
     end_effector_item = chain[-1]
-    if not end_effector_item.end_effector_offset:
-        logging.warning(f"End effector item {end_effector_item.part_info.name} has no end_effector_offset defined.")
-        return
+    # end_effector_offset is the pivot point of the end effector part itself.
+    # For IK, the target is usually the tip/edge of the end effector, not its pivot.
+    # Let's assume end_effector_offset is the point on the end_effector we want to reach target_pos.
+    # If end_effector_offset is None, we can default to its center or a predefined point.
+    if end_effector_item.end_effector_offset:
+        end_effector_local_pos = end_effector_item.end_effector_offset
+    else:
+        # Default to the center of the end effector item if no specific offset is set.
+        # This might not be ideal for all parts, but provides a fallback.
+        end_effector_local_pos = end_effector_item.boundingRect().center()
+        # logging.warning(f"End effector item {end_effector_item.part_info.name} has no end_effector_offset. Using boundingRec.center() as IK target point on item.")
 
-    end_effector_local_pos = end_effector_item.end_effector_offset
-    num_joints = len(chain) - 1
+    # The number of movable joints is len(chain) - 1.
+    # The items in the chain are indexed 0 (base) to N-1 (end_effector).
+    # The joints are between item[j] and item[j+1].
+    # We iterate from the joint closest to the end effector (N-2 -> N-1)
+    # down to the joint closest to the base (0 -> 1).
+    # So, the parent item whose rotation we modify is chain[j].
 
     for iteration in range(iterations):
-        # Get current global position of end effector
-        # Check if item is still in a scene before mapping
         if not end_effector_item.scene():
-            logging.warning(f"End effector item {end_effector_item.part_info.name} not in scene during IK solve.")
+            logging.warning(f"End effector item {end_effector_item.part_info.name} not in scene at start of IK iteration.")
             return
-        current_pos = end_effector_item.mapToScene(end_effector_local_pos)
-        error = QLineF(current_pos, target_pos).length()
+        current_ee_scene_pos = end_effector_item.mapToScene(end_effector_local_pos)
+        error = QLineF(current_ee_scene_pos, target_pos).length()
 
         if error < tolerance:
             logging.debug(f"IK solved in {iteration+1} iterations, error: {error:.2f}")
             return
 
-        # Iterate through chain from end to root (item closest to end effector first)
-        for i in range(num_joints - 1, -1, -1):
-            # The item controlling the joint is chain[i]
-            # The joint connects chain[i] (parent) to chain[i+1] (child)
-            parent_item = chain[i]
-            child_item = chain[i+1]
+        # Iterate from the item just before the end-effector, down to the base item.
+        # chain[j] is the item whose rotation we are adjusting.
+        # Its anchor point (transformOriginPoint) is the pivot for this adjustment.
+        for j in range(len(chain) - 2, -1, -1): # Iterate from N-2 down to 0
+            current_item_to_rotate = chain[j]
 
-            # Find the correct joint connecting parent to child
-            joint = None
-            for j in parent_item.child_joints:
-                if j.child_item == child_item:
-                    joint = j
-                    break
-
-            if not joint:
-                logging.warning(f"Could not find joint between {parent_item.part_info.name} and {child_item.part_info.name} in chain.")
+            # If the current item is fixed (e.g., torso), skip its rotation.
+            if current_item_to_rotate.is_fixed:
+                logging.debug(f"Skipping rotation for fixed item: {current_item_to_rotate.part_info.name}")
                 continue
 
-            # Get global joint position
-            # Check if parent item is still in scene
-            if not parent_item.scene():
-                 logging.warning(f"Parent item {parent_item.part_info.name} not in scene during IK joint calculation.")
-                 continue
-            joint_global_pos = joint.get_global_pos()
+            # The pivot for rotation is the anchor point of current_item_to_rotate.
+            # In local coords of current_item_to_rotate, this is current_item_to_rotate.anchor_offset
+            # In scene coords, this is current_item_to_rotate.mapToScene(current_item_to_rotate.anchor_offset)
+            pivot_scene_pos = current_item_to_rotate.mapToScene(current_item_to_rotate.anchor_offset)
 
-            # Recalculate current end effector position (it might have changed)
+            # Current end effector position in scene coordinates
+            # This needs to be recalculated inside the loop as previous rotations affect it.
             if not end_effector_item.scene():
                 logging.warning(f"End effector item {end_effector_item.part_info.name} not in scene during IK inner loop.")
-                break # Exit inner loop if end effector removed
-            current_pos = end_effector_item.mapToScene(end_effector_local_pos)
+                break
+            current_ee_scene_pos = end_effector_item.mapToScene(end_effector_local_pos)
 
-            # Vector from joint to current end effector
-            vec_to_current = current_pos - joint_global_pos
-            # Vector from joint to target
-            vec_to_target = target_pos - joint_global_pos
+            vec_pivot_to_ee = current_ee_scene_pos - pivot_scene_pos
+            vec_pivot_to_target = target_pos - pivot_scene_pos
 
-            len_current = vec_to_current.manhattanLength() # Use manhattanLength for efficiency?
-            len_target = vec_to_target.manhattanLength()
+            # Calculate angle between an_to_ef and an_to_target
+            # Using QLineF for angle calculation for simplicity and robustness
+            line_pivot_to_ee = QLineF(pivot_scene_pos, current_ee_scene_pos)
+            line_pivot_to_target = QLineF(pivot_scene_pos, target_pos)
 
-            # Calculate angle difference only if vectors are non-zero
-            if len_current > 1e-6 and len_target > 1e-6:
-                # Normalize vectors
-                norm_current = vec_to_current / math.sqrt(QPointF.dotProduct(vec_to_current, vec_to_current))
-                norm_target = vec_to_target / math.sqrt(QPointF.dotProduct(vec_to_target, vec_to_target))
+            if line_pivot_to_ee.length() < 1e-6 or line_pivot_to_target.length() < 1e-6:
+                continue # Avoid division by zero or unstable calculations
 
-                dot_product = QPointF.dotProduct(norm_current, norm_target)
-                dot_product = max(-1.0, min(1.0, dot_product)) # Clamp for acos stability
+            angle_to_ee_deg = line_pivot_to_ee.angle()
+            angle_to_target_deg = line_pivot_to_target.angle()
 
-                angle_diff_rad = math.acos(dot_product)
+            # angleTo() gives angle in degrees, 0-360. We need the signed shortest angle.
+            angle_diff_deg = angle_to_target_deg - angle_to_ee_deg
 
-                # Determine rotation direction (using cross product Z in 2D)
-                cross_product_z = norm_current.x() * norm_target.y() - norm_current.y() * norm_target.x()
-                if cross_product_z < 0:
-                    angle_diff_rad = -angle_diff_rad # Clockwise rotation
+            # Normalize angle_diff_deg to be between -180 and 180
+            while angle_diff_deg > 180:
+                angle_diff_deg -= 360
+            while angle_diff_deg < -180:
+                angle_diff_deg += 360
 
-                angle_diff_deg = math.degrees(angle_diff_rad)
+            # Clamp rotation to avoid overshooting, e.g. max 30 degrees per step
+            # max_rot_step = 30.0
+            # angle_diff_deg = max(-max_rot_step, min(max_rot_step, angle_diff_deg))
 
-                # --- Apply Rotation around Joint using QTransform --- #
-                # Get the joint position in the parent's local coordinates
-                joint_local_pos = joint.parent_pos
-
-                # Get the current transform of the parent item
-                current_transform = parent_item.transform()
-
-                # Create a new transform that applies the rotation around the local joint point
-                # 1. Translate origin to joint position
-                # 2. Rotate
-                # 3. Translate origin back
-                new_transform = QTransform().translate(joint_local_pos.x(), joint_local_pos.y())\
-                                          .rotate(angle_diff_deg)\
-                                          .translate(-joint_local_pos.x(), -joint_local_pos.y()) \
-                                          * current_transform # Apply rotation ON TOP of current transform
-
-                # TODO: Apply joint angle limits by clamping angle_diff_deg if needed
-
-                # --- Apply Transform only if parent is not the fixed base --- #
-                if i > 0: # chain[0] is the fixed base, don't rotate it
-                    parent_item.setTransform(new_transform)
-                elif i == 0: # Special case for the joint connected to the fixed base
-                    # Apply the rotation to the child item (chain[1]) instead
-                    # We need the transform relative to the child's coordinate system
-                    # This requires careful recalculation or assumptions.
-                    # --- SIMPLIFICATION ATTEMPT: Apply world rotation to child ---
-                    # This is likely NOT mathematically correct for nested rotations,
-                    # but might visually work for a 2-link chain like torso-head.
-                    # Get the joint position in the CHILD's local coordinates
-                    child_joint_local_pos = joint.child_pos
-                    child_current_transform = child_item.transform()
-                    # Transform to apply rotation around child's joint pos
-                    child_new_transform = QTransform().translate(child_joint_local_pos.x(), child_joint_local_pos.y())\
-                                                    .rotate(angle_diff_deg)\
-                                                    .translate(-child_joint_local_pos.x(), -child_joint_local_pos.y()) \
-                                                    * child_current_transform
-                    child_item.setTransform(child_new_transform)
-                    logging.debug(f"Applied rotation to child ({child_item.part_info.name}) for base joint.")
-                # --- End QTransform Rotation --- #
-
-                # --- Important: Update transforms for all items affected by this rotation ---
-                # This requires knowing the hierarchy. If items are parented correctly
-                # in the QGraphicsScene, setting rotation on the parent *should*
-                # automatically update children's scene positions.
-                # If not using scene parenting for kinematics, manual update is needed.
-                # Example (if manual update needed):
-                # for k in range(i + 1, len(chain)):
-                #     chain[k].update_transform_based_on_parent(chain[k-1])
+            # Apply rotation to current_item_to_rotate around its anchor_offset
+            # The CharacterPartItem.setRotation() handles rotation around its transformOriginPoint (anchor_offset)
+            new_rotation = current_item_to_rotate.rotation() + angle_diff_deg
+            # TODO: Apply joint angle limits here by clamping new_rotation if necessary
+            # based on parent/child joint constraints if they exist.
+            current_item_to_rotate.setRotation(new_rotation)
 
     # After all iterations, check final error
     if end_effector_item.scene():

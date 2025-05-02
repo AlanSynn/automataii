@@ -13,6 +13,7 @@ class OptionsTab(QWidget):
     themeChanged = pyqtSignal(str)
     debugModeChanged = pyqtSignal(bool)
     toolbarVisibilityChanged = pyqtSignal(bool)
+    partPropertiesVisibilityChanged = pyqtSignal(bool) # New signal
 
     def __init__(self, initial_anim_duration=0.5, parent=None):
         super().__init__(parent)
@@ -79,6 +80,12 @@ class OptionsTab(QWidget):
         self.show_toolbar_check.setChecked(False)
         appearance_layout.addRow(self.show_toolbar_check)
 
+        # Part Properties Visibility Checkbox
+        self.show_part_properties_check = QCheckBox("Show Part Properties")
+        self.show_part_properties_check.setToolTip("Toggle visibility of the Selected Part Properties panel.")
+        self.show_part_properties_check.setChecked(False) # Hidden by default
+        appearance_layout.addRow(self.show_part_properties_check)
+
         layout.addWidget(appearance_group)
 
         # --- Paths/Defaults Settings ---
@@ -99,6 +106,7 @@ class OptionsTab(QWidget):
         self.theme_dark_check.toggled.connect(self._on_theme_toggled)
         self.debug_mode_check.stateChanged.connect(self.on_debug_mode_changed)
         self.show_toolbar_check.stateChanged.connect(self.on_toolbar_visibility_changed)
+        self.show_part_properties_check.stateChanged.connect(self.on_part_properties_visibility_changed) # Connect new checkbox
 
     def _emit_anim_duration(self):
         """Emits the animation duration when editing is finished."""
@@ -163,3 +171,8 @@ class OptionsTab(QWidget):
         """Internal slot for toolbar visibility checkbox change."""
         is_checked = (state == Qt.CheckState.Checked.value)
         self.toolbarVisibilityChanged.emit(is_checked)
+
+    def on_part_properties_visibility_changed(self, state):
+        """Internal slot for part properties visibility checkbox change."""
+        is_checked = (state == Qt.CheckState.Checked.value)
+        self.partPropertiesVisibilityChanged.emit(is_checked)

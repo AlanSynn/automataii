@@ -60,6 +60,7 @@ class ImageProcessingView(QGraphicsView):
         self.original_skeleton_data = None # Store the originally loaded data format
         self.bounding_box = None
         self.bb_center = None
+        self._skeleton_viz_items = [] # List of temporary skeleton visualization items
 
         # Debugging
         self.debug_mode = False
@@ -626,6 +627,68 @@ class ImageProcessingView(QGraphicsView):
         elif self.joints: # Fit skeleton if no image
              rect = self.scene().itemsBoundingRect()
              if rect.isValid(): self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def zoom_to_fit(self):
+        """Zoom to fit all items in the view."""
+        if self.image_item:
+            # Fit image with some padding
+            rect = self.image_item.boundingRect()
+            if rect.isValid():
+                padding = 20
+                rect.adjust(-padding, -padding, padding, padding)
+                self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def visualize_skeleton(self, skeleton_data: dict, joint_items: list = None):
+        """Temporarily draws the skeleton structure on the scene."""
+        self._clear_skeleton_visualization() # Clear previous visualization
+
+        if not skeleton_data or 'skeleton' not in skeleton_data or not isinstance(skeleton_data['skeleton'], list):
+            logging.warning("visualize_skeleton called with invalid or missing skeleton data.")
+            return
+
+        skeleton_list = skeleton_data['skeleton']
+        joint_locations = {j['name']: QPointF(float(j['loc'][0]), float(j['loc'][1]))
+                           for j in skeleton_list if j.get('name') and j.get('loc') and len(j.get('loc')) >= 2}
+
+        bone_pen = QPen(QColor("#FF5733"), 2, Qt.PenStyle.SolidLine) # Bright orange for bones
+        joint_brush = QBrush(QColor("#FFC300")) # Yellow for joints
+        joint_pen = QPen(QColor("#C70039"), 1)    # Dark red outline for joints
+        joint_radius = 4
+
+        # Draw bones
+        for joint_info in skeleton_list:
+            child_name = joint_info.get('name')
+            parent_name = joint_info.get('parent')
+
+            if child_name in joint_locations and parent_name and parent_name in joint_locations:
+                p1 = joint_locations[parent_name]
+                p2 = joint_locations[child_name]
+                bone_line = QGraphicsLineItem(QLineF(p1, p2))
+                bone_line.setPen(bone_pen)
+                bone_line.setZValue(500) # Draw on top
+                self.scene().addItem(bone_line)
+                self._skeleton_viz_items.append(bone_line)
+
+        # Draw joints (circles)
+        for name, loc in joint_locations.items():
+            joint_circle = QGraphicsEllipseItem(loc.x() - joint_radius, loc.y() - joint_radius,
+                                                joint_radius * 2, joint_radius * 2)
+            joint_circle.setBrush(joint_brush)
+            joint_circle.setPen(joint_pen)
+            joint_circle.setZValue(501) # Draw on top of bones
+            self.scene().addItem(joint_circle)
+            self._skeleton_viz_items.append(joint_circle)
+
+        logging.info(f"Visualizing skeleton with {len(joint_locations)} joints and associated bones.")
+
+    def _clear_skeleton_visualization(self):
+        """Removes temporary skeleton visualization items from the scene."""
+        if not self._skeleton_viz_items:
+            return
+        logging.debug(f"Clearing {len(self._skeleton_viz_items)} skeleton visualization items.")
+        for item in self._skeleton_viz_items:
+            self.scene().removeItem(item)
+        self._skeleton_viz_items.clear()
 
     def _update_joint_label_position(self, joint_name: str):
         """Updates the position of a joint's label based on the joint's current position."""

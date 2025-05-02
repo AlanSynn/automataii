@@ -206,6 +206,11 @@ def image_to_annotations(img_fn: str, out_dir: str) -> None:
     skeleton.append({'loc' : [round(x) for x in  kpts[13]            ], 'name': 'left_knee'     , 'parent': 'left_hip'})
     skeleton.append({'loc' : [round(x) for x in  kpts[15]            ], 'name': 'left_foot'     , 'parent': 'left_knee'})
 
+    # Add original coordinates to the skeleton
+    for joint in skeleton:
+        cropped_loc = joint['loc']
+        joint['loc_original'] = [round(l + cropped_loc[0]), round(t + cropped_loc[1])]
+
     # create the character config dictionary
     char_cfg = {
         'skeleton': skeleton,

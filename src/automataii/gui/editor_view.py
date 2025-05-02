@@ -37,6 +37,7 @@ class EditorView(QGraphicsView):
     driver_center_selected = pyqtSignal(QPointF)
     driven_center_selected = pyqtSignal(QPointF)
     freehandPathCompleted = pyqtSignal(list) # New signal for freehand path points
+    zoom_changed = pyqtSignal(float) # Emitted when zoom level changes
 
     def __init__(self, scene, parent_window=None):
         super().__init__(scene, parent_window)
@@ -49,17 +50,21 @@ class EditorView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag) # Default to selection
 
         # Enable touch gestures
-        self.viewport().setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents)
         self.grabGesture(Qt.GestureType.PinchGesture)
 
         # Pinch-to-zoom variables
         self._pinch_mode = False
         self._pinch_start_scale = 1.0
+
+        # Custom panning variables
+        self._panning = False
+        self._pan_start_pos = QPointF()
+        self._pan_sensitivity = 0.3  # Reduce sensitivity (lower = less sensitive)
 
         # State modes
         self.current_mode = 'select' # Modes: 'select', 'define_joint', 'define_motion_path', 'select_end_effector', 'select_cam_center', 'simulation', 'select_pivot_a', 'select_pivot_d', 'select_driver_center', 'select_driven_center'
@@ -181,6 +186,9 @@ class EditorView(QGraphicsView):
             if abs(target_scale - current_scale) > 0.01: # Threshold
                  zoom_factor = target_scale / current_scale
                  self.scale(zoom_factor, zoom_factor)
+                 # Emit zoom signal with new scale
+                 new_scale = self.transform().m11()
+                 self.zoom_changed.emit(new_scale)
         elif gesture.state() == Qt.GestureState.GestureFinished:
             self._pinch_mode = False
 
@@ -188,22 +196,32 @@ class EditorView(QGraphicsView):
         """Handle mouse wheel for zooming when no pinch is active."""
         if not self._pinch_mode:
             zoom_in = event.angleDelta().y() > 0
-            factor = 1.15 if zoom_in else 1 / 1.15
-            self.scale(factor, factor)
-            self.scene().update() # Ensure clean rendering
+            # Reduced zoom sensitivity
+            factor = 1.08 if zoom_in else 1 / 1.08
+            
+            # Get current scale and check limits
+            current_scale = self.transform().m11()
+            new_scale = current_scale * factor
+            
+            # Limit zoom range (10% to 500%)
+            if 0.1 <= new_scale <= 5.0:
+                self.scale(factor, factor)
+                self.scene().update() # Ensure clean rendering
+                
+                # Emit zoom change signal
+                self.zoom_changed.emit(new_scale)
 
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press events based on the current mode."""
         scene_pos = self.mapToScene(event.pos())
 
         # --- Panning --- (Middle button or Alt+Left)
+        # Handle panning (middle click or Alt+Left click)
         if event.button() == Qt.MouseButton.MiddleButton or \
            (event.button() == Qt.MouseButton.LeftButton and event.modifiers() & Qt.KeyboardModifier.AltModifier):
-            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            # Create a fake event with LeftButton to activate ScrollHandDrag
-            fake_event = QMouseEvent(event.type(), QPointF(event.pos()), event.globalPosition(),
-                                     Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, event.modifiers())
-            super().mousePressEvent(fake_event)
+            self._panning = True
+            self._pan_start_pos = event.pos()
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
         # --- Mode-Specific Handling --- (Left Button primarily)
@@ -271,13 +289,10 @@ class EditorView(QGraphicsView):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         """Handle mouse release, primarily to stop panning and finalize freehand path."""
-        if self.dragMode() == QGraphicsView.DragMode.ScrollHandDrag and \
-           event.button() == Qt.MouseButton.LeftButton: # Release matching the fake pan event
-            # Revert to previous drag mode only if it was ScrollHandDrag
-            if self.current_mode == 'select':
-                 self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-            else:
-                 self.setDragMode(QGraphicsView.DragMode.NoDrag) # For define_joint, define_motion_path etc.
+        if self._panning and (event.button() == Qt.MouseButton.MiddleButton or \
+           (event.button() == Qt.MouseButton.LeftButton and event.modifiers() & Qt.KeyboardModifier.AltModifier)):
+            self._panning = False
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor) # Reset cursor
             super().mouseReleaseEvent(event)
             return # Important: return after handling pan release
 
@@ -295,10 +310,29 @@ class EditorView(QGraphicsView):
         super().mouseReleaseEvent(event) # Call base for other release events
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        """Handle mouse move events, especially for freehand drawing."""
+        """Handle mouse move events, especially for freehand drawing and custom panning."""
         scene_pos = self.mapToScene(event.pos())
 
-        if self.current_mode == 'define_motion_path' and self._is_drawing_freehand:
+        # Handle custom panning
+        if self._panning:
+            delta = event.pos() - self._pan_start_pos
+            # Apply sensitivity reduction
+            delta *= self._pan_sensitivity
+            
+            # Get current scroll bar values
+            h_scroll = self.horizontalScrollBar()
+            v_scroll = self.verticalScrollBar()
+            
+            # Update scroll positions (inverted for natural panning feel)
+            h_scroll.setValue(h_scroll.value() - int(delta.x()))
+            v_scroll.setValue(v_scroll.value() - int(delta.y()))
+            
+            # Update start position for next move
+            self._pan_start_pos = event.pos()
+            return
+
+        # Handle freehand motion path drawing
+        if self._is_drawing_freehand and self.current_mode == 'define_motion_path':
             if self._motion_path_points and self._motion_path_points[-1] != scene_pos:
                 self._motion_path_points.append(scene_pos)
 
@@ -368,6 +402,7 @@ class EditorView(QGraphicsView):
         """Reset zoom and pan to default."""
         self.resetTransform()
         self.centerOn(0,0) # Or center on scene rect center if preferred
+        self.zoom_changed.emit(1.0)  # Emit zoom signal for 100%
         self._show_status_message("View reset")
 
     def zoom_to_fit(self):
@@ -380,6 +415,7 @@ class EditorView(QGraphicsView):
         rect.adjust(-padding, -padding, padding, padding)
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
         scale = self.transform().m11()
+        self.zoom_changed.emit(scale)  # Emit zoom signal
         self._show_status_message(f"Zoom to fit ({scale:.1f}x)")
 
     # --- Joint Definition --- #

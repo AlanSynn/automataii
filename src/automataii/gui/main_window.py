@@ -14,12 +14,12 @@ from PyQt6.QtWidgets import (
     QPushButton, QGraphicsScene, QFileDialog, QSplitter, QLabel, QListWidget, QListWidgetItem,
     QDoubleSpinBox, QCheckBox, QFormLayout, QTabWidget, QMessageBox, QProgressDialog,
     QGraphicsPathItem, QGroupBox, QApplication, QStyle, QDialog, QToolBar, QComboBox, QGraphicsItem,
-    QScrollArea, QSizePolicy, QGraphicsEllipseItem, QGraphicsLineItem
+    QScrollArea, QSizePolicy, QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsItemGroup, QGraphicsRectItem, QGraphicsPolygonItem
 )
 from PyQt6.QtGui import QColor, QPen, QAction, QPainterPath, QPixmap, QPolygonF, QTransform, QBrush, QImage, QFontDatabase, QPainterPathStroker
-from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSlot, QSize, QLineF
+from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSlot, QSize, QLineF, QRectF, pyqtSignal, QMetaObject, Q_ARG
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
 # Local imports (adjust paths as needed)
 from .editor_view import EditorView
@@ -33,6 +33,8 @@ from ..kinematics.ik_solver import solve_ik_ccd
 from ..generation.cam import generate_cam_profile
 from ..generation.blueprint import generate_blueprint_svg
 from ..utils.helpers import transform_to_dict, qpainterpath_to_points, points_to_closed_bezier_path # Utility functions
+from .anchor_item import AnchorItem # Import AnchorItem
+from automataii.gui.recommendation_dialog import MechanismRecommendationDialog # Added
 
 # Attempt to import image processing functionality (optional)
 from ..animate.image_to_annotations import image_to_annotations
@@ -45,6 +47,35 @@ from ..animate.body_parts_extractor import process_character
 from ..generation.linkage import generate_3bar_linkage, generate_4bar_linkage
 from ..generation.gear import generate_gear_pair
 
+# Define UIColors class for consistent styling (ideally in styling.py)
+class UIColors:
+    COMPONENT_FRONT = QColor("#87CEEB")  # SkyBlue
+    COMPONENT_BACK = QColor("#4682B4")   # SteelBlue
+    COMPONENT_BORDER = QColor(Qt.GlobalColor.black)
+
+    PIN_FRONT = QColor("#FFD700") # Gold
+    PIN_BACK = QColor("#DAA520")  # Goldenrod
+    PIN_BORDER = QColor(Qt.GlobalColor.black)
+
+    CAM_FRONT = QColor("#ADD8E6") # LightBlue
+    CAM_BACK = QColor("#5F9EA0")  # CadetBlue
+    CAM_BORDER = QColor(Qt.GlobalColor.black)
+    SHAFT_FRONT = QColor("#D3D3D3") # LightGray
+    SHAFT_BACK = QColor("#A9A9A9")  # DarkGray
+    SHAFT_BORDER = QColor(Qt.GlobalColor.black)
+
+    GEAR_BODY_FRONT = QColor("#C0C0C0") # Silver
+    GEAR_BODY_BACK = QColor("#708090")  # SlateGray
+    GEAR_BODY_BORDER = QColor(Qt.GlobalColor.black)
+    GEAR_TOOTH_FRONT = QColor("#DCDCDC") # Gainsboro
+    GEAR_TOOTH_BACK = QColor("#A9A9A9")  # DarkGray
+    GEAR_TOOTH_BORDER = QColor(Qt.GlobalColor.darkGray) # Slightly lighter border for teeth
+
+    TEXT_PRIMARY = QColor("#E0E0E0")
+    MOTION_PATH_COLOR = QColor(0, 255, 0, 150)
+    DEBUG_HELPER_COLOR = QColor(255, 0, 255, 180) # Magenta for helpers
+
+TARGET_CONTROL_POINTS = 8
 
 class AutomataDesigner(QMainWindow):
     """Main application window for the Automata Designer.
@@ -67,6 +98,19 @@ class AutomataDesigner(QMainWindow):
         self.kinematic_chains = {} # end_effector_name: list[CharacterPartItem]
         self.mechanism_visuals = {} # layer_name: list[QGraphicsItem]
         self.layer_checkboxes = {} # layer_name: QCheckBox
+        self._body_parts_viz_items = [] # List of visualization items for body parts under skeleton
+        self._body_parts_viz_items_image = [] # List of visualization items for body parts in image view
+        self.anchor_items = {} # anchor_id: AnchorItem
+
+        # --- Viewer Tab Data ---
+        self.viewer_char_texture_item: Optional[QGraphicsPixmapItem] = None
+        self.viewer_skeleton_items: List[QGraphicsItem] = []
+        self.viewer_body_part_items: Dict[str, CharacterPartItem] = {}
+        self.viewer_loaded_parts_info: Optional[dict] = None
+        self.viewer_loaded_texture_path: Optional[str] = None
+        # Placeholder for the actual scene and view for the viewer tab
+        self.viewer_scene: Optional[QGraphicsScene] = None
+        self.viewer_view: Optional[EditorView] = None
 
         # Mechanism Design State
         self.selected_cam_center: Optional[QPointF] = None
@@ -91,7 +135,7 @@ class AutomataDesigner(QMainWindow):
         self.timer.setInterval(30) # Approx 33 FPS
         self.timer.timeout.connect(self.update_simulation)
         self.animation_time = 0.0
-        self.animation_duration = 0.5 # Default duration set to 0.5s
+        self.animation_duration = 5 # Default duration set to 2000ms
 
         # --- Toolbar Reference ---
         self.main_toolbar = None
@@ -99,9 +143,14 @@ class AutomataDesigner(QMainWindow):
         # Tracking active dialogs
         self.active_camera_dialogs = []
 
+        # Store initial rotations for fixed orientation animation
+        self.initial_part_rotations: Dict[str, float] = {}
+
         # --- Stylesheet Data --- (No longer need _define_stylesheets method)
         self.light_style = LIGHT_STYLE
         self.dark_style = DARK_STYLE
+
+        self.visualization_layer_x_offset = 10.0  # Horizontal offset for visualization layers
 
         # Load Parts and Styles
         self.load_initial_data()
@@ -131,7 +180,7 @@ class AutomataDesigner(QMainWindow):
 
         # --- Tab 1: Image Processing ---
         image_proc_tab = self._create_image_processing_tab()
-        self.tab_widget.addTab(image_proc_tab, "Character")
+        self.tab_widget.addTab(image_proc_tab, "Character Selection")
 
         # --- Tab 2: Editor & Simulation ---
         editor_tab = self._create_editor_tab()
@@ -184,38 +233,135 @@ class AutomataDesigner(QMainWindow):
         input_group = QGroupBox("Input Drawing")
         input_layout = QVBoxLayout(input_group)
         style = self.style()
-        self.load_image_btn = QPushButton("Load Image")
+        self.load_image_btn = QPushButton("Load Image File")
         self.capture_image_btn = QPushButton("Capture Camera") # Placeholder icon
         input_layout.addWidget(self.load_image_btn)
         input_layout.addWidget(self.capture_image_btn)
         panel_layout.addWidget(input_group)
 
         # Processing Group
-        proc_group = QGroupBox("Processing")
+        proc_group = QGroupBox("Editing")
         proc_layout = QVBoxLayout(proc_group)
         self.process_image_btn = QPushButton(" Process Image")
+        self.create_parts_btn = QPushButton(" Generate Body Parts")
         # self.edit_skeleton_btn = QPushButton(" Edit Skeleton")
         proc_layout.addWidget(self.process_image_btn)
+        proc_layout.addWidget(self.create_parts_btn)
         # proc_layout.addWidget(self.edit_skeleton_btn)
         panel_layout.addWidget(proc_group)
 
         # Output Group
-        output_group = QGroupBox("Output")
+        output_group = QGroupBox("Next")
         output_layout = QVBoxLayout(output_group)
         # self.save_skeleton_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), " Save Skeleton")
-        self.create_parts_btn = QPushButton(" Generate Body Parts")
+        self.next_stage_btn = QPushButton(" Next")
         # output_layout.addWidget(self.save_skeleton_btn)
-        output_layout.addWidget(self.create_parts_btn)
+        output_layout.addWidget(self.next_stage_btn)
         panel_layout.addWidget(output_group)
 
         panel_layout.addStretch()
 
         # Right View Area
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(5, 5, 5, 5)
+        right_layout.setSpacing(5)
+
+        # Zoom control toolbar (invisible)
+        zoom_toolbar = QWidget()
+        zoom_layout = QHBoxLayout(zoom_toolbar)
+        zoom_layout.setContentsMargins(10, 8, 10, 8)
+        zoom_layout.setSpacing(8)
+
+        zoom_layout.addStretch()  # Push controls to the right
+
+        # Zoom dropdown/combo box
+        self.image_zoom_combo = QComboBox()
+        self.image_zoom_combo.setEditable(True)
+        self.image_zoom_combo.setFixedSize(80, 28)
+        self.image_zoom_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #d0d7de;
+                border-radius: 6px;
+                padding: 4px 4px;
+                background-color: white;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                border-color: #586069;
+            }
+        """)
+        zoom_levels = ["50%", "75%", "90%", "100%", "125%", "150%", "200%"]
+        self.image_zoom_combo.addItems(zoom_levels)
+        self.image_zoom_combo.setCurrentText("100%")
+        self.image_zoom_combo.setToolTip("Zoom level")
+
+        # Fit button
+        self.image_fit_btn = QPushButton("Fit")
+        self.image_fit_btn.setFixedSize(45, 28)
+        self.image_fit_btn.setStyleSheet("""
+            QPushButton {
+                border: 1px solid #d0d7de;
+                border-radius: 4px;
+                padding: 4px 4px;
+                background-color: white;
+                font-size: 13px;
+                color: #24292f;
+            }
+            QPushButton:hover {
+                background-color: #f6f8fa;
+                border-color: #586069;
+            }
+            QPushButton:pressed {
+                background-color: #e9ecef;
+            }
+        """)
+        self.image_fit_btn.setToolTip("Zoom to fit all items")
+
+        zoom_layout.addWidget(self.image_zoom_combo)
+        zoom_layout.addWidget(self.image_fit_btn)
+
         self.image_proc_scene = QGraphicsScene()
         self.image_proc_view = ImageProcessingView(self.image_proc_scene, self)
 
+        # Add view to right panel
+        right_layout.addWidget(self.image_proc_view, 1)
+
+        # Make zoom toolbar float over the view
+        zoom_toolbar.setParent(right_panel)
+        zoom_toolbar.setStyleSheet("""
+            QWidget {
+                background-color: rgba(248, 249, 250, 0.9);
+                border: 1px solid rgba(208, 215, 222, 0.8);
+                border-radius: 1px;
+            }
+        """)
+        zoom_toolbar.show()
+
+        # Position toolbar on show
+        def position_image_zoom_toolbar():
+            toolbar_width = zoom_toolbar.sizeHint().width()
+            toolbar_height = zoom_toolbar.sizeHint().height()
+            x = right_panel.width() - toolbar_width - 20
+            y = right_panel.height() - toolbar_height - 20
+            zoom_toolbar.setGeometry(x, y, toolbar_width, toolbar_height)
+
+        # Override showEvent to position toolbar
+        original_show_event = right_panel.showEvent
+        def new_show_event(event):
+            original_show_event(event)
+            position_image_zoom_toolbar()
+        right_panel.showEvent = new_show_event
+
+        # Override resizeEvent to reposition toolbar
+        original_resize_event = right_panel.resizeEvent
+        def new_resize_event(event):
+            original_resize_event(event)
+            position_image_zoom_toolbar()
+        right_panel.resizeEvent = new_resize_event
+
         layout.addWidget(control_panel)
-        layout.addWidget(self.image_proc_view, 1)
+        layout.addWidget(right_panel, 1)
         return widget
 
     def _create_editor_tab(self):
@@ -250,9 +396,9 @@ class AutomataDesigner(QMainWindow):
         panel_layout.addWidget(parts_group)
 
         # Group 2: Selected Part Properties
-        props_group = QGroupBox("Selected Part Properties")
-        props_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.part_props = QFormLayout(props_group)
+        self.part_properties_group = QGroupBox("Selected Part Properties")
+        self.part_properties_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.part_props = QFormLayout(self.part_properties_group)
         self.part_props.setSpacing(8) # Spacing within the form
         self.z_value_spin = QDoubleSpinBox()
         self.z_value_spin.setRange(-100, 100)
@@ -264,8 +410,9 @@ class AutomataDesigner(QMainWindow):
         self.fixed_part_check.setEnabled(False)
         self.part_props.addRow("Z-Value:", self.z_value_spin)
         self.part_props.addRow(self.fixed_part_check)
-        props_group.setEnabled(False) # Disable group initially
-        panel_layout.addWidget(props_group)
+        self.part_properties_group.setEnabled(False) # Disable group initially
+        self.part_properties_group.setVisible(False) # Hide by default
+        panel_layout.addWidget(self.part_properties_group)
 
         # Group 3: Assembly & Joints
         assembly_group = QGroupBox("Assembly & Joints")
@@ -376,6 +523,12 @@ class AutomataDesigner(QMainWindow):
         mech_design_layout = QVBoxLayout(mech_design_group)
         mech_design_layout.setSpacing(10)
 
+        # --- Test Anchors Button (New) ---
+        self.toggle_anchors_btn = QCheckBox("Show Test Anchors")
+        self.toggle_anchors_btn.setToolTip("Show/hide draggable test anchor points in the scene.")
+        mech_design_layout.addWidget(self.toggle_anchors_btn)
+        # --- End Test Anchors Button ---
+
         # Mechanism Type Selector
         mech_type_layout = QFormLayout()
         self.mechanism_type_combo = QComboBox()
@@ -475,17 +628,125 @@ class AutomataDesigner(QMainWindow):
         export_layout.addWidget(self.blueprint_btn)
         panel_layout.addWidget(export_group)
 
+        # Group 7: Character Alignment (New)
+        alignment_group = QGroupBox("Character Alignment")
+        alignment_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        alignment_layout = QVBoxLayout(alignment_group)
+        self.save_alignment_btn = QPushButton("Save Current Alignment")
+        self.save_alignment_btn.setToolTip("Save the current character position as the default alignment for this character.")
+        self.save_alignment_btn.setEnabled(False) # Enable when parts are loaded
+        alignment_layout.addWidget(self.save_alignment_btn)
+        panel_layout.addWidget(alignment_group)
+
         panel_layout.addStretch() # Add stretch at the end (RESTORED)
 
         scroll_area.setWidget(control_panel) # Put the panel inside the scroll area
 
         # --- Right View Area (Editor) ---
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(5, 5, 5, 5)
+        right_layout.setSpacing(5)
+
+        # Zoom control toolbar (invisible)
+        zoom_toolbar = QWidget()
+        zoom_layout = QHBoxLayout(zoom_toolbar)
+        zoom_layout.setContentsMargins(10, 8, 10, 8)
+        zoom_layout.setSpacing(8)
+
+        zoom_layout.addStretch()  # Push controls to the right
+
+        # Zoom dropdown/combo box
+        self.zoom_combo = QComboBox()
+        self.zoom_combo.setEditable(True)
+        self.zoom_combo.setFixedSize(70, 28)
+        self.zoom_combo.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #d0d7de;
+                border-radius: 6px;
+                padding: 4px 8px;
+                background-color: white;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                border-color: #586069;
+            }
+        """)
+        zoom_levels = ["50%", "75%", "90%", "100%", "125%", "150%", "200%"]
+        self.zoom_combo.addItems(zoom_levels)
+        self.zoom_combo.setCurrentText("100%")
+        self.zoom_combo.setToolTip("Zoom level")
+
+        # Fit button
+        self.fit_btn = QPushButton("Fit")
+        self.fit_btn.setFixedSize(45, 28)
+        self.fit_btn.setStyleSheet("""
+            QPushButton {
+                border: 1px solid #d0d7de;
+                border-radius: 6px;
+                padding: 4px 8px;
+                background-color: white;
+                font-size: 12px;
+                color: #24292f;
+            }
+            QPushButton:hover {
+                background-color: #f6f8fa;
+                border-color: #586069;
+            }
+            QPushButton:pressed {
+                background-color: #e9ecef;
+            }
+        """)
+        self.fit_btn.setToolTip("Zoom to fit all items")
+
+        zoom_layout.addWidget(self.zoom_combo)
+        zoom_layout.addWidget(self.fit_btn)
+
         self.editor_scene = QGraphicsScene()
         self.editor_view = EditorView(self.editor_scene, self)
 
-        # Add the scroll area (containing the panel) and the view to the main layout
+        # -- Set default
+        self.editor_view._save_original_transforms() # Save state before starting
+
+        # Add editor view to right panel
+        right_layout.addWidget(self.editor_view, 1)
+
+        # Make zoom toolbar float over the view
+        zoom_toolbar.setParent(right_panel)
+        zoom_toolbar.setStyleSheet("""
+            QWidget {
+                background-color: rgba(248, 249, 250, 0.9);
+                border: 1px solid rgba(208, 215, 222, 0.8);
+                border-radius: 8px;
+            }
+        """)
+        zoom_toolbar.show()
+
+        # Position toolbar on show
+        def position_editor_zoom_toolbar():
+            toolbar_width = zoom_toolbar.sizeHint().width()
+            toolbar_height = zoom_toolbar.sizeHint().height()
+            x = right_panel.width() - toolbar_width - 20
+            y = right_panel.height() - toolbar_height - 20
+            zoom_toolbar.setGeometry(x, y, toolbar_width, toolbar_height)
+
+        # Override showEvent to position toolbar
+        original_show_event = right_panel.showEvent
+        def new_show_event(event):
+            original_show_event(event)
+            position_editor_zoom_toolbar()
+        right_panel.showEvent = new_show_event
+
+        # Override resizeEvent to reposition toolbar
+        original_resize_event = right_panel.resizeEvent
+        def new_resize_event(event):
+            original_resize_event(event)
+            position_editor_zoom_toolbar()
+        right_panel.resizeEvent = new_resize_event
+
+        # Add the scroll area (containing the panel) and the right panel to the main layout
         layout.addWidget(scroll_area)
-        layout.addWidget(self.editor_view, 1)
+        layout.addWidget(right_panel, 1)
         return widget
 
     # --- Menu Creation ---
@@ -518,6 +779,7 @@ class AutomataDesigner(QMainWindow):
         self.action_zoom_fit = QAction("Zoom to &Fit", self)
         self.action_zoom_fit.setShortcut("Ctrl+0")
         self.action_reset_view = QAction("&Reset View", self)
+
         view_menu.addAction(self.action_zoom_in)
         view_menu.addAction(self.action_zoom_out)
         view_menu.addAction(self.action_zoom_fit)
@@ -575,6 +837,7 @@ class AutomataDesigner(QMainWindow):
         # self.edit_skeleton_btn.clicked.connect(self.edit_skeleton)
         # self.save_skeleton_btn.clicked.connect(self.save_skeleton)
         self.create_parts_btn.clicked.connect(self.create_parts_from_skeleton)
+        self.next_stage_btn.clicked.connect(self.next_stage)
 
         # Tab 2: Editor
         self.parts_list.currentItemChanged.connect(self._handle_part_selection_change)
@@ -596,6 +859,9 @@ class AutomataDesigner(QMainWindow):
         self.reset_sim_btn.clicked.connect(self.reset_simulation)
         self.blueprint_btn.clicked.connect(self.generate_blueprint)
 
+        # Character Alignment Button
+        self.save_alignment_btn.clicked.connect(self.save_character_alignment)
+
         # Editor View Signals
         self.editor_view.joint_defined.connect(self.request_create_joint)
         # self.editor_view.end_effector_selected.connect(self._handle_end_effector_set) # Removed in UI cleanup
@@ -606,10 +872,20 @@ class AutomataDesigner(QMainWindow):
         self.editor_view.driver_center_selected.connect(self._handle_driver_center_set)
         self.editor_view.driven_center_selected.connect(self._handle_driven_center_set)
 
+        # Zoom control signals
+        self.zoom_combo.currentTextChanged.connect(self._handle_zoom_change)
+        self.fit_btn.clicked.connect(self._handle_zoom_change_fit)
+        self.editor_view.zoom_changed.connect(self._update_zoom_combo_from_view)
+
+        # Image processing zoom control signals
+        self.image_zoom_combo.currentTextChanged.connect(self._handle_image_zoom_change)
+        self.image_fit_btn.clicked.connect(self._handle_image_zoom_change_fit)
+
         # Tab 3: Options (Connect signals from OptionsTab instance)
         self.options_tab.animationDurationChanged.connect(self._update_animation_duration)
         self.options_tab.themeChanged.connect(self._apply_theme)
         self.options_tab.toolbarVisibilityChanged.connect(self._toggle_toolbar_visibility) # Connect new signal
+        self.options_tab.partPropertiesVisibilityChanged.connect(self._toggle_part_properties_visibility) # Connect new signal
 
         # Menu Actions (Ensure these are still connected)
         if hasattr(self, 'action_load_parts'):
@@ -624,6 +900,15 @@ class AutomataDesigner(QMainWindow):
         self.action_reset_view.triggered.connect(lambda: self.editor_view.reset_view())
         self.action_about.triggered.connect(self.show_about)
 
+        # Test Anchors Button Connection
+        self.toggle_anchors_btn.toggled.connect(self._toggle_test_anchors_visibility)
+
+        # Viewer Tab Connections (New)
+        if hasattr(self, 'viewer_load_btn'): # Check if viewer tab elements are created
+            self.viewer_load_btn.clicked.connect(self._viewer_load_character_data)
+            self.viewer_show_skeleton_check.toggled.connect(self._viewer_toggle_skeleton)
+            self.viewer_show_body_parts_check.toggled.connect(self._viewer_toggle_body_parts)
+
     # --- Action Handlers & Slots ---
 
     # Slot for part selection change in list
@@ -631,21 +916,34 @@ class AutomataDesigner(QMainWindow):
         can_define_path = False
         is_part_selected = current_item is not None
 
+        # Hide anchor on previously selected item if it exists
+        if previous_item:
+            prev_part_name = previous_item.data(Qt.ItemDataRole.UserRole)
+            prev_editor_item = self.editor_items.get(prev_part_name)
+            if prev_editor_item:
+                prev_editor_item.set_anchor_visibility(False)
+
         if current_item:
             self.update_part_properties(current_item, previous_item)
-            # Select in scene as well
             part_name = current_item.data(Qt.ItemDataRole.UserRole)
             item = self.editor_items.get(part_name)
             if item:
                 self.editor_scene.clearSelection()
                 item.setSelected(True)
-                # Only enable if the selected item exists and is not fixed
+                # Show anchor only if in Mechanism Design Tab
+                if self.tab_widget.widget(self.tab_widget.currentIndex()) == self.tab_widget.findChild(QWidget, "Mechanism Design"):
+                    item.set_anchor_visibility(True)
+                else:
+                    item.set_anchor_visibility(False)
+
                 if not item.is_fixed:
                     can_define_path = True
         else:
-            # Clear properties if nothing selected
             self.z_value_spin.setEnabled(False)
             self.fixed_part_check.setEnabled(False)
+            # Ensure any potentially visible anchor is hidden if selection is cleared
+            for editor_item_val in self.editor_items.values():
+                editor_item_val.set_anchor_visibility(False)
 
         # Enable/disable UI elements based on selection
         # Find the QGroupBox by iterating through children of panel_layout's parent (control_panel)
@@ -714,6 +1012,8 @@ class AutomataDesigner(QMainWindow):
             self.statusBar().showMessage(f"Loaded input image: {os.path.basename(filepath)}")
         else:
             QMessageBox.warning(self, "Load Error", f"Could not load image: {filepath}")
+        self.process_image()
+        self.create_parts_from_skeleton()
 
     def capture_image(self):
         """Opens camera dialog to capture an image."""
@@ -741,6 +1041,9 @@ class AutomataDesigner(QMainWindow):
         except Exception as e:
             logging.error(f"Error opening camera dialog: {e}", exc_info=True)
             QMessageBox.critical(self, "Camera Error", f"Could not open camera: {e}")
+
+        self.process_image()
+        self.create_parts_from_skeleton()
 
     def process_image(self):
         """Runs the external image_to_annotations process."""
@@ -905,14 +1208,21 @@ class AutomataDesigner(QMainWindow):
             logging.info(f"Body part extraction successful. Output: {output_dir}")
             # Ask user if they want to load the generated parts
             reply = QMessageBox.question(self, "Parts Extracted",
-                                       f"Body parts extracted to:\n{output_dir}\n\nLoad these parts into the editor now?",
+                                       f"Load these parts into the editor!",
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                        QMessageBox.StandardButton.Yes)
             if reply == QMessageBox.StandardButton.Yes:
                 parts_json_path = os.path.join(output_dir, 'parts_info.json')
                 if os.path.exists(parts_json_path):
+                     logging.debug(f"Loading parts from: {parts_json_path}")
                      self.load_parts(filepath=parts_json_path)
-                     self.tab_widget.setCurrentIndex(1) # Switch to editor tab
+                     logging.debug(f"After load_parts: {len(self.parts)} parts, {len(self.editor_items)} editor items")
+                     # Show body parts with 50% opacity below skeleton
+                     logging.debug("Calling _visualize_body_parts_under_skeleton()")
+                     self._visualize_body_parts_under_skeleton()
+                     # Also visualize in image processing view if skeleton data exists
+                     if self.skeleton_data:
+                         self._visualize_body_parts_in_image_view()
                 else:
                      QMessageBox.warning(self, "Load Error", f"Could not find parts_info.json in {output_dir}")
         except Exception as e:
@@ -921,6 +1231,257 @@ class AutomataDesigner(QMainWindow):
             logging.error(f"{error_msg}\n{traceback.format_exc()}")
             QMessageBox.critical(self, "Extraction Error", error_msg)
             self.statusBar().showMessage("Body part extraction failed.")
+
+    def _visualize_body_parts_under_skeleton(self):
+        """Visualizes body parts with 50% opacity under the skeleton."""
+        logging.debug(f"_visualize_body_parts_under_skeleton called. Parts: {len(self.parts) if self.parts else 0}, Editor items: {len(self.editor_items) if self.editor_items else 0}")
+
+        if not self.parts or not self.editor_items:
+            logging.warning("No body parts loaded to visualize under skeleton.")
+            return
+
+        # Clear any existing body part visualization
+        self._clear_body_parts_visualization()
+        self._clear_body_parts_visualization_image_view(make_original_visible=True)
+
+        logging.info("Visualizing body parts with 50% opacity under skeleton.")
+        logging.debug(f"Available editor items: {list(self.editor_items.keys())}")
+
+        successful_items = 0
+        for part_name, part_item in self.editor_items.items():
+            logging.debug(f"Processing part: {part_name}")
+
+            # Create a copy of the part item for visualization
+            if hasattr(part_item, 'part_info') and part_item.part_info:
+                logging.debug(f"Creating visualization for {part_name}")
+                try:
+                    viz_item = CharacterPartItem(part_item.part_info)
+
+                    # Set the same position and transform as the original [Mechanism Tab]
+                    original_pos = part_item.pos()
+                    viz_item.setPos(original_pos.x(), original_pos.y())
+                    viz_item.setTransform(part_item.transform())
+                    viz_item.setRotation(part_item.rotation())
+
+                    # Set 50% opacity
+                    # viz_item.setOpacity(0.5)
+
+                    # Set z-value below skeleton (skeleton is at 500-501)
+                    viz_item.setZValue(100)
+
+                    # Make it non-interactive
+                    viz_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+                    viz_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+
+                    # Add to scene
+                    self.editor_scene.addItem(viz_item)
+                    logging.debug(f"Added {part_name} visualization to scene at pos {viz_item.pos()}, z-value {viz_item.zValue()}, opacity {viz_item.opacity()}")
+
+                    # Store reference for cleanup
+                    if not hasattr(self, '_body_parts_viz_items'):
+                        self._body_parts_viz_items = []
+                    self._body_parts_viz_items.append(viz_item)
+                    successful_items += 1
+
+                except Exception as e:
+                    logging.error(f"Error creating visualization for {part_name}: {e}")
+            else:
+                logging.debug(f"Skipping {part_name}: no part_info or invalid part_item")
+
+        logging.info(f"Added {successful_items} body part visualizations under skeleton (total viz items: {len(self._body_parts_viz_items)}).")
+
+    def _clear_body_parts_visualization(self):
+        """Removes body parts visualization items from the scene."""
+        if not hasattr(self, '_body_parts_viz_items') or not self._body_parts_viz_items:
+            return
+
+        logging.debug(f"Clearing {len(self._body_parts_viz_items)} body parts visualization items.")
+        for item in self._body_parts_viz_items:
+            if item.scene():
+                self.editor_scene.removeItem(item)
+        self._body_parts_viz_items.clear()
+
+    def _handle_zoom_change(self, zoom_text):
+        """Handle zoom level change from combo box."""
+        try:
+            if zoom_text.lower() == "fit":
+                self.editor_view.zoom_to_fit()
+                return
+
+            # Parse percentage (e.g., "100%" -> 1.0)
+            if zoom_text.endswith('%'):
+                zoom_value = float(zoom_text[:-1]) / 100.0
+            else:
+                zoom_value = float(zoom_text) / 100.0
+
+            # Reset transform and apply new zoom
+            self.editor_view.resetTransform()
+            self.editor_view.scale(zoom_value, zoom_value)
+
+            # Update combo box to show exact percentage
+            self.zoom_combo.blockSignals(True)
+            self.zoom_combo.setCurrentText(f"{int(zoom_value * 100)}%")
+            self.zoom_combo.blockSignals(False)
+
+        except ValueError:
+            # Invalid input, reset to 100%
+            self.zoom_combo.blockSignals(True)
+            self.zoom_combo.setCurrentText("100%")
+            self.zoom_combo.blockSignals(False)
+            self.editor_view.resetTransform()
+
+    def _handle_zoom_change_fit(self):
+        """Handle fit button click."""
+        self.editor_view.zoom_to_fit()
+        # Update combo box to reflect current zoom after fit
+        current_scale = self.editor_view.transform().m11()
+        zoom_percent = int(current_scale * 100)
+        self.zoom_combo.blockSignals(True)
+        self.zoom_combo.setCurrentText(f"{zoom_percent}%")
+        self.zoom_combo.blockSignals(False)
+
+    def _update_zoom_combo_from_view(self, scale_factor):
+        """Update zoom combo box when zoom changes from view (mouse wheel, etc.)."""
+        zoom_percent = int(scale_factor * 100)
+        self.zoom_combo.blockSignals(True)
+        self.zoom_combo.setCurrentText(f"{zoom_percent}%")
+        self.zoom_combo.blockSignals(False)
+
+    def _handle_image_zoom_change(self, zoom_text):
+        """Handle zoom level change from image processing combo box."""
+        try:
+            if zoom_text.lower() == "fit":
+                self.image_proc_view.zoom_to_fit()
+                return
+
+            # Parse percentage (e.g., "100%" -> 1.0)
+            if zoom_text.endswith('%'):
+                zoom_value = float(zoom_text[:-1]) / 100.0
+            else:
+                zoom_value = float(zoom_text) / 100.0
+
+            # Reset transform and apply new zoom
+            self.image_proc_view.resetTransform()
+            self.image_proc_view.scale(zoom_value, zoom_value)
+
+            # Update combo box to show exact percentage
+            self.image_zoom_combo.blockSignals(True)
+            self.image_zoom_combo.setCurrentText(f"{int(zoom_value * 100)}%")
+            self.image_zoom_combo.blockSignals(False)
+
+        except ValueError:
+            # Invalid input, reset to 100%
+            self.image_zoom_combo.blockSignals(True)
+            self.image_zoom_combo.setCurrentText("100%")
+            self.image_zoom_combo.blockSignals(False)
+            self.image_proc_view.resetTransform()
+
+    def _handle_image_zoom_change_fit(self):
+        """Handle fit button click for image processing view."""
+        self.image_proc_view.zoom_to_fit()
+        # Update combo box to reflect current zoom after fit
+        current_scale = self.image_proc_view.transform().m11()
+        zoom_percent = int(current_scale * 100)
+        self.image_zoom_combo.blockSignals(True)
+        self.image_zoom_combo.setCurrentText(f"{zoom_percent}%")
+        self.image_zoom_combo.blockSignals(False)
+
+    def _visualize_body_parts_in_image_view(self):
+        """Visualizes body parts with 50% opacity in the image processing view."""
+        if not self.parts or not self.editor_items:
+            logging.warning("No body parts loaded to visualize in image view.")
+            return
+
+        # Hide the main original image if body parts are about to be shown
+        if self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
+            self.image_proc_view.image_item.setVisible(False)
+            logging.debug("Hiding original image in image_proc_view for body part visualization.")
+
+        # Clear any existing body part visualization in image view
+        self._clear_body_parts_visualization_image_view(make_original_visible=False) # Pass flag to prevent flicker
+
+        logging.info("Visualizing body parts with 50% opacity in image processing view.")
+
+        for part_name, part_item in self.editor_items.items():
+            # Create a copy of the part item for visualization
+            if hasattr(part_item, 'part_info') and part_item.part_info:
+                try:
+                    viz_item = CharacterPartItem(part_item.part_info)
+
+                    # Set the same position and transform as the original [Character Selection Tab]
+                    original_pos = part_item.pos()
+                    print(f"original_pos: {original_pos}")
+
+                    viz_item.setPos(original_pos.x(), original_pos.y())
+                    viz_item.setTransform(part_item.transform())
+                    viz_item.setRotation(part_item.rotation())
+
+                    # Set 50% opacity
+                    viz_item.setOpacity(0.5)
+
+                    # Set z-value below skeleton
+                    viz_item.setZValue(100)
+
+                    # Make it non-interactive
+                    viz_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+                    viz_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+
+                    # Add to image processing scene
+                    self.image_proc_scene.addItem(viz_item)
+
+                    # Store reference for cleanup
+                    if not hasattr(self, '_body_parts_viz_items_image'):
+                        self._body_parts_viz_items_image = []
+                    self._body_parts_viz_items_image.append(viz_item)
+
+                except Exception as e:
+                    logging.error(f"Error creating image view visualization for {part_name}: {e}")
+
+        # self.viewer_scene.update() # Ensure redraw
+        if self.image_proc_scene: # Update the correct scene for this tab
+            self.image_proc_scene.update()
+
+    def _clear_body_parts_visualization_image_view(self, make_original_visible: bool = True):
+        """Removes body parts visualization items from the image processing scene."""
+        if not hasattr(self, '_body_parts_viz_items_image') or not self._body_parts_viz_items_image:
+            # Still ensure original image becomes visible if requested and no items to clear
+            if make_original_visible and self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
+                self.image_proc_view.image_item.setVisible(True)
+                logging.debug("Ensured original image is visible in image_proc_view as no body parts were visualized.")
+            return
+
+        logging.debug(f"Clearing {len(self._body_parts_viz_items_image)} body parts visualization items from image view.")
+        for item in self._body_parts_viz_items_image:
+            if item.scene():
+                self.image_proc_scene.removeItem(item)
+        self._body_parts_viz_items_image.clear()
+
+        # Show the main original image again if requested
+        if make_original_visible and self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
+            self.image_proc_view.image_item.setVisible(True)
+            logging.debug("Restored original image visibility in image_proc_view after clearing body parts.")
+
+    def next_stage(self):
+        try:
+            parent_dir = os.path.dirname(os.path.abspath(self.character_dir))
+            output_dir = os.path.join(parent_dir, 'body_parts_output')
+        except Exception as e:
+            logging.error(f"Error determining output directory: {e}")
+            QMessageBox.critical(self, "Error", f"Could not determine output directory: {e}")
+            return
+
+        is_character_exist = self.character_dir is not None and self.character_dir != ""
+        parts_json_path = os.path.join(output_dir, 'parts_info.json')
+        if os.path.exists(parts_json_path):
+             self.load_parts(filepath=parts_json_path)
+        else:
+             QMessageBox.warning(self, "Load Error", f"Could not find parts_info.json in {output_dir}")
+
+
+        if self.tab_widget.currentIndex() == 0:
+            self.tab_widget.setCurrentIndex(1) # Switch to editor tab
+            if self.editor_items: # Check if parts are loaded
+                self.editor_view.zoom_to_fit() # Zoom to fit character
 
     # --- Editor Actions ---
 
@@ -949,6 +1510,52 @@ class AutomataDesigner(QMainWindow):
 
             character_data = loaded_data.get('character', {})
             parts_structure = character_data.get('parts', {})
+
+            # Load bounding_box.yaml for global offset
+            effective_bounding_box_offset = QPointF(0, 0)
+            raw_bbox_left = 0.0
+            raw_bbox_top = 0.0
+
+            if self.character_dir:
+                bounding_box_path = os.path.join(self.character_dir, "bounding_box.yaml")
+                if os.path.exists(bounding_box_path):
+                    try:
+                        with open(bounding_box_path, 'r') as f:
+                            bbox_data = yaml.safe_load(f)
+                        if isinstance(bbox_data, dict) and 'left' in bbox_data and 'top' in bbox_data:
+                            raw_bbox_left = float(bbox_data['left'])
+                            raw_bbox_top = float(bbox_data['top'])
+                            logging.info(f"Loaded raw bounding box values: left={raw_bbox_left}, top={raw_bbox_top}")
+                        else:
+                            logging.warning(f"Invalid bounding_box.yaml format in {bounding_box_path}")
+                    except Exception as e:
+                        logging.warning(f"Error loading bounding_box.yaml from {bounding_box_path}: {e}")
+                else:
+                    logging.info(f"bounding_box.yaml not found in {self.character_dir}, raw bbox offset will be (0,0).")
+
+                alignment_delta_x = 0.0
+                alignment_delta_y = 0.0
+                alignment_offset_path = os.path.join(self.character_dir, "alignment_offset.yaml")
+                if os.path.exists(alignment_offset_path):
+                    try:
+                        with open(alignment_offset_path, 'r') as f:
+                            align_data = yaml.safe_load(f)
+                        if isinstance(align_data, dict) and 'delta_x' in align_data and 'delta_y' in align_data:
+                            alignment_delta_x = float(align_data['delta_x'])
+                            alignment_delta_y = float(align_data['delta_y'])
+                            logging.info(f"Loaded alignment delta: dx={alignment_delta_x}, dy={alignment_delta_y}")
+                        else:
+                            logging.warning(f"Invalid alignment_offset.yaml format in {alignment_offset_path}")
+                    except Exception as e:
+                        logging.warning(f"Error loading alignment_offset.yaml from {alignment_offset_path}: {e}")
+                else:
+                    logging.info(f"alignment_offset.yaml not found in {self.character_dir}, using delta (0,0).")
+
+                effective_bounding_box_offset = QPointF(raw_bbox_left - alignment_delta_x, raw_bbox_top - alignment_delta_y)
+                logging.info(f"Effective bounding box offset for positioning: {effective_bounding_box_offset}")
+            else:
+                logging.warning("self.character_dir is not set. Cannot load bounding box or alignment offset. Effective offset will be (0,0).")
+
 
             # Load skeleton data if available (for positioning)
             current_skeleton = None
@@ -993,35 +1600,42 @@ class AutomataDesigner(QMainWindow):
 
                     if initial_pos_data and isinstance(initial_pos_data, dict):
                         # Use saved position if available
-                        editor_item.setPos(initial_pos_data.get('x', 0), initial_pos_data.get('y', 0))
-                        logging.debug(f"Positioning '{name}' using saved position: {initial_pos_data}")
+                        saved_x = initial_pos_data.get('x', 0)
+                        saved_y = initial_pos_data.get('y', 0)
+                        # Saved positions are assumed to be already correct absolute scene positions or relative to the desired aligned origin.
+                        # So, if they exist, they should ideally bypass the bbox offsetting,
+                        # OR they should be saved relative to the texture.png origin, just like ROI.
+                        # For now, let's assume saved positions are final and don't apply effective_bounding_box_offset.
+                        # This might need review based on how save_project stores them.
+                        # If saved_project positions are relative to texture origin, then uncomment and test:
+                        # editor_item.setPos(saved_x - effective_bounding_box_offset.x(), saved_y - effective_bounding_box_offset.y())
+                        editor_item.setPos(saved_x, saved_y)
+                        logging.debug(f"Positioning '{name}' using saved project position: ({saved_x}, {saved_y})")
                     elif roi_data and isinstance(roi_data, (list, tuple)) and len(roi_data) == 4:
                         # Use ROI top-left corner if available (from parts_info.json)
                         try:
-                            x_min, y_min = int(roi_data[0]), int(roi_data[1])
-                            editor_item.setPos(x_min, y_min)
-                            logging.debug(f"Positioning '{name}' using ROI: ({x_min}, {y_min})")
+                            x_min, y_min = int(roi_data[0]), int(roi_data[1]) # These are relative to texture.png
+                            editor_item.setPos(x_min - effective_bounding_box_offset.x(), y_min - effective_bounding_box_offset.y())
+                            logging.debug(f"Positioning '{name}' using ROI with effective BBox offset: ({x_min - effective_bounding_box_offset.x()}, {y_min - effective_bounding_box_offset.y()})")
                         except (ValueError, TypeError):
-                            logging.warning(f"Invalid ROI data for '{name}': {roi_data}. Falling back to skeleton.")
-                            # Fallback to skeleton if ROI is invalid
+                            logging.warning(f"Invalid ROI data for '{name}': {roi_data}. Falling back.")
+                            # Fallback logic (e.g., to skeleton or origin) should also use effective_bounding_box_offset
                             if name in skeleton_map:
-                                loc = skeleton_map[name] # Correct indentation
-                                # Check and set position *inside* this block
-                                if len(loc) >= 2: # Correct indentation
-                                    editor_item.setPos(loc[0], loc[1])
-                                    logging.debug(f"Positioning '{name}' using skeleton (ROI fallback): {loc}")
-                                else: # Correct indentation
-                                    logging.warning(f"Invalid skeleton location data for '{name}' during ROI fallback: {loc}")
+                                loc = skeleton_map[name]
+                                if len(loc) >= 2:
+                                    editor_item.setPos(loc[0] - effective_bounding_box_offset.x(), loc[1] - effective_bounding_box_offset.y())
+                                    logging.debug(f"Positioning '{name}' using skeleton (ROI fallback) with effective BBox offset: ({loc[0] - effective_bounding_box_offset.x()}, {loc[1] - effective_bounding_box_offset.y()})")
+                                # ... more error handling ...
                             else:
-                                logging.warning(f"Could not find skeleton data for '{name}' during ROI fallback.")
+                                editor_item.setPos(0 - effective_bounding_box_offset.x(), 0 - effective_bounding_box_offset.y())
                     elif name in skeleton_map: # 3. Fallback to skeleton joint location
-                        loc = skeleton_map[name]
+                        loc = skeleton_map[name] # These are relative to texture.png
                         if len(loc) >= 2:
-                             editor_item.setPos(loc[0], loc[1])
-                             logging.debug(f"Positioning '{name}' using skeleton (fallback): {loc}")
+                             editor_item.setPos(loc[0] - effective_bounding_box_offset.x(), loc[1] - effective_bounding_box_offset.y())
+                             logging.debug(f"Positioning '{name}' using skeleton (fallback) with effective BBox offset: ({loc[0] - effective_bounding_box_offset.x()}, {loc[1] - effective_bounding_box_offset.y()})")
                     else:
-                        logging.warning(f"Could not determine initial position for '{name}'. Placing at (0,0).")
-                        editor_item.setPos(0, 0) # Default to origin if no info found
+                        logging.warning(f"Could not determine initial position for '{name}'. Placing at (0,0) relative to effective BBox offset.")
+                        editor_item.setPos(0 - effective_bounding_box_offset.x(), 0 - effective_bounding_box_offset.y())
                     # --- End Corrected Positioning Logic ---
 
                     # Restore other saved properties
@@ -1110,16 +1724,26 @@ class AutomataDesigner(QMainWindow):
 
                         if child_item and parent_item:
                             try:
-                                # Joint location is usually the child's pivot point in world coordinates
-                                joint_loc_scene = QPointF(float(loc_data[0]), float(loc_data[1]))
+                                # Use anchor_offset as the local joint position
+                                parent_anchor_pos = parent_item.anchor_offset
+                                child_anchor_pos = child_item.anchor_offset
 
-                                # Map scene location to local coordinates for each part
-                                parent_joint_pos_local = parent_item.mapFromScene(joint_loc_scene)
-                                child_joint_pos_local = child_item.mapFromScene(joint_loc_scene)
+                                joint_name = f"Joint_{parent_item.part_info.name}-{child_item.part_info.name}"
+                                # The parent_pos and child_pos from EditorView are scene positions of clicks.
+                                # For the Joint object, we need positions local to each part item, referring to their anchors.
+                                joint = Joint(parent_item, child_item, parent_anchor_pos, child_anchor_pos, name=joint_name)
+                                self.joints.append(joint)
 
-                                # Create the joint
+                                # Set relationships (needed for kinematics/simulation)
+                                parent_item.child_joints.append(joint)
+                                child_item.parent_joint = joint
+
+                                logging.info(f"Created joint: {joint_name}")
+                                self.statusBar().showMessage(f"Created joint: {joint_name}")
+
+                                # Create the joint using the new anchor_offsets
                                 self._create_and_add_joint(parent_item, child_item,
-                                                          parent_joint_pos_local, child_joint_pos_local)
+                                                          parent_item.anchor_offset, child_item.anchor_offset)
                                 joint_count += 1
                             except Exception as e:
                                 logging.warning(f"Could not automatically create joint between mapped parts '{parent_part_name}' and '{child_part_name}' (from skeleton {parent_skeleton_name} -> {child_skeleton_name}) at {loc_data}: {e}")
@@ -1164,8 +1788,21 @@ class AutomataDesigner(QMainWindow):
                  self.cam_follower_item = self.editor_items[cam_follower_name]
                  logging.info(f"Loaded cam follower: {cam_follower_name}")
 
-            self.editor_view.zoom_to_fit()
+            # Zoom to fit the loaded character
+            if self.editor_items: # Ensure there are items to fit
+                self.editor_view.zoom_to_fit()
+                logging.info("Zoomed to fit loaded character in editor view.")
+
             self.statusBar().showMessage(f"Loaded {len(self.parts)} parts and {len(self.joints)} joints.")
+
+            # Populate initial rotations after parts are loaded
+            self.initial_part_rotations.clear()
+            for name, item in self.editor_items.items():
+                self.initial_part_rotations[name] = item.rotation()
+            logging.info(f"Stored initial rotations for {len(self.initial_part_rotations)} parts.")
+
+            # Enable alignment button after parts are loaded
+            self.save_alignment_btn.setEnabled(True)
 
         except Exception as e:
             logging.error(f"Error loading parts: {e}\n{traceback.format_exc()}")
@@ -1185,6 +1822,8 @@ class AutomataDesigner(QMainWindow):
         self.joints.clear()
         self.kinematic_chains.clear()
         self._clear_mechanism_visuals() # Clear mechanism visuals and layers
+        self._clear_body_parts_visualization() # Clear body parts visualization
+        self._clear_body_parts_visualization_image_view() # Clear image view body parts visualization
         # self.cam_follower_item = None # No longer needed with automatic approach
         # self.driving_cam_center = None # No longer needed with automatic approach
 
@@ -1193,6 +1832,9 @@ class AutomataDesigner(QMainWindow):
         self.z_value_spin.setEnabled(False)
         self.fixed_part_check.setChecked(False)
         self.fixed_part_check.setEnabled(False)
+
+        # Disable alignment button when clearing state
+        self.save_alignment_btn.setEnabled(False)
 
     def get_selected_editor_item(self):
         """Returns the currently selected CharacterPartItem in the editor scene."""
@@ -1284,8 +1926,14 @@ class AutomataDesigner(QMainWindow):
 
     def _create_and_add_joint(self, parent_item, child_item, parent_pos, child_pos):
         """Creates a Joint object, adds it to the list, and sets up relationships."""
+        # Use anchor_offset as the local joint position
+        parent_anchor_pos = parent_item.anchor_offset
+        child_anchor_pos = child_item.anchor_offset
+
         joint_name = f"Joint_{parent_item.part_info.name}-{child_item.part_info.name}"
-        joint = Joint(parent_item, child_item, parent_pos, child_pos, name=joint_name)
+        # The parent_pos and child_pos from EditorView are scene positions of clicks.
+        # For the Joint object, we need positions local to each part item, referring to their anchors.
+        joint = Joint(parent_item, child_item, parent_anchor_pos, child_anchor_pos, name=joint_name)
         self.joints.append(joint)
 
         # Set relationships (needed for kinematics/simulation)
@@ -1355,44 +2003,37 @@ class AutomataDesigner(QMainWindow):
             local_points_raw = [selected_item.mapFromScene(p) for p in points]
             logging.debug(f"Converted to {len(local_points_raw)} local points.")
 
-            # 2. Simplify the points
+            # 2. Simplify the points to a fixed number of control points (target: 12)
             num_raw_points = len(local_points_raw)
             simplified_local_points = []
 
-            if num_raw_points < 3: # Not enough for Bezier, use as is for polyline
-                simplified_local_points = local_points_raw
-                logging.debug(f"Using {num_raw_points} points directly as not enough for Bezier/simplification.")
+            if num_raw_points == 0:
+                # This case should ideally be caught by the `if not points:` check earlier,
+                # which handles the scenario where the input `points` list is empty.
+                logging.debug("No raw points to simplify (local_points_raw is empty).")
+            elif num_raw_points < 3:
+                # Not enough points for a meaningful Bezier curve; will likely form a polyline or single point.
+                simplified_local_points = list(local_points_raw) # Use a copy
+                logging.debug(f"Using {num_raw_points} points directly (less than 3 for Bezier).")
+            elif num_raw_points <= TARGET_CONTROL_POINTS:
+                # If the number of raw points is already at or below the target (but >= 3), use all of them.
+                simplified_local_points = list(local_points_raw) # Use a copy
+                logging.debug(f"Using all {num_raw_points} raw points as it's less than or equal to target {TARGET_CONTROL_POINTS}.")
             else:
-                # Aim for roughly 1/3, but ensure at least 3 points for Bezier.
-                # And not too many for very dense paths. Max around 25-30?
-                target_points = max(3, min(num_raw_points // 3, 30))
+                # num_raw_points > TARGET_CONTROL_POINTS. Sample exactly TARGET_CONTROL_POINTS.
+                # This method ensures the first and last points of the original path are included.
+                for i in range(TARGET_CONTROL_POINTS):
+                    # Calculate the corresponding index in the raw points list.
+                    # This maps i from [0, TARGET_CONTROL_POINTS-1] to raw_idx in [0, num_raw_points-1].
+                    raw_idx_float = i * (num_raw_points - 1) / (TARGET_CONTROL_POINTS - 1)
+                    raw_idx = int(round(raw_idx_float))
+                    # Clamp index to be safe, though it should be mathematically within bounds.
+                    raw_idx = max(0, min(raw_idx, num_raw_points - 1))
+                    simplified_local_points.append(local_points_raw[raw_idx])
+                logging.debug(f"Sampled down from {num_raw_points} to {len(simplified_local_points)} (targeted {TARGET_CONTROL_POINTS}) points.")
 
-                if num_raw_points <= target_points or num_raw_points <= 6: # If already few points, or close to target
-                    simplified_local_points = local_points_raw
-                    logging.debug(f"Using raw {num_raw_points} points as simplification isn't beneficial or target met.")
-                else:
-                    step = num_raw_points / target_points
-                    for i in range(target_points):
-                        index = int(i * step)
-                        # Ensure index is within bounds (can happen with floating point inaccuracies)
-                        index = min(index, num_raw_points -1)
-                        simplified_local_points.append(local_points_raw[index])
-
-                    # Ensure the very last original point is included for closure, if not already.
-                    # This helps maintain the overall shape better than just relying on decimated points.
-                    if simplified_local_points and local_points_raw[-1] != simplified_local_points[-1]:
-                        # Check if the last point is already "close enough" to the last simplified one.
-                        # This avoids adding a near-duplicate point.
-                        last_raw_pt = local_points_raw[-1]
-                        last_simp_pt = simplified_local_points[-1]
-                        # Define a small tolerance, e.g., 1 pixel in local coordinates
-                        tolerance_sq = 1.0 * 1.0
-                        dx = last_raw_pt.x() - last_simp_pt.x()
-                        dy = last_raw_pt.y() - last_simp_pt.y()
-                        if (dx*dx + dy*dy) > tolerance_sq:
-                            simplified_local_points.append(local_points_raw[-1])
-
-                logging.debug(f"Simplified from {num_raw_points} to {len(simplified_local_points)} local points.")
+            # General log statement about the final number of simplified points.
+            logging.debug(f"Simplified from {num_raw_points} to {len(simplified_local_points)} local points.")
 
 
             # 3. Generate Path (Bezier or Polyline)
@@ -1490,6 +2131,8 @@ class AutomataDesigner(QMainWindow):
             except Exception as e:
                  logging.warning(f"Error closing camera dialog: {e}")
         self.active_camera_dialogs.clear()
+        self._clear_body_parts_visualization()
+        self._clear_body_parts_visualization_image_view()
         super().closeEvent(event)
 
     # --- Layer Management --- #
@@ -1559,6 +2202,15 @@ class AutomataDesigner(QMainWindow):
             self.main_toolbar.setVisible(visible)
             logging.info(f"Toolbar visibility set to: {visible}")
 
+    def _toggle_part_properties_visibility(self, checked: bool):
+        """Shows or hides the 'Selected Part Properties' group box."""
+        if hasattr(self, 'part_properties_group') and self.part_properties_group is not None:
+            self.part_properties_group.setVisible(checked)
+            # The QAction text update is no longer needed as this will be controlled by OptionsTab checkbox
+            logging.info(f"Part Properties visibility set to: {checked}")
+        else:
+            logging.warning("part_properties_group not found, cannot toggle visibility.")
+
     # Re-add _apply_theme method
     def _apply_theme(self, theme_name: str):
         """Applies the selected theme (Light or Dark)."""
@@ -1609,7 +2261,7 @@ class AutomataDesigner(QMainWindow):
 
     # --- Skeleton Visualization --- #
     def _show_skeleton_and_joints(self, checked: bool):
-        """Triggers the visualization of the skeleton and joints in the editor view."""
+        """Triggers the visualization of the skeleton and joints in both views."""
         logging.debug(f"Show Skeleton button toggled: {checked}")
         if checked:
             if not self.skeleton_data:
@@ -1621,12 +2273,23 @@ class AutomataDesigner(QMainWindow):
                 self.show_skeleton_btn.blockSignals(False)
                 return
 
-            # Pass skeleton data and potentially joint data to the view
-            # The view will be responsible for drawing temporary items
+            # Pass skeleton data to both views
+            # Editor view
             self.editor_view.visualize_skeleton(self.skeleton_data, self.joints)
+            # Image processing view
+            self.image_proc_view.visualize_skeleton(self.skeleton_data, self.joints)
+
+            # Also show body parts with 50% opacity under skeleton in both views
+            logging.debug("Skeleton visualization enabled - calling _visualize_body_parts_under_skeleton()")
+            self._visualize_body_parts_under_skeleton()
+            self._visualize_body_parts_in_image_view()
         else:
-            # Hide the visualization
+            # Hide the visualization in both views
+            logging.debug("Skeleton visualization disabled - clearing body parts visualization")
             self.editor_view._clear_skeleton_visualization()
+            self.image_proc_view._clear_skeleton_visualization()
+            self._clear_body_parts_visualization()
+            self._clear_body_parts_visualization_image_view()
 
     def _create_linkage_placeholder(self, joint: Joint):
         """Creates visual placeholders for a linkage bar and joint."""
@@ -1655,7 +2318,7 @@ class AutomataDesigner(QMainWindow):
         stroked_path = stroker.createStroke(link_path)
 
         link_item = QGraphicsPathItem(stroked_path)
-        link_item.setPen(QPen(Qt.PenStyle.NoPen)) # No outline
+        link_item.setPen(QPen(Qt.NoPen)) # No outline
         link_color = QColor("green")
         link_color.setAlphaF(0.7) # Slightly less transparent
         link_item.setBrush(QBrush(link_color))
@@ -1666,13 +2329,13 @@ class AutomataDesigner(QMainWindow):
         parent_joint_circle = QGraphicsEllipseItem(-joint_radius, -joint_radius, joint_radius*2, joint_radius*2)
         parent_joint_circle.setPos(parent_joint_scene)
         parent_joint_circle.setBrush(QBrush(QColor("yellow")))
-        parent_joint_circle.setPen(QPen(Qt.PenStyle.NoPen))
+        parent_joint_circle.setPen(QPen(Qt.NoPen))
         parent_joint_circle.setZValue(310) # Keep above bar
 
         child_joint_circle = QGraphicsEllipseItem(-joint_radius, -joint_radius, joint_radius*2, joint_radius*2)
         child_joint_circle.setPos(child_joint_scene)
         child_joint_circle.setBrush(QBrush(QColor("yellow")))
-        child_joint_circle.setPen(QPen(Qt.PenStyle.NoPen))
+        child_joint_circle.setPen(QPen(Qt.NoPen))
         child_joint_circle.setZValue(310)
 
         return [link_item, parent_joint_circle, child_joint_circle]
@@ -1857,7 +2520,7 @@ class AutomataDesigner(QMainWindow):
         marker = QGraphicsEllipseItem(-radius, -radius, radius*2, radius*2)
         marker.setPos(pos)
         marker.setBrush(color)
-        marker.setPen(QPen(Qt.PenStyle.NoPen))
+        marker.setPen(QPen(Qt.NoPen))
         marker.setZValue(250) # High Z-value
         self.editor_scene.addItem(marker)
         setattr(self, marker_attr, marker) # Store reference
@@ -1902,134 +2565,280 @@ class AutomataDesigner(QMainWindow):
             self.generate_mechanism_btn.setToolTip("Generate the selected mechanism based on the current setup")
 
 
-    def _generate_mechanism_auto(self):
-        """Generates the selected mechanism based on the editor state and gathered inputs."""
-        selected_item = self.get_selected_editor_item()
-        mechanism_type = self.mechanism_type_combo.currentText()
+    def _generate_mechanism_auto(self) -> None:
+        selected_items = self.editor_scene.selectedItems()
+        selected_part: Optional[CharacterPartItem] = None
 
-        logging.info(f"Attempting to generate mechanism of type: {mechanism_type}")
+        if len(selected_items) == 1 and isinstance(selected_items[0], CharacterPartItem):
+            selected_part = selected_items[0]
+        elif not selected_items:
+            # Try to use torso as a reference if no part is explicitly selected
+            # self.torso_item should be updated if parts change
+            current_torso = next((item for item in self.editor_items.values() if item.part_info.name.lower() == "torso"), None)
+            if not current_torso and self.editor_items: # Fallback to first item
+                 current_torso = next(iter(self.editor_items.values()), None)
 
-        if not selected_item: # Basic check, specific checks below
-            QMessageBox.warning(self, "No Part Selected", "Please select a character part.")
+            if current_torso:
+                selected_part = current_torso
+                self.statusBar().showMessage(f"No specific part selected, using '{selected_part.part_info.name}' as reference.", 2000)
+            else:
+                 # This case means no items in editor at all, or selected_part logic error
+                 if self.mechanism_type_combo.currentText() != "Cam & Follower":
+                     self.statusBar().showMessage("Generating default mechanism (no reference part).", 2000)
+                     # Allow default generation for non-cam types without any reference part
+                 else:
+                    self.statusBar().showMessage("Please select a character part (especially for Cam).", 3000)
+                    return
+        else:
+            self.statusBar().showMessage("Please select a single character part for mechanism generation.", 3000)
             return
 
-        self._clear_mechanism_visuals() # Clear previous visuals
+        cam_center_scene = self.editor_scene.sceneRect().center() # Default to scene center
+        if selected_part:
+            cam_center_scene = selected_part.sceneBoundingRect().center()
+        elif self.torso_item: # self.torso_item should be updated when parts list changes
+             cam_center_scene = self.torso_item.sceneBoundingRect().center()
 
-        # --- Get Common Inputs ---
-        motion_path_required = mechanism_type in ["Cam & Follower", "3-Bar Linkage", "4-Bar Linkage"]
-        target_path_scene = None
-        if motion_path_required:
-            if not selected_item.motion_path or selected_item.motion_path.isEmpty():
-                # Access name via part_info
-                QMessageBox.warning(self, "No Motion Path", f"Part '{selected_item.part_info.name}' needs a defined motion path for {mechanism_type}.")
-                return
-            target_path_scene = selected_item.mapToScene(selected_item.motion_path)
+        user_motion_path_for_preview = None
+        if selected_part and hasattr(selected_part, 'motion_path') and \
+           selected_part.motion_path and not selected_part.motion_path.isEmpty():
+            user_motion_path_for_preview = selected_part.motion_path
 
-        # --- Call Type-Specific Generation ---
-        try:
-            if mechanism_type == "Cam & Follower":
-                # Determine cam center (use selected or default to torso)
-                cam_center = self.selected_cam_center
-                if cam_center is None:
-                    torso_item = self.editor_items.get("torso")
-                    if not torso_item:
-                        QMessageBox.warning(self, "Torso Not Found", "Please select a Cam Center or ensure a 'torso' part exists.")
-                        return
-                    cam_center = torso_item.sceneBoundingRect().center()
-                    logging.info("Using torso center as default cam center.")
+        recommendations = []
+        selected_mechanism_type_str = self.mechanism_type_combo.currentText()
 
-                smoothed_path = self._resample_path_as_polygon(target_path_scene)
-                cam_profile_path = generate_cam_profile(smoothed_path, cam_center)
-                if cam_profile_path and not cam_profile_path.isEmpty():
-                    cam_item = QGraphicsPathItem(cam_profile_path)
-                    cam_item.setPen(QPen(QColor("#FF00FF"), 2))
-                    cam_item.setBrush(QColor(255, 0, 255, 100))
-                    self._add_mechanism_visual("Generated Cam Profile", cam_item)
-                    # Visualize the actual center used
-                    self._update_point_marker('cam_center_used', cam_center, QColor("magenta"))
-                    self.driving_cam_center = cam_center # Store for potential simulation use
-                else:
-                    QMessageBox.information(self, "Cam Generation", "Failed to generate cam profile or profile is empty.")
+        # --- Recommendation 1: Based on user's current selection ---
+        rec1_data = None
+        if selected_mechanism_type_str == "Cam & Follower":
+            if selected_part and selected_part.motion_path and not selected_part.motion_path.isEmpty():
+                # Sample QPointF from the motion path instead of QPainterPath.Element
+                # to provide to generate_cam_profile.
+                num_motion_path_samples = 100  # Number of points to sample from the motion path
+                if num_motion_path_samples == 1:
+                    resampled_path_points = [selected_part.motion_path.pointAtPercent(0.0)]
+                elif num_motion_path_samples > 1:
+                    resampled_path_points = [selected_part.motion_path.pointAtPercent(i / (num_motion_path_samples - 1.0)) for i in range(num_motion_path_samples)]
+                else: # num_motion_path_samples <= 0
+                    resampled_path_points = []
 
-            elif mechanism_type == "3-Bar Linkage":
-                if self.selected_pivot_a is None:
-                     QMessageBox.warning(self, "Input Missing", "Please select Fixed Pivot A.")
-                     return
-                linkage_data = generate_3bar_linkage(target_path_scene, self.selected_pivot_a)
-                if linkage_data:
-                    QMessageBox.information(self, "3-Bar Linkage", f"Placeholder generated: {linkage_data.get('message')}")
-                    self._visualize_linkage_data(linkage_data)
-                else:
-                    QMessageBox.warning(self, "3-Bar Linkage", "Failed to generate 3-bar linkage (placeholder). See logs.")
+                rec1_data = generate_cam_profile(
+                    cam_center_scene, resampled_path_points, follower_radius=5, return_dict=True
+                )
+                if rec1_data:
+                    rec1_data["name"] = f"{selected_part.part_info.name} Cam"
+                    rec1_data["source_motion_path_item"] = selected_part # Keep reference
+            else:
+                # Provide a default cam if no path
+                rec1_data = generate_cam_profile(cam_center_scene, [], follower_radius=5, return_dict=True, base_radius_override=40)
+                if rec1_data: rec1_data["name"] = "Default Cam"
+        elif selected_mechanism_type_str == "4-Bar Linkage":
+            rec1_data = generate_4bar_linkage(base_pos=cam_center_scene, scale=max(30.0,selected_part.boundingRect().width()*0.1 if selected_part else 50.0))
+            if rec1_data: rec1_data["name"] = "Suggested 4-Bar"
+        elif selected_mechanism_type_str == "3-Bar Linkage":
+            rec1_data = generate_3bar_linkage(base_pos=cam_center_scene, scale=max(30.0,selected_part.boundingRect().width()*0.1 if selected_part else 40.0))
+            if rec1_data: rec1_data["name"] = "Suggested 3-Bar"
+        elif selected_mechanism_type_str == "Gears (Simple Pair)":
+            s_rad = max(20.0, selected_part.boundingRect().width()*0.05 if selected_part else 30.0)
+            rec1_data = generate_gear_pair(center_pos=cam_center_scene, r1=s_rad, r2=s_rad*0.75)
+            if rec1_data:
+                rec1_data["name"] = "Suggested Gears"
 
-            elif mechanism_type == "4-Bar Linkage":
-                if self.selected_pivot_a is None or self.selected_pivot_d is None:
-                     QMessageBox.warning(self, "Input Missing", "Please select Fixed Pivot A and Fixed Pivot D.")
-                     return
-                linkage_data = generate_4bar_linkage(target_path_scene, self.selected_pivot_a, self.selected_pivot_d)
-                if linkage_data:
-                    QMessageBox.information(self, "4-Bar Linkage", f"Placeholder generated: {linkage_data.get('message')}")
-                    self._visualize_linkage_data(linkage_data)
-                else:
-                    QMessageBox.warning(self, "4-Bar Linkage", "Failed to generate 4-bar linkage (placeholder). See logs.")
+        if rec1_data and user_motion_path_for_preview:
+            rec1_data["user_motion_path_local"] = user_motion_path_for_preview
 
-            elif mechanism_type == "Gears (Simple Pair)":
-                if self.selected_driver_center is None or self.selected_driven_center is None:
-                     QMessageBox.warning(self, "Input Missing", "Please select Driver and Driven Gear Centers.")
-                     return
-                gear_ratio = self.gear_ratio_spin.value()
-                gear_data = generate_gear_pair(driver_center=self.selected_driver_center,
-                                                driven_center=self.selected_driven_center,
-                                                gear_ratio=gear_ratio)
-                if gear_data:
-                    QMessageBox.information(self, "Gears (Simple Pair)", f"Placeholder generated: {gear_data.get('message')}")
-                    self._visualize_gear_data(gear_data)
-                else:
-                    QMessageBox.warning(self, "Gears (Simple Pair)", "Failed to generate gears (placeholder). See logs.")
+        if rec1_data: recommendations.append(rec1_data)
+        else: recommendations.append(None) # Keep structure for dialog
 
-        except Exception as e:
-            logging.error(f"Error during mechanism generation ({mechanism_type}): {e}", exc_info=True)
-            QMessageBox.critical(self, "Generation Error", f"An error occurred while generating the {mechanism_type}: {e}")
+        # --- Recommendation 2 & 3: Alternatives ---
+        alt_types_priority = ["4-Bar Linkage", "Gears (Simple Pair)", "Cam & Follower", "3-Bar Linkage"]
+        current_types_in_recs = {rec1_data.get("type") if rec1_data else None}
 
-        # Update layer visibility checkboxes if they exist
-        for name, checkbox in self.layer_checkboxes.items():
-            checkbox.setChecked(True) # Make new visuals visible by default
-        self.editor_scene.update()
+        for alt_type in alt_types_priority:
+            if len(recommendations) >= 3: break
+            if alt_type not in current_types_in_recs and alt_type is not None:
+                alt_data = None
+                alt_scale = max(30.0, selected_part.boundingRect().width()*0.1 if selected_part else 40.0)
+                alt_ref_pos = QPointF(cam_center_scene.x() + (alt_scale*2 if len(recommendations) % 2 == 1 else -alt_scale*2),
+                                      cam_center_scene.y() + (alt_scale if len(recommendations) % 2 == 1 else -alt_scale) )
 
-    def _resample_path_as_polygon(self, path: QPainterPath, num_samples: int = 100) -> QPolygonF:
-        """Resamples a QPainterPath into a QPolygonF with a fixed number of samples.
+                if alt_type == "Cam & Follower":
+                    alt_data = generate_cam_profile(alt_ref_pos, [], follower_radius=5, return_dict=True, base_radius_override=alt_scale*0.8)
+                    if alt_data: alt_data["name"] = "Alt: Basic Cam"
+                elif alt_type == "4-Bar Linkage":
+                    alt_data = generate_4bar_linkage(base_pos=alt_ref_pos, scale=alt_scale)
+                    if alt_data: alt_data["name"] = "Alt: 4-Bar"
+                elif alt_type == "3-Bar Linkage":
+                    alt_data = generate_3bar_linkage(base_pos=alt_ref_pos, scale=alt_scale*0.8)
+                    if alt_data: alt_data["name"] = "Alt: 3-Bar"
+                elif alt_type == "Gears (Simple Pair)":
+                    alt_data = generate_gear_pair(center_pos=alt_ref_pos, r1=alt_scale, r2=alt_scale*0.66)
+                    if alt_data:
+                        alt_data["name"] = "Alt: Gears"
 
-        Args:
-            path: The QPainterPath to resample (expected in scene coordinates).
-            num_samples: The number of points to sample along the path.
+                if alt_data and user_motion_path_for_preview:
+                    alt_data["user_motion_path_local"] = user_motion_path_for_preview
 
-        Returns:
-            A QPolygonF representing the resampled path.
-        """
-        polygon = QPolygonF()
-        if path.isEmpty() or num_samples < 2:
-            return polygon # Return empty polygon if path is empty or not enough samples
+                if alt_data:
+                    recommendations.append(alt_data)
+                    current_types_in_recs.add(alt_type)
 
-        for i in range(num_samples):
-            percent = i / (num_samples - 1) # Go from 0.0 to 1.0
-            point = path.pointAtPercent(percent)
-            polygon.append(point)
+        final_recommendations = [rec for rec in recommendations if rec is not None][:3]
+        while len(final_recommendations) < 1 and len(final_recommendations) <3 : # Ensure at least one, up to 3.
+             # Add a very generic placeholder if all generations failed
+             final_recommendations.append({"type":"Info", "name":"Placeholder", "description":"Additional mechanism option."})
 
-        # Ensure the polygon is closed if the path suggests it might be (e.g. for cam profiles)
-        # For a general resampling, explicit closure might not always be desired here,
-        # but for cam follower paths, it's usually a closed loop.
-        # The points_to_closed_bezier_path already ensures a sort of closure for the motion_path itself.
-        # If the input path is visually closed, pointAtPercent(1.0) should be very close to pointAtPercent(0.0).
-        # QPolygonF doesn't have an explicit closeSubpath like QPainterPath.
-        # If the first and last points are not identical, add the first point at the end to close it.
-        if num_samples > 1 and polygon.first() != polygon.last():
-             # This check is often redundant if path.pointAtPercent(0) == path.pointAtPercent(1) for closed paths
-             # but can be a safeguard. For cam generation, generate_cam_profile might expect this.
-             # However, the generate_cam_profile takes a QPolygonF which is a list of points.
-             # The "closed" nature is handled by how it iterates over those points.
-             pass # For now, let generate_cam_profile handle interpretation of the point list.
+        if not final_recommendations:
+            QMessageBox.information(self, "Mechanism Generation", "Could not generate any mechanism recommendations at this time.")
+            return
 
-        return polygon
+        selected_mechanism_data = MechanismRecommendationDialog.get_recommendation(final_recommendations, self)
+
+        if selected_mechanism_data and selected_mechanism_data.get("type") != "Info":
+            self._clear_mechanism_visuals() # Clear previous mechanism visuals
+            QMetaObject.invokeMethod(self, "_display_selected_mechanism_slot", Qt.QueuedConnection,
+                                     Q_ARG(dict, selected_mechanism_data),
+                                     Q_ARG(object, selected_part if selected_part else None))
+        else:
+            self.statusBar().showMessage("Mechanism generation cancelled or no valid selection.", 3000)
+
+    def _handle_mechanism_type_change(self, type_str: str):
+        selected_items = self.editor_scene.selectedItems()
+        allow_generation = False
+        if type_str == "Cam & Follower":
+            if selected_items and isinstance(selected_items[0], CharacterPartItem):
+                part_item = selected_items[0]
+                if part_item.motion_path and not part_item.motion_path.isEmpty():
+                    allow_generation = True
+            # If no part selected, or part has no path, cam generation button remains disabled
+            # unless we decide to allow default cam generation without selection.
+        else: # For Linkages and Gears
+            allow_generation = True # They can be generated with default parameters even without a selection or specific motion path
+
+        self.generate_mechanism_btn.setEnabled(allow_generation)
+
+    @pyqtSlot(dict, CharacterPartItem)
+    def _display_selected_mechanism_slot(self, mechanism_data: Dict[str, Any], selected_part_ref: Optional[CharacterPartItem]):
+        self._display_selected_mechanism(mechanism_data, selected_part_ref)
+
+    def _display_selected_mechanism(self, mechanism_data: Dict[str, Any], selected_part: Optional[CharacterPartItem]):
+        mechanism_type = mechanism_data.get("type")
+        mechanism_name = mechanism_data.get("name", "Unnamed Mechanism")
+        self.statusBar().showMessage(f"Visualizing: {mechanism_name} (Details TODO)", 3000)
+        print(f"TODO: Implement full visualization for {mechanism_name}")
+        print(f"Mechanism Data: {mechanism_data}")
+
+        generated_visuals: List[QGraphicsItem] = []
+
+        if mechanism_type == "Cam & Follower":
+            generated_visuals = self._visualize_cam_data_detailed(mechanism_data, selected_part)
+        elif mechanism_type == "linkage": # Covers both 3-bar and 4-bar from generation
+            generated_visuals = self._visualize_linkage_data_detailed(mechanism_data)
+        elif mechanism_type == "gears":
+            generated_visuals = self._visualize_gear_data_detailed(mechanism_data)
+        else:
+            # Fallback for unknown types or if detailed view not implemented
+            text_label = self.editor_scene.addText(f"Selected: {mechanism_name}\n(Detailed view pending for type: {mechanism_type})")
+            text_label.setDefaultTextColor(UIColors.TEXT_PRIMARY)
+            text_label.setPos(self.editor_scene.sceneRect().center() - QPointF(text_label.boundingRect().width()/2, text_label.boundingRect().height()/2))
+            text_label.setZValue(200) # Ensure it's visible
+            generated_visuals.append(text_label)
+
+        if generated_visuals:
+            # Add to scene (items in groups are added when group is added)
+            # for item in generated_visuals:
+            #     if not item.scene(): # Add top-level items/groups to scene
+            #         self.editor_scene.addItem(item)
+
+            layer_name = f"Generated: {mechanism_name}"
+            # _clear_mechanism_visuals() is called before this method via _generate_mechanism_auto,
+            # so we are always adding a new layer here.
+            self._add_layer_toggle(layer_name, generated_visuals, clear_others=False) # clear_others is False because it's pre-cleared
+
+            # The _add_layer_toggle method now handles adding items to scene,
+            # self.mechanism_visuals, and creating the checkbox.
+
+            # Old direct management here, now encapsulated in _add_layer_toggle:
+            # if layer_name not in self.layer_checkboxes:
+            #     checkbox = QCheckBox(layer_name)
+            #     checkbox.setChecked(True)
+            #     checkbox.toggled.connect(lambda checked, ln=layer_name: self._toggle_layer_visibility(ln, checked))
+            #     self.layer_layout.addWidget(checkbox)
+            #     self.layer_checkboxes[layer_name] = checkbox
+            # else:
+            #     self.layer_checkboxes[layer_name].setChecked(True)
+            # self.mechanism_visuals[layer_name] = generated_visuals
+            # for vis_item in generated_visuals:
+            #     vis_item.setVisible(True)
+
+            self.statusBar().showMessage(f"Displayed: {mechanism_name}", 3000)
+        else:
+            self.statusBar().showMessage(f"No visuals generated for {mechanism_name}.", 3000)
+
+    def _clear_mechanism_visuals(self) -> None:
+        # Existing logic to clear visuals... ensure it works with new layer management
+        layers_to_remove_from_listwidget = [] # This was for a QListWidget, now direct checkboxes
+        checkboxes_to_remove_from_layout = []
+
+        for layer_name, items_in_layer in list(self.mechanism_visuals.items()): # Iterate over a copy for safe deletion
+            for item in items_in_layer:
+                if item and item.scene() == self.editor_scene:
+                    # If item is a QGraphicsItemGroup, its children are removed automatically when group is removed.
+                    self.editor_scene.removeItem(item)
+
+            # Mark checkbox for removal from UI if it exists
+            if layer_name in self.layer_checkboxes:
+                checkboxes_to_remove_from_layout.append(self.layer_checkboxes.pop(layer_name))
+            # No list widget items to track here as per new design
+
+        self.mechanism_visuals.clear()
+
+        # Remove checkboxes from their layout (self.layer_layout)
+        for checkbox in checkboxes_to_remove_from_layout:
+            if checkbox: # Check if not None
+                self.layer_layout.removeWidget(checkbox)
+                checkbox.deleteLater()
+
+        # self.statusBar().showMessage("Cleared previous mechanism visuals.", 1500) # Message can be set by caller
+
+
+    def _add_layer_toggle(self, name: str, items: List[QGraphicsItem], clear_others: bool = False) -> None:
+        if clear_others:
+            # This case implies that _clear_mechanism_visuals() should have been called *before* this method.
+            # If for some reason it wasn't, this would be the place to defensively call it.
+            # However, current flow from _generate_mechanism_auto ensures pre-clearing.
+            logging.debug(f"_add_layer_toggle called with clear_others=True for layer '{name}'. Assuming pre-clear done.")
+            # self._clear_mechanism_visuals() # Potentially, if not guaranteed by caller
+            pass
+
+        if not items:
+            return
+
+        # If a layer checkbox with this name already exists, remove it first to refresh.
+        # This is crucial if clear_others=False and we are re-generating the same mechanism.
+        if name in self.layer_checkboxes:
+            old_checkbox = self.layer_checkboxes.pop(name)
+            self.layer_layout.removeWidget(old_checkbox)
+            old_checkbox.deleteLater()
+            # Associated visuals in self.mechanism_visuals[name] should also be cleared if this is a refresh.
+            # This is typically handled by an external call to _clear_mechanism_visuals before calling this.
+            if name in self.mechanism_visuals:
+                for old_item in self.mechanism_visuals.pop(name, []):
+                    if old_item and old_item.scene():
+                        self.editor_scene.removeItem(old_item)
+
+        self.mechanism_visuals[name] = items # Store/update items for this layer name
+
+        checkbox = QCheckBox(name)
+        checkbox.setChecked(True)
+        # Connect to _toggle_layer_visibility which uses self.mechanism_visuals dictionary
+        checkbox.toggled.connect(lambda checked, layer_id=name: self._toggle_layer_visibility(layer_id, checked))
+        self.layer_layout.addWidget(checkbox)
+        self.layer_checkboxes[name] = checkbox
+
+        for item in items:
+            if item and not item.scene(): # Add to scene if not already there (e.g. top-level groups)
+                self.editor_scene.addItem(item)
+            if item: item.setVisible(True) # Ensure new items are visible
 
     # --- Simulation Methods (Placeholder/Basic Implementation) ---
     def play_simulation(self):
@@ -2040,10 +2849,13 @@ class AutomataDesigner(QMainWindow):
             self.statusBar().showMessage("Cannot start simulation: No valid kinematic chains.")
             return
 
-        logging.info("Starting/Resuming simulation...")
+        logging.info("Starting simulation and saving current part states...")
+        # Save the current transforms of all parts as the 'initial state' for this play session.
+        # This is done in EditorView, which has access to the items.
+        self.editor_view._save_original_transforms()
+
         self.editor_view.set_mode('simulation')
-        self.editor_view._save_original_transforms() # Save state before starting
-        self.animation_time = 0.0 # Reset time or use current time if resuming
+        self.animation_time = 0.0 # Start animation from the beginning for this play session
         self.timer.start()
         self.statusBar().showMessage("Simulation running...")
         self.play_btn.setEnabled(False)
@@ -2073,18 +2885,23 @@ class AutomataDesigner(QMainWindow):
         self.reset_sim_btn.setEnabled(False)
         self.statusBar().showMessage("Simulation reset.")
 
+        # # self.initial_part_rotations.clear()
+        # for name, item in self.editor_items.items():
+        #     self.initial_part_rotations[name] = item.rotation()
+        # logging.info(f"Updated initial rotations for {len(self.initial_part_rotations)} parts after reset.")
+
     def update_simulation(self):
         """Performs one step of the simulation (called by timer)."""
         if not self.timer.isActive() or not self.kinematic_chains:
             return
 
-        delta_time = self.timer.interval() / 1000.0  # Convert ms to s
+        delta_time = self.timer.interval()
         self.animation_time += delta_time
         # Loop animation based on duration
         # Ensure animation_duration is not zero to prevent division errors
         current_animation_duration = self.animation_duration
         if current_animation_duration <= 0:
-            current_animation_duration = 0.01 # Use a very small positive default if it's zero or negative
+            current_animation_duration = 0.5 # Use a very small positive default if it's zero or negative
 
         progress = (self.animation_time % current_animation_duration) / current_animation_duration
 
@@ -2107,10 +2924,26 @@ class AutomataDesigner(QMainWindow):
             logging.debug(f"  Chain '{end_effector_name}': Target Scene Pos = ({target_pos_scene.x():.1f}, {target_pos_scene.y():.1f})")
             try:
                 solve_ik_ccd(chain, target_pos_scene, iterations=10, tolerance=1.5)
+
+                # After IK, restore initial orientations for all non-fixed parts in the chain
+                for item in chain:
+                    if item.is_fixed: # Do not attempt to modify fixed items
+                        continue
+
+                    part_name = item.part_info.name
+                    initial_rot = self.initial_part_rotations.get(part_name)
+
+                    if initial_rot is not None:
+                        current_item_pos = item.pos() # Preserve position set by IK
+                        item.setRotation(initial_rot) # Restore original orientation
+                        item.setPos(current_item_pos) # Re-apply position
+                    else:
+                        logging.warning(f"Could not find initial rotation for part '{part_name}' during simulation update.")
+
             except Exception as e:
                 logging.error(f"Error in IK solver for {end_effector_name}: {e}", exc_info=True)
-                self.stop_simulation()
-                break # Stop processing further chains on error
+            # self.stop_simulation() # Removed to allow continuous looping
+            # break # Removed to allow other chains to process even if one fails
 
         self.editor_scene.update() # Update scene after all chains are processed
 
@@ -2259,3 +3092,802 @@ class AutomataDesigner(QMainWindow):
                         "Tool for designing 2.5D mechanical automata.\n"
                         "Features image processing, skeleton editing, part assembly, \n"
                         "kinematic simulation, cam generation, and blueprint export.")
+
+    # --- Anchor Point Methods (New) ---
+    def _toggle_test_anchors_visibility(self, checked: bool):
+        if checked:
+            self._add_test_anchors()
+        else:
+            self._clear_test_anchors()
+
+    def _add_test_anchors(self):
+        self._clear_test_anchors() # Clear any previous ones first
+
+        anchor_configs = [
+            {"id": "anchor_center", "color": QColor("magenta"), "offset_type": "center"},
+            {"id": "anchor_offset_1", "color": QColor("orange"), "offset_type": "offset", "offset_val": QPointF(50, 0)},
+            {"id": "anchor_offset_2", "color": QColor("cyan"), "offset_type": "offset", "offset_val": QPointF(0, -50)},
+            {"id": "anchor_free_1", "color": QColor("yellow"), "offset_type": "absolute", "offset_val": QPointF(100,20)}
+        ]
+
+        base_pos = QPointF(self.editor_view.width() / 2, self.editor_view.height() / 2) # Default scene center
+        ref_item = self.editor_items.get("torso")
+        if not ref_item and self.editor_items:
+            ref_item = next(iter(self.editor_items.values())) # Get first available part
+
+        if ref_item:
+            base_pos = ref_item.sceneBoundingRect().center()
+            logging.info(f"Base position for anchors from '{ref_item.part_info.name}' center: {base_pos}")
+        else:
+            logging.info(f"No reference part found for anchors, using default scene center: {base_pos}")
+
+        for config in anchor_configs:
+            anchor_id = config["id"]
+            color = config["color"]
+            pos = QPointF(base_pos) # Start with base_pos
+
+            if config["offset_type"] == "offset" and ref_item:
+                # Offset from the reference item's top-left scene position + local offset for more stability if item moves
+                # Or, more simply, offset from the calculated base_pos (which is ref_item's center)
+                pos += config["offset_val"]
+            elif config["offset_type"] == "absolute":
+                pos = config["offset_val"] # Use as direct scene coordinates
+
+            anchor = AnchorItem(anchor_id=anchor_id, radius=7, color=color)
+            anchor.setPos(pos)
+            anchor.anchorMoved.connect(self._handle_anchor_moved)
+            # anchor.anchorSelected.connect(self._handle_anchor_selected) # Optional: if needed
+            # anchor.anchorLostFocus.connect(self._handle_anchor_lost_focus) # Optional: if needed
+            self.editor_scene.addItem(anchor)
+            self.anchor_items[anchor_id] = anchor
+            logging.debug(f"Added {anchor}")
+        self.statusBar().showMessage(f"Added {len(self.anchor_items)} test anchors.")
+
+    def _clear_test_anchors(self):
+        if not self.anchor_items:
+            return
+        for anchor_id, anchor_item in list(self.anchor_items.items()): # Iterate over a copy for safe removal
+            if anchor_item.scene():
+                self.editor_scene.removeItem(anchor_item)
+            # Disconnect signals to prevent issues if object persists temporarily
+            try:
+                anchor_item.anchorMoved.disconnect(self._handle_anchor_moved)
+                # anchor_item.anchorSelected.disconnect(self._handle_anchor_selected)
+                # anchor_item.anchorLostFocus.disconnect(self._handle_anchor_lost_focus)
+            except TypeError: # Raised if not connected
+                pass
+            del self.anchor_items[anchor_id]
+        logging.debug("Cleared all test anchors.")
+        self.statusBar().showMessage("Test anchors cleared.")
+
+    def _handle_anchor_moved(self, anchor_id: str, scene_pos: QPointF):
+        logging.info(f"Anchor '{anchor_id}' was moved to scene position: ({scene_pos.x():.1f}, {scene_pos.y():.1f})")
+        # Here, you could update corresponding logical points if these anchors
+        # are tied to mechanism definitions, e.g.:
+        # if anchor_id == "cam_center_anchor" and self.selected_cam_center is not None:
+        #     self.selected_cam_center = scene_pos
+        #     # maybe update a visual marker for the logical point too
+
+    # def _handle_anchor_selected(self, anchor_id: str):
+    #     logging.debug(f"Anchor '{anchor_id}' selected.")
+    #     self.statusBar().showMessage(f"Anchor '{anchor_id}' selected.")
+
+    # def _handle_anchor_lost_focus(self, anchor_id: str):
+    #     logging.debug(f"Anchor '{anchor_id}' lost focus.")
+
+    # --- End Anchor Point Methods ---
+
+    # --- 2.5D Shape Helper Methods ---
+
+    def _create_2d_item_group(
+        self,
+        shape_creation_func_front: callable, # func() -> QGraphicsItem
+        shape_creation_func_back: callable,  # func(offset_x, offset_y) -> QGraphicsItem
+        item_z_value: float = 0,
+        offset_dx: float = 1.5,
+        offset_dy: float = 1.5
+    ) -> List[QGraphicsItem]:
+        """
+        Creates a pair of graphics items (back and front) for a 2.5D effect.
+        The functions provided should return configured QGraphicsItems (e.g. QGraphicsPathItem, QGraphicsEllipseItem).
+        The back function will receive offset_dx and offset_dy to shift its position.
+        """
+        back_item = shape_creation_func_back(offset_dx, offset_dy)
+        front_item = shape_creation_func_front()
+
+        back_item.setZValue(item_z_value)
+        front_item.setZValue(item_z_value + 0.1) # Front item slightly above back
+
+        return [back_item, front_item]
+
+
+    def _create_2d_ellipse_items(self, rect: QRectF, front_brush: QBrush, back_brush: QBrush, pen: QPen, offset_scale: float = 2.0) -> List[QGraphicsItem]:
+        """Creates a 2.5D ellipse (back and front QGraphicsEllipseItem). Rect defines bounds at (0,0)."""
+        offset_x = offset_scale
+        offset_y = offset_scale
+
+        back_ellipse = QGraphicsEllipseItem(rect)
+        back_ellipse.setPos(offset_x, offset_y)
+        back_ellipse.setBrush(back_brush)
+        back_ellipse.setPen(QPen(Qt.NoPen))
+
+        front_ellipse = QGraphicsEllipseItem(rect)
+        front_ellipse.setBrush(front_brush)
+        front_ellipse.setPen(pen)
+        return [back_ellipse, front_ellipse]
+
+    def _create_2d_rect_items(self, rect: QRectF, front_brush: QBrush, back_brush: QBrush, pen: QPen, offset_scale: float = 2.0, back_pen: Optional[QPen] = None) -> List[QGraphicsItem]:
+        """Creates a 2.5D rectangle (back and front QGraphicsRectItem). Rect defines bounds at (0,0)."""
+        offset_x = offset_scale
+        offset_y = offset_scale
+        if back_pen is None:
+            back_pen = QPen(Qt.NoPen)
+
+        back_rect = QGraphicsRectItem(rect)
+        back_rect.setPos(offset_x, offset_y)
+        back_rect.setBrush(back_brush)
+        back_rect.setPen(back_pen)
+
+        front_rect = QGraphicsRectItem(rect)
+        front_rect.setBrush(front_brush)
+        front_rect.setPen(pen)
+        return [back_rect, front_rect]
+
+    def _create_2d_path_items(self, path: QPainterPath, front_brush: QBrush, back_brush: QBrush, pen: QPen, offset_scale: float = 2.0) -> List[QGraphicsItem]:
+        """Creates a 2.5D shape from a QPainterPath (back and front QGraphicsPathItem)."""
+        offset_x = offset_scale
+        offset_y = offset_scale
+
+        back_path_item = QGraphicsPathItem(path)
+        back_path_item.setPos(offset_x, offset_y)
+        back_path_item.setBrush(back_brush)
+        back_path_item.setPen(QPen(Qt.NoPen))
+
+        front_path_item = QGraphicsPathItem(path)
+        front_path_item.setBrush(front_brush)
+        front_path_item.setPen(pen)
+        return [back_path_item, front_path_item]
+
+    def _create_2d_polygon_items(self, polygon: QPolygonF, front_brush: QBrush, back_brush: QBrush, pen: QPen, offset_scale: float = 2.0) -> List[QGraphicsItem]:
+        """Creates a 2.5D shape from a QPolygonF (back and front QGraphicsPolygonItem)."""
+        offset_x = offset_scale
+        offset_y = offset_scale
+
+        back_poly_item = QGraphicsPolygonItem(polygon.translated(offset_x, offset_y))
+        back_poly_item.setBrush(back_brush)
+        back_poly_item.setPen(QPen(Qt.NoPen))
+
+        front_poly_item = QGraphicsPolygonItem(polygon)
+        front_poly_item.setBrush(front_brush)
+        front_poly_item.setPen(pen)
+        return [back_poly_item, front_poly_item]
+
+    # --- Mechanism Visualization Methods (Detailed) ---
+
+    def _visualize_cam_data_detailed(self, mechanism_data: Dict[str, Any],
+                                   selected_part: Optional[CharacterPartItem]) -> List[QGraphicsItem]:
+        """Generates detailed QGraphicsItems for a cam mechanism with 2.5D effect."""
+        visual_items = []
+        cam_center_list = mechanism_data.get("cam_center_scene", [0,0])
+        cam_center = QPointF(cam_center_list[0], cam_center_list[1])
+
+        # Cam Profile (Pitch Curve)
+        # The profile_path_qt is relative to (0,0) assuming cam's center of rotation is (0,0).
+        # So we add items to a group, and move the group, or add items directly and setPos on them.
+        # For cam, the profile rotates, so it's simpler if path is defined around (0,0) and item is rotated at cam_center.
+
+        cam_profile_path: QPainterPath = mechanism_data.get("profile_path_qt")
+        if cam_profile_path and not cam_profile_path.isEmpty():
+            pen = QPen(UIColors.CAM_BORDER, 1.5)
+
+            # Create a parent QGraphicsItem for the cam (profile + shaft) to handle positioning and rotation
+            cam_group_item = QGraphicsItemGroup() # Using QGraphicsItemGroup for simplicity
+
+            # Cam Profile items (back and front)
+            # These are added to cam_group_item, so their pos is relative to it.
+            # Since cam_profile_path is already relative to its rotation center (0,0),
+            # these items are added at (0,0) within the group.
+            profile_items = self._create_2d_path_items(
+                cam_profile_path,
+                QBrush(UIColors.CAM_FRONT),
+                QBrush(UIColors.CAM_BACK),
+                pen,
+                offset_scale=2.0
+            )
+            for item in profile_items:
+                cam_group_item.addToGroup(item)
+
+            # Cam Shaft
+            # shaft_radius = mechanism_data.get("base_radius", 30) * 0.2  # Example from preview
+            # Use a more consistent shaft size, perhaps relative to cam_profile_path bounds or a fixed moderate size.
+            min_dist_to_center = mechanism_data.get("min_dist_pitch_curve_to_center", 20)
+            shaft_radius = max(5.0, min_dist_to_center * 0.3 if min_dist_to_center > 0 else 10.0) # Ensure positive, reasonable size
+            if "base_radius" in mechanism_data: # Prefer explicit base_radius if available from generation
+                shaft_radius = max(5.0, mechanism_data["base_radius"] * 0.25)
+
+            shaft_rect = QRectF(-shaft_radius, -shaft_radius, shaft_radius*2, shaft_radius*2)
+            shaft_pen = QPen(UIColors.SHAFT_BORDER, 1)
+            shaft_items = self._create_2d_ellipse_items(
+                shaft_rect,
+                QBrush(UIColors.SHAFT_FRONT),
+                QBrush(UIColors.SHAFT_BACK),
+                shaft_pen,
+                offset_scale=1.5
+            )
+            for item in shaft_items:
+                # Shaft is also centered at (0,0) within the cam_group_item
+                cam_group_item.addToGroup(item)
+
+            cam_group_item.setPos(cam_center) # Position the whole group
+            cam_group_item.setZValue(100) # Ensure cam is reasonably layered
+            visual_items.append(cam_group_item)
+
+            # Optional: Visualize follower and its path if relevant part is provided
+            if selected_part and selected_part.motion_path and not selected_part.motion_path.isEmpty():
+                # Draw the target motion path for the follower
+                target_path_item = QGraphicsPathItem(selected_part.motion_path)
+                # Path is local to part, so setPos and setTransform of the path_item to match the part
+                # The path itself should be drawn relative to the part item's origin (0,0)
+                target_path_item.setPen(QPen(UIColors.MOTION_PATH_COLOR, 2, Qt.PenStyle.DashLine))
+                # Position and transform the path item exactly like its parent part item.
+                # This is crucial if the part item itself is transformed (rotated/scaled).
+                # The CharacterPartItem.motion_path is already in its local coordinates.
+                path_parent_group = QGraphicsItemGroup() # Group to hold the path, apply part's transform to group
+                path_parent_group.addToGroup(target_path_item) # target_path_item is at (0,0) in this group
+                path_parent_group.setPos(selected_part.pos())
+                path_parent_group.setTransform(selected_part.sceneTransform()) # Use sceneTransform for correct world orientation and scale
+                path_parent_group.setZValue(90)
+                visual_items.append(path_parent_group)
+
+                # Draw a simple follower representation at the start of its path
+                follower_radius = mechanism_data.get("follower_radius", 5.0)
+                if follower_radius > 0:
+                    start_of_path_local = selected_part.motion_path.pointAtPercent(0)
+                    # Map this local point to scene coordinates using the part's complete transformation
+                    start_of_path_scene = selected_part.mapToScene(start_of_path_local)
+
+                    follower_rect = QRectF(-follower_radius, -follower_radius, follower_radius*2, follower_radius*2)
+                    follower_pen = QPen(UIColors.COMPONENT_BORDER, 1)
+                    follower_items = self._create_2d_ellipse_items(
+                        follower_rect,
+                        QBrush(UIColors.COMPONENT_FRONT),
+                        QBrush(UIColors.COMPONENT_BACK),
+                        follower_pen,
+                        offset_scale=1.5 # Smaller offset for follower
+                    )
+                    # Group follower items and position them
+                    follower_group = QGraphicsItemGroup()
+                    for item in follower_items: follower_group.addToGroup(item)
+                    follower_group.setPos(start_of_path_scene)
+                    follower_group.setZValue(110) # Above cam
+                    visual_items.append(follower_group)
+        else:
+            logging.warning("Cam profile path is empty or missing in mechanism_data.")
+
+    def _visualize_linkage_data_detailed(self, mechanism_data: Dict[str, Any]) -> List[QGraphicsItem]:
+        """Generates detailed QGraphicsItems for a linkage mechanism with 2.5D effect."""
+        visual_items = []
+        points_dict = mechanism_data.get("points", {})
+        link_lengths_dict = mechanism_data.get("link_lengths", {})
+        thickness = mechanism_data.get("thickness", 8.0) # Default thickness
+        bar_type = mechanism_data.get("bar_type", "N-bar")
+
+        p = {name: QPointF(coords[0], coords[1]) for name, coords in points_dict.items()}
+
+        link_definitions = []
+        if bar_type == "4-bar" and all(k in p for k in ["p0", "p1", "p2", "p3_fixed"]):
+            link_definitions = [
+                (p["p0"], p["p1"], link_lengths_dict.get("l1", QLineF(p["p0"],p["p1"]).length()), "L1_Crank"),
+                (p["p1"], p["p2"], link_lengths_dict.get("l2", QLineF(p["p1"],p["p2"]).length()), "L2_Coupler"),
+                (p["p2"], p["p3_fixed"], link_lengths_dict.get("l3", QLineF(p["p2"],p["p3_fixed"]).length()), "L3_Rocker"),
+                (p["p0"], p["p3_fixed"], link_lengths_dict.get("l4", QLineF(p["p0"],p["p3_fixed"]).length()), "L4_Ground"),
+            ]
+        elif bar_type == "3-bar (Open Chain)" and all(k in p for k in ["p0", "p1", "p2"]):
+            link_definitions = [
+                (p["p0"], p["p1"], link_lengths_dict.get("l1", QLineF(p["p0"],p["p1"]).length()), "L1_Crank"),
+                (p["p1"], p["p2"], link_lengths_dict.get("l2", QLineF(p["p1"],p["p2"]).length()), "L2_Link"),
+            ]
+
+        link_z_value = 100
+        pin_z_value = 101
+
+        for start_pt, end_pt, length, name in link_definitions:
+            if length <= 1e-3 : continue
+
+            line = QLineF(start_pt, end_pt)
+            angle_deg = -line.angle() # QLineF.angle() is CCW from positive x-axis
+
+            link_item_group = QGraphicsItemGroup()
+
+            # Create rounded rectangle for the link
+            link_path = QPainterPath()
+            # Path defined centered at (0,0) with length `length` and thickness `thickness`
+            link_path.addRoundedRect(-length/2, -thickness/2, length, thickness, thickness/3, thickness/3)
+
+            link_items_2d = self._create_2d_path_items(
+                link_path,
+                QBrush(UIColors.COMPONENT_FRONT),
+                QBrush(UIColors.COMPONENT_BACK),
+                QPen(UIColors.COMPONENT_BORDER, 1)
+            )
+            for item in link_items_2d:
+                link_item_group.addToGroup(item)
+
+            link_item_group.setPos(line.center())
+            link_item_group.setRotation(angle_deg)
+            link_item_group.setZValue(link_z_value)
+            link_item_group.setData(0, f"Link_{name}") # Store name for debugging
+            visual_items.append(link_item_group)
+
+        # Draw Pins
+        pin_radius = thickness * 0.45
+        pin_points_to_draw = []
+        if "p0" in p: pin_points_to_draw.append(p["p0"])
+        if "p1" in p: pin_points_to_draw.append(p["p1"])
+        if "p2" in p: pin_points_to_draw.append(p["p2"])
+        if bar_type == "4-bar" and "p3_fixed" in p: pin_points_to_draw.append(p["p3_fixed"])
+
+        # Remove duplicate pin locations before drawing
+        unique_pin_scene_coords = []
+        seen_coords = set()
+        for pt in pin_points_to_draw:
+            coord_tuple = (round(pt.x(), 3), round(pt.y(), 3)) # Round to avoid float precision issues
+            if coord_tuple not in seen_coords:
+                unique_pin_scene_coords.append(pt)
+                seen_coords.add(coord_tuple)
+
+        for scene_pt in unique_pin_scene_coords:
+            pin_item_group = QGraphicsItemGroup()
+            pin_rect = QRectF(-pin_radius, -pin_radius, pin_radius*2, pin_radius*2)
+            pin_items_2d = self._create_2d_ellipse_items(
+                pin_rect,
+                QBrush(UIColors.PIN_FRONT),
+                QBrush(UIColors.PIN_BACK),
+                QPen(UIColors.PIN_BORDER, 1)
+            )
+            for item in pin_items_2d:
+                pin_item_group.addToGroup(item)
+
+            pin_item_group.setPos(scene_pt)
+            pin_item_group.setZValue(pin_z_value)
+            visual_items.append(pin_item_group)
+
+        return visual_items
+
+    def _visualize_gear_data_detailed(self, mechanism_data: Dict[str, Any]) -> List[QGraphicsItem]:
+        """Generates detailed QGraphicsItems for a gear (or gear pair) with 2.5D effect."""
+        visual_items = []
+        gears_list = mechanism_data.get("gears", [])
+
+        gear_base_z = 100
+
+        for i, gear_info in enumerate(gears_list):
+            gear_group_item = QGraphicsItemGroup() # Group for one entire gear (body + teeth)
+
+            center_coords = gear_info.get("center", [0,0])
+            gear_center = QPointF(center_coords[0], center_coords[1])
+            radius = gear_info.get("radius", 30.0)
+            num_teeth = gear_info.get("num_teeth", 12)
+            tooth_height = gear_info.get("tooth_height", radius * 0.2)
+            initial_angle_deg = gear_info.get("angle_deg", 0)
+
+            # Gear Body (Disk)
+            # Path is defined relative to (0,0) for the gear_group_item
+            body_radius = radius - tooth_height / 2 # Inner radius to base of teeth
+            body_rect = QRectF(-body_radius, -body_radius, body_radius*2, body_radius*2)
+            body_items = self._create_2d_ellipse_items(
+                body_rect,
+                QBrush(UIColors.GEAR_BODY_FRONT),
+                QBrush(UIColors.GEAR_BODY_BACK),
+                QPen(UIColors.GEAR_BODY_BORDER, 1)
+            )
+            for item in body_items:
+                gear_group_item.addToGroup(item)
+
+            # Gear Teeth
+            outer_radius = radius + tooth_height / 2
+            inner_radius = body_radius # Base of teeth
+
+            angle_step_rad = (2 * math.pi) / num_teeth
+            tooth_width_angle_rad = angle_step_rad * 0.5 # Tooth takes up half the angular step at pitch circle
+
+            for t_idx in range(num_teeth):
+                # Angle to the center of the tooth
+                current_tooth_angle_rad = t_idx * angle_step_rad
+
+                # Points for one tooth polygon, defined around (0,0) before rotation for this tooth
+                # These are approximations for involute teeth, simple trapezoidal/polygonal.
+                # Angle for p1 & p4 (inner points)
+                a1 = current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.9 # Slightly taper base
+                # Angle for p2 & p3 (outer points)
+                a2 = current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.7 # Slightly taper tip
+
+                p1 = QPointF(inner_radius * math.cos(a1), inner_radius * math.sin(a1))
+                p2 = QPointF(outer_radius * math.cos(a2), outer_radius * math.sin(a2))
+                p3 = QPointF(outer_radius * math.cos(-a2), outer_radius * math.sin(-a2)) # Symmetric for this simple tooth
+                p4 = QPointF(inner_radius * math.cos(-a1), inner_radius * math.sin(-a1))
+
+                # Need to mirror these points properly for the other side of the tooth center
+                angle_p3 = current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.7
+                angle_p4 = current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.9
+
+                p1 = QPointF(inner_radius * math.cos(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.9),
+                             inner_radius * math.sin(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.9))
+                p2 = QPointF(outer_radius * math.cos(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.7),
+                             outer_radius * math.sin(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.7))
+                p3 = QPointF(outer_radius * math.cos(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.7),
+                             outer_radius * math.sin(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.7))
+                p4 = QPointF(inner_radius * math.cos(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.9),
+                             inner_radius * math.sin(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.9))
+
+                tooth_poly = QPolygonF([p1, p2, p3, p4])
+
+                tooth_items = self._create_2d_polygon_items(
+                    tooth_poly,
+                    QBrush(UIColors.GEAR_TOOTH_FRONT),
+                    QBrush(UIColors.GEAR_TOOTH_BACK),
+                    QPen(UIColors.GEAR_TOOTH_BORDER, 0.5),
+                    offset_scale=1.0 # Smaller offset for teeth
+                )
+                for item in tooth_items:
+                    # These are already defined with rotation, so add directly to gear_group_item
+                    gear_group_item.addToGroup(item)
+
+            # Central Shaft Hole (optional, visual only)
+            shaft_hole_radius = radius * 0.25
+            hole_rect = QRectF(-shaft_hole_radius, -shaft_hole_radius, shaft_hole_radius*2, shaft_hole_radius*2)
+            # Create front ellipse for hole, and a slightly darker back for depth.
+            # The "back" of the hole will effectively be the gear's back color.
+            # So, we just draw the front hole "cutting" through the front gear body.
+            hole_front = QGraphicsEllipseItem(hole_rect)
+            hole_front.setBrush(UIColors.SHAFT_BACK) # Use shaft back color for illusion of depth
+            hole_front.setPen(QPen(UIColors.GEAR_BODY_BORDER, 0.5))
+            gear_group_item.addToGroup(hole_front)
+
+
+            gear_group_item.setPos(gear_center)
+            gear_group_item.setRotation(initial_angle_deg)
+            gear_group_item.setZValue(gear_base_z + i * 0.5) # Stagger Z slightly if multiple gears
+            visual_items.append(gear_group_item)
+
+        return visual_items
+
+    # --- End Anchor Point Methods ---
+
+    # --- Character Alignment Method (New) ---
+    def save_character_alignment(self):
+        """Saves the current character's alignment offset based on the torso's position."""
+        if not self.character_dir:
+            QMessageBox.warning(self, "Alignment Error", "Character data directory is not set. Cannot save alignment.")
+            return
+
+        torso_item = self.editor_items.get("torso")
+        if not torso_item:
+            # Fallback to any selected item if torso isn't present or if we want more flexibility
+            selected_item = self.get_selected_editor_item()
+            if selected_item:
+                QMessageBox.warning(self, "Alignment Warning",
+                                    f"'torso' part not found. Using selected part '{selected_item.part_info.name}' as reference for alignment. Ensure this part has a defined ROI in its PartInfo.")
+                torso_item = selected_item # Use selected item as reference
+            else:
+                QMessageBox.warning(self, "Alignment Error", "No 'torso' part found and no other part selected. Cannot determine reference for alignment.")
+                return
+
+        # 1. Get current scene position of the reference part (e.g., torso)
+        s_ref_new_pos = torso_item.pos() # This is the part's origin in scene coordinates
+
+        # 2. Get the reference part's original ROI coordinates (relative to texture.png)
+        if not torso_item.part_info or not torso_item.part_info.roi or len(torso_item.part_info.roi) != 4:
+            QMessageBox.warning(self, "Alignment Error", f"Reference part '{torso_item.part_info.name}' does not have valid ROI data. Cannot calculate alignment.")
+            return
+
+        p_ref_in_texture_x = float(torso_item.part_info.roi[0])
+        p_ref_in_texture_y = float(torso_item.part_info.roi[1])
+
+        # 3. Read raw bounding_box.yaml left and top
+        raw_bbox_left = 0.0
+        raw_bbox_top = 0.0
+        bounding_box_path = os.path.join(self.character_dir, "bounding_box.yaml")
+        if os.path.exists(bounding_box_path):
+            try:
+                with open(bounding_box_path, 'r') as f:
+                    bbox_data = yaml.safe_load(f)
+                if isinstance(bbox_data, dict) and 'left' in bbox_data and 'top' in bbox_data:
+                    raw_bbox_left = float(bbox_data['left'])
+                    raw_bbox_top = float(bbox_data['top'])
+                else:
+                    raise ValueError("Invalid bounding_box.yaml format")
+            except Exception as e:
+                QMessageBox.critical(self, "Alignment Error", f"Error reading bounding_box.yaml: {e}")
+                return
+        else:
+            QMessageBox.critical(self, "Alignment Error", "bounding_box.yaml not found. Cannot calculate alignment.")
+            return
+
+        # 4. Calculate the new delta_x and delta_y
+        # We want: S_ref_new = P_ref_in_texture - (B_raw - Delta_align)
+        # S_ref_new_x = p_ref_in_texture_x - (raw_bbox_left - delta_x_new)
+        # S_ref_new_y = p_ref_in_texture_y - (raw_bbox_top - delta_y_new)
+        # So:
+        # raw_bbox_left - delta_x_new = p_ref_in_texture_x - S_ref_new_x
+        # delta_x_new = raw_bbox_left - (p_ref_in_texture_x - S_ref_new_x)
+        # delta_y_new = raw_bbox_top - (p_ref_in_texture_y - S_ref_new_y)
+
+        delta_x_new = raw_bbox_left - (p_ref_in_texture_x - s_ref_new_pos.x())
+        delta_y_new = raw_bbox_top - (p_ref_in_texture_y - s_ref_new_pos.y())
+
+        # 5. Save to alignment_offset.yaml
+        alignment_offset_path = os.path.join(self.character_dir, "alignment_offset.yaml")
+        alignment_data = {'delta_x': delta_x_new, 'delta_y': delta_y_new}
+        try:
+            with open(alignment_offset_path, 'w') as f:
+                yaml.dump(alignment_data, f, default_flow_style=False)
+            logging.info(f"Saved character alignment offset: dx={delta_x_new}, dy={delta_y_new} to {alignment_offset_path}")
+            QMessageBox.information(self, "Alignment Saved",
+                                  f"Character alignment saved successfully.\nDelta X: {delta_x_new:.2f}, Delta Y: {delta_y_new:.2f}\nReload character to see changes.")
+        except Exception as e:
+            logging.error(f"Error saving alignment_offset.yaml: {e}")
+            QMessageBox.critical(self, "Alignment Error", f"Could not save alignment offset: {e}")
+
+    # --- 2.5D Shape Helper Methods ---
+
+    # --- Character Viewer Tab Methods (New) ---
+    def _create_character_viewer_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+
+        # Left Control Panel
+        left_panel = QWidget()
+        left_panel_layout = QVBoxLayout(left_panel)
+        left_panel.setFixedWidth(250)
+
+        # Loading Group
+        load_group = QGroupBox("Load Character")
+        load_layout = QVBoxLayout(load_group)
+        self.viewer_load_btn = QPushButton("Load Character Data (parts_info.json)")
+        load_layout.addWidget(self.viewer_load_btn)
+        left_panel_layout.addWidget(load_group)
+
+        # View Options Group
+        view_options_group = QGroupBox("View Options")
+        view_options_layout = QVBoxLayout(view_options_group)
+        self.viewer_show_skeleton_check = QCheckBox("Show Skeleton")
+        self.viewer_show_body_parts_check = QCheckBox("Show Body Parts")
+        view_options_layout.addWidget(self.viewer_show_skeleton_check)
+        view_options_layout.addWidget(self.viewer_show_body_parts_check)
+        left_panel_layout.addWidget(view_options_group)
+
+        left_panel_layout.addStretch()
+        layout.addWidget(left_panel)
+
+        # Right View Area
+        self.viewer_scene = QGraphicsScene(self)
+        self.viewer_view = EditorView(self.viewer_scene, self) # Reusing EditorView
+        layout.addWidget(self.viewer_view, 1)
+
+        return widget
+
+    def _viewer_clear_all_items(self):
+        if self.viewer_scene:
+            # Clear Pixmap
+            if self.viewer_char_texture_item and self.viewer_char_texture_item.scene() == self.viewer_scene:
+                self.viewer_scene.removeItem(self.viewer_char_texture_item)
+            self.viewer_char_texture_item = None
+
+            # Clear Skeleton items
+            for item in self.viewer_skeleton_items:
+                if item.scene() == self.viewer_scene:
+                    self.viewer_scene.removeItem(item)
+            self.viewer_skeleton_items.clear()
+
+            # Clear Body Part items
+            for item in self.viewer_body_part_items.values():
+                if item.scene() == self.viewer_scene:
+                    self.viewer_scene.removeItem(item)
+            self.viewer_body_part_items.clear()
+
+        self.viewer_loaded_parts_info = None
+        self.viewer_loaded_texture_path = None
+
+        # Store the path to the loaded parts_info.json for relative path resolution later
+        self.current_parts_info_path: Optional[str] = None
+
+    def _viewer_load_character_data(self):
+        parts_info_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Character Data File",
+            self.character_dir or os.path.expanduser("~"), # Start in last char_dir or home
+            "JSON Files (*.json)"
+        )
+        if not parts_info_path or not os.path.exists(parts_info_path):
+            return
+
+        self._viewer_clear_all_items()
+        # Reset checkboxes
+        self.viewer_show_skeleton_check.setChecked(False)
+        self.viewer_show_body_parts_check.setChecked(False)
+
+        # Store the path for later use in resolving relative paths
+        self.current_parts_info_path = parts_info_path
+
+        try:
+            with open(parts_info_path, 'r') as f:
+                self.viewer_loaded_parts_info = json.load(f)
+            logging.info(f"Loaded character data from: {parts_info_path}")
+
+            # Try to find the base texture (image.png or texture.png)
+            # Assumes parts_info.json is in a subdirectory like 'body_parts_output'
+            # and the original character files are in its parent.
+            base_output_dir = Path(parts_info_path).parent
+            character_source_dir = base_output_dir.parent
+
+            possible_texture_names = ["image.png", "texture.png"]
+            found_texture_path = None
+            for name in possible_texture_names:
+                test_path = character_source_dir / name
+                if test_path.exists():
+                    found_texture_path = str(test_path)
+                    break
+
+            if found_texture_path:
+                self.viewer_loaded_texture_path = found_texture_path
+                pixmap = QPixmap(self.viewer_loaded_texture_path)
+                if not pixmap.isNull():
+                    self.viewer_char_texture_item = QGraphicsPixmapItem(pixmap)
+                    self.viewer_scene.addItem(self.viewer_char_texture_item)
+                    # Position at 0,0 or center based on pixmap size?
+                    # self.viewer_char_texture_item.setPos(-pixmap.width()/2, -pixmap.height()/2)
+                    self.viewer_view.zoom_to_fit() # Fit view to the loaded image
+                    logging.info(f"Loaded base texture: {self.viewer_loaded_texture_path}")
+                else:
+                    logging.warning(f"Failed to load QPixmap from {self.viewer_loaded_texture_path}")
+                    self.viewer_loaded_texture_path = None # Clear if loading failed
+            else:
+                logging.warning(f"Base character texture (image.png/texture.png) not found in {character_source_dir}")
+
+            self.statusBar().showMessage(f"Loaded: {Path(parts_info_path).name}")
+            # Initially, body parts and skeleton are not shown, texture is visible
+            self._viewer_update_visuals()
+
+        except Exception as e:
+            logging.error(f"Error loading character data for viewer: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Load Error", f"Failed to load character data: {e}")
+            self._viewer_clear_all_items() # Clear on error
+
+    def _viewer_toggle_skeleton(self, checked: bool):
+        self._viewer_update_visuals()
+
+    def _viewer_toggle_body_parts(self, checked: bool):
+        self._viewer_update_visuals()
+
+    def _viewer_update_visuals(self):
+        if not self.viewer_loaded_parts_info or not self.viewer_scene:
+            return
+
+        show_skeleton = self.viewer_show_skeleton_check.isChecked()
+        show_body_parts = self.viewer_show_body_parts_check.isChecked()
+
+        # Manage base texture visibility
+        if self.viewer_char_texture_item:
+            self.viewer_char_texture_item.setVisible(not show_body_parts)
+
+        # Manage skeleton visibility
+        # Clear existing skeleton items first
+        for item in self.viewer_skeleton_items:
+            if item.scene() == self.viewer_scene:
+                self.viewer_scene.removeItem(item)
+        self.viewer_skeleton_items.clear()
+
+        if show_skeleton:
+            skeleton_data = self.viewer_loaded_parts_info.get('character', {}).get('skeleton', [])
+            joint_map = self.viewer_loaded_parts_info.get('character', {}).get('joint_map', {})
+            if skeleton_data and joint_map:
+                # Draw joints
+                for joint_info in skeleton_data:
+                    name = joint_info.get('name')
+                    x, y = joint_info.get('loc', [0,0])
+                    # Offset for skeleton relative to parts: Not needed if parts_info is self-contained
+                    # For viewer, assume coordinates in parts_info.json are absolute to its own context
+                    # Typically, parts_info.json will store absolute coords or coords relative to a known origin
+                    # For simplicity here, we assume they are ready to be plotted.
+
+                    # Draw joint (e.g., small ellipse)
+                    joint_item = QGraphicsEllipseItem(x - 3, y - 3, 6, 6)
+                    joint_item.setBrush(QColor("red")) # Example color
+                    self.viewer_scene.addItem(joint_item)
+                    self.viewer_skeleton_items.append(joint_item)
+
+                # Draw bones (connections)
+                # Assumes skeleton_data is a list of joint dicts, and joint_map maps name to (x,y)
+                if skeleton_data and joint_map:
+                    # Create a temporary map of joint names to their QGraphicsEllipseItem for easy lookup if needed
+                    # For drawing bones, we primarily need coordinates from joint_map.
+                    drawn_joints_coords = {name: QPointF(coords[0], coords[1]) for name, coords in joint_map.items()}
+
+                    for joint_info in skeleton_data: # Iterate through the original skeleton structure
+                        joint_name = joint_info.get('name')
+                        parent_name = joint_info.get('parent') # 'parent' key from char_cfg.yaml structure
+
+                        if joint_name in drawn_joints_coords and parent_name and parent_name in drawn_joints_coords:
+                            p1 = drawn_joints_coords[joint_name]
+                            p2 = drawn_joints_coords[parent_name]
+                            bone_line = QGraphicsLineItem(QLineF(p1, p2))
+                            bone_line.setPen(QPen(QColor("blue"), 2)) # Example bone color and thickness
+                            bone_line.setZValue(-1) # Draw bones behind joints
+                            self.viewer_scene.addItem(bone_line)
+                            self.viewer_skeleton_items.append(bone_line)
+            # Skeleton drawing done
+
+        # Manage body part visibility
+        # Clear existing body part items first
+        for item in self.viewer_body_part_items.values():
+            if item.scene() == self.viewer_scene:
+                self.viewer_scene.removeItem(item)
+        self.viewer_body_part_items.clear()
+
+        if show_body_parts:
+            parts_data = self.viewer_loaded_parts_info.get('character', {}).get('parts', {})
+            # Use self.current_parts_info_path to get the directory of parts_info.json
+            if not self.current_parts_info_path:
+                logging.error("current_parts_info_path is not set. Cannot resolve relative SVG paths.")
+                return
+            base_dir = Path(self.current_parts_info_path).parent
+
+            for part_name, part_data_dict in parts_data.items():
+                # Resolve SVG path relative to parts_info.json location
+                svg_relative_path = part_data_dict.get('svg_path')
+                if svg_relative_path:
+                    # svg_path in parts_info.json is relative to the output dir (where parts_info.json is)
+                    # It should be like "head.svg", "torso.svg"
+                    absolute_svg_path = str(base_dir / Path(svg_relative_path).name)
+
+                    # Create a temporary PartInfo-like dictionary for CharacterPartItem
+                    # CharacterPartItem expects a PartInfo object or a dict with a similar structure.
+                    # The `PartInfo` class itself does SVG parsing from file.
+                    # Here we need to make sure the path is correct.
+                    current_part_info_data = part_data_dict.copy()
+                    current_part_info_data['svg_path'] = absolute_svg_path # Update to absolute path
+                    current_part_info_data['name'] = part_name # Ensure name is set
+
+                    try:
+                        part_info_obj = PartInfo(part_name, current_part_info_data)
+                        if not part_info_obj.qpainter_path.isEmpty():
+                            char_part_item = CharacterPartItem(part_info_obj)
+                            # Set position if ROI is available and useful.
+                            # ROI in parts_info.json is [x_min, y_min, x_max, y_max] for the *part image*.
+                            # The SVG itself should be drawn at (0,0) if its coordinates are self-contained.
+                            # If the SVG paths are relative to the original full image, then ROI might be needed for offset.
+                            # For now, assume SVGs are self-contained at (0,0) and CharacterPartItem handles it.
+                            self.viewer_scene.addItem(char_part_item)
+                            self.viewer_body_part_items[part_name] = char_part_item
+                        else:
+                            logging.warning(f"QPainterPath is empty for {part_name} from {absolute_svg_path}")
+                    except Exception as e:
+                        logging.error(f"Error creating CharacterPartItem for {part_name}: {e}")
+            if self.viewer_body_part_items: # If parts were added
+                self.viewer_view.zoom_to_fit() # Fit to new parts
+
+        # self.viewer_scene.update() # Ensure redraw <-- Remove this line, it refers to the old viewer tab's scene
+        if self.image_proc_scene: # Update the correct scene for this tab
+            self.image_proc_scene.update()
+
+
+    def _clear_body_parts_visualization_image_view(self, make_original_visible: bool = True):
+        """Removes body parts visualization items from the image processing scene."""
+        if not hasattr(self, '_body_parts_viz_items_image') or not self._body_parts_viz_items_image:
+            # Still ensure original image becomes visible if requested and no items to clear
+            if make_original_visible and self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
+                self.image_proc_view.image_item.setVisible(True)
+                logging.debug("Ensured original image is visible in image_proc_view as no body parts were visualized.")
+            return
+
+        logging.debug(f"Clearing {len(self._body_parts_viz_items_image)} body parts visualization items from image view.")
+        for item in self._body_parts_viz_items_image:
+            if item.scene():
+                self.image_proc_scene.removeItem(item)
+        self._body_parts_viz_items_image.clear()
+
+        # Show the main original image again if requested
+        if make_original_visible and self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
+            self.image_proc_view.image_item.setVisible(True)
+            logging.debug("Restored original image visibility in image_proc_view after clearing body parts.")
