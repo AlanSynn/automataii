@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "AI-powered character animation system with pose estimation and ONNX deployment"
 readme = "README.md"
 requires-python = ">=3.13"
-license = "MIT"
+license = { text = "MIT" }
 authors = [
     {name = "Alan Synn", email = "alan@alansynn.com"},
 ]
@@ -17,7 +17,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
