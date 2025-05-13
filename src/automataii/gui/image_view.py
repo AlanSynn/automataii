@@ -4,9 +4,25 @@ import yaml
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsTextItem
 from PyQt6.QtGui import QPainter, QPixmap, QColor, QBrush, QPen
 from PyQt6.QtCore import Qt, QPointF, QLineF, QEvent, QRectF
+import math # Added for math.sqrt and math.atan2 if needed, though QLineF handles length
+from typing import List, Optional # Added List and Optional
 
 from .skeleton_item import SkeletonJoint, SkeletonLine
 from ..core.models import JOINT_CONNECTIONS, JOINT_COLORS # Adjust import path
+
+# --- Helper Functions for Vector Math (can be static or outside class) ---
+def normalize_vector(vector: QPointF) -> QPointF:
+    """Normalizes a QPointF vector."""
+    line = QLineF(QPointF(0, 0), vector)
+    length = line.length()
+    if length == 0:
+        return QPointF(0, 0)
+    return vector / length
+
+def perpendicular_vector(vector: QPointF) -> QPointF:
+    """Returns a vector perpendicular to the input vector (rotated 90 deg counter-clockwise)."""
+    return QPointF(-vector.y(), vector.x())
+# --- End Helper Functions ---
 
 class ImageProcessingView(QGraphicsView):
     """View for displaying the input image and editing the skeleton overlay.
@@ -49,6 +65,10 @@ class ImageProcessingView(QGraphicsView):
         self.debug_mode = False
         self.debug_bb_item = None # QGraphicsRectItem for bounding box
         self.char_cfg_origin_marker = None # Marker for char_cfg origin
+
+        # Perpendicular Cut Guides
+        self.current_guide_lines = [] # To store QGraphicsLineItems for guides
+        self.last_active_joint_for_guide = None
 
     # --- Debugging Methods ---
 
@@ -616,10 +636,135 @@ class ImageProcessingView(QGraphicsView):
 
     def _update_lines(self, joint_item: SkeletonJoint):
         """Updates the lines connected to a moved joint."""
-        joint_name = joint_item.name
+        # In Python 3.8, joint_item.name might not exist if SkeletonJoint doesn't define it.
+        # Assuming SkeletonJoint has a 'joint_name' attribute based on skeleton_item.py
+        joint_name = joint_item.joint_name
         for line in self.lines:
-            if line.joint1 == joint_name or line.joint2 == joint_name:
+            # Ensure comparison is with the correct attribute if line stores names
+            if (line.joint1 and line.joint1.joint_name == joint_name) or \
+               (line.joint2 and line.joint2.joint_name == joint_name):
                 line.update_position()
 
         # Update label position when joint moves
         self._update_joint_label_position(joint_name)
+
+    # --- Perpendicular Cut Guide Methods ---
+    def get_lines_connected_to_joint(self, target_joint: SkeletonJoint) -> List[SkeletonLine]:
+        """Finds all SkeletonLines connected to the target_joint."""
+        connected_lines = []
+        # self.lines is already populated with SkeletonLine items
+        for line in self.lines:
+            if line.joint1 == target_joint or line.joint2 == target_joint:
+                connected_lines.append(line)
+        return connected_lines
+
+    def calculate_perpendicular_cut_guide(self, joint: SkeletonJoint) -> Optional[QLineF]:
+        """
+        Calculates a perpendicular guide line at a given joint.
+        Returns a QLineF representing the guide, or None.
+        """
+        if not joint or not joint.scene(): # Ensure joint is valid and in scene
+            return None
+
+        joint_pos = joint.pos() # This should be in parent (image_item) coordinates
+
+        # If joint's parent is the image_item, map joint_pos to scene coordinates
+        # for guide calculation if lines are drawn in scene coordinates directly.
+        # However, SkeletonLine uses joint.pos() directly, which are parent-relative.
+        # So, if guides are added directly to scene, they need scene coordinates.
+        # If guides are parented to image_item, joint_pos is fine.
+        # For simplicity, let's assume guides are added to scene directly.
+        # If image_item exists and joint is its child, transform:
+        # if self.image_item and joint.parentItem() == self.image_item:
+        #     joint_scene_pos = self.image_item.mapToScene(joint_pos)
+        # else:
+        #     joint_scene_pos = joint.scenePos() # Fallback if not parented as expected
+
+        # The SkeletonLines connect joints using their pos() which is parent-relative.
+        # So vectors between joint.pos() values are correct in image_item's coord system.
+        # The guide line itself, if added to the scene directly, will need scene coordinates.
+
+        connected_lines = self.get_lines_connected_to_joint(joint)
+
+        guide_direction = QPointF(0,0)
+
+        if not connected_lines:
+            logging.debug(f"No connected lines for joint {joint.joint_name} to calculate guide.")
+            return None
+
+        if len(connected_lines) == 1:
+            # Terminal joint (connected to one bone)
+            line = connected_lines[0]
+            other_joint = line.joint1 if line.joint2 == joint else line.joint2
+            if not other_joint: return None
+
+            bone_vector = other_joint.pos() - joint_pos # Vector in image_item coordinates
+            guide_direction = perpendicular_vector(bone_vector)
+
+        else: # len(connected_lines) >= 2 (intermediate joint)
+            # For simplicity, consider the first two connected lines.
+            line1 = connected_lines[0]
+            other_joint1 = line1.joint1 if line1.joint2 == joint else line1.joint2
+            if not other_joint1: return None
+
+            line2 = connected_lines[1]
+            other_joint2 = line2.joint1 if line2.joint2 == joint else line2.joint2
+            if not other_joint2: return None
+
+            vec1 = other_joint1.pos() - joint_pos # Vector in image_item coordinates
+            vec2 = other_joint2.pos() - joint_pos # Vector in image_item coordinates
+
+            norm_vec1 = normalize_vector(vec1)
+            norm_vec2 = normalize_vector(vec2)
+
+            if (norm_vec1 + norm_vec2).isNull():
+                guide_direction = perpendicular_vector(norm_vec1)
+            else:
+                bisector_direction = normalize_vector(norm_vec1 + norm_vec2)
+                guide_direction = perpendicular_vector(bisector_direction)
+
+        if guide_direction.isNull():
+            logging.debug(f"Guide direction is null for {joint.joint_name}")
+            return None
+
+        normalized_guide_dir = normalize_vector(guide_direction)
+        guide_length = 60  # pixels in local image_item scale
+
+        # Guide line points are relative to the joint's position (which is in image_item coords)
+        p1_local = joint_pos + normalized_guide_dir * (guide_length / 2)
+        p2_local = joint_pos - normalized_guide_dir * (guide_length / 2)
+
+        # If image_item exists, map these local points to scene coordinates
+        if self.image_item:
+            p1_scene = self.image_item.mapToScene(p1_local)
+            p2_scene = self.image_item.mapToScene(p2_local)
+            return QLineF(p1_scene, p2_scene)
+        else: # Fallback if no image_item, assume joint_pos is already scene_pos (less likely)
+            return QLineF(joint_pos + normalized_guide_dir * (guide_length / 2),
+                          joint_pos - normalized_guide_dir * (guide_length / 2))
+
+
+    def update_and_draw_cut_guides(self, active_joint: Optional[SkeletonJoint]):
+        """
+        Clears old guides and draws a new one for the active_joint.
+        Call this when the active joint changes (e.g., on hover or selection).
+        """
+        # Clear existing guides
+        for item in self.current_guide_lines:
+            if item.scene():
+                self.scene().removeItem(item)
+        self.current_guide_lines = []
+
+        if not active_joint or not self.scene(): # Ensure scene is available
+            return
+
+        guide_line_data = self.calculate_perpendicular_cut_guide(active_joint)
+
+        if guide_line_data:
+            pen = QPen(QColor("cyan"), 1.5, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True) # Keep pen width constant regardless of zoom
+            guide_item = self.scene().addLine(guide_line_data, pen)
+            guide_item.setZValue(150) # Ensure it's visible above most things
+            self.current_guide_lines.append(guide_item)
+            logging.debug(f"Drew cut guide for joint {active_joint.joint_name}")
+    # --- End Perpendicular Cut Guide Methods ---

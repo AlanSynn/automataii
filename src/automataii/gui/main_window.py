@@ -14,11 +14,12 @@ from PyQt6.QtWidgets import (
     QPushButton, QGraphicsScene, QFileDialog, QSplitter, QLabel, QListWidget, QListWidgetItem,
     QDoubleSpinBox, QCheckBox, QFormLayout, QTabWidget, QMessageBox, QProgressDialog,
     QGraphicsPathItem, QGroupBox, QApplication, QStyle, QDialog, QToolBar, QComboBox, QGraphicsItem,
-    QScrollArea, QSizePolicy, QGraphicsEllipseItem
+    QScrollArea, QSizePolicy, QGraphicsEllipseItem, QGraphicsLineItem
 )
 from PyQt6.QtGui import QColor, QPen, QAction, QPainterPath, QPixmap, QPolygonF, QTransform, QBrush, QImage, QFontDatabase, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF, QTimer, pyqtSlot, QSize, QLineF
 from pathlib import Path
+from typing import Optional
 
 # Local imports (adjust paths as needed)
 from .editor_view import EditorView
@@ -29,9 +30,9 @@ from .styling import LIGHT_STYLE, DARK_STYLE
 from .options_tab import OptionsTab
 from ..core.models import PartInfo, Joint
 from ..kinematics.ik_solver import solve_ik_ccd
-from ..generation.cam import generate_cam_profile # Function needs to be created
-from ..generation.blueprint import generate_blueprint_svg # Function needs to be created
-from ..utils.helpers import transform_to_dict, qpainterpath_to_points # Utility functions
+from ..generation.cam import generate_cam_profile
+from ..generation.blueprint import generate_blueprint_svg
+from ..utils.helpers import transform_to_dict, qpainterpath_to_points, points_to_closed_bezier_path # Utility functions
 
 # Attempt to import image processing functionality (optional)
 from ..animate.image_to_annotations import image_to_annotations
@@ -39,6 +40,10 @@ from ..animate.annotations_to_animation import annotations_to_animation
 from ..animate.image_to_animation import image_to_animation
 # Import body part extractor
 from ..animate.body_parts_extractor import process_character
+
+# Import new generation modules
+from ..generation.linkage import generate_3bar_linkage, generate_4bar_linkage
+from ..generation.gear import generate_gear_pair
 
 
 class AutomataDesigner(QMainWindow):
@@ -62,6 +67,19 @@ class AutomataDesigner(QMainWindow):
         self.kinematic_chains = {} # end_effector_name: list[CharacterPartItem]
         self.mechanism_visuals = {} # layer_name: list[QGraphicsItem]
         self.layer_checkboxes = {} # layer_name: QCheckBox
+
+        # Mechanism Design State
+        self.selected_cam_center: Optional[QPointF] = None
+        self.selected_pivot_a: Optional[QPointF] = None
+        self.selected_pivot_d: Optional[QPointF] = None
+        self.selected_driver_center: Optional[QPointF] = None
+        self.selected_driven_center: Optional[QPointF] = None
+        # Markers for selected points
+        self.cam_center_marker: Optional[QGraphicsEllipseItem] = None
+        self.pivot_a_marker: Optional[QGraphicsEllipseItem] = None
+        self.pivot_d_marker: Optional[QGraphicsEllipseItem] = None
+        self.driver_center_marker: Optional[QGraphicsEllipseItem] = None
+        self.driven_center_marker: Optional[QGraphicsEllipseItem] = None
 
         # Image processing workflow data
         self.input_image_path = None
@@ -123,11 +141,22 @@ class AutomataDesigner(QMainWindow):
         self.options_tab = OptionsTab(initial_anim_duration=self.animation_duration)
         self.tab_widget.addTab(self.options_tab, "Options")
 
+        # --- Connect Signals from EditorView ---
+        self.editor_view.freehandPathCompleted.connect(self._handle_freehand_path_completed)
+        self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancelled) # Already exists, ensure it's used appropriately
+        self.editor_view.joint_defined.connect(self.request_create_joint) # Already exists
+        # Connect other EditorView signals as needed (cam_center_selected, etc.)
+        self.editor_view.cam_center_selected.connect(self._handle_cam_center_set)
+        self.editor_view.pivot_a_selected.connect(self._handle_pivot_a_set)
+        self.editor_view.pivot_d_selected.connect(self._handle_pivot_d_set)
+        self.editor_view.driver_center_selected.connect(self._handle_driver_center_set)
+        self.editor_view.driven_center_selected.connect(self._handle_driven_center_set)
+
+
         # --- Connect Signals from Options Tab ---
         self.options_tab.animationDurationChanged.connect(self._update_animation_duration)
         self.options_tab.themeChanged.connect(self._apply_theme)
         self.options_tab.toolbarVisibilityChanged.connect(self._toggle_toolbar_visibility) # Connect new signal
-        # Connect debug mode signal to the image view's slot
         self.options_tab.debugModeChanged.connect(self.image_proc_view.set_debug_mode)
 
         # Apply Initial Theme (Light by default)
@@ -231,8 +260,8 @@ class AutomataDesigner(QMainWindow):
         self.z_value_spin.setToolTip("Adjust Z-depth (layering)")
         self.z_value_spin.setEnabled(False) # Initially disabled
         self.fixed_part_check = QCheckBox("Fixed in Place")
-        self.fixed_part_check.setToolTip("Prevent this part from moving during simulation or IK")
-        self.fixed_part_check.setEnabled(False) # Initially disabled
+        self.fixed_part_check.setToolTip("If checked, this part will not move during simulation (unless it is the root of a chain being driven by IK).")
+        self.fixed_part_check.setEnabled(False)
         self.part_props.addRow("Z-Value:", self.z_value_spin)
         self.part_props.addRow(self.fixed_part_check)
         props_group.setEnabled(False) # Disable group initially
@@ -244,12 +273,12 @@ class AutomataDesigner(QMainWindow):
         assembly_layout = QHBoxLayout(assembly_group) # Use QHBoxLayout for horizontal buttons
         assembly_layout.setSpacing(10)
 
-        self.define_joint_btn = QPushButton(" Define Joint")
+        self.define_joint_btn = QPushButton("Joint")
         self.define_joint_btn.setCheckable(True)
         self.define_joint_btn.setToolTip("Click two parts in the view to define a joint between them")
         self.define_joint_btn.setEnabled(False) # Disable initially
 
-        self.show_skeleton_btn = QPushButton(" Show Skeleton")
+        self.show_skeleton_btn = QPushButton("Skeleton")
         self.show_skeleton_btn.setCheckable(True) # Make it a toggle button
         self.show_skeleton_btn.setToolTip("Temporarily display the skeleton structure and auto-generated joints")
         self.show_skeleton_btn.setEnabled(False) # Disable initially (needs skeleton data)
@@ -259,32 +288,66 @@ class AutomataDesigner(QMainWindow):
 
         panel_layout.addWidget(assembly_group)
 
-        # Group 4: Motion & Simulation
+        # Group 4: Motion Path Definition
+        motion_path_group = QGroupBox("Motion Path")
+        motion_path_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        motion_path_layout = QVBoxLayout(motion_path_group)
+        self.define_motion_path_btn = QPushButton("Define Motion Path")
+        self.define_motion_path_btn.setCheckable(True)
+        self.define_motion_path_btn.setToolTip("Toggle mode to draw a motion path for the selected part.")
+        self.define_motion_path_btn.setEnabled(False)
+        motion_path_layout.addWidget(self.define_motion_path_btn)
+
+        self.clear_motion_path_btn = QPushButton("Clear Motion Path")
+        self.clear_motion_path_btn.setToolTip("Clear the motion path for the selected part.")
+        self.clear_motion_path_btn.setEnabled(False)
+        motion_path_layout.addWidget(self.clear_motion_path_btn)
+
+        # Add path type and loop type (commented out for now, simplify to freehand polyline first)
+        # self.path_type_label = QLabel("Path Drawing Type:")
+        # self.path_type_combo = QComboBox()
+        # self.path_type_combo.addItems(["Freehand", "Bézier"])
+        # self.path_type_combo.setToolTip("Choose how path points are connected (Freehand = lines, Bézier = smooth curves).")
+        # self.path_type_combo.setEnabled(False)
+        # motion_path_layout.addWidget(self.path_type_label)
+        # motion_path_layout.addWidget(self.path_type_combo)
+
+        # self.loop_type_label = QLabel("Path Loop Type:")
+        # self.loop_type_combo = QComboBox()
+        # self.loop_type_combo.addItems(["Open Loop", "Closed Loop"])
+        # self.loop_type_combo.setToolTip("Choose if the path should be open or automatically closed.")
+        # self.loop_type_combo.setEnabled(False)
+        # motion_path_layout.addWidget(self.loop_type_label)
+        # motion_path_layout.addWidget(self.loop_type_combo)
+
+        panel_layout.addWidget(motion_path_group)
+
+        # Group 5: Motion & Simulation
         motion_sim_group = QGroupBox("Motion & Simulation")
         motion_sim_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         motion_sim_layout = QFormLayout(motion_sim_group)
         motion_sim_layout.setSpacing(10) # Adjust spacing for form layout
 
-        # Path Type Selection
-        self.path_type_combo = QComboBox()
-        self.path_type_combo.addItems(["Freehand", "Bézier"]) # Add Bézier option
-        self.path_type_combo.setCurrentText("Freehand") # Default to Freehand
-        self.path_type_combo.setToolTip("Select the drawing method for the motion path.")
-        motion_sim_layout.addRow("Path Type:", self.path_type_combo)
+        # Path Type Selection - REMOVED
+        # self.path_type_combo = QComboBox()
+        # self.path_type_combo.addItems(["Freehand", "Bézier"]) # Add Bézier option
+        # self.path_type_combo.setCurrentText("Freehand") # Default to Freehand
+        # self.path_type_combo.setToolTip("Select the drawing method for the motion path.")
+        # motion_sim_layout.addRow("Path Type:", self.path_type_combo)
 
-        # Loop Type Selection
-        self.loop_type_combo = QComboBox()
-        self.loop_type_combo.addItems(["Closed Loop", "Open Loop"])
-        self.loop_type_combo.setCurrentText("Closed Loop") # Default to Closed Loop
-        self.loop_type_combo.setToolTip("Choose if the path should automatically close.")
-        motion_sim_layout.addRow("Loop:", self.loop_type_combo)
+        # Loop Type Selection - REMOVED
+        # self.loop_type_combo = QComboBox()
+        # self.loop_type_combo.addItems(["Closed Loop", "Open Loop"])
+        # self.loop_type_combo.setCurrentText("Closed Loop") # Default to Closed Loop
+        # self.loop_type_combo.setToolTip("Choose if the path should automatically close.")
+        # motion_sim_layout.addRow("Loop:", self.loop_type_combo)
 
-        # Motion Definition
-        self.define_motion_btn = QPushButton(" Define Motion Path")
-        self.define_motion_btn.setCheckable(True)
-        self.define_motion_btn.setToolTip("Draw the desired motion path for the selected part's center")
-        self.define_motion_btn.setEnabled(False) # Disabled until a non-fixed part is selected
-        motion_sim_layout.addRow(self.define_motion_btn)
+        # Motion Definition Button - REMOVED (self.define_motion_path_btn in "Motion Path" group is used)
+        # self.define_motion_btn = QPushButton(" Define Motion Path")
+        # self.define_motion_btn.setCheckable(True)
+        # self.define_motion_btn.setToolTip("Draw the desired motion path for the selected part's center")
+        # self.define_motion_btn.setEnabled(False) # Disabled until a non-fixed part is selected
+        # motion_sim_layout.addRow(self.define_motion_btn)
 
         # Simulation Controls
         sim_button_layout = QHBoxLayout()
@@ -307,16 +370,93 @@ class AutomataDesigner(QMainWindow):
 
         panel_layout.addWidget(motion_sim_group)
 
-        # Group 5: Cam Mechanism (RESTORED)
-        # Simplified Mechanism Generation
-        mechanism_group = QGroupBox("Mechanism Generation")
-        mechanism_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        mechanism_layout = QVBoxLayout(mechanism_group)
+        # Group 5: Mechanism Design
+        mech_design_group = QGroupBox("Mechanism Design")
+        mech_design_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding) # Allow vertical expansion
+        mech_design_layout = QVBoxLayout(mech_design_group)
+        mech_design_layout.setSpacing(10)
+
+        # Mechanism Type Selector
+        mech_type_layout = QFormLayout()
+        self.mechanism_type_combo = QComboBox()
+        self.mechanism_type_combo.addItems([
+            "Cam & Follower",
+            "3-Bar Linkage",
+            "4-Bar Linkage",
+            "Gears (Simple Pair)"
+        ])
+        self.mechanism_type_combo.setToolTip("Select the type of mechanism to generate")
+        mech_type_layout.addRow("Type:", self.mechanism_type_combo)
+        mech_design_layout.addLayout(mech_type_layout)
+
+        # --- Type-Specific Inputs Container ---
+        self.mech_inputs_container = QWidget()
+        self.mech_inputs_layout = QVBoxLayout(self.mech_inputs_container)
+        self.mech_inputs_layout.setContentsMargins(0, 5, 0, 0)
+        self.mech_inputs_layout.setSpacing(8)
+        mech_design_layout.addWidget(self.mech_inputs_container)
+
+        # --- Input Group: Cam ---
+        self.cam_inputs_group = QGroupBox("Cam Settings")
+        cam_inputs_layout = QVBoxLayout(self.cam_inputs_group)
+        self.select_cam_center_btn = QPushButton("Select Cam Center")
+        self.select_cam_center_btn.setToolTip("Click in the scene to set the cam rotation center (default: torso center)")
+        cam_inputs_layout.addWidget(self.select_cam_center_btn)
+        # TODO: Add follower type, radius inputs later
+        self.mech_inputs_layout.addWidget(self.cam_inputs_group)
+
+        # --- Input Group: 3-Bar ---
+        self.three_bar_inputs_group = QGroupBox("3-Bar Linkage Settings")
+        three_bar_layout = QVBoxLayout(self.three_bar_inputs_group)
+        self.select_pivot_a_3bar_btn = QPushButton("Select Fixed Pivot A")
+        self.select_pivot_a_3bar_btn.setToolTip("Click in the scene to set the first fixed pivot")
+        three_bar_layout.addWidget(self.select_pivot_a_3bar_btn)
+        # TODO: Add inputs for other constraints/lengths
+        self.mech_inputs_layout.addWidget(self.three_bar_inputs_group)
+
+        # --- Input Group: 4-Bar ---
+        self.four_bar_inputs_group = QGroupBox("4-Bar Linkage Settings")
+        four_bar_layout = QVBoxLayout(self.four_bar_inputs_group)
+        self.select_pivot_a_4bar_btn = QPushButton("Select Fixed Pivot A")
+        self.select_pivot_a_4bar_btn.setToolTip("Click in the scene to set the first fixed pivot")
+        four_bar_layout.addWidget(self.select_pivot_a_4bar_btn)
+        self.select_pivot_d_4bar_btn = QPushButton("Select Fixed Pivot D")
+        self.select_pivot_d_4bar_btn.setToolTip("Click in the scene to set the second fixed pivot")
+        four_bar_layout.addWidget(self.select_pivot_d_4bar_btn)
+        # TODO: Add inputs for coupler point, lengths
+        self.mech_inputs_layout.addWidget(self.four_bar_inputs_group)
+
+        # --- Input Group: Gears ---
+        self.gear_inputs_group = QGroupBox("Gear Settings")
+        gear_inputs_layout = QFormLayout(self.gear_inputs_group) # Use Form layout
+        gear_button_layout = QHBoxLayout() # For buttons
+        self.select_driver_center_btn = QPushButton("Driver Center")
+        self.select_driver_center_btn.setToolTip("Click to set driver gear center")
+        self.select_driven_center_btn = QPushButton("Driven Center")
+        self.select_driven_center_btn.setToolTip("Click to set driven gear center")
+        gear_button_layout.addWidget(self.select_driver_center_btn)
+        gear_button_layout.addWidget(self.select_driven_center_btn)
+        gear_inputs_layout.addRow("Select Centers:", gear_button_layout) # Add buttons horizontally
+
+        self.gear_ratio_spin = QDoubleSpinBox()
+        self.gear_ratio_spin.setRange(0.01, 100.0) # Example range
+        self.gear_ratio_spin.setSingleStep(0.1)
+        self.gear_ratio_spin.setValue(1.0)
+        self.gear_ratio_spin.setToolTip("Set gear ratio (Driven Radius / Driver Radius)")
+        gear_inputs_layout.addRow("Gear Ratio:", self.gear_ratio_spin)
+        self.mech_inputs_layout.addWidget(self.gear_inputs_group)
+
+        # --- Generate Button ---
         self.generate_mechanism_btn = QPushButton("Generate Mechanism")
-        self.generate_mechanism_btn.setToolTip("Automatically generate a cam mechanism based on the selected part's motion path, using the torso center as the cam center.")
-        self.generate_mechanism_btn.setEnabled(False) # Disable initially
-        mechanism_layout.addWidget(self.generate_mechanism_btn)
-        panel_layout.addWidget(mechanism_group)
+        self.generate_mechanism_btn.setToolTip("Generate the selected mechanism based on the current setup")
+        self.generate_mechanism_btn.setEnabled(False) # Initially disabled
+        mech_design_layout.addWidget(self.generate_mechanism_btn)
+        mech_design_layout.addStretch() # Push generate button down a bit
+
+        panel_layout.addWidget(mech_design_group)
+
+        # Initialize visibility of specific input groups
+        self._update_mechanism_inputs_ui(self.mechanism_type_combo.currentText())
 
         # Group 5.5: Mechanism Layers
         self.layer_group = QGroupBox("Mechanism Layers")
@@ -441,13 +581,16 @@ class AutomataDesigner(QMainWindow):
         self.parts_list.itemClicked.connect(self._handle_part_list_click)
         self.z_value_spin.valueChanged.connect(self._update_selected_part_z)
         self.fixed_part_check.stateChanged.connect(self._update_selected_part_fixed)
+        self.define_motion_path_btn.toggled.connect(self._toggle_define_motion_path_mode)
+        self.clear_motion_path_btn.clicked.connect(self._clear_selected_item_motion_path)
         self.define_joint_btn.toggled.connect(self._toggle_define_joint_mode)
         self.show_skeleton_btn.toggled.connect(self._show_skeleton_and_joints)
-        self.define_motion_btn.toggled.connect(self._toggle_define_motion_path_mode)
+        # self.define_motion_btn.toggled.connect(self._toggle_define_motion_path_mode) # REMOVED - define_motion_btn is removed
         # self.set_cam_center_btn.clicked.connect(self._start_cam_center_selection)
         # self.set_cam_follower_btn.clicked.connect(self.set_cam_follower)
-        # self.generate_cam_btn.clicked.connect(self.generate_cam_mechanism)
-        self.generate_mechanism_btn.clicked.connect(self._generate_mechanism_auto) # Connect new button
+        self.generate_mechanism_btn.clicked.connect(self._generate_mechanism_auto) # 변경된 버튼에 연결
+        self.mechanism_type_combo.currentTextChanged.connect(self._update_mechanism_inputs_ui)
+        self.mechanism_type_combo.currentTextChanged.connect(self._update_generate_mechanism_button_state) # Also update button state on type change
         self.play_btn.clicked.connect(self.play_simulation)
         self.stop_btn.clicked.connect(self.stop_simulation)
         self.reset_sim_btn.clicked.connect(self.reset_simulation)
@@ -457,7 +600,11 @@ class AutomataDesigner(QMainWindow):
         self.editor_view.joint_defined.connect(self.request_create_joint)
         # self.editor_view.end_effector_selected.connect(self._handle_end_effector_set) # Removed in UI cleanup
         self.editor_view.cam_center_selected.connect(self._handle_cam_center_set)
-        self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancel)
+        self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancelled)
+        self.editor_view.pivot_a_selected.connect(self._handle_pivot_a_set)
+        self.editor_view.pivot_d_selected.connect(self._handle_pivot_d_set)
+        self.editor_view.driver_center_selected.connect(self._handle_driver_center_set)
+        self.editor_view.driven_center_selected.connect(self._handle_driven_center_set)
 
         # Tab 3: Options (Connect signals from OptionsTab instance)
         self.options_tab.animationDurationChanged.connect(self._update_animation_duration)
@@ -512,11 +659,11 @@ class AutomataDesigner(QMainWindow):
         self.define_joint_btn.setEnabled(is_part_selected)
 
         # Motion path button depends on selection AND fixed status
-        self.define_motion_btn.setEnabled(can_define_path)
+        self.define_motion_path_btn.setEnabled(can_define_path)
 
         # If selection cleared, ensure define motion mode is off
-        if not can_define_path and self.define_motion_btn.isChecked():
-            self.define_motion_btn.setChecked(False)
+        if not can_define_path and self.define_motion_path_btn.isChecked():
+            self.define_motion_path_btn.setChecked(False)
 
         # Disable properties directly if nothing selected (redundant if group is disabled, but safe)
         if not is_part_selected:
@@ -1049,6 +1196,10 @@ class AutomataDesigner(QMainWindow):
 
     def get_selected_editor_item(self):
         """Returns the currently selected CharacterPartItem in the editor scene."""
+        # Guard against calls during initialization before editor_scene exists
+        if not hasattr(self, 'editor_scene') or self.editor_scene is None:
+            return None
+
         selected = self.editor_scene.selectedItems()
         if selected and isinstance(selected[0], CharacterPartItem):
             return selected[0]
@@ -1110,8 +1261,8 @@ class AutomataDesigner(QMainWindow):
         if checked:
             self.editor_view.start_define_joint()
             # Uncheck other mode buttons if necessary (e.g., define motion)
-            if self.define_motion_btn.isChecked():
-                 self.define_motion_btn.setChecked(False)
+            if self.define_motion_path_btn.isChecked():
+                 self.define_motion_path_btn.setChecked(False)
         else:
             # If user unchecks button, ensure mode is reset in view
             if self.editor_view.current_mode == 'define_joint':
@@ -1149,716 +1300,187 @@ class AutomataDesigner(QMainWindow):
     # --- Motion Definition Actions ---
 
     def _toggle_define_motion_path_mode(self, checked: bool):
-        """Toggles the motion path drawing mode in the editor view."""
-        if checked:
-            # Uncheck other mode buttons
-            if self.define_joint_btn.isChecked():
-                self.define_joint_btn.setChecked(False)
-            # Get current settings
-            path_type = self.path_type_combo.currentText()
-            loop_type = self.loop_type_combo.currentText()
-            # Try to start the mode with settings, uncheck button if it fails
-            if not self.editor_view.start_define_motion_path(path_type, loop_type):
-                # Block signals to prevent recursion when setting checked state
-                self.define_motion_btn.blockSignals(True)
-                self.define_motion_btn.setChecked(False)
-                self.define_motion_btn.blockSignals(False)
-        else:
-             # If user unchecks button, finish the path drawing,
-             # but only call finish if the mode is still correct in the view
-             # (it might have already been finished by clicking near the start point)
-            if self.editor_view.current_mode == 'define_motion_path':
-                self.editor_view.finish_motion_path_drawing()
-             # Else: The mode was likely changed by finish_motion_path_drawing triggered by click
+        selected_item = self.get_selected_editor_item()
 
-    # --- Cam Mechanism Actions ---
+        if checked:
+            if not selected_item:
+                QMessageBox.warning(self, "No Part Selected", "Please select a character part before defining a motion path.")
+                self.define_motion_path_btn.setChecked(False)
+                return
+
+            # Clear existing motion path on the item before starting new definition
+            # This ensures the part_item's visual is also cleared.
+            if selected_item.motion_path and not selected_item.motion_path.isEmpty():
+                msg_box = QMessageBox(self)
+                msg_box.setIcon(QMessageBox.Icon.Question)
+                msg_box.setText(f"A motion path already exists for '{selected_item.part_info.name}'.")
+                msg_box.setInformativeText("Do you want to overwrite it?")
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+                ret = msg_box.exec()
+                if ret == QMessageBox.StandardButton.No:
+                    self.define_motion_path_btn.setChecked(False)
+                    return
+
+            selected_item.update_motion_path_visual(QPainterPath()) # Clear it visually and internally
+            self.editor_view.start_define_motion_path(selected_item)
+            self.statusBar().showMessage(f"Defining motion path for {selected_item.part_info.name}. Draw freely. Uncheck button or right-click to cancel.")
+        else:
+            # This is called when the button is unchecked by the user.
+            # If a path was being drawn, EditorView should finalize/cancel itself.
+            # The editor_view.finish_motion_path_drawing() handles emitting points if needed.
+            self.editor_view.finish_motion_path_drawing() # Ensure mode is exited and cleanup occurs
+            self.statusBar().showMessage("Motion path definition stopped.")
+
+        self._update_generate_mechanism_button_state()
+        self.clear_motion_path_btn.setEnabled(selected_item is not None and selected_item.motion_path is not None and not selected_item.motion_path.isEmpty())
+
+    @pyqtSlot(list)
+    def _handle_freehand_path_completed(self, points: list):
+        """Receives the list of QPointF from EditorView when freehand drawing is done.
+        Converts the points to a closed Bézier curve and applies it to the selected part.
+        """
+        logging.debug(f"MainWindow received freehand path with {len(points)} raw scene points.")
+        selected_item = self.editor_view._target_part_for_path # Get the item from EditorView state
+
+        if selected_item and self.define_motion_path_btn.isChecked():
+            if not points:
+                selected_item.update_motion_path_visual(QPainterPath()) # Clear path
+                logging.info(f"Freehand path for '{selected_item.part_info.name}' was empty, cleared.")
+                self.statusBar().showMessage(f"Motion path for '{selected_item.part_info.name}' was empty.")
+                self._update_button_states_after_path_change(selected_item)
+                return
+
+            # 1. Convert raw scene points to item's local coordinates.
+            local_points_raw = [selected_item.mapFromScene(p) for p in points]
+            logging.debug(f"Converted to {len(local_points_raw)} local points.")
+
+            # 2. Simplify the points
+            num_raw_points = len(local_points_raw)
+            simplified_local_points = []
+
+            if num_raw_points < 3: # Not enough for Bezier, use as is for polyline
+                simplified_local_points = local_points_raw
+                logging.debug(f"Using {num_raw_points} points directly as not enough for Bezier/simplification.")
+            else:
+                # Aim for roughly 1/3, but ensure at least 3 points for Bezier.
+                # And not too many for very dense paths. Max around 25-30?
+                target_points = max(3, min(num_raw_points // 3, 30))
+
+                if num_raw_points <= target_points or num_raw_points <= 6: # If already few points, or close to target
+                    simplified_local_points = local_points_raw
+                    logging.debug(f"Using raw {num_raw_points} points as simplification isn't beneficial or target met.")
+                else:
+                    step = num_raw_points / target_points
+                    for i in range(target_points):
+                        index = int(i * step)
+                        # Ensure index is within bounds (can happen with floating point inaccuracies)
+                        index = min(index, num_raw_points -1)
+                        simplified_local_points.append(local_points_raw[index])
+
+                    # Ensure the very last original point is included for closure, if not already.
+                    # This helps maintain the overall shape better than just relying on decimated points.
+                    if simplified_local_points and local_points_raw[-1] != simplified_local_points[-1]:
+                        # Check if the last point is already "close enough" to the last simplified one.
+                        # This avoids adding a near-duplicate point.
+                        last_raw_pt = local_points_raw[-1]
+                        last_simp_pt = simplified_local_points[-1]
+                        # Define a small tolerance, e.g., 1 pixel in local coordinates
+                        tolerance_sq = 1.0 * 1.0
+                        dx = last_raw_pt.x() - last_simp_pt.x()
+                        dy = last_raw_pt.y() - last_simp_pt.y()
+                        if (dx*dx + dy*dy) > tolerance_sq:
+                            simplified_local_points.append(local_points_raw[-1])
+
+                logging.debug(f"Simplified from {num_raw_points} to {len(simplified_local_points)} local points.")
+
+
+            # 3. Generate Path (Bezier or Polyline)
+            if len(simplified_local_points) >= 3:
+                bezier_path = points_to_closed_bezier_path(simplified_local_points)
+                if not bezier_path.isEmpty():
+                    selected_item.update_motion_path_visual(bezier_path)
+                    logging.info(f"Closed Bézier motion path set for '{selected_item.part_info.name}' from {len(simplified_local_points)} points.")
+                    self.statusBar().showMessage(f"Bézier motion path defined for '{selected_item.part_info.name}'.")
+                else: # Bezier generation failed
+                    selected_item.update_motion_path_visual(QPainterPath()) # Clear path
+                    logging.warning(f"Failed to generate Bézier path for '{selected_item.part_info.name}' (using {len(simplified_local_points)} points), path cleared.")
+                    self.statusBar().showMessage(f"Could not generate Bézier path for '{selected_item.part_info.name}'.")
+            elif simplified_local_points: # 1 or 2 points
+                path = QPainterPath()
+                path.moveTo(simplified_local_points[0])
+                for point_local in simplified_local_points[1:]:
+                    path.lineTo(point_local)
+                selected_item.update_motion_path_visual(path)
+                logging.info(f"Polyline motion path ({len(simplified_local_points)} points, not enough for Bézier) set for '{selected_item.part_info.name}'.")
+                self.statusBar().showMessage(f"Simple path defined for '{selected_item.part_info.name}'.")
+            else: # No points left
+                selected_item.update_motion_path_visual(QPainterPath())
+                logging.info(f"Path for '{selected_item.part_info.name}' became empty after processing, cleared.")
+                self.statusBar().showMessage(f"Motion path for '{selected_item.part_info.name}' was empty or invalid.")
+        else:
+            logging.warning("Could not set motion path: No selected item or define mode not active.")
+            if selected_item: # If define mode was just unchecked, clear path on item.
+                 selected_item.update_motion_path_visual(QPainterPath())
+
+        self._update_button_states_after_path_change(selected_item) # Ensure this is called
+
+    def _update_button_states_after_path_change(self, selected_item: Optional[CharacterPartItem]):
+        """Helper to update button states related to motion path after a change."""
+        if selected_item:
+            self.clear_motion_path_btn.setEnabled(selected_item.motion_path is not None and not selected_item.motion_path.isEmpty())
+        else:
+            self.clear_motion_path_btn.setEnabled(False)
+
+    def _clear_selected_item_motion_path(self):
+        """Clears the motion path for the currently selected CharacterPartItem."""
+        selected_item = self.get_selected_editor_item()
+        if selected_item:
+            selected_item.update_motion_path_visual(QPainterPath()) # Clears path and visual
+            logging.info(f"Cleared motion path for '{selected_item.part_info.name}'.")
+            self.statusBar().showMessage(f"Motion path cleared for '{selected_item.part_info.name}'.")
+            self._update_generate_mechanism_button_state()
+            self.clear_motion_path_btn.setEnabled(False)
+            # If define mode is active, cancelling it might be good UX
+            if self.define_motion_path_btn.isChecked():
+                self.define_motion_path_btn.setChecked(False) # This will trigger _toggle_define_motion_path_mode(False)
+        else:
+            QMessageBox.information(self, "No Selection", "Please select a part to clear its motion path.")
+
+    # @pyqtSlot()
+    # def _update_motion_path_settings_for_selected_part(self):
+    #     selected_item = self.get_selected_editor_item()
+    #     if selected_item and selected_item.motion_path and not selected_item.motion_path.isEmpty():
+    #         # This implies a path exists, and user is changing type/loop for it.
+    #         # The EditorView._update_interpolated_path_visual (if restored) would use these.
+    #         # For now, this doesn't actively change the path, but could if we re-enable smoothing.
+    #         logging.debug(f"Motion path settings changed for {selected_item.part_info.name}")
+    #         # Potentially re-render the path if EditorView had logic based on these combos
+    #         # self.editor_view.redraw_existing_motion_path_for_item(selected_item, self.path_type_combo.currentText(), self.loop_type_combo.currentText())
+    #     pass
+
 
     def _start_cam_center_selection(self):
-        """Initiates the cam center point selection mode."""
-        self.editor_view.start_select_cam_center()
+        self.editor_view.set_mode('select_cam_center')
+        self.statusBar().showMessage("Click on the scene to define the Cam Center.")
 
-    @pyqtSlot(QPointF)
-    def _handle_cam_center_set(self, scene_pos: QPointF):
-        """Handles the signal emitted when the cam center is set in the view."""
-        self.driving_cam_center = scene_pos
-        self._update_cam_center_marker()
-        logging.info(f"Cam center set at {scene_pos}")
-        self.statusBar().showMessage(f"Cam center set at ({scene_pos.x():.1f}, {scene_pos.y():.1f})")
-
-    def _update_cam_center_marker(self):
-        """Updates the visual marker for the cam center."""
-        if not self.editor_scene:
-            return
-        # Remove old marker
-        if self.mechanism_visuals.get('cam_center') and self.mechanism_visuals['cam_center'].scene():
-            self.editor_scene.removeItem(self.mechanism_visuals['cam_center'])
-        # Create new marker (cross shape)
-        path = QPainterPath()
-        size = 10
-        path.moveTo(-size, 0)
-        path.lineTo(size, 0)
-        path.moveTo(0, -size)
-        path.lineTo(0, size)
-        self.mechanism_visuals['cam_center'] = self.editor_scene.addPath(path, QPen(QColor("cyan"), 2))
-        self.mechanism_visuals['cam_center'].setPos(self.driving_cam_center)
-        self.mechanism_visuals['cam_center'].setZValue(100) # Ensure visible
-
-        self._update_generate_cam_button_state()
-
-    def set_cam_follower(self):
-        """Sets the currently selected part as the cam follower."""
-        item = self.get_selected_editor_item()
-        if not item:
-            QMessageBox.warning(self, "Cam Follower Error", "Please select a part to designate as the cam follower.")
-            return
-        if not item.motion_path or item.motion_path.isEmpty():
-             QMessageBox.warning(self, "Cam Follower Error", f"Selected part '{item.part_info.name}' has no motion path defined.")
-             return
-
-        self.cam_follower_item = item
-        logging.info(f"Part '{item.part_info.name}' set as cam follower.")
-        self.statusBar().showMessage(f"'{item.part_info.name}' set as cam follower.")
-
-        self._update_generate_cam_button_state()
-
-    def _update_generate_cam_button_state(self):
-        """Enables the Generate Cam button only if center and follower are set."""
-        can_generate = self.driving_cam_center is not None and self.cam_follower_item is not None
-        self.generate_cam_btn.setEnabled(can_generate)
-
-    def generate_cam_mechanism(self):
-        """Generates the cam profile based on the selected follower's path and the torso center."""
-        if not self.driving_cam_center:
-            QMessageBox.warning(self, "Cam Generation Error", "Please set the cam center point first.")
-            return
-        if not self.cam_follower_item:
-             QMessageBox.warning(self, "Cam Generation Error", "Please set the cam follower part first.")
-             return
-
-        motion_path = self.cam_follower_item.motion_path
-        if not motion_path or motion_path.isEmpty(): # Should be checked by set_cam_follower, but double-check
-            QMessageBox.warning(self, "Cam Generation Error", f"Follower '{self.cam_follower_item.part_info.name}' has no motion path.")
-            return
-
-        logging.info(f"Generating cam profile for follower '{self.cam_follower_item.part_info.name}' around center {self.driving_cam_center}")
-        try:
-            # Call the generation function (needs implementation)
-            cam_path = generate_cam_profile(motion_path, self.driving_cam_center)
-            if not cam_path or cam_path.isEmpty():
-                raise ValueError("Generated cam path is empty or invalid.")
-
-            # Remove previous profile visualization
-            if self.mechanism_visuals.get('cam_profile') and self.mechanism_visuals['cam_profile'].scene():
-                 self.editor_scene.removeItem(self.mechanism_visuals['cam_profile'])
-
-            # Add new profile visualization
-            self.mechanism_visuals['cam_profile'] = self.editor_scene.addPath(cam_path, QPen(QColor("magenta"), 2))
-            self.mechanism_visuals['cam_profile'].setZValue(-10) # Draw behind parts
-            # The cam_path is already relative to the center, so position the item at the center
-            self.mechanism_visuals['cam_profile'].setPos(self.driving_cam_center)
-
-            self.statusBar().showMessage("Cam profile generated successfully.")
-            logging.info("Cam profile generated and visualized.")
-
-        except Exception as e:
-            logging.error(f"Error generating cam profile: {e}\n{traceback.format_exc()}")
-            QMessageBox.critical(self, "Cam Generation Error", f"Failed to generate cam profile: {e}")
-            if self.mechanism_visuals.get('cam_profile') and self.mechanism_visuals['cam_profile'].scene():
-                 self.editor_scene.removeItem(self.mechanism_visuals['cam_profile'])
-            self.mechanism_visuals['cam_profile'] = None
-
-    # --- Simplified Mechanism Generation Action --- #
-    def _generate_mechanism_auto(self):
-        """Generates cam profiles, linkage placeholders, and path connection hints."""
-        self._clear_mechanism_visuals() # Clear previous visuals first
-
-        found_path = False
-        generated_cam_count = 0
-        generated_hint_count = 0
-
-        # Find the torso item (needed for cam center) *once*
-        torso_item = self.editor_items.get("torso")
-        if not torso_item or not torso_item.scene():
-            QMessageBox.warning(self, "Mechanism Generation Error", "Cannot find the 'torso' part to use as the cam center reference.")
-            return
-
-        # Get the fixed cam center from torso *once*
-        torso_local_center = torso_item.boundingRect().center()
-        cam_center_scene = torso_item.mapToScene(torso_local_center)
-
-        # Iterate through all loaded parts
-        for part_name, follower_item in self.editor_items.items():
-            if not isinstance(follower_item, CharacterPartItem):
-                continue # Skip non-part items
-
-            raw_motion_path = follower_item.motion_path
-            if not raw_motion_path or raw_motion_path.isEmpty():
-                continue # Skip parts without a valid motion path
-
-            # --- Resample the path --- #
-            # Use the resampled path for mechanism generation and target visualization
-            smoothed_target_path = self._resample_path_as_polygon(raw_motion_path)
-            if smoothed_target_path.isEmpty():
-                logging.warning(f"Could not resample motion path for {part_name}. Skipping mechanism generation.")
-                continue
-
-            found_path = True # Mark that at least one part had a path
-
-            # --- Generate Cam Profile --- #
-            logging.info(f"Generating cam for {part_name}...")
-            try:
-                cam_path = generate_cam_profile(smoothed_target_path, cam_center_scene) # Use smoothed path
-                if not cam_path or cam_path.isEmpty():
-                    raise ValueError("Generated cam path is empty or invalid.")
-                cam_layer_name = f"Cam: {part_name}"
-
-                cam_item = QGraphicsPathItem(cam_path)
-                cam_item.setPen(QPen(QColor("magenta"), 2))
-                cam_item.setZValue(-10)
-                cam_item.setPos(cam_center_scene)
-                self._add_mechanism_visual(cam_layer_name, cam_item)
-                generated_cam_count += 1
-            except Exception as e:
-                logging.error(f"Error generating cam profile for {part_name}: {e}\n{traceback.format_exc()}")
-                # Optionally show a non-blocking message here
-
-            # --- Create Path Connection Hints --- #
-            logging.info(f"Creating path hints for {part_name}...")
-            try:
-                # --- Visualize Target Path (Red, using smoothed path) --- #
-                actual_motion_path = QPainterPath(smoothed_target_path) # Use the smoothed path
-                actual_motion_item = QGraphicsPathItem(actual_motion_path)
-                actual_motion_item.setPen(QPen(QColor("red"), 2, Qt.PenStyle.SolidLine))
-                actual_motion_item.setZValue(150) # Above parts, below approx links
-                # NOTE: This assumes the follower doesn't move. If it does, this needs adjustment.
-                actual_motion_item.setPos(follower_item.scenePos()) # Position it with the follower item
-                actual_motion_item.setRotation(follower_item.rotation()) # Align rotation
-                self._add_mechanism_visual(f"Actual Motion: {part_name}", actual_motion_item, visible=True)
-
-                # Renamed function for approximate 2-bar visualization
-                hint_items = self._create_approx_2bar_visuals(follower_item, cam_center_scene, smoothed_target_path) # Use smoothed path
-                if hint_items:
-                    hint_layer_name = f"Approx. 2-Bar: {part_name}" # Updated layer name
-                    for item in hint_items:
-                        self._add_mechanism_visual(hint_layer_name, item, visible=True)
-                    generated_hint_count += len(hint_items)
-            except Exception as e:
-                logging.error(f"Error creating path connection hints for {part_name}: {e}", exc_info=True)
-
-        # Identified linkages visualization is removed as we now generate random ones unconditionally
-        identified_linkage_item_count = 0 # Set to zero
-
-        # --- Update Status Bar --- #
-        total_items = generated_cam_count + generated_hint_count # Exclude identified linkage count
-        if total_items > 0:
-            random_link_count = generated_hint_count // 7 # Approx 7 items per random 4-bar (4 pivots, 3 links)
-            actual_motion_count = random_link_count # One red path per random link set
-            self.statusBar().showMessage(f"Generated: {generated_cam_count} Cam(s), {random_link_count} Random Link(s), {actual_motion_count} Motion Path(s).")
-        elif not found_path:
-            QMessageBox.information(self, "Mechanism Generation", "No parts with motion paths found. Cannot generate mechanisms.")
+    def _handle_drawing_cancelled(self):
+        """Handles cancellation of drawing operations from EditorView."""
+        logging.debug("MainWindow: Drawing cancelled signal received.")
+        if self.define_motion_path_btn.isChecked():
+            self.define_motion_path_btn.setChecked(False) # This will call _toggle_define_motion_path_mode(False)
+                                                        # which calls editor_view.finish_motion_path_drawing() or similar cleanup.
+        # Add similar handling for other drawing modes if they emit this signal
+        self.statusBar().showMessage("Drawing operation cancelled.")
+        self._update_generate_mechanism_button_state()
+        current_item = self.get_selected_editor_item()
+        if current_item:
+            self.clear_motion_path_btn.setEnabled(current_item.motion_path is not None and not current_item.motion_path.isEmpty())
         else:
-            self.statusBar().showMessage("Mechanism generation complete. Check logs for details or errors.")
-
-    def _resample_path_as_polygon(self, input_path: QPainterPath, num_points: int = 30) -> QPainterPath:
-        """Samples points from a path and returns a new path connecting them with lines."""
-        if input_path.isEmpty() or num_points < 2:
-            return QPainterPath()
-
-        new_path = QPainterPath()
-        start_point = input_path.pointAtPercent(0)
-        new_path.moveTo(start_point)
-
-        for i in range(1, num_points):
-            percent = float(i) / (num_points - 1)
-            point = input_path.pointAtPercent(percent)
-            new_path.lineTo(point)
-
-        # Optionally close the path if the original seems closed (heuristic)
-        if input_path.currentPosition() == start_point or QLineF(input_path.currentPosition(), start_point).length() < 1.0:
-            new_path.closeSubpath()
-
-        return new_path
-
-    def _create_approx_2bar_visuals(self, follower_item: CharacterPartItem, pivot_a: QPointF, path: QPainterPath):
-        """Creates visuals of a *random* 4-bar linkage somewhat related to the path start."""
-        if path.isEmpty():
-            return []
-
-        p_start_local = path.pointAtPercent(0)
-        p_start_scene = follower_item.mapToScene(p_start_local)
-
-        # --- Define 4 Pivots (A, B, C, D) --- #
-        # A = base_point (torso center, passed in)
-        # D = another fixed pivot, near A but offset randomly
-        pivot_d = pivot_a + QPointF(random.uniform(60, 100), random.uniform(-20, 20))
-
-        # Estimate reasonable link lengths based on distances
-        dist_ad = QLineF(pivot_a, pivot_d).length()
-        dist_ap = QLineF(pivot_a, p_start_scene).length()
-
-        # B = connected to A, somewhat towards P
-        len_ab = dist_ap * random.uniform(0.6, 1.2) # Link AB length
-        angle_ab_rad = math.atan2(p_start_scene.y() - pivot_a.y(), p_start_scene.x() - pivot_a.x())
-        angle_ab_rad += random.uniform(-math.pi/6, math.pi/6) # Add some randomness to angle
-        pivot_b = pivot_a + QPointF(len_ab * math.cos(angle_ab_rad), len_ab * math.sin(angle_ab_rad))
-
-        # C = connected to D, length somewhat related to AD
-        len_cd = dist_ad * random.uniform(0.8, 1.5)
-        # Random angle for CD (could be more constrained in a real solver)
-        angle_cd_rad = random.uniform(0, 2 * math.pi)
-        pivot_c = pivot_d + QPointF(len_cd * math.cos(angle_cd_rad), len_cd * math.sin(angle_cd_rad))
-
-        # Coupler point P is p_start_scene, attached to link BC (conceptually)
-
-        hint_items = []
-        link_pen = QPen(QColor("black"), 6, Qt.PenStyle.SolidLine) # Even thicker black bars
-        pivot_brush = QBrush(QColor("black"))
-        point_radius = 6 # Slightly larger pivots
-        z_value_lines = 300 # Keep high Z-value
-        z_value_points = 310 # Keep high Z-value
-
-        # Link AB
-        line_ab = QGraphicsLineItem(QLineF(pivot_a, pivot_b))
-        line_ab.setPen(link_pen)
-        line_ab.setZValue(z_value_lines)
-        hint_items.append(line_ab)
-
-        # Link BC
-        line_bc = QGraphicsLineItem(QLineF(pivot_b, pivot_c))
-        line_bc.setPen(link_pen)
-        line_bc.setZValue(z_value_lines)
-        hint_items.append(line_bc)
-
-        # Link CD
-        line_cd = QGraphicsLineItem(QLineF(pivot_c, pivot_d))
-        line_cd.setPen(link_pen)
-        line_cd.setZValue(z_value_lines)
-        hint_items.append(line_cd)
-
-        # Link AD (Fixed Base - Optional visualization)
-        # line_ad = QGraphicsLineItem(QLineF(pivot_a, pivot_d))
-        # line_ad.setPen(QPen(QColor("gray"), 1, Qt.PenStyle.DashLine))
-        # line_ad.setZValue(z_value_lines - 10)
-        # hint_items.append(line_ad)
-
-        # --- Pivots --- #
-        pivots = [pivot_a, pivot_b, pivot_c, pivot_d]
-        for p in pivots:
-            circle = QGraphicsEllipseItem(-point_radius, -point_radius, point_radius*2, point_radius*2)
-            circle.setPos(p)
-            circle.setBrush(pivot_brush)
-            circle.setPen(QPen(Qt.PenStyle.NoPen))
-            circle.setZValue(z_value_points)
-            hint_items.append(circle)
-
-        # Note: This linkage does NOT necessarily trace the path. It's a random visual.
-
-        return hint_items
-
-    def _visualize_identified_linkages(self):
-        """Finds and visualizes identified linkage structures (e.g., 4-bar loops)."""
-        loops = self._find_four_bar_loops()
-        if not loops:
-            logging.info("No specific linkage structures (like 4-bar loops) identified to visualize.")
-            return 0
-
-        linkage_item_count = 0
-        for i, loop_joints in enumerate(loops):
-            layer_name = f"4-Bar Loop {i+1}"
-            logging.info(f"Visualizing {layer_name} involving joints: {[j.name for j in loop_joints]}")
-            for joint in loop_joints:
-                placeholder_items = self._create_linkage_placeholder(joint)
-                if placeholder_items:
-                    for item in placeholder_items:
-                        self._add_mechanism_visual(layer_name, item, visible=True)
-                        linkage_item_count += 1
-                else:
-                    logging.warning(f"Could not create placeholder visuals for joint {joint.name} in {layer_name}")
-
-        logging.info(f"Visualized {linkage_item_count} items for {len(loops)} identified linkage structure(s).")
-        return linkage_item_count # Return count of individual items (bar+circles)
-
-    def _find_four_bar_loops(self):
-        """Attempts to find closed 4-bar linkage loops connected to a fixed item."""
-        loops = []
-        fixed_items = [item for item in self.editor_items.values() if isinstance(item, CharacterPartItem) and item.is_fixed]
-        if not fixed_items:
-            logging.debug("Cannot find 4-bar loops: No fixed item found.")
-            return loops
-
-        # Simple approach: Check joints connected to the fixed item
-        # A more robust approach would involve graph traversal
-        processed_joints = set()
-        for fixed_item in fixed_items:
-            logging.debug(f"Searching for loops starting from fixed item: {fixed_item.part_info.name}")
-            # Find joints directly connected to the fixed item
-            connected_joints = [j for j in self.joints if j.parent_item == fixed_item or j.child_item == fixed_item]
-
-            # Check pairs of these connected joints to see if they form a 4-bar loop
-            # This is a very simplified check and might miss complex configurations
-            # It assumes Fixed -> A -> B -> C -> Fixed structure
-            for i in range(len(connected_joints)):
-                joint1 = connected_joints[i]
-                if joint1 in processed_joints: continue
-
-                # Get the first moving link (Link A)
-                link_a = joint1.child_item if joint1.parent_item == fixed_item else joint1.parent_item
-                if not link_a or link_a == fixed_item: continue # Ensure it's a different link
-
-                # Find joints connected to Link A (excluding joint1)
-                joints_on_a = [j for j in self.joints if (j.parent_item == link_a or j.child_item == link_a) and j != joint1]
-
-                for joint2 in joints_on_a:
-                    # Get the second moving link (Link B)
-                    link_b = joint2.child_item if joint2.parent_item == link_a else joint2.parent_item
-                    if not link_b or link_b == link_a or link_b == fixed_item: continue
-
-                    # Find joints connected to Link B (excluding joint2)
-                    joints_on_b = [j for j in self.joints if (j.parent_item == link_b or j.child_item == link_b) and j != joint2]
-
-                    for joint3 in joints_on_b:
-                        # Get the third moving link (Link C)
-                        link_c = joint3.child_item if joint3.parent_item == link_b else joint3.parent_item
-                        if not link_c or link_c == link_b or link_c == link_a or link_c == fixed_item: continue
-
-                        # Find joints connected to Link C (excluding joint3) that also connect back to *a* fixed item
-                        joints_on_c = [j for j in self.joints if ((j.parent_item == link_c and j.child_item in fixed_items) or \
-                                                                (j.child_item == link_c and j.parent_item in fixed_items)) and j != joint3]
-
-                        for joint4 in joints_on_c:
-                             # Found a potential loop: Fixed -> A -> B -> C -> Fixed
-                             loop_joints = [joint1, joint2, joint3, joint4]
-                             # Avoid duplicates by checking if all joints are already processed in another loop
-                             is_new_loop = True
-                             for existing_loop in loops:
-                                 if set(loop_joints) == set(existing_loop):
-                                     is_new_loop = False
-                                     break
-                             if is_new_loop:
-                                 loops.append(loop_joints)
-                                 processed_joints.update(loop_joints)
-                                 logging.info(f"Found potential 4-bar loop: {[j.name for j in loop_joints]}")
-                                 break # Found one loop involving joint3 & link_c
-
-        return loops
-
-    # --- Simulation Actions ---
-    def build_kinematic_chains(self):
-        """Builds the kinematic chains required for IK simulation."""
-        self.kinematic_chains.clear()
-        # Find all items that have motion paths defined - these are potential end effectors
-        potential_end_effectors = [item for item in self.editor_items.values()
-                                   if item.motion_path and not item.motion_path.isEmpty()]
-
-        if not potential_end_effectors:
-            # No need to show message box here, simulation just won't run for IK
-            logging.info("Build Chains: No motion paths found on any parts. Cannot build chains for IK.")
-            self.statusBar().showMessage("Ready (No motion paths for IK)")
-            return
-
-        built_chains_count = 0
-        for end_effector_item in potential_end_effectors:
-            chain = []
-            logging.debug(f"Building chain starting from potential end effector: {end_effector_item.part_info.name}")
-            current_item = end_effector_item
-            visited = set()
-
-            # Traverse up the hierarchy using parent_joint links
-            while current_item and current_item not in visited:
-                visited.add(current_item)
-                chain.insert(0, current_item) # Prepend to get base -> tip order
-                logging.debug(f"  Added to chain: {current_item.part_info.name} (Fixed: {current_item.is_fixed})")
-
-                if current_item.is_fixed: # Found the fixed base (e.g., torso)
-                    logging.debug(f"    Found fixed base: {current_item.part_info.name}")
-                    break
-
-                # Move to the parent item through the joint connection
-                # Assumes CharacterPartItem has a 'parent_joint' attribute referencing a Joint object
-                # And Joint object has a 'parent_item' attribute
-                if hasattr(current_item, 'parent_joint') and current_item.parent_joint and hasattr(current_item.parent_joint, 'parent_item'):
-                    parent_via_joint = current_item.parent_joint.parent_item
-                    logging.debug(f"    Moving up via parent_joint. Parent item: {parent_via_joint.part_info.name if parent_via_joint else 'None'}")
-                    current_item = parent_via_joint
-                else:
-                    logging.debug(f"    No valid parent_joint found for {current_item.part_info.name}. Stopping chain traversal.")
-                    # Reached the top of this branch without finding a fixed base
-                    current_item = None
-                    chain = [] # Invalidate the chain if no fixed base found
-                    break
-
-            # Log the result before the final check
-            chain_names = [item.part_info.name for item in chain] if chain else []
-            base_is_fixed = chain[0].is_fixed if chain else False
-            logging.debug(f"  Finished traversal. Chain: {chain_names}, Base Fixed: {base_is_fixed}")
-
-            # Check if a valid chain ending in a fixed part was found
-            if chain and chain[0].is_fixed: # Check if chain exists and starts with a fixed part
-                # Ensure the identified end effector is indeed the last item
-                if chain[-1] == end_effector_item:
-                    chain_name = end_effector_item.part_info.name
-                    self.kinematic_chains[chain_name] = chain
-                    built_chains_count += 1 # Correct indentation
-                    logging.info(f"Built chain for '{chain_name}': {[item.part_info.name for item in chain]}") # Correct indentation
-            else:
-                     logging.warning(f"Chain found for part '{end_effector_item.part_info.name}', but it wasn't the end effector? Chain: {[item.part_info.name for item in chain]}")
-            # This elif corresponds to the outer 'if chain and chain[0].is_fixed:'
-            # It handles cases where chain traversal finished but didn't find a valid fixed base
-            elif end_effector_item: # Correct indentation for elif block
-                logging.warning(f"Kinematic chain for '{end_effector_item.part_info.name}' does not end in a fixed part or is invalid. Discarding.") # Correct indentation for logging line
-
-        if built_chains_count > 0:
-            self.statusBar().showMessage(f"Built {built_chains_count} kinematic chain(s). Ready for simulation.")
-        else:
-            self.statusBar().showMessage("Could not build any valid kinematic chains for defined paths.")
-            QMessageBox.warning(self, "Build Chains Failed",
-                                "Could not build valid kinematic chains for parts with motion paths. \
-                                Ensure parts are connected by joints and chains end at a fixed part (like the torso)." )
-
-    def play_simulation(self):
-        """Starts the kinematic simulation based on defined motion paths using IK."""
-        # Ensure chains are built or try building them
-        if not self.kinematic_chains:
-            self.build_kinematic_chains()
-            # Check again if chains were successfully built
-            if not self.kinematic_chains:
-                 # build_kinematic_chains already showed a message
-                self.statusBar().showMessage("Cannot start simulation: No valid kinematic chains found.")
-                return # Correct indentation
-
-        logging.info("Starting IK-based simulation...")
-        # Ensure simulation mode is set in view (disables direct interaction)
-        self.editor_view.set_mode('simulation')
-        # Store initial state using the view's method
-        self.editor_view._save_original_transforms()
-
-        self.animation_time = 0.0
-        self.timer.start() # Use the existing timer
-        self.statusBar().showMessage("IK Simulation running...")
-        self.play_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.reset_sim_btn.setEnabled(True)
-
-    def stop_simulation(self):
-        """Stops the kinematic simulation."""
-        if self.timer.isActive():
-            logging.info("Stopping simulation.")
-            self.timer.stop()
-            self.statusBar().showMessage("Simulation stopped.")
-            self.editor_view.set_mode('select') # Restore editor interaction
-            self.play_btn.setEnabled(True)
-            self.stop_btn.setEnabled(False)
-        else:
-             self.statusBar().showMessage("Simulation not running.")
-
-    def reset_simulation(self):
-        """Stops the simulation and resets parts to their initial state."""
-        self.stop_simulation() # Ensure timer is stopped
-        logging.info("Resetting simulation state.")
-        self.editor_view.reset_simulation() # Let the view handle resetting transforms
-        self.animation_time = 0.0
-        # Ensure buttons are in correct state after reset
-        self.play_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.reset_sim_btn.setEnabled(False) # Can't reset if already reset
-        self.statusBar().showMessage("Simulation reset.")
-
-    def update_simulation(self):
-        """Performs one step of the IK simulation (called by timer)."""
-        if not self.timer.isActive():
-            return
-
-        delta_time = self.timer.interval() / 1000.0
-        self.animation_time += delta_time
-        progress = (self.animation_time % self.animation_duration) / self.animation_duration
-
-        # --- Debug Logging Start ---
-        logging.debug(f"--- Sim Update: Time={self.animation_time:.2f} Prog={progress:.3f} ---")
-
-        if not self.kinematic_chains:
-            logging.warning("Update simulation called with no kinematic chains. Stopping.")
-            self.stop_simulation()
-            return
-
-        # --- IK Simulation Step --- #
-        ik_updated = False
-        for end_effector_name, chain in self.kinematic_chains.items():
-            # Ensure the chain and end effector item still exist in the editor
-            editor_chain = [self.editor_items.get(item.part_info.name) for item in chain]
-            if not all(editor_chain):
-                logging.warning(f"Skipping chain for '{end_effector_name}': Parts missing from editor.")
-                continue
-
-            editor_end_effector = editor_chain[-1]
-            if not editor_end_effector.motion_path or editor_end_effector.motion_path.isEmpty():
-                continue # Skip chains where end effector has no path
-
-            # 1. Calculate Target Position on the path (in scene coordinates)
-            target_pos_scene = editor_end_effector.motion_path.pointAtPercent(progress)
-
-            logging.debug(f"  Chain '{end_effector_name}': Target Scene Pos = ({target_pos_scene.x():.1f}, {target_pos_scene.y():.1f})")
-
-            # 2. Call IK Solver
-            # The solver should update the transformations of items in editor_chain
-            try:
-                # Log position before IK
-                pre_ik_pos = editor_end_effector.mapToScene(editor_end_effector.boundingRect().center())
-                logging.debug(f"    End Effector Pos BEFORE IK: ({pre_ik_pos.x():.1f}, {pre_ik_pos.y():.1f})")
-
-                ik_success = solve_ik_ccd(editor_chain, target_pos_scene, iterations=15, tolerance=1.0)
-                ik_updated = True
-
-                # Log position after IK
-                post_ik_pos = editor_end_effector.mapToScene(editor_end_effector.boundingRect().center())
-                logging.debug(f"    IK Success: {ik_success}. End Effector Pos AFTER IK: ({post_ik_pos.x():.1f}, {post_ik_pos.y():.1f})")
-
-            except Exception as e:
-                 logging.error(f"Error solving IK for chain '{end_effector_name}': {e}", exc_info=True)
-                 # Optionally stop simulation on error?
-                 # self.stop_simulation()
-                 # return
-
-        # Update the scene once after all chains are processed if any IK happened
-        if ik_updated:
-            logging.debug(f"--- End Sim Update: Updating Scene --- ")
-        self.editor_scene.update()
-
-    def _copy_state_to_simulation_scene(self):
-        """Copies the current state (transforms, etc.) from editor items.
-        This is primarily used to store the *initial* state before simulation starts.
-        The actual simulation modifies the editor items directly.
-        """
-        self.editor_view._save_original_transforms() # Use the view's method
-
-    # --- Blueprint Generation --- #
-
-    def generate_blueprint(self):
-        """Generates an SVG blueprint of all parts."""
-        if not self.editor_items:
-            QMessageBox.warning(self, "Blueprint Error", "No parts loaded to generate a blueprint.")
-            return
-
-        save_path, _ = QFileDialog.getSaveFileName(self, "Save Blueprint As", self.character_dir or "", "SVG Files (*.svg)")
-        if not save_path:
-            return
-
-        logging.info(f"Generating SVG blueprint to {save_path}")
-        try:
-            # Call the generation function (needs implementation)
-            svg_content = generate_blueprint_svg(list(self.editor_items.values()))
-
-            if not svg_content:
-                raise ValueError("Blueprint generation returned empty content.")
-
-            with open(save_path, 'w') as f:
-                f.write(svg_content)
-
-            self.statusBar().showMessage(f"Blueprint saved to {os.path.basename(save_path)}")
-            logging.info("Blueprint generated successfully.")
-            # Optionally open the file?
-            # import webbrowser
-            # webbrowser.open(save_path)
-
-        except Exception as e:
-            logging.error(f"Error generating blueprint: {e}\n{traceback.format_exc()}")
-            QMessageBox.critical(self, "Blueprint Error", f"Failed to generate blueprint: {e}")
-
-    # --- Utility & Helper Methods ---
-
-    def save_project(self):
-        """Save the current project state (parts, joints, cam info) to a JSON file."""
-        filepath, _ = QFileDialog.getSaveFileName(self, "Save Project", self.character_dir or "", "Automata Project Files (*.json)")
-        if not filepath:
-            return
-
-        logging.info(f"Saving project to {filepath}")
-        try:
-            project_data = {
-                "project_name": "Automata Project", # Can be customized
-                "parts": {},
-                "joints": [],
-                "cam_center": None,
-                "cam_follower": None
-            }
-
-            # Save parts data
-            for name, item in self.editor_items.items():
-                part_data = {
-                    "name": name,
-                    "svg_path": os.path.relpath(item.part_info.svg_path_file, self.character_dir) if self.character_dir and item.part_info.svg_path_file else item.part_info.svg_path_file, # Store relative path if possible
-                    "image_path": os.path.relpath(item.part_info.image_path, self.character_dir) if self.character_dir and item.part_info.image_path else item.part_info.image_path,
-                    "position": {"x": item.pos().x(), "y": item.pos().y()},
-                    "z_value": item.zValue(),
-                    "is_fixed": item.is_fixed,
-                    "transform": transform_to_dict(item.transform()), # Use helper
-                    "fill_color": item.part_info.fill_color # Save color
-                }
-
-                # Save motion path if any
-                if item.motion_path and not item.motion_path.isEmpty():
-                    # Using the helper function now
-                    part_data["motion_path"] = qpainterpath_to_points(item.motion_path)
-
-                # Save end effector if any
-                if item.end_effector_offset:
-                    part_data["end_effector"] = {
-                        "x": item.end_effector_offset.x(),
-                        "y": item.end_effector_offset.y()
-                    }
-
-                project_data["parts"][name] = part_data
-
-            # Save joints
-            for joint in self.joints:
-                joint_data = {
-                    "parent": joint.parent_item.part_info.name,
-                    "child": joint.child_item.part_info.name,
-                    "parent_pos": {"x": joint.parent_pos.x(), "y": joint.parent_pos.y()},
-                    "child_pos": {"x": joint.child_pos.x(), "y": joint.child_pos.y()}
-                    # Could also save joint.angle if needed
-                }
-                project_data["joints"].append(joint_data)
-
-            # Save cam center if any
-            if self.driving_cam_center:
-                project_data["cam_center"] = {
-                    "x": self.driving_cam_center.x(),
-                    "y": self.driving_cam_center.y()
-                }
-
-            # Save cam follower if any
-            if self.cam_follower_item:
-                project_data["cam_follower"] = self.cam_follower_item.part_info.name
-
-            # Write to file
-            with open(filepath, 'w') as f:
-                json.dump(project_data, f, indent=2)
-
-            self.statusBar().showMessage(f"Project saved to {os.path.basename(filepath)}")
-            logging.info("Project saved successfully.")
-
-        except Exception as e:
-            logging.error(f"Failed to save project: {e}\n{traceback.format_exc()}")
-            QMessageBox.critical(self, "Save Error", f"Failed to save project: {e}")
-            self.statusBar().showMessage("Failed to save project")
-
-    def show_about(self):
-        """Displays the About dialog."""
-        QMessageBox.about(self, "About Automata Designer",
-                        "Automata Designer v1.0\n\n"
-                        "Tool for designing 2.5D mechanical automata.\n"
-                        "Features image processing, skeleton editing, part assembly, \n"
-                        "kinematic simulation, cam generation, and blueprint export.")
-
-    def _handle_drawing_cancel(self):
-        """Handles cancellation signals from the EditorView."""
-        # Ensure corresponding mode buttons are unchecked
-        if self.define_joint_btn.isChecked(): self.define_joint_btn.setChecked(False)
-        if self.define_motion_btn.isChecked(): self.define_motion_btn.setChecked(False)
-        # Add others if needed (cam center etc)
+            self.clear_motion_path_btn.setEnabled(False)
 
     def closeEvent(self, event):
-        """Handles window close event, ensuring camera cleanup."""
+        # Ask for confirmation before closing
         logging.info("Closing application...")
         for dialog in self.active_camera_dialogs[:]:
             try:
@@ -2054,3 +1676,586 @@ class AutomataDesigner(QMainWindow):
         child_joint_circle.setZValue(310)
 
         return [link_item, parent_joint_circle, child_joint_circle]
+
+    def _visualize_linkage_data(self, linkage_data: dict):
+        """Visualizes linkage data (pivots and links) from the generation functions."""
+        if not linkage_data or not isinstance(linkage_data, dict):
+            return
+
+        linkage_type = linkage_data.get("type", "unknown_linkage")
+        pivots = linkage_data.get("pivots", {})
+        links = linkage_data.get("links", {})
+
+        # Visualize fixed pivots
+        for pivot_name, pos in pivots.items():
+            if "fixed" in pivot_name and isinstance(pos, QPointF):
+                marker = QGraphicsEllipseItem(-6, -6, 12, 12) # Larger fixed pivot marker
+                marker.setPos(pos)
+                marker.setBrush(QColor("blue") if "fixed_a" in pivot_name else QColor("darkblue"))
+                marker.setPen(QPen(QColor("black"), 1))
+                self._add_mechanism_visual(f"{linkage_type} Pivot: {pivot_name}", marker)
+
+        # Visualize moving pivot paths (if they are lists of points)
+        # For now, just mark the first point of moving pivots if they exist
+        for pivot_name, pos_data in pivots.items():
+            if "moving" in pivot_name and isinstance(pos_data, list) and pos_data:
+                pos = pos_data[0]
+                if isinstance(pos, QPointF):
+                    marker = QGraphicsEllipseItem(-4, -4, 8, 8)
+                    marker.setPos(pos)
+                    marker.setBrush(QColor("cyan"))
+                    self._add_mechanism_visual(f"{linkage_type} Pivot (Moving Start): {pivot_name}", marker)
+            elif "coupler_point" in pivot_name and isinstance(pos_data, list) and pos_data:
+                 pos = pos_data[0]
+                 if isinstance(pos, QPointF):
+                    marker = QGraphicsEllipseItem(-4, -4, 8, 8)
+                    marker.setPos(pos)
+                    marker.setBrush(QColor("orange")) # Distinct color for coupler point
+                    self._add_mechanism_visual(f"{linkage_type} Coupler Start: {pivot_name}", marker)
+
+
+        # Visualize links (if they are lists of QLineF or single QLineF)
+        link_pen = QPen(QColor("green"), 2)
+        for link_name, link_data in links.items():
+            if isinstance(link_data, list) and link_data: # Path of a link over time
+                line_item = QGraphicsPathItem()
+                path = QPainterPath(link_data[0].p1())
+                for line_segment in link_data:
+                    path.lineTo(line_segment.p2()) # This assumes segments are connected, or use p1 for non-continuous
+                line_item.setPath(path) # This will only draw the first state as a polyline
+                # For actual animation, one would update this path or create multiple items
+                # For now, just draw the first segment of the list of lines.
+                first_segment = link_data[0]
+                line_graphic = QGraphicsLineItem(first_segment)
+                line_graphic.setPen(link_pen)
+                self._add_mechanism_visual(f"{linkage_type} Link (First State): {link_name}", line_graphic)
+            elif isinstance(link_data, QLineF): # A single fixed link
+                line_graphic = QGraphicsLineItem(link_data)
+                line_graphic.setPen(link_pen)
+                self._add_mechanism_visual(f"{linkage_type} Link: {link_name}", line_graphic)
+
+        logging.info(f"Visualized placeholder for {linkage_type}.")
+
+    def _visualize_gear_data(self, gear_data: dict):
+        """Visualizes gear data from the generation functions."""
+        if not gear_data or not isinstance(gear_data, dict) or gear_data.get("type") != "gear_pair":
+            return
+
+        driver = gear_data.get("driver_gear")
+        driven = gear_data.get("driven_gear")
+
+        if driver and isinstance(driver.get("path"), QPainterPath):
+            driver_item = QGraphicsPathItem(driver["path"])
+            driver_item.setPen(QPen(QColor("gray"), 2))
+            driver_item.setBrush(QColor(200, 200, 200, 150))
+            self._add_mechanism_visual("Driver Gear", driver_item)
+            # Center marker for driver
+            d_center_marker = QGraphicsEllipseItem(-4,-4,8,8); d_center_marker.setPos(driver["center"]); d_center_marker.setBrush(QColor("darkgray"))
+            self._add_mechanism_visual("Driver Gear Center", d_center_marker)
+
+        if driven and isinstance(driven.get("path"), QPainterPath):
+            driven_item = QGraphicsPathItem(driven["path"])
+            driven_item.setPen(QPen(QColor("darkred"), 2))
+            driven_item.setBrush(QColor(139, 0, 0, 150))
+            self._add_mechanism_visual("Driven Gear", driven_item)
+            # Center marker for driven
+            v_center_marker = QGraphicsEllipseItem(-4,-4,8,8); v_center_marker.setPos(driven["center"]); v_center_marker.setBrush(QColor("red"))
+            self._add_mechanism_visual("Driven Gear Center", v_center_marker)
+
+        logging.info("Visualized placeholder for gear pair.")
+
+    # --- Mechanism Design Actions & Slots ---
+
+    def _update_mechanism_inputs_ui(self, selected_type: str):
+        """Shows/hides the relevant input group boxes based on the selected mechanism type."""
+        self.cam_inputs_group.setVisible(selected_type == "Cam & Follower")
+        self.three_bar_inputs_group.setVisible(selected_type == "3-Bar Linkage")
+        self.four_bar_inputs_group.setVisible(selected_type == "4-Bar Linkage")
+        self.gear_inputs_group.setVisible(selected_type == "Gears (Simple Pair)")
+        # Update button state as requirements might change
+        self._update_generate_mechanism_button_state()
+        # Clear potentially irrelevant selected points when type changes? Optional.
+        # self._clear_selected_mechanism_points()
+
+
+    def _start_cam_center_selection(self):
+        """Activates cam center selection mode in the editor view."""
+        self.editor_view.set_mode('select_cam_center')
+        self.statusBar().showMessage("Click on the scene to define the Cam Center.")
+
+    def _start_pivot_a_selection(self):
+        """Activates fixed pivot A selection mode."""
+        self.editor_view.set_mode('select_pivot_a')
+        self.statusBar().showMessage("Click on the scene to define Fixed Pivot A.")
+
+    def _start_pivot_d_selection(self):
+        """Activates fixed pivot D selection mode."""
+        self.editor_view.set_mode('select_pivot_d')
+        self.statusBar().showMessage("Click on the scene to define Fixed Pivot D.")
+
+    def _start_driver_center_selection(self):
+        """Activates driver gear center selection mode."""
+        self.editor_view.set_mode('select_driver_center')
+        self.statusBar().showMessage("Click on the scene to define the Driver Gear Center.")
+
+    def _start_driven_center_selection(self):
+        """Activates driven gear center selection mode."""
+        self.editor_view.set_mode('select_driven_center')
+        self.statusBar().showMessage("Click on the scene to define the Driven Gear Center.")
+
+    # Slots to receive selected points from EditorView
+    @pyqtSlot(QPointF)
+    def _handle_cam_center_set(self, scene_pos: QPointF):
+        self.selected_cam_center = scene_pos
+        self._update_point_marker('cam_center', scene_pos, QColor("cyan"))
+        self.statusBar().showMessage(f"Cam Center set at ({scene_pos.x():.1f}, {scene_pos.y():.1f}).")
+        self._update_generate_mechanism_button_state()
+
+    @pyqtSlot(QPointF)
+    def _handle_pivot_a_set(self, scene_pos: QPointF):
+        self.selected_pivot_a = scene_pos
+        self._update_point_marker('pivot_a', scene_pos, QColor("blue"))
+        self.statusBar().showMessage(f"Pivot A set at ({scene_pos.x():.1f}, {scene_pos.y():.1f}).")
+        self._update_generate_mechanism_button_state()
+
+    @pyqtSlot(QPointF)
+    def _handle_pivot_d_set(self, scene_pos: QPointF):
+        self.selected_pivot_d = scene_pos
+        self._update_point_marker('pivot_d', scene_pos, QColor("darkblue"))
+        self.statusBar().showMessage(f"Pivot D set at ({scene_pos.x():.1f}, {scene_pos.y():.1f}).")
+        self._update_generate_mechanism_button_state()
+
+    @pyqtSlot(QPointF)
+    def _handle_driver_center_set(self, scene_pos: QPointF):
+        self.selected_driver_center = scene_pos
+        self._update_point_marker('driver_center', scene_pos, QColor("darkgray"))
+        self.statusBar().showMessage(f"Driver Center set at ({scene_pos.x():.1f}, {scene_pos.y():.1f}).")
+        self._update_generate_mechanism_button_state()
+
+    @pyqtSlot(QPointF)
+    def _handle_driven_center_set(self, scene_pos: QPointF):
+        self.selected_driven_center = scene_pos
+        self._update_point_marker('driven_center', scene_pos, QColor("red"))
+        self.statusBar().showMessage(f"Driven Center set at ({scene_pos.x():.1f}, {scene_pos.y():.1f}).")
+        self._update_generate_mechanism_button_state()
+
+
+    def _update_point_marker(self, marker_type: str, pos: QPointF, color: QColor):
+        """Creates or updates a visual marker for a selected point."""
+        marker_attr = f"{marker_type}_marker"
+        existing_marker = getattr(self, marker_attr, None)
+
+        if existing_marker and existing_marker.scene():
+            self.editor_scene.removeItem(existing_marker)
+
+        if pos is None: # If position is cleared, just remove marker
+            setattr(self, marker_attr, None)
+            return
+
+        # Create a simple circle marker
+        radius = 5
+        marker = QGraphicsEllipseItem(-radius, -radius, radius*2, radius*2)
+        marker.setPos(pos)
+        marker.setBrush(color)
+        marker.setPen(QPen(Qt.PenStyle.NoPen))
+        marker.setZValue(250) # High Z-value
+        self.editor_scene.addItem(marker)
+        setattr(self, marker_attr, marker) # Store reference
+
+    def _clear_selected_mechanism_points(self):
+        """Clears all stored selected points and their visual markers."""
+        points_to_clear = ['cam_center', 'pivot_a', 'pivot_d', 'driver_center', 'driven_center']
+        for point_type in points_to_clear:
+            setattr(self, f"selected_{point_type}", None)
+            self._update_point_marker(point_type, None, QColor()) # Pass None pos to remove marker
+        self._update_generate_mechanism_button_state()
+
+    def _update_generate_mechanism_button_state(self, text=None):
+        """Enables the mechanism generation button based on selection and type-specific requirements."""
+        selected_part = self.get_selected_editor_item()
+        mechanism_type = self.mechanism_type_combo.currentText()
+        enabled = False
+
+        if selected_part:
+            has_motion_path = selected_part.motion_path is not None and not selected_part.motion_path.isEmpty()
+
+            if mechanism_type == "Cam & Follower":
+                # Needs path and cam center (user selected or default available)
+                can_use_default_center = self.editor_items.get("torso") is not None
+                enabled = has_motion_path and (self.selected_cam_center is not None or can_use_default_center)
+            elif mechanism_type == "3-Bar Linkage":
+                # Needs path and pivot A
+                enabled = has_motion_path and self.selected_pivot_a is not None
+            elif mechanism_type == "4-Bar Linkage":
+                # Needs path, pivot A, and pivot D
+                enabled = has_motion_path and self.selected_pivot_a is not None and self.selected_pivot_d is not None
+            elif mechanism_type == "Gears (Simple Pair)":
+                # Needs driver center and driven center
+                enabled = self.selected_driver_center is not None and self.selected_driven_center is not None
+
+        self.generate_mechanism_btn.setEnabled(enabled)
+        # Optional: Add tooltip explaining why it's disabled
+        if not enabled:
+            tooltip_text = "Select a mechanism type and provide the required inputs (e.g., select part with path, set pivots/centers)."
+            self.generate_mechanism_btn.setToolTip(tooltip_text)
+        else:
+            self.generate_mechanism_btn.setToolTip("Generate the selected mechanism based on the current setup")
+
+
+    def _generate_mechanism_auto(self):
+        """Generates the selected mechanism based on the editor state and gathered inputs."""
+        selected_item = self.get_selected_editor_item()
+        mechanism_type = self.mechanism_type_combo.currentText()
+
+        logging.info(f"Attempting to generate mechanism of type: {mechanism_type}")
+
+        if not selected_item: # Basic check, specific checks below
+            QMessageBox.warning(self, "No Part Selected", "Please select a character part.")
+            return
+
+        self._clear_mechanism_visuals() # Clear previous visuals
+
+        # --- Get Common Inputs ---
+        motion_path_required = mechanism_type in ["Cam & Follower", "3-Bar Linkage", "4-Bar Linkage"]
+        target_path_scene = None
+        if motion_path_required:
+            if not selected_item.motion_path or selected_item.motion_path.isEmpty():
+                # Access name via part_info
+                QMessageBox.warning(self, "No Motion Path", f"Part '{selected_item.part_info.name}' needs a defined motion path for {mechanism_type}.")
+                return
+            target_path_scene = selected_item.mapToScene(selected_item.motion_path)
+
+        # --- Call Type-Specific Generation ---
+        try:
+            if mechanism_type == "Cam & Follower":
+                # Determine cam center (use selected or default to torso)
+                cam_center = self.selected_cam_center
+                if cam_center is None:
+                    torso_item = self.editor_items.get("torso")
+                    if not torso_item:
+                        QMessageBox.warning(self, "Torso Not Found", "Please select a Cam Center or ensure a 'torso' part exists.")
+                        return
+                    cam_center = torso_item.sceneBoundingRect().center()
+                    logging.info("Using torso center as default cam center.")
+
+                smoothed_path = self._resample_path_as_polygon(target_path_scene)
+                cam_profile_path = generate_cam_profile(smoothed_path, cam_center)
+                if cam_profile_path and not cam_profile_path.isEmpty():
+                    cam_item = QGraphicsPathItem(cam_profile_path)
+                    cam_item.setPen(QPen(QColor("#FF00FF"), 2))
+                    cam_item.setBrush(QColor(255, 0, 255, 100))
+                    self._add_mechanism_visual("Generated Cam Profile", cam_item)
+                    # Visualize the actual center used
+                    self._update_point_marker('cam_center_used', cam_center, QColor("magenta"))
+                    self.driving_cam_center = cam_center # Store for potential simulation use
+                else:
+                    QMessageBox.information(self, "Cam Generation", "Failed to generate cam profile or profile is empty.")
+
+            elif mechanism_type == "3-Bar Linkage":
+                if self.selected_pivot_a is None:
+                     QMessageBox.warning(self, "Input Missing", "Please select Fixed Pivot A.")
+                     return
+                linkage_data = generate_3bar_linkage(target_path_scene, self.selected_pivot_a)
+                if linkage_data:
+                    QMessageBox.information(self, "3-Bar Linkage", f"Placeholder generated: {linkage_data.get('message')}")
+                    self._visualize_linkage_data(linkage_data)
+                else:
+                    QMessageBox.warning(self, "3-Bar Linkage", "Failed to generate 3-bar linkage (placeholder). See logs.")
+
+            elif mechanism_type == "4-Bar Linkage":
+                if self.selected_pivot_a is None or self.selected_pivot_d is None:
+                     QMessageBox.warning(self, "Input Missing", "Please select Fixed Pivot A and Fixed Pivot D.")
+                     return
+                linkage_data = generate_4bar_linkage(target_path_scene, self.selected_pivot_a, self.selected_pivot_d)
+                if linkage_data:
+                    QMessageBox.information(self, "4-Bar Linkage", f"Placeholder generated: {linkage_data.get('message')}")
+                    self._visualize_linkage_data(linkage_data)
+                else:
+                    QMessageBox.warning(self, "4-Bar Linkage", "Failed to generate 4-bar linkage (placeholder). See logs.")
+
+            elif mechanism_type == "Gears (Simple Pair)":
+                if self.selected_driver_center is None or self.selected_driven_center is None:
+                     QMessageBox.warning(self, "Input Missing", "Please select Driver and Driven Gear Centers.")
+                     return
+                gear_ratio = self.gear_ratio_spin.value()
+                gear_data = generate_gear_pair(driver_center=self.selected_driver_center,
+                                                driven_center=self.selected_driven_center,
+                                                gear_ratio=gear_ratio)
+                if gear_data:
+                    QMessageBox.information(self, "Gears (Simple Pair)", f"Placeholder generated: {gear_data.get('message')}")
+                    self._visualize_gear_data(gear_data)
+                else:
+                    QMessageBox.warning(self, "Gears (Simple Pair)", "Failed to generate gears (placeholder). See logs.")
+
+        except Exception as e:
+            logging.error(f"Error during mechanism generation ({mechanism_type}): {e}", exc_info=True)
+            QMessageBox.critical(self, "Generation Error", f"An error occurred while generating the {mechanism_type}: {e}")
+
+        # Update layer visibility checkboxes if they exist
+        for name, checkbox in self.layer_checkboxes.items():
+            checkbox.setChecked(True) # Make new visuals visible by default
+        self.editor_scene.update()
+
+    def _resample_path_as_polygon(self, path: QPainterPath, num_samples: int = 100) -> QPolygonF:
+        """Resamples a QPainterPath into a QPolygonF with a fixed number of samples.
+
+        Args:
+            path: The QPainterPath to resample (expected in scene coordinates).
+            num_samples: The number of points to sample along the path.
+
+        Returns:
+            A QPolygonF representing the resampled path.
+        """
+        polygon = QPolygonF()
+        if path.isEmpty() or num_samples < 2:
+            return polygon # Return empty polygon if path is empty or not enough samples
+
+        for i in range(num_samples):
+            percent = i / (num_samples - 1) # Go from 0.0 to 1.0
+            point = path.pointAtPercent(percent)
+            polygon.append(point)
+
+        # Ensure the polygon is closed if the path suggests it might be (e.g. for cam profiles)
+        # For a general resampling, explicit closure might not always be desired here,
+        # but for cam follower paths, it's usually a closed loop.
+        # The points_to_closed_bezier_path already ensures a sort of closure for the motion_path itself.
+        # If the input path is visually closed, pointAtPercent(1.0) should be very close to pointAtPercent(0.0).
+        # QPolygonF doesn't have an explicit closeSubpath like QPainterPath.
+        # If the first and last points are not identical, add the first point at the end to close it.
+        if num_samples > 1 and polygon.first() != polygon.last():
+             # This check is often redundant if path.pointAtPercent(0) == path.pointAtPercent(1) for closed paths
+             # but can be a safeguard. For cam generation, generate_cam_profile might expect this.
+             # However, the generate_cam_profile takes a QPolygonF which is a list of points.
+             # The "closed" nature is handled by how it iterates over those points.
+             pass # For now, let generate_cam_profile handle interpretation of the point list.
+
+        return polygon
+
+    # --- Simulation Methods (Placeholder/Basic Implementation) ---
+    def play_simulation(self):
+        """Starts or resumes the simulation."""
+        if not self.kinematic_chains:
+            self.build_kinematic_chains()
+        if not self.kinematic_chains:
+            self.statusBar().showMessage("Cannot start simulation: No valid kinematic chains.")
+            return
+
+        logging.info("Starting/Resuming simulation...")
+        self.editor_view.set_mode('simulation')
+        self.editor_view._save_original_transforms() # Save state before starting
+        self.animation_time = 0.0 # Reset time or use current time if resuming
+        self.timer.start()
+        self.statusBar().showMessage("Simulation running...")
+        self.play_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.reset_sim_btn.setEnabled(True)
+
+    def stop_simulation(self):
+        """Stops the simulation."""
+        if self.timer.isActive():
+            logging.info("Stopping simulation.")
+            self.timer.stop()
+            self.statusBar().showMessage("Simulation stopped.")
+            self.editor_view.set_mode('select') # Restore editor interaction
+            self.play_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+        else:
+            self.statusBar().showMessage("Simulation not running.")
+
+    def reset_simulation(self):
+        """Stops the simulation and resets parts to their initial state."""
+        self.stop_simulation()
+        logging.info("Resetting simulation state.")
+        self.editor_view.reset_simulation() # View handles restoring transforms
+        self.animation_time = 0.0
+        self.play_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.reset_sim_btn.setEnabled(False)
+        self.statusBar().showMessage("Simulation reset.")
+
+    def update_simulation(self):
+        """Performs one step of the simulation (called by timer)."""
+        if not self.timer.isActive() or not self.kinematic_chains:
+            return
+
+        delta_time = self.timer.interval() / 1000.0  # Convert ms to s
+        self.animation_time += delta_time
+        # Loop animation based on duration
+        # Ensure animation_duration is not zero to prevent division errors
+        current_animation_duration = self.animation_duration
+        if current_animation_duration <= 0:
+            current_animation_duration = 0.01 # Use a very small positive default if it's zero or negative
+
+        progress = (self.animation_time % current_animation_duration) / current_animation_duration
+
+        logging.debug(f"Sim Update: SetDuration={self.animation_duration:.2f}, ActualDuration={current_animation_duration:.2f}, Time={self.animation_time:.2f}, Prog={progress:.3f}")
+
+        for end_effector_name, chain_items in self.kinematic_chains.items():
+            # Ensure chain items are valid CharacterPartItem instances from self.editor_items
+            chain = [self.editor_items.get(item.part_info.name) for item in chain_items if item.part_info.name in self.editor_items]
+            if not chain or not isinstance(chain[-1], CharacterPartItem) or not chain[-1].motion_path:
+                logging.debug(f"Skipping chain for {end_effector_name}: invalid chain or no motion path.")
+                continue
+
+            end_effector_part = chain[-1]
+            target_pos_on_path = end_effector_part.motion_path.pointAtPercent(progress)
+
+            # The motion path is defined in the local coordinates of the end_effector_part.
+            # We need the target position in scene coordinates for the IK solver.
+            target_pos_scene = end_effector_part.mapToScene(target_pos_on_path)
+
+            logging.debug(f"  Chain '{end_effector_name}': Target Scene Pos = ({target_pos_scene.x():.1f}, {target_pos_scene.y():.1f})")
+            try:
+                solve_ik_ccd(chain, target_pos_scene, iterations=10, tolerance=1.5)
+            except Exception as e:
+                logging.error(f"Error in IK solver for {end_effector_name}: {e}", exc_info=True)
+                self.stop_simulation()
+                break # Stop processing further chains on error
+
+        self.editor_scene.update() # Update scene after all chains are processed
+
+    def build_kinematic_chains(self):
+        """Builds kinematic chains from fixed parts to parts with motion paths."""
+        self.kinematic_chains.clear()
+        potential_end_effectors = [
+            item for item in self.editor_items.values()
+            if item.motion_path and not item.motion_path.isEmpty()
+        ]
+
+        if not potential_end_effectors:
+            logging.info("Build Chains: No motion paths found.")
+            return
+
+        for ee_item in potential_end_effectors:
+            chain = []
+            current_item = ee_item
+            visited_in_chain = set()
+            while current_item and current_item not in visited_in_chain:
+                visited_in_chain.add(current_item)
+                chain.insert(0, current_item) # Prepend to get base -> tip order
+                if current_item.is_fixed:
+                    break # Reached a fixed base
+                if current_item.parent_joint and current_item.parent_joint.parent_item != current_item:
+                    current_item = current_item.parent_joint.parent_item
+                else:
+                    # No valid parent to continue chain upwards
+                    chain = [] # Invalidate chain if no fixed base found
+                    break
+
+            if chain and chain[0].is_fixed and chain[-1] == ee_item:
+                chain_name = ee_item.part_info.name  # Use part_info.name as chain identifier
+                self.kinematic_chains[chain_name] = chain
+                logging.info(f"Built chain for '{chain_name}': {[item.part_info.name for item in chain]}")
+            elif ee_item: # Log if a chain for a specific ee_item was not valid
+                logging.warning(f"Could not build valid chain for end effector '{ee_item.part_info.name}'. Ensure it connects to a fixed part.")
+
+        if self.kinematic_chains:
+            self.statusBar().showMessage(f"Built {len(self.kinematic_chains)} kinematic chain(s).")
+        else:
+            self.statusBar().showMessage("No valid kinematic chains built.")
+            QMessageBox.warning(self, "Build Chains Failed",
+                                "Could not build valid kinematic chains. Ensure parts with motion paths are connected by joints to a fixed part.")
+
+
+    # --- Blueprint Generation --- #
+    def generate_blueprint(self):
+        """Generates an SVG blueprint of all parts."""
+        if not self.editor_items:
+            QMessageBox.warning(self, "No Parts Selected", "Please select parts to generate a blueprint.")
+            return
+
+        # Create a new SVG file
+        svg_file = generate_blueprint_svg(self.editor_items)
+        if svg_file:
+            # Save the SVG file
+            save_path, _ = QFileDialog.getSaveFileName(self, "Save Blueprint", "", "SVG Files (*.svg)")
+            if save_path:
+                try:
+                    with open(save_path, 'w') as f:
+                        f.write(svg_file)
+                    logging.info(f"Blueprint saved to {save_path}")
+                    self.statusBar().showMessage(f"Blueprint saved to {os.path.basename(save_path)}")
+                except Exception as e:
+                    logging.error(f"Failed to save blueprint: {e}")
+                    QMessageBox.critical(self, "Save Error", f"Could not save blueprint: {e}")
+            else:
+                logging.warning("Blueprint not saved: No save path provided.")
+        else:
+            logging.warning("Blueprint not generated: No valid parts selected.")
+
+    # --- Utility & Helper Methods ---
+
+    def save_project(self):
+        """Save the current project state (parts, joints, cam info) to a JSON file."""
+        filepath, _ = QFileDialog.getSaveFileName(self, "Save Project", self.character_dir or "", "Automata Project Files (*.json)")
+        if not filepath:
+            return
+
+        logging.info(f"Saving project to {filepath}")
+        try:
+            project_data = {
+                "project_name": "Automata Project", # Can be customized
+                "parts": {},
+                "joints": [],
+                "selected_cam_center": None,
+                "selected_pivot_a": None,
+                "selected_pivot_d": None,
+                "selected_driver_center": None,
+                "selected_driven_center": None,
+                # Store other relevant state like animation duration if needed
+            }
+
+            # Save parts data
+            for name, item in self.editor_items.items():
+                part_data = {
+                    "name": name,
+                    "svg_path_file": os.path.relpath(item.part_info.svg_path_file, self.character_dir) if self.character_dir and item.part_info.svg_path_file and os.path.isabs(item.part_info.svg_path_file) else item.part_info.svg_path_file,
+                    "image_path": os.path.relpath(item.part_info.image_path, self.character_dir) if self.character_dir and item.part_info.image_path and os.path.isabs(item.part_info.image_path) else item.part_info.image_path,
+                    "position": {"x": item.pos().x(), "y": item.pos().y()},
+                    "z_value": item.zValue(),
+                    "is_fixed": item.is_fixed,
+                    "transform": transform_to_dict(item.transform()),
+                    "fill_color": item.part_info.fill_color.name() if item.part_info.fill_color else None
+                }
+                if item.motion_path and not item.motion_path.isEmpty():
+                    part_data["motion_path"] = qpainterpath_to_points(item.motion_path)
+                if item.end_effector_offset:
+                    part_data["end_effector"] = {"x": item.end_effector_offset.x(), "y": item.end_effector_offset.y()}
+                project_data["parts"][name] = part_data
+
+            # Save joints
+            for joint in self.joints:
+                joint_data = {
+                    "parent_name": joint.parent_item.name,
+                    "child_name": joint.child_item.name,
+                    "parent_pos_local": {"x": joint.parent_pos.x(), "y": joint.parent_pos.y()},
+                    "child_pos_local": {"x": joint.child_pos.x(), "y": joint.child_pos.y()},
+                    "name": joint.name
+                }
+                project_data["joints"].append(joint_data)
+
+            # Save selected points for mechanisms
+            if self.selected_cam_center: project_data["selected_cam_center"] = {"x": self.selected_cam_center.x(), "y": self.selected_cam_center.y()}
+            if self.selected_pivot_a: project_data["selected_pivot_a"] = {"x": self.selected_pivot_a.x(), "y": self.selected_pivot_a.y()}
+            if self.selected_pivot_d: project_data["selected_pivot_d"] = {"x": self.selected_pivot_d.x(), "y": self.selected_pivot_d.y()}
+            if self.selected_driver_center: project_data["selected_driver_center"] = {"x": self.selected_driver_center.x(), "y": self.selected_driver_center.y()}
+            if self.selected_driven_center: project_data["selected_driven_center"] = {"x": self.selected_driven_center.x(), "y": self.selected_driven_center.y()}
+
+            with open(filepath, 'w') as f:
+                json.dump(project_data, f, indent=2)
+
+            self.statusBar().showMessage(f"Project saved to {os.path.basename(filepath)}")
+            logging.info("Project saved successfully.")
+
+        except Exception as e:
+            logging.error(f"Failed to save project: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save project: {e}")
+            self.statusBar().showMessage("Failed to save project")
+
+    def show_about(self):
+        """Displays the About dialog."""
+        QMessageBox.about(self, "About Automata Designer",
+                        "Automata Designer v1.0\n\n"
+                        "Tool for designing 2.5D mechanical automata.\n"
+                        "Features image processing, skeleton editing, part assembly, \n"
+                        "kinematic simulation, cam generation, and blueprint export.")

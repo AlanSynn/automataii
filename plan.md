@@ -31,22 +31,56 @@ This document outlines the phased implementation plan for adding automated mecha
     - [x] Simulation controls (Play, Stop, Reset) driving IK based on motion paths.
     - [x] Saving/Loading motion paths with project data.
 
-### Phase 3: Simplified Cam Mechanism Generation & Visualization
+### Phase 3: Mechanism Generation & Visualization
 
-- [ ] **Goal:** Implement the initial, simplified cam mechanism generation based on a selected part's motion path, using the torso center as the fixed cam center. Visualize the generated cam.
-- [ ] **Deliverables:**
-    - [ ] `generate_cam_profile` function in `src/automataii/generation/cam.py` implementing path sampling, polar coordinate conversion, and `QPainterPath` generation for the cam shape.
-    - [ ] UI Integration:
-        - [ ] Replace individual cam buttons with a single "Generate Mechanism" button.
-        - [ ] Button enabled only when a part with a motion path is selected.
-        - [ ] Button action triggers automatic generation using the 'torso' part's center as the cam center.
-    - [ ] Mechanism Visualization:
-        - [ ] Display the generated cam profile(s) in the editor scene, positioned correctly relative to the torso center.
-        - [ ] Display the target motion path for the follower.
-        - [ ] Display placeholder visuals for potential linkage connections (e.g., the random 4-bar hints).
-    - [ ] Layer Management:
-        - [ ] Introduce mechanism layer controls (checkboxes) to toggle visibility of generated cams, path hints, etc.
-        - [ ] Implement `_add_mechanism_visual`, `_clear_mechanism_visuals`, `_toggle_layer_visibility`.
+- [x] **Goal:** Implement generation and visualization for various mechanism types (Cam, Linkages, Gears) based on a selected part's motion path.
+- [x] **Completed/In-Progress (Foundational Work):**
+    - [x] **UI Refactor:**
+        - [x] Renamed "Cam Mechanism" group box to "Mechanism Design".
+        - [x] Added `QComboBox` (`self.mechanism_type_combo`) for selecting "Cam", "3-Bar Linkage", "4-Bar Linkage", "Cam & Gears".
+        - [x] Renamed "Generate Cam Profile" button to "Generate Mechanism" (`self.generate_mechanism_btn`).
+        - [x] Button state (`_update_generate_mechanism_button_state`) updated for different mechanism types (initial support).
+    - [x] **Core Logic Dispatch:**
+        - [x] `_generate_mechanism_auto` in `main_window.py` modified to dispatch to different generation functions based on selected mechanism type.
+        - [x] Cam generation logic moved into this dispatcher.
+    - [x] **Placeholder Modules:**
+        - [x] `src/automataii/generation/linkage.py` created with `generate_3bar_linkage` and `generate_4bar_linkage` placeholder functions.
+        - [x] `src/automataii/generation/gear.py` created with `generate_gear_pair` placeholder function.
+    - [x] **Basic Visualization Framework:**
+        - [x] Placeholder visualization methods (`_visualize_linkage_data`, `_visualize_gear_data`) in `main_window.py`.
+        - [x] Display the generated cam profile(s) in the editor scene.
+        - [x] Display the target motion path for the follower.
+    - [x] **Layer Management:**
+        - [x] Mechanism layer controls (checkboxes) to toggle visibility of generated cams, path hints, etc.
+        - [x] Implemented `_add_mechanism_visual`, `_clear_mechanism_visuals`, `_toggle_layer_visibility`.
+- [ ] **Next Steps (Implementation Details):**
+    - [ ] **Cam Mechanism (`src/automataii/generation/cam.py`):**
+        - [ ] Refine `generate_cam_profile` (already largely functional).
+        - [ ] Ensure accurate cam center determination (currently torso-based, allow user specification later).
+    - [ ] **3-Bar Linkage (`src/automataii/generation/linkage.py`):**
+        - [ ] Implement `generate_3bar_linkage`.
+            - [ ] **Inputs:** Target motion path (`QPainterPath`), fixed pivot point(s) (e.g., from torso or user-defined), potential link length constraints.
+            - [ ] **Algorithm:** Research and implement a suitable synthesis method (e.g., path point matching, geometric construction for common types like crank-rocker driving a coupler).
+            - [ ] **Output:** Dictionary containing link lengths, pivot positions, and potentially motion data.
+        - [ ] Enhance `_visualize_linkage_data` to draw the 3-bar linkage accurately.
+    - [ ] **4-Bar Linkage (`src/automataii/generation/linkage.py`):**
+        - [ ] Implement `generate_4bar_linkage`.
+            - [ ] **Inputs:** Target motion path (`QPainterPath`), fixed pivot points (e.g., from torso or user-defined), potential link length constraints.
+            - [ ] **Algorithm:** Research and implement a suitable synthesis method (e.g., Freudenstein's equation, optimization-based approaches for path generation).
+            - [ ] **Output:** Dictionary containing link lengths, pivot positions, and potentially motion data.
+        - [ ] Enhance `_visualize_linkage_data` to draw the 4-bar linkage accurately.
+    - [ ] **Cam & Gears (`src/automataii/generation/gear.py`):**
+        - [ ] Implement `generate_gear_pair` for a simple driving gear and a cam-shaped gear or a gear driving a cam follower.
+            - [ ] **Inputs:** Target motion path (for the cam/follower element), driving gear center, gear ratio, desired module/number of teeth.
+            - [ ] **Algorithm:**
+                - Calculate gear pitch diameters.
+                - Generate basic gear tooth profiles (e.g., involute, or simplified for visualization).
+                - Combine with cam profile generation logic if one element is a cam.
+            - [ ] **Output:** Gear parameters (pitch diameters, teeth counts, profiles as `QPainterPath`), cam profile if applicable.
+        - [ ] Enhance `_visualize_gear_data` to draw gears and their interaction.
+    - [ ] **Mechanism Simulation:**
+        - [ ] Integrate generated mechanisms into the existing simulation loop (`update_simulation`).
+        - [ ] Allow driving the mechanism (e.g., rotating a crank link at a constant speed).
 
 ### Phase 4: Basic Blueprint Generation (SVG)
 
@@ -61,8 +95,8 @@ This document outlines the phased implementation plan for adding automated mecha
             - [ ] Optionally include simple bounding box dimensions.
         - [ ] Output: String containing the SVG content.
     - [ ] UI Integration:
-        - [ ] Connect the "Generate Blueprint (SVG)" button to trigger the generation and file save dialog.
-    - [ ] File Saving: Prompt user for SVG save location.
+        - [x] Connect the "Generate Blueprint (SVG)" button to trigger the generation and file save dialog.
+    - [x] File Saving: Prompt user for SVG save location.
 
 ### Phase 5: Linkage Mechanism Exploration
 
@@ -79,7 +113,7 @@ This document outlines the phased implementation plan for adding automated mecha
 
 - [ ] **Goal:** Enhance the blueprint generation to include more details useful for fabrication and assembly.
 - [ ] **Potential Tasks:**
-    - [ ] Include generated mechanism components (cam profiles, linkage dimensions) in the blueprint.
+    - [ ] Include generated mechanism components (cam profiles, linkage dimensions, gear profiles) in the blueprint.
     - [ ] Add assembly indicators (e.g., joint locations, part connections).
     - [ ] Explore different layout strategies for clarity.
     - [ ] Investigate PDF export options.
@@ -87,9 +121,20 @@ This document outlines the phased implementation plan for adding automated mecha
 
 ### Phase 7: Refinement & Testing
 
-- [ ] **Goal:** Improve usability, fix bugs, optimize performance, and gather user feedback across all implemented features.
+- [x] **Goal:** Improve usability, fix bugs, optimize performance, and gather user feedback across all implemented features.
+- [ ] **Completed/In-Progress:**
+    - [x] **Image Processing View Enhancements (`src/automataii/gui/image_view.py`):**
+        - [x] Corrected skeleton alignment with the loaded image and bounding box, parenting joints to the `image_item` for robust transformations.
+        - [x] Implemented a `debug_mode` to display image/bounding box/scene information.
+        - [x] Added debug bounding box visualization (`self.debug_bb_item`).
+        - [x] Integrated debug mode toggle into the "Options" tab.
+    - [x] **UI/UX Improvements:**
+        - [x] Set canvas background colors for `ImageProcessingView` and `EditorView` to gray for better contrast.
+    - [x] **Data Model Enhancements:**
+        - [x] Added original image dimensions to `bounding_box.yaml`.
+        - [x] Added bounding box origin to `char_cfg.yaml`.
 - [ ] **Potential Tasks:**
-    - [ ] UI/UX refinements based on user feedback.
+    - [ ] UI/UX refinements based on user feedback for mechanism generation.
     - [ ] Performance profiling and optimization (especially simulation and generation).
     - [ ] Robust error handling and reporting.
     - [ ] Code cleanup and documentation improvements.

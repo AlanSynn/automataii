@@ -1,7 +1,4 @@
 #!/usr/bin/env python
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
 
 import cv2
 import numpy as np
@@ -305,7 +302,7 @@ def create_part_mask(char_mask, joint_map, part_def, mask_shape):
 
     return part_mask
 
-def segment_body_parts(character_mask, joint_map, parts_def):
+def segment_body_parts(texture, character_mask, joint_map, parts_def):
     """전체 마스크를 신체 부위별로 분할합니다 (Watershed 사용)"""
     height, width = character_mask.shape
     mask_shape = (height, width)
@@ -348,12 +345,9 @@ def segment_body_parts(character_mask, joint_map, parts_def):
     logging.debug(f"Total markers created: {marker_id - 1}")
     #logging.debug(f"Marker unique values: {np.unique(markers)}")
 
-    # 3. Watershed를 위한 이미지 준비 (원본 텍스처 사용 가정)
-    #    텍스처 이미지 로드가 이 함수 밖에서 이루어진다고 가정
-    #    여기서는 그레이스케일 캐릭터 마스크를 3채널로 변환하여 사용
-    #    (더 나은 결과를 위해 텍스처 이미지를 사용하는 것이 좋음 - 추후 수정 가능)
+    # 3. Watershed를 위한 이미지 준비 (마스크 사용으로 복귀)
     img_for_watershed = cv2.cvtColor(character_mask, cv2.COLOR_GRAY2BGR)
-    logging.debug("Prepared 3-channel image for watershed from character mask.")
+    logging.debug("Prepared 3-channel image for watershed from character mask (reverted).")
 
     # 4. Watershed 실행
     logging.info("Running Watershed...")
@@ -373,6 +367,10 @@ def segment_body_parts(character_mask, joint_map, parts_def):
         # 원본 캐릭터 마스크와 교차하여 배경 픽셀 제거
         # (Watershed가 마스크 밖으로 확장될 수 있으므로 중요)
         part_mask = cv2.bitwise_and(part_mask, character_mask)
+
+        # 추가적인 후처리: 작은 노이즈 제거 (Opening)
+        # kernel_post = np.ones((3,3), np.uint8)
+        # part_mask = cv2.morphologyEx(part_mask, cv2.MORPH_OPEN, kernel_post, iterations=1)
 
         final_part_masks[part_name] = part_mask
         logging.debug(f"Generated final mask for {part_name} with {np.count_nonzero(part_mask)} pixels")
@@ -413,17 +411,23 @@ def extract_body_part(image, part_mask):
 
 def create_contour_from_mask(mask):
     """마스크에서 윤곽선을 추출합니다"""
-    # 미세한 노이즈 제거
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    # 미세한 노이즈 제거 및 내부 홀 채우기 시도
+    kernel = np.ones((5, 5), np.uint8) # 커널 크기 약간 증가
+    # 열림 연산으로 작은 돌출부 제거
+    # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    # 닫힘 연산으로 작은 구멍 메우기
+    closed_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3) # 반복 횟수 증가
 
-    # 윤곽선 찾기
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # 윤곽선 찾기 (닫힌 마스크에서)
+    contours, _ = cv2.findContours(closed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # 가장 큰 윤곽선 찾기
     if contours:
         max_contour = max(contours, key=cv2.contourArea)
-        return max_contour
+        # 윤곽선 근사화 추가 (CharacterPartItem과 유사하게)
+        epsilon = 0.005 * cv2.arcLength(max_contour, True)
+        approx_contour = cv2.approxPolyDP(max_contour, epsilon, True)
+        return approx_contour
 
     return None
 
@@ -574,8 +578,8 @@ def process_character(char_dir, output_dir):
     # 출력 디렉토리 생성
     os.makedirs(output_dir, exist_ok=True)
 
-    # 신체 부위 분할
-    part_masks = segment_body_parts(mask, joint_map, BODY_PARTS)
+    # 신체 부위 분할 (텍스처 이미지 전달)
+    part_masks = segment_body_parts(texture, mask, joint_map, BODY_PARTS)
 
     # 분할 결과 시각화
     visualize_segmentation(mask, part_masks, joint_map, os.path.join(output_dir, 'segmentation_vis.png'))

@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+from typing import List # Add this import
 from PyQt6.QtCore import QPointF, QLineF
 from PyQt6.QtGui import QTransform # Import QTransform from QtGui
 
@@ -103,3 +104,57 @@ def angle_between_vectors(v1: QPointF, v2: QPointF) -> float:
 def distance(p1: QPointF, p2: QPointF) -> float:
      """Calculates the Euclidean distance between two QPointF points."""
      return QLineF(p1, p2).length()
+
+def points_to_closed_bezier_path(points: List[QPointF], tension: float = 1/6) -> 'QPainterPath':
+    """Converts a list of QPointF objects to a closed, smooth QPainterPath using Bezier curves.
+
+    Args:
+        points: A list of QPointF objects defining the vertices of the polygon.
+        tension: A factor to control the "tightness" of the curve. Default is 1/6.
+
+    Returns:
+        A QPainterPath representing the smooth, closed Bezier curve.
+        Returns an empty path if fewer than 3 points are provided.
+    """
+    from PyQt6.QtGui import QPainterPath # Local import
+
+    num_points = len(points)
+    if num_points < 3:
+        # For 0 or 1 point, return empty path
+        # For 2 points, could return a line, but for a "closed Bezier curve" it's ambiguous
+        logging.warning("Cannot generate a closed Bezier path with fewer than 3 points.")
+        path = QPainterPath()
+        if num_points == 1:
+            path.moveTo(points[0])
+        elif num_points == 2:
+            path.moveTo(points[0])
+            path.lineTo(points[1])
+            # path.closeSubpath() # Technically makes it a degenerate closed shape
+        return path
+
+    path = QPainterPath()
+    path.moveTo(points[0])
+
+    for i in range(num_points):
+        p0 = points[i]
+        p1 = points[(i + 1) % num_points]
+        p2 = points[(i + 2) % num_points]
+        p_minus_1 = points[(i - 1 + num_points) % num_points]
+
+        # Calculate control points for the segment from p0 to p1
+        # This is based on Catmull-Rom to Bezier conversion
+        cp1 = p0 + (p1 - p_minus_1) * tension
+        cp2 = p1 - (p2 - p0) * tension
+
+        path.cubicTo(cp1, cp2, p1)
+
+    # The loop should naturally close the path by ending at points[0] (which was p1 when i = num_points-1)
+    # QPainterPath.closeSubpath() can be used to explicitly close the current subpath if needed,
+    # but for a well-formed loop of cubicTo, it should already connect.
+    # Let's ensure it's explicitly closed if the path isn't already at the start point.
+    if path.currentPosition() != points[0]:
+         # This shouldn't happen with the loop structure, but as a safeguard
+         # path.lineTo(points[0]) # Force close if not already there
+         pass # The cubicTo should handle the closure to p[0] in the last iteration.
+
+    return path

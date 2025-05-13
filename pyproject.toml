@@ -1,41 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "automataii"
 version = "0.1.0"
-description = "Automata II Project"
-authors = [{ name = "Your Name", email = "you@example.com" }]
+description = "A project for animating figure drawings and generating mechanisms."
+readme = "README.md"
 requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License", # Choose appropriate license
+    "Operating System :: OS Independent",
+]
 dependencies = [
-    # Add your project dependencies here
-    # e.g., "fastapi", "numpy"
-    "PyQt6",
+    "PyQt5",
     "numpy",
-    "opencv-python",
-    "PyYAML",
-    "svgpathtools", # Added dependency
-    "scikit-image>=0.24.0",
+    "scipy",
+    "svgpathtools", # For blueprint generation
+    "pydantic>=1.0,<2.0", # Constraint from instructions
+    "torch",
+    "torchvision",
+    "segment-anything", # For CharSegNet
+    "opencv-python-headless", # Often needed with torch/vision
+    "shapely", # Potential use in geometry/path operations
+    # Add other core dependencies here
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "ruff",
+    "pytest-cov",
+    "ruff", # Linter/formatter
+    "mypy", # Static type checker
     # Add other development dependencies
 ]
 
-[project.scripts]
-# Corrected entry point: Use the package name directly
-automataii = "automataii.__main__:main"
+[project.urls]
+"Homepage" = "https://github.com/yourusername/automataii" # Replace with actual URL
+"Bug Tracker" = "https://github.com/yourusername/automataii/issues" # Replace
 
-[tool.ruff]
-line-length = 88
-
-[tool.ruff.lint]
-select = ["E", "F", "W", "I"]  # Enable basic flake8 rules + isort
-
-# Add this section to tell setuptools where the package lives
 [tool.setuptools.packages.find]
-where = ["src"]  # Look for packages in the src directory
+where = ["src"]
 
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+# Add ruff configuration if you use it
+#[tool.ruff]
+# line-length = 88
+# select = ["E", "W", "F", "I", "UP"]
+# ignore = []
+
+# Add mypy configuration if you use it
+#[tool.mypy]
+# python_version = "3.9"
+# warn_return_any = true
+# warn_unused_configs = true

@@ -195,7 +195,7 @@ LIGHT_STYLE = """
          border-color: #a7c7e7;
          /* image: url(icons/checkmark-white.svg); Needs white checkmark SVG */
      }
-     QCheckBox::indicator:disabled {
+    QCheckBox::indicator:disabled {
         border-color: #dbe4f0;
         background-color: #eef2f7;
     }
@@ -238,7 +238,7 @@ LIGHT_STYLE = """
     }
      QMenuBar::item {
          padding: 7px 14px;
-     }
+    }
      QMenuBar::item:selected {
          background: #dbe4f0;
      }
@@ -288,7 +288,7 @@ LIGHT_STYLE = """
 # Modern dark stylesheet (Previously MODERN_STYLE)
 DARK_STYLE = """
     /* Base Styling */
-    QMainWindow {
+QMainWindow {
         background-color: #2f343f; /* Softer dark background */
     }
     QWidget {
@@ -306,10 +306,10 @@ DARK_STYLE = """
         spacing: 12px;
     }
     QToolBar QToolButton {
-        font-size: 11pt;
+    font-size: 11pt;
         color: #aab5c3;
-        background-color: transparent;
-        border: none;
+    background-color: transparent;
+    border: none;
         padding: 8px 12px;
         border-radius: 5px;
     }
@@ -373,13 +373,13 @@ DARK_STYLE = """
         padding: 0 10px;
         margin-left: 15px;
         font-size: 12pt;
-        font-weight: bold;
+    font-weight: bold;
         color: #d2dbe6; /* Lighter title */
         background-color: #3a404b; /* Match groupbox background */
-    }
+}
 
     /* Buttons */
-    QPushButton {
+QPushButton {
         background-color: #6c7a89; /* Muted gray-blue */
         border: 1px solid #6c7a89;
         padding: 12px 20px;
@@ -389,19 +389,19 @@ DARK_STYLE = """
         font-size: 12pt; /* Adjusted */
         min-height: 28px; /* Adjust min height */
     }
-    QPushButton:hover {
+QPushButton:hover {
         background-color: #5a6a7a;
         border-color: #5a6a7a;
-    }
-    QPushButton:pressed {
+}
+QPushButton:pressed {
         background-color: #4a5a6a;
         border-color: #4a5a6a;
-    }
-    QPushButton:checked {
+}
+QPushButton:checked {
         background-color: #4a5a6a;
         border-color: #4a5a6a;
-    }
-    QPushButton:disabled {
+}
+QPushButton:disabled {
          background-color: #4a515c;
          color: #8a95a3;
          border-color: #4a515c;
@@ -460,11 +460,11 @@ DARK_STYLE = """
      }
 
     /* Checkbox */
-    QCheckBox {
+QCheckBox {
          spacing: 12px;
          color: #c3cdd9;
-     }
-    QCheckBox::indicator {
+}
+QCheckBox::indicator {
         width: 20px;
         height: 20px;
         border: 2px solid #6c7a89;
@@ -474,16 +474,16 @@ DARK_STYLE = """
      QCheckBox::indicator:hover {
          border-color: #7a9cd1;
      }
-    QCheckBox::indicator:checked {
+QCheckBox::indicator:checked {
          background-color: #5c85d6; /* Muted blue check */
          border-color: #5c85d6;
          /* image: url(icons/checkmark-white.svg); Needs white checkmark SVG */
      }
-     QCheckBox::indicator:disabled {
+QCheckBox::indicator:disabled {
         border-color: #4a515c;
         background-color: #4a515c;
-    }
-    QCheckBox:disabled {
+}
+QCheckBox:disabled {
          color: #8a95a3;
     }
 
@@ -516,55 +516,55 @@ DARK_STYLE = """
         background-color: #3a404b;
         border-top: 1px solid #4a515c;
     }
-    QMenuBar {
+QMenuBar {
          background-color: #3a404b;
          color: #aab5c3;
          border-bottom: 1px solid #4a515c;
     }
-     QMenuBar::item {
+QMenuBar::item {
          padding: 7px 14px;
-     }
-     QMenuBar::item:selected {
+}
+QMenuBar::item:selected {
          background: #4a515c;
-     }
-     QMenu {
+}
+QMenu {
          background-color: #3a404b;
          border: 1px solid #6c7a89;
          color: #c3cdd9;
          padding: 7px;
      }
-     QMenu::item {
+QMenu::item {
          padding: 9px 28px;
          border-radius: 5px;
-     }
-     QMenu::item:selected {
+}
+QMenu::item:selected {
          background-color: #5c85d6; /* Muted blue selection */
          color: #ffffff;
-     }
-     QMenu::separator {
-        height: 1px;
+}
+QMenu::separator {
+    height: 1px;
         background-color: #4a515c;
         margin: 7px 0px;
     }
-     QScrollBar:vertical {
-        border: none;
+QScrollBar:vertical {
+    border: none;
         background-color: #2f343f;
         width: 14px;
-        margin: 0px;
-    }
-    QScrollBar::handle:vertical {
+    margin: 0px;
+}
+QScrollBar::handle:vertical {
         background-color: #4a515c;
         border-radius: 7px;
         min-height: 35px;
     }
-    QScrollBar::handle:vertical:hover {
+QScrollBar::handle:vertical:hover {
         background-color: #5a616c;
-    }
-    QScrollBar::add-line:vertical,
-    QScrollBar::sub-line:vertical {
-        height: 0px;
-    }
-    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-        background: none;
-    }
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
 """
