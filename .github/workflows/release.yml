@@ -1,0 +1,187 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+          
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: |
+          uv sync
+          
+      - name: Build macOS app
+        run: |
+          source .venv/bin/activate
+          python scripts/build_macos.py
+          
+      - name: Create DMG
+        run: |
+          # Create a temporary DMG
+          hdiutil create -volname "Automataii" -srcfolder dist/ -ov -format UDZO dist/Automataii.dmg
+          
+      - name: Generate EdDSA key for Sparkle (if not exists)
+        run: |
+          if [ ! -f sparkle_private_key ]; then
+            # Download generate_keys tool from Sparkle
+            curl -L -o sparkle.tar.xz "https://github.com/sparkle-project/Sparkle/releases/download/2.5.2/Sparkle-2.5.2.tar.xz"
+            tar -xf sparkle.tar.xz
+            ./bin/generate_keys
+            echo "SPARKLE_PRIVATE_KEY=$(cat sparkle_private_key)" >> $GITHUB_ENV
+            echo "SPARKLE_PUBLIC_KEY=$(cat sparkle_public_key)" >> $GITHUB_ENV
+          fi
+          
+      - name: Generate Appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create appcast directory
+          mkdir -p appcast
+          
+          # Generate appcast from GitHub releases using API
+          pip install requests
+          python scripts/generate_appcast.py alansynn/automataii appcast/appcast.xml
+          
+          # Sparkle 서명 추가 (선택적)
+          if [ -n "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "$SPARKLE_PRIVATE_KEY" > sparkle_private_key
+            if [ -f ./bin/generate_appcast ]; then
+              ./bin/generate_appcast appcast/
+            fi
+          fi
+          
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-dmg
+          path: releases/Automataii-*.dmg
+          
+      - name: Upload Appcast artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: appcast
+          path: releases/appcast.xml
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+          
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fuse libfuse2
+          
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: |
+          uv sync
+          
+      - name: Build Linux AppImage
+        run: |
+          source .venv/bin/activate
+          python scripts/build_linux.py
+          
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-appimage
+          path: dist/*.AppImage
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+          
+      - name: Install uv
+        run: |
+          powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          
+      - name: Install dependencies
+        run: |
+          uv sync
+          
+      - name: Build Windows executable
+        run: |
+          .venv\Scripts\activate
+          python scripts/build_windows.py
+          
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-exe
+          path: dist/*.exe
+
+  create-release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            macos-dmg/*
+            linux-appimage/*
+            windows-exe/*
+            appcast/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+        
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: appcast
+          
+      - name: Deploy to Pages
+        uses: actions/deploy-pages@v2
+        id: deployment
