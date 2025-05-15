@@ -1,0 +1,359 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+      create_release:
+        description: 'Create GitHub release'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install system dependencies
+      run: |
+        brew install create-dmg
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt || pip install -e .
+        pip install pyinstaller pyobjc-core pyobjc-framework-Cocoa requests
+    
+    - name: Create application icon
+      run: |
+        # Create a simple icon for the build (replace with actual icon)
+        mkdir -p build/icons
+        # You should replace this with your actual icon creation process
+        python -c "
+        from PIL import Image, ImageDraw
+        img = Image.new('RGBA', (512, 512), (70, 130, 180, 255))
+        draw = ImageDraw.Draw(img)
+        # Add your icon design here
+        img.save('build/icons/icon.png')
+        "
+    
+    - name: Build macOS application
+      run: |
+        cd build
+        python build_macos.py --no-dmg
+      env:
+        PYTHONPATH: ${{ github.workspace }}/src
+    
+    - name: Create DMG
+      run: |
+        create-dmg \
+          --volname "Automataii" \
+          --volicon "build/icons/icon.png" \
+          --window-pos 200 120 \
+          --window-size 600 300 \
+          --app-drop-link 480 150 \
+          "dist/Automataii-${{ github.ref_name }}-macos.dmg" \
+          "dist/Automataii.app"
+    
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-build
+        path: |
+          dist/Automataii-*.dmg
+          dist/Automataii.app
+    
+    - name: Generate macOS update info
+      run: |
+        # Generate Sparkle appcast information
+        DMG_FILE=$(ls dist/Automataii-*.dmg)
+        DMG_SIZE=$(stat -f%z "$DMG_FILE")
+        DMG_SHA256=$(shasum -a 256 "$DMG_FILE" | cut -d' ' -f1)
+        
+        cat > dist/macos-update-info.json << EOF
+        {
+          "version": "${{ github.ref_name }}",
+          "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(basename $DMG_FILE)",
+          "size": $DMG_SIZE,
+          "sha256": "$DMG_SHA256",
+          "minimumSystemVersion": "10.15.0"
+        }
+        EOF
+    
+    - name: Upload update info
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-update-info
+        path: dist/macos-update-info.json
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgl1-mesa-glx \
+          libglib2.0-0 \
+          libxkbcommon-x11-0 \
+          libxcb-icccm4 \
+          libxcb-image0 \
+          libxcb-keysyms1 \
+          libxcb-randr0 \
+          libxcb-render-util0 \
+          libxcb-xinerama0 \
+          libxcb-xfixes0 \
+          zsync \
+          wget \
+          file
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt || pip install -e .
+        pip install pyinstaller requests pillow
+    
+    - name: Build Linux AppImage
+      run: |
+        cd build
+        python build_linux.py --update-url "https://github.com/${{ github.repository }}/releases/latest/download"
+      env:
+        PYTHONPATH: ${{ github.workspace }}/src
+    
+    - name: Rename AppImage with version
+      run: |
+        mv dist/Automataii-x86_64.AppImage "dist/Automataii-${{ github.ref_name }}-linux-x86_64.AppImage"
+        if [ -f dist/Automataii-x86_64.AppImage.zsync ]; then
+          mv dist/Automataii-x86_64.AppImage.zsync "dist/Automataii-${{ github.ref_name }}-linux-x86_64.AppImage.zsync"
+        fi
+    
+    - name: Upload Linux artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-build
+        path: |
+          dist/Automataii-*-linux-x86_64.AppImage
+          dist/Automataii-*-linux-x86_64.AppImage.zsync
+    
+    - name: Generate Linux update info
+      run: |
+        APPIMAGE_FILE=$(ls dist/Automataii-*-linux-x86_64.AppImage)
+        APPIMAGE_SIZE=$(stat -c%s "$APPIMAGE_FILE")
+        APPIMAGE_SHA256=$(sha256sum "$APPIMAGE_FILE" | cut -d' ' -f1)
+        
+        cat > dist/linux-update-info.json << EOF
+        {
+          "version": "${{ github.ref_name }}",
+          "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(basename $APPIMAGE_FILE)",
+          "size": $APPIMAGE_SIZE,
+          "sha256": "$APPIMAGE_SHA256"
+        }
+        EOF
+    
+    - name: Upload update info
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-update-info
+        path: dist/linux-update-info.json
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller pywin32 requests
+        pip install -r requirements.txt || pip install -e .
+    
+    - name: Install NSIS
+      run: |
+        Invoke-WebRequest -Uri "https://sourceforge.net/projects/nsis/files/NSIS%203/3.09/nsis-3.09-setup.exe/download" -OutFile "nsis-setup.exe"
+        Start-Process -FilePath "nsis-setup.exe" -ArgumentList "/S" -Wait
+        echo "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+    
+    - name: Build Windows executable
+      run: |
+        cd build
+        python build_windows.py
+      env:
+        PYTHONPATH: ${{ github.workspace }}\src
+    
+    - name: Rename Windows artifacts
+      run: |
+        if (Test-Path "dist\Automataii.exe") {
+          Rename-Item "dist\Automataii.exe" "Automataii-${{ github.ref_name }}-windows-x64.exe"
+        }
+        if (Test-Path "dist\Automataii-Setup-0.1.0.exe") {
+          Rename-Item "dist\Automataii-Setup-0.1.0.exe" "Automataii-Setup-${{ github.ref_name }}-windows-x64.exe"
+        }
+    
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-build
+        path: |
+          dist/Automataii-*-windows-x64.exe
+          dist/Automataii-Setup-*-windows-x64.exe
+    
+    - name: Generate Windows update info
+      run: |
+        $EXE_FILE = Get-ChildItem -Path "dist" -Filter "Automataii-Setup-*-windows-x64.exe" | Select-Object -First 1
+        if ($EXE_FILE) {
+          $EXE_SIZE = $EXE_FILE.Length
+          $EXE_HASH = (Get-FileHash -Path $EXE_FILE.FullName -Algorithm SHA256).Hash.ToLower()
+          
+          $updateInfo = @{
+            version = "${{ github.ref_name }}"
+            url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($EXE_FILE.Name)"
+            size = $EXE_SIZE
+            sha256 = $EXE_HASH
+          } | ConvertTo-Json
+          
+          $updateInfo | Out-File -FilePath "dist\windows-update-info.json" -Encoding UTF8
+        }
+    
+    - name: Upload update info
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-update-info
+        path: dist/windows-update-info.json
+
+  create-release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.create_release == 'true' || startsWith(github.ref, 'refs/tags/') }}
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Generate Sparkle appcast
+      run: |
+        # Download update info files
+        MACOS_INFO=$(cat macos-update-info/macos-update-info.json)
+        LINUX_INFO=$(cat linux-update-info/linux-update-info.json)
+        WINDOWS_INFO=$(cat windows-update-info/windows-update-info.json)
+        
+        # Generate Sparkle appcast XML
+        cat > appcast.xml << EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <title>Automataii Updates</title>
+            <link>https://github.com/${{ github.repository }}</link>
+            <description>Automataii application updates</description>
+            <language>en</language>
+            <item>
+              <title>Version ${{ github.ref_name }}</title>
+              <description><![CDATA[
+                <h2>Automataii ${{ github.ref_name }}</h2>
+                <p>Latest version of Automataii with improvements and bug fixes.</p>
+              ]]></description>
+              <pubDate>$(date -R)</pubDate>
+              <sparkle:version>${{ github.ref_name }}</sparkle:version>
+              <sparkle:shortVersionString>${{ github.ref_name }}</sparkle:shortVersionString>
+              <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
+              <enclosure 
+                url="$(echo $MACOS_INFO | jq -r '.url')" 
+                length="$(echo $MACOS_INFO | jq -r '.size')" 
+                type="application/octet-stream" 
+                sparkle:version="${{ github.ref_name }}" 
+                sparkle:shortVersionString="${{ github.ref_name }}" 
+                sparkle:dsaSignature="$(echo $MACOS_INFO | jq -r '.sha256')" />
+            </item>
+          </channel>
+        </rss>
+        EOF
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+        files: |
+          macos-build/*
+          linux-build/*
+          windows-build/*
+          appcast.xml
+        body: |
+          ## Automataii ${{ github.ref_name }}
+          
+          ### Downloads
+          
+          **macOS:**
+          - [Automataii-${{ github.ref_name }}-macos.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-${{ github.ref_name }}-macos.dmg)
+          
+          **Linux:**
+          - [Automataii-${{ github.ref_name }}-linux-x86_64.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-${{ github.ref_name }}-linux-x86_64.AppImage)
+          
+          **Windows:**
+          - [Automataii-Setup-${{ github.ref_name }}-windows-x64.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-Setup-${{ github.ref_name }}-windows-x64.exe)
+          
+          ### Installation
+          
+          **macOS:** Download the DMG file, open it, and drag Automataii to your Applications folder.
+          
+          **Linux:** Download the AppImage file, make it executable (`chmod +x Automataii-*.AppImage`), and run it.
+          
+          **Windows:** Download the installer and run it as administrator.
+          
+          ### Auto-Updates
+          
+          This version includes automatic update checking. The application will notify you when new versions are available.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-appcast:
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.create_release == 'true' || startsWith(github.ref, 'refs/tags/') }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: main
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Download appcast
+      run: |
+        wget -O appcast.xml "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/appcast.xml"
+    
+    - name: Commit and push appcast
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add appcast.xml
+        git commit -m "Update appcast for ${{ github.ref_name }}" || exit 0
+        git push
