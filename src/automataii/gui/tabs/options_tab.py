@@ -10,6 +10,8 @@ class OptionsTab(QWidget):
     toolbarVisibilityChanged = pyqtSignal(bool)
     partPropertiesVisibilityChanged = pyqtSignal(bool) # New signal
     debugModeChanged = pyqtSignal(bool) # Signal for debug mode
+    setting_changed = pyqtSignal(str, object) # Generic signal for any setting change
+    advancedProcessingVisibilityChanged = pyqtSignal(bool) # For detailed processing steps visibility
 
     def __init__(self, initial_anim_duration: float = 2.0, parent=None):
         super().__init__(parent)
@@ -29,12 +31,14 @@ class OptionsTab(QWidget):
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Light", "Dark"])
         self.theme_combo.currentTextChanged.connect(self.themeChanged.emit)
+        self.theme_combo.currentTextChanged.connect(lambda val: self.setting_changed.emit("theme", val))
         self.theme_combo.setToolTip("Select the application color theme.")
         appearance_layout.addRow("Theme:", self.theme_combo)
 
         self.toolbar_toggle_check = QCheckBox("Show Toolbar")
         self.toolbar_toggle_check.setChecked(False) # Toolbar hidden by default
         self.toolbar_toggle_check.toggled.connect(self.toolbarVisibilityChanged.emit)
+        self.toolbar_toggle_check.toggled.connect(lambda val: self.setting_changed.emit("toolbar_visibility", val))
         self.toolbar_toggle_check.setToolTip("Show or hide the main application toolbar.")
         appearance_layout.addRow(self.toolbar_toggle_check)
 
@@ -42,6 +46,7 @@ class OptionsTab(QWidget):
         self.part_props_toggle_check = QCheckBox("Show Part Properties Panel")
         self.part_props_toggle_check.setChecked(False) # Hidden by default
         self.part_props_toggle_check.toggled.connect(self.partPropertiesVisibilityChanged.emit)
+        self.part_props_toggle_check.toggled.connect(lambda val: self.setting_changed.emit("part_properties_visibility", val))
         self.part_props_toggle_check.setToolTip("Show or hide the 'Selected Part Properties' panel in the Editor tab.")
         appearance_layout.addRow(self.part_props_toggle_check)
 
@@ -57,6 +62,7 @@ class OptionsTab(QWidget):
         self.anim_duration_spin.setSingleStep(0.1)
         self.anim_duration_spin.setValue(self._initial_anim_duration) # Use initial value
         self.anim_duration_spin.valueChanged.connect(self.animationDurationChanged.emit)
+        self.anim_duration_spin.valueChanged.connect(lambda val: self.setting_changed.emit("animation_duration", val))
         self.anim_duration_spin.setToolTip("Set the duration for one loop of the simulation animation (in seconds).")
         simulation_layout.addRow("Animation Duration (s):", self.anim_duration_spin)
 
@@ -70,11 +76,25 @@ class OptionsTab(QWidget):
         self.debug_mode_check = QCheckBox("Enable Debug Visuals")
         self.debug_mode_check.setChecked(False) # Debug mode off by default
         self.debug_mode_check.toggled.connect(self.debugModeChanged.emit)
+        self.debug_mode_check.toggled.connect(lambda val: self.setting_changed.emit("debug_mode", val))
         self.debug_mode_check.setToolTip("Enable/disable debug visualizations in the image processing view.")
         debug_layout.addRow(self.debug_mode_check)
 
         layout.addWidget(debug_group)
 
+        # --- Workflow Settings ---
+        workflow_group = QGroupBox("Workflow Customization")
+        workflow_layout = QFormLayout(workflow_group)
+        workflow_layout.setSpacing(10)
+
+        self.adv_proc_toggle_check = QCheckBox("Show Detailed Processing Steps")
+        self.adv_proc_toggle_check.setChecked(False) # Hidden by default
+        self.adv_proc_toggle_check.toggled.connect(self.advancedProcessingVisibilityChanged.emit)
+        self.adv_proc_toggle_check.toggled.connect(lambda val: self.setting_changed.emit("detailed_processing_visibility", val))
+        self.adv_proc_toggle_check.setToolTip("Show or hide the detailed step-by-step processing controls in the Character Selection tab.")
+        workflow_layout.addRow(self.adv_proc_toggle_check)
+
+        layout.addWidget(workflow_group)
 
         layout.addStretch() # Push all groups to the top
 
@@ -97,3 +117,7 @@ class OptionsTab(QWidget):
     def set_debug_mode(self, enabled: bool):
         """Sets the 'Enable Debug Visuals' checkbox state."""
         self.debug_mode_check.setChecked(enabled)
+
+    def set_animation_duration_input(self, duration_seconds: float):
+        """Sets the value of the animation duration spin box."""
+        self.anim_duration_spin.setValue(duration_seconds)

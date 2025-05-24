@@ -8,7 +8,7 @@ from PyQt6.QtGui import (
     QPainter, QPen, QColor, QBrush, QPainterPath, QMouseEvent, QWheelEvent, QTransform
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QObject, QLineF, QEvent, QTimer
-from typing import Optional
+from typing import Optional, Dict
 
 from .part_item import CharacterPartItem # Assuming part_item.py is in the same directory
 
@@ -107,6 +107,18 @@ class EditorView(QGraphicsView):
         self._skeleton_viz_timer.setSingleShot(True)
         self._skeleton_viz_timer.setInterval(3000) # Display for 3 seconds
         self._skeleton_viz_timer.timeout.connect(self._clear_skeleton_visualization)
+
+        self.selection_markers: Dict[str, QGraphicsEllipseItem] = {} # For mechanism point markers
+
+    def clear_ik_debug_visuals(self):
+        """Placeholder for clearing IK specific debug visuals from the scene."""
+        # Implement logic to find and remove IK debug items if they are added directly to the scene
+        # For example, if they are stored in a list self._ik_debug_items:
+        # for item in self._ik_debug_items:
+        #     if item.scene() == self.scene(): # Check if item is in this scene
+        #         self.scene().removeItem(item)
+        # self._ik_debug_items.clear()
+        logging.debug("EditorView: clear_ik_debug_visuals called (placeholder).")
 
     # --- Mode Management ---
 
@@ -679,6 +691,38 @@ class EditorView(QGraphicsView):
         for item in self._skeleton_viz_items:
             self.scene().removeItem(item)
         self._skeleton_viz_items.clear()
+
+    def draw_selection_marker(self, point: QPointF, marker_type: str):
+        """Draws or updates a visual marker for a selected mechanism point."""
+        if marker_type in self.selection_markers:
+            self.scene().removeItem(self.selection_markers[marker_type])
+            del self.selection_markers[marker_type]
+
+        # Define marker properties (adjust as needed)
+        marker_color = QColor(Qt.GlobalColor.magenta) # Default or use UIColors if accessible
+        # if hasattr(self.parent_window, 'UIColors') and hasattr(self.parent_window.UIColors, 'DEBUG_HELPER_COLOR'):
+        #     marker_color = self.parent_window.UIColors.DEBUG_HELPER_COLOR
+
+        pen = QPen(marker_color)
+        brush = QBrush(marker_color)
+        marker_size = 8
+
+        marker = QGraphicsEllipseItem(point.x() - marker_size / 2, point.y() - marker_size / 2, marker_size, marker_size)
+        marker.setPen(pen)
+        marker.setBrush(brush)
+        marker.setZValue(1000) # Ensure it's on top
+
+        self.scene().addItem(marker)
+        self.selection_markers[marker_type] = marker
+        logging.debug(f"EditorView: Drew selection marker '{marker_type}' at {point}")
+
+    def clear_all_selection_markers(self):
+        """Removes all visual markers for mechanism points from the scene."""
+        for marker_type in list(self.selection_markers.keys()): # Iterate over keys copy
+            if self.selection_markers[marker_type] in self.scene().items():
+                 self.scene().removeItem(self.selection_markers[marker_type])
+            del self.selection_markers[marker_type]
+        logging.debug("EditorView: Cleared all selection markers.")
 
     # --- Utility --- #
 

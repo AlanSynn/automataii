@@ -1,3 +1,58 @@
+from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
+
+class UIColors:
+    COMPONENT_FRONT = QColor("#87CEEB")  # SkyBlue
+    COMPONENT_BACK = QColor("#4682B4")  # SteelBlue
+    COMPONENT_BORDER = QColor(Qt.GlobalColor.black)
+
+    PIN_FRONT = QColor("#FFD700")  # Gold
+    PIN_BACK = QColor("#DAA520")  # Goldenrod
+    PIN_BORDER = QColor(Qt.GlobalColor.black)
+
+    CAM_FRONT = QColor("#ADD8E6")  # LightBlue
+    CAM_BACK = QColor("#5F9EA0")  # CadetBlue
+    CAM_BORDER = QColor(Qt.GlobalColor.black)
+    SHAFT_FRONT = QColor("#D3D3D3")  # LightGray
+    SHAFT_BACK = QColor("#A9A9A9")  # DarkGray
+    SHAFT_BORDER = QColor(Qt.GlobalColor.black)
+
+    GEAR_BODY_FRONT = QColor("#C0C0C0")  # Silver
+    GEAR_BODY_BACK = QColor("#708090")  # SlateGray
+    GEAR_BODY_BORDER = QColor(Qt.GlobalColor.black)
+    GEAR_TOOTH_FRONT = QColor("#DCDCDC")  # Gainsboro
+    GEAR_TOOTH_BACK = QColor("#A9A9A9")  # DarkGray
+    GEAR_TOOTH_BORDER = QColor(
+        Qt.GlobalColor.darkGray
+    )  # Slightly lighter border for teeth
+
+    TEXT_PRIMARY = QColor("#E0E0E0")
+    MOTION_PATH_COLOR = QColor(0, 255, 0, 150)
+    DEBUG_HELPER_COLOR = QColor(255, 0, 255, 180)  # Magenta for helpers
+
+def apply_dark_theme(app: QApplication) -> None:
+    """Applies a dark theme palette to the QApplication instance."""
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
+    palette.setColor(QPalette.ColorRole.Base, QColor(35, 35, 35))  # Darker base
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.black)
+    palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white)
+    palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
+    palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
+    palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
+    palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
+    palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+    palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white) # White text on highlight
+    # Set disabled colors
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
+    app.setPalette(palette)
+
 # Stylesheets for the Automata Designer application
 
 LIGHT_STYLE = """
@@ -6,7 +61,7 @@ LIGHT_STYLE = """
         background-color: #fdfdfe; /* Near white */
     }
     QWidget {
-        font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif; /* Use loaded Segoe UI first */
+        font-family: "Helvetica Neue", Arial, sans-serif; /* Use loaded Segoe UI first */
         font-size: 13pt; /* Increased base font size AGAIN */
         color: #495057; /* Softer dark gray text */
         background-color: transparent;
@@ -291,7 +346,7 @@ QMainWindow {
         background-color: #2f343f; /* Softer dark background */
     }
     QWidget {
-        font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif; /* Use loaded Segoe UI first */
+        font-family: "Helvetica Neue", Arial, sans-serif; /* Use loaded Segoe UI first */
         font-size: 13pt; /* Increased base font size AGAIN */
         color: #c3cdd9; /* Lighter, less harsh text */
         background-color: #2f343f; /* Explicit dark background for base widgets */

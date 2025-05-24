@@ -1,53 +1,60 @@
 import sys
-import os
 import logging
+import argparse
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QPalette, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QStandardPaths, Qt
+import os
+# QPalette, QColor, Qt removed from here if no longer directly used
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-
-# Import GUI and utilities
+# Automataii specific imports
 from automataii.gui.main_window import AutomataDesigner
-from automataii.utils.helpers import setup_high_dpi_environment
+from automataii.utils.config import AppConfig
+from automataii.gui.styling import LIGHT_STYLE
 
 # Import qtreload
 from qtreload import install_hot_reload
 
 def main():
-    """Main application entry point."""
-    # Set up environment (e.g., High DPI)
-    setup_high_dpi_environment()
+    """Main function to initialize and run the Automataii application."""
+    # MODIFIED: Add argument parsing
+    parser = argparse.ArgumentParser(description="Automataii Application")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging and features."
+    )
+    args = parser.parse_args()
+
+    # MODIFIED: Configure logging based on --debug flag
+    log_format = '%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s'
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG, format=log_format)
+        logging.debug("Debug mode enabled.")
+    else:
+        logging.basicConfig(level=logging.INFO, format=log_format)
+
+    # Attempt to set High DPI scaling attributes (optional, but good for modern displays)
+    try:
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+        logging.info("High DPI environment variables set (QT_AUTO_SCREEN_SCALE_FACTOR=1).")
+    except AttributeError:
+        logging.warning("Could not set High DPI attributes (Qt version might be too old or attributes moved).")
 
     # Create application instance
     app = QApplication(sys.argv)
 
-    # --- Apply Dark Theme Palette (Optional but recommended) ---
-    # You can customize this palette further
-    palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(53, 53, 53))
-    palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white)
-    palette.setColor(QPalette.ColorRole.Base, QColor(35, 35, 35)) # Darker base
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(53, 53, 53))
-    palette.setColor(QPalette.ColorRole.ToolTipBase, Qt.GlobalColor.black)
-    palette.setColor(QPalette.ColorRole.ToolTipText, Qt.GlobalColor.white)
-    palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white)
-    palette.setColor(QPalette.ColorRole.Button, QColor(53, 53, 53))
-    palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white)
-    palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
-    palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
-    palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white) # White text on highlight
-    # Set disabled colors
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
-    app.setPalette(palette)
+    # Apply Dark Theme Palette
+    # apply_dark_theme(app)
+    app.setStyleSheet(LIGHT_STYLE)
+
+    # Initialize configuration (if any)
+    # AppConfig.initialize() # Assuming AppConfig is part of your structure
 
     # Create and show the main window
     logging.info("Creating main window...")
-    main_window = AutomataDesigner()
+    main_window = AutomataDesigner(debug_mode=args.debug)
 
     # --- Install Hot Reload ---
     # Define modules to watch (adjust as needed - e.g., your main package)

@@ -4,6 +4,8 @@ import logging
 from typing import List # Add this import
 from PyQt6.QtCore import QPointF, QLineF
 from PyQt6.QtGui import QTransform # Import QTransform from QtGui
+import json # Added import
+import numpy as np # Added import
 
 # --- Environment Setup ---
 
@@ -12,14 +14,14 @@ def setup_high_dpi_environment():
 
     This should be called early in the application startup, before QApplication is instantiated.
     """
+    # Force specific DPI (less common, usually use auto scale)
+    # os.environ["QT_FONT_DPI"] = "96"
     # Enable automatic scaling based on monitor DPI
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     # Explicitly disable manual scaling factor if auto is enabled
     # os.environ["QT_SCALE_FACTOR"] = "1"
     # If specific per-screen factors are needed:
     # os.environ["QT_SCREEN_SCALE_FACTORS"] = "Display1=1;Display2=1.5"
-    # Force specific DPI (less common, usually use auto scale)
-    # os.environ["QT_FONT_DPI"] = "96"
     logging.info("High DPI environment variables set (QT_AUTO_SCREEN_SCALE_FACTOR=1).")
 
 # --- Transformation Helpers ---
@@ -158,3 +160,15 @@ def points_to_closed_bezier_path(points: List[QPointF], tension: float = 1/6) ->
          pass # The cubicTo should handle the closure to p[0] in the last iteration.
 
     return path
+
+# --- JSON Helpers ---
+class NumpyEncoder(json.JSONEncoder):
+    """ Custom JSON encoder for NumPy types. """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)

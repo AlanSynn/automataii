@@ -338,216 +338,172 @@ class ImageProcessingView(QGraphicsView):
     def load_skeleton(self, skeleton_data_dict: dict):
         """Loads and displays skeleton data from a dictionary.
 
-        Handles different dictionary formats (list-based, dict-based).
+        Handles different dictionary formats (char_cfg list-based, standardized model dict-based).
         Scales and positions the skeleton based on the loaded image and bounding box.
         """
-        if not self.scene() or not self.image_item:
-            logging.warning("Cannot load skeleton: Scene or image not ready.")
+        if not self.scene():
+            logging.error("ImageProcessingView has no scene.")
             return False
 
-        logging.info(f"Loading skeleton data.")
-        self.original_skeleton_data = skeleton_data_dict # Store for saving
-        self._clear_skeleton()
+        if skeleton_data_dict is None or not skeleton_data_dict: # Handle None or empty dict
+            self._clear_skeleton()
+            logging.info("ImageProcessingView: Cleared skeleton due to None or empty input.")
+            self.scene().update()
+            return True
 
-        pixmap = self.image_item.pixmap()
+        logging.info("Loading skeleton data into ImageProcessingView.")
+        self._clear_skeleton()  # Clear previous skeleton
+        self.original_skeleton_data = skeleton_data_dict.copy() # Store for saving
+
+        pixmap = self.image_item.pixmap() if self.image_item else None
+        if not pixmap:
+            logging.warning("ImageProcessingView: No image loaded, cannot display skeleton relative to image.")
+            # Optionally, could still try to draw skeleton at origin if no image context is okay
+            # For now, let's assume image context is usually required for this view's purpose.
+            return False
+
         img_w, img_h = pixmap.width(), pixmap.height()
         logging.debug(f"Image size: {img_w}x{img_h}")
         logging.debug(f"Image item x, y: {self.image_item.pos().x()}, {self.image_item.pos().y()}")
-        img_cx, img_cy = img_w / 2, img_h / 2
 
-        # --- Add char_cfg origin marker ---
-        self._clear_char_cfg_marker() # Clear previous marker if any
-
-        # Extract bbox origin from char_cfg.yaml data
-        char_cfg_origin_x = skeleton_data_dict.get('bbox_origin_x')
+        self._clear_char_cfg_marker()
+        char_cfg_origin_x = skeleton_data_dict.get('bbox_origin_x') # From original char_cfg data
         char_cfg_origin_y = skeleton_data_dict.get('bbox_origin_y')
-        char_cfg_origin_r = skeleton_data_dict.get('bbox_origin_r')
-        char_cfg_origin_b = skeleton_data_dict.get('bbox_origin_b')
+        # Standardized model might have metadata for original bbox if needed, or we rely on image_item for positioning
 
         if char_cfg_origin_x is not None and char_cfg_origin_y is not None:
             logging.info(f"Found char_cfg origin: ({char_cfg_origin_x}, {char_cfg_origin_y})")
-            # Create a marker (small green circle) relative to the image item's origin (0,0)
-            marker_size = 30 # Adjust size as needed
-            # Center the ellipse on the coordinate
+            marker_size = 10 # Adjust size as needed
             self.char_cfg_origin_marker = QGraphicsEllipseItem(
                 char_cfg_origin_x - marker_size / 2,
                 char_cfg_origin_y - marker_size / 2,
-                marker_size,
-                marker_size
+                marker_size, marker_size
             )
-            pen = QPen(Qt.GlobalColor.black, 1)
-            pen.setCosmetic(True) # Keep pen width constant regardless of zoom
-            self.char_cfg_origin_marker.setPen(pen) # Black outline
-            self.char_cfg_origin_marker.setBrush(QBrush(Qt.GlobalColor.green)) # Green fill
-            self.char_cfg_origin_marker.setZValue(5) # Ensure it's visible above image/lines/bbox
-            # Set parent to image_item so it transforms with the image
+            pen = QPen(Qt.GlobalColor.black, 1); pen.setCosmetic(True)
+            self.char_cfg_origin_marker.setPen(pen)
+            self.char_cfg_origin_marker.setBrush(QBrush(Qt.GlobalColor.green))
+            self.char_cfg_origin_marker.setZValue(5)
             self.char_cfg_origin_marker.setParentItem(self.image_item)
-            self.char_cfg_origin_marker.setVisible(self.debug_mode) # Visible only in debug mode initially
-            # No need to add to scene directly as parent is set
+            self.char_cfg_origin_marker.setVisible(self.debug_mode)
+        elif 'source_format' not in skeleton_data_dict: # Only warn if it's not a standardized dict already
+            logging.warning("Could not find 'bbox_origin_x' or 'bbox_origin_y' in char_cfg-style data.")
 
-            # Marker on the right bottom of the bounding box
-            self.char_cfg_origin_marker_rb = QGraphicsEllipseItem(
-                char_cfg_origin_r - marker_size / 2,
-                char_cfg_origin_b - marker_size / 2,
-                marker_size,
-                marker_size
-            )
-            pen = QPen(Qt.GlobalColor.black, 1)
-            pen.setCosmetic(True) # Keep pen width constant regardless of zoom
-            self.char_cfg_origin_marker_rb.setPen(pen)
-            self.char_cfg_origin_marker_rb.setBrush(QBrush(Qt.GlobalColor.green))
-            self.char_cfg_origin_marker_rb.setZValue(5)
-            self.char_cfg_origin_marker_rb.setParentItem(self.image_item)
-            self.char_cfg_origin_marker_rb.setVisible(self.debug_mode) # Visible only in debug mode initially
-            # No need to add to scene directly as parent is set
-        else:
-            logging.warning("Could not find 'bbox_origin_x' or 'bbox_origin_y' in char_cfg data.")
-            self.char_cfg_origin_marker = None
-        # --- End add char_cfg origin marker ---
-
-        # Determine scale factor based on bounding box
+        # Determine scale factor (less relevant if coordinates are already scaled in standardized form)
+        # For char_cfg style, bounding_box is used. For standardized, coords might be absolute.
         scale = 1.0
-        bb_origin_x, bb_origin_y = 0.0, 0.0 # Top-left of bounding box
-        if self.bounding_box:
+        if self.bounding_box and 'skeleton' in skeleton_data_dict: # char_cfg style
             bb_w = self.bounding_box['right'] - self.bounding_box['left']
             bb_h = self.bounding_box['bottom'] - self.bounding_box['top']
             if bb_w > 0 and bb_h > 0:
                 scale_x = img_w / bb_w
                 scale_y = img_h / bb_h
-                scale = min(scale_x, scale_y) # Uniform scaling
-                bb_origin_x = self.bounding_box['left']
-                bb_origin_y = self.bounding_box['top']
+                scale = min(scale_x, scale_y)
                 logging.info(f"Using bounding box for scaling. BB WxH: {bb_w}x{bb_h}, Image WxH: {img_w}x{img_h}, Scale: {scale:.2f}")
-            else:
-                 logging.warning("Invalid bounding box dimensions, using scale 1.0")
-        else:
-            logging.info("No bounding box found, using scale 1.0")
+            else: logging.warning("Invalid bounding box dimensions for char_cfg, using scale 1.0")
+        elif 'skeleton' in skeleton_data_dict: # char_cfg style but no bounding_box loaded
+            logging.info("No bounding box found for char_cfg, using scale 1.0 for visualization.")
 
-        # Process skeleton structure
-        skeleton_structure = skeleton_data_dict.get('skeleton')
-        joint_details = {} # intermediate storage: name -> {'joint': SkeletonJoint, 'parent': str}
+        # --- Process skeleton structure ---
+        joint_details_for_lines = {} # name -> {'pos': QPointF, 'parent_name': str}
 
-        # Handle list format (e.g., from char_cfg.yaml)
-        if isinstance(skeleton_structure, list):
-            logging.debug("Processing list-based skeleton format.")
-            for joint_data in skeleton_structure:
+        # Try char_cfg list format first ('skeleton' key with a list)
+        if 'skeleton' in skeleton_data_dict and isinstance(skeleton_data_dict['skeleton'], list):
+            logging.debug("Processing char_cfg list-based skeleton format for ImageProcessingView.")
+            skeleton_list = skeleton_data_dict['skeleton']
+            for joint_data in skeleton_list:
                 name = joint_data.get('name')
-                loc = joint_data.get('loc')
-                parent = joint_data.get('parent')
+                loc = joint_data.get('loc') # These are relative to bbox_origin for char_cfg
+                parent_name = joint_data.get('parent')
                 if not name or not loc or len(loc) < 2:
-                    logging.warning(f"Skipping invalid joint data: {joint_data}")
+                    logging.warning(f"Skipping invalid char_cfg joint data: {joint_data}")
                     continue
-                orig_x, orig_y = loc[0], loc[1] # Coordinates from config
 
-                # --- Coordinate Transformation (Relative to Image Item) ---
-                # Calculate coordinates within the image_item's local coordinate system
-                # (where top-left of the pixmap is 0,0)
-                item_relative_x, item_relative_y = 0, 0
+                orig_x, orig_y = loc[0], loc[1]
+                item_relative_x, item_relative_y = orig_x, orig_y # For char_cfg, loc is often already relative to texture or a bbox corner
 
-                if self.bounding_box:
-                    bb_left = self.bounding_box.get('left', 0)
-                    bb_top = self.bounding_box.get('top', 0)
-                    # Assume orig_x, orig_y are pixel offsets relative to bb_left, bb_top
-                    item_relative_x = bb_left + orig_x
-                    item_relative_y = bb_top + orig_y
-                    logging.debug(f"Joint {name}: Orig({orig_x}, {orig_y}) + BB({bb_left:.1f}, {bb_top:.1f}) -> ItemRel({item_relative_x:.1f}, {item_relative_y:.1f})")
-                else:
-                    # Fallback: No bounding box. Assume orig_x, orig_y are relative to image top-left (0,0).
-                    item_relative_x = orig_x
-                    item_relative_y = orig_y
-                    logging.debug(f"Joint {name} (no BB): Orig({orig_x}, {orig_y}) -> ItemRel({item_relative_x:.1f}, {item_relative_y:.1f})")
-                # --- End Transformation ---
+                # If bbox_origin was found, assume loc is relative to it for char_cfg style data
+                if char_cfg_origin_x is not None and char_cfg_origin_y is not None:
+                    item_relative_x = char_cfg_origin_x + orig_x
+                    item_relative_y = char_cfg_origin_y + orig_y
+                else: # If no bbox_origin, assume loc is directly usable (e.g. already offset or from image top-left)
+                    pass
+                    # logging.debug(f"Joint {name} (no bbox_origin): Using loc directly ({orig_x}, {orig_y})")
 
-                # Create joint with coordinates relative to the parent (image_item)
                 skel_joint = SkeletonJoint(name, item_relative_x, item_relative_y)
-                # Set the image item as the parent. The joint will now transform with the image.
                 skel_joint.setParentItem(self.image_item)
-                # Store the joint (no need to add to scene directly)
                 self.joints[name] = skel_joint
-                joint_details[name] = {'joint': skel_joint, 'parent': parent}
+                joint_details_for_lines[name] = {'pos': skel_joint.pos(), 'parent_name': parent_name}
 
                 # Add joint label (if not root)
-                if parent is not None:
-                    label_text = f"{name}\n -> {parent}"
-                    label_item = QGraphicsTextItem(label_text)
-                    label_item.setDefaultTextColor(QColor("red"))
-                    # Position label slightly offset from the joint
-                    label_item.setPos(skel_joint.pos() + QPointF(5, -10))
-                    label_item.setZValue(101) # Above joints/lines
-                    label_item.setVisible(self.debug_mode) # Only show in debug mode
-                    self.scene().addItem(label_item)
+                if parent_name is not None:
+                    label_text = f"{name}\n -> {parent_name}"
+                    label_item = QGraphicsTextItem(label_text); label_item.setDefaultTextColor(QColor("red"))
+                    label_item.setPos(skel_joint.pos() + QPointF(5, -10)); label_item.setZValue(101)
+                    label_item.setVisible(self.debug_mode); self.scene().addItem(label_item)
                     self.joint_labels[name] = label_item
 
-            # Create lines from parent info
-            for name, details in joint_details.items():
-                parent_name = details['parent']
+            # Create lines from parent info in char_cfg list format
+            for name, details in joint_details_for_lines.items():
+                parent_name = details['parent_name']
                 if parent_name and parent_name in self.joints:
-                    # Line itself is added to the scene, but uses child joints
-                    line = SkeletonLine(self.joints[parent_name], details['joint'])
-                    self.scene().addItem(line)
-                    self.lines.append(line)
+                    line = SkeletonLine(self.joints[parent_name], self.joints[name])
+                    self.scene().addItem(line); self.lines.append(line)
 
-        # Handle dictionary format
-        elif isinstance(skeleton_structure, dict):
-            logging.debug("Processing dict-based skeleton format.")
-            for name, joint_data in skeleton_structure.items():
-                if 'x' not in joint_data or 'y' not in joint_data:
-                    logging.warning(f"Skipping invalid joint data for '{name}': {joint_data}")
+        # Try standardized model dict format (has 'joints' and 'hierarchy' keys)
+        elif 'joints' in skeleton_data_dict and 'hierarchy' in skeleton_data_dict and isinstance(skeleton_data_dict['joints'], dict):
+            logging.debug("Processing standardized model dictionary format for ImageProcessingView.")
+            standardized_joints_dict = skeleton_data_dict['joints']
+            hierarchy = skeleton_data_dict['hierarchy']
+
+            for joint_id, std_joint_data_dict in standardized_joints_dict.items():
+                # Ensure std_joint_data_dict is a dict, not a StandardizedJointModel object directly
+                if not isinstance(std_joint_data_dict, dict):
+                    logging.warning(f"Skipping joint {joint_id}: data is not a dict ({type(std_joint_data_dict)}). Expected model_dump output.")
                     continue
-                orig_x, orig_y = joint_data['x'], joint_data['y'] # Coordinates from config
 
-                # --- Coordinate Transformation (Relative to Image Item) ---
-                item_relative_x, item_relative_y = 0, 0
-                if self.bounding_box:
-                    bb_left = self.bounding_box.get('left', 0)
-                    bb_top = self.bounding_box.get('top', 0)
-                    item_relative_x = bb_left + orig_x
-                    item_relative_y = bb_top + orig_y
-                    logging.debug(f"Joint {name}: Orig({orig_x}, {orig_y}) + BB({bb_left:.1f}, {bb_top:.1f}) -> ItemRel({item_relative_x:.1f}, {item_relative_y:.1f})")
-                else:
-                    item_relative_x = orig_x
-                    item_relative_y = orig_y
-                    logging.debug(f"Joint {name} (no BB): Orig({orig_x}, {orig_y}) -> ItemRel({item_relative_x:.1f}, {item_relative_y:.1f})")
-                # --- End Transformation ---
+                joint_name = std_joint_data_dict.get('name', joint_id) # Use name, fallback to ID
+                pos_list = std_joint_data_dict.get('position')
+                if not pos_list or len(pos_list) < 2:
+                    logging.warning(f"Skipping standardized joint '{joint_name}' due to missing/invalid position: {pos_list}")
+                    continue
 
-                # Create joint relative to parent and set parent
-                skel_joint = SkeletonJoint(name, item_relative_x, item_relative_y)
+                # Coordinates from standardized model are typically absolute or relative to a defined origin.
+                # For ImageProcessingView, we assume they should be drawn relative to the image_item's (0,0) if image exists.
+                # If a global offset/transform is needed, it should be applied here or before calling.
+                item_relative_x, item_relative_y = float(pos_list[0]), float(pos_list[1])
+
+                skel_joint = SkeletonJoint(joint_name, item_relative_x, item_relative_y)
                 skel_joint.setParentItem(self.image_item)
-                self.joints[name] = skel_joint
-                # We don't have parent info directly here, rely on bone_list
+                self.joints[joint_name] = skel_joint # Use name as key for consistency if possible
+                # Store original ID if different from name, might be useful for line creation from hierarchy
+                joint_details_for_lines[joint_id] = {'pos': skel_joint.pos(), 'name': joint_name, 'parent_id': std_joint_data_dict.get('parent_id')}
 
-                # Add joint label (if not root)
-                if name in joint_data and 'parent' in joint_data:
-                    parent_name = joint_data['parent']
-                    if parent_name is not None and parent_name in self.joints:
-                        label_text = f"{name}\n -> {parent_name}"
-                        label_item = QGraphicsTextItem(label_text)
-                        label_item.setDefaultTextColor(QColor("red"))
-                        # Position label slightly offset from the joint
-                        label_item.setPos(skel_joint.pos() + QPointF(5, -10))
-                        label_item.setZValue(101) # Above joints/lines
-                        label_item.setVisible(self.debug_mode) # Only show in debug mode
-                        self.scene().addItem(label_item)
-                        self.joint_labels[name] = label_item
+            # Create lines using hierarchy from standardized model
+            # Need a map from joint_id to joint_name if they differ and hierarchy uses IDs
+            id_to_name_map = {jid: details['name'] for jid, details in joint_details_for_lines.items()}
 
-            # Create lines from bone_list
-            bone_list = skeleton_data_dict.get('bone_list', JOINT_CONNECTIONS) # Use default if not present
-            for bone in bone_list:
-                if len(bone) >= 2:
-                    j1_name, j2_name = bone[0], bone[1]
-                    if j1_name in self.joints and j2_name in self.joints:
-                        # Add line to scene
-                        line = SkeletonLine(self.joints[j1_name], self.joints[j2_name])
-                        self.scene().addItem(line)
-                        self.lines.append(line)
-                    else:
-                         logging.warning(f"Cannot create bone '{j1_name}'-'{j2_name}': one or both joints not found.")
+            for parent_id_from_hier, child_ids_list in hierarchy.items():
+                parent_name = id_to_name_map.get(parent_id_from_hier)
+                if not parent_name or parent_name not in self.joints:
+                    logging.debug(f"Parent '{parent_name}' (ID: {parent_id_from_hier}) for hierarchy not in drawn joints. Skipping its children lines.")
+                    continue
+
+                parent_joint_item = self.joints[parent_name]
+                for child_id_from_hier in child_ids_list:
+                    child_name = id_to_name_map.get(child_id_from_hier)
+                    if not child_name or child_name not in self.joints:
+                        logging.debug(f"Child '{child_name}' (ID: {child_id_from_hier}) for hierarchy not in drawn joints. Skipping line.")
+                        continue
+                    child_joint_item = self.joints[child_name]
+                    line = SkeletonLine(parent_joint_item, child_joint_item)
+                    self.scene().addItem(line); self.lines.append(line)
 
         else:
-            logging.error(f"Unsupported skeleton data format: {type(skeleton_structure)}")
+            logging.error(f"Unsupported skeleton data format in ImageProcessingView: Keys={list(skeleton_data_dict.keys())}")
+            self.original_skeleton_data = None # Clear if format is truly unsupported
             return False
 
-        logging.info(f"Skeleton loaded: {len(self.joints)} joints, {len(self.lines)} lines.")
+        logging.info(f"Skeleton loaded into ImageProcessingView: {len(self.joints)} joints, {len(self.lines)} lines.")
         self.reset_view() # Adjust view after loading
         return True
 
