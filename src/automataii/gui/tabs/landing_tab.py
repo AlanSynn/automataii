@@ -37,7 +37,6 @@ class ExampleImageWidget(QFrame):
     def __init__(self, image_path: str, parent=None):
         super().__init__(parent)
         self.image_path = image_path
-        self.setFrameStyle(QFrame.Shape.Box)
         self.setFixedSize(200, 250)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._init_ui()
@@ -46,20 +45,16 @@ class ExampleImageWidget(QFrame):
     def _init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
+        layout.setSpacing(10)
 
-        # Image label
         self.image_label = QLabel()
-        self.image_label.setScaledContents(False)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setFixedSize(180, 180)
 
         # Load and scale image
         pixmap = QPixmap(self.image_path)
         if not pixmap.isNull():
             scaled_pixmap = pixmap.scaled(
-                180,
-                180,
+                160, 160,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -76,19 +71,25 @@ class ExampleImageWidget(QFrame):
         font.setPointSize(10)
         self.name_label.setFont(font)
 
+        layout.addStretch(1)
         layout.addWidget(self.image_label)
         layout.addWidget(self.name_label)
+        layout.addStretch(1)
 
     def _apply_normal_style(self):
         self.setStyleSheet(
             f"""
             ExampleImageWidget {{
-                background-color: white;
-                border: 2px solid {self.STEEL_BLUE};
-                border-radius: 10px;
+                background-color: #FFFFFF;
+                border: 2px solid #E9ECEF;
+                border-radius: 15px;
+                padding: 10px;
             }}
-            QLabel {{
+            ExampleImageWidget QLabel {{
+                background-color: transparent;
                 color: #333333;
+                font-weight: 500;
+                border: none;
             }}
         """
         )
@@ -97,12 +98,16 @@ class ExampleImageWidget(QFrame):
         self.setStyleSheet(
             f"""
             ExampleImageWidget {{
-                background-color: {self.SUNGLOW}20;
-                border: 3px solid {self.BITTERSWEET};
-                border-radius: 10px;
+                background-color: #F8F9FA;
+                border: 2px solid {self.STEEL_BLUE};
+                border-radius: 15px;
+                padding: 10px;
             }}
-            QLabel {{
-                color: #333333;
+            ExampleImageWidget QLabel {{
+                background-color: transparent;
+                color: #000000;
+                font-weight: bold;
+                border: none;
             }}
         """
         )
@@ -151,117 +156,98 @@ class LandingTab(QWidget):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 10)
+        main_layout.setSpacing(15)
 
-        # Header
-        header_layout = QVBoxLayout()
-        header_layout.setSpacing(10)
+        # Hero section with image and title
+        hero_widget = QWidget()
+        hero_widget.setStyleSheet("background-color: white; border: none;")
 
-        title_label = QLabel("Welcome to Automataii")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet(
-            f"""
+        hero_layout = QHBoxLayout(hero_widget)
+        hero_layout.setContentsMargins(0, 0, 0, 0)
+        hero_layout.setSpacing(15)
+        hero_layout.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+
+        # Logo/Image
+        logo_label = QLabel()
+        logo_path = resolve_path("resources/img/landing.png")
+        if logo_path and logo_path.exists():
+            pixmap = QPixmap(str(logo_path))
+            scaled_pixmap = pixmap.scaled(70, 70, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+        else:
+            logo_label.setText("🤖")
+            logo_label.setStyleSheet("font-size: 50px;")
+
+        # Title
+        title_label = QLabel("Automataii!")
+        title_label.setStyleSheet(f"""
             color: {self.STEEL_BLUE};
-            font-family: 'Comic Sans MS', 'Papyrus', cursive, fantasy;
-            font-size: 64px;
+            font-family: 'Segoe UI', 'Arial', sans-serif;
+            font-size: 40px;
             font-weight: bold;
-            margin-bottom: 5px;
-        """
-        )
+        """)
 
-        # Description Label
-        description_text = (
-            "Create 2D character animations and generate mechanical automata designs."
-        )
-        description_label = QLabel(description_text)
-        description_font = QFont()
-        description_font.setPointSize(14)  # Slightly smaller than subtitle
-        description_font.setBold(True)  # Make bold
-        description_label.setFont(description_font)
-        description_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        description_label.setStyleSheet(
-            """
-            color: black;
-            margin-top: 2px;
-            margin-bottom: 15px;
-        """
-        )
-        description_label.setWordWrap(True)
+        hero_layout.addWidget(logo_label)
+        hero_layout.addWidget(title_label)
+
+        main_layout.addWidget(hero_widget)
 
         # Subtitle
-        subtitle_label = QLabel(
-            '"Select an example character to get started, or load your own image"'
-        )
-        subtitle_font = QFont()
-        subtitle_font.setPointSize(16)  # Adjusted font size
-        subtitle_font.setItalic(True)  # Make italic
-        subtitle_font.setBold(True)  # Make bold
-        subtitle_label.setFont(subtitle_font)
+        subtitle_label = QLabel("Get started by selecting an example character!")
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle_label.setStyleSheet(
-            f"""
-            color: black;
-            margin-top: 10px;
-            margin-bottom: 20px;
-        """
-        )
-
-        header_layout.addWidget(title_label)
-        header_layout.addWidget(description_label)  # Added description label
-        header_layout.addWidget(subtitle_label)
-        # header_layout.setSpacing(20) # Spacing will be handled by margins now
-        main_layout.addLayout(header_layout)
-
-        # self.refresh_btn = QPushButton("Refresh Examples")
-        # self.refresh_btn.setFixedSize(150, 40)
-        # self.refresh_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        # self.refresh_btn.setStyleSheet(f"""
-        #     QPushButton {{
-        #         background-color: {self.STEEL_BLUE};
-        #         color: white;
-        #         border-radius: 8px;
-        #         font-size: 14px;
-        #     }}
-        #     QPushButton:hover {{
-        #         background-color: {self.STEEL_BLUE}dd;
-        #     }}
-        #     QPushButton:pressed {{
-        #         background-color: {self.STEEL_BLUE}bb;
-        #     }}
-        # """)
-        # self.refresh_btn.clicked.connect(self._load_example_images)
-
-        # button_layout.addStretch()
-        # button_layout.addWidget(self.load_custom_btn)
-        # button_layout.addStretch()
-        # main_layout.addLayout(button_layout)
+        subtitle_label.setStyleSheet("""
+            color: #6c757d;
+            font-size: 14px;
+            margin-top: 5px;
+            margin-bottom: 15px;
+        """)
+        main_layout.addWidget(subtitle_label)
 
         # Scroll area for example images
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameStyle(
-            QFrame.Shape.Box
-        )  # Changed from NoFrame to Box for border
-        self.scroll_area.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )  # Center content if smaller than viewport
-        self.scroll_area.setStyleSheet(
-            """
+        self.scroll_area.setFrameStyle(QFrame.Shape.NoFrame)
+        self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.scroll_area.setStyleSheet("""
             QScrollArea {
-                background-color: white;
-                border: 1px solid black;
-                border-radius: 10px;
+                background-color: transparent;
+                border: none;
             }
-        """
-        )
+            QScrollArea > QWidget > QWidget {
+                background-color: white;
+                border-radius: 15px;
+                border: 2px solid #e9ecef;
+            }
+            QScrollBar:vertical {
+                background-color: #f8f9fa;
+                width: 12px;
+                border-radius: 6px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #6c757d;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #495057;
+            }
+        """)
 
         # Container widget for grid layout
         self.scroll_content = QWidget()
+        self.scroll_content.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 15px;
+                border: 2px solid #e9ecef;
+            }
+        """)
         self.grid_layout = QGridLayout(self.scroll_content)
-        self.grid_layout.setSpacing(20)
-        self.grid_layout.setContentsMargins(20, 20, 20, 20)
-        # To help center items if they don't fill the whole area
+        self.grid_layout.setSpacing(25)
+        self.grid_layout.setContentsMargins(30, 30, 30, 30)
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.scroll_area.setWidget(self.scroll_content)
@@ -270,9 +256,15 @@ class LandingTab(QWidget):
         # Status label
         self.status_label = QLabel("Loading example images...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet(
-            f"color: {self.STEEL_BLUE}; font-style: italic;"
-        )
+        self.status_label.setStyleSheet(f"""
+            color: {self.STEEL_BLUE};
+            font-style: italic;
+            font-size: 14px;
+            margin: 10px;
+            padding: 10px;
+            background-color: rgba(25, 130, 196, 0.1);
+            border-radius: 8px;
+        """)
         main_layout.addWidget(self.status_label)
 
     def _load_example_images(self):
