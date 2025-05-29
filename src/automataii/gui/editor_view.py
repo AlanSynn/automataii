@@ -8,6 +8,7 @@ from PyQt6.QtGui import (
     QPainter, QPen, QColor, QBrush, QPainterPath, QMouseEvent, QWheelEvent, QTransform
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QObject, QLineF, QEvent, QTimer
+from typing import Optional
 
 from .part_item import CharacterPartItem # Assuming part_item.py is in the same directory
 
@@ -78,7 +79,7 @@ class EditorView(QGraphicsView):
         self._motion_path_points = [] # Stores QPointF for the current freehand path
         self._motion_preview_path_item = None # QGraphicsPathItem for live preview
         self._is_drawing_freehand = False # Flag for active drawing
-        self._target_part_for_path = None # CharacterPartItem for which path is being defined
+        self.current_target_item_for_path = None # CharacterPartItem for which path is being defined
 
         # Old motion path attributes (to be phased out or repurposed if needed)
         # self._motion_path = QPainterPath() # No longer primary storage here
@@ -93,7 +94,7 @@ class EditorView(QGraphicsView):
 
         # Simulation attributes
         self._animation_time = 0.0
-        self._animation_duration = 5.0
+        self._animation_duration = 30.0
         self._original_transforms = {}
 
         # Context menu
@@ -198,16 +199,16 @@ class EditorView(QGraphicsView):
             zoom_in = event.angleDelta().y() > 0
             # Reduced zoom sensitivity
             factor = 1.08 if zoom_in else 1 / 1.08
-            
+
             # Get current scale and check limits
             current_scale = self.transform().m11()
             new_scale = current_scale * factor
-            
+
             # Limit zoom range (10% to 500%)
             if 0.1 <= new_scale <= 5.0:
                 self.scale(factor, factor)
                 self.scene().update() # Ensure clean rendering
-                
+
                 # Emit zoom change signal
                 self.zoom_changed.emit(new_scale)
 
@@ -229,23 +230,23 @@ class EditorView(QGraphicsView):
             if self.current_mode == 'define_joint':
                 self._handle_joint_definition_click(scene_pos, event.pos())
             elif self.current_mode == 'define_motion_path':
-                if self._target_part_for_path: # Ensure a target part is set
-                    self._motion_path_points.clear()
-                    self._motion_path_points.append(scene_pos)
+                # For the new IK system, AutomataDesigner ensures context via sim_selected_component_key.
+                # EditorView just needs to capture the path if in this mode.
+                # The self.current_target_item_for_path might be None and that's okay.
+                self._motion_path_points.clear()
+                self._motion_path_points.append(scene_pos)
 
-                    if self._motion_preview_path_item is None:
-                        pen = QPen(QColor("red"), 2, Qt.PenStyle.DashLine)
-                        self._motion_preview_path_item = QGraphicsPathItem()
-                        self._motion_preview_path_item.setPen(pen)
-                        self.scene().addItem(self._motion_preview_path_item)
+                if self._motion_preview_path_item is None:
+                    pen = QPen(QColor("red"), 2, Qt.PenStyle.DashLine)
+                    self._motion_preview_path_item = QGraphicsPathItem()
+                    self._motion_preview_path_item.setPen(pen)
+                    self.scene().addItem(self._motion_preview_path_item)
 
-                    temp_path = QPainterPath()
-                    temp_path.moveTo(scene_pos)
-                    self._motion_preview_path_item.setPath(temp_path)
-                    self._is_drawing_freehand = True
-                    logging.debug(f"Started freehand motion path at {scene_pos}")
-                else:
-                    logging.warning("Attempted to draw motion path without a target part.")
+                temp_path = QPainterPath()
+                temp_path.moveTo(scene_pos)
+                self._motion_preview_path_item.setPath(temp_path)
+                self._is_drawing_freehand = True
+                logging.debug(f"Started freehand motion path at {scene_pos}")
             elif self.current_mode == 'select_end_effector':
                 self._handle_end_effector_selection_click(scene_pos)
             elif self.current_mode == 'select_cam_center':
@@ -318,15 +319,15 @@ class EditorView(QGraphicsView):
             delta = event.pos() - self._pan_start_pos
             # Apply sensitivity reduction
             delta *= self._pan_sensitivity
-            
+
             # Get current scroll bar values
             h_scroll = self.horizontalScrollBar()
             v_scroll = self.verticalScrollBar()
-            
+
             # Update scroll positions (inverted for natural panning feel)
             h_scroll.setValue(h_scroll.value() - int(delta.x()))
             v_scroll.setValue(v_scroll.value() - int(delta.y()))
-            
+
             # Update start position for next move
             self._pan_start_pos = event.pos()
             return
@@ -488,35 +489,47 @@ class EditorView(QGraphicsView):
 
     # --- Motion Path Definition --- #
 
-    def start_define_motion_path(self, target_item: CharacterPartItem):
-        """Prepares the view for defining a motion path for the given item."""
-        if not isinstance(target_item, CharacterPartItem):
-            logging.warning("Cannot define motion path: Invalid target item.")
-            return
+    def start_define_motion_path(self, target_item: Optional[CharacterPartItem]):
+        """Starts the freehand motion path definition mode."""
+        # For the new IK system, target_item might be None if AutomataDesigner
+        # is managing the selected component via sim_selected_component_key.
+        # The path is drawn on the scene, and AutomataDesigner will associate it.
+        if self.current_mode == 'define_motion_path':
+            return # Already in this mode
 
-        self._target_part_for_path = target_item
+        if target_item is None and not self.parent_window.sim_selected_component_key:
+            # This case would be an issue: no CharacterPartItem and no sim_selected_component_key means no context for the path.
+            # However, AutomataDesigner._toggle_define_motion_path_mode checks for sim_selected_component_key
+            # before calling this, so this state should ideally not be reached if called from there.
+            logging.warning("EditorView: start_define_motion_path called with no target_item and no sim_selected_component_key.")
+            # Optionally, prevent entering mode or show a message.
+            # For now, allow proceeding, as AutomataDesigner might handle it or log separately.
+
+        self.current_target_item_for_path = target_item # Can be None
+        self.current_freehand_path = QPainterPath()
+        self.current_freehand_path_item = None
         self.set_mode('define_motion_path')
-        self._cleanup_motion_path_visuals() # Clear any previous preview/points
-        self._motion_path_points.clear()
-        self._is_drawing_freehand = False # Ready to start new drawing
-        logging.info(f"Ready to define motion path for: {target_item.part_info.name}")
-        self._show_status_message(f"Draw motion path for {target_item.part_info.name}. Right-click or uncheck to cancel/finish.")
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        logging.info("EditorView: Entered freehand motion path definition mode.")
+        if target_item:
+            logging.info(f"EditorView: Motion path target: {target_item.part_info.name}")
 
-    def finish_motion_path_drawing(self):
+    def finish_motion_path_drawing(self, emit_signal: bool = True):
         """Finalizes the motion path. Called when mode is toggled off by MainWindow.
            The actual path points are emitted by freehandPathCompleted signal.
            This method is now mainly for cleanup if the mode is exited while a path
            was partially drawn but not completed via mouse release.
         """
-        if self._target_part_for_path:
-            logging.debug(f"Finishing motion path definition for {self._target_part_for_path.part_info.name}")
+        if self.current_target_item_for_path:
+            logging.debug(f"Finishing motion path definition for {self.current_target_item_for_path.part_info.name}")
             if self._is_drawing_freehand and len(self._motion_path_points) > 1 :
                  # This case implies mode was toggled off mid-draw.
                  # Emit the points accumulated so far.
-                self.freehandPathCompleted.emit(list(self._motion_path_points))
-                logging.debug(f"Emitted path from finish_motion_path_drawing due to mode toggle.")
+                if emit_signal:
+                    self.freehandPathCompleted.emit(list(self._motion_path_points))
+                    logging.debug(f"Emitted path from finish_motion_path_drawing due to mode toggle.")
 
-        self._target_part_for_path = None
+        self.current_target_item_for_path = None
         self._is_drawing_freehand = False
         self._cleanup_motion_path_visuals()
         self.set_mode('select') # Revert to select mode
@@ -524,7 +537,7 @@ class EditorView(QGraphicsView):
     def _cancel_motion_path_drawing(self):
         """Cancels the current motion path drawing operation and cleans up."""
         logging.debug("Motion path drawing cancelled.")
-        self._target_part_for_path = None
+        self.current_target_item_for_path = None
         self._is_drawing_freehand = False
         self._motion_path_points.clear()
         self._cleanup_motion_path_visuals()

@@ -141,6 +141,76 @@ This document outlines the phased implementation plan for adding automated mecha
     - [ ] Cross-platform testing (if applicable).
     - [ ] Creation of example projects and tutorials.
 
+### Phase X: Enhanced IK Simulation and Visual Joint Anchors
+
+## Goals:
+1.  Refine IK simulation to produce more "robotic" limb movements, where parts maintain their orientation relative to their parent in the kinematic chain, rooted at the torso (or main fixed part).
+2.  Add clear visual anchors for all active joints in the editor scene, which update during simulation.
+
+## Detailed Steps:
+
+### Part 1: Improve IK Behavior
+
+1.  **Review `build_kinematic_chains` (in `main_window.py`):**
+    *   [ ] Ensure that the `torso` (if fixed) is consistently treated as the ultimate root of kinematic chains.
+    *   [ ] If `torso` is not fixed or not present, verify logic for selecting the fixed base of a chain.
+    *   [ ] Chains should be ordered from the root to the end-effector.
+
+2.  **Modify `update_simulation` (in `main_window.py`):**
+    *   [X] **Crucial Fix:** Remove the loop that iterates `for item in chain:` *after* `solve_ik_ccd` and calls `item.setRotation(initial_rot)`. This loop overrides the IK's calculated orientations and is the primary cause of parts "spinning independently" instead of maintaining hierarchical orientation.
+    *   [ ] Verify that `solve_ik_ccd` (in `ik_solver.py`) correctly uses parent-child relationships and joint locations to calculate rotations. The standard CCD algorithm should inherently handle hierarchical rotations.
+    *   [ ] The `initial_part_rotations` dictionary might still be useful if we want to reset the *entire character* to a specific pose, but it should not be used to override individual part rotations *during* each step of an active IK solve.
+
+3.  **Verify `Joint` and `CharacterPartItem` data (in `core/models.py` and `gui/part_item.py`):**
+    *   [ ] Ensure `Joint.parent_pos` and `Joint.child_pos` accurately represent the local pivot points on the respective parts. These are critical for the IK solver.
+    *   [ ] Confirm `CharacterPartItem.parent_joint` and `CharacterPartItem.child_joints` correctly establish the hierarchy.
+
+### Part 2: Visual Joint Anchors
+
+1.  **Data Structure for Visual Anchors:**
+    *   [X] In `AutomataDesigner.__init__`, add `self.joint_visual_markers: List[QGraphicsItem] = []` (using `QGraphicsEllipseItem` for now).
+
+2.  **Create Anchors when Joints are Made:**
+    *   [X] Modify `_create_and_add_joint` (in `main_window.py`):
+        *   After a `Joint` object is created:
+            *   Create a `QGraphicsEllipseItem` (e.g., 5px radius, distinct color like blue or green).
+            *   Set its initial position: `marker.setPos(parent_item.mapToScene(joint.parent_pos))`.
+            *   Add it to `self.editor_scene` and `self.joint_visual_markers`.
+            *   Set an appropriate Z-value so it's visible.
+    *   [ ] Handle anchor creation when joints are loaded from a project file (extend `load_parts` or a dedicated joint loading function).
+
+3.  **Update Anchor Positions During Simulation:**
+    *   [X] In `update_simulation` (in `main_window.py`), *after* the IK loop:
+        *   Add a new loop: `for i, joint in enumerate(self.joints):`
+            *   Ensure `i` is a valid index for `self.joint_visual_markers`.
+            *   `parent_item = joint.parent_item`
+            *   `marker = self.joint_visual_markers[i]`
+            *   `scene_joint_pos = parent_item.mapToScene(joint.parent_pos)`
+            *   `marker.setPos(scene_joint_pos)`
+
+4.  **Manage Anchor Visibility:**
+    *   [X] **Initial Visibility:** Anchors should be made visible when created.
+    *   [X] **Toggling:** Connect visibility to the "Show Skeleton" button (`self.show_skeleton_btn`):
+        *   In `_show_skeleton_and_joints`, iterate through `self.joint_visual_markers` and set their visibility according to the button's `checked` state.
+    *   [X] **Clearing:** In `_clear_editor_state`, iterate through `self.joint_visual_markers`, remove them from the scene, and clear the list. This should also be called by `_show_skeleton_and_joints` when `checked` is `False` if the markers are solely tied to skeleton visibility.
+    *   [ ] Ensure joint markers are also cleared/recreated appropriately during `load_parts` if joints are redefined.
+
+### Part 3: (Optional Refinement) Torso as Explicit IK Root
+
+1.  **Identify Root in `build_kinematic_chains`:**
+    *   [ ] Prioritize finding a `CharacterPartItem` named "torso" that `is_fixed`.
+    *   [ ] If found, all kinematic chains relevant for full-body IK (like arm or leg movements) should trace back to this torso.
+
+## Testing Plan:
+*   Load a character with multiple parts (e.g., torso, upper arm, lower arm, hand).
+*   Define joints connecting them, with the torso fixed.
+*   Define a motion path for the hand.
+*   Run the simulation.
+    *   Verify: Limbs move cohesively. Parts should not revert to a global "initial rotation."
+    *   Verify: Visual joint anchors appear at each joint location and move with the joints.
+    *   Verify: Toggling "Show Skeleton" also toggles the visibility of these joint anchors.
+    *   Verify: Resetting simulation correctly resets part positions.
+
 ## 3. Dependencies & Tools
 
 *   Python 3.x

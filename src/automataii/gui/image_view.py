@@ -1,14 +1,15 @@
 import os
 import logging
 import yaml
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsTextItem
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseItem, QGraphicsTextItem, QGraphicsLineItem
 from PyQt6.QtGui import QPainter, QPixmap, QColor, QBrush, QPen
 from PyQt6.QtCore import Qt, QPointF, QLineF, QEvent, QRectF
 import math # Added for math.sqrt and math.atan2 if needed, though QLineF handles length
-from typing import List, Optional # Added List and Optional
+from typing import List, Optional, Dict # Added List, Optional, Dict
 
 from .skeleton_item import SkeletonJoint, SkeletonLine
-from ..core.models import JOINT_CONNECTIONS, JOINT_COLORS # Adjust import path
+from ..core.models import JOINT_CONNECTIONS, JOINT_COLORS, PartInfo # Adjust import path
+from .part_item import CharacterPartItem # Import CharacterPartItem
 
 # --- Helper Functions for Vector Math (can be static or outside class) ---
 def normalize_vector(vector: QPointF) -> QPointF:
@@ -56,6 +57,11 @@ class ImageProcessingView(QGraphicsView):
         self.joint_labels = {} # Dict mapping joint name (str) to QGraphicsTextItem
         self.lines = [] # List of SkeletonLine items
 
+        # Interactive Character Parts in this view
+        self.part_items: Dict[str, CharacterPartItem] = {}
+        self.joint_to_part_map: Dict[str, CharacterPartItem] = {} # Maps skeleton joint name to its controlling CharacterPartItem
+        self.skeleton_to_part_map: Dict[str, str] = {} # Initialize skeleton_to_part_map
+
         # Data state
         self.original_skeleton_data = None # Store the originally loaded data format
         self.bounding_box = None
@@ -70,6 +76,11 @@ class ImageProcessingView(QGraphicsView):
         # Perpendicular Cut Guides
         self.current_guide_lines = [] # To store QGraphicsLineItems for guides
         self.last_active_joint_for_guide = None
+
+        # For dragging joints
+        self.dragged_joint_item: Optional[SkeletonJoint] = None
+        self.drag_start_pos: Optional[QPointF] = None
+        self.drag_start_pos_offset: Optional[QPointF] = None
 
     # --- Debugging Methods ---
 
@@ -226,6 +237,8 @@ class ImageProcessingView(QGraphicsView):
 
         # Clear joint labels if reloading image
         self._clear_joint_labels()
+        self._clear_char_cfg_marker()
+        self.clear_character_parts() # Clear interactive parts as well
         # Attempt to load associated bounding box data
         self._load_bounding_box(image_path)
 
@@ -547,15 +560,19 @@ class ImageProcessingView(QGraphicsView):
             self.char_cfg_origin_marker = None
 
     def _clear_skeleton(self):
-        """Removes all skeleton joints, lines, and the char_cfg marker from the scene."""
-        self._clear_char_cfg_marker() # Clear the origin marker
+        """Clears skeleton-related items (joints, lines, labels) from the scene."""
         for joint in self.joints.values():
-            if joint.scene(): self.scene().removeItem(joint)
-        for line in self.lines:
-            if line.scene(): self.scene().removeItem(line)
+            if joint.scene():
+                self.scene().removeItem(joint)
         self.joints.clear()
+
+        for line in self.lines:
+            if line.scene():
+                self.scene().removeItem(line)
         self.lines.clear()
-        self._clear_joint_labels() # Also clear labels when clearing skeleton
+        self._clear_joint_labels()
+        self._clear_char_cfg_marker()
+        self.clear_character_parts() # Also clear character parts when skeleton is cleared
 
     # --- Skeleton Data Retrieval ---
 
@@ -682,12 +699,10 @@ class ImageProcessingView(QGraphicsView):
         logging.info(f"Visualizing skeleton with {len(joint_locations)} joints and associated bones.")
 
     def _clear_skeleton_visualization(self):
-        """Removes temporary skeleton visualization items from the scene."""
-        if not self._skeleton_viz_items:
-            return
-        logging.debug(f"Clearing {len(self._skeleton_viz_items)} skeleton visualization items.")
+        """Clears temporary skeleton visualization items (not the interactive ones)."""
         for item in self._skeleton_viz_items:
-            self.scene().removeItem(item)
+            if item.scene():
+                self.scene().removeItem(item)
         self._skeleton_viz_items.clear()
 
     def _update_joint_label_position(self, joint_name: str):
@@ -831,3 +846,225 @@ class ImageProcessingView(QGraphicsView):
             self.current_guide_lines.append(guide_item)
             logging.debug(f"Drew cut guide for joint {active_joint.joint_name}")
     # --- End Perpendicular Cut Guide Methods ---
+
+    # --- New methods for managing interactive CharacterPartItems ---
+    def clear_character_parts(self):
+        """Removes all CharacterPartItem instances from this view's scene."""
+        logging.debug(f"ImageProcessingView: Clearing {len(self.part_items)} character part items.")
+        for part_item in self.part_items.values():
+            if part_item.scene() == self.scene():
+                self.scene().removeItem(part_item)
+        self.part_items.clear()
+        self.joint_to_part_map.clear()
+
+    def load_character_parts(self, parts_data: Dict[str, PartInfo], skeleton_to_part_map: Dict[str, str], effective_bbox_offset: QPointF):
+        """Loads CharacterPartItems into this view's scene based on PartInfo.
+
+        Args:
+            parts_data: Dictionary of part_name to PartInfo object.
+            skeleton_to_part_map: Maps skeleton joint names (e.g., 'left_hip') to body part names (e.g., 'left_leg_upper').
+            effective_bbox_offset: Global offset to apply for correct positioning relative to texture origin.
+        """
+        self.clear_character_parts() # Clear any existing parts first
+        if not parts_data:
+            logging.warning("ImageProcessingView: No parts_data provided to load_character_parts.")
+            return
+
+        logging.info(f"ImageProcessingView: Loading {len(parts_data)} character parts.")
+
+        self.skeleton_to_part_map = skeleton_to_part_map # Store the map
+
+        for part_name, part_info_obj in parts_data.items():
+            if not isinstance(part_info_obj, PartInfo):
+                logging.warning(f"ImageProcessingView: Item '{part_name}' in parts_data is not a PartInfo object. Skipping.")
+                continue
+
+            try:
+                # Create the CharacterPartItem
+                part_item = CharacterPartItem(part_info_obj)
+
+                # Positioning logic (simplified from MainWindow.load_parts, assuming SVGs are self-contained)
+                # The key is that PartInfo.roi should be relative to texture.png origin
+                # if an image_path is primary, or svg coordinates are relative to (0,0) of part.
+                # This view positions relative to the overall texture.png, so bbox_offset is key.
+
+                # Default position is (0,0) minus the effective bbox offset (aligns texture origin with scene origin)
+                item_x = -effective_bbox_offset.x()
+                item_y = -effective_bbox_offset.y()
+
+                if part_info_obj.roi and len(part_info_obj.roi) == 4:
+                    # If ROI exists, part's origin (top-left of its image/svg) is at roi[0], roi[1] within texture.png
+                    # So, add roi[0] and roi[1] to the base position.
+                    item_x += part_info_obj.roi[0]
+                    item_y += part_info_obj.roi[1]
+                    logging.debug(f"ImageProcessingView: Positioning '{part_name}' using ROI ({part_info_obj.roi[0]}, {part_info_obj.roi[1]}) and bbox_offset. Pos: ({item_x}, {item_y})")
+                else:
+                    # If no ROI, might need a fallback based on a convention (e.g., skeleton joint pos)
+                    # For now, it will be at texture origin (0,0) if no ROI
+                    logging.debug(f"ImageProcessingView: Positioning '{part_name}' at texture origin (adjusted by bbox_offset). Pos: ({item_x}, {item_y})")
+
+
+                part_item.setPos(item_x, item_y)
+                part_item.setZValue(10) # Parts above image, below skeleton visuals
+                part_item.setVisible(False) # Initially hidden, controlled by a checkbox
+
+                self.scene().addItem(part_item)
+                self.part_items[part_name] = part_item
+
+                # Map controlling skeleton joint to this part item
+                # Iterate through skeleton_to_part_map to find which skeleton joint controls this part_name
+                for skel_joint_name, controlled_part_name in skeleton_to_part_map.items():
+                    if controlled_part_name == part_name:
+                        self.joint_to_part_map[skel_joint_name] = part_item
+                        logging.debug(f"ImageProcessingView: Mapped skeleton joint '{skel_joint_name}' to control part '{part_name}'.")
+                        break # Assuming one primary controlling joint per part for simplicity
+
+            except Exception as e:
+                logging.error(f"ImageProcessingView: Error creating/loading CharacterPartItem for '{part_name}': {e}")
+
+        logging.info(f"ImageProcessingView: Loaded {len(self.part_items)} part items. Mapped {len(self.joint_to_part_map)} joints to parts.")
+
+    def show_skeleton_visuals(self, show: bool):
+        """Shows or hides the skeleton joint and line visuals."""
+        for joint_item in self.joints.values():
+            joint_item.setVisible(show)
+        for label_item in self.joint_labels.values():
+            label_item.setVisible(show)
+        for line_item in self.lines:
+            line_item.setVisible(show)
+        logging.debug(f"ImageProcessingView: Skeleton visuals visibility set to {show}")
+
+    def show_part_visuals(self, show: bool):
+        """Shows or hides the CharacterPartItem visuals."""
+        for part_item in self.part_items.values():
+            part_item.setVisible(show)
+        logging.debug(f"ImageProcessingView: Character part visuals visibility set to {show}")
+        # When showing parts, typically hide the base image texture
+        if self.image_item:
+            self.image_item.setVisible(not show)
+
+    def mousePressEvent(self, event: QEvent):
+        item = self.itemAt(event.pos())
+        if isinstance(item, SkeletonJoint) and self.scene().mouseGrabberItem() is None: # Ensure no other item is already grabbing mouse
+            self.dragged_joint_item = item
+            # Calculate offset from item's origin to mouse click position
+            self.drag_start_pos_offset = self.dragged_joint_item.mapFromScene(event.scenePos())
+            self.dragged_joint_item.set_selected(True) # Visual feedback
+            self.scene().update()
+            event.accept() # Accept event to prevent further processing by parent/view
+            return # Do not call super if we are handling the drag
+
+        super().mousePressEvent(event) # Default handling for other items or view dragging
+
+    def mouseMoveEvent(self, event: QEvent):
+        if self.dragged_joint_item:
+            new_scene_pos_for_joint_origin = event.scenePos() - self.drag_start_pos_offset
+            self.dragged_joint_item.setPos(new_scene_pos_for_joint_origin)
+            self._update_lines(self.dragged_joint_item) # Update connected skeleton lines
+            self._update_joint_label_position(self.dragged_joint_item.joint_name) # Update label
+
+            # Update the linked CharacterPartItem
+            self._update_linked_part_position(self.dragged_joint_item.joint_name, new_scene_pos_for_joint_origin)
+
+            self.scene().update()
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QEvent):
+        if self.dragged_joint_item:
+            self.dragged_joint_item.set_selected(False) # Visual feedback
+            self.dragged_joint_item = None
+            self.drag_start_pos_offset = None
+            self.scene().update()
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+
+    def _update_linked_part_position(self, joint_name: str, new_joint_scene_pos: QPointF):
+        """Moves the CharacterPartItem linked to the given joint name.
+
+        The CharacterPartItem should be moved such that its anchor_offset
+        (in its local coordinates) aligns with the new_joint_scene_pos.
+        """
+        # Determine which part this joint is an anchor for.
+        # Convention: 'neck' joint anchors 'head' part, 'left_elbow' anchors 'left_arm_lower'.
+        # We need a more direct mapping or a consistent naming convention.
+        # For now, let's assume skeleton_to_part_map gives us the part name controlled by this joint.
+        # But the key of skeleton_to_part_map is the skeleton joint name, and value is part name.
+        # We need to find which *part* has this *joint_name* as its primary anchor.
+
+        # Example logic: if 'head' part has 'neck' as its anchor in its PartInfo or similar.
+        # Or iterate through self.part_items and check their anchor logic.
+
+        # For now, let's refine skeleton_to_part_map and assume it means:
+        # joint_name (e.g., "neck") controls part_name (e.g., "head").
+        # The part_name's anchor_offset is assumed to correspond to this joint_name.
+
+        part_name_to_move = None
+        # Find which part is conceptually "attached" to this joint as its anchor
+        for pn, pi in self.part_items.items():
+            # This requires part_info to store which skeleton joint it's anchored to
+            # or a convention like part_name 'head' corresponds to joint 'neck'
+            # Let's use the self.skeleton_to_part_map directly for now, assuming it's structured
+            # such that skeleton_to_part_map[joint_name] = part_that_this_joint_is_the_anchor_of
+            if self.skeleton_to_part_map.get(joint_name) == pn:
+                 part_name_to_move = pn
+                 break
+            # A more robust way might be needed if the map isn't 1-to-1 for this purpose
+            # e.g. if "torso" is mapped from multiple skeleton joints.
+
+        # Fallback or more direct logic:
+        # If a part's name matches the joint name (e.g., 'head' part and 'head' joint if mapping is like that)
+        # or if the convention is that 'neck' joint controls 'head' part.
+        # Let's assume self.skeleton_to_part_map[joint_name] gives the correct part.
+        part_name_to_move = self.skeleton_to_part_map.get(joint_name)
+
+
+        if part_name_to_move and part_name_to_move in self.part_items:
+            part_item = self.part_items[part_name_to_move]
+
+            # The part_item's anchor_offset is the local point that should align with new_joint_scene_pos.
+            # We need to find the new position for the part_item's origin (its top-left in scene).
+            # If part_item's origin is at P_origin_scene, and its anchor is at A_local (in its own coords),
+            # then A_scene = P_origin_scene + transform.map(A_local).
+            # We want A_scene to be new_joint_scene_pos.
+            # So, P_origin_scene = new_joint_scene_pos - transform.map(A_local).
+
+            # Get the vector from part_item's origin to its anchor_offset, in scene coordinates (ignoring current part position)
+            anchor_vector_in_scene = part_item.transform().map(part_item.anchor_offset) - part_item.transform().map(QPointF(0,0))
+
+            # The new position of the part's origin
+            new_part_origin_scene_pos = new_joint_scene_pos - anchor_vector_in_scene
+            part_item.setPos(new_part_origin_scene_pos)
+            logging.debug(f"Moved part '{part_name_to_move}' to scene pos {part_item.pos()} to align its anchor with joint '{joint_name}' at {new_joint_scene_pos}")
+        else:
+            logging.debug(f"No part found or mapped to move for joint '{joint_name}'. Searched for part: {part_name_to_move}")
+
+
+    def update_and_draw_cut_guides(self, active_joint: Optional[SkeletonJoint]):
+        """
+        Clears old guides and draws a new one for the active_joint.
+        Call this when the active joint changes (e.g., on hover or selection).
+        """
+        # Clear existing guides
+        for item in self.current_guide_lines:
+            if item.scene():
+                self.scene().removeItem(item)
+        self.current_guide_lines = []
+
+        if not active_joint or not self.scene(): # Ensure scene is available
+            return
+
+        guide_line_data = self.calculate_perpendicular_cut_guide(active_joint)
+
+        if guide_line_data:
+            pen = QPen(QColor("cyan"), 1.5, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True) # Keep pen width constant regardless of zoom
+            guide_item = self.scene().addLine(guide_line_data, pen)
+            guide_item.setZValue(150) # Ensure it's visible above most things
+            self.current_guide_lines.append(guide_item)
+            logging.debug(f"Drew cut guide for joint {active_joint.joint_name}")
+    # --- End New methods ---

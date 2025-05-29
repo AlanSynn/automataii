@@ -51,15 +51,10 @@ def main():
 
     # --- Install Hot Reload ---
     # Define modules to watch (adjust as needed - e.g., your main package)
-    modules_to_reload = ["automataii"]
-    logging.info(f"Installing hot-reloader for modules: {modules_to_reload}")
-    # Keep a reference to the widget to prevent garbage collection
-    main_window.reloader_widget = install_hot_reload(modules_to_reload)
-    # Optional: Add the widget to the UI if you want the visual indicator
-    # If your main window has a status bar:
-    # main_window.statusBar().addPermanentWidget(main_window.reloader_widget)
-    # Or add it to a layout somewhere.
-    # For now, we just keep the reference.
+    # modules_to_reload = ["gui.main_window", "gui.editor_view", "gui.image_processing_view"]
+    # logging.info(f"Installing hot-reloader for modules: {modules_to_reload}")
+    # # Keep a reference to the widget to prevent garbage collection
+    # main_window.reloader_widget = install_hot_reload(modules_to_reload)
     # --------------------------
 
     main_window.show()

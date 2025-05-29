@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from typing import Optional
 import cv2
 import numpy as np
 import yaml
@@ -531,19 +532,19 @@ def segment_body_parts(texture, character_mask, joint_map, parts_def):
             initial_mask = cv2.bitwise_and(initial_mask, character_mask)  # 캐릭터 내부로 제한
 
         # ARAP을 사용하여 마스크 개선 (제어 관절이 있는 경우)
-        try:
-            # 부위별로 다른 확장 계수 적용
-            expansion_factor = 1.5  # 기본값
-            if 'head' in part_name:
-                expansion_factor = 2.5  # 머리는 특별히 훨씬 더 크게 확장
-            elif any(term in part_name for term in ['hand', 'foot']):
-                expansion_factor = 1.8  # 팔다리 끝은 더 크게 확장
-            elif any(term in part_name for term in ['torso']):
-                expansion_factor = 1.3  # 몸통은 적당히 확장
+        # try:
+        #     # 부위별로 다른 확장 계수 적용
+        #     expansion_factor = 1.5  # 기본값
+        #     if 'head' in part_name:
+        #         expansion_factor = 2.5  # 머리는 특별히 훨씬 더 크게 확장
+        #     elif any(term in part_name for term in ['hand', 'foot']):
+        #         expansion_factor = 1.8  # 팔다리 끝은 더 크게 확장
+        #     elif any(term in part_name for term in ['torso']):
+        #         expansion_factor = 1.3  # 몸통은 적당히 확장
 
-            initial_mask = refine_mask_with_arap(initial_mask, joint_map, part_def['joints'], expansion_factor, part_name)
-        except Exception as e:
-            logging.warning(f"부위 {part_name}의 ARAP 개선 실패: {e}")
+        #     initial_mask = refine_mask_with_arap(initial_mask, joint_map, part_def['joints'], expansion_factor, part_name)
+        # except Exception as e:
+        #     logging.warning(f"부위 {part_name}의 ARAP 개선 실패: {e}")
 
         initial_part_masks[part_name] = initial_mask
         logging.debug(f"Generated initial mask for {part_name} with {np.count_nonzero(initial_mask)} pixels")
@@ -606,24 +607,24 @@ def segment_body_parts(texture, character_mask, joint_map, parts_def):
         part_mask = cv2.morphologyEx(part_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
         # ARAP을 사용하여 최종 마스크 다시 한번 개선 (경계 더 자연스럽게)
-        try:
-            # 부위별로 다른 확장 계수 적용
-            expansion_factor = 1.1  # 기본값 (약간 확장)
-            if 'head' in part_name:
-                expansion_factor = 2.0  # 머리는 특별히 훨씬 더 크게 확장
-            elif any(term in part_name for term in ['hand', 'foot']):
-                expansion_factor = 1.3  # 팔다리 끝은 더 크게 확장
-            elif any(term in part_name for term in ['arm', 'leg']):
-                expansion_factor = 1.2  # 팔다리는 중간 정도 확장
+        # try:
+        #     # 부위별로 다른 확장 계수 적용
+        #     expansion_factor = 1.1  # 기본값 (약간 확장)
+        #     if 'head' in part_name:
+        #         expansion_factor = 2.0  # 머리는 특별히 훨씬 더 크게 확장
+        #     elif any(term in part_name for term in ['hand', 'foot']):
+        #         expansion_factor = 1.3  # 팔다리 끝은 더 크게 확장
+        #     elif any(term in part_name for term in ['arm', 'leg']):
+        #         expansion_factor = 1.2  # 팔다리는 중간 정도 확장
 
-            part_mask = refine_mask_with_arap(part_mask, joint_map, parts_def[part_name]['joints'],
-                                            expansion_factor=expansion_factor, part_name=part_name)
+        #     part_mask = refine_mask_with_arap(part_mask, joint_map, parts_def[part_name]['joints'],
+        #                                     expansion_factor=expansion_factor, part_name=part_name)
 
-            # 추가 팽창으로 경계 부드럽게 처리
-            kernel = np.ones((3, 3), np.uint8)
-            part_mask = cv2.dilate(part_mask, kernel, iterations=1)
-        except Exception as e:
-            logging.warning(f"최종 마스크 {part_name}의 ARAP 개선 실패: {e}")
+        #     # 추가 팽창으로 경계 부드럽게 처리
+        #     kernel = np.ones((3, 3), np.uint8)
+        #     part_mask = cv2.dilate(part_mask, kernel, iterations=1)
+        # except Exception as e:
+        #     logging.warning(f"최종 마스크 {part_name}의 ARAP 개선 실패: {e}")
 
         # 작은 홀 다시 채우기
         kernel = np.ones((7, 7), np.uint8)
@@ -703,6 +704,23 @@ def segment_body_parts(texture, character_mask, joint_map, parts_def):
         final_part_masks[part_name] = mask
 
     return final_part_masks
+
+def _get_proximal_joint_name(part_name: str, part_definition: dict) -> Optional[str]:
+    """Determines the proximal joint name for a given part.
+    Assumes the first joint listed in the part_definition['joints'] is proximal.
+    For 'head', it's 'neck'. Torso might not have a single one, returns None.
+    """
+    if part_name == 'head':
+        return 'neck'
+    if part_name == 'torso':
+        return None # Torso is the base, or its pivot is handled differently
+
+    joints = part_definition.get('joints')
+    if joints and isinstance(joints, list) and len(joints) > 0:
+        # For parts like 'left_arm_upper' (joints: ['left_shoulder', 'left_elbow']),
+        # the first one is proximal.
+        return joints[0]
+    return None
 
 def extract_body_part(image, part_mask):
     """마스크를 사용하여 신체 부위 이미지를 추출합니다"""
@@ -994,12 +1012,29 @@ def process_character(char_dir, output_dir, generate_animations=False, num_frame
             else:
                 print(f"SVG 파일 생성 성공: {svg_output_path}")
 
+            # --- Calculate and store local_pivot_offset ---
+            local_pivot_offset = [0,0] # Default for torso or if not found
+            current_part_def = BODY_PARTS.get(part_name)
+            if current_part_def:
+                proximal_joint_name = _get_proximal_joint_name(part_name, current_part_def)
+                if proximal_joint_name and proximal_joint_name in texture_relative_joint_map:
+                    global_proximal_x, global_proximal_y = texture_relative_joint_map[proximal_joint_name]
+                    # roi is (x_min_texture, y_min_texture, x_max_texture, y_max_texture)
+                    local_pivot_x = global_proximal_x - roi[0]
+                    local_pivot_y = global_proximal_y - roi[1]
+                    local_pivot_offset = [local_pivot_x, local_pivot_y]
+                    logging.info(f"Part '{part_name}': Proximal joint '{proximal_joint_name}' at global ({global_proximal_x},{global_proximal_y}), ROI_xmin={roi[0]}, ROI_ymin={roi[1]}. Calculated local_pivot_offset: {local_pivot_offset}")
+                elif proximal_joint_name:
+                    logging.warning(f"Part '{part_name}': Proximal joint '{proximal_joint_name}' defined but not found in texture_relative_joint_map. Using default pivot [0,0].")
+            # --- End local_pivot_offset calculation ---
+
             # 결과 정보 저장
             results['character']['parts'][part_name] = {
                 'roi': roi,
                 'svg_path': svg_output_path,
                 'image_path': part_output_path,
-                'fill_color': fill_color
+                'fill_color': fill_color,
+                'local_pivot_offset': local_pivot_offset # Add the new offset
             }
 
             # 애니메이션 생성 (선택적)

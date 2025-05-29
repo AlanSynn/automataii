@@ -27,7 +27,7 @@ from .image_view import ImageProcessingView
 from .part_item import CharacterPartItem
 from .camera_dialog import CameraDialog
 from .styling import LIGHT_STYLE, DARK_STYLE
-from .options_tab import OptionsTab
+# from .options_tab import OptionsTab # Removed: OptionsTab is now in tabs directory
 from ..core.models import PartInfo, Joint
 from ..kinematics.ik_solver import solve_ik_ccd
 from ..generation.cam import generate_cam_profile
@@ -35,6 +35,12 @@ from ..generation.blueprint import generate_blueprint_svg
 from ..utils.helpers import transform_to_dict, qpainterpath_to_points, points_to_closed_bezier_path # Utility functions
 from .anchor_item import AnchorItem # Import AnchorItem
 from automataii.gui.recommendation_dialog import MechanismRecommendationDialog # Added
+
+# Import new tab modules
+from .tabs.image_processing_tab import ImageProcessingTab
+from .tabs.editor_tab import EditorTab
+from .tabs.options_tab import OptionsTab
+
 
 # Attempt to import image processing functionality (optional)
 from ..animate.image_to_annotations import image_to_annotations
@@ -112,6 +118,14 @@ class AutomataDesigner(QMainWindow):
         self.viewer_scene: Optional[QGraphicsScene] = None
         self.viewer_view: Optional[EditorView] = None
 
+
+        # --- Initialize scenes and views that were previously in tab creation methods ---
+        self.image_proc_scene = QGraphicsScene()
+        self.image_proc_view = ImageProcessingView(self.image_proc_scene, self)
+        self.editor_scene = QGraphicsScene()
+        self.editor_view = EditorView(self.editor_scene, self)
+
+
         # Mechanism Design State
         self.selected_cam_center: Optional[QPointF] = None
         self.selected_pivot_a: Optional[QPointF] = None
@@ -135,7 +149,7 @@ class AutomataDesigner(QMainWindow):
         self.timer.setInterval(30) # Approx 33 FPS
         self.timer.timeout.connect(self.update_simulation)
         self.animation_time = 0.0
-        self.animation_duration = 5 # Default duration set to 2000ms
+        self.animation_duration = 3000
 
         # --- Toolbar Reference ---
         self.main_toolbar = None
@@ -167,6 +181,32 @@ class AutomataDesigner(QMainWindow):
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
 
+        self.scene_joints_snapshot = {} # Will store the calculated scene_joints from _initialize_new_ik_skeleton_definitions
+        self.ik_part_to_actual_part_name = {
+            # ... (existing ik_part_to_actual_part_name content)
+        }
+        self._active_path_definition_target_joint_id: Optional[str] = None # Stores the joint ID while path definition is active
+        self.ik_to_json_joint_map_config = {
+            # ... (existing ik_to_json_joint_map_config content)
+        }
+
+        # --- New IK System Data ---
+        self.sim_joints_config = {} # Stores structure: { 'j_neck_base': {'xOffset': ..., 'yOffset': ..., 'label': ...}, ... }
+        self.sim_limb_configs = {}  # Stores structure: { 'j_head': {'parentAnchor': ..., 'angle': ..., 'length': ...}, ... }
+        self.sim_limb_lengths = {} # Stores structure: { 'head': 35, 'upperArm': 55, ... }
+        self.sim_selectable_components = [] # List of dicts defining selectable parts for IK path definition
+        self.sim_two_bone_ik_effectors = [] # List of joint IDs that are end-effectors of a 2-bone chain
+        self.sim_joint_bend_directions = {} # { 'j_left_elbow': -1, ... }
+
+        # Actual data store for sim_dynamic_joints property
+        self._sim_dynamic_joints_data: Dict[str, Dict[str, Any]] = {}
+        logging.info("[ATTR_DEBUG] Initializing self._sim_dynamic_joints_data = {}")
+
+        self.sim_selected_component_key = None # Stores the targetJointId of the currently selected component for path drawing
+        self.current_parts_info_data = None # Will store loaded parts_info.json content
+        self.effective_bounding_box_offset = QPointF(0,0) # Will store calculated offset
+        # ... (other attributes remain the same) ...
+
     # --- UI Initialization ---
 
     def _init_ui(self):
@@ -179,11 +219,11 @@ class AutomataDesigner(QMainWindow):
         main_layout.addWidget(self.tab_widget)
 
         # --- Tab 1: Image Processing ---
-        image_proc_tab = self._create_image_processing_tab()
+        image_proc_tab = ImageProcessingTab(self) # Pass self (main_window)
         self.tab_widget.addTab(image_proc_tab, "Character Selection")
 
         # --- Tab 2: Editor & Simulation ---
-        editor_tab = self._create_editor_tab()
+        editor_tab = EditorTab(self) # Pass self (main_window)
         self.tab_widget.addTab(editor_tab, "Mechanism Design")
 
         # --- Tab 3: Options ---
@@ -192,7 +232,7 @@ class AutomataDesigner(QMainWindow):
 
         # --- Connect Signals from EditorView ---
         self.editor_view.freehandPathCompleted.connect(self._handle_freehand_path_completed)
-        self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancelled) # Already exists, ensure it's used appropriately
+        self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancelled) # Already exists, ensure it\'s used appropriately
         self.editor_view.joint_defined.connect(self.request_create_joint) # Already exists
         # Connect other EditorView signals as needed (cam_center_selected, etc.)
         self.editor_view.cam_center_selected.connect(self._handle_cam_center_set)
@@ -211,543 +251,6 @@ class AutomataDesigner(QMainWindow):
         # Apply Initial Theme (Light by default)
         self.setStyleSheet(self.light_style)
         self.options_tab.set_theme("Light") # Ensure combo matches initial theme
-
-    def _create_image_processing_tab(self):
-        """Creates the widget and layout for the Image Processing tab."""
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-
-        # Left Control Panel
-        control_panel = QWidget()
-        # Restore preferred size policy for this tab's panel
-        control_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        # control_panel.setMaximumWidth(scroll_area.width() - scroll_area.verticalScrollBar().sizeHint().width() - 5) # Ensure content fits width
-        # Let setWidgetResizable handle the width constraint, focus on vertical layout
-        panel_layout = QVBoxLayout(control_panel)
-        panel_layout.setContentsMargins(0, 5, 0, 0)
-        panel_layout.setSpacing(10)
-        panel_layout.setContentsMargins(5, 10, 5, 10) # Add some horizontal margins too
-        panel_layout.setSpacing(15) # Increase spacing between groups
-
-        # Input Group
-        input_group = QGroupBox("Input Drawing")
-        input_layout = QVBoxLayout(input_group)
-        style = self.style()
-        self.load_image_btn = QPushButton("Load Image File")
-        self.capture_image_btn = QPushButton("Capture Camera") # Placeholder icon
-        input_layout.addWidget(self.load_image_btn)
-        input_layout.addWidget(self.capture_image_btn)
-        panel_layout.addWidget(input_group)
-
-        # Processing Group
-        proc_group = QGroupBox("Editing")
-        proc_layout = QVBoxLayout(proc_group)
-        self.process_image_btn = QPushButton(" Process Image")
-        self.create_parts_btn = QPushButton(" Generate Body Parts")
-        # self.edit_skeleton_btn = QPushButton(" Edit Skeleton")
-        proc_layout.addWidget(self.process_image_btn)
-        proc_layout.addWidget(self.create_parts_btn)
-        # proc_layout.addWidget(self.edit_skeleton_btn)
-        panel_layout.addWidget(proc_group)
-
-        # Output Group
-        output_group = QGroupBox("Next")
-        output_layout = QVBoxLayout(output_group)
-        # self.save_skeleton_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), " Save Skeleton")
-        self.next_stage_btn = QPushButton(" Next")
-        # output_layout.addWidget(self.save_skeleton_btn)
-        output_layout.addWidget(self.next_stage_btn)
-        panel_layout.addWidget(output_group)
-
-        panel_layout.addStretch()
-
-        # Right View Area
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(5, 5, 5, 5)
-        right_layout.setSpacing(5)
-
-        # Zoom control toolbar (invisible)
-        zoom_toolbar = QWidget()
-        zoom_layout = QHBoxLayout(zoom_toolbar)
-        zoom_layout.setContentsMargins(10, 8, 10, 8)
-        zoom_layout.setSpacing(8)
-
-        zoom_layout.addStretch()  # Push controls to the right
-
-        # Zoom dropdown/combo box
-        self.image_zoom_combo = QComboBox()
-        self.image_zoom_combo.setEditable(True)
-        self.image_zoom_combo.setFixedSize(80, 28)
-        self.image_zoom_combo.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #d0d7de;
-                border-radius: 6px;
-                padding: 4px 4px;
-                background-color: white;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                border-color: #586069;
-            }
-        """)
-        zoom_levels = ["50%", "75%", "90%", "100%", "125%", "150%", "200%"]
-        self.image_zoom_combo.addItems(zoom_levels)
-        self.image_zoom_combo.setCurrentText("100%")
-        self.image_zoom_combo.setToolTip("Zoom level")
-
-        # Fit button
-        self.image_fit_btn = QPushButton("Fit")
-        self.image_fit_btn.setFixedSize(45, 28)
-        self.image_fit_btn.setStyleSheet("""
-            QPushButton {
-                border: 1px solid #d0d7de;
-                border-radius: 4px;
-                padding: 4px 4px;
-                background-color: white;
-                font-size: 13px;
-                color: #24292f;
-            }
-            QPushButton:hover {
-                background-color: #f6f8fa;
-                border-color: #586069;
-            }
-            QPushButton:pressed {
-                background-color: #e9ecef;
-            }
-        """)
-        self.image_fit_btn.setToolTip("Zoom to fit all items")
-
-        zoom_layout.addWidget(self.image_zoom_combo)
-        zoom_layout.addWidget(self.image_fit_btn)
-
-        self.image_proc_scene = QGraphicsScene()
-        self.image_proc_view = ImageProcessingView(self.image_proc_scene, self)
-
-        # Add view to right panel
-        right_layout.addWidget(self.image_proc_view, 1)
-
-        # Make zoom toolbar float over the view
-        zoom_toolbar.setParent(right_panel)
-        zoom_toolbar.setStyleSheet("""
-            QWidget {
-                background-color: rgba(248, 249, 250, 0.9);
-                border: 1px solid rgba(208, 215, 222, 0.8);
-                border-radius: 1px;
-            }
-        """)
-        zoom_toolbar.show()
-
-        # Position toolbar on show
-        def position_image_zoom_toolbar():
-            toolbar_width = zoom_toolbar.sizeHint().width()
-            toolbar_height = zoom_toolbar.sizeHint().height()
-            x = right_panel.width() - toolbar_width - 20
-            y = right_panel.height() - toolbar_height - 20
-            zoom_toolbar.setGeometry(x, y, toolbar_width, toolbar_height)
-
-        # Override showEvent to position toolbar
-        original_show_event = right_panel.showEvent
-        def new_show_event(event):
-            original_show_event(event)
-            position_image_zoom_toolbar()
-        right_panel.showEvent = new_show_event
-
-        # Override resizeEvent to reposition toolbar
-        original_resize_event = right_panel.resizeEvent
-        def new_resize_event(event):
-            original_resize_event(event)
-            position_image_zoom_toolbar()
-        right_panel.resizeEvent = new_resize_event
-
-        layout.addWidget(control_panel)
-        layout.addWidget(right_panel, 1)
-        return widget
-
-    def _create_editor_tab(self):
-        """Creates the widget and layout for the Editor & Simulation tab."""
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-
-        # --- Left Control Panel (Rebuilt) ---
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(280) # Adjusted width
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        control_panel = QWidget() # Container widget for the scroll area
-        # Allow vertical expansion, but let horizontal size be ignored by layout if needed
-        control_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        # control_panel.setMaximumWidth(scroll_area.width() - scroll_area.verticalScrollBar().sizeHint().width() - 5) # Ensure content fits width
-        # Let setWidgetResizable handle the width constraint, focus on vertical layout
-        panel_layout = QVBoxLayout(control_panel)
-        panel_layout.setContentsMargins(10, 10, 10, 10) # Increased margins
-        panel_layout.setSpacing(12) # Adjusted spacing
-
-        # Group 1: Parts List
-        parts_group = QGroupBox("Character Parts")
-        parts_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        parts_layout = QVBoxLayout(parts_group)
-        self.parts_list = QListWidget()
-        self.parts_list.setToolTip("List of loaded character parts")
-        self.parts_list.setMinimumHeight(100) # Ensure it doesn't collapse too much
-        parts_layout.addWidget(self.parts_list)
-        panel_layout.addWidget(parts_group)
-
-        # Group 2: Selected Part Properties
-        self.part_properties_group = QGroupBox("Selected Part Properties")
-        self.part_properties_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.part_props = QFormLayout(self.part_properties_group)
-        self.part_props.setSpacing(8) # Spacing within the form
-        self.z_value_spin = QDoubleSpinBox()
-        self.z_value_spin.setRange(-100, 100)
-        self.z_value_spin.setSingleStep(0.1)
-        self.z_value_spin.setToolTip("Adjust Z-depth (layering)")
-        self.z_value_spin.setEnabled(False) # Initially disabled
-        self.fixed_part_check = QCheckBox("Fixed in Place")
-        self.fixed_part_check.setToolTip("If checked, this part will not move during simulation (unless it is the root of a chain being driven by IK).")
-        self.fixed_part_check.setEnabled(False)
-        self.part_props.addRow("Z-Value:", self.z_value_spin)
-        self.part_props.addRow(self.fixed_part_check)
-        self.part_properties_group.setEnabled(False) # Disable group initially
-        self.part_properties_group.setVisible(False) # Hide by default
-        panel_layout.addWidget(self.part_properties_group)
-
-        # Group 3: Assembly & Joints
-        assembly_group = QGroupBox("Assembly & Joints")
-        assembly_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        assembly_layout = QHBoxLayout(assembly_group) # Use QHBoxLayout for horizontal buttons
-        assembly_layout.setSpacing(10)
-
-        self.define_joint_btn = QPushButton("Joint")
-        self.define_joint_btn.setCheckable(True)
-        self.define_joint_btn.setToolTip("Click two parts in the view to define a joint between them")
-        self.define_joint_btn.setEnabled(False) # Disable initially
-
-        self.show_skeleton_btn = QPushButton("Skeleton")
-        self.show_skeleton_btn.setCheckable(True) # Make it a toggle button
-        self.show_skeleton_btn.setToolTip("Temporarily display the skeleton structure and auto-generated joints")
-        self.show_skeleton_btn.setEnabled(False) # Disable initially (needs skeleton data)
-
-        assembly_layout.addWidget(self.define_joint_btn)
-        assembly_layout.addWidget(self.show_skeleton_btn)
-
-        panel_layout.addWidget(assembly_group)
-
-        # Group 4: Motion Path Definition
-        motion_path_group = QGroupBox("Motion Path")
-        motion_path_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        motion_path_layout = QVBoxLayout(motion_path_group)
-        self.define_motion_path_btn = QPushButton("Define Motion Path")
-        self.define_motion_path_btn.setCheckable(True)
-        self.define_motion_path_btn.setToolTip("Toggle mode to draw a motion path for the selected part.")
-        self.define_motion_path_btn.setEnabled(False)
-        motion_path_layout.addWidget(self.define_motion_path_btn)
-
-        self.clear_motion_path_btn = QPushButton("Clear Motion Path")
-        self.clear_motion_path_btn.setToolTip("Clear the motion path for the selected part.")
-        self.clear_motion_path_btn.setEnabled(False)
-        motion_path_layout.addWidget(self.clear_motion_path_btn)
-
-        # Add path type and loop type (commented out for now, simplify to freehand polyline first)
-        # self.path_type_label = QLabel("Path Drawing Type:")
-        # self.path_type_combo = QComboBox()
-        # self.path_type_combo.addItems(["Freehand", "Bézier"])
-        # self.path_type_combo.setToolTip("Choose how path points are connected (Freehand = lines, Bézier = smooth curves).")
-        # self.path_type_combo.setEnabled(False)
-        # motion_path_layout.addWidget(self.path_type_label)
-        # motion_path_layout.addWidget(self.path_type_combo)
-
-        # self.loop_type_label = QLabel("Path Loop Type:")
-        # self.loop_type_combo = QComboBox()
-        # self.loop_type_combo.addItems(["Open Loop", "Closed Loop"])
-        # self.loop_type_combo.setToolTip("Choose if the path should be open or automatically closed.")
-        # self.loop_type_combo.setEnabled(False)
-        # motion_path_layout.addWidget(self.loop_type_label)
-        # motion_path_layout.addWidget(self.loop_type_combo)
-
-        panel_layout.addWidget(motion_path_group)
-
-        # Group 5: Motion & Simulation
-        motion_sim_group = QGroupBox("Motion & Simulation")
-        motion_sim_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        motion_sim_layout = QFormLayout(motion_sim_group)
-        motion_sim_layout.setSpacing(10) # Adjust spacing for form layout
-
-        # Path Type Selection - REMOVED
-        # self.path_type_combo = QComboBox()
-        # self.path_type_combo.addItems(["Freehand", "Bézier"]) # Add Bézier option
-        # self.path_type_combo.setCurrentText("Freehand") # Default to Freehand
-        # self.path_type_combo.setToolTip("Select the drawing method for the motion path.")
-        # motion_sim_layout.addRow("Path Type:", self.path_type_combo)
-
-        # Loop Type Selection - REMOVED
-        # self.loop_type_combo = QComboBox()
-        # self.loop_type_combo.addItems(["Closed Loop", "Open Loop"])
-        # self.loop_type_combo.setCurrentText("Closed Loop") # Default to Closed Loop
-        # self.loop_type_combo.setToolTip("Choose if the path should automatically close.")
-        # motion_sim_layout.addRow("Loop:", self.loop_type_combo)
-
-        # Motion Definition Button - REMOVED (self.define_motion_path_btn in "Motion Path" group is used)
-        # self.define_motion_btn = QPushButton(" Define Motion Path")
-        # self.define_motion_btn.setCheckable(True)
-        # self.define_motion_btn.setToolTip("Draw the desired motion path for the selected part's center")
-        # self.define_motion_btn.setEnabled(False) # Disabled until a non-fixed part is selected
-        # motion_sim_layout.addRow(self.define_motion_btn)
-
-        # Simulation Controls
-        sim_button_layout = QHBoxLayout()
-        sim_button_layout.setSpacing(6)
-        style = self.style()
-        self.play_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "")
-        self.play_btn.setToolTip("Play Simulation")
-        self.stop_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), "")
-        self.stop_btn.setToolTip("Stop Simulation")
-        self.stop_btn.setEnabled(False)
-        self.reset_sim_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), "")
-        self.reset_sim_btn.setToolTip("Restart Simulation")
-        self.reset_sim_btn.setEnabled(False)
-        sim_button_layout.addWidget(self.play_btn)
-        sim_button_layout.addWidget(self.stop_btn)
-        sim_button_layout.addWidget(self.reset_sim_btn)
-
-        # Add simulation buttons spanning both columns
-        motion_sim_layout.addRow(sim_button_layout)
-
-        panel_layout.addWidget(motion_sim_group)
-
-        # Group 5: Mechanism Design
-        mech_design_group = QGroupBox("Mechanism Design")
-        mech_design_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding) # Allow vertical expansion
-        mech_design_layout = QVBoxLayout(mech_design_group)
-        mech_design_layout.setSpacing(10)
-
-        # --- Test Anchors Button (New) ---
-        self.toggle_anchors_btn = QCheckBox("Show Test Anchors")
-        self.toggle_anchors_btn.setToolTip("Show/hide draggable test anchor points in the scene.")
-        mech_design_layout.addWidget(self.toggle_anchors_btn)
-        # --- End Test Anchors Button ---
-
-        # Mechanism Type Selector
-        mech_type_layout = QFormLayout()
-        self.mechanism_type_combo = QComboBox()
-        self.mechanism_type_combo.addItems([
-            "Cam & Follower",
-            "3-Bar Linkage",
-            "4-Bar Linkage",
-            "Gears (Simple Pair)"
-        ])
-        self.mechanism_type_combo.setToolTip("Select the type of mechanism to generate")
-        mech_type_layout.addRow("Type:", self.mechanism_type_combo)
-        mech_design_layout.addLayout(mech_type_layout)
-
-        # --- Type-Specific Inputs Container ---
-        self.mech_inputs_container = QWidget()
-        self.mech_inputs_layout = QVBoxLayout(self.mech_inputs_container)
-        self.mech_inputs_layout.setContentsMargins(0, 5, 0, 0)
-        self.mech_inputs_layout.setSpacing(8)
-        mech_design_layout.addWidget(self.mech_inputs_container)
-
-        # --- Input Group: Cam ---
-        self.cam_inputs_group = QGroupBox("Cam Settings")
-        cam_inputs_layout = QVBoxLayout(self.cam_inputs_group)
-        self.select_cam_center_btn = QPushButton("Select Cam Center")
-        self.select_cam_center_btn.setToolTip("Click in the scene to set the cam rotation center (default: torso center)")
-        cam_inputs_layout.addWidget(self.select_cam_center_btn)
-        # TODO: Add follower type, radius inputs later
-        self.mech_inputs_layout.addWidget(self.cam_inputs_group)
-
-        # --- Input Group: 3-Bar ---
-        self.three_bar_inputs_group = QGroupBox("3-Bar Linkage Settings")
-        three_bar_layout = QVBoxLayout(self.three_bar_inputs_group)
-        self.select_pivot_a_3bar_btn = QPushButton("Select Fixed Pivot A")
-        self.select_pivot_a_3bar_btn.setToolTip("Click in the scene to set the first fixed pivot")
-        three_bar_layout.addWidget(self.select_pivot_a_3bar_btn)
-        # TODO: Add inputs for other constraints/lengths
-        self.mech_inputs_layout.addWidget(self.three_bar_inputs_group)
-
-        # --- Input Group: 4-Bar ---
-        self.four_bar_inputs_group = QGroupBox("4-Bar Linkage Settings")
-        four_bar_layout = QVBoxLayout(self.four_bar_inputs_group)
-        self.select_pivot_a_4bar_btn = QPushButton("Select Fixed Pivot A")
-        self.select_pivot_a_4bar_btn.setToolTip("Click in the scene to set the first fixed pivot")
-        four_bar_layout.addWidget(self.select_pivot_a_4bar_btn)
-        self.select_pivot_d_4bar_btn = QPushButton("Select Fixed Pivot D")
-        self.select_pivot_d_4bar_btn.setToolTip("Click in the scene to set the second fixed pivot")
-        four_bar_layout.addWidget(self.select_pivot_d_4bar_btn)
-        # TODO: Add inputs for coupler point, lengths
-        self.mech_inputs_layout.addWidget(self.four_bar_inputs_group)
-
-        # --- Input Group: Gears ---
-        self.gear_inputs_group = QGroupBox("Gear Settings")
-        gear_inputs_layout = QFormLayout(self.gear_inputs_group) # Use Form layout
-        gear_button_layout = QHBoxLayout() # For buttons
-        self.select_driver_center_btn = QPushButton("Driver Center")
-        self.select_driver_center_btn.setToolTip("Click to set driver gear center")
-        self.select_driven_center_btn = QPushButton("Driven Center")
-        self.select_driven_center_btn.setToolTip("Click to set driven gear center")
-        gear_button_layout.addWidget(self.select_driver_center_btn)
-        gear_button_layout.addWidget(self.select_driven_center_btn)
-        gear_inputs_layout.addRow("Select Centers:", gear_button_layout) # Add buttons horizontally
-
-        self.gear_ratio_spin = QDoubleSpinBox()
-        self.gear_ratio_spin.setRange(0.01, 100.0) # Example range
-        self.gear_ratio_spin.setSingleStep(0.1)
-        self.gear_ratio_spin.setValue(1.0)
-        self.gear_ratio_spin.setToolTip("Set gear ratio (Driven Radius / Driver Radius)")
-        gear_inputs_layout.addRow("Gear Ratio:", self.gear_ratio_spin)
-        self.mech_inputs_layout.addWidget(self.gear_inputs_group)
-
-        # --- Generate Button ---
-        self.generate_mechanism_btn = QPushButton("Generate Mechanism")
-        self.generate_mechanism_btn.setToolTip("Generate the selected mechanism based on the current setup")
-        self.generate_mechanism_btn.setEnabled(False) # Initially disabled
-        mech_design_layout.addWidget(self.generate_mechanism_btn)
-        mech_design_layout.addStretch() # Push generate button down a bit
-
-        panel_layout.addWidget(mech_design_group)
-
-        # Initialize visibility of specific input groups
-        self._update_mechanism_inputs_ui(self.mechanism_type_combo.currentText())
-
-        # Group 5.5: Mechanism Layers
-        self.layer_group = QGroupBox("Mechanism Layers")
-        self.layer_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        self.layer_layout = QVBoxLayout(self.layer_group)
-        self.layer_layout.setSpacing(6)
-        # Layer checkboxes will be added dynamically
-        panel_layout.addWidget(self.layer_group)
-
-        # Group 6: Export (RESTORED)
-        export_group = QGroupBox("Export")
-        export_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        export_layout = QVBoxLayout(export_group)
-        self.blueprint_btn = QPushButton(" Generate Blueprint (SVG)")
-        self.blueprint_btn.setToolTip("Generate an SVG blueprint of all parts for fabrication")
-        export_layout.addWidget(self.blueprint_btn)
-        panel_layout.addWidget(export_group)
-
-        # Group 7: Character Alignment (New)
-        alignment_group = QGroupBox("Character Alignment")
-        alignment_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        alignment_layout = QVBoxLayout(alignment_group)
-        self.save_alignment_btn = QPushButton("Save Current Alignment")
-        self.save_alignment_btn.setToolTip("Save the current character position as the default alignment for this character.")
-        self.save_alignment_btn.setEnabled(False) # Enable when parts are loaded
-        alignment_layout.addWidget(self.save_alignment_btn)
-        panel_layout.addWidget(alignment_group)
-
-        panel_layout.addStretch() # Add stretch at the end (RESTORED)
-
-        scroll_area.setWidget(control_panel) # Put the panel inside the scroll area
-
-        # --- Right View Area (Editor) ---
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(5, 5, 5, 5)
-        right_layout.setSpacing(5)
-
-        # Zoom control toolbar (invisible)
-        zoom_toolbar = QWidget()
-        zoom_layout = QHBoxLayout(zoom_toolbar)
-        zoom_layout.setContentsMargins(10, 8, 10, 8)
-        zoom_layout.setSpacing(8)
-
-        zoom_layout.addStretch()  # Push controls to the right
-
-        # Zoom dropdown/combo box
-        self.zoom_combo = QComboBox()
-        self.zoom_combo.setEditable(True)
-        self.zoom_combo.setFixedSize(70, 28)
-        self.zoom_combo.setStyleSheet("""
-            QComboBox {
-                border: 1px solid #d0d7de;
-                border-radius: 6px;
-                padding: 4px 8px;
-                background-color: white;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                border-color: #586069;
-            }
-        """)
-        zoom_levels = ["50%", "75%", "90%", "100%", "125%", "150%", "200%"]
-        self.zoom_combo.addItems(zoom_levels)
-        self.zoom_combo.setCurrentText("100%")
-        self.zoom_combo.setToolTip("Zoom level")
-
-        # Fit button
-        self.fit_btn = QPushButton("Fit")
-        self.fit_btn.setFixedSize(45, 28)
-        self.fit_btn.setStyleSheet("""
-            QPushButton {
-                border: 1px solid #d0d7de;
-                border-radius: 6px;
-                padding: 4px 8px;
-                background-color: white;
-                font-size: 12px;
-                color: #24292f;
-            }
-            QPushButton:hover {
-                background-color: #f6f8fa;
-                border-color: #586069;
-            }
-            QPushButton:pressed {
-                background-color: #e9ecef;
-            }
-        """)
-        self.fit_btn.setToolTip("Zoom to fit all items")
-
-        zoom_layout.addWidget(self.zoom_combo)
-        zoom_layout.addWidget(self.fit_btn)
-
-        self.editor_scene = QGraphicsScene()
-        self.editor_view = EditorView(self.editor_scene, self)
-
-        # -- Set default
-        self.editor_view._save_original_transforms() # Save state before starting
-
-        # Add editor view to right panel
-        right_layout.addWidget(self.editor_view, 1)
-
-        # Make zoom toolbar float over the view
-        zoom_toolbar.setParent(right_panel)
-        zoom_toolbar.setStyleSheet("""
-            QWidget {
-                background-color: rgba(248, 249, 250, 0.9);
-                border: 1px solid rgba(208, 215, 222, 0.8);
-                border-radius: 8px;
-            }
-        """)
-        zoom_toolbar.show()
-
-        # Position toolbar on show
-        def position_editor_zoom_toolbar():
-            toolbar_width = zoom_toolbar.sizeHint().width()
-            toolbar_height = zoom_toolbar.sizeHint().height()
-            x = right_panel.width() - toolbar_width - 20
-            y = right_panel.height() - toolbar_height - 20
-            zoom_toolbar.setGeometry(x, y, toolbar_width, toolbar_height)
-
-        # Override showEvent to position toolbar
-        original_show_event = right_panel.showEvent
-        def new_show_event(event):
-            original_show_event(event)
-            position_editor_zoom_toolbar()
-        right_panel.showEvent = new_show_event
-
-        # Override resizeEvent to reposition toolbar
-        original_resize_event = right_panel.resizeEvent
-        def new_resize_event(event):
-            original_resize_event(event)
-            position_editor_zoom_toolbar()
-        right_panel.resizeEvent = new_resize_event
-
-        # Add the scroll area (containing the panel) and the right panel to the main layout
-        layout.addWidget(scroll_area)
-        layout.addWidget(right_panel, 1)
-        return widget
 
     # --- Menu Creation ---
     def _create_menus(self):
@@ -833,10 +336,10 @@ class AutomataDesigner(QMainWindow):
         # Tab 1: Image Processing
         self.load_image_btn.clicked.connect(self.load_input_image)
         self.capture_image_btn.clicked.connect(self.capture_image)
-        self.process_image_btn.clicked.connect(self.process_image)
+        # self.process_image_btn.clicked.connect(self.process_image)
         # self.edit_skeleton_btn.clicked.connect(self.edit_skeleton)
         # self.save_skeleton_btn.clicked.connect(self.save_skeleton)
-        self.create_parts_btn.clicked.connect(self.create_parts_from_skeleton)
+        # self.create_parts_btn.clicked.connect(self.create_parts_from_skeleton)
         self.next_stage_btn.clicked.connect(self.next_stage)
 
         # Tab 2: Editor
@@ -846,8 +349,8 @@ class AutomataDesigner(QMainWindow):
         self.fixed_part_check.stateChanged.connect(self._update_selected_part_fixed)
         self.define_motion_path_btn.toggled.connect(self._toggle_define_motion_path_mode)
         self.clear_motion_path_btn.clicked.connect(self._clear_selected_item_motion_path)
-        self.define_joint_btn.toggled.connect(self._toggle_define_joint_mode)
-        self.show_skeleton_btn.toggled.connect(self._show_skeleton_and_joints)
+        # self.define_joint_btn.toggled.connect(self._toggle_define_joint_mode)
+        # self.show_skeleton_btn.toggled.connect(self._show_skeleton_and_joints)
         # self.define_motion_btn.toggled.connect(self._toggle_define_motion_path_mode) # REMOVED - define_motion_btn is removed
         # self.set_cam_center_btn.clicked.connect(self._start_cam_center_selection)
         # self.set_cam_follower_btn.clicked.connect(self.set_cam_follower)
@@ -954,7 +457,7 @@ class AutomataDesigner(QMainWindow):
         if props_group: props_group.setEnabled(is_part_selected)
         if cam_group: cam_group.setEnabled(is_part_selected)
 
-        self.define_joint_btn.setEnabled(is_part_selected)
+        # self.define_joint_btn.setEnabled(is_part_selected)
 
         # Motion path button depends on selection AND fixed status
         self.define_motion_path_btn.setEnabled(can_define_path)
@@ -1221,8 +724,8 @@ class AutomataDesigner(QMainWindow):
                      logging.debug("Calling _visualize_body_parts_under_skeleton()")
                      self._visualize_body_parts_under_skeleton()
                      # Also visualize in image processing view if skeleton data exists
-                     if self.skeleton_data:
-                         self._visualize_body_parts_in_image_view()
+                    #  if self.skeleton_data:
+                    #      self._visualize_body_parts_in_image_view()
                 else:
                      QMessageBox.warning(self, "Load Error", f"Could not find parts_info.json in {output_dir}")
         except Exception as e:
@@ -1264,7 +767,7 @@ class AutomataDesigner(QMainWindow):
                     viz_item.setRotation(part_item.rotation())
 
                     # Set 50% opacity
-                    # viz_item.setOpacity(0.5)
+                    viz_item.setOpacity(0.5)
 
                     # Set z-value below skeleton (skeleton is at 500-501)
                     viz_item.setZValue(100)
@@ -1609,6 +1112,7 @@ class AutomataDesigner(QMainWindow):
                         # This might need review based on how save_project stores them.
                         # If saved_project positions are relative to texture origin, then uncomment and test:
                         # editor_item.setPos(saved_x - effective_bounding_box_offset.x(), saved_y - effective_bounding_box_offset.y())
+                        editor_item.setOpacity(0.5)
                         editor_item.setPos(saved_x, saved_y)
                         logging.debug(f"Positioning '{name}' using saved project position: ({saved_x}, {saved_y})")
                     elif roi_data and isinstance(roi_data, (list, tuple)) and len(roi_data) == 4:
@@ -1836,6 +1340,17 @@ class AutomataDesigner(QMainWindow):
         # Disable alignment button when clearing state
         self.save_alignment_btn.setEnabled(False)
 
+        # Clear new IK system state
+        logging.info("[ATTR_DEBUG] In _clear_editor_state: About to access self.sim_dynamic_joints (getter) and call .clear()")
+        if hasattr(self, '_sim_dynamic_joints_data'): # Check underlying data store before clearing
+            self.sim_dynamic_joints.clear() # Accesses getter, then calls dict.clear()
+            logging.info("[ATTR_DEBUG] In _clear_editor_state: self.sim_dynamic_joints.clear() was called.")
+        else:
+            logging.warning("[ATTR_DEBUG] In _clear_editor_state: _sim_dynamic_joints_data was missing, so no clear() called on sim_dynamic_joints.")
+
+        self.sim_selected_component_key = None
+        # ... rest of the method
+
     def get_selected_editor_item(self):
         """Returns the currently selected CharacterPartItem in the editor scene."""
         # Guard against calls during initialization before editor_scene exists
@@ -1948,130 +1463,173 @@ class AutomataDesigner(QMainWindow):
     # --- Motion Definition Actions ---
 
     def _toggle_define_motion_path_mode(self, checked: bool):
-        selected_item = self.get_selected_editor_item()
-
         if checked:
-            if not selected_item:
-                QMessageBox.warning(self, "No Part Selected", "Please select a character part before defining a motion path.")
+            # Directly query the parts_list for current selection when button is toggled ON
+            selected_list_items = self.parts_list.selectedItems()
+            if not selected_list_items:
+                QMessageBox.warning(self, "No Component Selected", "Please select a component from the list before defining a motion path.")
                 self.define_motion_path_btn.setChecked(False)
+                self._active_path_definition_target_joint_id = None
                 return
 
-            # Clear existing motion path on the item before starting new definition
-            # This ensures the part_item's visual is also cleared.
-            if selected_item.motion_path and not selected_item.motion_path.isEmpty():
+            current_list_widget_item = selected_list_items[0]
+            target_joint_id_from_user_role = current_list_widget_item.data(Qt.ItemDataRole.UserRole)
+            display_text_from_display_role = current_list_widget_item.data(Qt.ItemDataRole.DisplayRole)
+
+            logging.info(f"[LIST_ITEM_DATA_DEBUG] For selected item '{current_list_widget_item.text()}':")
+            logging.info(f"  Retrieved UserRole data: '{target_joint_id_from_user_role}' (Type: {type(target_joint_id_from_user_role)})")
+            logging.info(f"  Retrieved DisplayRole data: '{display_text_from_display_role}' (Type: {type(display_text_from_display_role)})")
+
+            # Use the UserRole data as the intended target
+            target_joint_id_from_list = target_joint_id_from_user_role
+
+            if not target_joint_id_from_list:
+                QMessageBox.warning(self, "Selection Error", f"The selected component '{display_text_from_display_role}' has no associated ID (UserRole was None).")
+                self.define_motion_path_btn.setChecked(False)
+                self._active_path_definition_target_joint_id = None
+                return
+
+            # Update self.sim_selected_component_key for consistency
+            self.sim_selected_component_key = target_joint_id_from_list
+            logging.info(f"[PathDefineToggle] Using targetJointId (from UserRole): {target_joint_id_from_list}")
+
+            self._active_path_definition_target_joint_id = target_joint_id_from_list
+
+            logging.info(f"[PATH_DEFINE_TOGGLE_DEBUG] _active_path_definition_target_joint_id: {self._active_path_definition_target_joint_id}")
+
+            # Continue with the existing logic using self._active_path_definition_target_joint_id
+            target_joint_id_for_path = self._active_path_definition_target_joint_id
+
+            # Safely access sim_dynamic_joints
+            current_sim_dynamic_joints = getattr(self, 'sim_dynamic_joints', None)
+            if current_sim_dynamic_joints is None:
+                logging.error("[PathDefineToggle] self.sim_dynamic_joints is missing! Cannot proceed.")
+                QMessageBox.critical(self, "Internal Error", "Dynamic joint data is missing. Please try reloading the character.")
+                self.define_motion_path_btn.setChecked(False)
+                self._active_path_definition_target_joint_id = None
+                return
+
+            dynamic_joint_data = current_sim_dynamic_joints.get(target_joint_id_for_path)
+
+            if dynamic_joint_data and dynamic_joint_data.get('path'):
                 msg_box = QMessageBox(self)
                 msg_box.setIcon(QMessageBox.Icon.Question)
-                msg_box.setText(f"A motion path already exists for '{selected_item.part_info.name}'.")
+                msg_box.setText(f"A motion path already exists for component '{dynamic_joint_data.get('label', target_joint_id_for_path)}'.")
                 msg_box.setInformativeText("Do you want to overwrite it?")
                 msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                 msg_box.setDefaultButton(QMessageBox.StandardButton.No)
                 ret = msg_box.exec()
                 if ret == QMessageBox.StandardButton.No:
                     self.define_motion_path_btn.setChecked(False)
+                    self._active_path_definition_target_joint_id = None # Clear if user cancels overwrite
                     return
 
-            selected_item.update_motion_path_visual(QPainterPath()) # Clear it visually and internally
-            self.editor_view.start_define_motion_path(selected_item)
-            self.statusBar().showMessage(f"Defining motion path for {selected_item.part_info.name}. Draw freely. Uncheck button or right-click to cancel.")
-        else:
-            # This is called when the button is unchecked by the user.
-            # If a path was being drawn, EditorView should finalize/cancel itself.
-            # The editor_view.finish_motion_path_drawing() handles emitting points if needed.
-            self.editor_view.finish_motion_path_drawing() # Ensure mode is exited and cleanup occurs
-            self.statusBar().showMessage("Motion path definition stopped.")
+            if dynamic_joint_data: # If proceeding with overwrite or new path
+                dynamic_joint_data['path'] = []
+                dynamic_joint_data['animation']['active'] = False
+                self._clear_visual_motion_path_for_joint(target_joint_id_for_path)
 
-        self._update_generate_mechanism_button_state()
-        self.clear_motion_path_btn.setEnabled(selected_item is not None and selected_item.motion_path is not None and not selected_item.motion_path.isEmpty())
+            self.editor_view.start_define_motion_path(None)
+            status_label = dynamic_joint_data.get('label', target_joint_id_for_path) if dynamic_joint_data else target_joint_id_for_path
+            self.statusBar().showMessage(f"Defining motion path for component {status_label}. Draw freely. Uncheck button or right-click to cancel.")
+        else:
+            # This block is called when the button is unchecked, either manually or programmatically.
+            # If path drawing was active, editor_view.finish_motion_path_drawing() will emit the path.
+            # If drawing was cancelled (e.g. right-click in view), editor_view.drawing_cancelled is emitted.
+            self.editor_view.finish_motion_path_drawing() # This will trigger _handle_freehand_path_completed if a path was drawn
+            self.statusBar().showMessage("Motion path definition stopped.")
+            self._active_path_definition_target_joint_id = None # Clear the latched target
+
+        # Update button states (clear button mainly)
+        # Use sim_selected_component_key for the clear button enable state, as it reflects current list selection
+        can_clear = False
+        current_sim_selected_key_for_clear_btn = getattr(self, 'sim_selected_component_key', None)
+        if current_sim_selected_key_for_clear_btn and current_sim_selected_key_for_clear_btn in self.sim_dynamic_joints:
+            can_clear = bool(self.sim_dynamic_joints[current_sim_selected_key_for_clear_btn].get('path'))
+        self.clear_motion_path_btn.setEnabled(can_clear)
 
     @pyqtSlot(list)
     def _handle_freehand_path_completed(self, points: list):
-        """Receives the list of QPointF from EditorView when freehand drawing is done.
-        Converts the points to a closed Bézier curve and applies it to the selected part.
+        """Receives the list of QPointF (scene coordinates) from EditorView for the NEW IK system.
+        Applies it to the sim_dynamic_joint's path that was targeted during path definition.
         """
-        logging.debug(f"MainWindow received freehand path with {len(points)} raw scene points.")
-        selected_item = self.editor_view._target_part_for_path # Get the item from EditorView state
+        logging.debug(f"[NEW_IK_PATH_COMPLETE] Received {len(points)} raw scene points.")
 
-        if selected_item and self.define_motion_path_btn.isChecked():
-            if not points:
-                selected_item.update_motion_path_visual(QPainterPath()) # Clear path
-                logging.info(f"Freehand path for '{selected_item.part_info.name}' was empty, cleared.")
-                self.statusBar().showMessage(f"Motion path for '{selected_item.part_info.name}' was empty.")
-                self._update_button_states_after_path_change(selected_item)
-                return
+        target_joint_id = getattr(self, '_active_path_definition_target_joint_id', None)
 
-            # 1. Convert raw scene points to item's local coordinates.
-            local_points_raw = [selected_item.mapFromScene(p) for p in points]
-            logging.debug(f"Converted to {len(local_points_raw)} local points.")
+        if not target_joint_id:
+            logging.warning("[NEW_IK_PATH_COMPLETE] No active path definition target joint ID. Path not applied.")
+            if self.define_motion_path_btn.isChecked():
+                self.define_motion_path_btn.setChecked(False) # This also clears _active_path_definition_target_joint_id
+            return
 
-            # 2. Simplify the points to a fixed number of control points (target: 12)
-            num_raw_points = len(local_points_raw)
-            simplified_local_points = []
+        if target_joint_id not in self.sim_dynamic_joints:
+            logging.warning(f"[NEW_IK_PATH_COMPLETE] Target IK joint ID '{target_joint_id}' (from _active_path_definition_target_joint_id) not found in sim_dynamic_joints. Path not applied.")
+            if self.define_motion_path_btn.isChecked():
+                self.define_motion_path_btn.setChecked(False)
+            return
 
-            if num_raw_points == 0:
-                # This case should ideally be caught by the `if not points:` check earlier,
-                # which handles the scenario where the input `points` list is empty.
-                logging.debug("No raw points to simplify (local_points_raw is empty).")
-            elif num_raw_points < 3:
-                # Not enough points for a meaningful Bezier curve; will likely form a polyline or single point.
-                simplified_local_points = list(local_points_raw) # Use a copy
-                logging.debug(f"Using {num_raw_points} points directly (less than 3 for Bezier).")
-            elif num_raw_points <= TARGET_CONTROL_POINTS:
-                # If the number of raw points is already at or below the target (but >= 3), use all of them.
-                simplified_local_points = list(local_points_raw) # Use a copy
-                logging.debug(f"Using all {num_raw_points} raw points as it's less than or equal to target {TARGET_CONTROL_POINTS}.")
-            else:
-                # num_raw_points > TARGET_CONTROL_POINTS. Sample exactly TARGET_CONTROL_POINTS.
-                # This method ensures the first and last points of the original path are included.
-                for i in range(TARGET_CONTROL_POINTS):
-                    # Calculate the corresponding index in the raw points list.
-                    # This maps i from [0, TARGET_CONTROL_POINTS-1] to raw_idx in [0, num_raw_points-1].
-                    raw_idx_float = i * (num_raw_points - 1) / (TARGET_CONTROL_POINTS - 1)
-                    raw_idx = int(round(raw_idx_float))
-                    # Clamp index to be safe, though it should be mathematically within bounds.
-                    raw_idx = max(0, min(raw_idx, num_raw_points - 1))
-                    simplified_local_points.append(local_points_raw[raw_idx])
-                logging.debug(f"Sampled down from {num_raw_points} to {len(simplified_local_points)} (targeted {TARGET_CONTROL_POINTS}) points.")
+        joint_to_animate = self.sim_dynamic_joints[target_joint_id]
 
-            # General log statement about the final number of simplified points.
-            logging.debug(f"Simplified from {num_raw_points} to {len(simplified_local_points)} local points.")
+        if not points or len(points) == 0: # Allow single point paths if desired, but len < 1 means no path.
+            logging.warning(f"[NEW_IK_PATH_COMPLETE] Path for IK joint '{target_joint_id}' is empty. Clearing any existing path.")
+            joint_to_animate['path'] = []
+            joint_to_animate['animation']['active'] = False
+            self._clear_visual_motion_path_for_joint(target_joint_id)
+            self._update_button_states_after_path_change_new_ik(target_joint_id)
+            if self.define_motion_path_btn.isChecked():
+                self.define_motion_path_btn.setChecked(False)
+            return
 
+        # Store the raw scene points directly
+        joint_to_animate['path'] = points
+        logging.info(f"[NEW_IK_PATH_COMPLETE] Stored {len(points)} scene points for IK joint '{target_joint_id}'.")
 
-            # 3. Generate Path (Bezier or Polyline)
-            if len(simplified_local_points) >= 3:
-                bezier_path = points_to_closed_bezier_path(simplified_local_points)
-                if not bezier_path.isEmpty():
-                    selected_item.update_motion_path_visual(bezier_path)
-                    logging.info(f"Closed Bézier motion path set for '{selected_item.part_info.name}' from {len(simplified_local_points)} points.")
-                    self.statusBar().showMessage(f"Bézier motion path defined for '{selected_item.part_info.name}'.")
-                else: # Bezier generation failed
-                    selected_item.update_motion_path_visual(QPainterPath()) # Clear path
-                    logging.warning(f"Failed to generate Bézier path for '{selected_item.part_info.name}' (using {len(simplified_local_points)} points), path cleared.")
-                    self.statusBar().showMessage(f"Could not generate Bézier path for '{selected_item.part_info.name}'.")
-            elif simplified_local_points: # 1 or 2 points
-                path = QPainterPath()
-                path.moveTo(simplified_local_points[0])
-                for point_local in simplified_local_points[1:]:
-                    path.lineTo(point_local)
-                selected_item.update_motion_path_visual(path)
-                logging.info(f"Polyline motion path ({len(simplified_local_points)} points, not enough for Bézier) set for '{selected_item.part_info.name}'.")
-                self.statusBar().showMessage(f"Simple path defined for '{selected_item.part_info.name}'.")
-            else: # No points left
-                selected_item.update_motion_path_visual(QPainterPath())
-                logging.info(f"Path for '{selected_item.part_info.name}' became empty after processing, cleared.")
-                self.statusBar().showMessage(f"Motion path for '{selected_item.part_info.name}' was empty or invalid.")
+        path_length = 0.0
+        if len(points) > 1:
+            for i in range(len(points) - 1):
+                p1 = points[i]
+                p2 = points[i+1]
+                path_length += QLineF(p1, p2).length()
+        joint_to_animate['animation']['pathLength'] = path_length
+
+        is_closed = False
+        if len(points) > 1:
+            start_pt = points[0]
+            end_pt = points[-1]
+            if QLineF(start_pt, end_pt).length() < 5.0: # Threshold for considering path closed
+                is_closed = True
+        joint_to_animate['animation']['isClosedLoop'] = is_closed
+
+        joint_to_animate['animation']['active'] = True
+        joint_to_animate['animation']['progress'] = 0.0
+        joint_to_animate['animation']['direction'] = 1
+        # Speed is typically a global or per-joint setting, defaulting in _initialize_sim_dynamic_joints
+
+        logging.info(f"[NEW_IK_PATH_COMPLETE] Motion path set for IK joint '{joint_to_animate.get('label', target_joint_id)}'. Length: {path_length:.2f}, Closed: {is_closed}")
+        self.statusBar().showMessage(f"Motion path defined for '{joint_to_animate.get('label', target_joint_id)}'.")
+
+        self._draw_visual_motion_path_for_joint(target_joint_id)
+        self._update_button_states_after_path_change_new_ik(target_joint_id)
+
+        if self.define_motion_path_btn.isChecked():
+            self.define_motion_path_btn.setChecked(False) # This will call _toggle_define_motion_path_mode(False) which clears _active_path_definition_target_joint_id
+
+    # Ensure a corresponding _update_button_states_after_path_change_new_ik method exists or rename the call
+    def _update_button_states_after_path_change_new_ik(self, target_joint_id: Optional[str]):
+        """Helper to update button states related to motion path for new IK system."""
+        can_clear = False
+        if target_joint_id and target_joint_id in self.sim_dynamic_joints:
+            can_clear = bool(self.sim_dynamic_joints[target_joint_id].get('path'))
+
+        # Ensure self.clear_motion_path_btn is accessible, e.g., self.editor_tab.clear_motion_path_btn if it's on a tab
+        # Assuming self.clear_motion_path_btn is directly accessible for now:
+        if hasattr(self, 'clear_motion_path_btn'):
+             self.clear_motion_path_btn.setEnabled(can_clear)
+        elif hasattr(self, 'editor_tab') and hasattr(self.editor_tab, 'clear_motion_path_btn'):
+             self.editor_tab.clear_motion_path_btn.setEnabled(can_clear)
         else:
-            logging.warning("Could not set motion path: No selected item or define mode not active.")
-            if selected_item: # If define mode was just unchecked, clear path on item.
-                 selected_item.update_motion_path_visual(QPainterPath())
-
-        self._update_button_states_after_path_change(selected_item) # Ensure this is called
-
-    def _update_button_states_after_path_change(self, selected_item: Optional[CharacterPartItem]):
-        """Helper to update button states related to motion path after a change."""
-        if selected_item:
-            self.clear_motion_path_btn.setEnabled(selected_item.motion_path is not None and not selected_item.motion_path.isEmpty())
-        else:
-            self.clear_motion_path_btn.setEnabled(False)
+            logging.warning("_update_button_states_after_path_change_new_ik: clear_motion_path_btn not found.")
 
     def _clear_selected_item_motion_path(self):
         """Clears the motion path for the currently selected CharacterPartItem."""
@@ -2203,7 +1761,7 @@ class AutomataDesigner(QMainWindow):
             logging.info(f"Toolbar visibility set to: {visible}")
 
     def _toggle_part_properties_visibility(self, checked: bool):
-        """Shows or hides the 'Selected Part Properties' group box."""
+        """Shows or hides the \'Selected Part Properties\' group box."""
         if hasattr(self, 'part_properties_group') and self.part_properties_group is not None:
             self.part_properties_group.setVisible(checked)
             # The QAction text update is no longer needed as this will be controlled by OptionsTab checkbox
@@ -2901,7 +2459,7 @@ class AutomataDesigner(QMainWindow):
         # Ensure animation_duration is not zero to prevent division errors
         current_animation_duration = self.animation_duration
         if current_animation_duration <= 0:
-            current_animation_duration = 0.5 # Use a very small positive default if it's zero or negative
+            current_animation_duration = 3000
 
         progress = (self.animation_time % current_animation_duration) / current_animation_duration
 
@@ -3891,3 +3449,344 @@ class AutomataDesigner(QMainWindow):
         if make_original_visible and self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
             self.image_proc_view.image_item.setVisible(True)
             logging.debug("Restored original image visibility in image_proc_view after clearing body parts.")
+
+    def _update_character_part_visuals(self):
+        """Simplified visual update for debugging initial pose.
+        Places each part centered at its primary (parent) joint, with 0 rotation and scale 1.
+        The Torso is centered on the 'j_neck_base' joint.
+        """
+        logging.info("[DEBUG_VISUALS] Using SIMPLIFIED _update_character_part_visuals for initial pose.")
+
+        for joint_id_of_child, limb_config in self.sim_limb_configs.items(): # e.g. limb_config for 'head' part is keyed by 'j_head'
+            part_name = limb_config.get('partName')
+            if not part_name or part_name not in self.editor_items:
+                logging.warning(f"[DEBUG_VISUALS] Part '{part_name}' for limb config key '{joint_id_of_child}' not in editor_items. Skipping.")
+                continue
+
+            character_part_item = self.editor_items[part_name]
+
+            key_joint_id = limb_config.get('parentAnchor') or limb_config.get('parentJoint')
+
+            if not key_joint_id or key_joint_id not in self.sim_dynamic_joints:
+                logging.warning(f"[DEBUG_VISUALS] Key joint ID '{key_joint_id}' for part '{part_name}' not found in sim_dynamic_joints. Skipping.")
+                continue
+
+            key_joint_dynamic_data = self.sim_dynamic_joints[key_joint_id]
+            key_joint_scene_pos = QPointF(key_joint_dynamic_data['x'], key_joint_dynamic_data['y'])
+
+            character_part_item.setRotation(0)
+            character_part_item.setScale(1.0)
+
+            item_local_center = character_part_item.boundingRect().center()
+            item_target_pos = key_joint_scene_pos - item_local_center
+            character_part_item.setPos(item_target_pos)
+
+            logging.info(f"[DEBUG_VISUALS] Part: {part_name} (Child IK Joint for config: {joint_id_of_child})")
+            logging.info(f"  Associated Key Joint ID (parent/proximal): {key_joint_id}")
+            logging.info(f"  Key Joint Scene Pos: {key_joint_scene_pos}")
+            logging.info(f"  Item Local Center: {item_local_center}")
+            logging.info(f"  Set Item Rotation: 0 deg, Scale: 1.0")
+            logging.info(f"  Final Item Pos (setPos): {item_target_pos}")
+
+        # Handle Torso positioning centered on j_neck_base
+        torso_actual_name = self.ik_part_to_actual_part_name.get('torso', 'torso')
+        torso_item = self.editor_items.get(torso_actual_name)
+        if torso_item:
+            torso_item.setRotation(0)
+            torso_item.setScale(1.0)
+
+            j_neck_base_dynamic_data = self.sim_dynamic_joints.get('j_neck_base')
+            if j_neck_base_dynamic_data:
+                j_neck_base_scene_pos = QPointF(j_neck_base_dynamic_data['x'], j_neck_base_dynamic_data['y'])
+                torso_local_center = torso_item.boundingRect().center()
+                torso_target_pos = j_neck_base_scene_pos - torso_local_center
+                torso_item.setPos(torso_target_pos)
+                logging.info(f"[DEBUG_VISUALS] Torso: {torso_actual_name} centered on j_neck_base at {j_neck_base_scene_pos}. Set Pos: {torso_target_pos}, Rotation: 0, Scale: 1.0")
+            else:
+                logging.warning(f"[DEBUG_VISUALS] Torso: 'j_neck_base' not found in sim_dynamic_joints. Cannot center torso part. Current Pos: {torso_item.pos()}")
+        else:
+            logging.warning(f"[DEBUG_VISUALS] Torso part '{torso_actual_name}' not found in editor_items.")
+
+        self.editor_scene.update()
+
+    # --- End New IK System Data ---
+
+    # --- Property for sim_dynamic_joints to debug access ---
+    @property
+    def sim_dynamic_joints(self) -> Dict[str, Dict[str, Any]]:
+        # logging.debug("[ATTR_DEBUG] sim_dynamic_joints GETTER called.")
+        if not hasattr(self, '_sim_dynamic_joints_data'):
+            # This case should ideally not happen if __init__ ran correctly.
+            logging.error("[ATTR_DEBUG] GETTER: _sim_dynamic_joints_data is MISSING. Re-initializing.")
+            self._sim_dynamic_joints_data = {}
+        return self._sim_dynamic_joints_data
+
+    @sim_dynamic_joints.setter
+    def sim_dynamic_joints(self, value: Dict[str, Dict[str, Any]]):
+        logging.critical("[ATTR_DEBUG] sim_dynamic_joints SETTER called! Assigning new dict. Length: %s", len(value) if value is not None else 'None')
+        self._sim_dynamic_joints_data = value
+
+    @sim_dynamic_joints.deleter
+    def sim_dynamic_joints(self):
+        logging.critical("[ATTR_DEBUG] sim_dynamic_joints DELETER called!")
+        if hasattr(self, '_sim_dynamic_joints_data'):
+            del self._sim_dynamic_joints_data
+        else:
+            logging.warning("[ATTR_DEBUG] DELETER: _sim_dynamic_joints_data was already missing.")
+    # --- End Property for sim_dynamic_joints ---
+
+    # --- UI Initialization ---
+
+    def _initialize_sim_dynamic_joints(self):
+        """Initializes the runtime state of sim_dynamic_joints based on scene_joints_snapshot and configs."""
+        # self.sim_dynamic_joints = {} # Old direct assignment, now handled by property setter at the end
+        temp_dynamic_joints = {} # Build the dictionary locally
+        logging.info(f"Initializing sim_dynamic_joints. Have scene_joints_snapshot with {len(self.scene_joints_snapshot)} entries.")
+
+        if not self.scene_joints_snapshot:
+            logging.error("Cannot initialize sim_dynamic_joints: self.scene_joints_snapshot is empty. Make sure _initialize_new_ik_skeleton_definitions populates it.")
+            # Assign empty dict through setter if snapshot is missing, to ensure attribute exists
+            logging.info("[ATTR_DEBUG] Calling sim_dynamic_joints setter with empty dict due to missing snapshot.")
+            self.sim_dynamic_joints = {}
+            return
+
+        all_potential_joint_ids = set(self.sim_joints_config.keys()) | set(self.sim_limb_configs.keys())
+
+        for joint_id in all_potential_joint_ids:
+            initial_pos = self.scene_joints_snapshot.get(joint_id)
+            if not initial_pos:
+                logging.warning(f"Dynamic Joints Init: Initial position for joint_id '{joint_id}' not found in self.scene_joints_snapshot. Skipping.")
+                continue
+
+            abs_x = initial_pos.x()
+            abs_y = initial_pos.y()
+            is_anchor = joint_id in self.sim_joints_config
+
+            base_data = {
+                'id': joint_id,
+                'x': abs_x, 'y': abs_y,
+                'initial_x': abs_x, 'initial_y': abs_y,
+                'isAnchor': is_anchor
+            }
+            # ... (rest of the logic to populate base_data based on anchor/limb config) ...
+            if is_anchor:
+                anchor_config = self.sim_joints_config[joint_id]
+                base_data['label'] = anchor_config.get('label', joint_id)
+                base_data['partName'] = anchor_config.get('partName')
+            elif joint_id in self.sim_limb_configs:
+                limb_config = self.sim_limb_configs[joint_id]
+                base_data['label'] = limb_config.get('label', joint_id)
+                base_data['partName'] = limb_config.get('partName')
+                base_data['initial_angle'] = limb_config.get('angle', 0.0)
+                base_data['length'] = limb_config.get('length', 0.0)
+                base_data['parentAnchorId'] = limb_config.get('parentAnchor')
+                base_data['parentJointId'] = limb_config.get('parentJoint')
+                base_data['path'] = []
+                base_data['animation'] = {
+                    'active': False, 'progress': 0, 'direction': 1, 'speed': 2.0,
+                    'isClosedLoop': False, 'pathLength': 0
+                }
+            else:
+                logging.error(f"Joint ID {joint_id} is neither in sim_joints_config nor sim_limb_configs during dynamic joint init.")
+                continue
+
+            temp_dynamic_joints[joint_id] = base_data
+
+        logging.info(f"[ATTR_DEBUG] Calling sim_dynamic_joints setter with fully populated dict of size {len(temp_dynamic_joints)}.")
+        self.sim_dynamic_joints = temp_dynamic_joints # This will call the property setter
+
+        logging.info(f"Initialized {len(self.sim_dynamic_joints)} dynamic joints for new IK system from scene_joints_snapshot.")
+
+    def _populate_ik_component_list_ui(self):
+        """Populates the parts_list QListWidget with selectable components for the new IK system."""
+        self.parts_list.clear()
+        logging.info(f"Populating IK component list UI. Available selectable components: {len(self.sim_selectable_components)}")
+        for comp_def in self.sim_selectable_components:
+            list_item = QListWidgetItem(comp_def['name'])
+            stored_data_for_user_role = comp_def['targetJointId']
+            list_item.setData(Qt.ItemDataRole.UserRole, stored_data_for_user_role)
+
+
+            self.parts_list.addItem(list_item)
+            if comp_def['name'] == 'Head': # Specific log for debugging this case
+                logging.info(f"[POPULATE_DEBUG] For 'Head', comp_def details: {comp_def}")
+                logging.info(f"[POPULATE_DEBUG] For 'Head', stored UserRole data (targetJointId): '{stored_data_for_user_role}'")
+            if comp_def['name'] == 'Left Forearm':
+                logging.info(f"[POPULATE_DEBUG] For 'Left Forearm', comp_def details: {comp_def}")
+                logging.info(f"[POPULATE_DEBUG] For 'Left Forearm', stored UserRole data (targetJointId): '{stored_data_for_user_role}'")
+        logging.info(f"Finished populating IK component list UI with {len(self.parts_list)} items.")
+
+    def _initialize_new_ik_skeleton_definitions(self):
+        """Initializes IK data structures using loaded parts_info.json and CharacterPartItems,
+        making joint coordinates relative to the torso's neck, then placing this relative skeleton
+        at the torso's current scene position.
+        """
+        logging.info("Attempting to initialize NEW IK skeleton definitions (Relative to Torso Neck Approach)...")
+
+        if not self.current_parts_info_data or not self.editor_items:
+            logging.warning("Cannot initialize IK definitions: current_parts_info_data or editor_items not available.")
+            self.sim_joints_config = {}
+            self.sim_limb_lengths = {}
+            self.sim_limb_configs = {}
+            self.scene_joints_snapshot = {}
+            self.sim_selectable_components = []
+            self.sim_two_bone_ik_effectors = []
+            self.sim_joint_bend_directions = {}
+            self._initialize_sim_dynamic_joints()
+            self._populate_ik_component_list_ui()
+            return
+
+        joint_map_texture = self.current_parts_info_data.get('joint_map', {})
+        if not joint_map_texture:
+            logging.error("joint_map not found in current_parts_info_data. Cannot define IK skeleton.")
+            return
+
+        torso_actual_name = self.ik_part_to_actual_part_name.get('torso')
+        torso_item = self.editor_items.get(torso_actual_name)
+        if not torso_item:
+            logging.error("Torso CharacterPartItem not found. Cannot define IK skeleton relative to torso.")
+            return
+
+        torso_scene_ref_pos = torso_item.pos()
+        logging.info(f"Using Torso '{torso_actual_name}' at scene reference position: {torso_scene_ref_pos} for placing the relative skeleton.")
+
+        neck_json_key = self.ik_to_json_joint_map_config.get('j_neck_base', 'neck')
+        if neck_json_key not in joint_map_texture:
+            logging.error(f"Key '{neck_json_key}' (for j_neck_base) not found in joint_map. Cannot establish texture origin offset.")
+            return
+
+        neck_texture_coords_raw = joint_map_texture[neck_json_key]
+        if not isinstance(neck_texture_coords_raw, list) or len(neck_texture_coords_raw) != 2:
+            logging.error(f"Invalid texture coordinates for '{neck_json_key}': {neck_texture_coords_raw}. Cannot establish texture origin.")
+            return
+        texture_space_origin_for_relative_skeleton = QPointF(float(neck_texture_coords_raw[0]), float(neck_texture_coords_raw[1]))
+        logging.info(f"Texture space origin for relative skeleton (from '{neck_json_key}' in joint_map) is: {texture_space_origin_for_relative_skeleton}")
+
+        self.scene_joints_snapshot = {}
+        for ik_joint_id, json_key_for_map in self.ik_to_json_joint_map_config.items():
+            if json_key_for_map in joint_map_texture:
+                raw_tex_coords_list_for_joint = joint_map_texture[json_key_for_map]
+                if not isinstance(raw_tex_coords_list_for_joint, list) or len(raw_tex_coords_list_for_joint) != 2:
+                    logging.warning(f"Invalid raw texture_coords for '{json_key_for_map}': {raw_tex_coords_list_for_joint}. Skipping for {ik_joint_id}.")
+                    continue
+                joint_texture_qpoint = QPointF(float(raw_tex_coords_list_for_joint[0]), float(raw_tex_coords_list_for_joint[1]))
+                joint_relative_to_texture_origin = joint_texture_qpoint - texture_space_origin_for_relative_skeleton
+                self.scene_joints_snapshot[ik_joint_id] = torso_scene_ref_pos + joint_relative_to_texture_origin
+                logging.debug(f"  Scene joint {ik_joint_id} (from json '{json_key_for_map}'): joint_tex_pos={joint_texture_qpoint}, rel_to_tex_origin={joint_relative_to_texture_origin}, final_scene_pos={self.scene_joints_snapshot[ik_joint_id]}" )
+            else:
+                logging.warning(f"Joint key '{json_key_for_map}' for IK joint '{ik_joint_id}' not found in joint_map.")
+
+        if 'j_neck_base' in self.scene_joints_snapshot:
+            neck_scene_pos = self.scene_joints_snapshot['j_neck_base']
+            logging.info(f"For head calculation: neck_scene_pos (j_neck_base) is {neck_scene_pos}. (Should match torso_scene_ref_pos: {torso_scene_ref_pos})")
+            head_length_estimate = 50.0
+            logging.info(f"[DEBUG] Using FIXED head_length_estimate for j_head: {head_length_estimate}")
+            logging.info(f"[PINPOINT DEBUG] For j_head calculation: neck_scene_pos.y() = {neck_scene_pos.y()}, head_length_estimate = {head_length_estimate}")
+            new_j_head_y = neck_scene_pos.y() - head_length_estimate
+            logging.info(f"[PINPOINT DEBUG] Calculated new_j_head_y for j_head: {new_j_head_y}")
+            self.scene_joints_snapshot['j_head'] = QPointF(neck_scene_pos.x(), new_j_head_y)
+            logging.info(f"Estimated IK joint 'j_head' (distal point) at {self.scene_joints_snapshot['j_head']} (using length: {head_length_estimate} from j_neck_base at {neck_scene_pos})")
+        else:
+            logging.error("Neck base ('j_neck_base') not in self.scene_joints_snapshot. Cannot estimate head tip for 'j_head'. Critical error.")
+            return
+
+        self.sim_joints_config = {}
+        torso_scene_origin_for_anchor_offsets = torso_item.pos()
+        logging.info(f"Torso '{torso_actual_name}' scene origin for ANCHOR OFFSETS calculation: {torso_scene_origin_for_anchor_offsets}")
+        anchor_ik_ids_on_torso = ['j_neck_base', 'j_left_shoulder', 'j_right_shoulder', 'j_left_hip', 'j_right_hip']
+        for ik_id in anchor_ik_ids_on_torso:
+            if ik_id in self.scene_joints_snapshot:
+                anchor_final_scene_pos = self.scene_joints_snapshot[ik_id]
+                offset_x = anchor_final_scene_pos.x() - torso_scene_origin_for_anchor_offsets.x()
+                offset_y = anchor_final_scene_pos.y() - torso_scene_origin_for_anchor_offsets.y()
+                self.sim_joints_config[ik_id] = {
+                    'xOffset': offset_x, 'yOffset': offset_y,
+                    'label': ik_id,
+                    'partName': torso_actual_name
+                }
+                logging.info(f"Defined sim_joint_config for anchor {ik_id}: final_scene_pos={anchor_final_scene_pos}, offset_from_torso_origin=({offset_x:.2f}, {offset_y:.2f})")
+            else:
+                logging.error(f"Scene position for essential anchor IK joint '{ik_id}' not found in scene_joints_snapshot. Skipping anchor config for it.")
+
+        self.sim_limb_lengths = {}
+        self.sim_limb_configs = {}
+        limb_segment_definitions = [
+            ('j_head',        'j_neck_base',     'head_len',   'head',            'Head',            'j_head',                'j_neck_base'),
+            ('j_left_elbow',  'j_left_shoulder', 'lu_arm_len', 'left_upper_arm',  'Left Upper Arm',  'j_left_elbow',          'j_left_shoulder'),
+            ('j_left_wrist',  'j_left_elbow',    'll_arm_len', 'left_forearm',    'Left Forearm',    'j_left_wrist',          'j_left_elbow'),
+            ('j_right_elbow', 'j_right_shoulder','ru_arm_len', 'right_upper_arm', 'Right Upper Arm', 'j_right_elbow',         'j_right_shoulder'),
+            ('j_right_wrist', 'j_right_elbow',   'rl_arm_len', 'right_forearm',   'Right Forearm',   'j_right_wrist',         'j_right_elbow'),
+            ('j_left_knee',   'j_left_hip',      'l_thigh_len','left_thigh',      'Left Thigh',      'j_left_knee',           'j_left_hip'),
+            ('j_left_ankle',  'j_left_knee',     'l_calf_len', 'left_calf',       'Left Calf',       'j_left_ankle',          'j_left_knee'),
+            ('j_right_knee',  'j_right_hip',     'r_thigh_len','right_thigh',     'Right Thigh',     'j_right_knee',          'j_right_hip'),
+            ('j_right_ankle', 'j_right_knee',    'r_calf_len', 'right_calf',      'Right Calf',      'j_right_ankle',         'j_right_knee'),
+        ]
+
+        logging.info(f"[LIMB_CONFIG_LOOP_DEBUG] Starting loop to define sim_limb_configs. Number of definitions: {len(limb_segment_definitions)}")
+
+        for child_ik_id, parent_ik_id, length_key, ik_part_concept, label, scene_child_key, scene_parent_key in limb_segment_definitions:
+            actual_part_name = self.ik_part_to_actual_part_name.get(ik_part_concept)
+            if not actual_part_name:
+                logging.warning(f"No actual part name mapping for IK concept '{ik_part_concept}'. Skipping limb {child_ik_id}.")
+                continue
+            if scene_child_key in self.scene_joints_snapshot and scene_parent_key in self.scene_joints_snapshot:
+                child_final_scene_pos = self.scene_joints_snapshot[scene_child_key]
+                parent_final_scene_pos = self.scene_joints_snapshot[scene_parent_key]
+                dx_len = child_final_scene_pos.x() - parent_final_scene_pos.x()
+                dy_len = child_final_scene_pos.y() - parent_final_scene_pos.y()
+                length = math.sqrt(dx_len**2 + dy_len**2)
+                if length < 1.0:
+                    logging.warning(f"Calculated length for {length_key} ({actual_part_name}) is near zero ({length:.2f}). Using default of 10. ChildPos: {child_final_scene_pos}, ParentPos: {parent_final_scene_pos}")
+                    length = 10.0
+                self.sim_limb_lengths[length_key] = length
+                angle = math.atan2(dy_len, dx_len)
+                parent_type_key = 'parentAnchor' if parent_ik_id in self.sim_joints_config else 'parentJoint'
+                self.sim_limb_configs[child_ik_id] = {
+                    parent_type_key: parent_ik_id,
+                    'angle': angle,
+                    'lengthKey': length_key,
+                    'length': length,
+                    'label': label,
+                    'partName': actual_part_name
+                }
+                logging.info(f"Defined sim_limb_config for {child_ik_id} (Part: {actual_part_name}), Parent: {parent_ik_id}, Length: {length:.2f}, Angle(rad): {angle:.2f}, ChildScene: {child_final_scene_pos}, ParentScene: {parent_final_scene_pos}")
+            else:
+                missing_keys_info = []
+                if scene_child_key not in self.scene_joints_snapshot: missing_keys_info.append(f"child '{scene_child_key}'")
+                if scene_parent_key not in self.scene_joints_snapshot: missing_keys_info.append(f"parent '{scene_parent_key}'")
+                logging.error(f"Missing scene positions for limb segment {parent_ik_id} -> {child_ik_id}. Keys missing: {', '.join(missing_keys_info)}. Cannot define limb. Skipping.")
+
+        logging.info(f"[CRITICAL_DEBUG] After loop, sim_limb_configs: {self.sim_limb_configs}")
+
+        logging.info(f"[SELECTABLE_DEBUG] Intermediate sim_limb_configs: {self.sim_limb_configs}") # Log before populating selectable_components
+        self.sim_selectable_components = []
+        for ik_joint_id, limb_config_entry in self.sim_limb_configs.items():
+            parent_joint_id_for_limb = limb_config_entry.get('parentAnchor') or limb_config_entry.get('parentJoint')
+            if limb_config_entry.get('label') and limb_config_entry.get('partName') and parent_joint_id_for_limb:
+                component_to_add = {
+                    'name': limb_config_entry['label'],
+                    'targetJointId': ik_joint_id,
+                    'pivotJointId': parent_joint_id_for_limb,
+                    'partName': limb_config_entry['partName']
+                }
+                self.sim_selectable_components.append(component_to_add)
+                # Removed specific [SELECTABLE_CREATION_DEBUG] for Head to avoid tool conflict, covered by next log.
+
+        logging.info(f"[SELECTABLE_DEBUG] Fully populated sim_selectable_components: {self.sim_selectable_components}") # Log the entire list after population
+
+        logging.info(f"[CRITICAL_DEBUG] After loop, sim_selectable_components: {self.sim_selectable_components}")
+
+
+        self.sim_two_bone_ik_effectors = ['j_left_wrist', 'j_right_wrist', 'j_left_ankle', 'j_right_ankle']
+        self.sim_joint_bend_directions = {
+            'j_left_elbow': -1, 'j_right_elbow': 1,
+            'j_left_knee': 1,  'j_right_knee': 1
+        }
+
+        logging.info(f"Final scene_joints_snapshot (Relative Approach): {self.scene_joints_snapshot}")
+        logging.info(f"Final sim_joints_config (Relative Approach): {self.sim_joints_config}")
+        logging.info(f"Final sim_limb_lengths (Relative Approach): {self.sim_limb_lengths}")
+        logging.info(f"Final sim_limb_configs (Relative Approach): {self.sim_limb_configs}")
+
+        self._initialize_sim_dynamic_joints()
+        self._populate_ik_component_list_ui()
