@@ -328,3 +328,5 @@ examples/peppa/body_parts_output/
 .cursorignore
 src/automataii/examples/
 *.svg
+*.yaml
+*.html
