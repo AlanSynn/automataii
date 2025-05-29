@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QGroupBox, QComboBox, QDoubleSpinBox, QCheckBox,
-    QFormLayout, QListWidget, QScrollArea, QSizePolicy, QLabel
+    QFormLayout, QListWidget, QScrollArea, QSizePolicy, QLabel, QApplication, QStyle
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
@@ -205,6 +205,16 @@ class EditorTab(QWidget):
         self.main_window.save_alignment_btn.setEnabled(False)
         alignment_layout.addWidget(self.main_window.save_alignment_btn)
         panel_layout.addWidget(alignment_group)
+
+        # Animation Controls Group
+        animation_controls_group = QGroupBox("Animation Controls")
+        animation_controls_layout = QVBoxLayout(animation_controls_group)
+        self.reset_all_animations_btn = QPushButton("Reset All Animations")
+        self.reset_all_animations_btn.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton))
+        self.reset_all_animations_btn.setToolTip("Clears all drawn motion paths and resets character pose to initial.")
+        animation_controls_layout.addWidget(self.reset_all_animations_btn)
+        animation_controls_layout.addWidget(self.main_window.reset_sim_btn)
+        panel_layout.addWidget(animation_controls_group)
 
         panel_layout.addStretch()
         scroll_area.setWidget(control_panel)

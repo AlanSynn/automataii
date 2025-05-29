@@ -99,9 +99,9 @@ class AutomataDesigner(QMainWindow):
         # --- Data Storage ---
         self.parts = {} # part_name: PartInfo
         self.editor_items = {} # part_name: CharacterPartItem (in editor scene)
-        self.simulation_items = {} # part_name: CharacterPartItem (in simulation scene)
+        # self.simulation_items = {} # part_name: CharacterPartItem (in simulation scene) # Not used by new system
         self.joints = [] # List of Joint objects
-        self.kinematic_chains = {} # end_effector_name: list[CharacterPartItem]
+        # self.kinematic_chains = {} # REMOVED
         self.mechanism_visuals = {} # layer_name: list[QGraphicsItem]
         self.layer_checkboxes = {} # layer_name: QCheckBox
         self._body_parts_viz_items = [] # List of visualization items for body parts under skeleton
@@ -144,11 +144,11 @@ class AutomataDesigner(QMainWindow):
         self.character_dir = None
         self.skeleton_data = None # Loaded skeleton dict
 
-        # Simulation Timer
-        self.timer = QTimer(self)
-        self.timer.setInterval(30) # Approx 33 FPS
-        self.timer.timeout.connect(self.update_simulation)
-        self.animation_time = 0.0
+        # IK Animation Timer (New)
+        self.ik_animation_timer = QTimer(self)
+        self.ik_animation_timer.setInterval(30) # Approx 33 FPS
+        self.ik_animation_timer.timeout.connect(self._run_ik_animation_step) # Connect to new animation step
+        self.ik_animation_speed = 0.5 # Default animation speed, similar to JS example
         self.animation_duration = 3000
 
         # --- Toolbar Reference ---
@@ -156,9 +156,6 @@ class AutomataDesigner(QMainWindow):
 
         # Tracking active dialogs
         self.active_camera_dialogs = []
-
-        # Store initial rotations for fixed orientation animation
-        self.initial_part_rotations: Dict[str, float] = {}
 
         # --- Stylesheet Data --- (No longer need _define_stylesheets method)
         self.light_style = LIGHT_STYLE
@@ -173,21 +170,45 @@ class AutomataDesigner(QMainWindow):
         self._load_custom_fonts()
 
         # Setup UI, Menus, Toolbar, and connections
-        self._init_ui() # Applies initial theme
-        self._create_menus()
-        self._create_toolbar()
-        self._connect_ui_actions()
+        self._init_ui() # This creates self.editor_tab and other UI elements
+        self._create_menus() # Defines QActions and populates menubar
+        self._create_toolbar() # Defines QActions or uses existing ones for toolbar
+        self._connect_ui_actions() # Connects all signals now that UI and actions exist
 
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
 
         self.scene_joints_snapshot = {} # Will store the calculated scene_joints from _initialize_new_ik_skeleton_definitions
         self.ik_part_to_actual_part_name = {
-            # ... (existing ik_part_to_actual_part_name content)
+            'head': 'head',
+            'torso': 'torso',
+            'left_upper_arm': 'left_arm_upper',
+            'left_forearm': 'left_arm_lower',
+            'right_upper_arm': 'right_arm_upper',
+            'right_forearm': 'right_arm_lower',
+            'left_thigh': 'left_leg_upper',
+            'left_calf': 'left_leg_lower',
+            'right_thigh': 'right_leg_upper',
+            'right_calf': 'right_leg_lower'
         }
         self._active_path_definition_target_joint_id: Optional[str] = None # Stores the joint ID while path definition is active
-        self.ik_to_json_joint_map_config = {
-            # ... (existing ik_to_json_joint_map_config content)
+        self.ik_to_json_joint_map_config = { # Maps our IK joint IDs to keys in the char_cfg.yaml/joint_map
+            'j_neck_base': 'neck',      # Anchor
+            'j_left_shoulder': 'left_shoulder', # Anchor
+            'j_right_shoulder': 'right_shoulder',# Anchor
+            'j_left_hip': 'left_hip',      # Anchor
+            'j_right_hip': 'right_hip',     # Anchor
+
+            'j_head': 'neck',          # Distal end for head (uses neck as its proximal point from char_cfg)
+                                        # Actual j_head position will be calculated based on neck_base + head_length
+            'j_left_elbow': 'left_elbow',
+            'j_left_wrist': 'left_hand',
+            'j_right_elbow': 'right_elbow',
+            'j_right_wrist': 'right_hand',
+            'j_left_knee': 'left_knee',
+            'j_left_ankle': 'left_foot',
+            'j_right_knee': 'right_knee',
+            'j_right_ankle': 'right_foot'
         }
 
         # --- New IK System Data ---
@@ -223,8 +244,8 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.addTab(image_proc_tab, "Character Selection")
 
         # --- Tab 2: Editor & Simulation ---
-        editor_tab = EditorTab(self) # Pass self (main_window)
-        self.tab_widget.addTab(editor_tab, "Mechanism Design")
+        self.editor_tab = EditorTab(self) # Pass self (main_window) - Assign to self.editor_tab
+        self.tab_widget.addTab(self.editor_tab, "Mechanism Design")
 
         # --- Tab 3: Options ---
         self.options_tab = OptionsTab(initial_anim_duration=self.animation_duration)
@@ -349,18 +370,21 @@ class AutomataDesigner(QMainWindow):
         self.fixed_part_check.stateChanged.connect(self._update_selected_part_fixed)
         self.define_motion_path_btn.toggled.connect(self._toggle_define_motion_path_mode)
         self.clear_motion_path_btn.clicked.connect(self._clear_selected_item_motion_path)
-        # self.define_joint_btn.toggled.connect(self._toggle_define_joint_mode)
-        # self.show_skeleton_btn.toggled.connect(self._show_skeleton_and_joints)
-        # self.define_motion_btn.toggled.connect(self._toggle_define_motion_path_mode) # REMOVED - define_motion_btn is removed
-        # self.set_cam_center_btn.clicked.connect(self._start_cam_center_selection)
-        # self.set_cam_follower_btn.clicked.connect(self.set_cam_follower)
-        self.generate_mechanism_btn.clicked.connect(self._generate_mechanism_auto) # 변경된 버튼에 연결
+
+        self.generate_mechanism_btn.clicked.connect(self._generate_mechanism_auto)
         self.mechanism_type_combo.currentTextChanged.connect(self._update_mechanism_inputs_ui)
         self.mechanism_type_combo.currentTextChanged.connect(self._update_generate_mechanism_button_state) # Also update button state on type change
-        self.play_btn.clicked.connect(self.play_simulation)
-        self.stop_btn.clicked.connect(self.stop_simulation)
-        self.reset_sim_btn.clicked.connect(self.reset_simulation)
+        # Connect new IK animation buttons
+        self.play_btn.clicked.connect(self._start_ik_animation)
+        self.stop_btn.clicked.connect(self._stop_ik_animation)
+        self.reset_sim_btn.clicked.connect(self._reset_ik_animation_state)
         self.blueprint_btn.clicked.connect(self.generate_blueprint)
+
+        # Connect the new "Reset All Animations" button from EditorTab
+        if hasattr(self.editor_tab, 'reset_all_animations_btn'): # editor_tab is an instance of EditorTab
+            self.editor_tab.reset_all_animations_btn.clicked.connect(self._reset_all_animations_button_clicked)
+        else:
+            logging.warning("EditorTab does not have 'reset_all_animations_btn'. Connection failed.")
 
         # Character Alignment Button
         self.save_alignment_btn.clicked.connect(self.save_character_alignment)
@@ -1002,11 +1026,13 @@ class AutomataDesigner(QMainWindow):
                 with open(filepath, 'r') as f:
                     loaded_data = json.load(f)
                 base_path = os.path.dirname(filepath)
+                self.current_parts_info_data = loaded_data # <--- SET THE ATTRIBUTE HERE
             else: # Loading from parts_data dictionary
                 logging.info("Loading parts from provided data dictionary.")
                 loaded_data = parts_data
                 # Assume base path is character_dir if loading from data
                 base_path = self.character_dir or "." # Use current dir as fallback
+                self.current_parts_info_data = loaded_data # <--- AND HERE FOR CONSISTENCY
 
             # Clear existing editor state
             self._clear_editor_state()
@@ -1299,14 +1325,18 @@ class AutomataDesigner(QMainWindow):
 
             self.statusBar().showMessage(f"Loaded {len(self.parts)} parts and {len(self.joints)} joints.")
 
-            # Populate initial rotations after parts are loaded
-            self.initial_part_rotations.clear()
-            for name, item in self.editor_items.items():
-                self.initial_part_rotations[name] = item.rotation()
-            logging.info(f"Stored initial rotations for {len(self.initial_part_rotations)} parts.")
-
             # Enable alignment button after parts are loaded
             self.save_alignment_btn.setEnabled(True)
+
+            # --- Initialize the NEW IK system based on loaded data ---
+            logging.debug(f"Before IK init check: self.current_parts_info_data is set: {self.current_parts_info_data is not None}")
+            logging.debug(f"Before IK init check: len(self.editor_items): {len(self.editor_items)}")
+            if self.current_parts_info_data and self.editor_items: # Ensure necessary data is present
+                logging.info("Calling _initialize_new_ik_skeleton_definitions from load_parts.")
+                self._initialize_new_ik_skeleton_definitions()
+            else:
+                logging.warning("Skipping IK skeleton initialization in load_parts: current_parts_info_data or editor_items missing.")
+            # --- End NEW IK System Initialization ---
 
         except Exception as e:
             logging.error(f"Error loading parts: {e}\n{traceback.format_exc()}")
@@ -1324,7 +1354,7 @@ class AutomataDesigner(QMainWindow):
         self.editor_items.clear()
         self.parts.clear()
         self.joints.clear()
-        self.kinematic_chains.clear()
+        # self.kinematic_chains.clear() # REMOVED
         self._clear_mechanism_visuals() # Clear mechanism visuals and layers
         self._clear_body_parts_visualization() # Clear body parts visualization
         self._clear_body_parts_visualization_image_view() # Clear image view body parts visualization
@@ -1342,9 +1372,12 @@ class AutomataDesigner(QMainWindow):
 
         # Clear new IK system state
         logging.info("[ATTR_DEBUG] In _clear_editor_state: About to access self.sim_dynamic_joints (getter) and call .clear()")
-        if hasattr(self, '_sim_dynamic_joints_data'): # Check underlying data store before clearing
-            self.sim_dynamic_joints.clear() # Accesses getter, then calls dict.clear()
-            logging.info("[ATTR_DEBUG] In _clear_editor_state: self.sim_dynamic_joints.clear() was called.")
+        if hasattr(self, '_sim_dynamic_joints_data') and isinstance(self._sim_dynamic_joints_data, dict):
+            self._sim_dynamic_joints_data.clear()
+            logging.info("[ATTR_DEBUG] In _clear_editor_state: self._sim_dynamic_joints_data.clear() was called.")
+        elif not hasattr(self, '_sim_dynamic_joints_data'):
+            logging.warning("[ATTR_DEBUG] In _clear_editor_state: _sim_dynamic_joints_data was MISSING. Initializing as empty dict.")
+            self._sim_dynamic_joints_data = {}
         else:
             logging.warning("[ATTR_DEBUG] In _clear_editor_state: _sim_dynamic_joints_data was missing, so no clear() called on sim_dynamic_joints.")
 
@@ -1464,6 +1497,14 @@ class AutomataDesigner(QMainWindow):
 
     def _toggle_define_motion_path_mode(self, checked: bool):
         if checked:
+            # Ensure IK data is initialized before attempting to define a path
+            if not hasattr(self, '_sim_dynamic_joints_data') or not self._sim_dynamic_joints_data:
+                QMessageBox.warning(self, "IK System Not Ready",
+                                    "Please load a character and ensure its IK skeleton is defined before defining motion paths.")
+                self.define_motion_path_btn.setChecked(False)
+                self._active_path_definition_target_joint_id = None
+                return
+
             # Directly query the parts_list for current selection when button is toggled ON
             selected_list_items = self.parts_list.selectedItems()
             if not selected_list_items:
@@ -1480,7 +1521,6 @@ class AutomataDesigner(QMainWindow):
             logging.info(f"  Retrieved UserRole data: '{target_joint_id_from_user_role}' (Type: {type(target_joint_id_from_user_role)})")
             logging.info(f"  Retrieved DisplayRole data: '{display_text_from_display_role}' (Type: {type(display_text_from_display_role)})")
 
-            # Use the UserRole data as the intended target
             target_joint_id_from_list = target_joint_id_from_user_role
 
             if not target_joint_id_from_list:
@@ -1489,27 +1529,17 @@ class AutomataDesigner(QMainWindow):
                 self._active_path_definition_target_joint_id = None
                 return
 
-            # Update self.sim_selected_component_key for consistency
             self.sim_selected_component_key = target_joint_id_from_list
             logging.info(f"[PathDefineToggle] Using targetJointId (from UserRole): {target_joint_id_from_list}")
 
             self._active_path_definition_target_joint_id = target_joint_id_from_list
-
             logging.info(f"[PATH_DEFINE_TOGGLE_DEBUG] _active_path_definition_target_joint_id: {self._active_path_definition_target_joint_id}")
 
-            # Continue with the existing logic using self._active_path_definition_target_joint_id
             target_joint_id_for_path = self._active_path_definition_target_joint_id
 
-            # Safely access sim_dynamic_joints
-            current_sim_dynamic_joints = getattr(self, 'sim_dynamic_joints', None)
-            if current_sim_dynamic_joints is None:
-                logging.error("[PathDefineToggle] self.sim_dynamic_joints is missing! Cannot proceed.")
-                QMessageBox.critical(self, "Internal Error", "Dynamic joint data is missing. Please try reloading the character.")
-                self.define_motion_path_btn.setChecked(False)
-                self._active_path_definition_target_joint_id = None
-                return
-
-            dynamic_joint_data = current_sim_dynamic_joints.get(target_joint_id_for_path)
+            # Access sim_dynamic_joints safely (already checked it's not None/empty above)
+            # The property getter for self.sim_dynamic_joints will handle returning the dict.
+            dynamic_joint_data = self.sim_dynamic_joints.get(target_joint_id_for_path)
 
             if dynamic_joint_data and dynamic_joint_data.get('path'):
                 msg_box = QMessageBox(self)
@@ -1521,31 +1551,35 @@ class AutomataDesigner(QMainWindow):
                 ret = msg_box.exec()
                 if ret == QMessageBox.StandardButton.No:
                     self.define_motion_path_btn.setChecked(False)
-                    self._active_path_definition_target_joint_id = None # Clear if user cancels overwrite
+                    self._active_path_definition_target_joint_id = None
                     return
 
-            if dynamic_joint_data: # If proceeding with overwrite or new path
+            if dynamic_joint_data: # If proceeding with overwrite or new path, clear existing path data for this joint
                 dynamic_joint_data['path'] = []
-                dynamic_joint_data['animation']['active'] = False
+                if 'animation' in dynamic_joint_data: # Ensure animation dict exists
+                    dynamic_joint_data['animation']['active'] = False
                 self._clear_visual_motion_path_for_joint(target_joint_id_for_path)
+            # else: # This case should ideally not be hit if target_joint_id_for_path is valid from selection and sim_dynamic_joints is populated
+                # logging.warning(f"_toggle_define_motion_path_mode: dynamic_joint_data for '{target_joint_id_for_path}' is None, though sim_dynamic_joints itself is not. This is unexpected.")
 
-            self.editor_view.start_define_motion_path(None)
+            self.editor_view.start_define_motion_path(None) # Pass None as item, new IK system doesn't rely on CharacterPartItem here
             status_label = dynamic_joint_data.get('label', target_joint_id_for_path) if dynamic_joint_data else target_joint_id_for_path
             self.statusBar().showMessage(f"Defining motion path for component {status_label}. Draw freely. Uncheck button or right-click to cancel.")
         else:
             # This block is called when the button is unchecked, either manually or programmatically.
-            # If path drawing was active, editor_view.finish_motion_path_drawing() will emit the path.
-            # If drawing was cancelled (e.g. right-click in view), editor_view.drawing_cancelled is emitted.
             self.editor_view.finish_motion_path_drawing() # This will trigger _handle_freehand_path_completed if a path was drawn
             self.statusBar().showMessage("Motion path definition stopped.")
             self._active_path_definition_target_joint_id = None # Clear the latched target
 
         # Update button states (clear button mainly)
-        # Use sim_selected_component_key for the clear button enable state, as it reflects current list selection
         can_clear = False
         current_sim_selected_key_for_clear_btn = getattr(self, 'sim_selected_component_key', None)
-        if current_sim_selected_key_for_clear_btn and current_sim_selected_key_for_clear_btn in self.sim_dynamic_joints:
-            can_clear = bool(self.sim_dynamic_joints[current_sim_selected_key_for_clear_btn].get('path'))
+
+        # Ensure sim_dynamic_joints backing data exists and is a dict, then check key and path
+        if hasattr(self, '_sim_dynamic_joints_data') and isinstance(self._sim_dynamic_joints_data, dict) and self._sim_dynamic_joints_data and current_sim_selected_key_for_clear_btn in self._sim_dynamic_joints_data:
+            joint_to_check = self._sim_dynamic_joints_data.get(current_sim_selected_key_for_clear_btn)
+            if joint_to_check:
+                 can_clear = bool(joint_to_check.get('path'))
         self.clear_motion_path_btn.setEnabled(can_clear)
 
     @pyqtSlot(list)
@@ -2413,8 +2447,8 @@ class AutomataDesigner(QMainWindow):
         self.editor_view._save_original_transforms()
 
         self.editor_view.set_mode('simulation')
-        self.animation_time = 0.0 # Start animation from the beginning for this play session
-        self.timer.start()
+        self.ik_animation_speed = 0.5 # Default animation speed, similar to JS example
+        self.ik_animation_timer.start()
         self.statusBar().showMessage("Simulation running...")
         self.play_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
@@ -2422,9 +2456,9 @@ class AutomataDesigner(QMainWindow):
 
     def stop_simulation(self):
         """Stops the simulation."""
-        if self.timer.isActive():
+        if self.ik_animation_timer.isActive():
             logging.info("Stopping simulation.")
-            self.timer.stop()
+            self.ik_animation_timer.stop()
             self.statusBar().showMessage("Simulation stopped.")
             self.editor_view.set_mode('select') # Restore editor interaction
             self.play_btn.setEnabled(True)
@@ -2437,7 +2471,8 @@ class AutomataDesigner(QMainWindow):
         self.stop_simulation()
         logging.info("Resetting simulation state.")
         self.editor_view.reset_simulation() # View handles restoring transforms
-        self.animation_time = 0.0
+        self.ik_animation_speed = 0.5 # Default animation speed, similar to JS example
+        self.ik_animation_timer.stop()
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.reset_sim_btn.setEnabled(False)
@@ -2450,20 +2485,20 @@ class AutomataDesigner(QMainWindow):
 
     def update_simulation(self):
         """Performs one step of the simulation (called by timer)."""
-        if not self.timer.isActive() or not self.kinematic_chains:
+        if not self.ik_animation_timer.isActive() or not self.kinematic_chains:
             return
 
-        delta_time = self.timer.interval()
-        self.animation_time += delta_time
+        delta_time = self.ik_animation_timer.interval()
+        self.ik_animation_speed += delta_time
         # Loop animation based on duration
         # Ensure animation_duration is not zero to prevent division errors
         current_animation_duration = self.animation_duration
         if current_animation_duration <= 0:
             current_animation_duration = 3000
 
-        progress = (self.animation_time % current_animation_duration) / current_animation_duration
+        progress = (self.ik_animation_speed % current_animation_duration) / current_animation_duration
 
-        logging.debug(f"Sim Update: SetDuration={self.animation_duration:.2f}, ActualDuration={current_animation_duration:.2f}, Time={self.animation_time:.2f}, Prog={progress:.3f}")
+        logging.debug(f"Sim Update: SetDuration={self.animation_duration:.2f}, ActualDuration={current_animation_duration:.2f}, Time={self.ik_animation_speed:.2f}, Prog={progress:.3f}")
 
         for end_effector_name, chain_items in self.kinematic_chains.items():
             # Ensure chain items are valid CharacterPartItem instances from self.editor_items
@@ -2897,220 +2932,395 @@ class AutomataDesigner(QMainWindow):
                 path_parent_group.setZValue(90)
                 visual_items.append(path_parent_group)
 
-                # Draw a simple follower representation at the start of its path
-                follower_radius = mechanism_data.get("follower_radius", 5.0)
-                if follower_radius > 0:
-                    start_of_path_local = selected_part.motion_path.pointAtPercent(0)
-                    # Map this local point to scene coordinates using the part's complete transformation
-                    start_of_path_scene = selected_part.mapToScene(start_of_path_local)
+    # --- New IK Animation System ---
+    def _solve_single_bone_ik(self, pivot_pos: QPointF, target_pos_on_path: QPointF, limb_length: float, initial_angle_rad: float) -> QPointF:
+        """Calculates the new position of a single bone's end joint.
 
-                    follower_rect = QRectF(-follower_radius, -follower_radius, follower_radius*2, follower_radius*2)
-                    follower_pen = QPen(UIColors.COMPONENT_BORDER, 1)
-                    follower_items = self._create_2d_ellipse_items(
-                        follower_rect,
-                        QBrush(UIColors.COMPONENT_FRONT),
-                        QBrush(UIColors.COMPONENT_BACK),
-                        follower_pen,
-                        offset_scale=1.5 # Smaller offset for follower
-                    )
-                    # Group follower items and position them
-                    follower_group = QGraphicsItemGroup()
-                    for item in follower_items: follower_group.addToGroup(item)
-                    follower_group.setPos(start_of_path_scene)
-                    follower_group.setZValue(110) # Above cam
-                    visual_items.append(follower_group)
+        Args:
+            pivot_pos: The scene position of the fixed pivot (parent joint).
+            target_pos_on_path: The desired scene position for the end joint (on the path).
+            limb_length: The length of the limb.
+            initial_angle_rad: The initial angle of the limb, used if target is too close to pivot.
+
+        Returns:
+            The new scene position for the end joint.
+        """
+        dx = target_pos_on_path.x() - pivot_pos.x()
+        dy = target_pos_on_path.y() - pivot_pos.y()
+        distance_to_target = math.sqrt(dx * dx + dy * dy)
+
+        if distance_to_target < 0.1: # Target is too close to the pivot
+            new_x = pivot_pos.x() + math.cos(initial_angle_rad) * limb_length
+            new_y = pivot_pos.y() + math.sin(initial_angle_rad) * limb_length
         else:
-            logging.warning("Cam profile path is empty or missing in mechanism_data.")
+            # Place the joint along the vector from pivot to target, at limb_length distance
+            new_x = pivot_pos.x() + (dx / distance_to_target) * limb_length
+            new_y = pivot_pos.y() + (dy / distance_to_target) * limb_length
+        return QPointF(new_x, new_y)
 
-    def _visualize_linkage_data_detailed(self, mechanism_data: Dict[str, Any]) -> List[QGraphicsItem]:
-        """Generates detailed QGraphicsItems for a linkage mechanism with 2.5D effect."""
-        visual_items = []
-        points_dict = mechanism_data.get("points", {})
-        link_lengths_dict = mechanism_data.get("link_lengths", {})
-        thickness = mechanism_data.get("thickness", 8.0) # Default thickness
-        bar_type = mechanism_data.get("bar_type", "N-bar")
+    def _solve_two_bone_ik(self, root_pos: QPointF, target_pos: QPointF, L1: float, L2: float, bend_dir: int,
+                             initial_middle_pos_relative: QPointF, initial_end_pos_relative: QPointF) -> Dict[str, QPointF]:
+        """Calculates positions for a two-bone IK chain (middle and end joints).
 
-        p = {name: QPointF(coords[0], coords[1]) for name, coords in points_dict.items()}
+        Args:
+            root_pos: Scene position of the root joint (e.g., shoulder).
+            target_pos: Desired scene position for the end effector (e.g., wrist).
+            L1: Length of the first bone (e.g., upper arm).
+            L2: Length of the second bone (e.g., forearm).
+            bend_dir: Bend direction (-1 for clockwise, 1 for counter-clockwise).
+            initial_middle_pos_relative: Initial position of middle joint relative to root, for degenerate cases.
+            initial_end_pos_relative: Initial position of end joint relative to middle, for degenerate cases.
 
-        link_definitions = []
-        if bar_type == "4-bar" and all(k in p for k in ["p0", "p1", "p2", "p3_fixed"]):
-            link_definitions = [
-                (p["p0"], p["p1"], link_lengths_dict.get("l1", QLineF(p["p0"],p["p1"]).length()), "L1_Crank"),
-                (p["p1"], p["p2"], link_lengths_dict.get("l2", QLineF(p["p1"],p["p2"]).length()), "L2_Coupler"),
-                (p["p2"], p["p3_fixed"], link_lengths_dict.get("l3", QLineF(p["p2"],p["p3_fixed"]).length()), "L3_Rocker"),
-                (p["p0"], p["p3_fixed"], link_lengths_dict.get("l4", QLineF(p["p0"],p["p3_fixed"]).length()), "L4_Ground"),
-            ]
-        elif bar_type == "3-bar (Open Chain)" and all(k in p for k in ["p0", "p1", "p2"]):
-            link_definitions = [
-                (p["p0"], p["p1"], link_lengths_dict.get("l1", QLineF(p["p0"],p["p1"]).length()), "L1_Crank"),
-                (p["p1"], p["p2"], link_lengths_dict.get("l2", QLineF(p["p1"],p["p2"]).length()), "L2_Link"),
-            ]
+        Returns:
+            A dictionary {"M": QPointF_middle, "E": QPointF_end}.
+        """
+        Mx, My, Ex, Ey = 0.0, 0.0, 0.0, 0.0
+        dx = target_pos.x() - root_pos.x()
+        dy = target_pos.y() - root_pos.y()
+        dist_sq = dx * dx + dy * dy
+        dist = math.sqrt(dist_sq)
 
-        link_z_value = 100
-        pin_z_value = 101
+        epsilon = 0.1 # Small threshold
 
-        for start_pt, end_pt, length, name in link_definitions:
-            if length <= 1e-3 : continue
+        if dist < epsilon: # Target is at or very near the root
+            Mx = root_pos.x() + initial_middle_pos_relative.x()
+            My = root_pos.y() + initial_middle_pos_relative.y()
+            # End relative to NEW Middle position
+            Ex = Mx + initial_end_pos_relative.x()
+            Ey = My + initial_end_pos_relative.y()
+            return {"M": QPointF(Mx, My), "E": QPointF(Ex, Ey)}
 
-            line = QLineF(start_pt, end_pt)
-            angle_deg = -line.angle() # QLineF.angle() is CCW from positive x-axis
+        # Angle of the vector from Root to Target
+        angle_rt = math.atan2(dy, dx)
 
-            link_item_group = QGraphicsItemGroup()
+        # Law of cosines to find angle 'a1' at the Root joint (between R-M and R-T)
+        # Clamp cos_a1 to [-1, 1] to handle unreachable targets (too far or too close)
+        cos_a1_num = L1 * L1 + dist_sq - L2 * L2
+        cos_a1_den = 2 * L1 * dist
 
-            # Create rounded rectangle for the link
-            link_path = QPainterPath()
-            # Path defined centered at (0,0) with length `length` and thickness `thickness`
-            link_path.addRoundedRect(-length/2, -thickness/2, length, thickness, thickness/3, thickness/3)
+        if abs(cos_a1_den) < epsilon: # Avoid division by zero if L1 or dist is ~0
+            cos_a1 = 1.0 # Stretch or default pose
+        else:
+            cos_a1 = cos_a1_num / cos_a1_den
 
-            link_items_2d = self._create_2d_path_items(
-                link_path,
-                QBrush(UIColors.COMPONENT_FRONT),
-                QBrush(UIColors.COMPONENT_BACK),
-                QPen(UIColors.COMPONENT_BORDER, 1)
-            )
-            for item in link_items_2d:
-                link_item_group.addToGroup(item)
+        cos_a1 = max(-1.0, min(1.0, cos_a1))
+        a1 = math.acos(cos_a1)
 
-            link_item_group.setPos(line.center())
-            link_item_group.setRotation(angle_deg)
-            link_item_group.setZValue(link_z_value)
-            link_item_group.setData(0, f"Link_{name}") # Store name for debugging
-            visual_items.append(link_item_group)
+        # Calculate the angle for the middle joint M
+        m_angle = angle_rt + (a1 * bend_dir)
 
-        # Draw Pins
-        pin_radius = thickness * 0.45
-        pin_points_to_draw = []
-        if "p0" in p: pin_points_to_draw.append(p["p0"])
-        if "p1" in p: pin_points_to_draw.append(p["p1"])
-        if "p2" in p: pin_points_to_draw.append(p["p2"])
-        if bar_type == "4-bar" and "p3_fixed" in p: pin_points_to_draw.append(p["p3_fixed"])
+        Mx = root_pos.x() + math.cos(m_angle) * L1
+        My = root_pos.y() + math.sin(m_angle) * L1
 
-        # Remove duplicate pin locations before drawing
-        unique_pin_scene_coords = []
-        seen_coords = set()
-        for pt in pin_points_to_draw:
-            coord_tuple = (round(pt.x(), 3), round(pt.y(), 3)) # Round to avoid float precision issues
-            if coord_tuple not in seen_coords:
-                unique_pin_scene_coords.append(pt)
-                seen_coords.add(coord_tuple)
+        # End effector E should ideally be at target_pos if reachable.
+        # Recalculate E from M to ensure L2 is maintained, especially in stretched cases.
+        dx_me = target_pos.x() - Mx
+        dy_me = target_pos.y() - My
+        dist_me = math.sqrt(dx_me * dx_me + dy_me * dy_me)
 
-        for scene_pt in unique_pin_scene_coords:
-            pin_item_group = QGraphicsItemGroup()
-            pin_rect = QRectF(-pin_radius, -pin_radius, pin_radius*2, pin_radius*2)
-            pin_items_2d = self._create_2d_ellipse_items(
-                pin_rect,
-                QBrush(UIColors.PIN_FRONT),
-                QBrush(UIColors.PIN_BACK),
-                QPen(UIColors.PIN_BORDER, 1)
-            )
-            for item in pin_items_2d:
-                pin_item_group.addToGroup(item)
+        if dist_me < epsilon: # M is at target, E should be L2 away in some default direction from M
+            # This case needs a defined default direction for the second limb if M lands on target.
+            # For now, use the initial relative position of E to M.
+            # A more robust way would be to get the initial angle of the L2 limb itself.
+            angle_l2_default = math.atan2(initial_end_pos_relative.y(), initial_end_pos_relative.x())
+            Ex = Mx + math.cos(angle_l2_default) * L2
+            Ey = My + math.sin(angle_l2_default) * L2
+        else:
+            Ex = Mx + (dx_me / dist_me) * L2
+            Ey = My + (dy_me / dist_me) * L2
 
-            pin_item_group.setPos(scene_pt)
-            pin_item_group.setZValue(pin_z_value)
-            visual_items.append(pin_item_group)
+        return {"M": QPointF(Mx, My), "E": QPointF(Ex, Ey)}
 
-        return visual_items
+    def _run_ik_animation_step(self):
+        """Performs one step of the IK animation for all active components."""
+        if not self.ik_animation_timer.isActive() or not self.sim_dynamic_joints:
+            return
 
-    def _visualize_gear_data_detailed(self, mechanism_data: Dict[str, Any]) -> List[QGraphicsItem]:
-        """Generates detailed QGraphicsItems for a gear (or gear pair) with 2.5D effect."""
-        visual_items = []
-        gears_list = mechanism_data.get("gears", [])
+        active_animations_found = False
+        for joint_id_to_animate, animated_joint_data in self.sim_dynamic_joints.items():
+            anim_config = animated_joint_data.get('animation')
+            path_points = animated_joint_data.get('path')
 
-        gear_base_z = 100
+            if not anim_config or not anim_config.get('active') or not path_points or len(path_points) == 0:
+                continue
+            active_animations_found = True
 
-        for i, gear_info in enumerate(gears_list):
-            gear_group_item = QGraphicsItemGroup() # Group for one entire gear (body + teeth)
+            component_def = next((comp for comp in self.sim_selectable_components if comp['targetJointId'] == joint_id_to_animate), None)
+            if not component_def:
+                logging.warning(f"IK Step: Component definition not found for animating joint '{joint_id_to_animate}'. Skipping.")
+                continue
 
-            center_coords = gear_info.get("center", [0,0])
-            gear_center = QPointF(center_coords[0], center_coords[1])
-            radius = gear_info.get("radius", 30.0)
-            num_teeth = gear_info.get("num_teeth", 12)
-            tooth_height = gear_info.get("tooth_height", radius * 0.2)
-            initial_angle_deg = gear_info.get("angle_deg", 0)
+            # --- Calculate Target Position on Path ---
+            target_pos_on_path = QPointF() # Initialize
+            if len(path_points) == 1:
+                target_pos_on_path = path_points[0]
+            elif anim_config.get('isClosedLoop'):
+                # Progress is 0 to 1 for closed loop
+                anim_config['progress'] = (anim_config['progress'] + anim_config.get('speed', self.ik_animation_speed) / (anim_config.get('pathLength', 1) or 1)) % 1.0
+                if anim_config['progress'] < 0: anim_config['progress'] += 1.0
 
-            # Gear Body (Disk)
-            # Path is defined relative to (0,0) for the gear_group_item
-            body_radius = radius - tooth_height / 2 # Inner radius to base of teeth
-            body_rect = QRectF(-body_radius, -body_radius, body_radius*2, body_radius*2)
-            body_items = self._create_2d_ellipse_items(
-                body_rect,
-                QBrush(UIColors.GEAR_BODY_FRONT),
-                QBrush(UIColors.GEAR_BODY_BACK),
-                QPen(UIColors.GEAR_BODY_BORDER, 1)
-            )
-            for item in body_items:
-                gear_group_item.addToGroup(item)
+                target_dist_on_loop = anim_config['progress'] * anim_config.get('pathLength', 0)
+                current_dist_along_path = 0.0
+                segment_idx = 0
+                # For closed loop, path_points itself should ideally contain the duplicate start point at the end for simpler segment calculation.
+                # If not, the loop range needs to be up to len(path_points) and use modulo for p2.
+                # Assuming path_points for closed loop has N+1 points where point[N] == point[0]
+                num_segments = len(path_points) - 1 if anim_config.get('isClosedLoop') and len(path_points) > 1 else len(path_points)
+                # The JS example has path.push(startPoint) for closed loops, so path_points has the duplicate.
 
-            # Gear Teeth
-            outer_radius = radius + tooth_height / 2
-            inner_radius = body_radius # Base of teeth
+                for segment_idx in range(len(path_points) -1): # Iterate through segments
+                    p1 = path_points[segment_idx]
+                    p2 = path_points[segment_idx + 1]
+                    segment_qline = QLineF(p1,p2)
+                    segment_len = segment_qline.length()
+                    if current_dist_along_path + segment_len >= target_dist_on_loop:
+                        break # Target is in this segment
+                    current_dist_along_path += segment_len
+                else: # Loop completed without break, means target_dist_on_loop might be exactly at the end or slightly past due to float precision
+                    segment_idx = max(0, len(path_points) - 2) # Use last segment
 
-            angle_step_rad = (2 * math.pi) / num_teeth
-            tooth_width_angle_rad = angle_step_rad * 0.5 # Tooth takes up half the angular step at pitch circle
+                p1_seg = path_points[segment_idx]
+                p2_seg = path_points[segment_idx + 1]
+                segment_qline_final = QLineF(p1_seg, p2_seg)
+                segment_len_final = segment_qline_final.length()
+                segment_progress_ratio = (target_dist_on_loop - current_dist_along_path) / (segment_len_final or 1.0)
+                segment_progress_ratio = max(0.0, min(1.0, segment_progress_ratio))
+                target_pos_on_path = segment_qline_final.pointAt(segment_progress_ratio)
 
-            for t_idx in range(num_teeth):
-                # Angle to the center of the tooth
-                current_tooth_angle_rad = t_idx * angle_step_rad
+            else: # Open path, ping-pong
+                anim_config['progress'] += anim_config.get('direction', 1) * anim_config.get('speed', self.ik_animation_speed)
+                if anim_config['progress'] >= len(path_points) - 1:
+                    anim_config['progress'] = len(path_points) - 1
+                    anim_config['direction'] = -1
+                elif anim_config['progress'] <= 0:
+                    anim_config['progress'] = 0
+                    anim_config['direction'] = 1
 
-                # Points for one tooth polygon, defined around (0,0) before rotation for this tooth
-                # These are approximations for involute teeth, simple trapezoidal/polygonal.
-                # Angle for p1 & p4 (inner points)
-                a1 = current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.9 # Slightly taper base
-                # Angle for p2 & p3 (outer points)
-                a2 = current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.7 # Slightly taper tip
+                idx1 = math.floor(anim_config['progress'])
+                idx2 = math.ceil(anim_config['progress'])
+                t_interp = anim_config['progress'] - idx1
 
-                p1 = QPointF(inner_radius * math.cos(a1), inner_radius * math.sin(a1))
-                p2 = QPointF(outer_radius * math.cos(a2), outer_radius * math.sin(a2))
-                p3 = QPointF(outer_radius * math.cos(-a2), outer_radius * math.sin(-a2)) # Symmetric for this simple tooth
-                p4 = QPointF(inner_radius * math.cos(-a1), inner_radius * math.sin(-a1))
+                p1 = path_points[idx1]
+                # Ensure idx2 is within bounds for p2, especially if progress is exactly len-1
+                p2 = path_points[min(idx2, len(path_points) - 1)]
 
-                # Need to mirror these points properly for the other side of the tooth center
-                angle_p3 = current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.7
-                angle_p4 = current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.9
+                target_pos_on_path = QPointF(p1.x() * (1 - t_interp) + p2.x() * t_interp,
+                                                p1.y() * (1 - t_interp) + p2.y() * t_interp)
 
-                p1 = QPointF(inner_radius * math.cos(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.9),
-                             inner_radius * math.sin(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.9))
-                p2 = QPointF(outer_radius * math.cos(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.7),
-                             outer_radius * math.sin(current_tooth_angle_rad - tooth_width_angle_rad / 2 * 0.7))
-                p3 = QPointF(outer_radius * math.cos(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.7),
-                             outer_radius * math.sin(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.7))
-                p4 = QPointF(inner_radius * math.cos(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.9),
-                             inner_radius * math.sin(current_tooth_angle_rad + tooth_width_angle_rad / 2 * 0.9))
+            # --- Apply IK ---
+            is_two_bone_ik_chain = joint_id_to_animate in self.sim_two_bone_ik_effectors
 
-                tooth_poly = QPolygonF([p1, p2, p3, p4])
+            if is_two_bone_ik_chain:
+                # targetJointId for the component is the end-effector (e.g., j_left_wrist)
+                end_effector_ik_id = joint_id_to_animate
+                middle_joint_ik_id = component_def['pivotJointId'] # e.g., j_left_elbow
 
-                tooth_items = self._create_2d_polygon_items(
-                    tooth_poly,
-                    QBrush(UIColors.GEAR_TOOTH_FRONT),
-                    QBrush(UIColors.GEAR_TOOTH_BACK),
-                    QPen(UIColors.GEAR_TOOTH_BORDER, 0.5),
-                    offset_scale=1.0 # Smaller offset for teeth
+                middle_limb_config = self.sim_limb_configs.get(middle_joint_ik_id)
+                end_limb_config = self.sim_limb_configs.get(end_effector_ik_id)
+
+                if not middle_limb_config or not end_limb_config:
+                    logging.warning(f"IK Step: Missing limb config for 2-bone chain: {middle_joint_ik_id} or {end_effector_ik_id}")
+                    continue
+
+                root_joint_ik_id = middle_limb_config.get('parentAnchor') or middle_limb_config.get('parentJoint')
+                if not root_joint_ik_id or root_joint_ik_id not in self.sim_dynamic_joints:
+                    logging.warning(f"IK Step: Root joint '{root_joint_ik_id}' for 2-bone chain not found in sim_dynamic_joints.")
+                    continue
+
+                root_joint_data = self.sim_dynamic_joints[root_joint_ik_id]
+                middle_joint_data = self.sim_dynamic_joints[middle_joint_ik_id]
+                # end_effector_joint_data is animated_joint_data (already have it)
+
+                L1 = middle_limb_config.get('length', 0)
+                L2 = end_limb_config.get('length', 0)
+                bend_direction = self.sim_joint_bend_directions.get(middle_joint_ik_id, 1)
+
+                # Initial relative positions for degenerate cases (target at root)
+                initial_root_pos = QPointF(root_joint_data['initial_x'], root_joint_data['initial_y'])
+                initial_middle_pos = QPointF(middle_joint_data['initial_x'], middle_joint_data['initial_y'])
+                initial_end_pos = QPointF(animated_joint_data['initial_x'], animated_joint_data['initial_y'])
+
+                init_mid_rel_to_root = initial_middle_pos - initial_root_pos
+                init_end_rel_to_mid = initial_end_pos - initial_middle_pos
+
+                ik_solution = self._solve_two_bone_ik(
+                    QPointF(root_joint_data['x'], root_joint_data['y']),
+                    target_pos_on_path, L1, L2, bend_direction,
+                    init_mid_rel_to_root, init_end_rel_to_mid
                 )
-                for item in tooth_items:
-                    # These are already defined with rotation, so add directly to gear_group_item
-                    gear_group_item.addToGroup(item)
 
-            # Central Shaft Hole (optional, visual only)
-            shaft_hole_radius = radius * 0.25
-            hole_rect = QRectF(-shaft_hole_radius, -shaft_hole_radius, shaft_hole_radius*2, shaft_hole_radius*2)
-            # Create front ellipse for hole, and a slightly darker back for depth.
-            # The "back" of the hole will effectively be the gear's back color.
-            # So, we just draw the front hole "cutting" through the front gear body.
-            hole_front = QGraphicsEllipseItem(hole_rect)
-            hole_front.setBrush(UIColors.SHAFT_BACK) # Use shaft back color for illusion of depth
-            hole_front.setPen(QPen(UIColors.GEAR_BODY_BORDER, 0.5))
-            gear_group_item.addToGroup(hole_front)
+                middle_joint_data['x'] = ik_solution["M"].x()
+                middle_joint_data['y'] = ik_solution["M"].y()
+                animated_joint_data['x'] = ik_solution["E"].x() # This is the end effector
+                animated_joint_data['y'] = ik_solution["E"].y()
+
+            else: # Single bone IK (e.g. head, upper arm, thigh)
+                pivot_joint_ik_id = component_def['pivotJointId']
+                if not pivot_joint_ik_id or pivot_joint_ik_id not in self.sim_dynamic_joints:
+                    logging.warning(f"IK Step: Pivot joint '{pivot_joint_ik_id}' for single bone IK not found in sim_dynamic_joints.")
+                    continue
+
+                pivot_joint_data = self.sim_dynamic_joints[pivot_joint_ik_id]
+                current_limb_config = self.sim_limb_configs.get(joint_id_to_animate)
+                if not current_limb_config:
+                    logging.warning(f"IK Step: Limb config for '{joint_id_to_animate}' not found.")
+                    continue
+
+                limb_len = current_limb_config.get('length', 0)
+                # Use initial_angle from the dynamic joint data, which should store the initial config angle
+                initial_ang_rad = animated_joint_data.get('initial_angle', current_limb_config.get('angle', 0.0))
 
 
-            gear_group_item.setPos(gear_center)
-            gear_group_item.setRotation(initial_angle_deg)
-            gear_group_item.setZValue(gear_base_z + i * 0.5) # Stagger Z slightly if multiple gears
-            visual_items.append(gear_group_item)
+                new_pos = self._solve_single_bone_ik(
+                    QPointF(pivot_joint_data['x'], pivot_joint_data['y']),
+                    target_pos_on_path, limb_len, initial_ang_rad
+                )
+                animated_joint_data['x'] = new_pos.x()
+                animated_joint_data['y'] = new_pos.y()
 
-        return visual_items
+        if active_animations_found:
+            self._update_character_part_visuals_from_ik()
+            self.editor_scene.update()
+        else:
+            # No active animations, stop timer to save resources
+            if self.ik_animation_timer.isActive():
+                logging.info("No active IK animations found. Stopping timer.")
+                self._stop_ik_animation()
 
-    # --- End Anchor Point Methods ---
+    def _update_character_part_visuals_from_ik(self):
+        """Updates the position and rotation of CharacterPartItems based on sim_dynamic_joints."""
+        if not self.editor_items or not self.sim_dynamic_joints or not self.sim_limb_configs:
+            # logging.debug("_update_character_part_visuals_from_ik: Missing data, skipping update.")
+            return
+
+        # Update limbs first
+        for child_ik_joint_id, limb_config in self.sim_limb_configs.items():
+            part_name = limb_config.get('partName')
+            character_part_item = self.editor_items.get(part_name)
+            if not character_part_item:
+                # logging.warning(f"Visual Update: Part '{part_name}' not in editor_items for limb {child_ik_joint_id}.")
+                continue
+
+            parent_ik_joint_id = limb_config.get('parentAnchor') or limb_config.get('parentJoint')
+            if not parent_ik_joint_id:
+                # logging.warning(f"Visual Update: No parent IK joint for limb {child_ik_joint_id} ('{part_name}').")
+                continue
+
+            parent_joint_data = self.sim_dynamic_joints.get(parent_ik_joint_id)
+            child_joint_data = self.sim_dynamic_joints.get(child_ik_joint_id)
+
+            if not parent_joint_data or not child_joint_data:
+                # logging.warning(f"Visual Update: Missing dynamic joint data for {parent_ik_joint_id} or {child_ik_joint_id}.")
+                continue
+
+            parent_pos_scene = QPointF(parent_joint_data['x'], parent_joint_data['y'])
+            child_pos_scene = QPointF(child_joint_data['x'], child_joint_data['y'])
+
+            character_part_item.setPos(parent_pos_scene)
+            vec_to_child = child_pos_scene - parent_pos_scene
+            angle_rad = math.atan2(vec_to_child.y(), vec_to_child.x())
+            angle_deg = math.degrees(angle_rad)
+            character_part_item.setRotation(angle_deg)
+            character_part_item.setScale(1.0)
+
+        torso_actual_name = self.ik_part_to_actual_part_name.get('torso', 'torso')
+        torso_item = self.editor_items.get(torso_actual_name)
+        if torso_item:
+            torso_anchor_id_for_pos = 'j_neck_base'
+            if torso_anchor_id_for_pos in self.sim_joints_config and torso_anchor_id_for_pos in self.sim_dynamic_joints:
+                torso_ref_anchor_data = self.sim_dynamic_joints[torso_anchor_id_for_pos]
+                torso_ref_scene_pos = QPointF(torso_ref_anchor_data['x'], torso_ref_anchor_data['y'])
+                torso_anchor_config = self.sim_joints_config[torso_anchor_id_for_pos]
+                local_offset_to_anchor = QPointF(torso_anchor_config['xOffset'], torso_anchor_config['yOffset'])
+                torso_target_item_origin_scene = torso_ref_scene_pos - local_offset_to_anchor
+                torso_item.setPos(torso_target_item_origin_scene)
+                torso_item.setRotation(0)
+                torso_item.setScale(1.0)
+            else:
+                # If torso anchor setup is missing, do nothing to torso position for now.
+                pass
+
+    def _start_ik_animation(self):
+        """Starts or resumes the IK-based animation."""
+        if not self.sim_dynamic_joints:
+            self.statusBar().showMessage("Cannot start animation: IK data not initialized.")
+            logging.warning("Attempted to start IK animation, but sim_dynamic_joints is empty.")
+            return
+
+        can_animate = any(
+            joint_data.get('animation', {}).get('active', False) and joint_data.get('path')
+            for joint_data in self.sim_dynamic_joints.values()
+        )
+        if not can_animate:
+            self.statusBar().showMessage("No active motion paths defined for any component.")
+            return
+
+        if self.ik_animation_timer.isActive():
+            logging.info("IK animation already running.")
+            return
+
+        logging.info("Starting IK animation.")
+        self.ik_animation_timer.start()
+        self.statusBar().showMessage("IK Animation running...")
+        self.play_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.reset_sim_btn.setEnabled(True)
+
+    def _stop_ik_animation(self):
+        logging.info("Stopping IK animation.")
+        self.ik_animation_timer.stop()
+        self.statusBar().showMessage("IK Animation stopped.")
+        self.play_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.reset_sim_btn.setEnabled(True)
+
+    def _reset_ik_animation_state(self, reset_paths: bool = False):
+        """Stops IK animation and resets all dynamic joints to their initial positions and angles.
+        Optionally clears all drawn paths.
+        """
+        self._stop_ik_animation()
+        logging.info(f"Resetting IK animation state. Reset paths: {reset_paths}")
+
+        for joint_id, joint_data in self.sim_dynamic_joints.items():
+            joint_data['x'] = joint_data['initial_x']
+            joint_data['y'] = joint_data['initial_y']
+            if 'initial_angle' in joint_data: # For movable joints
+                joint_data['angle'] = joint_data['initial_angle'] # Reset angle if stored
+
+            if reset_paths:
+                joint_data['path'] = []
+                if 'animation' in joint_data:
+                    joint_data['animation']['active'] = False
+                    joint_data['animation']['progress'] = 0
+                    joint_data['animation']['direction'] = 1
+                    joint_data['animation']['isClosedLoop'] = False
+                    joint_data['animation']['pathLength'] = 0
+                self._clear_visual_motion_path_for_joint(joint_id) # Clear visual path
+
+        self._update_character_part_visuals_from_ik() # Update visuals to initial state
+        self.editor_scene.update()
+
+        self.play_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.reset_sim_btn.setEnabled(False) # Disable after reset
+        status_msg = "IK Animation state reset."
+        if reset_paths:
+            status_msg += " All paths cleared."
+            # Update UI states for path definition and clearing
+            self.define_motion_path_btn.setEnabled(self.parts_list.currentItem() is not None) # Re-enable based on selection
+            self.clear_motion_path_btn.setEnabled(False) # No paths to clear now
+        self.statusBar().showMessage(status_msg)
+
+    def _reset_all_animations_button_clicked(self):
+        """Handler for the new 'Reset All Animations' button."""
+        reply = QMessageBox.question(self, "Reset All Animations",
+                                     "This will clear all drawn motion paths and reset character pose. Continue?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self._reset_ik_animation_state(reset_paths=True)
+
+    # --- End New IK Animation System ---
 
     # --- Character Alignment Method (New) ---
     def save_character_alignment(self):
@@ -3121,20 +3331,17 @@ class AutomataDesigner(QMainWindow):
 
         torso_item = self.editor_items.get("torso")
         if not torso_item:
-            # Fallback to any selected item if torso isn't present or if we want more flexibility
             selected_item = self.get_selected_editor_item()
             if selected_item:
                 QMessageBox.warning(self, "Alignment Warning",
                                     f"'torso' part not found. Using selected part '{selected_item.part_info.name}' as reference for alignment. Ensure this part has a defined ROI in its PartInfo.")
-                torso_item = selected_item # Use selected item as reference
+                torso_item = selected_item
             else:
                 QMessageBox.warning(self, "Alignment Error", "No 'torso' part found and no other part selected. Cannot determine reference for alignment.")
                 return
 
-        # 1. Get current scene position of the reference part (e.g., torso)
-        s_ref_new_pos = torso_item.pos() # This is the part's origin in scene coordinates
+        s_ref_new_pos = torso_item.pos()
 
-        # 2. Get the reference part's original ROI coordinates (relative to texture.png)
         if not torso_item.part_info or not torso_item.part_info.roi or len(torso_item.part_info.roi) != 4:
             QMessageBox.warning(self, "Alignment Error", f"Reference part '{torso_item.part_info.name}' does not have valid ROI data. Cannot calculate alignment.")
             return
@@ -3142,7 +3349,6 @@ class AutomataDesigner(QMainWindow):
         p_ref_in_texture_x = float(torso_item.part_info.roi[0])
         p_ref_in_texture_y = float(torso_item.part_info.roi[1])
 
-        # 3. Read raw bounding_box.yaml left and top
         raw_bbox_left = 0.0
         raw_bbox_top = 0.0
         bounding_box_path = os.path.join(self.character_dir, "bounding_box.yaml")
@@ -3162,19 +3368,9 @@ class AutomataDesigner(QMainWindow):
             QMessageBox.critical(self, "Alignment Error", "bounding_box.yaml not found. Cannot calculate alignment.")
             return
 
-        # 4. Calculate the new delta_x and delta_y
-        # We want: S_ref_new = P_ref_in_texture - (B_raw - Delta_align)
-        # S_ref_new_x = p_ref_in_texture_x - (raw_bbox_left - delta_x_new)
-        # S_ref_new_y = p_ref_in_texture_y - (raw_bbox_top - delta_y_new)
-        # So:
-        # raw_bbox_left - delta_x_new = p_ref_in_texture_x - S_ref_new_x
-        # delta_x_new = raw_bbox_left - (p_ref_in_texture_x - S_ref_new_x)
-        # delta_y_new = raw_bbox_top - (p_ref_in_texture_y - S_ref_new_y)
-
         delta_x_new = raw_bbox_left - (p_ref_in_texture_x - s_ref_new_pos.x())
         delta_y_new = raw_bbox_top - (p_ref_in_texture_y - s_ref_new_pos.y())
 
-        # 5. Save to alignment_offset.yaml
         alignment_offset_path = os.path.join(self.character_dir, "alignment_offset.yaml")
         alignment_data = {'delta_x': delta_x_new, 'delta_y': delta_y_new}
         try:
@@ -3187,365 +3383,19 @@ class AutomataDesigner(QMainWindow):
             logging.error(f"Error saving alignment_offset.yaml: {e}")
             QMessageBox.critical(self, "Alignment Error", f"Could not save alignment offset: {e}")
 
-    # --- 2.5D Shape Helper Methods ---
+    # --- Blueprint Generation --- #
+    def generate_blueprint(self):
+        pass
 
-    # --- Character Viewer Tab Methods (New) ---
-    def _create_character_viewer_tab(self) -> QWidget:
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-
-        # Left Control Panel
-        left_panel = QWidget()
-        left_panel_layout = QVBoxLayout(left_panel)
-        left_panel.setFixedWidth(250)
-
-        # Loading Group
-        load_group = QGroupBox("Load Character")
-        load_layout = QVBoxLayout(load_group)
-        self.viewer_load_btn = QPushButton("Load Character Data (parts_info.json)")
-        load_layout.addWidget(self.viewer_load_btn)
-        left_panel_layout.addWidget(load_group)
-
-        # View Options Group
-        view_options_group = QGroupBox("View Options")
-        view_options_layout = QVBoxLayout(view_options_group)
-        self.viewer_show_skeleton_check = QCheckBox("Show Skeleton")
-        self.viewer_show_body_parts_check = QCheckBox("Show Body Parts")
-        view_options_layout.addWidget(self.viewer_show_skeleton_check)
-        view_options_layout.addWidget(self.viewer_show_body_parts_check)
-        left_panel_layout.addWidget(view_options_group)
-
-        left_panel_layout.addStretch()
-        layout.addWidget(left_panel)
-
-        # Right View Area
-        self.viewer_scene = QGraphicsScene(self)
-        self.viewer_view = EditorView(self.viewer_scene, self) # Reusing EditorView
-        layout.addWidget(self.viewer_view, 1)
-
-        return widget
-
-    def _viewer_clear_all_items(self):
-        if self.viewer_scene:
-            # Clear Pixmap
-            if self.viewer_char_texture_item and self.viewer_char_texture_item.scene() == self.viewer_scene:
-                self.viewer_scene.removeItem(self.viewer_char_texture_item)
-            self.viewer_char_texture_item = None
-
-            # Clear Skeleton items
-            for item in self.viewer_skeleton_items:
-                if item.scene() == self.viewer_scene:
-                    self.viewer_scene.removeItem(item)
-            self.viewer_skeleton_items.clear()
-
-            # Clear Body Part items
-            for item in self.viewer_body_part_items.values():
-                if item.scene() == self.viewer_scene:
-                    self.viewer_scene.removeItem(item)
-            self.viewer_body_part_items.clear()
-
-        self.viewer_loaded_parts_info = None
-        self.viewer_loaded_texture_path = None
-
-        # Store the path to the loaded parts_info.json for relative path resolution later
-        self.current_parts_info_path: Optional[str] = None
-
-    def _viewer_load_character_data(self):
-        parts_info_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load Character Data File",
-            self.character_dir or os.path.expanduser("~"), # Start in last char_dir or home
-            "JSON Files (*.json)"
-        )
-        if not parts_info_path or not os.path.exists(parts_info_path):
-            return
-
-        self._viewer_clear_all_items()
-        # Reset checkboxes
-        self.viewer_show_skeleton_check.setChecked(False)
-        self.viewer_show_body_parts_check.setChecked(False)
-
-        # Store the path for later use in resolving relative paths
-        self.current_parts_info_path = parts_info_path
-
-        try:
-            with open(parts_info_path, 'r') as f:
-                self.viewer_loaded_parts_info = json.load(f)
-            logging.info(f"Loaded character data from: {parts_info_path}")
-
-            # Try to find the base texture (image.png or texture.png)
-            # Assumes parts_info.json is in a subdirectory like 'body_parts_output'
-            # and the original character files are in its parent.
-            base_output_dir = Path(parts_info_path).parent
-            character_source_dir = base_output_dir.parent
-
-            possible_texture_names = ["image.png", "texture.png"]
-            found_texture_path = None
-            for name in possible_texture_names:
-                test_path = character_source_dir / name
-                if test_path.exists():
-                    found_texture_path = str(test_path)
-                    break
-
-            if found_texture_path:
-                self.viewer_loaded_texture_path = found_texture_path
-                pixmap = QPixmap(self.viewer_loaded_texture_path)
-                if not pixmap.isNull():
-                    self.viewer_char_texture_item = QGraphicsPixmapItem(pixmap)
-                    self.viewer_scene.addItem(self.viewer_char_texture_item)
-                    # Position at 0,0 or center based on pixmap size?
-                    # self.viewer_char_texture_item.setPos(-pixmap.width()/2, -pixmap.height()/2)
-                    self.viewer_view.zoom_to_fit() # Fit view to the loaded image
-                    logging.info(f"Loaded base texture: {self.viewer_loaded_texture_path}")
-                else:
-                    logging.warning(f"Failed to load QPixmap from {self.viewer_loaded_texture_path}")
-                    self.viewer_loaded_texture_path = None # Clear if loading failed
-            else:
-                logging.warning(f"Base character texture (image.png/texture.png) not found in {character_source_dir}")
-
-            self.statusBar().showMessage(f"Loaded: {Path(parts_info_path).name}")
-            # Initially, body parts and skeleton are not shown, texture is visible
-            self._viewer_update_visuals()
-
-        except Exception as e:
-            logging.error(f"Error loading character data for viewer: {e}\n{traceback.format_exc()}")
-            QMessageBox.critical(self, "Load Error", f"Failed to load character data: {e}")
-            self._viewer_clear_all_items() # Clear on error
-
-    def _viewer_toggle_skeleton(self, checked: bool):
-        self._viewer_update_visuals()
-
-    def _viewer_toggle_body_parts(self, checked: bool):
-        self._viewer_update_visuals()
-
-    def _viewer_update_visuals(self):
-        if not self.viewer_loaded_parts_info or not self.viewer_scene:
-            return
-
-        show_skeleton = self.viewer_show_skeleton_check.isChecked()
-        show_body_parts = self.viewer_show_body_parts_check.isChecked()
-
-        # Manage base texture visibility
-        if self.viewer_char_texture_item:
-            self.viewer_char_texture_item.setVisible(not show_body_parts)
-
-        # Manage skeleton visibility
-        # Clear existing skeleton items first
-        for item in self.viewer_skeleton_items:
-            if item.scene() == self.viewer_scene:
-                self.viewer_scene.removeItem(item)
-        self.viewer_skeleton_items.clear()
-
-        if show_skeleton:
-            skeleton_data = self.viewer_loaded_parts_info.get('character', {}).get('skeleton', [])
-            joint_map = self.viewer_loaded_parts_info.get('character', {}).get('joint_map', {})
-            if skeleton_data and joint_map:
-                # Draw joints
-                for joint_info in skeleton_data:
-                    name = joint_info.get('name')
-                    x, y = joint_info.get('loc', [0,0])
-                    # Offset for skeleton relative to parts: Not needed if parts_info is self-contained
-                    # For viewer, assume coordinates in parts_info.json are absolute to its own context
-                    # Typically, parts_info.json will store absolute coords or coords relative to a known origin
-                    # For simplicity here, we assume they are ready to be plotted.
-
-                    # Draw joint (e.g., small ellipse)
-                    joint_item = QGraphicsEllipseItem(x - 3, y - 3, 6, 6)
-                    joint_item.setBrush(QColor("red")) # Example color
-                    self.viewer_scene.addItem(joint_item)
-                    self.viewer_skeleton_items.append(joint_item)
-
-                # Draw bones (connections)
-                # Assumes skeleton_data is a list of joint dicts, and joint_map maps name to (x,y)
-                if skeleton_data and joint_map:
-                    # Create a temporary map of joint names to their QGraphicsEllipseItem for easy lookup if needed
-                    # For drawing bones, we primarily need coordinates from joint_map.
-                    drawn_joints_coords = {name: QPointF(coords[0], coords[1]) for name, coords in joint_map.items()}
-
-                    for joint_info in skeleton_data: # Iterate through the original skeleton structure
-                        joint_name = joint_info.get('name')
-                        parent_name = joint_info.get('parent') # 'parent' key from char_cfg.yaml structure
-
-                        if joint_name in drawn_joints_coords and parent_name and parent_name in drawn_joints_coords:
-                            p1 = drawn_joints_coords[joint_name]
-                            p2 = drawn_joints_coords[parent_name]
-                            bone_line = QGraphicsLineItem(QLineF(p1, p2))
-                            bone_line.setPen(QPen(QColor("blue"), 2)) # Example bone color and thickness
-                            bone_line.setZValue(-1) # Draw bones behind joints
-                            self.viewer_scene.addItem(bone_line)
-                            self.viewer_skeleton_items.append(bone_line)
-            # Skeleton drawing done
-
-        # Manage body part visibility
-        # Clear existing body part items first
-        for item in self.viewer_body_part_items.values():
-            if item.scene() == self.viewer_scene:
-                self.viewer_scene.removeItem(item)
-        self.viewer_body_part_items.clear()
-
-        if show_body_parts:
-            parts_data = self.viewer_loaded_parts_info.get('character', {}).get('parts', {})
-            # Use self.current_parts_info_path to get the directory of parts_info.json
-            if not self.current_parts_info_path:
-                logging.error("current_parts_info_path is not set. Cannot resolve relative SVG paths.")
-                return
-            base_dir = Path(self.current_parts_info_path).parent
-
-            for part_name, part_data_dict in parts_data.items():
-                # Resolve SVG path relative to parts_info.json location
-                svg_relative_path = part_data_dict.get('svg_path')
-                if svg_relative_path:
-                    # svg_path in parts_info.json is relative to the output dir (where parts_info.json is)
-                    # It should be like "head.svg", "torso.svg"
-                    absolute_svg_path = str(base_dir / Path(svg_relative_path).name)
-
-                    # Create a temporary PartInfo-like dictionary for CharacterPartItem
-                    # CharacterPartItem expects a PartInfo object or a dict with a similar structure.
-                    # The `PartInfo` class itself does SVG parsing from file.
-                    # Here we need to make sure the path is correct.
-                    current_part_info_data = part_data_dict.copy()
-                    current_part_info_data['svg_path'] = absolute_svg_path # Update to absolute path
-                    current_part_info_data['name'] = part_name # Ensure name is set
-
-                    try:
-                        part_info_obj = PartInfo(part_name, current_part_info_data)
-                        if not part_info_obj.qpainter_path.isEmpty():
-                            char_part_item = CharacterPartItem(part_info_obj)
-                            # Set position if ROI is available and useful.
-                            # ROI in parts_info.json is [x_min, y_min, x_max, y_max] for the *part image*.
-                            # The SVG itself should be drawn at (0,0) if its coordinates are self-contained.
-                            # If the SVG paths are relative to the original full image, then ROI might be needed for offset.
-                            # For now, assume SVGs are self-contained at (0,0) and CharacterPartItem handles it.
-                            self.viewer_scene.addItem(char_part_item)
-                            self.viewer_body_part_items[part_name] = char_part_item
-                        else:
-                            logging.warning(f"QPainterPath is empty for {part_name} from {absolute_svg_path}")
-                    except Exception as e:
-                        logging.error(f"Error creating CharacterPartItem for {part_name}: {e}")
-            if self.viewer_body_part_items: # If parts were added
-                self.viewer_view.zoom_to_fit() # Fit to new parts
-
-        # self.viewer_scene.update() # Ensure redraw <-- Remove this line, it refers to the old viewer tab's scene
-        if self.image_proc_scene: # Update the correct scene for this tab
-            self.image_proc_scene.update()
-
-
-    def _clear_body_parts_visualization_image_view(self, make_original_visible: bool = True):
-        """Removes body parts visualization items from the image processing scene."""
-        if not hasattr(self, '_body_parts_viz_items_image') or not self._body_parts_viz_items_image:
-            # Still ensure original image becomes visible if requested and no items to clear
-            if make_original_visible and self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
-                self.image_proc_view.image_item.setVisible(True)
-                logging.debug("Ensured original image is visible in image_proc_view as no body parts were visualized.")
-            return
-
-        logging.debug(f"Clearing {len(self._body_parts_viz_items_image)} body parts visualization items from image view.")
-        for item in self._body_parts_viz_items_image:
-            if item.scene():
-                self.image_proc_scene.removeItem(item)
-        self._body_parts_viz_items_image.clear()
-
-        # Show the main original image again if requested
-        if make_original_visible and self.image_proc_view and self.image_proc_view.image_item: # Corrected attribute name
-            self.image_proc_view.image_item.setVisible(True)
-            logging.debug("Restored original image visibility in image_proc_view after clearing body parts.")
-
-    def _update_character_part_visuals(self):
-        """Simplified visual update for debugging initial pose.
-        Places each part centered at its primary (parent) joint, with 0 rotation and scale 1.
-        The Torso is centered on the 'j_neck_base' joint.
-        """
-        logging.info("[DEBUG_VISUALS] Using SIMPLIFIED _update_character_part_visuals for initial pose.")
-
-        for joint_id_of_child, limb_config in self.sim_limb_configs.items(): # e.g. limb_config for 'head' part is keyed by 'j_head'
-            part_name = limb_config.get('partName')
-            if not part_name or part_name not in self.editor_items:
-                logging.warning(f"[DEBUG_VISUALS] Part '{part_name}' for limb config key '{joint_id_of_child}' not in editor_items. Skipping.")
-                continue
-
-            character_part_item = self.editor_items[part_name]
-
-            key_joint_id = limb_config.get('parentAnchor') or limb_config.get('parentJoint')
-
-            if not key_joint_id or key_joint_id not in self.sim_dynamic_joints:
-                logging.warning(f"[DEBUG_VISUALS] Key joint ID '{key_joint_id}' for part '{part_name}' not found in sim_dynamic_joints. Skipping.")
-                continue
-
-            key_joint_dynamic_data = self.sim_dynamic_joints[key_joint_id]
-            key_joint_scene_pos = QPointF(key_joint_dynamic_data['x'], key_joint_dynamic_data['y'])
-
-            character_part_item.setRotation(0)
-            character_part_item.setScale(1.0)
-
-            item_local_center = character_part_item.boundingRect().center()
-            item_target_pos = key_joint_scene_pos - item_local_center
-            character_part_item.setPos(item_target_pos)
-
-            logging.info(f"[DEBUG_VISUALS] Part: {part_name} (Child IK Joint for config: {joint_id_of_child})")
-            logging.info(f"  Associated Key Joint ID (parent/proximal): {key_joint_id}")
-            logging.info(f"  Key Joint Scene Pos: {key_joint_scene_pos}")
-            logging.info(f"  Item Local Center: {item_local_center}")
-            logging.info(f"  Set Item Rotation: 0 deg, Scale: 1.0")
-            logging.info(f"  Final Item Pos (setPos): {item_target_pos}")
-
-        # Handle Torso positioning centered on j_neck_base
-        torso_actual_name = self.ik_part_to_actual_part_name.get('torso', 'torso')
-        torso_item = self.editor_items.get(torso_actual_name)
-        if torso_item:
-            torso_item.setRotation(0)
-            torso_item.setScale(1.0)
-
-            j_neck_base_dynamic_data = self.sim_dynamic_joints.get('j_neck_base')
-            if j_neck_base_dynamic_data:
-                j_neck_base_scene_pos = QPointF(j_neck_base_dynamic_data['x'], j_neck_base_dynamic_data['y'])
-                torso_local_center = torso_item.boundingRect().center()
-                torso_target_pos = j_neck_base_scene_pos - torso_local_center
-                torso_item.setPos(torso_target_pos)
-                logging.info(f"[DEBUG_VISUALS] Torso: {torso_actual_name} centered on j_neck_base at {j_neck_base_scene_pos}. Set Pos: {torso_target_pos}, Rotation: 0, Scale: 1.0")
-            else:
-                logging.warning(f"[DEBUG_VISUALS] Torso: 'j_neck_base' not found in sim_dynamic_joints. Cannot center torso part. Current Pos: {torso_item.pos()}")
-        else:
-            logging.warning(f"[DEBUG_VISUALS] Torso part '{torso_actual_name}' not found in editor_items.")
-
-        self.editor_scene.update()
-
-    # --- End New IK System Data ---
-
-    # --- Property for sim_dynamic_joints to debug access ---
-    @property
-    def sim_dynamic_joints(self) -> Dict[str, Dict[str, Any]]:
-        # logging.debug("[ATTR_DEBUG] sim_dynamic_joints GETTER called.")
-        if not hasattr(self, '_sim_dynamic_joints_data'):
-            # This case should ideally not happen if __init__ ran correctly.
-            logging.error("[ATTR_DEBUG] GETTER: _sim_dynamic_joints_data is MISSING. Re-initializing.")
-            self._sim_dynamic_joints_data = {}
-        return self._sim_dynamic_joints_data
-
-    @sim_dynamic_joints.setter
-    def sim_dynamic_joints(self, value: Dict[str, Dict[str, Any]]):
-        logging.critical("[ATTR_DEBUG] sim_dynamic_joints SETTER called! Assigning new dict. Length: %s", len(value) if value is not None else 'None')
-        self._sim_dynamic_joints_data = value
-
-    @sim_dynamic_joints.deleter
-    def sim_dynamic_joints(self):
-        logging.critical("[ATTR_DEBUG] sim_dynamic_joints DELETER called!")
-        if hasattr(self, '_sim_dynamic_joints_data'):
-            del self._sim_dynamic_joints_data
-        else:
-            logging.warning("[ATTR_DEBUG] DELETER: _sim_dynamic_joints_data was already missing.")
     # --- End Property for sim_dynamic_joints ---
-
-    # --- UI Initialization ---
 
     def _initialize_sim_dynamic_joints(self):
         """Initializes the runtime state of sim_dynamic_joints based on scene_joints_snapshot and configs."""
-        # self.sim_dynamic_joints = {} # Old direct assignment, now handled by property setter at the end
-        temp_dynamic_joints = {} # Build the dictionary locally
+        temp_dynamic_joints = {}
         logging.info(f"Initializing sim_dynamic_joints. Have scene_joints_snapshot with {len(self.scene_joints_snapshot)} entries.")
 
         if not self.scene_joints_snapshot:
             logging.error("Cannot initialize sim_dynamic_joints: self.scene_joints_snapshot is empty. Make sure _initialize_new_ik_skeleton_definitions populates it.")
-            # Assign empty dict through setter if snapshot is missing, to ensure attribute exists
             logging.info("[ATTR_DEBUG] Calling sim_dynamic_joints setter with empty dict due to missing snapshot.")
             self.sim_dynamic_joints = {}
             return
@@ -3568,7 +3418,6 @@ class AutomataDesigner(QMainWindow):
                 'initial_x': abs_x, 'initial_y': abs_y,
                 'isAnchor': is_anchor
             }
-            # ... (rest of the logic to populate base_data based on anchor/limb config) ...
             if is_anchor:
                 anchor_config = self.sim_joints_config[joint_id]
                 base_data['label'] = anchor_config.get('label', joint_id)
@@ -3583,7 +3432,7 @@ class AutomataDesigner(QMainWindow):
                 base_data['parentJointId'] = limb_config.get('parentJoint')
                 base_data['path'] = []
                 base_data['animation'] = {
-                    'active': False, 'progress': 0, 'direction': 1, 'speed': 2.0,
+                    'active': False, 'progress': 0, 'direction': 1, 'speed': self.ik_animation_speed, # Use instance speed
                     'isClosedLoop': False, 'pathLength': 0
                 }
             else:
@@ -3593,7 +3442,7 @@ class AutomataDesigner(QMainWindow):
             temp_dynamic_joints[joint_id] = base_data
 
         logging.info(f"[ATTR_DEBUG] Calling sim_dynamic_joints setter with fully populated dict of size {len(temp_dynamic_joints)}.")
-        self.sim_dynamic_joints = temp_dynamic_joints # This will call the property setter
+        self.sim_dynamic_joints = temp_dynamic_joints
 
         logging.info(f"Initialized {len(self.sim_dynamic_joints)} dynamic joints for new IK system from scene_joints_snapshot.")
 
@@ -3605,16 +3454,8 @@ class AutomataDesigner(QMainWindow):
             list_item = QListWidgetItem(comp_def['name'])
             stored_data_for_user_role = comp_def['targetJointId']
             list_item.setData(Qt.ItemDataRole.UserRole, stored_data_for_user_role)
-
-
             self.parts_list.addItem(list_item)
-            if comp_def['name'] == 'Head': # Specific log for debugging this case
-                logging.info(f"[POPULATE_DEBUG] For 'Head', comp_def details: {comp_def}")
-                logging.info(f"[POPULATE_DEBUG] For 'Head', stored UserRole data (targetJointId): '{stored_data_for_user_role}'")
-            if comp_def['name'] == 'Left Forearm':
-                logging.info(f"[POPULATE_DEBUG] For 'Left Forearm', comp_def details: {comp_def}")
-                logging.info(f"[POPULATE_DEBUG] For 'Left Forearm', stored UserRole data (targetJointId): '{stored_data_for_user_role}'")
-        logging.info(f"Finished populating IK component list UI with {len(self.parts_list)} items.")
+        logging.info(f"Finished populating IK component list UI with {self.parts_list.count()} items.") # Use count() for QListWidget
 
     def _initialize_new_ik_skeleton_definitions(self):
         """Initializes IK data structures using loaded parts_info.json and CharacterPartItems,
@@ -3630,101 +3471,185 @@ class AutomataDesigner(QMainWindow):
             self.sim_limb_configs = {}
             self.scene_joints_snapshot = {}
             self.sim_selectable_components = []
+            self.sim_two_bone_ik_effectors = [] # Ensure these are also initialized as empty
+            self.sim_joint_bend_directions = {} # Ensure these are also initialized as empty
+            self._initialize_sim_dynamic_joints() # Corrected: Ensure this is called to set sim_dynamic_joints (even if empty)
+            self._populate_ik_component_list_ui()
+            return
+
+        # Correctly access joint_map nested under 'character'
+        character_data_for_ik = self.current_parts_info_data.get('character', {})
+        joint_map_texture = character_data_for_ik.get('joint_map', {})
+
+        if not joint_map_texture:
+            logging.error("'character.joint_map' not found in current_parts_info_data. Cannot define IK skeleton.")
+            # Still try to initialize other things to avoid subsequent AttributeErrors
+            self.sim_joints_config = {}
+            self.sim_limb_lengths = {}
+            self.sim_limb_configs = {}
+            self.scene_joints_snapshot = {}
+            self.sim_selectable_components = []
             self.sim_two_bone_ik_effectors = []
             self.sim_joint_bend_directions = {}
             self._initialize_sim_dynamic_joints()
             self._populate_ik_component_list_ui()
             return
 
-        joint_map_texture = self.current_parts_info_data.get('joint_map', {})
-        if not joint_map_texture:
-            logging.error("joint_map not found in current_parts_info_data. Cannot define IK skeleton.")
-            return
-
         torso_actual_name = self.ik_part_to_actual_part_name.get('torso')
         torso_item = self.editor_items.get(torso_actual_name)
         if not torso_item:
             logging.error("Torso CharacterPartItem not found. Cannot define IK skeleton relative to torso.")
+            # Still try to initialize other things
+            self.sim_joints_config = {}
+            self.sim_limb_lengths = {}
+            self.sim_limb_configs = {}
+            self.scene_joints_snapshot = {}
+            self.sim_selectable_components = []
+            _initialize_sim_dynamic_joints()
+            self._populate_ik_component_list_ui()
             return
+
+        # Ensure ik_to_json_joint_map_config and ik_part_to_actual_part_name are populated if they can be empty initially
+        if not self.ik_to_json_joint_map_config:
+            logging.warning("ik_to_json_joint_map_config is empty. Attempting to use default if possible or skip IK setup.")
+            # Provide a default or handle gracefully
+            # For now, let's assume it must be populated from elsewhere or this is an error state.
+            # If this is a critical config, we might populate with a default or raise an error.
+            # For robustness, let's try to proceed but log a clear warning.
+            # self.ik_to_json_joint_map_config = DEFAULT_IK_TO_JSON_MAP # Example default
+
+        if not self.ik_part_to_actual_part_name:
+            logging.warning("ik_part_to_actual_part_name is empty. This might lead to issues mapping IK parts to CharacterPartItems.")
+            # self.ik_part_to_actual_part_name = DEFAULT_IK_TO_ACTUAL_PART_MAP # Example default
+
 
         torso_scene_ref_pos = torso_item.pos()
         logging.info(f"Using Torso '{torso_actual_name}' at scene reference position: {torso_scene_ref_pos} for placing the relative skeleton.")
 
+        logging.debug(f"IK Init: joint_map_texture keys: {list(joint_map_texture.keys()) if joint_map_texture else 'None or Empty'}")
         neck_json_key = self.ik_to_json_joint_map_config.get('j_neck_base', 'neck')
+        logging.debug(f"IK Init: Attempting to use neck_json_key: '{neck_json_key}'")
+
         if neck_json_key not in joint_map_texture:
-            logging.error(f"Key '{neck_json_key}' (for j_neck_base) not found in joint_map. Cannot establish texture origin offset.")
+            logging.error(f"Key '{neck_json_key}' (for j_neck_base) not found in joint_map_texture. Cannot establish texture origin offset.")
+            # ... (early exit logic as before) ...
+            self.sim_joints_config = {}
+            self.sim_limb_lengths = {}
+            self.sim_limb_configs = {}
+            self.scene_joints_snapshot = {}
+            self.sim_selectable_components = []
+            self.sim_two_bone_ik_effectors = []
+            self.sim_joint_bend_directions = {}
+            self._initialize_sim_dynamic_joints()
+            self._populate_ik_component_list_ui()
             return
 
+        logging.debug(f"IK Init: Found '{neck_json_key}' in joint_map_texture.")
         neck_texture_coords_raw = joint_map_texture[neck_json_key]
+        logging.debug(f"IK Init: Raw neck_texture_coords for '{neck_json_key}': {neck_texture_coords_raw}")
+
         if not isinstance(neck_texture_coords_raw, list) or len(neck_texture_coords_raw) != 2:
-            logging.error(f"Invalid texture coordinates for '{neck_json_key}': {neck_texture_coords_raw}. Cannot establish texture origin.")
+            logging.error(f"Invalid texture coordinates for '{neck_json_key}': {neck_texture_coords_raw}. Expected list of 2 numbers. Cannot establish texture origin.")
+            # ... (early exit logic as before) ...
+            self.sim_joints_config = {}
+            self.sim_limb_lengths = {}
+            self.sim_limb_configs = {}
+            self.scene_joints_snapshot = {}
+            self.sim_selectable_components = []
+            self.sim_two_bone_ik_effectors = []
+            self.sim_joint_bend_directions = {}
+            self._initialize_sim_dynamic_joints()
+            self._populate_ik_component_list_ui()
             return
-        texture_space_origin_for_relative_skeleton = QPointF(float(neck_texture_coords_raw[0]), float(neck_texture_coords_raw[1]))
-        logging.info(f"Texture space origin for relative skeleton (from '{neck_json_key}' in joint_map) is: {texture_space_origin_for_relative_skeleton}")
+
+        logging.debug(f"IK Init: neck_texture_coords_raw is a valid list of 2.")
+        try:
+            texture_space_origin_for_relative_skeleton = QPointF(float(neck_texture_coords_raw[0]), float(neck_texture_coords_raw[1]))
+            logging.info(f"Texture space origin for relative skeleton (from '{neck_json_key}' in joint_map) is: {texture_space_origin_for_relative_skeleton}")
+        except ValueError as e:
+            logging.error(f"Could not convert neck coordinates '{neck_texture_coords_raw}' to float: {e}. Cannot establish texture origin.")
+            self.sim_joints_config = {}
+            self.sim_limb_lengths = {}
+            self.sim_limb_configs = {}
+            self.scene_joints_snapshot = {}
+            self.sim_selectable_components = []
+            self.sim_two_bone_ik_effectors = []
+            self.sim_joint_bend_directions = {}
+            self._initialize_sim_dynamic_joints()
+            self._populate_ik_component_list_ui()
+            return
+
+        # ... rest of the method ...
 
         self.scene_joints_snapshot = {}
+        logging.debug(f"IK Init: Populating scene_joints_snapshot. Number of items in ik_to_json_joint_map_config: {len(self.ik_to_json_joint_map_config)}")
         for ik_joint_id, json_key_for_map in self.ik_to_json_joint_map_config.items():
             if json_key_for_map in joint_map_texture:
                 raw_tex_coords_list_for_joint = joint_map_texture[json_key_for_map]
                 if not isinstance(raw_tex_coords_list_for_joint, list) or len(raw_tex_coords_list_for_joint) != 2:
-                    logging.warning(f"Invalid raw texture_coords for '{json_key_for_map}': {raw_tex_coords_list_for_joint}. Skipping for {ik_joint_id}.")
+                    logging.warning(f"IK Init: Invalid raw texture_coords for '{json_key_for_map}' (used by {ik_joint_id}): {raw_tex_coords_list_for_joint}. Skipping snapshot for this joint.")
                     continue
-                joint_texture_qpoint = QPointF(float(raw_tex_coords_list_for_joint[0]), float(raw_tex_coords_list_for_joint[1]))
-                joint_relative_to_texture_origin = joint_texture_qpoint - texture_space_origin_for_relative_skeleton
-                self.scene_joints_snapshot[ik_joint_id] = torso_scene_ref_pos + joint_relative_to_texture_origin
-                logging.debug(f"  Scene joint {ik_joint_id} (from json '{json_key_for_map}'): joint_tex_pos={joint_texture_qpoint}, rel_to_tex_origin={joint_relative_to_texture_origin}, final_scene_pos={self.scene_joints_snapshot[ik_joint_id]}" )
+                try:
+                    joint_texture_qpoint = QPointF(float(raw_tex_coords_list_for_joint[0]), float(raw_tex_coords_list_for_joint[1]))
+                    joint_relative_to_texture_origin = joint_texture_qpoint - texture_space_origin_for_relative_skeleton
+                    self.scene_joints_snapshot[ik_joint_id] = torso_scene_ref_pos + joint_relative_to_texture_origin
+                    logging.debug(f"  IK Init: Snapshot for {ik_joint_id} (from json '{json_key_for_map}'): scene_pos={self.scene_joints_snapshot[ik_joint_id]}")
+                except ValueError as e:
+                    logging.error(f"IK Init: ValueError converting coordinates for '{json_key_for_map}' (used by {ik_joint_id}): {raw_tex_coords_list_for_joint} - {e}. Skipping snapshot.")
+                    continue
             else:
-                logging.warning(f"Joint key '{json_key_for_map}' for IK joint '{ik_joint_id}' not found in joint_map.")
+                logging.warning(f"IK Init: Joint key '{json_key_for_map}' for IK joint '{ik_joint_id}' not found in joint_map_texture.")
+        logging.debug(f"IK Init: Finished populating scene_joints_snapshot. Size: {len(self.scene_joints_snapshot)}")
 
-        if 'j_neck_base' in self.scene_joints_snapshot:
+        # Special handling for 'j_head' position based on 'j_neck_base'
+        if 'j_neck_base' in self.scene_joints_snapshot and 'j_head' in self.ik_to_json_joint_map_config:
             neck_scene_pos = self.scene_joints_snapshot['j_neck_base']
-            logging.info(f"For head calculation: neck_scene_pos (j_neck_base) is {neck_scene_pos}. (Should match torso_scene_ref_pos: {torso_scene_ref_pos})")
-            head_length_estimate = 50.0
-            logging.info(f"[DEBUG] Using FIXED head_length_estimate for j_head: {head_length_estimate}")
-            logging.info(f"[PINPOINT DEBUG] For j_head calculation: neck_scene_pos.y() = {neck_scene_pos.y()}, head_length_estimate = {head_length_estimate}")
-            new_j_head_y = neck_scene_pos.y() - head_length_estimate
-            logging.info(f"[PINPOINT DEBUG] Calculated new_j_head_y for j_head: {new_j_head_y}")
-            self.scene_joints_snapshot['j_head'] = QPointF(neck_scene_pos.x(), new_j_head_y)
-            logging.info(f"Estimated IK joint 'j_head' (distal point) at {self.scene_joints_snapshot['j_head']} (using length: {head_length_estimate} from j_neck_base at {neck_scene_pos})")
-        else:
+            head_length = self.sim_limb_lengths.get('head', 50.0)
+            if 'j_head' not in self.scene_joints_snapshot:
+                logging.info(f"Estimating IK joint 'j_head' from j_neck_base ({neck_scene_pos}) with length: {head_length}")
+                self.scene_joints_snapshot['j_head'] = QPointF(neck_scene_pos.x(), neck_scene_pos.y() - head_length)
+            else:
+                logging.info(f"Using pre-calculated scene_joints_snapshot for j_head: {self.scene_joints_snapshot['j_head']}")
+        elif 'j_neck_base' not in self.scene_joints_snapshot:
             logging.error("Neck base ('j_neck_base') not in self.scene_joints_snapshot. Cannot estimate head tip for 'j_head'. Critical error.")
-            return
+        elif 'j_head' not in self.ik_to_json_joint_map_config:
+            logging.warning("'j_head' not defined in ik_to_json_joint_map_config. Cannot ensure its position.")
+        logging.debug(f"IK Init: After j_head handling, scene_joints_snapshot size: {len(self.scene_joints_snapshot)}")
 
         self.sim_joints_config = {}
         torso_scene_origin_for_anchor_offsets = torso_item.pos()
-        logging.info(f"Torso '{torso_actual_name}' scene origin for ANCHOR OFFSETS calculation: {torso_scene_origin_for_anchor_offsets}")
         anchor_ik_ids_on_torso = ['j_neck_base', 'j_left_shoulder', 'j_right_shoulder', 'j_left_hip', 'j_right_hip']
+        logging.debug(f"IK Init: Populating sim_joints_config for {len(anchor_ik_ids_on_torso)} anchors.")
         for ik_id in anchor_ik_ids_on_torso:
             if ik_id in self.scene_joints_snapshot:
                 anchor_final_scene_pos = self.scene_joints_snapshot[ik_id]
-                offset_x = anchor_final_scene_pos.x() - torso_scene_origin_for_anchor_offsets.x()
-                offset_y = anchor_final_scene_pos.y() - torso_scene_origin_for_anchor_offsets.y()
+                offset_x = anchor_final_scene_pos.x() - torso_scene_ref_pos.x()
+                offset_y = anchor_final_scene_pos.y() - torso_scene_ref_pos.y()
                 self.sim_joints_config[ik_id] = {
-                    'xOffset': offset_x, 'yOffset': offset_y,
+                    'xOffset': offset_x,
+                    'yOffset': offset_y,
                     'label': ik_id,
                     'partName': torso_actual_name
                 }
-                logging.info(f"Defined sim_joint_config for anchor {ik_id}: final_scene_pos={anchor_final_scene_pos}, offset_from_torso_origin=({offset_x:.2f}, {offset_y:.2f})")
             else:
                 logging.error(f"Scene position for essential anchor IK joint '{ik_id}' not found in scene_joints_snapshot. Skipping anchor config for it.")
+        logging.debug(f"IK Init: Finished populating sim_joints_config. Size: {len(self.sim_joints_config)}")
 
         self.sim_limb_lengths = {}
         self.sim_limb_configs = {}
         limb_segment_definitions = [
-            ('j_head',        'j_neck_base',     'head_len',   'head',            'Head',            'j_head',                'j_neck_base'),
-            ('j_left_elbow',  'j_left_shoulder', 'lu_arm_len', 'left_upper_arm',  'Left Upper Arm',  'j_left_elbow',          'j_left_shoulder'),
-            ('j_left_wrist',  'j_left_elbow',    'll_arm_len', 'left_forearm',    'Left Forearm',    'j_left_wrist',          'j_left_elbow'),
-            ('j_right_elbow', 'j_right_shoulder','ru_arm_len', 'right_upper_arm', 'Right Upper Arm', 'j_right_elbow',         'j_right_shoulder'),
-            ('j_right_wrist', 'j_right_elbow',   'rl_arm_len', 'right_forearm',   'Right Forearm',   'j_right_wrist',         'j_right_elbow'),
-            ('j_left_knee',   'j_left_hip',      'l_thigh_len','left_thigh',      'Left Thigh',      'j_left_knee',           'j_left_hip'),
-            ('j_left_ankle',  'j_left_knee',     'l_calf_len', 'left_calf',       'Left Calf',       'j_left_ankle',          'j_left_knee'),
-            ('j_right_knee',  'j_right_hip',     'r_thigh_len','right_thigh',     'Right Thigh',     'j_right_knee',          'j_right_hip'),
-            ('j_right_ankle', 'j_right_knee',    'r_calf_len', 'right_calf',      'Right Calf',      'j_right_ankle',         'j_right_knee'),
+            ('j_head',        'j_neck_base',     'head',   'head',            'Head',            'j_head',                'j_neck_base'),
+            ('j_left_elbow',  'j_left_shoulder', 'upperArm', 'left_upper_arm',  'Left Upper Arm',  'j_left_elbow',          'j_left_shoulder'),
+            ('j_left_wrist',  'j_left_elbow',    'forearm', 'left_forearm',    'Left Forearm',    'j_left_wrist',          'j_left_elbow'),
+            ('j_right_elbow', 'j_right_shoulder','upperArm', 'right_upper_arm', 'Right Upper Arm', 'j_right_elbow',         'j_right_shoulder'),
+            ('j_right_wrist', 'j_right_elbow',   'forearm', 'right_forearm',   'Right Forearm',   'j_right_wrist',         'j_right_elbow'),
+            ('j_left_knee',   'j_left_hip',      'thigh','left_thigh',      'Left Thigh',      'j_left_knee',           'j_left_hip'),
+            ('j_left_ankle',  'j_left_knee',     'calf', 'left_calf',       'Left Calf',       'j_left_ankle',          'j_left_knee'),
+            ('j_right_knee',  'j_right_hip',     'thigh','right_thigh',     'Right Thigh',     'j_right_knee',          'j_right_hip'),
+            ('j_right_ankle', 'j_right_knee',    'calf', 'right_calf',      'Right Calf',      'j_right_ankle',         'j_right_knee'),
         ]
-
-        logging.info(f"[LIMB_CONFIG_LOOP_DEBUG] Starting loop to define sim_limb_configs. Number of definitions: {len(limb_segment_definitions)}")
-
-        for child_ik_id, parent_ik_id, length_key, ik_part_concept, label, scene_child_key, scene_parent_key in limb_segment_definitions:
+        logging.debug(f"IK Init: Populating sim_limb_configs for {len(limb_segment_definitions)} limb segments.")
+        for child_ik_id, parent_ik_id, length_key_ref, ik_part_concept, label, scene_child_key, scene_parent_key in limb_segment_definitions:
             actual_part_name = self.ik_part_to_actual_part_name.get(ik_part_concept)
             if not actual_part_name:
                 logging.warning(f"No actual part name mapping for IK concept '{ik_part_concept}'. Skipping limb {child_ik_id}.")
@@ -3736,30 +3661,29 @@ class AutomataDesigner(QMainWindow):
                 dy_len = child_final_scene_pos.y() - parent_final_scene_pos.y()
                 length = math.sqrt(dx_len**2 + dy_len**2)
                 if length < 1.0:
-                    logging.warning(f"Calculated length for {length_key} ({actual_part_name}) is near zero ({length:.2f}). Using default of 10. ChildPos: {child_final_scene_pos}, ParentPos: {parent_final_scene_pos}")
-                    length = 10.0
-                self.sim_limb_lengths[length_key] = length
+                    logging.warning(f"Calculated length for {length_key_ref} ({actual_part_name}) is near zero ({length:.2f}). Using default of 10. ChildPos: {child_final_scene_pos}, ParentPos: {parent_final_scene_pos}")
+                    length = self.sim_limb_lengths.get(length_key_ref, 10.0)
+                self.sim_limb_lengths[length_key_ref] = length
                 angle = math.atan2(dy_len, dx_len)
                 parent_type_key = 'parentAnchor' if parent_ik_id in self.sim_joints_config else 'parentJoint'
                 self.sim_limb_configs[child_ik_id] = {
                     parent_type_key: parent_ik_id,
                     'angle': angle,
-                    'lengthKey': length_key,
+                    'lengthKey': length_key_ref,
                     'length': length,
                     'label': label,
                     'partName': actual_part_name
                 }
-                logging.info(f"Defined sim_limb_config for {child_ik_id} (Part: {actual_part_name}), Parent: {parent_ik_id}, Length: {length:.2f}, Angle(rad): {angle:.2f}, ChildScene: {child_final_scene_pos}, ParentScene: {parent_final_scene_pos}")
             else:
                 missing_keys_info = []
                 if scene_child_key not in self.scene_joints_snapshot: missing_keys_info.append(f"child '{scene_child_key}'")
                 if scene_parent_key not in self.scene_joints_snapshot: missing_keys_info.append(f"parent '{scene_parent_key}'")
                 logging.error(f"Missing scene positions for limb segment {parent_ik_id} -> {child_ik_id}. Keys missing: {', '.join(missing_keys_info)}. Cannot define limb. Skipping.")
+        logging.debug(f"IK Init: Finished populating sim_limb_configs. Size: {len(self.sim_limb_configs)}")
+        logging.debug(f"IK Init: sim_limb_lengths after calculation: {self.sim_limb_lengths}")
 
-        logging.info(f"[CRITICAL_DEBUG] After loop, sim_limb_configs: {self.sim_limb_configs}")
-
-        logging.info(f"[SELECTABLE_DEBUG] Intermediate sim_limb_configs: {self.sim_limb_configs}") # Log before populating selectable_components
         self.sim_selectable_components = []
+        logging.debug(f"IK Init: Populating sim_selectable_components from {len(self.sim_limb_configs)} limb configs.")
         for ik_joint_id, limb_config_entry in self.sim_limb_configs.items():
             parent_joint_id_for_limb = limb_config_entry.get('parentAnchor') or limb_config_entry.get('parentJoint')
             if limb_config_entry.get('label') and limb_config_entry.get('partName') and parent_joint_id_for_limb:
@@ -3770,12 +3694,7 @@ class AutomataDesigner(QMainWindow):
                     'partName': limb_config_entry['partName']
                 }
                 self.sim_selectable_components.append(component_to_add)
-                # Removed specific [SELECTABLE_CREATION_DEBUG] for Head to avoid tool conflict, covered by next log.
-
-        logging.info(f"[SELECTABLE_DEBUG] Fully populated sim_selectable_components: {self.sim_selectable_components}") # Log the entire list after population
-
-        logging.info(f"[CRITICAL_DEBUG] After loop, sim_selectable_components: {self.sim_selectable_components}")
-
+        logging.debug(f"IK Init: Finished populating sim_selectable_components. Size: {len(self.sim_selectable_components)}")
 
         self.sim_two_bone_ik_effectors = ['j_left_wrist', 'j_right_wrist', 'j_left_ankle', 'j_right_ankle']
         self.sim_joint_bend_directions = {
@@ -3783,10 +3702,22 @@ class AutomataDesigner(QMainWindow):
             'j_left_knee': 1,  'j_right_knee': 1
         }
 
-        logging.info(f"Final scene_joints_snapshot (Relative Approach): {self.scene_joints_snapshot}")
-        logging.info(f"Final sim_joints_config (Relative Approach): {self.sim_joints_config}")
-        logging.info(f"Final sim_limb_lengths (Relative Approach): {self.sim_limb_lengths}")
-        logging.info(f"Final sim_limb_configs (Relative Approach): {self.sim_limb_configs}")
+        js_limb_lengths = { 'head': 35, 'upperArm': 55, 'forearm': 50, 'thigh': 65, 'calf': 60 }
+        for key, val in js_limb_lengths.items():
+            if key not in self.sim_limb_lengths:
+                logging.info(f"Using predefined JS length for '{key}': {val}")
+                self.sim_limb_lengths[key] = val
+            for limb_cfg in self.sim_limb_configs.values():
+                if limb_cfg.get('lengthKey') == key:
+                    limb_cfg['length'] = val
+        logging.debug(f"IK Init: sim_limb_lengths after JS override: {self.sim_limb_lengths}")
 
+        logging.debug(f"IK Init: About to call _initialize_sim_dynamic_joints.")
         self._initialize_sim_dynamic_joints()
+        logging.debug(f"IK Init: Finished _initialize_sim_dynamic_joints. _sim_dynamic_joints_data size: {len(self._sim_dynamic_joints_data) if hasattr(self, '_sim_dynamic_joints_data') else 'AttributeMissing'}")
+
+        logging.debug(f"IK Init: About to call _populate_ik_component_list_ui.")
         self._populate_ik_component_list_ui()
+        logging.debug(f"IK Init: Finished _populate_ik_component_list_ui.")
+
+    # --- Property for sim_dynamic_joints to debug access ---
