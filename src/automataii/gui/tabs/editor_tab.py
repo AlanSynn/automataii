@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -23,11 +23,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtWidgets import QGraphicsItem # Added for type hinting
+from PyQt6.QtGui import QPixmap # Added QPixmap
 
 # Import EditorScene and EditorView
 from ..editor_view import EditorView # Assuming editor_view.py is in the same parent directory (gui)
 from PyQt6.QtWidgets import QGraphicsScene
-from ..part_item import CharacterPartItem # Added CharacterPartItem
+from ..graphics_items.part_item import CharacterPartItem # UPDATED
 from automataii.core.models import PartInfo # Added PartInfo
 
 from PyQt6.QtGui import QPainterPath
@@ -50,6 +51,7 @@ class EditorTab(QWidget):
         bool
     )  # Emitted when parts are loaded/cleared (True if loaded)
     request_reset_all_animations = pyqtSignal() # New signal
+    motion_path_updated = pyqtSignal(str, QPainterPath) # part_name, path
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
@@ -150,6 +152,11 @@ class EditorTab(QWidget):
         self.editor_view.driven_center_selected.connect(self._handle_driven_center_set)
         self.editor_view.zoom_changed.connect(self._update_zoom_combo_from_view)
 
+        # Connect to new EditorView signals for item interactions
+        self.editor_view.part_item_clicked.connect(self._handle_part_item_clicked_from_view)
+        self.editor_view.part_item_double_clicked.connect(self._handle_part_item_double_clicked_from_view)
+        # self.editor_view.part_item_moved.connect(self._handle_part_item_moved_from_view) # Deferred
+
     def _init_ui(self):
         layout = QHBoxLayout(self)
 
@@ -202,7 +209,7 @@ class EditorTab(QWidget):
         # Motion Path Definition Group
         motion_path_group = QGroupBox("Motion Path")
         motion_path_layout = QVBoxLayout(motion_path_group)
-        self.define_motion_path_btn = QPushButton("Define Motion Path")
+        self.define_motion_path_btn = QPushButton("Draw Motion Path")
         self.define_motion_path_btn.setCheckable(True)
         self.define_motion_path_btn.setToolTip(
             "Toggle mode to draw a motion path for the selected part."
@@ -553,20 +560,28 @@ class EditorTab(QWidget):
     def _handle_part_selection_change(
         self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]
     ):
-        if not current:
-            self.selected_part_name = None
-            self.update_part_properties_panel(None)
-            self.define_motion_path_btn.setEnabled(False)
-            self.clear_motion_path_btn.setEnabled(False)
-            if self.editor_view.current_drawing_part_name:
-                self.editor_view.cancel_current_action()  # Cancel drawing if selection changes
-            return
+        """Handles selection changes from the parts_list QListWidget."""
+        if current:
+            part_name = current.data(Qt.ItemDataRole.UserRole) # Get part name from item data
+            if part_name and part_name in self.current_editor_items:
+                self.selected_part_name = part_name
+                # Highlight in scene (EditorView handles visual selection based on QGraphicsScene selection model)
+                # Ensure the scene's selection model is updated if list widget drives selection
+                item_to_select = self.current_editor_items[part_name]
+                self.editor_scene.clearSelection() # Clear previous scene selection
+                item_to_select.setSelected(True)   # Select the item in the scene
 
-        part_name = current.text()
-        self.selected_part_name = part_name
-        self.editor_view.set_selected_part(part_name)  # Notify view
-        self.update_part_properties_panel(part_name)
-        self._update_button_states()  # Update motion path buttons, etc.
+                logging.debug(f"EditorTab: Part '{part_name}' selected via list.")
+            else:
+                self.selected_part_name = None
+                self.editor_scene.clearSelection()
+        else:
+            self.selected_part_name = None
+            self.editor_scene.clearSelection()
+
+        self.update_part_properties_panel(self.selected_part_name)
+        self._update_button_states()
+        self._update_gizmo_visibility()
 
     def _handle_part_list_click(self, item: QListWidgetItem):
         # Currently, currentItemChanged handles selection. This could be for other interactions.
@@ -601,24 +616,27 @@ class EditorTab(QWidget):
 
     def _toggle_define_motion_path_mode(self, checked: bool):
         if not self.selected_part_name:
+            self.define_motion_path_btn.setChecked(False) # Ensure button is off if no selection
+            self.editor_view.set_mode('select') # Ensure view is in select mode
+            return
+
+        selected_part_item = self.current_editor_items.get(self.selected_part_name)
+        if not selected_part_item:
             self.define_motion_path_btn.setChecked(False)
+            self.editor_view.set_mode('select')
+            logging.warning(f"EditorTab: Selected part '{self.selected_part_name}' not found for motion path.")
             return
 
         if checked:
-            self.editor_view.start_freehand_path_definition(
-                self.selected_part_name
-            )
+            # Entering mode
+            self.editor_view.start_define_motion_path(selected_part_item)
             self.main_window.statusBar().showMessage(
-                f"Drawing motion path for {self.selected_part_name}. Click and drag. Press Esc to cancel."
+                f"Draw motion path for {self.selected_part_name}. Click & drag. Esc or toggle button to exit."
             )
         else:
-            # If path definition was active and is being toggled off, complete it
-            if (
-                self.editor_view.current_drawing_part_name
-                == self.selected_part_name
-            ):
-                self.editor_view.complete_freehand_path_definition()  # Or cancel if preferred
-            self.main_window.statusBar().showMessage("Motion path definition ended.")
+            # Exiting mode
+            self.editor_view.finish_motion_path_drawing()
+            self.main_window.statusBar().showMessage("Draw motion path mode ended.")
 
     def _clear_selected_item_motion_path(self):
         if (
@@ -688,10 +706,7 @@ class EditorTab(QWidget):
         # Simple check, can be made more robust based on selected points for each mechanism
         can_generate = (
             self.selected_part_name is not None
-            and self.editor_view.get_selected_part_motion_path_points()
-            is not None
-            and len(self.editor_view.get_selected_part_motion_path_points())
-            > 1
+            and self._get_selected_part_has_motion_path()
         )
 
         # Add specific checks for each mechanism type if needed
@@ -767,6 +782,7 @@ class EditorTab(QWidget):
         )
         for part_name in sorted_part_names:
             item = QListWidgetItem(part_name)
+            item.setData(Qt.ItemDataRole.UserRole, part_name) # Store part_name in UserRole
             self.parts_list.addItem(item)
         self.update_part_properties_panel(None)  # Clear properties panel initially
         self._update_button_states()
@@ -823,7 +839,7 @@ class EditorTab(QWidget):
             and self.selected_part_name in self.current_editor_items
         ):
             part_item = self.current_editor_items[self.selected_part_name]
-            return bool(part_item.motion_path_points)
+            return bool(part_item.motion_path and not part_item.motion_path.isEmpty())
         return False
 
     # --- Slots for MainWindow signals / Data update methods ---
@@ -841,40 +857,21 @@ class EditorTab(QWidget):
             self._update_button_states()
             return
 
-        logging.info(f"EditorTab: Setting parts data for {len(self.current_parts_info)} parts.")
-
         project_dir = None
         if self.main_window and hasattr(self.main_window, 'project_data_manager') and self.main_window.project_data_manager.project_dir:
             project_dir = self.main_window.project_data_manager.project_dir
+        else:
+            logging.error("EditorTab: Project directory not available from ProjectDataManager. Part items may not load correctly.")
+            # Show a message to the user, as this is critical
+            QMessageBox.critical(self, "Error", "Project directory is missing. Cannot load part textures.")
+            self.parts_loaded.emit(False)
+            self.populate_parts_list()
+            self._update_button_states()
+            return
 
         for part_name, p_info in self.current_parts_info.items():
-            # Ensure PartInfo has project_dir context if CharacterPartItem needs it for image paths
-            # This assumes PartInfo.image_path is relative to project_dir or absolute.
-            # CharacterPartItem constructor seems to handle Path objects for image_path if part_info is prepared correctly.
-
-            # If p_info.image_path is relative, and project_dir is known, make it absolute for CharacterPartItem.
-            # However, CharacterPartItem itself seems to take just the path string and tries to load it.
-            # Let's assume p_info.image_path is correctly resolvable by QPixmap.
-
-            item = CharacterPartItem(part_info=p_info) # Parent is None if added directly to scene
-            # Position the item based on its PartInfo (x, y are typically center of ROI)
-            # CharacterPartItem's internal logic might use part_info.roi and its own transform origin.
-            # Initial position is (0,0) in its own coordinates. We add it to scene and then can set its scene pos if needed.
-            # For now, rely on CharacterPartItem to position itself based on its part_info.x, part_info.y if it uses them, or handle translation in its paint.
-            # A common pattern is item.setPos(p_info.x, p_info.y) if x,y are scene coordinates.
-            # Given CharacterPartItem uses ROI for translation, its internal (0,0) should align correctly if ROI is top-left.
-            # Let's verify how CharacterPartItem uses x,y from PartInfo if at all.
-            # PartInfo has x,y, but CharacterPartItem does not seem to use them directly for setPos().
-            # It uses part_info.roi for path translation. The item's scene position will be (0,0) unless set.
-            # The initial position of the items in the scene will be based on their local (0,0) after ROI translation.
-            # This might mean all parts are initially at the scene origin, then user arranges them, or a layout is applied.
-            # For now, let's add them. Arrangement logic can be refined.
-            # If the original `editor_graphics_items` were pre-positioned, that logic needs to be replicated here or in CharacterPartItem.
-
-            # Default position from PartInfo, if available, might refer to its original position in a larger canvas.
-            # This could be used to set initial scene positions.
-            if hasattr(p_info, 'x') and hasattr(p_info, 'y'):
-                 item.setPos(p_info.x, p_info.y) # Assuming x,y are intended as scene positions
+            # CharacterPartItem now loads its own texture using project_dir and p_info.name
+            item = CharacterPartItem(part_info=p_info, project_dir=project_dir)
 
             self.editor_scene.addItem(item)
             created_editor_items[part_name] = item
@@ -888,22 +885,44 @@ class EditorTab(QWidget):
         logging.info(f"EditorTab: Added {len(self.current_editor_items)} items to the scene.")
 
     def clear_editor_content(self):
-        """Clears all parts, joints, and mechanism visuals from the editor scene and internal state."""
-        self.parts_list.clear()
+        """Clears all parts, joints, and mechanism visuals from the editor scene."""
+        logging.info("EditorTab: Content cleared.")
+        if not self.editor_scene:
+            logging.warning("EditorTab: Scene not available to clear content.")
+            return
+
+        # Clear CharacterPartItems
+        for item in list(self.current_editor_items.values()): # Iterate over a copy
+            if item.scene() == self.editor_scene: # Check if item is in this scene
+                self.editor_scene.removeItem(item)
+            # Optionally, explicitly delete the Python object if it's not managed by Qt's parent/child
+            # For QObject/QGraphicsItem, removeItem and no Python references should be enough for GC
+            # However, if issues persist, explicit deletion can be tried.
+            # For now, assume Qt handles it once removed from scene and Python GC kicks in.
+        self.current_editor_items.clear()
+
+        # Clear visual joints (if any are directly managed as QGraphicsItems)
+        # Assuming joints are just data for now, but if they have visual items:
+        # for joint_item in self.visual_joint_items:
+        # self.editor_scene.removeItem(joint_item)
+        # self.visual_joint_items.clear()
+        self.joints.clear() # Clear the joint data list
+
+        # Clear Mechanism Visuals
+        for item in self.mechanism_visual_items:
+            if item.scene() == self.editor_scene:
+                self.editor_scene.removeItem(item)
+        self.mechanism_visual_items.clear()
+
         self.selected_part_name = None
-        self.current_parts_info = {}
-        self.current_editor_items = {} # Clear the reference to items
-
-        # Clear the graphics scene directly
-        self.editor_scene.clear() # This removes all QGraphicsItems from the scene
-        # Re-initialize editor_view or clear its internal state related to items
-        # self.editor_view.clear_scene_and_items() # REMOVED: This method does not exist in EditorView
-
+        self.populate_parts_list()  # Update list (will be empty)
         self.update_part_properties_panel(None)
         self._update_button_states()
+        self.editor_view.reset_temp_visuals() # Clear any temporary drawing items in view
+        self.editor_view.set_mode("select")
+
         self.parts_cleared.emit()
-        self.parts_loaded.emit(False) # Emit that no parts are loaded
-        logging.info("EditorTab: Content cleared.")
+        self.parts_loaded.emit(False)
 
     def on_parts_loaded_or_cleared(self, parts_exist: bool):
         """Called by MainWindow when parts are loaded or cleared."""
@@ -998,29 +1017,47 @@ class EditorTab(QWidget):
         logging.info(f"EditorTab: Part properties visibility set to {visible}")
 
     # Slot for freehandPathCompleted signal from EditorView
-    def _handle_freehand_path_completed(self, part_name: str, path: QPainterPath):
-        if part_name not in self.current_parts_info:
-            logging.warning(f"_handle_freehand_path_completed: Part {part_name} not found.")
+    @pyqtSlot(list)  # Changed to match signal: list of QPointF
+    def _handle_freehand_path_completed(self, path_points: List[QPointF]):
+        if not self.selected_part_name:
+            logging.warning("_handle_freehand_path_completed: No part selected.")
+            # Do not toggle button here, mode is explicit
             return
 
-        self.current_parts_info[part_name].motion_path_data = path # Store QPainterPath directly
+        part_name = self.selected_part_name
+        current_parts_info = self.main_window.project_data_manager.parts
 
-        # Update CharacterPartItem if it exists
+        if not current_parts_info or part_name not in current_parts_info:
+            logging.warning(f"_handle_freehand_path_completed: Part {part_name} not in PDM.parts.")
+            return
+
+        motion_qpath = QPainterPath()
+        if path_points:
+            motion_qpath.moveTo(path_points[0])
+            for point in path_points[1:]:
+                motion_qpath.lineTo(point)
+        else:
+            logging.info(f"Received empty path points for {part_name}. Clearing existing path.")
+
+        current_parts_info[part_name].motion_path = motion_qpath
+        logging.debug(f"EditorTab: Updated motion_path in PDM.parts for '{part_name}'.")
+
         if part_name in self.current_editor_items:
             char_part_item = self.current_editor_items[part_name]
-            char_part_item.set_motion_path(path)
-            # char_part_item.update_visualization() # if necessary
+            char_part_item.set_motion_path(motion_qpath)
+        else:
+            logging.warning(f"_handle_freehand_path_completed: Item {part_name} not in editor_items.")
 
-        self.main_window.statusBar().showMessage(f"Motion path defined for {part_name}")
-        self.define_motion_path_btn.setChecked(False) # Turn off toggle button
-        self._update_button_states()
-        logging.info(f"Freehand motion path completed for {part_name}.")
+        self.motion_path_updated.emit(part_name, motion_qpath)
+
+        self.main_window.statusBar().showMessage(f"Motion path updated for {part_name}. Draw again or toggle mode off.")
+        # DO NOT toggle button here: self.define_motion_path_btn.setChecked(False)
+        self._update_button_states() # Update clear button state, etc.
+        logging.info(f"Freehand motion path completed for {part_name} with {len(path_points)} points.")
 
     # Slot for drawing_cancelled signal from EditorView
     def _handle_drawing_cancelled(self):
         self.main_window.statusBar().showMessage("Path definition cancelled.")
-        if self.define_motion_path_btn.isChecked():
-            self.define_motion_path_btn.setChecked(False)
         # Add any other cleanup if a specific point selection was cancelled
         self._update_generate_mechanism_button_state()
         logging.info("Drawing action cancelled by EditorView.")
@@ -1195,3 +1232,71 @@ class EditorTab(QWidget):
             self.editor_view.update() # Update the entire view to ensure all changes are reflected
         else:
             logging.info("EditorTab: No visual motion paths found to clear.")
+
+    def handle_ik_update(self, ik_results: Dict[str, Dict[str, Any]]):
+        """Receives IK results and updates the EditorView."""
+        if not self.editor_view:
+            logging.warning("EditorTab: EditorView not available to handle IK update.")
+            return
+
+        # logging.debug(f"EditorTab: Received IK update: {ik_results}")
+        if not ik_results:
+            # logging.debug("EditorTab: IK results are empty, nothing to update in view.")
+            return
+
+        for part_name, transform_data in ik_results.items():
+            position_data = transform_data.get('position')
+            rotation_degrees = transform_data.get('rotation_degrees')
+
+            if position_data and isinstance(position_data, (list, tuple)) and len(position_data) >= 2:
+                new_pos = QPointF(float(position_data[0]), float(position_data[1]))
+                if rotation_degrees is not None:
+                    self.editor_view.update_part_visuals_from_ik(part_name, new_pos, float(rotation_degrees))
+                else:
+                    logging.warning(f"EditorTab: Missing rotation for part {part_name} in IK update.")
+            else:
+                logging.warning(f"EditorTab: Invalid or missing position for part {part_name} in IK update.")
+
+        self.editor_view.scene().update() # Update once after all parts are processed
+
+    def _update_gizmo_visibility(self):
+        # Implementation of this method is not provided in the original file or the code block
+        # This method should be implemented to update other UI elements based on the simulation state
+        pass
+
+    # New handlers for signals from EditorView
+    def _handle_part_item_clicked_from_view(self, clicked_item: CharacterPartItem):
+        """Handles a CharacterPartItem being clicked in the EditorView."""
+        part_name = clicked_item.name()
+        self.selected_part_name = part_name
+        logging.debug(f"EditorTab: Part '{part_name}' clicked in view. Selected.")
+
+        # Update the QListWidget selection to match the view
+        for i in range(self.parts_list.count()):
+            list_item = self.parts_list.item(i)
+            if list_item.data(Qt.ItemDataRole.UserRole) == part_name:
+                self.parts_list.setCurrentItem(list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect)
+                break
+
+        # Ensure the item is also selected in the scene (QGraphicsView might do this, but be explicit)
+        # View already emits this *after* super().mousePressEvent, so selection should be set.
+        # clicked_item.setSelected(True) # This might be redundant
+
+        self.update_part_properties_panel(self.selected_part_name)
+        self._update_button_states()
+        self._update_gizmo_visibility()
+
+    def _handle_part_item_double_clicked_from_view(self, double_clicked_item: CharacterPartItem):
+        """Handles a CharacterPartItem being double-clicked in the EditorView."""
+        part_name = double_clicked_item.name()
+        logging.debug(f"EditorTab: Part '{part_name}' double-clicked in view.")
+        # Add logic for double-click action, e.g., open a detailed properties dialog
+        QMessageBox.information(self, "Part Double-Clicked", f"Part '{part_name}' was double-clicked.")
+
+    # def _handle_part_item_moved_from_view(self, moved_item: CharacterPartItem, scene_pos: QPointF):
+    #     """Handles a CharacterPartItem being moved in the EditorView."""
+    #     part_name = moved_item.name()
+    #     logging.debug(f"EditorTab: Part '{part_name}' moved in view to {scene_pos}.")
+    #     # Update any model data if necessary, though direct manipulation might be handled by IK later
+    #     # self.current_parts_info[part_name].scene_position = scene_pos # Example
+    #     self.main_window.project_data_manager.update_part_position(part_name, scene_pos) # Example call

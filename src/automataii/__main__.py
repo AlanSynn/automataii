@@ -9,10 +9,13 @@ import os
 # Automataii specific imports
 from automataii.gui.main_window import AutomataDesigner
 from automataii.utils.config import AppConfig
-from automataii.gui.styling import LIGHT_STYLE
+from automataii.utils.styling import LIGHT_STYLE
 
 # Import qtreload
 from qtreload import install_hot_reload
+
+# Configure logging first
+from automataii.utils.logging_config import setup_logging
 
 def main():
     """Main function to initialize and run the Automataii application."""
@@ -26,12 +29,8 @@ def main():
     args = parser.parse_args()
 
     # MODIFIED: Configure logging based on --debug flag
-    log_format = '%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s'
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG, format=log_format)
-        logging.debug("Debug mode enabled.")
-    else:
-        logging.basicConfig(level=logging.INFO, format=log_format)
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    setup_logging(console_log_level=log_level)
 
     # Attempt to set High DPI scaling attributes (optional, but good for modern displays)
     try:
@@ -50,7 +49,7 @@ def main():
     app.setStyleSheet(LIGHT_STYLE)
 
     # Initialize configuration (if any)
-    # AppConfig.initialize() # Assuming AppConfig is part of your structure
+    AppConfig.initialize()
 
     # Create and show the main window
     logging.info("Creating main window...")

@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from ..camera_dialog import CameraDialog
+from ..dialogs.camera_dialog import CameraDialog
 from ..image_view import ImageProcessingView
 from PyQt6.QtWidgets import QGraphicsScene
 from ..widgets.processing_steps_group import ProcessingStepsGroup
@@ -37,7 +37,7 @@ from ...animate.body_parts_extractor import BodyPartsExtractor
 
 class ImageProcessingTab(QWidget):
     # Signal to indicate parts have been generated and parts_info.json is ready
-    parts_generated = pyqtSignal(dict)
+    parts_generated = pyqtSignal(dict, str)
     # Signal to indicate skeleton has been loaded/updated
     skeleton_updated = pyqtSignal(dict)
     # Signal to request a switch to the editor tab
@@ -239,10 +239,26 @@ class ImageProcessingTab(QWidget):
             self.image_proc_view.show_skeleton_visuals(checked)
 
     def _toggle_parts_visibility_in_view(self, checked: bool):
-        if (
-            self.image_proc_view
-        ):
-            self.image_proc_view.show_part_visuals(checked)
+        if not self.image_proc_view:
+            return
+
+        if checked:
+            if self.main_window and self.main_window.project_data_manager and self.main_window.project_data_manager.parts:
+                parts_info = self.main_window.project_data_manager.parts
+                effective_offset = self.main_window.project_data_manager.effective_bounding_box_offset
+                # skeleton_to_part_map can be an empty dict if not immediately relevant for ImageProcessingView display
+                self.image_proc_view.load_character_parts(parts_info, {}, effective_offset)
+                self.image_proc_view.show_part_visuals(True)
+            else:
+                logging.warning("ImageProcessingTab: Cannot show parts, ProjectDataManager has no parts loaded.")
+                self.show_parts_checkbox.setChecked(False) # Uncheck if data is not available
+                QMessageBox.information(self, "View Parts", "No part data has been loaded into the project yet. Please process an image first.")
+        else:
+            self.image_proc_view.show_part_visuals(False)
+            # Optionally, clear them if they are re-added every time show is true.
+            # Since load_character_parts now clears, this might not be strictly necessary here,
+            # but explicit show/hide is cleaner if parts persist.
+            # For now, just hiding is fine as load_character_parts handles clearing.
 
     # --- Image Processing Actions ---
     def load_input_image(self):
@@ -508,92 +524,95 @@ class ImageProcessingTab(QWidget):
             )
 
     def create_parts_from_skeleton(self):
-        """
-        Uses BodyPartsExtractor to create parts_info.json from the current character_dir (temp)
-        and its char_cfg.yaml, texture.png, mask.png.
-        Emits parts_generated signal with the path to parts_info.json.
-        """
-        if not self.current_temp_char_dir or not Path(self.current_temp_char_dir).exists():
-            QMessageBox.warning(self, "Warning", "No character data directory found. Process image first.")
+        """Initiates part creation using BodyPartsExtractor based on current skeleton and image."""
+        if not self.current_annotation_results or not self.current_annotation_results.get('texture_path') or \
+           not self.current_annotation_results.get('char_cfg_path') or not self.current_temp_char_dir:
+            QMessageBox.warning(self, "Missing Data",
+                                "Cannot create parts. Texture, char_cfg, or temp directory not available. Please process image first.")
             return
 
-        if not self.skeleton_data: # Should have been loaded by process_image or load_skeleton
-            QMessageBox.warning(self, "Warning", "No skeleton data loaded. Process image or load skeleton first.")
-            return
+        # texture_path_str = self.current_annotation_results['texture_path'] # Used by BodyPartsExtractor internally via char_dir
+        # char_cfg_path_str = self.current_annotation_results['char_cfg_path'] # Used by BodyPartsExtractor internally via char_dir
+        # mask_path_str = self.current_annotation_results.get('mask_path') # Used by BodyPartsExtractor internally via char_dir
 
-        char_cfg_path = Path(self.current_temp_char_dir) / "char_cfg.yaml"
-        if not char_cfg_path.exists():
-            QMessageBox.warning(self, "Warning", f"char_cfg.yaml not found in {self.current_temp_char_dir}. Process image first.")
-            return
+        logging.info(f"Creating parts using custom BodyPartsExtractor. Input char_dir: {self.current_temp_char_dir}")
+        self.main_window.statusBar().showMessage("Generating character parts...", 5000)
 
-        logging.info(f"Creating parts using BodyPartsExtractor with char_dir: {self.current_temp_char_dir}")
-        self.main_window.statusBar().showMessage("Generating body parts...")
-        QApplication.processEvents()
-
-        progress_dialog = QProgressDialog("Generating body parts, please wait...", None, 0, 0, self)
+        progress_dialog = QProgressDialog("Generating body parts...", "Cancel", 0, 0, self)
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setCancelButton(None)
+        progress_dialog.setAutoClose(True)
         progress_dialog.show()
-        QApplication.processEvents()
+        QApplication.processEvents() # Ensure dialog shows
 
         try:
-            # BodyPartsExtractor's output_dir will be a sub-directory inside self.current_temp_char_dir
-            # or we can specify it to be the same if it handles overwriting/structure correctly.
-            # For simplicity, let its default behavior create a 'body_parts_output' subdir.
-            # The important file is parts_info.json within that output.
+            # Define the intended output directory for this custom BodyPartsExtractor
+            # It will create this directory if it doesn't exist.
+            # Ensure bpe_output_dir is INSIDE the current_temp_char_dir for proper session isolation.
+            bpe_output_dir = Path(self.current_temp_char_dir) / "bpe_output"
+            bpe_output_dir.mkdir(parents=True, exist_ok=True) # Ensure it exists
 
-            # The BodyPartsExtractor itself will create an output directory.
-            # We need to ensure the parts_info.json path it generates is what we emit.
-            # Let's make the output_dir for BPE distinct if it defaults to a subfolder.
-            # Or, we can tell BPE to output directly into current_temp_char_dir if it's safe.
-            # For now, assume BPE creates a 'body_parts_output' subfolder.
-
-            extractor_output_base = Path(self.current_temp_char_dir) / "bpe_output" # Define a specific output for BPE
-
-            extractor = BodyPartsExtractor(
-                char_dir=str(self.current_temp_char_dir), # Input is the temp dir with char_cfg, texture, mask
-                output_dir=str(extractor_output_base),
-                generate_animations=False # No animations needed at this stage by Automataii
+            self.body_parts_extractor = BodyPartsExtractor(
+                char_dir=str(self.current_temp_char_dir), # This is the input dir containing char_cfg, texture, mask
+                output_dir=str(bpe_output_dir) # This is where parts_info.json and part SVGs should go
             )
-            extractor.process() # This saves parts_info.json inside extractor_output_base/parts_info.json
 
-            generated_parts_info_path = extractor_output_base / "parts_info.json"
+            # Call process() method of the custom extractor
+            self.body_parts_extractor.process() # This method saves parts_info.json inside its self.output_dir
 
-            if generated_parts_info_path.exists():
-                logging.info(f"Body parts generated. parts_info.json at: {generated_parts_info_path}")
-                self.main_window.statusBar().showMessage("Body parts generated successfully.", 5000)
+            # The body_parts_extractor.output_dir should now be bpe_output_dir
+            actual_bpe_output_dir_from_extractor = Path(self.body_parts_extractor.output_dir)
 
-                # Prepare data for the signal, including the path to parts_info.json
-                # and other relevant paths from current_annotation_results
-                results_for_signal = self.current_annotation_results.copy() if self.current_annotation_results else {}
-                results_for_signal["parts_info_path"] = str(generated_parts_info_path.resolve())
-                # Ensure output_dir in signal still points to the primary temp character dir
-                results_for_signal["output_dir"] = self.current_temp_char_dir
+            # Verify the extractor used the intended output directory
+            if actual_bpe_output_dir_from_extractor != bpe_output_dir:
+                logging.warning(f"BodyPartsExtractor output dir {actual_bpe_output_dir_from_extractor} differs from intended {bpe_output_dir}. Using intended dir for consistency.")
+                # Force using the intended directory for subsequent operations
+                # This assumes parts_info.json was indeed written to actual_bpe_output_dir_from_extractor,
+                # and we might need to reconcile if it truly went elsewhere.
+                # However, BPE's __init__ sets self.output_dir to the passed output_dir, so they should match unless process() changes it.
+                # For now, trust that BPE will write to the directory it was told to, or that its self.output_dir is correct.
+                # The critical path is finding parts_info.json.
 
-                self.parts_generated.emit(results_for_signal)
+            expected_parts_info_path = actual_bpe_output_dir_from_extractor / "parts_info.json"
 
-                # Optionally, load these parts for display in ImageProcessingView
-                self.image_proc_view.load_parts(str(generated_parts_info_path), self.current_temp_char_dir)
-                self.show_parts_checkbox.setChecked(True)
+            if not expected_parts_info_path.exists():
+                logging.error(f"CRITICAL: parts_info.json was NOT found at {expected_parts_info_path} immediately after custom BodyPartsExtractor finished processing.")
+                QMessageBox.critical(self, "Parts Generation Error",
+                                     f"parts_info.json was not created by BodyPartsExtractor at the expected location:\\n{expected_parts_info_path}\\n\\nPlease check the application logs for errors from BodyPartsExtractor.")
+                progress_dialog.close()
+                return
             else:
-                QMessageBox.critical(self, "Error", f"parts_info.json not found after BodyPartsExtractor processing in {extractor_output_base}.")
-                self.main_window.statusBar().showMessage("Part generation failed: parts_info.json not found.", 5000)
+                logging.info(f"SUCCESS: parts_info.json found at {expected_parts_info_path} after custom BodyPartsExtractor processing.")
 
-        except Exception as e:
-            logging.error(f"Error during part generation with BodyPartsExtractor: {e}", exc_info=True)
-            QMessageBox.critical(self, "Part Generation Error", f"An error occurred: {e}")
-            self.main_window.statusBar().showMessage(f"Part generation error: {e}", 5000)
-        finally:
+            self.current_parts_info_path = str(expected_parts_info_path)
+
             progress_dialog.close()
+            QMessageBox.information(self, "Parts Generated",
+                                    f"Character parts generated successfully in: {actual_bpe_output_dir_from_extractor}")
+
+            if self.current_annotation_results:
+                # Pass the actual_bpe_output_dir_from_extractor where parts_info.json resides
+                self.parts_generated.emit(self.current_annotation_results, str(actual_bpe_output_dir_from_extractor))
+            else:
+                logging.error("Cannot emit parts_generated: self.current_annotation_results is None.")
+
             self.update_button_states()
 
+        except Exception as e:
+            progress_dialog.close()
+            logging.error(f"Error during part creation with custom BodyPartsExtractor: {e}", exc_info=True)
+            QMessageBox.critical(self, "Part Creation Error", f"An error occurred: {e}")
+        finally:
+            if progress_dialog.isVisible():
+                progress_dialog.close()
+
     def next_stage(self):
-        # This method signals MainWindow to switch to the Editor tab.
-        # MainWindow will handle loading parts if a parts_info.json was generated and emitted.
-        if not self.current_annotation_results or not self.current_annotation_results.get("parts_info_path"):
-            QMessageBox.information(self, "Next Stage", "Please process image and generate parts first.")
+        # Before switching, ensure parts have been processed and loaded by ProjectDataManager
+        # The source of truth for parts being ready for the editor is the ProjectDataManager
+        if not self.main_window or not self.main_window.project_data_manager or not self.main_window.project_data_manager.parts:
+            QMessageBox.information(self, "Next Stage", "Please process image and generate parts, then ensure they are loaded into the project first.")
             return
 
+        # If skeleton data is also ready, it's good, but parts are essential for the editor tab's primary content.
         # Ensure parts_generated signal was emitted with the correct data (including parts_info_path)
         # The actual data loading into ProjectDataManager will be handled by MainWindow
         # when it receives the parts_generated signal.

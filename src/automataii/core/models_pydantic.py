@@ -64,6 +64,7 @@ class PartInfoModel(BaseModel):
     # If stored in JSON, it would likely be a simplified representation (e.g., list of points)
     # or a reference to an external file. For now, assume it might be a list of QPointF-like tuples.
     motion_path_data: Optional[MotionPathDataModel] = None # Or List[QPointFModel] if simpler
+    show_anchor: bool = False # Default to not showing the anchor
 
     class Config:
         populate_by_name = True # Allows using alias for svg_path_file

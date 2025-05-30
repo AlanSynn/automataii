@@ -5,11 +5,15 @@ from PyQt6.QtWidgets import QGraphicsView, QGraphicsRectItem, QGraphicsEllipseIt
 from PyQt6.QtGui import QPainter, QPixmap, QColor, QBrush, QPen
 from PyQt6.QtCore import Qt, QPointF, QLineF, QEvent, QRectF
 import math # Added for math.sqrt and math.atan2 if needed, though QLineF handles length
-from typing import List, Optional, Dict # Added List, Optional, Dict
+from typing import List, Optional, Dict, Tuple, Any
+import numpy as np
+import cv2 # Added for cv2.findContours etc.
 
-from .skeleton_item import SkeletonJoint, SkeletonLine
-from ..core.models import JOINT_CONNECTIONS, JOINT_COLORS, PartInfo # Adjust import path
-from .part_item import CharacterPartItem # Import CharacterPartItem
+from ..core.models import PartInfo
+from ..utils.svg_utils import contour_to_svg_path
+from .graphics_items.part_item import CharacterPartItem # UPDATED
+from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED
+from .graphics_items.anchor_item import AnchorItem # UPDATED (if it was moved, otherwise adjust)
 
 # --- Helper Functions for Vector Math (can be static or outside class) ---
 def normalize_vector(vector: QPointF) -> QPointF:
@@ -419,15 +423,17 @@ class ImageProcessingView(QGraphicsView):
                     continue
 
                 orig_x, orig_y = loc[0], loc[1]
-                item_relative_x, item_relative_y = orig_x, orig_y # For char_cfg, loc is often already relative to texture or a bbox corner
+                # 'loc' coordinates from char_cfg are already relative to the texture.png's content origin.
+                # self.image_item (texture.png) is placed at scene (0,0).
+                # So, loc[0], loc[1] are the coordinates directly on the image_item.
+                item_relative_x = orig_x
+                item_relative_y = orig_y
 
-                # If bbox_origin was found, assume loc is relative to it for char_cfg style data
-                if char_cfg_origin_x is not None and char_cfg_origin_y is not None:
-                    item_relative_x = char_cfg_origin_x + orig_x
-                    item_relative_y = char_cfg_origin_y + orig_y
-                else: # If no bbox_origin, assume loc is directly usable (e.g. already offset or from image top-left)
-                    pass
-                    # logging.debug(f"Joint {name} (no bbox_origin): Using loc directly ({orig_x}, {orig_y})")
+                # The bbox_origin_x/y from char_cfg (stored as char_cfg_origin_x/y here)
+                # defines how texture.png was cropped. It's not an additional offset for 'loc'.
+                # if char_cfg_origin_x is not None and char_cfg_origin_y is not None:
+                # item_relative_x = char_cfg_origin_x + orig_x # Incorrect: double offset
+                # item_relative_y = char_cfg_origin_y + orig_y # Incorrect: double offset
 
                 skel_joint = SkeletonJoint(name, item_relative_x, item_relative_y)
                 skel_joint.setParentItem(self.image_item)
@@ -814,14 +820,16 @@ class ImageProcessingView(QGraphicsView):
         self.joint_to_part_map.clear()
 
     def load_character_parts(self, parts_data: Dict[str, PartInfo], skeleton_to_part_map: Dict[str, str], effective_bbox_offset: QPointF):
-        """Loads CharacterPartItems into this view's scene based on PartInfo.
-
-        Args:
-            parts_data: Dictionary of part_name to PartInfo object.
-            skeleton_to_part_map: Maps skeleton joint names (e.g., 'left_hip') to body part names (e.g., 'left_leg_upper').
-            effective_bbox_offset: Global offset to apply for correct positioning relative to texture origin.
         """
-        self.clear_character_parts() # Clear any existing parts first
+        Loads and displays CharacterPartItems based on parts_data.
+        These are interactive parts, distinct from simple skeleton visualization.
+        """
+        self.clear_character_parts() # Clear existing parts first
+
+        if not self.scene():
+            logging.error("ImageProcessingView: Scene not available to load character parts.")
+            return
+
         if not parts_data:
             logging.warning("ImageProcessingView: No parts_data provided to load_character_parts.")
             return
@@ -844,20 +852,20 @@ class ImageProcessingView(QGraphicsView):
                 # if an image_path is primary, or svg coordinates are relative to (0,0) of part.
                 # This view positions relative to the overall texture.png, so bbox_offset is key.
 
-                # Default position is (0,0) minus the effective bbox offset (aligns texture origin with scene origin)
-                item_x = -effective_bbox_offset.x()
-                item_y = -effective_bbox_offset.y()
+                # Default position is (0,0) minus the effective bbox_offset (aligns texture origin with scene origin)
+                item_x = 0.0 # Start with texture origin (0,0)
+                item_y = 0.0
 
                 if part_info_obj.roi and len(part_info_obj.roi) == 4:
                     # If ROI exists, part's origin (top-left of its image/svg) is at roi[0], roi[1] within texture.png
                     # So, add roi[0] and roi[1] to the base position.
                     item_x += part_info_obj.roi[0]
                     item_y += part_info_obj.roi[1]
-                    logging.debug(f"ImageProcessingView: Positioning '{part_name}' using ROI ({part_info_obj.roi[0]}, {part_info_obj.roi[1]}) and bbox_offset. Pos: ({item_x}, {item_y})")
+                    logging.debug(f"ImageProcessingView: Positioning '{part_name}' using ROI ({part_info_obj.roi[0]}, {part_info_obj.roi[1]}). Pos: ({item_x}, {item_y})")
                 else:
                     # If no ROI, might need a fallback based on a convention (e.g., skeleton joint pos)
                     # For now, it will be at texture origin (0,0) if no ROI
-                    logging.debug(f"ImageProcessingView: Positioning '{part_name}' at texture origin (adjusted by bbox_offset). Pos: ({item_x}, {item_y})")
+                    logging.debug(f"ImageProcessingView: Positioning '{part_name}' at texture origin (0,0) due to no ROI.")
 
 
                 part_item.setPos(item_x, item_y)

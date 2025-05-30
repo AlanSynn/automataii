@@ -18,6 +18,7 @@ from PyQt6.QtGui import (
     QPen,
     QPainterPath,
     QBrush,
+    QPixmap
 )
 from PyQt6.QtCore import (
     Qt,
@@ -31,11 +32,11 @@ from typing import Optional, Dict, Any, List
 
 # Local imports (adjust paths as needed)
 from .image_view import ImageProcessingView
-from .part_item import CharacterPartItem
-from .styling import LIGHT_STYLE, DARK_STYLE, UIColors
+from .graphics_items.part_item import CharacterPartItem
+from ..utils.styling import LIGHT_STYLE, DARK_STYLE, UIColors
 
-# from .options_tab import OptionsTab # Removed: OptionsTab is now in tabs directory
-from ..core.models import PartInfo
+from ..core.models import PartInfo # ProjectFileModel is in models_pydantic
+from ..core.models_pydantic import ProjectFileModel # Added ProjectFileModel from correct location
 
 # Import new tab modules
 from .tabs.image_processing_tab import ImageProcessingTab
@@ -59,10 +60,12 @@ from ..core.mechanism_manager import MechanismManager
 
 from PyQt6.QtWidgets import QGraphicsEllipseItem
 
+from qframelesswindow import FramelessMainWindow
+
 TARGET_CONTROL_POINTS = 8
 
 
-class AutomataDesigner(QMainWindow):
+class AutomataDesigner(FramelessMainWindow):
     """Main application window for the Automata Designer.
 
     Integrates image processing, skeleton editing, part assembly, motion definition,
@@ -74,6 +77,7 @@ class AutomataDesigner(QMainWindow):
         self.debug_mode = debug_mode
         logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}")
         self.setWindowTitle("Automata Designer")
+        self.titleBar.raise_()
         self.resize(1200, 680)  # Reduced height from 750
         self.setMinimumHeight(600)  # Set explicit minimum height
         logging.info("Initializing AutomataDesigner...")
@@ -401,41 +405,63 @@ class AutomataDesigner(QMainWindow):
             pass
 
     # --- New Slots for ImageProcessingTab Signals ---
-    @pyqtSlot(dict)
-    def handle_parts_generated_from_tab(self, generated_data: dict):
+    @pyqtSlot(dict, str)
+    def handle_parts_generated_from_tab(self, annotation_results: dict, final_bpe_char_dir_str: str):
         """Handles the parts_generated signal from ImageProcessingTab."""
-        logging.info(
-            f"MainWindow: Received parts_generated signal with data: {generated_data}"
-        )
+        logging.info(f"MainWindow: Received parts_generated. Annotation results output_dir: {annotation_results.get('output_dir')}, Final BPE dir: {final_bpe_char_dir_str}")
 
-        parts_info_json_path = generated_data.get('parts_info_path')
-        temp_char_dir = generated_data.get('output_dir') # This is the base temp dir for this character session
+        parts_info_json_path = Path(final_bpe_char_dir_str) / "parts_info.json"
+        source_char_cfg_path_str = annotation_results.get('char_cfg_path')
 
-        if not parts_info_json_path or not temp_char_dir:
-            QMessageBox.warning(
-                self, "Processing Error", "Received incomplete data from image processing stage."
-            )
-            logging.error(f"handle_parts_generated_from_tab: Missing parts_info_path or output_dir in {generated_data}")
+        if not source_char_cfg_path_str:
+            logging.error("handle_parts_generated_from_tab: 'char_cfg_path' not found in annotation_results.")
+            QMessageBox.critical(self, "Error", "char_cfg.yaml path not found in annotation data.")
             return
 
-        logging.info(f"Attempting to load project from generated parts_info: {parts_info_json_path}")
-        # ProjectDataManager.load_project_from_file will handle loading parts_info.json
-        # and then its _try_load_supplemental_skeleton_data will look for char_cfg.yaml
-        # in the same directory (temp_char_dir).
-        success = self.project_data_manager.load_project_from_file(parts_info_json_path)
+        source_char_cfg_path = Path(source_char_cfg_path_str)
+        dest_char_cfg_path = Path(final_bpe_char_dir_str) / "char_cfg.yaml"
+
+        if source_char_cfg_path.exists():
+            try:
+                import shutil
+                shutil.copy2(source_char_cfg_path, dest_char_cfg_path)
+                logging.info(f"Copied {source_char_cfg_path} to {dest_char_cfg_path} for ProjectDataManager.")
+
+                # texture.png is no longer copied as it's not used as an atlas.
+                # Individual part PNGs/SVGs are expected in final_bpe_char_dir_str.
+
+                source_mask_path_str = annotation_results.get('mask_path')
+                if source_mask_path_str:
+                    source_mask_path = Path(source_mask_path_str)
+                    dest_mask_path = Path(final_bpe_char_dir_str) / "mask.png"
+                    if source_mask_path.exists():
+                        shutil.copy2(source_mask_path, dest_mask_path)
+                        logging.info(f"Copied {source_mask_path} to {dest_mask_path}.")
+                    else:
+                        logging.warning(f"Source mask.png not found at {source_mask_path}, cannot copy.")
+                else:
+                    logging.warning("'mask_path' not in annotation_results, cannot copy mask.png.")
+
+            except Exception as e:
+                logging.error(f"Failed to copy files to BPE output dir: {e}", exc_info=True)
+                QMessageBox.warning(self, "File Copy Error", f"Could not copy necessary files for project loading: {e}")
+        else:
+            logging.warning(f"Source char_cfg.yaml not found at {source_char_cfg_path}, cannot copy to BPE output dir. ProjectDataManager might fail to load skeleton.")
+
+        if not parts_info_json_path.exists():
+             logging.error(f"CRITICAL ERROR IN MAINWINDOW: parts_info.json path derived as {parts_info_json_path} but file does not exist.")
+             QMessageBox.critical(self, "Project Load Error", f"Internal error: Could not locate parts_info.json at {parts_info_json_path}.")
+             return
+
+        logging.info(f"Attempting to load project data from parts_info.json: {parts_info_json_path}")
+        success = self.project_data_manager.load_project_from_file(str(parts_info_json_path))
 
         if success:
-            # The actual UI updates, tab switching, etc., are handled by
-            # _handle_project_data_loaded when ProjectDataManager emits its signal.
-            self.statusBar().showMessage( # This might be overwritten by PDM's signal handler
-                f"Project data initiated from temp location: {temp_char_dir}", 5000
-            )
-            # No explicit tab switch here; _handle_project_data_loaded will do it if parts are found.
+            self.statusBar().showMessage("Part data loaded successfully.", 3000)
+            self.current_temp_char_dir = Path(final_bpe_char_dir_str)
+            logging.info(f"MainWindow: Project loaded. Updated current_temp_char_dir to BPE output: {self.current_temp_char_dir}")
         else:
-            QMessageBox.warning(
-                self, "Load Error", f"Failed to load generated project data from {parts_info_json_path}"
-            )
-            logging.error(f"Failed to load project using PDM from generated file: {parts_info_json_path}")
+            self.statusBar().showMessage("Failed to load part data. Check logs.", 5000)
 
     @pyqtSlot(dict)
     def handle_skeleton_updated_from_tab(self, skeleton_data: dict):
@@ -542,61 +568,46 @@ class AutomataDesigner(QMainWindow):
         success: bool,
         project_directory_path: str,
         parts_info: Dict[str, PartInfo] # from ProjectDataManager
-        # editor_graphics_items: Dict[str, CharacterPartItem] # This is no longer passed by the signal
     ):
         """Handles the project_data_loaded signal from ProjectDataManager."""
         if success:
             logging.info(
                 f"MainWindow: Project data loaded successfully from {project_directory_path}"
             )
-            self.project_dir = project_directory_path # Update project_dir in MainWindow
+            self.project_dir = Path(project_directory_path) # Update project_dir in MainWindow, ensure it's Path
 
-            # Create CharacterPartItem instances for the EditorTab
-            # This logic was previously assumed to be done before this slot was called.
-            editor_graphics_items: Dict[str, CharacterPartItem] = {}
-            if parts_info:
-                for part_name, p_info in parts_info.items():
-                    # Assuming CharacterPartItem can be created from PartInfo and project_dir context
-                    # This might need access to the texture, which ProjectDataManager might not hold directly.
-                    # For now, create a placeholder or assume EditorTab/CharacterPartItem handles texture loading based on PartInfo.
-                    # The CharacterPartItem needs the parent (EditorView typically), which is tricky here.
-                    # Simplification: EditorTab will create these items from PartInfo.
-                    # We pass PartInfo directly to EditorTab, and it manages its own graphics items.
-                    pass # This creation logic will move to EditorTab
+            # Texture atlas is no longer loaded here; CharacterPartItem handles individual textures.
+            # logging.debug("MainWindow: Texture atlas loading skipped as parts load their own.")
 
-            # Pass PartInfo data to EditorTab. EditorTab is now responsible for its scene and items.
+            # Pass PartInfo data to EditorTab. It no longer needs texture_atlas_pixmap.
             self.editor_tab.set_parts_data(parts_info)
 
             # Update other tabs/managers as needed
-            # Pass PartInfo to IKManager for animation paths
             if hasattr(self.ik_manager, 'set_project_parts_data'):
-                self.ik_manager.set_project_parts_data(parts_info) # parts_info is Dict[str, PartInfo]
+                self.ik_manager.set_project_parts_data(parts_info)
 
-            current_skeleton_data = self.project_data_manager.raw_skeleton_data # CHANGED
+            current_skeleton_data = self.project_data_manager.raw_skeleton_data
             if current_skeleton_data:
-                # Pass parts_info for context (e.g., limb lengths from bounding boxes)
-                self.skeleton_manager.load_skeleton_from_project_data(current_skeleton_data, parts_info) # CHANGED
+                self.skeleton_manager.load_skeleton_from_project_data(current_skeleton_data, parts_info)
             else:
-                self.skeleton_manager.clear_data() # SkeletonManager clears its data (and emits signal for IKManager)
+                self.skeleton_manager.clear_data()
 
-            self.image_proc_tab.on_parts_loaded_in_editor(True) # Notify image proc tab
+            self.image_proc_tab.on_parts_loaded_in_editor(True)
 
             self.setWindowTitle(f"Automata Designer - {Path(project_directory_path).name}")
             self.statusBar().showMessage(f"Project loaded: {project_directory_path}")
             self.action_manager.update_actions_for_project_state(True)
 
-            # Check if parts were actually loaded to decide on switching
             if parts_info:
-                 # Switch to EditorTab if not already there, as parts are loaded
+                logging.info(f"MainWindow: Project and parts data ({len(parts_info)} parts) loaded. Switching to editor tab if needed.")
                 if self.tab_widget.currentWidget() != self.editor_tab:
                     self.switch_to_editor_tab()
             else:
-                logging.info("Project loaded, but no parts data found.")
-                # Optionally switch to image_proc_tab or stay if no parts
+                logging.info("MainWindow: Project loaded, but no specific parts data found in parts_info dict.")
 
         else:
             logging.error(f"MainWindow: Project loading failed from {project_directory_path}")
-            self._clear_ui_for_failed_load() # Clear UI to reflect failed state
+            self._clear_ui_for_failed_load()
             QMessageBox.critical(
                 self, "Load Project Error", f"Failed to load project from {project_directory_path}."
             )
@@ -623,24 +634,13 @@ class AutomataDesigner(QMainWindow):
     def _handle_project_data_cleared(self):
         """Handles the project_data_cleared signal from ProjectDataManager."""
         logging.info("MainWindow: Handling project data cleared signal.")
-
-        if hasattr(self, 'editor_tab') and self.editor_tab:
-            self.editor_tab.clear_editor_content() # EditorTab clears its own scene and data
-
-        # self.image_proc_tab.clear_display() # Assuming ImageProcessingTab has a method to clear its display
-        if hasattr(self.image_proc_tab, 'clear_display_and_data'): # More robust check
-            self.image_proc_tab.clear_display_and_data()
-
-
-        self.skeleton_manager.clear_data()
-        self.ik_manager.clear_ik_data()
-
-        self.project_dir = None # Clear project directory
-        self.setWindowTitle("Automata Designer")
-        self.statusBar().showMessage("Project cleared.")
+        self.editor_tab.clear_editor_content()
+        self.skeleton_manager.clear_data() # This will emit skeleton_updated with None
+        if self.ik_manager:
+            self.ik_manager.reset_all_ik_systems_and_data() # Use the new method name
         self.action_manager.update_actions_for_project_state(False)
-        logging.info("Project data and relevant UI cleared.")
-
+        self.statusBar().showMessage("Project data cleared.")
+        # Any other UI elements that need to be reset when project is cleared
 
     def save_project_dialog(self):
         """Opens a file dialog to save the current project via ProjectDataManager."""
@@ -804,7 +804,6 @@ class AutomataDesigner(QMainWindow):
 
         # Connect SkeletonManager signals
         self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
-        self.skeleton_manager.skeleton_data_cleared.connect(self.ik_manager.clear_ik_data) # Also clear IK if skeleton cleared
 
         # Connect IKManager signals
         self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
@@ -851,6 +850,11 @@ class AutomataDesigner(QMainWindow):
             if hasattr(self.editor_tab, 'request_reset_all_animations') and hasattr(self, '_reset_all_animations_button_clicked'):
                 self.editor_tab.request_reset_all_animations.connect(self._reset_all_animations_button_clicked)
 
+            # Connect EditorTab.motion_path_updated to MainWindow handler
+            if hasattr(self.editor_tab, 'motion_path_updated') and hasattr(self, '_handle_part_motion_path_update_from_editor_tab'):
+                if not self._is_signal_connected(self.editor_tab.motion_path_updated, self._handle_part_motion_path_update_from_editor_tab):
+                    self.editor_tab.motion_path_updated.connect(self._handle_part_motion_path_update_from_editor_tab)
+
         # MechanismManager connections
         if hasattr(self, 'mechanism_manager') and hasattr(self.mechanism_manager, 'mechanism_visuals_ready'):
             # The slot self.editor_tab.handle_mechanism_visuals will be created in EditorTab
@@ -889,8 +893,6 @@ class AutomataDesigner(QMainWindow):
         # SkeletonManager connections (already in _connect_global_signals, ensure no duplication)
         if hasattr(self.skeleton_manager, 'skeleton_updated') and not self._is_signal_connected(self.skeleton_manager.skeleton_updated, self._on_skeleton_manager_updated):
             self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
-        if hasattr(self.skeleton_manager, 'skeleton_data_cleared') and not self._is_signal_connected(self.skeleton_manager.skeleton_data_cleared, self.ik_manager.clear_ik_data):
-             self.skeleton_manager.skeleton_data_cleared.connect(self.ik_manager.clear_ik_data)
 
         # IKManager connections (already in _connect_global_signals, ensure no duplication)
         if hasattr(self.ik_manager, 'character_visuals_updated') and not self._is_signal_connected(self.ik_manager.character_visuals_updated, self._handle_ik_visuals_update):
@@ -936,98 +938,32 @@ class AutomataDesigner(QMainWindow):
 
     # --- New Slot for IKManager Signals ---
     @pyqtSlot(dict)
-    def _handle_ik_visuals_update(self, part_transforms: dict):
-        """Handles the character_visuals_updated signal from IKManager."""
-        logging.debug(f"MainWindow: Received ik_visuals_update: {part_transforms}")
-        if self.editor_tab and hasattr(self.editor_tab.editor_view, 'update_part_visuals_from_ik'):
-            self.editor_tab.editor_view.update_part_visuals_from_ik(part_transforms)
+    def _handle_ik_visuals_update(self, part_transforms: Dict[str, Dict[str, Any]]):
+        """Handles updates to part visuals from the IKManager."""
+        # logging.debug(f"MainWindow: Received ik_visuals_update: {part_transforms}")
+        if self.editor_tab and self.editor_tab.editor_view:
+            if not part_transforms: # Check if dict is empty
+                # logging.debug("MainWindow: IK visuals update is empty, clearing editor view visuals or resetting.")
+                # Potentially clear visuals or reset poses if IK sends an empty dict after stop
+                # self.editor_tab.editor_view.clear_all_visual_parts_or_reset_to_setup_pose() # Example
+                pass # For now, do nothing if empty, specific clearing handled elsewhere
+            else:
+                for part_name, transform_data in part_transforms.items():
+                    position_data = transform_data.get('position')
+                    rotation_degrees = transform_data.get('rotation_degrees')
+
+                    if position_data and isinstance(position_data, (list, tuple)) and len(position_data) >= 2:
+                        new_pos = QPointF(float(position_data[0]), float(position_data[1]))
+                        if rotation_degrees is not None:
+                            self.editor_tab.editor_view.update_part_visuals_from_ik(part_name, new_pos, float(rotation_degrees))
+                        else:
+                            logging.warning(f"MainWindow: Missing rotation for part {part_name} in IK visuals update.")
+                    else:
+                        logging.warning(f"MainWindow: Invalid or missing position for part {part_name} in IK visuals update.")
+                if self.editor_tab.editor_view.scene():
+                    self.editor_tab.editor_view.scene().update()
         else:
-            logging.warning("MainWindow: EditorView not available or does not have update_part_visuals_from_ik method.")
-
-    def _connect_global_actions(self):
-        """Connects QActions to their respective handler methods."""
-        # File actions
-        self.action_manager.connect_action("new_project", self.project_data_manager.new_project)
-        self.action_manager.connect_action("open_project", self.project_data_manager.load_project_dialog)
-        self.action_manager.connect_action("save_project", self.project_data_manager.save_project_dialog)
-        self.action_manager.connect_action("save_project_as", self.project_data_manager.save_project_as_dialog)
-        self.action_manager.connect_action("exit_app", self.close)
-
-        # Edit actions (Note: undo/redo are now connected to EditorTab's methods)
-        self.action_manager.connect_action(
-            "undo",
-            lambda: self.editor_tab.undo() # Call on EditorTab
-            if self.tab_widget.currentWidget() == self.editor_tab and hasattr(self.editor_tab, 'undo')
-            else None,
-        )
-        self.action_manager.connect_action(
-            "redo",
-            lambda: self.editor_tab.redo() # Call on EditorTab
-            if self.tab_widget.currentWidget() == self.editor_tab and hasattr(self.editor_tab, 'redo')
-            else None,
-        )
-
-        # View actions (connected to EditorTab's methods or MainWindow for general view changes)
-        self.action_manager.connect_action(
-            "zoom_in",
-            lambda: self.editor_tab.zoom_in() # Call on EditorTab
-            if self.tab_widget.currentWidget() == self.editor_tab and hasattr(self.editor_tab, 'zoom_in')
-            else None,
-        )
-        self.action_manager.connect_action(
-            "zoom_out",
-            lambda: self.editor_tab.zoom_out() # Call on EditorTab
-            if self.tab_widget.currentWidget() == self.editor_tab and hasattr(self.editor_tab, 'zoom_out')
-            else None,
-        )
-        self.action_manager.connect_action(
-            "zoom_fit",
-            lambda: self.editor_tab.zoom_to_fit() # Call on EditorTab
-            if self.tab_widget.currentWidget() == self.editor_tab and hasattr(self.editor_tab, 'zoom_to_fit')
-            else None,
-        )
-        self.action_manager.connect_action(
-            "reset_view",
-            lambda: self.editor_tab.reset_view() # Call on EditorTab
-            if self.tab_widget.currentWidget() == self.editor_tab and hasattr(self.editor_tab, 'reset_view')
-            else None
-        )
-        # Toggle Toolbar (This is a MainWindow view change)
-        self.action_manager.connect_action("toggle_toolbar", self.toggle_main_toolbar_visibility)
-        # Toggle Statusbar (This is a MainWindow view change)
-        # Assuming statusbar can be hidden/shown. If not, this action might do something else.
-        # self.action_manager.connect_action("toggle_statusbar", self.toggle_statusbar_visibility)
-
-        # Tools / Simulation actions
-        # These might be connected to IKManager or EditorTab depending on responsibility
-        self.action_manager.connect_action(
-            "play_simulation",
-            lambda: self.ik_manager.start_animation()
-            if hasattr(self.ik_manager, 'start_animation')
-            else None
-        )
-        self.action_manager.connect_action(
-            "stop_simulation",
-            lambda: self.ik_manager.stop_animation()
-            if hasattr(self.ik_manager, 'stop_animation')
-            else None
-        )
-        self.action_manager.connect_action(
-            "reset_simulation",
-            lambda: self.ik_manager.reset_animation_state() # Or reset_animation_state depending on IKManager API
-            if hasattr(self.ik_manager, 'reset_animation_state')
-            else None
-        )
-
-        # Help actions
-        self.action_manager.connect_action("about", self.show_about_dialog) # Changed to show_about_dialog
-        self.action_manager.connect_action("about_qt", self.show_about_qt_dialog) # Changed to show_about_qt_dialog
-
-        # Connect toggle part properties action
-        self.action_manager.connect_action(
-            "toggle_part_props",
-            self._toggle_part_properties_visibility # Connect to MainWindow method
-        )
+            logging.warning("MainWindow: EditorTab or EditorView not available for IK visuals update.")
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""
@@ -1068,3 +1004,146 @@ class AutomataDesigner(QMainWindow):
         """Handles error signals from the ProjectDataManager."""
         logging.error(f"ProjectDataManager error: {error_message}")
         QMessageBox.critical(self, "Project Error", f"An error occurred: {error_message}")
+
+    def _load_project_into_editor_tab(self, project_file_model: ProjectFileModel):
+        if not self.project_data_manager or not self.project_data_manager.project_dir:
+            logging.error("MainWindow: ProjectDataManager or project_dir not available to load into editor.")
+            QMessageBox.critical(self, "Error", "Project data or directory not properly loaded.")
+            return
+
+        parts_data = self.project_data_manager.parts
+
+        if not parts_data:
+            logging.warning("MainWindow: No parts data found in ProjectDataManager to load into editor tab.")
+            self.editor_tab.clear_editor_content()
+            self.action_manager.update_action_states(parts_loaded=False)
+            return
+
+        # Texture atlas is no longer loaded or passed here.
+        # EditorTab.set_parts_data now only takes parts_data.
+        self.editor_tab.set_parts_data(parts_data)
+        logging.info(f"MainWindow: Loaded {len(parts_data)} parts into EditorTab.")
+        self.action_manager.update_action_states(parts_loaded=True, skeleton_loaded=bool(self.project_data_manager.get_current_skeleton_model_dict()))
+
+        if self.ik_manager:
+            try: self.ik_manager.character_visuals_updated.disconnect(self._handle_ik_visuals_update)
+            except TypeError: pass
+            self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
+
+            try: self.ik_manager.ik_solver_initialized.disconnect(self._on_ik_solver_initialized_for_alignment)
+            except TypeError: pass
+            self.ik_manager.ik_solver_initialized.connect(self._on_ik_solver_initialized_for_alignment)
+
+        if self.ik_manager and self.project_data_manager:
+            skeleton_dict_for_ik = self.project_data_manager.get_current_skeleton_model_dict()
+            if skeleton_dict_for_ik:
+                 logging.info("MainWindow: Sending loaded skeleton to IKManager.")
+                 self.ik_manager.on_skeleton_data_updated_from_manager(skeleton_dict_for_ik)
+            else:
+                logging.warning("MainWindow: No skeleton data available in PDM to send to IKManager on project load.")
+                self.ik_manager.clear_ik_data()
+
+        self.update_window_title()
+        self.editor_tab.zoom_to_fit()
+
+    @pyqtSlot(bool)
+    def _on_ik_solver_initialized_for_alignment(self, initialized: bool):
+        if initialized:
+            logging.info("MainWindow: IK Solver initialized. Proceeding with initial part alignment.")
+            self._align_parts_to_ik_skeleton_initial()
+        else:
+            logging.warning("MainWindow: IK Solver failed to initialize. Initial part alignment skipped.")
+
+    def _align_parts_to_ik_skeleton_initial(self):
+        if not self.editor_tab or not self.ik_manager or not self.ik_manager.sim_joints_config:
+            logging.warning("MainWindow: Cannot align parts. EditorTab, IKManager, or IK sim_joints_config not ready.")
+            return
+
+        if not self.editor_tab.current_editor_items:
+            logging.info("MainWindow: No editor items to align.")
+            return
+
+        logging.info("MainWindow: Aligning parts to initial IK skeleton pose.")
+
+        # sim_joints_config has the *initial* positions of the IK rig's joints.
+        # These are the target positions for the parts' anchors.
+        ik_rig_joint_initial_positions = self.ik_manager.sim_joints_config
+
+        for part_item_name, part_item_widget in self.editor_tab.current_editor_items.items():
+            if not isinstance(part_item_widget, CharacterPartItem):
+                continue
+
+            # Find the IK joint key that this visual part (part_item_name) corresponds to.
+            # This mapping depends on how parts are linked to the IK rig.
+            # Often, a part is controlled by the state of its *proximal* IK joint.
+            # Example: 'left_arm_lower' (visual part) is controlled by the 'j_left_elbow' IK joint's position and
+            # the vector from 'j_left_elbow' to 'j_left_wrist' for rotation.
+            # The POSITION of the part item itself should be based on its main driving IK joint.
+
+            # We need a map: visual_part_name -> controlling_ik_joint_key_for_positioning
+            # This might differ from ik_manager.ik_part_to_actual_part_name which is ik_model_part_name -> actual_display_name
+            # Let's assume for now a direct mapping or a convention.
+            # A common convention: a part is parented to an IK joint, its visual represents the limb extending from that joint.
+            # The part's visual origin (often top-left of its pixmap) needs to be set such that its anchor_offset aligns with the IK joint.
+
+            # Iterate through ik_manager.sim_limb_configs. The 'label' in sim_limb_configs IS the visual part name.
+            # The 'parentAnchor' is the IK joint this visual part is attached to.
+            target_ik_joint_key_for_position = None
+            for ik_effector_key, limb_conf in self.ik_manager.sim_limb_configs.items():
+                if limb_conf.get('label') == part_item_name: # part_item_name is like 'left_arm_lower'
+                    target_ik_joint_key_for_position = limb_conf.get('parentAnchor') # e.g., 'j_left_elbow'
+                    break
+
+            # Handle parts like 'torso' or 'head' that might be directly driven by one joint, not a limb config
+            if not target_ik_joint_key_for_position:
+                # Check self.ik_manager.ik_part_to_actual_part_name for reverse mapping
+                for ik_model_name, actual_name_in_editor in self.ik_manager.ik_part_to_actual_part_name.items():
+                    if actual_name_in_editor == part_item_name:
+                        # ik_model_name could be 'head'. We need the IK joint this corresponds to, e.g., 'j_neck_base' for head part, or 'j_head_tip' for head IK target.
+                        # This needs a clearer mapping: visual part name -> IK joint it pivots around.
+                        # Assuming for 'head', it pivots around 'j_neck_base'. For 'torso', around root (e.g. 'j_hip_root')
+                        if part_item_name == "head" and "j_neck_base" in ik_rig_joint_initial_positions:
+                            target_ik_joint_key_for_position = "j_neck_base"
+                            break
+                        if part_item_name == "torso" and "j_hip_root" in ik_rig_joint_initial_positions: # Assuming a root joint for torso
+                            target_ik_joint_key_for_position = "j_hip_root"
+                            break
+                        # Fallback: if the ik_model_name itself is a joint in the rig, use that (less common)
+                        if ik_model_name in ik_rig_joint_initial_positions:
+                            target_ik_joint_key_for_position = ik_model_name
+                            break
+                        break # Found in ik_part_to_actual_part_name, stop inner loop
+
+            if target_ik_joint_key_for_position and target_ik_joint_key_for_position in ik_rig_joint_initial_positions:
+                ik_joint_data = ik_rig_joint_initial_positions[target_ik_joint_key_for_position]
+                ik_joint_scene_pos = QPointF(ik_joint_data['x'], ik_joint_data['y'])
+
+                # The CharacterPartItem's anchor_offset is already its rotational center (center of its pixmap).
+                # We want this anchor_offset (in local coords) to be at ik_joint_scene_pos (in scene coords).
+                # item_scene_pos + item_anchor_offset_rotated = ik_joint_scene_pos
+                # Since initial rotation is 0, item_anchor_offset_rotated = item.anchor_offset (which is local)
+                # So, item_scene_pos = ik_joint_scene_pos - item.anchor_offset (if anchor_offset were in scene space, but it's local)
+                # The item's position (top-left of its pixmap) should be: ik_joint_scene_pos - part_item_widget.anchor_offset
+
+                new_item_pos = ik_joint_scene_pos - part_item_widget.anchor_offset
+                part_item_widget.setPos(new_item_pos)
+                part_item_widget.setRotation(0) # Ensure initial rotation is zero
+                part_item_widget.update() # Ensure repaint
+                logging.info(f"  Aligned part '{part_item_name}' (anchor at {part_item_widget.anchor_offset}) to IK joint '{target_ik_joint_key_for_position}' at {ik_joint_scene_pos}. Item pos set to {new_item_pos}.")
+            else:
+                logging.warning(f"  Could not find corresponding IK joint or initial position for part '{part_item_name}'. Alignment skipped.")
+
+        self.editor_tab.editor_view.scene().update()
+        self.editor_tab.editor_view.zoom_to_fit() # Re-fit after alignment
+
+    @pyqtSlot(str, QPainterPath)
+    def _handle_part_motion_path_update_from_editor_tab(self, part_name: str, motion_qpath: QPainterPath):
+        """Handles the motion_path_updated signal from EditorTab and passes it to IKManager."""
+        if not self.ik_manager:
+            logging.warning("MainWindow: IKManager not available to handle motion path update.")
+            return
+        if hasattr(self.ik_manager, 'update_part_motion_path'):
+            self.ik_manager.update_part_motion_path(part_name, motion_qpath)
+            logging.info(f"MainWindow: Relayed motion path update for '{part_name}' to IKManager.")
+        else:
+            logging.warning("MainWindow: IKManager does not have 'update_part_motion_path' method.")

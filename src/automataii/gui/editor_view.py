@@ -2,15 +2,18 @@ import logging
 import math
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsEllipseItem, QGraphicsLineItem,
-    QGraphicsPathItem, QMenu
+    QGraphicsPathItem, QMenu, QGraphicsItem, QStyle, QApplication
 )
 from PyQt6.QtGui import (
-    QPainter, QPen, QColor, QBrush, QPainterPath, QMouseEvent, QWheelEvent, QTransform
+    QPainter, QPen, QColor, QBrush, QPainterPath, QMouseEvent, QWheelEvent, QTransform, QCursor, QAction, QIcon, QKeySequence
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QObject, QLineF, QEvent, QTimer
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Any, Tuple
 
-from .part_item import CharacterPartItem # Assuming part_item.py is in the same directory
+from .graphics_items.part_item import CharacterPartItem # UPDATED
+from .graphics_items.anchor_item import AnchorItem # UPDATED
+# from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
+from ..config.z_indices import Z_MOTION_PATH_PREVIEW # Added Z_MOTION_PATH_PREVIEW
 
 class EditorView(QGraphicsView):
     """Custom QGraphicsView for editor with joint definition, path drawing, and panning/zooming.
@@ -28,6 +31,9 @@ class EditorView(QGraphicsView):
         driver_center_selected(QPointF): Emitted when driver center is selected.
         driven_center_selected(QPointF): Emitted when driven center is selected.
         freehandPathCompleted = pyqtSignal(list) # Emits list of QPointF
+        part_item_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
+        part_item_double_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
+        part_item_moved = pyqtSignal(CharacterPartItem, QPointF) # Emits item and its new scene position
     """
     end_effector_selected = pyqtSignal(QPointF, QPointF)
     cam_center_selected = pyqtSignal(QPointF)
@@ -39,6 +45,11 @@ class EditorView(QGraphicsView):
     driven_center_selected = pyqtSignal(QPointF)
     freehandPathCompleted = pyqtSignal(list) # New signal for freehand path points
     zoom_changed = pyqtSignal(float) # Emitted when zoom level changes
+
+    # Signals for item interactions
+    part_item_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
+    part_item_double_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
+    part_item_moved = pyqtSignal(CharacterPartItem, QPointF) # Emits item and its new scene position
 
     def __init__(self, scene, parent_window=None):
         super().__init__(scene, parent_window)
@@ -110,11 +121,18 @@ class EditorView(QGraphicsView):
 
         self.selection_markers: Dict[str, QGraphicsEllipseItem] = {} # For mechanism point markers
 
+    def reset_temp_visuals(self):
+        """Clears temporary visual items like drawing guides or markers."""
+        logging.debug("EditorView: reset_temp_visuals called.")
+        # Call specific cleanup methods for different types of temporary visuals
+        self._reset_joint_definition_state() # Clears joint definition markers
+        self._cleanup_motion_path_visuals()  # Clears motion path drawing previews
+        # Add other specific clear calls here if new temp visuals are added
+
     def clear_ik_debug_visuals(self):
         """Placeholder for clearing IK specific debug visuals from the scene."""
         # Implement logic to find and remove IK debug items if they are added directly to the scene
         # For example, if they are stored in a list self._ik_debug_items:
-        # for item in self._ik_debug_items:
         #     if item.scene() == self.scene(): # Check if item is in this scene
         #         self.scene().removeItem(item)
         # self._ik_debug_items.clear()
@@ -227,14 +245,15 @@ class EditorView(QGraphicsView):
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press events based on the current mode."""
         scene_pos = self.mapToScene(event.pos())
+        item_at_click = self.itemAt(event.pos()) # Get item at view coordinates
 
         # --- Panning --- (Middle button or Alt+Left)
-        # Handle panning (middle click or Alt+Left click)
         if event.button() == Qt.MouseButton.MiddleButton or \
            (event.button() == Qt.MouseButton.LeftButton and event.modifiers() & Qt.KeyboardModifier.AltModifier):
             self._panning = True
             self._pan_start_pos = event.pos()
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            # Do not call super().mousePressEvent(event) here to prevent unwanted item selection during pan attempt.
             return
 
         # --- Mode-Specific Handling --- (Left Button primarily)
@@ -242,28 +261,16 @@ class EditorView(QGraphicsView):
             if self.current_mode == 'define_joint':
                 self._handle_joint_definition_click(scene_pos, event.pos())
             elif self.current_mode == 'define_motion_path':
-                # For the new IK system, AutomataDesigner ensures context via sim_selected_component_key.
-                # EditorView just needs to capture the path if in this mode.
-                # The self.current_target_item_for_path might be None and that's okay.
+                # When starting a new path drawing, clear any previous points for this drawing session
                 self._motion_path_points.clear()
                 self._motion_path_points.append(scene_pos)
-
-                if self._motion_preview_path_item is None:
-                    pen = QPen(QColor("red"), 2, Qt.PenStyle.DashLine)
-                    self._motion_preview_path_item = QGraphicsPathItem()
-                    self._motion_preview_path_item.setPen(pen)
-                    self.scene().addItem(self._motion_preview_path_item)
-
-                temp_path = QPainterPath()
-                temp_path.moveTo(scene_pos)
-                self._motion_preview_path_item.setPath(temp_path)
                 self._is_drawing_freehand = True
-                logging.debug(f"Started freehand motion path at {scene_pos}")
+                self._update_motion_path_preview() # Ensure preview starts/clears appropriately
             elif self.current_mode == 'select_end_effector':
                 self._handle_end_effector_selection_click(scene_pos)
             elif self.current_mode == 'select_cam_center':
                 self.cam_center_selected.emit(scene_pos)
-                self.set_mode('select') # Revert to select mode after click
+                self.set_mode('select')
             elif self.current_mode == 'select_pivot_a':
                 self.pivot_a_selected.emit(scene_pos)
                 self.set_mode('select')
@@ -276,11 +283,20 @@ class EditorView(QGraphicsView):
             elif self.current_mode == 'select_driven_center':
                 self.driven_center_selected.emit(scene_pos)
                 self.set_mode('select')
-            elif self.current_mode == 'select':
-                # Default behavior for selection mode
-                super().mousePressEvent(event)
-            # Ignore left clicks in simulation mode
-
+            else: # Default to 'select' mode behavior or general item interaction
+                super().mousePressEvent(event) # IMPORTANT: Call super for item selection, drag, etc.
+                # Now that super has handled selection, check if a CharacterPartItem was clicked
+                # Re-fetch item_at_click as super() might change focus or selection state
+                # selected_items = self.scene().selectedItems()
+                # if len(selected_items) == 1 and isinstance(selected_items[0], CharacterPartItem):
+                #    clicked_part_item = selected_items[0]
+                #    self.part_item_clicked.emit(clicked_part_item)
+                # Check item directly under cursor AFTER super call if super() doesn't select
+                final_item_at_click = self.itemAt(event.pos()) # item after super call
+                if isinstance(final_item_at_click, CharacterPartItem):
+                    self.part_item_clicked.emit(final_item_at_click)
+                # else: # Click was on background or non-CharacterPartItem
+                    # super().mousePressEvent(event) was already called
         elif event.button() == Qt.MouseButton.RightButton:
              # Right click cancels drawing modes and point selection modes
             if self.current_mode == 'define_motion_path':
@@ -295,7 +311,6 @@ class EditorView(QGraphicsView):
             else:
                  # Allow context menu in select mode
                  super().mousePressEvent(event)
-
         else:
              # Allow other buttons to be handled by base class
              super().mousePressEvent(event)
@@ -323,42 +338,34 @@ class EditorView(QGraphicsView):
         super().mouseReleaseEvent(event) # Call base for other release events
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        """Handle mouse move events, especially for freehand drawing and custom panning."""
+        """Handle mouse move events for panning and drawing."""
         scene_pos = self.mapToScene(event.pos())
 
-        # Handle custom panning
         if self._panning:
             delta = event.pos() - self._pan_start_pos
-            # Apply sensitivity reduction
-            delta *= self._pan_sensitivity
-
-            # Get current scroll bar values
-            h_scroll = self.horizontalScrollBar()
-            v_scroll = self.verticalScrollBar()
-
-            # Update scroll positions (inverted for natural panning feel)
-            h_scroll.setValue(h_scroll.value() - int(delta.x()))
-            v_scroll.setValue(v_scroll.value() - int(delta.y()))
-
-            # Update start position for next move
             self._pan_start_pos = event.pos()
+            hs = self.horizontalScrollBar()
+            vs = self.verticalScrollBar()
+            hs.setValue(hs.value() - int(delta.x() * self._pan_sensitivity * 20)) # Adjusted multiplier
+            vs.setValue(vs.value() - int(delta.y() * self._pan_sensitivity * 20)) # Adjusted multiplier
             return
 
-        # Handle freehand motion path drawing
-        if self._is_drawing_freehand and self.current_mode == 'define_motion_path':
-            if self._motion_path_points and self._motion_path_points[-1] != scene_pos:
-                self._motion_path_points.append(scene_pos)
-
-                if self._motion_preview_path_item:
-                    current_path = QPainterPath()
-                    current_path.moveTo(self._motion_path_points[0])
-                    for point in self._motion_path_points[1:]:
-                        current_path.lineTo(point)
-                    self._motion_preview_path_item.setPath(current_path)
-            super().mouseMoveEvent(event) # Allow panning if Alt is pressed during drawing
-            return
-
-        super().mouseMoveEvent(event)
+        if self.current_mode == 'define_motion_path' and self._is_drawing_freehand and self._motion_path_points:
+            self._motion_path_points.append(scene_pos)
+            self._update_motion_path_preview()
+        else:
+            super().mouseMoveEvent(event)
+            # After super().mouseMoveEvent, which handles item dragging if ItemIsMovable,
+            # check if a selected CharacterPartItem was moved.
+            # This relies on the item being selected and moved by QGraphicsView's default drag.
+            # This is a bit indirect. A more robust way is for CharacterPartItem.itemChange
+            # to emit a signal (if it could), or for EditorView to track drags.
+            # For now, let's assume standard dragging updates item.pos().
+            # We need a way to know *which* item finished moving. QGraphicsItem.ItemPositionHasChanged
+            # is emitted by the item itself. If CharacterPartItem cannot emit signals, EditorView
+            # might need to listen to scene selection changes and then monitor position of selected items.
+            # This signal is tricky to implement robustly from EditorView without item cooperation.
+            # Let's defer emitting part_item_moved from here unless a clear mechanism is found.
 
     def keyPressEvent(self, event: QEvent):
         """Handle keyboard shortcuts."""
@@ -692,37 +699,54 @@ class EditorView(QGraphicsView):
             self.scene().removeItem(item)
         self._skeleton_viz_items.clear()
 
-    def draw_selection_marker(self, point: QPointF, marker_type: str):
-        """Draws or updates a visual marker for a selected mechanism point."""
-        if marker_type in self.selection_markers:
-            self.scene().removeItem(self.selection_markers[marker_type])
-            del self.selection_markers[marker_type]
+    def update_part_visuals_from_ik(self, part_name: str, position: QPointF, rotation_degrees: float):
+        if part_name in self.part_items:
+            part_item = self.part_items[part_name]
+            # Convert rotation to be relative to the part's current rotation
+            current_part_rotation = part_item.rotation()
+            # The IK gives absolute world rotation, part_item.setRotation is also absolute world
+            # We need to ensure the anchor point is correctly handled if the part itself rotates.
 
-        # Define marker properties (adjust as needed)
-        marker_color = QColor(Qt.GlobalColor.magenta) # Default or use UIColors if accessible
-        # if hasattr(self.parent_window, 'UIColors') and hasattr(self.parent_window.UIColors, 'DEBUG_HELPER_COLOR'):
-        #     marker_color = self.parent_window.UIColors.DEBUG_HELPER_COLOR
+            # For now, let's assume the IK system provides the final absolute rotation
+            # and position for the part's *anchor point*.
+            # The part_item's position is its top-left. We need to adjust its position
+            # so that its anchor_offset (when rotated) lands on the IK-driven `position`.
 
-        pen = QPen(marker_color)
-        brush = QBrush(marker_color)
-        marker_size = 8
+            # 1. Calculate the vector from the part's origin to its anchor_offset, rotated by the new rotation
+            # This vector needs to be in scene coordinates if position is scene coordinates.
+            # part_item.anchor_offset is in local coords.
+            transform = QTransform().rotate(rotation_degrees)
+            rotated_anchor_vector_local = transform.map(part_item.anchor_offset)
 
-        marker = QGraphicsEllipseItem(point.x() - marker_size / 2, point.y() - marker_size / 2, marker_size, marker_size)
-        marker.setPen(pen)
-        marker.setBrush(brush)
-        marker.setZValue(1000) # Ensure it's on top
+            # New position for the part's origin in the scene
+            new_part_origin_scene_pos = position - rotated_anchor_vector_local
 
-        self.scene().addItem(marker)
-        self.selection_markers[marker_type] = marker
-        logging.debug(f"EditorView: Drew selection marker '{marker_type}' at {point}")
+            part_item.setPos(new_part_origin_scene_pos)
+            part_item.setRotation(rotation_degrees) # Set absolute rotation
+            # logging.debug(f"EditorView: Updated part '{part_name}' from IK. Pos: {new_part_origin_scene_pos}, Rot: {rotation_degrees}")
+        else:
+            logging.warning(f"EditorView: Part '{part_name}' not found for IK update.")
 
-    def clear_all_selection_markers(self):
-        """Removes all visual markers for mechanism points from the scene."""
-        for marker_type in list(self.selection_markers.keys()): # Iterate over keys copy
-            if self.selection_markers[marker_type] in self.scene().items():
-                 self.scene().removeItem(self.selection_markers[marker_type])
-            del self.selection_markers[marker_type]
-        logging.debug("EditorView: Cleared all selection markers.")
+    def set_selected_part(self, part_name: Optional[str], part_items: Dict[str, CharacterPartItem]):
+        """Sets the visual state for the selected part and deselects others."""
+        logging.debug(f"EditorView: Setting selected part to: {part_name}")
+        for name, item in part_items.items(): # Use the passed dictionary
+            if isinstance(item, CharacterPartItem): # Ensure it's the correct type
+                is_selected = (name == part_name)
+                item.set_selected(is_selected) # CharacterPartItem has set_selected
+            else:
+                logging.warning(f"EditorView.set_selected_part: Item '{name}' is not a CharacterPartItem.")
+        if self.scene(): # Check if scene exists before updating
+            self.scene().update() # Trigger redraw if selection changes visuals
+        else:
+            logging.warning("EditorView.set_selected_part: Scene not available for update.")
+
+    def get_current_part_transforms(self) -> Dict[str, Tuple[QPointF, float]]:
+        """Returns a dictionary of part names to their (position, rotation_degrees)."""
+        transforms = {}
+        for name, item in self.part_items.items():
+            transforms[name] = (item.pos(), item.rotation())
+        return transforms
 
     # --- Utility --- #
 
@@ -732,3 +756,68 @@ class EditorView(QGraphicsView):
             self.parent_window.statusBar().showMessage(message, 5000) # Show for 5 seconds
         else:
             logging.info(f"Status: {message}") # Fallback logging
+
+    def set_zoom_level(self, zoom_factor: float):
+        """Sets the zoom level of the view.
+
+        Args:
+            zoom_factor: The desired zoom factor (e.g., 1.0 for 100%, 0.5 for 50%).
+        """
+        # It's generally better to transform from the current scale
+        # to avoid compounding errors or drifting from the original identity matrix.
+        # However, a direct scale set is often what's intended by "set_zoom_level".
+
+        # Get current transform
+        current_transform = self.transform()
+
+        # Reset scaling part of the transform to identity
+        # M11 = sx, M22 = sy
+        # Assuming isotropic scaling (sx = sy)
+        current_scale_x = current_transform.m11()
+        current_scale_y = current_transform.m22()
+
+        if current_scale_x == 0 or current_scale_y == 0: # Avoid division by zero if already scaled to nothing
+            logging.warning("EditorView: Current scale is zero, cannot apply relative zoom. Resetting to new zoom_factor.")
+            self.resetTransform() # Reset to identity before applying new scale
+            self.scale(zoom_factor, zoom_factor)
+            return
+
+        # Calculate how much to scale from current to get to zoom_factor
+        scale_x_needed = zoom_factor / current_scale_x
+        scale_y_needed = zoom_factor / current_scale_y
+
+        self.scale(scale_x_needed, scale_y_needed)
+        logging.info(f"EditorView: Zoom set to {zoom_factor:.2f}x. Current transform m11: {self.transform().m11():.2f}")
+
+    def _update_motion_path_preview(self):
+        """Updates the visual preview of the motion path being drawn."""
+        if not self._is_drawing_freehand or not self._motion_path_points:
+            if self._motion_preview_path_item: # Clear if not drawing or no points
+                if self._motion_preview_path_item.scene():
+                    self.scene().removeItem(self._motion_preview_path_item)
+                self._motion_preview_path_item = None
+            return
+
+        if len(self._motion_path_points) < 2: # Need at least two points to draw a line
+            if self._motion_preview_path_item: # Clear if less than 2 points
+                 if self._motion_preview_path_item.scene():
+                    self.scene().removeItem(self._motion_preview_path_item)
+                 self._motion_preview_path_item = None
+            return
+
+        path = QPainterPath()
+        path.moveTo(self._motion_path_points[0])
+        for point in self._motion_path_points[1:]:
+            path.lineTo(point)
+
+        if self._motion_preview_path_item is None:
+            self._motion_preview_path_item = QGraphicsPathItem()
+            pen = QPen(QColor(0, 100, 200, 150), 1.5) # Blueish, semi-transparent
+            pen.setStyle(Qt.PenStyle.DashLine)
+            pen.setCosmetic(True) # Ensures consistent thickness regardless of zoom
+            self._motion_preview_path_item.setPen(pen)
+            self._motion_preview_path_item.setZValue(Z_MOTION_PATH_PREVIEW) # Use the new Z-index
+            self.scene().addItem(self._motion_preview_path_item)
+
+        self._motion_preview_path_item.setPath(path)
+        # logging.debug(f"Motion path preview updated with {len(self._motion_path_points)} points.")

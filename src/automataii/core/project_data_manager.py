@@ -94,7 +94,7 @@ class ProjectDataManager(QObject):
                     # The current validator in CharacterDataModel populates this.
 
                     # Create runtime PartInfo from Pydantic model
-                    runtime_part_info = PartInfo.from_pydantic(pydantic_part_model)
+                    runtime_part_info = PartInfo.from_pydantic(pydantic_part_model, project_dir=self._project_dir)
                     parsed_parts_temp[part_name] = runtime_part_info
 
                     if runtime_part_info.roi: # roi is [x, y, width, height]
@@ -176,19 +176,30 @@ class ProjectDataManager(QObject):
                     logging.warning(f"Skipping non-dict joint data in char_cfg.yaml: {joint_data_raw}")
                     continue
                 try:
-                    # PydanticSkeletonJointModel expects 'coordinates' not 'loc' directly
-                    # It also expects parent to be Optional[str]
-                    # Adapt the raw data if necessary before validation
-                    adapted_joint_data = joint_data_raw.copy()
-                    if 'loc' in adapted_joint_data and 'coordinates' not in adapted_joint_data:
-                        adapted_joint_data['coordinates'] = adapted_joint_data.pop('loc')
+                    # Adapt the raw data from char_cfg.yaml to PydanticSkeletonJointModel fields
+                    joint_name = joint_data_raw.get('name')
+                    joint_loc = joint_data_raw.get('loc')
+                    joint_parent = joint_data_raw.get('parent')
 
-                    # Ensure parent is a string or None
-                    if 'parent' in adapted_joint_data and adapted_joint_data['parent'] is None:
-                        pass # None is fine
-                    elif 'parent' in adapted_joint_data and not isinstance(adapted_joint_data['parent'], str):
-                         adapted_joint_data['parent'] = str(adapted_joint_data['parent'])
+                    if not joint_name:
+                        logging.warning(f"Skipping joint in char_cfg.yaml with missing name: {joint_data_raw}")
+                        continue
+                    if not joint_loc or not (isinstance(joint_loc, list) and len(joint_loc) == 2):
+                        logging.warning(f"Skipping joint '{joint_name}' in char_cfg.yaml with invalid or missing 'loc': {joint_loc}")
+                        continue
 
+                    adapted_joint_data = {
+                        "id": joint_name,  # Use name as id
+                        "name": joint_name,
+                        "position": [float(joint_loc[0]), float(joint_loc[1])], # Ensure floats
+                        "parent": str(joint_parent) if joint_parent is not None else None
+                    }
+
+                    # Ensure parent is a string or None (already handled above)
+                    # if 'parent' in adapted_joint_data and adapted_joint_data['parent'] is None:
+                    #     pass # None is fine
+                    # elif 'parent' in adapted_joint_data and not isinstance(adapted_joint_data['parent'], str):
+                    #      adapted_joint_data['parent'] = str(adapted_joint_data['parent'])
 
                     pydantic_joint = PydanticSkeletonJointModel.model_validate(adapted_joint_data)
                     pydantic_skeleton_joints.append(pydantic_joint)

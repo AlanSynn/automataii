@@ -6,12 +6,13 @@ including skeleton definition for IK, solving IK for limbs, and managing
 IK-driven animation state.
 """
 import logging
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Set
 from pathlib import Path
 import math # Already present, but good to ensure
+import inspect # For logging the caller in the property setter
 
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF, QTimer, QElapsedTimer
-from PyQt6.QtGui import QTransform
+from PyQt6.QtCore import QObject, pyqtSignal, QPointF, QTimer, QElapsedTimer, QLineF
+from PyQt6.QtGui import QTransform, QPainterPath
 
 # Assuming StandardizedSkeletonModel and StandardizedJointModel are now the primary way
 # SkeletonManager provides data, even if it's as a dictionary dump.
@@ -21,6 +22,10 @@ from ..core.models_skeleton import StandardizedSkeletonModel, StandardizedJointM
 # Placeholder for actual IK solver logic if it's separate
 # from ..core.ik_solver import IKSolver # Example if you have a dedicated solver
 
+# Helper function for vector operations if needed (e.g., angle, normalization)
+def get_angle_between_points(p1: QPointF, p2: QPointF) -> float:
+    return math.atan2(p2.y() - p1.y(), p2.x() - p1.x())
+
 class IKManager(QObject):
     """Manages IK related data, setup, and solving."""
 
@@ -29,12 +34,15 @@ class IKManager(QObject):
     # Signal to indicate that the overall animation state has changed (e.g., playing, stopped)
     animation_state_changed = pyqtSignal(str) # e.g., "playing", "stopped", "reset"
     # skeleton_updated = pyqtSignal(object) # REMOVED - IKManager should not re-emit general skeleton updates
-    ik_solver_initialized = pyqtSignal(bool) # True if solver ready, False if failed or cleared
+    ik_solver_initialized = pyqtSignal(bool, dict) # success, initial_joint_config {joint_name: {'position': QPointF, 'angle': float}}
     error_occurred = pyqtSignal(str)
+    simulation_data_generated = pyqtSignal(dict) # For mechanism generation later
 
     def __init__(self, main_window_ref, parent: Optional[QObject] = None): # main_window_ref for statusbar or config access initially
         super().__init__(parent)
         self.main_window = main_window_ref # Keep a reference if needed, e.g. for status messages or part items
+
+        logging.info(f"IKManager (id:{id(self)}): Initializing IKManager instance.")
 
         # --- IK System Data (to be moved from MainWindow) ---
         self.sim_joints_config: Dict[str, Dict[str, Any]] = {}
@@ -103,7 +111,50 @@ class IKManager(QObject):
         # Placeholder for an actual IK solving utility/library if used
         # self.ik_solver_instance = IKSolver()
 
-        logging.info("IKManager initialized.")
+        # For managing initialization based on data availability
+        self.__internal_current_skeleton_data: Optional[Dict[str, Any]] = None
+        self._current_joint_connections: Optional[List[Tuple[str, str]]] = None
+        self._pending_motion_paths: Dict[str, QPainterPath] = {}
+        self._initial_snapshot: Dict[str, Any] = {} # Ensure _initial_snapshot is initialized
+
+        # Debug: Track initialization attempts
+        self._init_attempts = 0
+
+        logging.info(f"IKManager (id:{id(self)}): IKManager instance initialized.")
+
+    @property
+    def _current_skeleton_data(self) -> Optional[Dict[str, Any]]:
+        return self.__internal_current_skeleton_data
+
+    @_current_skeleton_data.setter
+    def _current_skeleton_data(self, value: Optional[Dict[str, Any]]):
+        try:
+            caller_function = inspect.stack()[1].function
+        except IndexError:
+            caller_function = "unknown_caller"
+
+        old_value_state = "IS None" if self.__internal_current_skeleton_data is None else f"EXISTS (Keys: {list(self.__internal_current_skeleton_data.keys()) if self.__internal_current_skeleton_data else 'EMPTY'})"
+        new_value_state = "IS None" if value is None else f"EXISTS (Keys: {list(value.keys()) if value else 'EMPTY'})"
+
+        logging.info(f"IKManager (id:{id(self)}) @_current_skeleton_data.SETTER: Called by '{caller_function}'. Changing from '{old_value_state}' to '{new_value_state}'.")
+
+        if value is None:
+            logging.debug(f"IKManager (id:{id(self)}) @_current_skeleton_data.SETTER: Value is being set to None.")
+        elif isinstance(value, dict) and 'joints' in value:
+            logging.debug(f"IKManager (id:{id(self)}) @_current_skeleton_data.SETTER: Value is a dict with {len(value['joints'])} joints.")
+        elif isinstance(value, dict):
+            logging.debug(f"IKManager (id:{id(self)}) @_current_skeleton_data.SETTER: Value is a dict, but 'joints' key is missing. Keys: {list(value.keys())}")
+        else:
+            logging.debug(f"IKManager (id:{id(self)}) @_current_skeleton_data.SETTER: Value is not a dict or None. Type: {type(value)}.")
+
+        self.__internal_current_skeleton_data = value
+        # Log AFTER assignment to confirm the internal attribute's state
+        confirm_state = "IS None" if self.__internal_current_skeleton_data is None else f"CONFIRMED EXISTS (Keys: {list(self.__internal_current_skeleton_data.keys()) if self.__internal_current_skeleton_data else 'EMPTY'})"
+        if self.__internal_current_skeleton_data and isinstance(self.__internal_current_skeleton_data, dict) and 'joints' in self.__internal_current_skeleton_data:
+            confirm_state += f", 'joints' key present with {len(self.__internal_current_skeleton_data['joints'])} items."
+        elif self.__internal_current_skeleton_data and isinstance(self.__internal_current_skeleton_data, dict):
+            confirm_state += f", 'joints' key MISSING."
+        logging.info(f"IKManager (id:{id(self)}) @_current_skeleton_data.SETTER: __internal_current_skeleton_data is NOW {confirm_state} (post-assignment). Caller was '{caller_function}'.")
 
     def set_animation_duration(self, duration_ms: int):
         """Sets the total duration for one loop of the IK animation."""
@@ -113,515 +164,630 @@ class IKManager(QObject):
         else:
             logging.warning(f"IKManager: Invalid animation duration: {duration_ms} ms. Must be positive.")
 
-    def set_skeleton_manager(self, skeleton_manager_instance: 'SkeletonManager'): # Use string for type hint
-        self.skeleton_manager_ref = skeleton_manager_instance
+    def set_skeleton_manager(self, skeleton_manager_instance: Optional['SkeletonManager']): # Use string for type hint & allow None
+        old_ref_id = id(self.skeleton_manager_ref) if self.skeleton_manager_ref else None
+        new_ref_id = id(skeleton_manager_instance) if skeleton_manager_instance else None
+        logging.info(f"IKManager (id:{id(self)}): set_skeleton_manager called. Old ref_id: {old_ref_id}, New ref_id: {new_ref_id}. New instance type: {type(skeleton_manager_instance)}")
+
         if self.skeleton_manager_ref:
             try:
+                # Ensure we don't double-connect if called multiple times with the same valid instance
                 self.skeleton_manager_ref.skeleton_updated.disconnect(self.on_skeleton_data_updated_from_manager)
-            except TypeError:
-                pass
-            self.skeleton_manager_ref.skeleton_updated.connect(self.on_skeleton_data_updated_from_manager)
-            logging.info("IKManager: SkeletonManager instance set and connected.")
+                logging.debug(f"IKManager (id:{id(self)}): Disconnected from old SkeletonManager (id:{old_ref_id}).")
+            except TypeError: # Typically means it wasn't connected or ref was None already
+                logging.debug(f"IKManager (id:{id(self)}): TypeError while disconnecting from old SkeletonManager (id:{old_ref_id}), might have been None or not connected.")
+            except RuntimeError as e:
+                 logging.warning(f"IKManager (id:{id(self)}): RuntimeError while disconnecting from old SkeletonManager (id:{old_ref_id}): {e}. This can happen if the underlying C++ object is deleted.")
+
+        self.skeleton_manager_ref = skeleton_manager_instance
+
+        if self.skeleton_manager_ref:
+            try:
+                self.skeleton_manager_ref.skeleton_updated.connect(self.on_skeleton_data_updated_from_manager)
+                logging.info(f"IKManager (id:{id(self)}): Connected to new SkeletonManager (id:{new_ref_id}).")
+            except Exception as e:
+                logging.error(f"IKManager (id:{id(self)}): Failed to connect to new SkeletonManager (id:{new_ref_id}): {e}", exc_info=True)
+        else:
+            logging.warning(f"IKManager (id:{id(self)}): SkeletonManager instance was set to None.")
 
     def set_project_parts_data(self, parts_data: Dict[str, 'PartInfo']):
         """Sets the parts data from the current project, used for animation paths etc."""
-        self.project_parts_data = parts_data if parts_data is not None else {}
-        logging.info(f"IKManager: Project parts data set. {len(self.project_parts_data)} parts.")
-        self._update_animation_readiness()
+        logging.info(f"IKManager: Project parts data set. {len(parts_data)} parts.")
+        self.project_parts_data = parts_data.copy()
+        # Apply any pending motion paths that might have been set before parts data
+        for part_name, path in self._pending_motion_paths.items():
+            if part_name in self.project_parts_data:
+                self.project_parts_data[part_name].motion_path_data = path # motion_path_data should be QPainterPath
+        self._pending_motion_paths.clear()
+        self._try_initialize_solver()
 
-    def _update_animation_readiness(self):
-        """Checks if animation can be run and updates any related state."""
-        # This is a placeholder for more complex logic if needed.
-        # For example, update flags that start_animation checks.
-        pass
+    def _try_initialize_solver(self) -> None:
+        """
+        Attempts to initialize the IK solver if all necessary data (skeleton, parts) is present.
+        """
+        self._init_attempts += 1
+        log_msg_skel = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
+        if self._current_skeleton_data and 'joints' in self._current_skeleton_data:
+            log_msg_skel += f", 'joints' key present with {len(self._current_skeleton_data['joints'])} items."
+        elif self._current_skeleton_data:
+            log_msg_skel += f", 'joints' key MISSING."
 
-    def on_skeleton_data_updated_from_manager(self, standardized_skeleton_dict: dict):
+        log_msg_parts = "IS Empty/None" if not self.project_parts_data else f"EXISTS ({len(self.project_parts_data)} parts)"
+        logging.debug(f"IKManager: _try_initialize_solver attempt #{self._init_attempts}. Skeleton data details: {log_msg_skel}. Parts data: {log_msg_parts}")
+
+        if not self._current_skeleton_data or not self._current_skeleton_data.get('joints'): # Check for 'joints' key specifically
+            logging.info("IKManager: _try_initialize_solver: Still waiting for valid skeleton data (must exist and contain a 'joints' key).")
+            # Do not emit False here, as parts might be set and skeleton is pending (or vice-versa)
+            return
+
+        if not self.project_parts_data:
+            logging.info("IKManager: _try_initialize_solver: Still waiting for project parts data.")
+            # Do not emit False here
+            return
+
+        # If we reach here, both skeleton and parts data are present.
+        logging.info("IKManager: _try_initialize_solver: Prerequisites met (skeleton & parts data). Proceeding with full IK solver initialization attempt.")
+        # Clear previous solver state before attempting new initialization
+        # but keep self._current_skeleton_data and self.project_parts_data
+        self.stop_animation()
+        self.ik_solver = None
+        self.dynamic_joints.clear()
+        # self.sim_joints_config.clear() # This will be repopulated by initialize_ik_solver
+        self.scene_joints_snapshot.clear()
+        self._clear_ik_definitions(emit_signal=False) # <--- Make sure this is clear_ik_definitions
+
+        success = self.initialize_ik_solver() # This method will use _current_skeleton_data and project_parts_data
+        if success:
+            logging.info("IKManager: IK Solver initialized successfully.")
+            self.ik_solver_initialized.emit(True, self.sim_joints_config.copy())
+        else:
+            logging.error("IKManager: IK Solver initialization FAILED.")
+            self.ik_solver_initialized.emit(False, {})
+
+    def initialize_ik_solver(self) -> bool:
+        """
+        Initializes the IK solver with the current skeleton and parts data.
+        This involves defining IK chains, end-effectors, and their motion paths.
+        Returns True if successful, False otherwise.
+        """
+        if not self._current_skeleton_data or not self._current_skeleton_data.get('joints'): # Check for 'joints' key
+            logging.error("IKManager: Cannot initialize solver, skeleton data (or its 'joints') is missing.")
+            return False
+        if not self.project_parts_data:
+            logging.error("IKManager: Cannot initialize solver, project parts data is missing.")
+            return False
+
+        self.ik_solver = "DummySolver" # Mark as initialized
+        logging.info("IKManager: (Placeholder) IK solver marked as initialized.")
+
+        self._sim_dynamic_joints_data.clear() # Use the internal attribute directly
+        self.sim_joints_config.clear()
+        # self.scene_joints_snapshot.clear() # This was an old attribute, use _initial_snapshot
+        self._initial_snapshot.clear() # Now guaranteed to exist
+
+        logging.debug(f"IKManager DEBUG: About to iterate self._current_skeleton_data['joints']. Item count: {len(self._current_skeleton_data['joints']) if 'joints' in self._current_skeleton_data else 'joints key missing'}")
+        for joint_id, joint_data_dict in self._current_skeleton_data['joints'].items():
+            logging.debug(f"IKManager DEBUG: Processing joint_id: {joint_id}, joint_data: {joint_data_dict}")
+            pos_list = joint_data_dict.get('position')
+            logging.debug(f"IKManager DEBUG:   pos_list for {joint_id}: {pos_list}")
+
+            if pos_list and len(pos_list) == 2:
+                self.sim_joints_config[joint_id] = {
+                    'position': QPointF(pos_list[0], pos_list[1]),
+                    'angle': 0.0, # Initial angle
+                    'parent': joint_data_dict.get('parent_id'), # Use 'parent_id'
+                    'name': joint_id, # Store the joint's own id (original name from char_cfg)
+                    'children': joint_data_dict.get('child_ids', []) # Store children if available
+                }
+                # A more robust way to define dynamic joints is needed based on rig definition.
+                # For now, let's assume most non-root joints could be dynamic.
+                # Standardized names are like 'left_shoulder', 'hip', 'head'.
+                # Example: mark limb joints as dynamic
+                if "hip" not in joint_id.lower() and \
+                   "neck" not in joint_id.lower() and \
+                   "head" != joint_id.lower() and \
+                   "torso" != joint_id.lower(): # Crude exclusion of some base/central joints
+                    self._sim_dynamic_joints_data[joint_id] = self.sim_joints_config[joint_id].copy()
+                    logging.debug(f"IKManager DEBUG:     Added {joint_id} to _sim_dynamic_joints_data.")
+                else:
+                    logging.debug(f"IKManager DEBUG:     {joint_id} NOT added to _sim_dynamic_joints_data based on name filter.")
+            else:
+                logging.warning(f"IKManager WARNING: Could not populate sim_joints_config for {joint_id} due to missing/invalid position data: {pos_list}")
+
+        self._initial_snapshot = {
+            name: data.copy() for name, data in self.sim_joints_config.items()
+        }
+
+        num_dynamic_joints = len(self._sim_dynamic_joints_data)
+        num_snapshot_items = len(self._initial_snapshot)
+        num_sim_config_joints = len(self.sim_joints_config)
+
+        # ---- ADD DEBUG LOGS ----
+        logging.debug(f"IKManager DEBUG: num_sim_config_joints = {num_sim_config_joints}")
+        logging.debug(f"IKManager DEBUG: num_dynamic_joints = {num_dynamic_joints}")
+        logging.debug(f"IKManager DEBUG: num_snapshot_items = {num_snapshot_items}")
+        # ---- END DEBUG LOGS ----
+
+        logging.info(f"IKManager: Initialization complete. Configured joints: {num_sim_config_joints}. Dynamic joints: {num_dynamic_joints}. Items in initial snapshot: {num_snapshot_items}.")
+        logging.debug("IKManager DEBUG: Past the 'Initialization complete' log.") # DEBUG
+
+        # --- Populate IK Rig Specific Data ---
+        # These should ideally be loaded from a rig definition file or derived more robustly.
+
+        # 1. Define which components are selectable/animatable via paths
+        self.sim_selectable_components = [
+            {'name': 'Head Control', 'targetJointId': 'head', 'partName': 'head'}, # partName is the visual part with the path
+            {'name': 'Left Hand Control', 'targetJointId': 'left_hand', 'partName': 'left_arm_lower'},
+            {'name': 'Right Hand Control', 'targetJointId': 'right_hand', 'partName': 'right_arm_lower'},
+            # {'name': 'Left Foot Control', 'targetJointId': 'left_foot', 'partName': 'left_leg_lower'},
+            # {'name': 'Right Foot Control', 'targetJointId': 'right_foot', 'partName': 'right_leg_lower'},
+        ]
+        logging.debug(f"IKManager: Populated sim_selectable_components: {self.sim_selectable_components}")
+
+        # 2. Define which targetJointIds are end-effectors of two-bone IK chains
+        self.sim_two_bone_ik_effectors = ['left_hand', 'right_hand'] #, 'left_foot', 'right_foot']
+        logging.debug(f"IKManager: Populated sim_two_bone_ik_effectors: {self.sim_two_bone_ik_effectors}")
+
+        # 3. Define limb configurations (parent anchor and part label for length lookup)
+        # Keys are the 'effector' joint IDs (middle or end).
+        # 'label' should correspond to keys in visual part names for length.
+        self.sim_limb_configs = {
+            # Head (single segment relative to neck/torso - simplified for now)
+            'head': {'parentAnchor': 'neck', 'label': 'head'}, # Assuming 'neck' is parent of 'head' in char_cfg
+
+            # Left Arm
+            'left_elbow': {'parentAnchor': 'left_shoulder', 'label': 'left_arm_upper'},
+            'left_hand': {'parentAnchor': 'left_elbow', 'label': 'left_arm_lower'},
+            # Right Arm
+            'right_elbow': {'parentAnchor': 'right_shoulder', 'label': 'right_arm_upper'},
+            'right_hand': {'parentAnchor': 'right_elbow', 'label': 'right_arm_lower'},
+        }
+        logging.debug(f"IKManager: Populated sim_limb_configs: {self.sim_limb_configs}")
+
+        # 4. Define preferred bend directions for middle joints (e.g., elbows, knees)
+        # 1 for positive bend (e.g. elbow bends "forwards"), -1 for negative ("backwards")
+        # These are relative to a default pose or a plane.
+        self.sim_joint_bend_directions = {
+            'left_elbow': 1,
+            'right_elbow': 1,
+            # 'left_knee': 1,
+            # 'right_knee': 1,
+        }
+        logging.debug(f"IKManager: Populated sim_joint_bend_directions: {self.sim_joint_bend_directions}")
+
+        # 5. Populate sim_limb_lengths from project_parts_data
+        # This uses the 'label' from sim_limb_configs as the key into project_parts_data (visual part name)
+        self.sim_limb_lengths.clear()
+        for limb_effector_key, config in self.sim_limb_configs.items():
+            part_label_for_length = config.get('label')
+            if part_label_for_length and part_label_for_length in self.project_parts_data:
+                part_info = self.project_parts_data[part_label_for_length]
+                # Calculate length: distance from its anchor point to some "tip" or use bounding box
+                # For simplicity, let's use height of bounding box if available, or a default.
+                # A more accurate measure would be distance between joint connection points defined on the part.
+                length = 0
+                if part_info.roi and len(part_info.roi) == 4: # x,y,w,h
+                    length = float(part_info.roi[3]) # Use height as a proxy for length
+                if length <= 0: length = 50 # Default length if ROI is bad or part has no height
+                self.sim_limb_lengths[part_label_for_length] = length
+                logging.debug(f"IKManager: Set limb length for '{part_label_for_length}' to {length}")
+            elif part_label_for_length:
+                logging.warning(f"IKManager: Part '{part_label_for_length}' for length measurement not found in project_parts_data. Using default for {limb_effector_key}.")
+                self.sim_limb_lengths[part_label_for_length] = 50 # Default length
+
+        logging.debug(f"IKManager: Populated sim_limb_lengths: {self.sim_limb_lengths}")
+        # --- End Populate IK Rig ---
+
+        return True
+
+    def on_skeleton_data_updated_from_manager(self, standardized_skeleton_dict: Optional[dict]): # Allow None
         """Called when SkeletonManager emits its skeleton_updated signal (with a dict)."""
-        logging.info("IKManager: Received skeleton update (dict) from SkeletonManager.")
+        logging.info(f"IKManager (id:{id(self)}): Received skeleton update (dict) from SkeletonManager.")
         if not standardized_skeleton_dict:
-            logging.warning("IKManager: Received empty skeleton dict. Clearing IK definitions.")
+            logging.warning(f"IKManager (id:{id(self)}): Received empty skeleton dict. Clearing IK definitions.")
             self._clear_ik_definitions()
-            self.ik_solver_initialized.emit(False)
+            self.ik_solver_initialized.emit(False, {})
+            self._current_skeleton_data = None # Explicitly nullify if skeleton is gone (will use setter)
+            # logging.info(f"IKManager (id:{id(self)}): self._current_skeleton_data is NOW None (due to empty input dict).") # Setter will log this
             return
 
         try:
-            # Reconstruct the model from the dictionary for easier use, though direct dict access is also possible
             standardized_model = StandardizedSkeletonModel.model_validate(standardized_skeleton_dict)
-            self._initialize_ik_definitions(standardized_model)
-            self.ik_solver_initialized.emit(True)
+            self._current_skeleton_data = standardized_model.model_dump() # Will use setter
+            self._current_joint_connections = standardized_model.hierarchy
+
+            # log_msg_skel_on_update = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})" # Getter will be used
+            # if self._current_skeleton_data and 'joints' in self._current_skeleton_data:
+            #     log_msg_skel_on_update += f", 'joints' key present with {len(self._current_skeleton_data['joints'])} items."
+            # elif self._current_skeleton_data:
+            #     log_msg_skel_on_update += f", 'joints' key MISSING."
+            # logging.info(f"IKManager (id:{id(self)}).on_skeleton_data_updated: self._current_skeleton_data successfully SET. Details: {log_msg_skel_on_update}") # Setter logs details
+
+            self._try_initialize_solver()
         except Exception as e:
-            logging.error(f"IKManager: Error processing standardized skeleton dict: {e}", exc_info=True)
+            logging.error(f"IKManager (id:{id(self)}): Error processing standardized skeleton dict: {e}", exc_info=True)
             self._clear_ik_definitions()
-            self.ik_solver_initialized.emit(False)
+            self._current_skeleton_data = None # Explicitly nullify on error (will use setter)
+            # logging.info(f"IKManager (id:{id(self)}): self._current_skeleton_data is NOW None (due to exception).") # Setter will log this
+            self.ik_solver_initialized.emit(False, {})
             self.error_occurred.emit(f"Error initializing IK from skeleton: {e}")
 
-    def _clear_ik_definitions(self):
-        """Clears all IK specific configurations and data."""
-        self.sim_joints_config.clear()
-        self.sim_limb_configs.clear()
-        self.sim_limb_lengths.clear()
-        self.sim_selectable_components.clear()
-        self.sim_two_bone_ik_effectors.clear()
-        self.sim_joint_bend_directions.clear()
-        self._sim_dynamic_joints_data.clear()
-        self.scene_joints_snapshot.clear()
-        logging.info("IKManager: All IK definitions cleared.")
-        self.ik_solver_initialized.emit(False)
-
-    def _initialize_ik_definitions(self, std_skeleton_model: StandardizedSkeletonModel):
-        self._clear_ik_definitions()
-        logging.info(f"IKManager: Initializing IK definitions from StandardizedSkeletonModel (Source: {std_skeleton_model.source_format}).")
-
-        if not std_skeleton_model.joints:
-            logging.warning("IKManager: Cannot initialize IK definitions, standardized model has no joints.")
-            self.character_visuals_updated.emit({})
-            return
-
-        # 1. Populate self.sim_joints_config and self.scene_joints_snapshot
-        # We iterate through our IK rig's joint needs (self.ik_joint_ids_to_source_names)
-        # and find the corresponding joint in the loaded std_skeleton_model.
-        for ik_joint_key, source_joint_name_in_cfg in self.ik_joint_ids_to_source_names.items():
-            # Find the standardized_id using the source_joint_name_in_cfg via std_skeleton_model.joint_map
-            standardized_joint_id = None
-            if std_skeleton_model.joint_map:
-                standardized_joint_id = std_skeleton_model.joint_map.get(source_joint_name_in_cfg)
-
-            # Fallback: if not in map, try direct name match in standardized joints
-            if not standardized_joint_id:
-                for j_id, j_model in std_skeleton_model.joints.items():
-                    if j_model.name == source_joint_name_in_cfg or j_model.label == source_joint_name_in_cfg:
-                        standardized_joint_id = j_id
-                        break
-
-            if standardized_joint_id and standardized_joint_id in std_skeleton_model.joints:
-                std_joint_data = std_skeleton_model.joints[standardized_joint_id]
-                pos_x, pos_y = std_joint_data.position
-                self.sim_joints_config[ik_joint_key] = {
-                    'x': pos_x,
-                    'y': pos_y,
-                    'label': std_joint_data.name # Use standardized name as label for IK joint
-                }
-                self.scene_joints_snapshot[ik_joint_key] = {
-                    'x': pos_x,
-                    'y': pos_y,
-                    'angle': 0
-                }
-            else:
-                logging.warning(f"IKManager: Could not find or map source joint '{source_joint_name_in_cfg}' (for IK joint '{ik_joint_key}') in standardized skeleton data.")
-
-        # 2. Populate self.sim_limb_configs and self.sim_limb_lengths
-        # Define IK limbs. An IK limb connects two IK joints from sim_joints_config.
-        # The 'length_key' should correspond to a key in std_skeleton_model.limb_lengths or be calculated.
-        # The 'part_name' is used to store the calculated/used length in self.sim_limb_lengths.
-        potential_limbs_def = {
-            # ik_limb_effector_key: {parent_ik_joint_key, length_source_key, visual_part_key_for_length_storage}
-            'j_head_tip':       {'parent': 'j_neck_base',     'length_src': 'head',           'len_store_key': 'head'},
-            'j_left_wrist':     {'parent': 'j_left_elbow',    'length_src': 'left_forearm',   'len_store_key': 'left_forearm'},
-            'j_left_elbow':     {'parent': 'j_left_shoulder', 'length_src': 'left_upper_arm', 'len_store_key': 'left_upper_arm'},
-            'j_right_wrist':    {'parent': 'j_right_elbow',   'length_src': 'right_forearm',  'len_store_key': 'right_forearm'},
-            'j_right_elbow':    {'parent': 'j_right_shoulder','length_src': 'right_upper_arm','len_store_key': 'right_upper_arm'},
-            'j_left_ankle':     {'parent': 'j_left_knee',     'length_src': 'left_calf',      'len_store_key': 'left_calf'},
-            'j_left_knee':      {'parent': 'j_left_hip',      'length_src': 'left_thigh',     'len_store_key': 'left_thigh'},
-            'j_right_ankle':    {'parent': 'j_right_knee',    'length_src': 'right_calf',     'len_store_key': 'right_calf'},
-            'j_right_knee':     {'parent': 'j_right_hip',     'length_src': 'right_thigh',    'len_store_key': 'right_thigh'},
-        }
-
-        for ik_effector_key, limb_def in potential_limbs_def.items():
-            parent_ik_key = limb_def['parent']
-            length_source_key = limb_def['length_src'] # e.g., 'head', 'left_forearm' from std_model.limb_lengths
-            length_storage_key = limb_def['len_store_key'] # Key for self.sim_limb_lengths
-
-            if ik_effector_key in self.scene_joints_snapshot and parent_ik_key in self.scene_joints_snapshot:
-                parent_snapshot = self.scene_joints_snapshot[parent_ik_key]
-                effector_snapshot = self.scene_joints_snapshot[ik_effector_key]
-
-                parent_pos = QPointF(parent_snapshot['x'], parent_snapshot['y'])
-                effector_pos = QPointF(effector_snapshot['x'], effector_snapshot['y'])
-
-                limb_vector = effector_pos - parent_pos
-                calculated_length = limb_vector.manhattanLength()
-                angle = math.degrees(math.atan2(limb_vector.y(), limb_vector.x())) if not limb_vector.isNull() else 0.0
-
-                # Use length from standardized model if available, otherwise use calculated
-                actual_length = calculated_length
-                if std_skeleton_model.limb_lengths and length_source_key in std_skeleton_model.limb_lengths:
-                    model_len = std_skeleton_model.limb_lengths[length_source_key]
-                    if model_len > 0:
-                        actual_length = model_len
-                    else:
-                        logging.debug(f"IKManager: Standardized model length for '{length_source_key}' is {model_len}, using calculated {calculated_length}.")
-
-                if actual_length <= 1e-5: # Effectively zero
-                     logging.warning(f"IKManager: Limb defined by effector '{ik_effector_key}' has zero or near-zero length ({actual_length}). May cause issues.")
-
-                self.sim_limb_configs[ik_effector_key] = {
-                    'parentAnchor': parent_ik_key,
-                    'angle': angle,
-                    'length': actual_length,
-                    'label': length_storage_key # Use the storage key (visual part name) as label for the limb config
-                }
-                self.sim_limb_lengths[length_storage_key] = actual_length
-
-                if ik_effector_key in self.scene_joints_snapshot:
-                     self.scene_joints_snapshot[ik_effector_key]['angle'] = angle
-            else:
-                logging.warning(f"IKManager: Cannot define limb for effector '{ik_effector_key}'. Missing parent '{parent_ik_key}' or effector itself in scene_joints_snapshot.")
-
-        # 3. Define sim_selectable_components (UI related, parts that can have paths)
-        # These map to the IK rig's joint keys.
-        self.sim_selectable_components = [
-            {'label': 'Head',        'targetJointId': 'j_head_tip',    'partName': self.ik_part_to_actual_part_name.get('head')},
-            {'label': 'Left Hand',   'targetJointId': 'j_left_wrist',  'partName': self.ik_part_to_actual_part_name.get('left_forearm')},
-            {'label': 'Right Hand',  'targetJointId': 'j_right_wrist', 'partName': self.ik_part_to_actual_part_name.get('right_forearm')},
-            {'label': 'Left Foot',   'targetJointId': 'j_left_ankle',  'partName': self.ik_part_to_actual_part_name.get('left_calf')},
-            {'label': 'Right Foot',  'targetJointId': 'j_right_ankle', 'partName': self.ik_part_to_actual_part_name.get('right_calf')},
-        ]
-        self.sim_selectable_components = [
-            comp for comp in self.sim_selectable_components if comp['targetJointId'] in self.sim_joints_config
-        ]
-
-        # 4. Define sim_two_bone_ik_effectors (IK rig keys for wrists, ankles)
-        self.sim_two_bone_ik_effectors = [
-            'j_left_wrist', 'j_right_wrist',
-            'j_left_ankle', 'j_right_ankle'
-        ]
-        self.sim_two_bone_ik_effectors = [
-            ik_key for ik_key in self.sim_two_bone_ik_effectors if ik_key in self.sim_joints_config
-        ]
-
-        # 5. Define sim_joint_bend_directions (IK rig keys for elbows, knees)
-        self.sim_joint_bend_directions = {
-            'j_left_elbow': -1, 'j_right_elbow': -1,
-            'j_left_knee': 1,  'j_right_knee': 1
-        }
-        self.sim_joint_bend_directions = {
-            ik_key:direction for ik_key, direction in self.sim_joint_bend_directions.items() if ik_key in self.sim_joints_config
-        }
-
-        self._sim_dynamic_joints_data = {
-            ik_key: data.copy() for ik_key, data in self.scene_joints_snapshot.items()
-        }
-        logging.info(f"IKManager: sim_dynamic_joints initialized with {len(self._sim_dynamic_joints_data)} joints for the IK rig.")
-
-        logging.debug(f"IKManager: sim_joints_config (IK Rig): {self.sim_joints_config}")
-        logging.debug(f"IKManager: sim_limb_configs (IK Rig): {self.sim_limb_configs}")
-        logging.debug(f"IKManager: sim_limb_lengths (IK Rig): {self.sim_limb_lengths}")
-
-        self._update_character_part_visuals_from_ik()
-        self.main_window.statusBar().showMessage("IKManager: IK definitions initialized from standardized model.", 3000)
-        self.ik_solver_initialized.emit(True)
-
-    def on_project_data_loaded(
-        self,
-        parts: Dict[str, 'PartInfo'],
-        standardized_skeleton_dict: Optional[Dict[str, Any]], # Expecting dict from PDM now
-        project_dir: Optional[Path]
-    ):
-        logging.info(f"IKManager: Project data received. Parts: {len(parts)}, Skel: {'Exists' if standardized_skeleton_dict else 'None'}")
-        self.project_dir = project_dir
-        self.project_parts_data = parts.copy()
-
-        if standardized_skeleton_dict:
-            self.on_skeleton_data_updated_from_manager(standardized_skeleton_dict)
-        else:
-            logging.warning("IKManager: No skeleton data in project. Clearing IK.")
-            self.clear_ik_data()
-
-    def clear_ik_data(self):
+    def _clear_ik_definitions(self, emit_signal=True) -> None:
+        """Clears IK solver-derived configurations and resets animation state.
+           Does NOT clear input data like _current_skeleton_data or project_parts_data.
         """
-        Clears all IK-related data, configurations, and stops animations.
-        Resets IKManager to a state as if no project/skeleton is loaded.
-        """
-        logging.info("IKManager: Clearing all IK data and resetting state.")
-        self.stop_animation()
-        self._clear_ik_definitions()
-        self._animation_start_time_qelapsed = None
-        self._current_animation_progress = 0.0
-        self.project_dir = None
+        logging.info(f"IKManager (id:{id(self)}): Clearing IK solver-derived definitions and animation state.")
+        self.stop_animation() # Stops timer and resets animation variables
+        self.ik_solver = None
+
+        # Clear structures derived/populated by initialize_ik_solver or during IK processing
+        if hasattr(self, '_sim_dynamic_joints_data'):
+            self._sim_dynamic_joints_data.clear()
+        if hasattr(self, 'sim_joints_config'): # This is also a primary output of initialization
+            self.sim_joints_config.clear()
+        if hasattr(self, 'sim_limb_configs'):
+            self.sim_limb_configs.clear()
+        if hasattr(self, 'sim_limb_lengths'):
+            self.sim_limb_lengths.clear()
+        if hasattr(self, 'scene_joints_snapshot'): # Populated during initialization
+            self.scene_joints_snapshot.clear()
+        if hasattr(self, 'sim_selectable_components'):
+            self.sim_selectable_components.clear()
+        if hasattr(self, 'sim_two_bone_ik_effectors'):
+            self.sim_two_bone_ik_effectors.clear()
+        if hasattr(self, 'sim_joint_bend_directions'):
+            self.sim_joint_bend_directions.clear()
+
+        # DO NOT clear these here: _current_skeleton_data, _current_joint_connections, _pending_motion_paths
+        # They are input data for the IK solver.
+
+        if emit_signal:
+            self.ik_solver_initialized.emit(False, {})
+            logging.debug(f"IKManager (id:{id(self)}): Emitted ik_solver_initialized(False) due to _clear_ik_definitions.")
+
+    def reset_all_ik_systems_and_data(self) -> None: # Renamed from clear_ik_data
+        """Clears ALL data including project parts, current skeleton, and IK definitions."""
+        logging.info(f"IKManager (id:{id(self)}): Clearing ALL IK data (full clear including skeleton and parts references) via reset_all_ik_systems_and_data.")
         self.project_parts_data.clear()
-        self.character_visuals_updated.emit({})
-        self.ik_solver_initialized.emit(False)
-        logging.info("IKManager: IK data cleared and state reset.")
+        self._pending_motion_paths.clear()
+        self._current_skeleton_data = None # Will use setter
+        self._current_joint_connections = None
+        self._clear_ik_definitions(emit_signal=True)
+        logging.info(f"IKManager (id:{id(self)}): All IK data cleared and state reset (after reset_all_ik_systems_and_data).")
 
     def _solve_single_bone_ik(self, ik_joint_key: str, target_pos: QPointF) -> Optional[QPointF]:
-        if ik_joint_key not in self.sim_limb_configs:
-            logging.warning(f"IKManager: No limb configuration for ik_joint_key '{ik_joint_key}' in _solve_single_bone_ik.")
+        """Solves IK for a single bone segment.
+           Essentially places the ik_joint_key at target_pos.
+           (Placeholder - does not consider parent constraints or actual rotation)
+        """
+        if ik_joint_key not in self.sim_joints_config:
+            logging.warning(f"IKManager._solve_single_bone_ik: Joint '{ik_joint_key}' not in sim_joints_config.")
             return None
 
-        limb_config = self.sim_limb_configs[ik_joint_key]
-        parent_anchor_ik_key = limb_config['parentAnchor']
-        # Use the stored length from self.sim_limb_lengths, which corresponds to the visual part
-        # The key for self.sim_limb_lengths should be the 'label' from limb_config
-        limb_length_key = limb_config.get('label')
-        limb_length = self.sim_limb_lengths.get(limb_length_key, 0.0) if limb_length_key else 0.0
+        # current_pos = self.sim_joints_config[ik_joint_key]['position']
+        # For single bone, the "solution" is just the target position for this joint.
+        # The parent joint's position and the bone length would determine the angle.
+        # This placeholder simply updates the position directly and assumes an angle change.
+        self.sim_joints_config[ik_joint_key]['position'] = target_pos
+        # Angle update would require knowing the parent and its orientation.
+        # self.sim_joints_config[ik_joint_key]['angle'] = new_angle
 
-        if parent_anchor_ik_key not in self._sim_dynamic_joints_data:
-            logging.warning(f"IKManager: Parent anchor '{parent_anchor_ik_key}' not in dynamic joint data.")
+        logging.debug(f"IKManager._solve_single_bone_ik: (Placeholder) Set '{ik_joint_key}' to {target_pos}")
+        return target_pos # Return the new position of the ik_joint_key
+
+    def _solve_two_bone_ik(
+        self,
+        middle_joint_key: str,      # e.g., "left_elbow"
+        end_effector_key: str,    # e.g., "left_hand"
+        target_pos: QPointF         # Target position for the end_effector_key
+    ) -> Optional[Tuple[QPointF, QPointF]]: # Returns (new_middle_pos, new_end_effector_pos)
+        """Solves 2-bone IK. Updates sim_joints_config directly for middle and end effector.
+           Returns new positions for middle and end effector, or None if failed.
+        """
+        # 1. Get joint data
+        if not (middle_joint_key in self.sim_joints_config and end_effector_key in self.sim_joints_config):
+            logging.warning(f"IKManager._solve_two_bone_ik: Joints '{middle_joint_key}' or '{end_effector_key}' not in sim_joints_config.")
             return None
 
-        if limb_length <= 1e-5: # Effectively zero
-            logging.warning(f"IKManager: Limb '{ik_joint_key}' (part: {limb_length_key}) has zero or negative length: {limb_length}. Placing at parent.")
-            parent_joint_data = self._sim_dynamic_joints_data[parent_anchor_ik_key]
-            parent_pos = QPointF(parent_joint_data['x'], parent_joint_data['y'])
-            self._sim_dynamic_joints_data[ik_joint_key]['x'] = parent_pos.x()
-            self._sim_dynamic_joints_data[ik_joint_key]['y'] = parent_pos.y()
-            self._sim_dynamic_joints_data[ik_joint_key]['angle'] = parent_joint_data.get('angle', 0)
-            return parent_pos
+        # Get root_joint_key (parent of middle_joint_key)
+        # This requires knowing the hierarchy, e.g., from sim_limb_configs or skeleton structure
+        # sim_limb_configs['left_elbow'] = {'parentAnchor': 'left_shoulder', ...}
+        root_joint_key = self.sim_limb_configs.get(middle_joint_key, {}).get('parentAnchor')
+        if not root_joint_key or root_joint_key not in self.sim_joints_config:
+            logging.warning(f"IKManager._solve_two_bone_ik: Could not find valid root joint for middle joint '{middle_joint_key}'.")
+            return None
 
-        parent_joint_data = self._sim_dynamic_joints_data[parent_anchor_ik_key]
-        parent_pos = QPointF(parent_joint_data['x'], parent_joint_data['y'])
+        p0 = self.sim_joints_config[root_joint_key]['position']    # Position of the root joint (e.g., shoulder)
+        # p1_current = self.sim_joints_config[middle_joint_key]['position'] # Current middle (e.g. elbow)
+        # p2_current = self.sim_joints_config[end_effector_key]['position']# Current end-effector (e.g. wrist)
 
-        direction_vector = target_pos - parent_pos
-        current_dist_to_target = direction_vector.manhattanLength()
+        # 2. Get limb lengths (L1: root to middle, L2: middle to end_effector)
+        # These labels come from sim_limb_configs
+        l1_label = self.sim_limb_configs.get(middle_joint_key, {}).get('label') # e.g., 'left_arm_upper'
+        l2_label = self.sim_limb_configs.get(end_effector_key, {}).get('label') # e.g., 'left_arm_lower'
 
-        if abs(current_dist_to_target) < 1e-5:
-            new_effector_pos = QPointF(parent_pos)
-            new_angle = self._sim_dynamic_joints_data[ik_joint_key].get('angle', parent_joint_data.get('angle', 0))
+        if not l1_label or not l2_label or l1_label not in self.sim_limb_lengths or l2_label not in self.sim_limb_lengths:
+            logging.warning(f"IKManager._solve_two_bone_ik: Limb lengths for '{l1_label}' or '{l2_label}' not found.")
+            return None
+
+        l1 = self.sim_limb_lengths[l1_label]
+        l2 = self.sim_limb_lengths[l2_label]
+
+        if l1 <= 0 or l2 <= 0:
+            logging.warning(f"IKManager._solve_two_bone_ik: Invalid limb lengths L1={l1}, L2={l2}.")
+            return None
+
+        # 3. Calculate distance D from root (p0) to target_pos
+        dx = target_pos.x() - p0.x()
+        dy = target_pos.y() - p0.y()
+        dist_sq = dx * dx + dy * dy
+        dist = math.sqrt(dist_sq)
+
+        # Check reachability
+        if dist > l1 + l2: # Target is too far
+            logging.debug(f"IKManager._solve_two_bone_ik: Target too far ({dist:.2f} > L1+L2 {l1+l2:.2f}). Stretching.")
+            # Stretch: place middle joint on the line p0-target_pos
+            ratio = l1 / (l1 + l2)
+            p1_new_x = p0.x() + ratio * dx
+            p1_new_y = p0.y() + ratio * dy
+            p1_new = QPointF(p1_new_x, p1_new_y)
+            p2_new = QPointF(target_pos.x(), target_pos.y()) # End effector is at target
+        elif dist < abs(l1 - l2): # Target is too close
+            logging.debug(f"IKManager._solve_two_bone_ik: Target too close ({dist:.2f} < |L1-L2| {abs(l1-l2):.2f}). Placing along p0-target line.")
+            # Place along the line from p0 towards target_pos, with l1 and l2 maintaining relative orientation.
+            # This is a simplification; could involve folding back based on bend direction.
+            ratio = l1 / dist if dist > 1e-5 else 0 # Avoid division by zero
+            p1_new_x = p0.x() + ratio * dx
+            p1_new_y = p0.y() + ratio * dy
+            # Then p2 is l2 away from p1_new, further along the same p0-target line or folded back.
+            # For simplicity, stretch it out for now (same as too far case but target is closer)
+            # This means p2 would be beyond target_pos if l1+l2 > dist. Let's place p2 at target.
+            p1_new = QPointF(p1_new_x, p1_new_y)
+            p2_new = QPointF(target_pos.x(), target_pos.y()) # Simplification
         else:
-            normalized_direction = QPointF(direction_vector.x() / current_dist_to_target,
-                                           direction_vector.y() / current_dist_to_target)
-            new_effector_pos = parent_pos + normalized_direction * limb_length
-            new_angle = math.degrees(math.atan2(normalized_direction.y(), normalized_direction.x()))
-
-        self._sim_dynamic_joints_data[ik_joint_key]['x'] = new_effector_pos.x()
-        self._sim_dynamic_joints_data[ik_joint_key]['y'] = new_effector_pos.y()
-        self._sim_dynamic_joints_data[ik_joint_key]['angle'] = new_angle
-
-        logging.debug(f"IKManager: _solve_single_bone_ik for {ik_joint_key} (part {limb_length_key}) -> New Pos: {new_effector_pos}, Angle: {new_angle}")
-        return new_effector_pos
-
-    def _solve_two_bone_ik(self, upper_limb_effector_ik_key: str, lower_limb_effector_ik_key: str, target_pos: QPointF) -> Optional[Tuple[QPointF, QPointF]]:
-        # upper_limb_effector_ik_key is the middle joint (e.g., j_left_elbow)
-        # lower_limb_effector_ik_key is the end effector (e.g., j_left_wrist)
-
-        if upper_limb_effector_ik_key not in self.sim_limb_configs or \
-           lower_limb_effector_ik_key not in self.sim_limb_configs:
-            logging.warning(f"IKManager: Missing limb config for '{upper_limb_effector_ik_key}' or '{lower_limb_effector_ik_key}'.")
-            return None
-
-        upper_limb_config = self.sim_limb_configs[upper_limb_effector_ik_key]
-        lower_limb_config = self.sim_limb_configs[lower_limb_effector_ik_key]
-
-        root_ik_key = upper_limb_config['parentAnchor'] # e.g., j_left_shoulder
-        middle_ik_key = upper_limb_effector_ik_key      # e.g., j_left_elbow
-        end_effector_ik_key = lower_limb_effector_ik_key # e.g., j_left_wrist
-
-        if root_ik_key not in self._sim_dynamic_joints_data:
-            logging.warning(f"IKManager: Root IK joint '{root_ik_key}' not in dynamic joint data.")
-            return None
-
-        # Get lengths from self.sim_limb_lengths using the 'label' from limb_config as key
-        len1_key = upper_limb_config.get('label')
-        len2_key = lower_limb_config.get('label')
-        len1 = self.sim_limb_lengths.get(len1_key, 0.0) if len1_key else 0.0
-        len2 = self.sim_limb_lengths.get(len2_key, 0.0) if len2_key else 0.0
-
-        if len1 <= 1e-5 or len2 <= 1e-5:
-            logging.warning(f"IKManager: Limbs for two-bone IK ('{len1_key}', '{len2_key}') have zero/neg length (L1: {len1}, L2: {len2}).")
-            root_pos_data = self._sim_dynamic_joints_data[root_ik_key]
-            root_pos = QPointF(root_pos_data['x'], root_pos_data['y'])
-            current_middle_pos_data = self._sim_dynamic_joints_data[middle_ik_key]
-            current_end_pos_data = self._sim_dynamic_joints_data[end_effector_ik_key]
-            return (QPointF(current_middle_pos_data['x'], current_middle_pos_data['y']),
-                    QPointF(current_end_pos_data['x'], current_end_pos_data['y']))
-
-        root_pos_data = self._sim_dynamic_joints_data[root_ik_key]
-        root_pos = QPointF(root_pos_data['x'], root_pos_data['y'])
-
-        dist_to_target_sq = (target_pos.x() - root_pos.x())**2 + (target_pos.y() - root_pos.y())**2
-        dist_to_target = math.sqrt(dist_to_target_sq) if dist_to_target_sq > 0 else 0.0
-
-        new_middle_pos = QPointF()
-        new_end_effector_pos = QPointF()
-
-        if dist_to_target > len1 + len2 - 1e-5: # Target is too far (with tolerance)
-            logging.debug(f"IKManager: Target for {end_effector_ik_key} is unreachable. Stretching.")
-            dx = target_pos.x() - root_pos.x()
-            dy = target_pos.y() - root_pos.y()
-            if dist_to_target < 1e-5 : # Target is at root, stretch along some default direction (e.g. previous or x-axis)
-                # This case needs better handling, for now, stretch along x-axis or previous orientation
-                prev_middle_angle_rad = math.radians(self._sim_dynamic_joints_data[middle_ik_key].get('angle', 0))
-                dx = math.cos(prev_middle_angle_rad)
-                dy = math.sin(prev_middle_angle_rad)
-                if abs(dx) < 1e-5 and abs(dy) < 1e-5: dx = 1.0 # Default to x-axis if zero vector
-                dist_to_target = 1.0 # Avoid div by zero, effectively just need direction
-
-            new_end_effector_pos = root_pos + QPointF(dx / dist_to_target * (len1 + len2),
-                                                  dy / dist_to_target * (len1 + len2))
-            new_middle_pos = root_pos + QPointF(dx / dist_to_target * len1,
-                                              dy / dist_to_target * len1)
-        elif dist_to_target < abs(len1 - len2) + 1e-5: # Target is too close (with tolerance)
-            logging.debug(f"IKManager: Target for {end_effector_ik_key} is too close. Adjusting.")
-            dx = target_pos.x() - root_pos.x()
-            dy = target_pos.y() - root_pos.y()
-
-            if dist_to_target < 1e-5: # Target is (almost) at the root joint
-                 # Limbs fold based on bend direction. Extend along a default axis or previous orientation.
-                bend_direction = self.sim_joint_bend_directions.get(middle_ik_key, 1)
-                # Get previous angle of root-to-middle segment to maintain general direction if possible
-                prev_root_angle_rad = math.radians(self._sim_dynamic_joints_data[middle_ik_key].get('angle', 0))
-                # If prev angle is 0, try a default (e.g. slightly downwards)
-                if abs(prev_root_angle_rad) < 1e-5 : prev_root_angle_rad = math.radians(10 * bend_direction)
-
-                new_middle_pos = root_pos + QPointF(len1 * math.cos(prev_root_angle_rad), len1 * math.sin(prev_root_angle_rad))
-                # For the end effector, continue in same direction or fold back based on len1 vs len2 for min reach
-                if len1 > len2:
-                    new_end_effector_pos = new_middle_pos + QPointF(len2 * math.cos(prev_root_angle_rad + math.pi),
-                                                                  len2 * math.sin(prev_root_angle_rad + math.pi))
-                else:
-                    new_end_effector_pos = new_middle_pos + QPointF(len2 * math.cos(prev_root_angle_rad),
-                                                                  len2 * math.sin(prev_root_angle_rad))
+            # Target is reachable and not too close for a unique triangle solution (or two)
+            # 4. Calculate angles using Law of Cosines
+            # Angle at root joint (p0) between (p0-target) and L1
+            # cos(angle1) = (D^2 + L1^2 - L2^2) / (2 * D * L1)
+            if dist < 1e-5: # Target is at the root
+                 # Place middle joint based on preferred bend or previous pose
+                 # For now, let's place it along some default direction (e.g., x-axis from root)
+                 angle_at_root_to_target = 0 # Or some resting angle
+                 angle1 = math.pi / 2 # Default bend for middle joint
             else:
-                min_reach_dist = abs(len1 - len2)
-                new_end_effector_pos = root_pos + QPointF(dx / dist_to_target * min_reach_dist,
-                                                      dy / dist_to_target * min_reach_dist)
-                # Place middle joint along this line appropriately, ensuring correct configuration
-                if len1 > len2:
-                    new_middle_pos = new_end_effector_pos + QPointF(dx / dist_to_target * len2,
-                                                                    dy / dist_to_target * len2)
-                else: # len2 >= len1
-                    new_middle_pos = root_pos + QPointF(dx / dist_to_target * len1,
-                                                        dy / dist_to_target * len1)
-        else:
-            cos_angle_beta = (dist_to_target_sq - len1*len1 - len2*len2) / (2 * len1 * len2)
-            cos_angle_beta = max(-1.0, min(1.0, cos_angle_beta))
-            angle_beta_rad = math.acos(cos_angle_beta)
+                cos_angle1_numerator = dist_sq + l1*l1 - l2*l2
+                cos_angle1_denominator = 2 * dist * l1
+                if abs(cos_angle1_denominator) < 1e-5: # Avoid division by zero / unstable result
+                    logging.warning("IKManager._solve_two_bone_ik: Unstable configuration for angle1 calculation (denominator close to zero).")
+                    return None # Or handle by snapping
+                cos_angle1 = cos_angle1_numerator / cos_angle1_denominator
+                # Clamp cos_angle1 to [-1, 1] due to potential floating point inaccuracies
+                cos_angle1 = max(-1.0, min(1.0, cos_angle1))
+                angle1 = math.acos(cos_angle1)
 
-            cos_angle_gamma = (len1*len1 + dist_to_target_sq - len2*len2) / (2 * len1 * dist_to_target)
-            cos_angle_gamma = max(-1.0, min(1.0, cos_angle_gamma))
-            angle_gamma_rad = math.acos(cos_angle_gamma)
+            # Angle at middle joint (p1) between L1 and L2 (internal angle of the triangle)
+            # cos(angle2) = (L1^2 + L2^2 - D^2) / (2 * L1 * L2)
+            cos_angle2_numerator = l1*l1 + l2*l2 - dist_sq
+            cos_angle2_denominator = 2 * l1 * l2
+            if abs(cos_angle2_denominator) < 1e-5:
+                 logging.warning("IKManager._solve_two_bone_ik: Unstable configuration for angle2 calculation (denominator close to zero).")
+                 return None
+            cos_angle2 = cos_angle2_numerator / cos_angle2_denominator
+            cos_angle2 = max(-1.0, min(1.0, cos_angle2))
+            angle2 = math.acos(cos_angle2) # This is the interior angle, elbow bends by (pi - angle2)
 
-            atan_angle_to_target_rad = math.atan2(target_pos.y() - root_pos.y(),
-                                                  target_pos.x() - root_pos.x())
+            # Determine bend direction (e.g., from sim_joint_bend_directions)
+            bend_direction = self.sim_joint_bend_directions.get(middle_joint_key, 1) # Default to 1 (e.g. positive bend)
 
-            bend_direction = self.sim_joint_bend_directions.get(middle_ik_key, 1)
-            final_angle_root_to_middle_rad = atan_angle_to_target_rad - (angle_gamma_rad * bend_direction)
+            # Overall angle of the line from root (p0) to target_pos
+            angle_root_to_target = math.atan2(dy, dx)
 
-            new_middle_pos = root_pos + QPointF(len1 * math.cos(final_angle_root_to_middle_rad),
-                                                len1 * math.sin(final_angle_root_to_middle_rad))
-            new_end_effector_pos = QPointF(target_pos)
+            # Calculate global angle for L1 (p0 to p1_new)
+            # This depends on whether the elbow bends "up" or "down" relative to the p0-target line
+            final_angle_for_l1 = angle_root_to_target + (bend_direction * angle1)
 
-        vec_root_to_middle = new_middle_pos - root_pos
-        angle_root_rad = math.atan2(vec_root_to_middle.y(), vec_root_to_middle.x()) if not vec_root_to_middle.isNull() else self._sim_dynamic_joints_data[middle_ik_key].get('angle',0)
+            # Calculate new position for middle joint (p1_new)
+            p1_new_x = p0.x() + l1 * math.cos(final_angle_for_l1)
+            p1_new_y = p0.y() + l1 * math.sin(final_angle_for_l1)
+            p1_new = QPointF(p1_new_x, p1_new_y)
 
-        vec_middle_to_end = new_end_effector_pos - new_middle_pos
-        angle_middle_rad = math.atan2(vec_middle_to_end.y(), vec_middle_to_end.x()) if not vec_middle_to_end.isNull() else self._sim_dynamic_joints_data[end_effector_ik_key].get('angle',0)
+            # Calculate global angle for L2 (p1_new to p2_new)
+            # The angle of L1 is final_angle_for_l1. The angle of L2 relative to L1 is (pi - angle2).
+            # So, global angle of L2 is final_angle_for_l1 + bend_direction * (pi - angle2)
+            # No, it's final_angle_for_l1 + bend_direction * (angle2 - math.pi) if angle2 is interior
+            # Or, simpler: angle of (p1_new -> p0) + bend_direction * angle2. Angle of (p1_new->p0) is final_angle_for_l1 + pi.
+            # The angle from p1_new to p2_new is final_angle_for_l1 + bend_direction * (angle2_elbow_extension)
+            # angle2_elbow_extension = pi - angle2. (e.g. if angle2=pi, elbow is straight, extension=0)
+            final_angle_for_l2 = final_angle_for_l1 + bend_direction * (math.pi - angle2) # Angle of second limb segment
 
-        self._sim_dynamic_joints_data[middle_ik_key]['x'] = new_middle_pos.x()
-        self._sim_dynamic_joints_data[middle_ik_key]['y'] = new_middle_pos.y()
-        self._sim_dynamic_joints_data[middle_ik_key]['angle'] = math.degrees(angle_root_rad)
+            # Calculate new position for end_effector (p2_new)
+            p2_new_x = p1_new.x() + l2 * math.cos(final_angle_for_l2)
+            p2_new_y = p1_new.y() + l2 * math.sin(final_angle_for_l2)
+            p2_new = QPointF(p2_new_x, p2_new_y)
 
-        self._sim_dynamic_joints_data[end_effector_ik_key]['x'] = new_end_effector_pos.x()
-        self._sim_dynamic_joints_data[end_effector_ik_key]['y'] = new_end_effector_pos.y()
-        self._sim_dynamic_joints_data[end_effector_ik_key]['angle'] = math.degrees(angle_middle_rad)
+        # 5. Update sim_joints_config with new positions
+        # (Angles also need updating if your visual update relies on them, placeholder for now)
+        self.sim_joints_config[middle_joint_key]['position'] = p1_new
+        self.sim_joints_config[end_effector_key]['position'] = p2_new
 
-        logging.debug(f"IKManager: _solve_two_bone_ik for {middle_ik_key}({len1_key}) & {end_effector_ik_key}({len2_key}) -> Mid: {new_middle_pos}, End: {new_end_effector_pos}")
-        return (new_middle_pos, new_end_effector_pos)
+        # Placeholder: update angles (these are not directly used by _update_character_part_visuals_from_ik yet)
+        # Angle of first bone (root to middle)
+        angle_p0_p1 = get_angle_between_points(p0, p1_new)
+        self.sim_joints_config[middle_joint_key]['angle'] = math.degrees(angle_p0_p1) # Angle of the bone ending at middle_joint
+        if root_joint_key in self.sim_joints_config: # Set angle of root joint based on first segment
+             self.sim_joints_config[root_joint_key]['angle'] = math.degrees(angle_p0_p1)
 
-    def _update_character_part_visuals_from_ik(self):
+        # Angle of second bone (middle to end-effector)
+        angle_p1_p2 = get_angle_between_points(p1_new, p2_new)
+        self.sim_joints_config[end_effector_key]['angle'] = math.degrees(angle_p1_p2) # Angle of the bone ending at end_effector_key
+
+        logging.debug(f"IKManager._solve_two_bone_ik: Solved for {middle_joint_key} -> {p1_new}, {end_effector_key} -> {p2_new}")
+        return p1_new, p2_new
+
+    def _update_character_part_visuals_from_ik(self) -> None:
         """
-        Updates the positions and rotations of CharacterPartItem instances
-        based on the current state of self._sim_dynamic_joints_data.
-        Emits character_visuals_updated signal.
-        This method translates IK joint states to visual part transforms.
+        Updates the visual representation of character parts based on solved IK joint positions.
+        This involves deriving part positions/rotations from global IK joint configurations.
+        Emits `character_visuals_updated` signal.
         """
-        # This method needs to map from IK joint IDs (e.g., 'j_left_elbow', 'j_left_wrist')
-        # to actual character part names (e.g., 'left_arm_upper', 'left_arm_lower')
-        # and then calculate the necessary transformations (position, rotation) for those parts.
+        updated_visuals: Dict[str, Dict[str, Any]] = {}
+        processed_visual_parts: Set[str] = set()
 
-        if not self._sim_dynamic_joints_data:
-            logging.debug("IKManager: No dynamic joint data to update visuals from.")
-            self.character_visuals_updated.emit({}) # Emit empty to clear if necessary
+        if not self.project_parts_data:
+            logging.warning("IKManager FK: Missing project_parts_data for FK update.")
             return
+        if not self.sim_joints_config:
+            logging.warning("IKManager FK: Missing sim_joints_config for FK update.")
+            return
+        if not self.sim_limb_configs:
+            logging.warning("IKManager FK: Missing sim_limb_configs for FK update (limb segments might not be processed correctly).")
+            # Continue, as some parts might still be processable via sim_selectable_components
 
-        part_transforms = {}
+        # 1. Process Limb Segments first
+        # These are parts that visually represent a bone between two IK joints.
+        # Example: 'left_arm_upper' (visual part) is defined by 'left_shoulder' (parent IK) and 'left_elbow' (child IK).
+        logging.debug(f"IKManager FK: Processing {len(self.sim_limb_configs)} limb configs.")
+        for ik_effector_name, limb_config_data in self.sim_limb_configs.items():
+            parent_ik_anchor_name = limb_config_data.get('parentAnchor')
+            visual_part_name = limb_config_data.get('label') # This label should match a key in project_parts_data
 
-        # Iterate through defined IK limbs (sim_limb_configs) which map to visual parts
-        for ik_effector_key, limb_config in self.sim_limb_configs.items():
-            parent_anchor_ik_key = limb_config['parentAnchor']
-            # The 'label' in limb_config is assumed to be the key for ik_part_to_actual_part_name
-            # and also the key for sim_limb_lengths (e.g., 'left_upper_arm', 'head')
-            visual_part_key = limb_config.get('label')
-            actual_part_name = self.ik_part_to_actual_part_name.get(visual_part_key)
-
-            if not actual_part_name:
-                logging.debug(f"IKManager: No actual_part_name found for visual_part_key '{visual_part_key}' (effector {ik_effector_key})")
+            if not parent_ik_anchor_name or not visual_part_name:
+                logging.warning(f"IKManager FK: Skipping limb config for effector '{ik_effector_name}' due to missing parentAnchor or label.")
                 continue
 
-            if parent_anchor_ik_key in self._sim_dynamic_joints_data and ik_effector_key in self._sim_dynamic_joints_data:
-                parent_joint_data = self._sim_dynamic_joints_data[parent_anchor_ik_key]
-                effector_joint_data = self._sim_dynamic_joints_data[ik_effector_key]
+            if visual_part_name not in self.project_parts_data:
+                logging.warning(f"IKManager FK: Visual part '{visual_part_name}' for limb (effector '{ik_effector_name}') not found in project_parts_data.")
+                continue
 
-                parent_pos = QPointF(parent_joint_data['x'], parent_joint_data['y'])
-                # Effector position is ALREADY the distal end due to how sim_dynamic_joints is updated.
-                # The 'angle' on the effector_joint_data is the global angle of THIS limb segment.
-                part_x = parent_pos.x() # Visual part is typically anchored at its proximal joint
-                part_y = parent_pos.y()
-                rotation_degrees = effector_joint_data.get('angle', 0.0) # This angle IS the limb's orientation
+            if parent_ik_anchor_name not in self.sim_joints_config or ik_effector_name not in self.sim_joints_config:
+                logging.warning(f"IKManager FK: IK joints '{parent_ik_anchor_name}' or '{ik_effector_name}' for limb '{visual_part_name}' not found in sim_joints_config.")
+                continue
 
-                current_limb_length = self.sim_limb_lengths.get(visual_part_key, 0.0)
+            parent_ik_joint_pos = self.sim_joints_config[parent_ik_anchor_name].get('position')
+            child_ik_joint_pos = self.sim_joints_config[ik_effector_name].get('position') # This is the "child" end of this specific limb segment
 
-                part_transforms[actual_part_name] = {
-                    'x': part_x,
-                    'y': part_y,
-                    'rotation': rotation_degrees,
-                    'world_proximal_x': parent_pos.x(),
-                    'world_proximal_y': parent_pos.y(),
-                    # Distal point can be recalculated from parent, angle, and length for consistency if needed
-                    'world_distal_x': parent_pos.x() + current_limb_length * math.cos(math.radians(rotation_degrees)),
-                    'world_distal_y': parent_pos.y() + current_limb_length * math.sin(math.radians(rotation_degrees)),
-                    'length': current_limb_length
-                }
+            if not parent_ik_joint_pos or not child_ik_joint_pos:
+                logging.warning(f"IKManager FK: Missing position data for IK joints '{parent_ik_anchor_name}' or '{ik_effector_name}'.")
+                continue
+
+            # Position for the visual part's anchor is the parent IK joint's global position.
+            position_for_visual = parent_ik_joint_pos
+
+            # Rotation for the visual part is the angle of the vector from parent IK joint to child IK joint.
+            delta_x = child_ik_joint_pos.x() - parent_ik_joint_pos.x()
+            delta_y = child_ik_joint_pos.y() - parent_ik_joint_pos.y()
+            rotation_for_visual_rad = math.atan2(delta_y, delta_x)
+            rotation_for_visual_deg = math.degrees(rotation_for_visual_rad)
+
+            updated_visuals[visual_part_name] = {
+                'position': position_for_visual,      # QPointF
+                'rotation_degrees': rotation_for_visual_deg # float
+            }
+            processed_visual_parts.add(visual_part_name)
+            logging.debug(f"IKManager FK (Limb): Updated '{visual_part_name}' (ParentIK: {parent_ik_anchor_name}, ChildIK: {ik_effector_name}). Pos: {position_for_visual}, Rot: {rotation_for_visual_deg:.1f}")
+
+        # 2. Process Other Controlled Parts (e.g., head, torso, if not covered by limbs)
+        # These are typically driven by a single IK joint's position and orientation.
+        logging.debug(f"IKManager FK: Processing {len(self.sim_selectable_components)} selectable components for non-limb parts.")
+        for component_config in self.sim_selectable_components:
+            visual_part_name = component_config.get('partName')
+            target_ik_joint_name = component_config.get('targetJointId')
+
+            if not visual_part_name or not target_ik_joint_name:
+                logging.warning(f"IKManager FK: Skipping selectable component due to missing partName or targetJointId: {component_config.get('name')}")
+                continue
+
+            if visual_part_name in processed_visual_parts:
+                logging.debug(f"IKManager FK: Visual part '{visual_part_name}' already processed as a limb segment. Skipping.")
+                continue
+
+            if visual_part_name not in self.project_parts_data:
+                logging.warning(f"IKManager FK: Visual part '{visual_part_name}' for selectable component '{component_config.get('name')}' not in project_parts_data.")
+                continue
+
+            if target_ik_joint_name not in self.sim_joints_config:
+                logging.warning(f"IKManager FK: Target IK joint '{target_ik_joint_name}' for selectable '{visual_part_name}' not in sim_joints_config.")
+                continue
+
+            target_ik_joint_data = self.sim_joints_config[target_ik_joint_name]
+            position_for_visual = target_ik_joint_data.get('position')
+
+            if not position_for_visual:
+                logging.warning(f"IKManager FK: Missing position data for target IK joint '{target_ik_joint_name}'.")
+                continue
+
+            rotation_for_visual_deg = 0.0
+            parent_of_target_ik_joint_name = target_ik_joint_data.get('parent')
+
+            if parent_of_target_ik_joint_name and parent_of_target_ik_joint_name in self.sim_joints_config:
+                parent_ik_joint_data = self.sim_joints_config[parent_of_target_ik_joint_name]
+                parent_ik_joint_pos = parent_ik_joint_data.get('position')
+                if parent_ik_joint_pos:
+                    delta_x = position_for_visual.x() - parent_ik_joint_pos.x()
+                    delta_y = position_for_visual.y() - parent_ik_joint_pos.y()
+                    # Avoid atan2(0,0) if positions are identical
+                    if abs(delta_x) > 1e-6 or abs(delta_y) > 1e-6:
+                        rotation_rad = math.atan2(delta_y, delta_x)
+                        rotation_for_visual_deg = math.degrees(rotation_rad)
+                    else: # Positions are same, use stored angle or default
+                        rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0)
+                        logging.debug(f"IKManager FK: Target IK '{target_ik_joint_name}' and parent '{parent_of_target_ik_joint_name}' at same pos. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
+                else:
+                    rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0) # Fallback to target's own angle
+                    logging.debug(f"IKManager FK: Parent IK '{parent_of_target_ik_joint_name}' missing pos. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
             else:
-                logging.warning(f"IKManager: Missing dynamic joint data for limb part '{actual_part_name}' (parent IK key '{parent_anchor_ik_key}' or effector IK key '{ik_effector_key}')")
+                rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0) # Fallback to target's own angle if no parent
+                logging.debug(f"IKManager FK: No parent for target IK '{target_ik_joint_name}'. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
 
-        # Handle torso separately if it's not treated as a regular limb
-        torso_actual_name = self.ik_part_to_actual_part_name.get('torso')
-        if torso_actual_name and torso_actual_name not in part_transforms: # If not handled by limb logic
-            # Position torso based on a central IK joint, e.g., 'j_neck_base' or an average of hips
-            torso_anchor_ik_key = 'j_neck_base' # Example, make this configurable if needed
-            if torso_anchor_ik_key in self._sim_dynamic_joints_data:
-                anchor_data = self._sim_dynamic_joints_data[torso_anchor_ik_key]
-                part_transforms[torso_actual_name] = {
-                    'x': anchor_data['x'],
-                    'y': anchor_data['y'],
-                    'rotation': anchor_data.get('angle', 0) # Use angle of anchor joint, or derive avg
-                }
-            else:
-                logging.debug(f"IKManager: Torso anchor IK key '{torso_anchor_ik_key}' not in dynamic data, cannot position torso.")
+            updated_visuals[visual_part_name] = {
+                'position': position_for_visual,
+                'rotation_degrees': rotation_for_visual_deg
+            }
+            processed_visual_parts.add(visual_part_name) # Mark as processed
+            logging.debug(f"IKManager FK (Selectable): Updated '{visual_part_name}' (TargetIK: {target_ik_joint_name}). Pos: {position_for_visual}, Rot: {rotation_for_visual_deg:.1f}")
 
-        if part_transforms:
-            logging.debug(f"IKManager: Emitting character_visuals_updated with transforms for: {list(part_transforms.keys())}")
-            self.character_visuals_updated.emit(part_transforms)
+
+        if updated_visuals:
+            logging.info(f"IKManager FK: Emitting character_visuals_updated with {len(updated_visuals)} parts.")
+            self.character_visuals_updated.emit(updated_visuals)
         else:
-            logging.debug("IKManager: No part transforms generated in _update_character_part_visuals_from_ik.")
-            self.character_visuals_updated.emit({}) # Emit empty if nothing to update
+            logging.debug("IKManager FK: No visual updates to emit from FK process.")
 
     # --- Animation Control Methods (to be moved/adapted from MainWindow) ---
     def start_animation(self):
         """Starts the IK-driven animation."""
-        if not self._sim_dynamic_joints_data or not self.scene_joints_snapshot:
-            logging.warning("IKManager: Cannot start animation. IK system not fully initialized (no dynamic joints or snapshot).")
-            self.main_window.statusBar().showMessage("Animation cannot start: IK not ready.", 3000)
-            return False
+        solver_ok = self.ik_solver is not None
+        dynamic_joints_ok = bool(self.dynamic_joints) and len(self.dynamic_joints) > 0
+        snapshot_ok = bool(self._initial_snapshot) and len(self._initial_snapshot) > 0
+
+        logging.debug(f"IKManager.start_animation Conditions: solver_ok: {solver_ok} (solver: {self.ik_solver}), dynamic_joints_ok: {dynamic_joints_ok} (len: {len(self.dynamic_joints if self.dynamic_joints is not None else [])}), snapshot_ok: {snapshot_ok} (len: {len(self._initial_snapshot if self._initial_snapshot is not None else [])})")
+
+        if not (solver_ok and dynamic_joints_ok and snapshot_ok):
+            logging.warning("IKManager: Cannot start animation. Pre-conditions not met (solver, dynamic joints, or snapshot).")
+            self.animation_state_changed.emit("stopped") # Notify that animation attempt failed
+            # self.main_window.statusBar().showMessage("Animation cannot start: IK not ready.", 3000) # MainWindow should listen to animation_state_changed
+            return
+
+        if self._animation_start_time_qelapsed and self._animation_start_time_qelapsed.isValid() and not self._animation_start_time_qelapsed.hasExpired(0):
+            logging.debug("IKManager: Animation already started.")
+            return
 
         animation_possible = False
-        if self.project_parts_data:
-            for component_config in self.sim_selectable_components:
-                part_name = component_config.get('partName')
-                if part_name and part_name in self.project_parts_data:
-                    part_info = self.project_parts_data[part_name]
-                    # Check for motion_path_data (list of QPointF) or motion_path (QPainterPath)
-                    has_path_data = hasattr(part_info, 'motion_path_data') and part_info.motion_path_data
-                    has_painter_path = hasattr(part_info, 'motion_path') and part_info.motion_path and hasattr(part_info.motion_path, 'elementCount') and part_info.motion_path.elementCount() > 0
-                    if has_path_data or has_painter_path:
-                        animation_possible = True
-                        break
+        logging.debug(f"IKManager.start_animation: Checking for motion paths. Project parts count: {len(self.project_parts_data)}")
+        for part_name, part_info in self.project_parts_data.items(): # Iterate with names for logging
+            has_path = part_info.motion_path_data and not part_info.motion_path_data.isEmpty()
+            logging.debug(f"IKManager.start_animation: Checking part '{part_name}'. Has motion path: {has_path}. Path data: {'Exists' if part_info.motion_path_data else 'None'}")
+            if has_path:
+                animation_possible = True
+                logging.debug(f"IKManager.start_animation: Motion path found for part '{part_name}'. Setting animation_possible=True.")
+                break
+        # The previous combined loop was incorrect. This simplified check is better for now.
+        # The original outer loop for dynamic_joints was not used effectively.
 
         if not animation_possible:
-            logging.warning("IKManager: Cannot start animation. No motion paths defined for animatable parts.")
+            logging.warning("IKManager: Cannot start animation. No motion paths defined for any parts in project_parts_data.")
             self.main_window.statusBar().showMessage("Animation cannot start: No motion paths defined.", 3000)
-            return False
+            return
 
         logging.info("IKManager: Starting animation.")
         self.main_window.statusBar().showMessage("Playing IK Animation...", 2000)
@@ -737,19 +903,29 @@ class IKManager(QObject):
         if elapsed_ms >= self.animation_duration and self.animation_duration > 0:
             self._animation_start_time_qelapsed.start()
 
-        logging.debug(f"IKManager: Animation step, Progress: {self._current_animation_progress:.2f}")
+        if self._current_animation_progress >= 1.0:
+            self._current_animation_progress = 0.0 # Loop
+            # Or stop: self.stop_animation(); return
+
+        logging.debug(f"IKManager._run_ik_animation_step: Progress {self._current_animation_progress:.2f}")
 
         if not self.project_parts_data:
-            logging.debug("IKManager: No project parts data loaded, skipping animation step.")
+            logging.warning("IKManager._run_ik_animation_step: Missing project_parts_data.")
             return
-        if not self.sim_joints_config: # Check if IK rig is initialized
-            logging.debug("IKManager: IK rig (sim_joints_config) not initialized. Skipping animation step.")
+        if not self.sim_joints_config:
+            logging.warning("IKManager._run_ik_animation_step: Missing sim_joints_config (IK not fully initialized).")
+            return
+        if not self.sim_selectable_components:
+            logging.warning("IKManager._run_ik_animation_step: No sim_selectable_components defined.")
             return
 
-        solved_something = False
+        current_joint_angles = {name: data.get('angle', 0.0) for name, data in self.sim_joints_config.items()}
+        solved_something_in_step = False
+
+        logging.debug(f"IKManager._run_ik_animation_step: Iterating {len(self.sim_selectable_components)} selectable components.")
         for component_config in self.sim_selectable_components:
-            part_name_for_path = component_config.get('partName') # This is the visual part that HAS the path
-            target_ik_joint_key = component_config.get('targetJointId') # This is the IK effector to move
+            part_name_for_path = component_config.get('partName')
+            target_ik_joint_key = component_config.get('targetJointId')
 
             if not part_name_for_path or not target_ik_joint_key:
                 continue
@@ -764,52 +940,49 @@ class IKManager(QObject):
                     motion_path_obj = part_info.motion_path
 
                 if motion_path_obj:
-                    interpolated_target_pos = self._get_point_on_path(motion_path_obj, self._current_animation_progress)
+                    target_pos_on_path = self._get_point_on_path(motion_path_obj, self._current_animation_progress)
 
-                    if interpolated_target_pos:
-                        logging.debug(f"IKManager: Animating IK effector '{target_ik_joint_key}' for part '{part_name_for_path}' to {interpolated_target_pos}")
+                    if target_pos_on_path:
+                        # This means target_ik_joint_key is an end-effector of a 2-bone chain (e.g., wrist, ankle)
+                        # We need its parent, which is the middle joint (e.g., elbow, knee)
+                        middle_joint_key = self.sim_limb_configs.get(target_ik_joint_key, {}).get('parentAnchor')
 
-                        is_two_bone = False
-                        upper_limb_effector_ik_key = None
+                        if not middle_joint_key:
+                            logging.warning(f"IKManager._run_ik_animation_step: Could not find middle joint for 2-bone IK end-effector {target_ik_joint_key}. Skipping.")
+                            continue # Skip this component
 
-                        if target_ik_joint_key in self.sim_two_bone_ik_effectors:
-                            # target_ik_joint_key is an end-effector (e.g. j_left_wrist)
-                            # Its parent in sim_limb_configs IS the middle joint (e.g. j_left_elbow)
-                            if target_ik_joint_key in self.sim_limb_configs:
-                                middle_joint_candidate = self.sim_limb_configs[target_ik_joint_key]['parentAnchor']
-                                # Check if this middle_joint_candidate is also an effector for an upper limb
-                                if middle_joint_candidate in self.sim_limb_configs: # i.e. it's an elbow/knee
-                                    is_two_bone = True
-                                    upper_limb_effector_ik_key = middle_joint_candidate
-
-                        if is_two_bone and upper_limb_effector_ik_key:
-                            logging.debug(f"  Calling _solve_two_bone_ik for {upper_limb_effector_ik_key} -> {target_ik_joint_key}")
-                            self._solve_two_bone_ik(upper_limb_effector_ik_key, target_ik_joint_key, interpolated_target_pos)
-                            solved_something = True
-                        elif target_ik_joint_key in self.sim_limb_configs:
-                            logging.debug(f"  Calling _solve_single_bone_ik for {target_ik_joint_key}")
-                            self._solve_single_bone_ik(target_ik_joint_key, interpolated_target_pos)
-                            solved_something = True
-                        else:
-                            logging.warning(f"IKManager: IK Effector '{target_ik_joint_key}' for part '{part_name_for_path}' is not configured as a limb in sim_limb_configs.")
+                        logging.debug(f"IKManager._run_ik_animation_step: Attempting 2-bone IK. End-effector: {target_ik_joint_key}, Middle: {middle_joint_key}, Target: {target_pos_on_path}")
+                        new_positions = self._solve_two_bone_ik(middle_joint_key, target_ik_joint_key, target_pos_on_path)
+                        if new_positions:
+                            # Update current_joint_angles based on new_positions (complex, needs FK or angle calculation)
+                            # For now, this part is placeholder
+                            logging.info(f"IKManager: (Placeholder) Solved 2-bone IK for {target_ik_joint_key}. New pos: {new_positions}")
+                            solved_something_in_step = True
+                else:
+                    # Default to single bone/direct manipulation for other joints
+                    logging.debug(f"IKManager._run_ik_animation_step: Attempting 1-bone IK for {target_ik_joint_key} to target {target_pos_on_path}")
+                    new_pos = self._solve_single_bone_ik(target_ik_joint_key, target_pos_on_path)
+                    if new_pos:
+                        # Update current_joint_angles (placeholder)
+                        logging.info(f"IKManager: (Placeholder) Solved 1-bone IK for {target_ik_joint_key}. New pos: {new_pos}")
+                        solved_something_in_step = True
             else:
-                logging.debug(f"IKManager: Part '{part_name_for_path}' for path not found in project_parts_data.")
+                logging.debug(f"IKManager._run_ik_animation_step: No motion path or target for component {component_config.get('name')}, skipping IK solve.")
 
-        if solved_something:
+        if solved_something_in_step or True: # Always update visuals for now, even if IK is placeholder
+            # This will transform all parts based on the (potentially unchanged) current_joint_angles
+            logging.debug("IKManager._run_ik_animation_step: Calling _update_character_part_visuals_from_ik.")
             self._update_character_part_visuals_from_ik()
         else:
-            logging.debug("IKManager: No IK solving performed in this animation step.")
+            logging.debug("IKManager._run_ik_animation_step: Nothing solved, no visual update triggered by this step.")
 
     @property
-    def sim_dynamic_joints(self) -> Dict[str, Dict[str, Any]]:
+    def dynamic_joints(self) -> Dict[str, Dict[str, Any]]:
         return self._sim_dynamic_joints_data
 
-    @sim_dynamic_joints.setter
-    def sim_dynamic_joints(self, value: Dict[str, Dict[str, Any]]):
-        logging.debug(f"IKManager: sim_dynamic_joints_data being set. Keys: {list(value.keys()) if isinstance(value, dict) else 'Not a dict'}")
-        if not isinstance(value, dict):
-            logging.error("IKManager: Attempted to set sim_dynamic_joints with non-dict value.")
-            return
+    @dynamic_joints.setter
+    def dynamic_joints(self, value: Dict[str, Dict[str, Any]]):
+        logging.debug(f"IKManager: dynamic_joints setter called with {len(value)} items.")
         self._sim_dynamic_joints_data = value
 
     def get_dynamic_joint_data(self, ik_joint_key: str) -> Optional[Dict[str, Any]]:
@@ -820,6 +993,63 @@ class IKManager(QObject):
             self._sim_dynamic_joints_data[ik_joint_key].update(data)
         else:
             self._sim_dynamic_joints_data[ik_joint_key] = data
+
+    def update_part_motion_path(self, part_name: str, motion_qpath: QPainterPath):
+        """Updates the motion path for a specific part in the IKManager's project_parts_data."""
+        # Log current state of skeleton_manager_ref AT THE VERY START
+        sm_ref_id_at_entry = id(self.skeleton_manager_ref) if self.skeleton_manager_ref else None
+        sm_model_exists_at_entry = (self.skeleton_manager_ref and self.skeleton_manager_ref.standardized_model) is not None
+        logging.info(f"IKManager (id:{id(self)}).update_part_motion_path ENTRY for '{part_name}'. skeleton_manager_ref ID: {sm_ref_id_at_entry}, its model exists: {sm_model_exists_at_entry}")
+
+        current_skel_state_at_entry = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
+        if self._current_skeleton_data and 'joints' in self._current_skeleton_data:
+            current_skel_state_at_entry += f", 'joints' key present with {len(self._current_skeleton_data['joints'])} items."
+        elif self._current_skeleton_data:
+            current_skel_state_at_entry += f", 'joints' key MISSING."
+        logging.info(f"IKManager (id:{id(self)}).update_part_motion_path (pre-workaround) for '{part_name}'. _current_skeleton_data state: {current_skel_state_at_entry}")
+
+        # WORKAROUND for _current_skeleton_data mysteriously becoming None
+        if self._current_skeleton_data is None:
+            logging.warning(f"IKManager (id:{id(self)}): _current_skeleton_data is None in update_part_motion_path for '{part_name}'. Attempting to re-acquire from SkeletonManager.")
+            if self.skeleton_manager_ref and self.skeleton_manager_ref.standardized_model:
+                logging.info(f"IKManager (id:{id(self)}): SkeletonManager ref (id:{id(self.skeleton_manager_ref)}) and its standardized_model exist. Re-setting _current_skeleton_data.")
+                self._current_skeleton_data = self.skeleton_manager_ref.standardized_model.model_dump()
+                # Log state after re-acquire attempt, using the property getter which is fine here
+                post_reacquire_state = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
+                logging.info(f"IKManager (id:{id(self)}): _current_skeleton_data state AFTER re-acquire attempt: {post_reacquire_state}")
+            else:
+                log_msg_sm_ref = "MISSING" if not self.skeleton_manager_ref else f"EXISTS (id:{id(self.skeleton_manager_ref)})"
+                log_msg_sm_model = "N/A" if not self.skeleton_manager_ref else ("MISSING" if not self.skeleton_manager_ref.standardized_model else "EXISTS")
+                logging.error(f"IKManager (id:{id(self)}): Cannot re-acquire skeleton data. SkeletonManager ref: {log_msg_sm_ref}, SkeletonManager.standardized_model: {log_msg_sm_model}")
+        # END WORKAROUND
+
+        if not self.project_parts_data:
+            logging.warning(f"IKManager (id:{id(self)}): Cannot update motion path for '{part_name}'. project_parts_data is not set. Storing path as pending.")
+            self._pending_motion_paths[part_name] = motion_qpath
+            # Log state of _current_skeleton_data here for context, even if pending
+            final_skel_state_for_log = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
+            logging.info(f"IKManager.update_part_motion_path (project_parts_data not set, pending '{part_name}'): Final _current_skeleton_data state for this call: {final_skel_state_for_log}")
+            return # Do not try to initialize solver if parts data is missing
+
+        if part_name in self.project_parts_data:
+            part_info = self.project_parts_data[part_name]
+            part_info.motion_path_data = motion_qpath # Ensure QPainterPath is stored in motion_path_data
+            logging.info(f"IKManager (id:{id(self)}): Updated motion path for part '{part_name}'. Path elements: {motion_qpath.elementCount() if motion_qpath else 'None'}")
+        else:
+            logging.warning(f"IKManager (id:{id(self)}): Part '{part_name}' not found in project_parts_data. Storing path as pending.")
+            self._pending_motion_paths[part_name] = motion_qpath
+            # No return here, still try to init solver if other conditions met, though this part won't have a path for now
+
+        # Log state of _current_skeleton_data BEFORE calling _try_initialize_solver
+        final_skel_state_before_try_init = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
+        if self._current_skeleton_data and 'joints' in self._current_skeleton_data:
+            final_skel_state_before_try_init += f", 'joints' key present with {len(self._current_skeleton_data['joints'])} items."
+        elif self._current_skeleton_data:
+            final_skel_state_before_try_init += f", 'joints' key MISSING."
+        logging.info(f"IKManager.update_part_motion_path (before _try_initialize_solver): Final _current_skeleton_data state for this call: {final_skel_state_before_try_init}")
+
+        self._try_initialize_solver() # Re-check if solver is now ready
+
 
 if __name__ == '__main__':
     from PyQt6.QtWidgets import QApplication

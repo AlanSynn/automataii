@@ -3,6 +3,7 @@ from PyQt6.QtGui import QPainterPath, QColor
 from PyQt6.QtCore import QPointF
 import logging
 from typing import TYPE_CHECKING, Optional, List, Dict, Any # Added Any for data dict
+from pathlib import Path
 
 if TYPE_CHECKING:
     from .models_pydantic import PartInfoModel as PydanticPartInfoModel, MotionPathDataModel, QPointFModel # For type hinting
@@ -64,12 +65,13 @@ class PartInfo:
     like QPainterPath and parsed SVG data.
     It is initialized from a validated PartInfoModel.
     """
-    def __init__(self, model: 'PydanticPartInfoModel'):
+    def __init__(self, model: 'PydanticPartInfoModel', resolved_image_path: Optional[str] = None, resolved_svg_path_file: Optional[str] = None):
         from .models_pydantic import QPointFModel # Late import for type hint resolution
         self.name: str = model.name
         self.roi: Optional[List[float]] = model.roi
-        self.svg_path_file: Optional[str] = model.svg_path
-        self.image_path: Optional[str] = model.image_path
+        # Store resolved absolute paths if provided, otherwise use what's in the model (which might be relative)
+        self.image_path: Optional[str] = resolved_image_path if resolved_image_path is not None else model.image_path
+        self.svg_path_file: Optional[str] = resolved_svg_path_file if resolved_svg_path_file is not None else model.svg_path # model.svg_path is alias for svg_path_file
         self.fill_color: str = model.fill_color
         self.z_value: float = model.z_value
         self.fixed: bool = model.fixed
@@ -79,6 +81,7 @@ class PartInfo:
         self.υψηλής_ποιότητας_svg_path: Optional[str] = model.υψηλής_ποιότητας_svg_path
         self.effective_bbox_offset_x: float = model.effective_bbox_offset_x
         self.effective_bbox_offset_y: float = model.effective_bbox_offset_y
+        self.show_anchor: bool = model.show_anchor
 
         self.motion_path_data: Optional[QPainterPath] = None
         if model.motion_path_data and model.motion_path_data.path_points:
@@ -115,9 +118,22 @@ class PartInfo:
             logging.debug(f"No SVG path file provided for part {self.name}. QPainterPath will be empty.")
 
     @classmethod
-    def from_pydantic(cls, model: 'PydanticPartInfoModel') -> 'PartInfo':
-        """Creates a PartInfo instance from a validated PartInfoModel."""
-        return cls(model)
+    def from_pydantic(cls, model: 'PydanticPartInfoModel', project_dir: Optional['Path'] = None) -> 'PartInfo': # Added project_dir
+        """Creates a PartInfo instance from a validated PartInfoModel, resolving paths if project_dir is given."""
+        from pathlib import Path # Ensure Path is available
+
+        resolved_img_path = model.image_path
+        if project_dir and model.image_path and not Path(model.image_path).is_absolute():
+            resolved_img_path = str(project_dir / model.image_path)
+            # logging.debug(f"Resolved image path for {model.name}: {resolved_img_path}")
+
+        resolved_svg_path = model.svg_path # Pydantic model uses svg_path (alias for svg_path_file)
+        if project_dir and model.svg_path and not Path(model.svg_path).is_absolute():
+            resolved_svg_path = str(project_dir / model.svg_path)
+            # logging.debug(f"Resolved SVG path for {model.name}: {resolved_svg_path}")
+
+        # Pass resolved paths to constructor
+        return cls(model, resolved_image_path=resolved_img_path, resolved_svg_path_file=resolved_svg_path)
 
     def to_pydantic_model(self) -> 'PydanticPartInfoModel':
         from .models_pydantic import PydanticPartInfoModel, MotionPathDataModel, QPointFModel # Late import
@@ -148,7 +164,8 @@ class PartInfo:
             υψηλής_ποιότητας_svg_path=self.υψηλής_ποιότητας_svg_path,
             effective_bbox_offset_x=self.effective_bbox_offset_x,
             effective_bbox_offset_y=self.effective_bbox_offset_y,
-            motion_path_data=motion_path_pydantic
+            motion_path_data=motion_path_pydantic,
+            show_anchor=self.show_anchor
         )
 
     def _parse_svg(self):

@@ -219,6 +219,14 @@ class SkeletonManager(QObject):
             parent_name = joint_info_raw.get('parent') # Could be None, empty string, or actual name
             coords = joint_info_raw.get('coordinates') or joint_info_raw.get('loc') # Prefer 'coordinates'
 
+            # If 'coords' is None, check if 'position' (from Pydantic model dump) is present
+            if coords is None and 'position' in joint_info_raw:
+                coords = joint_info_raw['position']
+
+            # Use 'id' from Pydantic model dump if 'name' is missing or for robustness
+            if not joint_name and 'id' in joint_info_raw:
+                joint_name = joint_info_raw['id']
+
             if not joint_name or coords is None:
                 logging.warning(f"Skipping AD joint with missing name or coordinates: {joint_info_raw}")
                 continue

@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsIt
 from PyQt6.QtGui import QPen, QColor, QBrush
 from PyQt6.QtCore import Qt, QLineF
 
-from ..core.models import JOINT_COLORS # Adjust import path as needed
+from ...core.models import JOINT_COLORS # UPDATED path
 
 class SkeletonJoint(QGraphicsEllipseItem):
     """Draggable skeleton joint for skeleton editing."""

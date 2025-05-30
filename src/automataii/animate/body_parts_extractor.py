@@ -416,23 +416,11 @@ def visualize_segmentation(mask, part_masks, joint_map, output_path):
 class BodyPartsExtractor:
     def __init__(self, char_dir: str, output_dir: Optional[str] = None,
                  generate_animations: bool = False, num_frames: int = 30, fps: int = 24):
-        self.char_dir = char_dir
+        self.char_dir = Path(char_dir)
+        self.output_dir = Path(output_dir) # Use the provided output_dir directly
         self.generate_animations = generate_animations
         self.num_frames = num_frames
         self.fps = fps
-
-        if output_dir is None:
-            parent_dir = os.path.dirname(os.path.abspath(self.char_dir))
-            self.output_dir = os.path.join(parent_dir, 'body_parts_output')
-        else:
-            self.output_dir = output_dir
-
-        # Prevent nested output directories
-        char_dir_abs = os.path.abspath(self.char_dir)
-        output_dir_abs = os.path.abspath(self.output_dir)
-        if output_dir_abs.startswith(char_dir_abs + os.sep):
-            logging.warning(f"Output directory is inside input directory. Adjusting to avoid nesting.")
-            self.output_dir = os.path.join(os.path.dirname(char_dir_abs), os.path.basename(output_dir_abs))
 
         # Initialize instance variables that will be populated during processing
         self.char_cfg: Optional[Dict[str, Any]] = None
@@ -511,7 +499,7 @@ class BodyPartsExtractor:
         logging.debug(f"Original joint map from char_cfg: {original_joint_map}")
 
         offset_x, offset_y = 0, 0
-        bounding_box_path = Path(self.char_dir) / 'bounding_box.yaml'
+        bounding_box_path = self.char_dir / 'bounding_box.yaml'
         if bounding_box_path.exists():
             try:
                 with open(bounding_box_path, 'r') as f:
@@ -742,28 +730,37 @@ class BodyPartsExtractor:
         for m_id, part_name in part_name_map.items():
             part_mask_seg = np.zeros(mask_shape, dtype=np.uint8)
             part_mask_seg[markers == m_id] = 255
+
+            # 원본 캐릭터 마스크와 교차하여 배경 픽셀 제거
             part_mask_seg = cv2.bitwise_and(part_mask_seg, self.mask)
+
+            # 마스크에 구멍이 있으면 채우기
             contours, _ = cv2.findContours(part_mask_seg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 filled_mask = np.zeros_like(part_mask_seg)
                 cv2.fillPoly(filled_mask, contours, 255)
                 part_mask_seg = filled_mask
+
+            # 작은 홀 채우기 - 먼저 수행해서 ARAP에 더 나은 마스크 제공
             kernel = np.ones((5, 5), np.uint8)
             part_mask_seg = cv2.morphologyEx(part_mask_seg, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+            # ARAP을 사용하여 최종 마스크 다시 한번 개선 (경계 더 자연스럽게)
             part_mask_seg = cv2.bitwise_and(part_mask_seg, self.mask)
+
             final_part_masks[part_name] = part_mask_seg
             logging.debug(f"Generated final mask for {part_name} with {np.count_nonzero(part_mask_seg)} pixels")
 
-        all_parts_mask_agg = np.zeros_like(self.mask)
-        for mask_iter in final_part_masks.values():
-            all_parts_mask_agg = cv2.bitwise_or(all_parts_mask_agg, mask_iter)
+        all_parts_mask = np.zeros_like(self.mask)
+        for mask in final_part_masks.values():
+            all_parts_mask = cv2.bitwise_or(all_parts_mask, mask)
 
-        unassigned = cv2.subtract(self.mask, all_parts_mask_agg)
+        unassigned = cv2.subtract(self.mask, all_parts_mask)
         if np.any(unassigned):
             num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(unassigned, connectivity=8)
             dist_maps = {}
-            for part_name, mask_iter_dist in final_part_masks.items():
-                dist_map = distance_transform_edt(255 - mask_iter_dist)
+            for part_name, mask in final_part_masks.items():
+                dist_map = distance_transform_edt(255 - mask)
                 dist_maps[part_name] = dist_map
             for label in range(1, num_labels):
                 component_size = stats[label, cv2.CC_STAT_AREA]
@@ -771,41 +768,24 @@ class BodyPartsExtractor:
                     continue
                 cx, cy = centroids[label]
                 cx, cy = int(cx), int(cy)
-                min_dist_val = float('inf')
-                closest_part_val = None
-                for part_name, dist_map_iter in dist_maps.items():
+                min_dist = float('inf')
+                closest_part = None
+                for part_name, dist_map in dist_maps.items():
                     component_pixels = (labels == label)
                     if np.any(component_pixels):
-                        avg_dist = np.mean(dist_map_iter[component_pixels])
-                        if avg_dist < min_dist_val:
-                            min_dist_val = avg_dist
-                            closest_part_val = part_name
-                if closest_part_val:
-                    final_part_masks[closest_part_val][labels == label] = 255
+                        avg_dist = np.mean(dist_map[component_pixels])
+                        if avg_dist < min_dist:
+                            min_dist = avg_dist
+                            closest_part = part_name
+                if closest_part:
+                    final_part_masks[closest_part][labels == label] = 255
 
-            all_parts_mask_agg = np.zeros_like(self.mask)
-            for mask_iter_recalc in final_part_masks.values():
-                all_parts_mask_agg = cv2.bitwise_or(all_parts_mask_agg, mask_iter_recalc)
-            unassigned = cv2.subtract(self.mask, all_parts_mask_agg)
-
-            if np.any(unassigned):
-                y_coords, x_coords = np.where(unassigned > 0)
-                for y, x in zip(y_coords, x_coords):
-                    min_dist_pixel = float('inf')
-                    closest_part_pixel = None
-                    for part_name, dist_map_pixel in dist_maps.items():
-                        if dist_map_pixel[y, x] < min_dist_pixel:
-                            min_dist_pixel = dist_map_pixel[y, x]
-                            closest_part_pixel = part_name
-                    if closest_part_pixel:
-                        final_part_masks[closest_part_pixel][y, x] = 255
-
-        for part_name_final in final_part_masks:
-            mask_final = final_part_masks[part_name_final]
+        for part_name in final_part_masks:
+            mask = final_part_masks[part_name]
             kernel = np.ones((3, 3), np.uint8)
-            mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_OPEN, kernel, iterations=1)
-            mask_final = cv2.morphologyEx(mask_final, cv2.MORPH_CLOSE, kernel, iterations=1)
-            final_part_masks[part_name_final] = mask_final
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+            final_part_masks[part_name] = mask
         return final_part_masks
 
     def _visualize_segmentation(self):
@@ -826,16 +806,16 @@ class BodyPartsExtractor:
             'right_leg_upper': (0, 0, 128), 'right_leg_lower': (128, 128, 0),
         }
 
-        for part_name, part_mask_data in self.part_masks.items():
+        for part_name, part_mask in self.part_masks.items():
             if part_name in colors:
                 color = colors[part_name]
                 colored_mask = np.zeros((height, width, 3), dtype=np.uint8)
-                colored_mask[part_mask_data > 0] = color
+                colored_mask[part_mask > 0] = color
                 vis_image = cv2.addWeighted(vis_image, 1.0, colored_mask, 0.5, 0)
 
         for joint_name, joint_pos in self.texture_relative_joint_map.items():
             cv2.circle(vis_image, joint_pos, 5, (255, 255, 255), -1)
-            cv2.putText(vis_image, joint_name, (joint_pos[0] + 5, joint_pos[1] - 5),
+            cv2.putText(vis_image, joint_name, (joint_pos[0]+5, joint_pos[1]-5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
         try:
@@ -992,7 +972,7 @@ class BodyPartsExtractor:
             logging.error(f"OpenCV error in findContours within _create_contour_from_mask: {e}")
             logging.error(f"Mask details: dtype={processed_mask.dtype}, shape={processed_mask.shape}, unique_values={np.unique(processed_mask)}")
             # Save problematic mask for debugging
-            debug_mask_path = Path(self.output_dir) / f"error_mask_contour_{random.randint(1000,9999)}.png"
+            debug_mask_path = self.output_dir / f"error_mask_contour_{random.randint(1000,9999)}.png"
             try:
                 cv2.imwrite(str(debug_mask_path), processed_mask)
                 logging.error(f"Problematic mask saved to: {debug_mask_path}")
@@ -1003,136 +983,191 @@ class BodyPartsExtractor:
         return None
 
     def process(self):
-        """Main processing logic, adapted from process_character."""
+        """메인 처리 함수: 파트 분할, SVG 생성, 애니메이션 (선택적)."""
         if not self._load_initial_data():
             return
 
         self._prepare_joint_map()
-        os.makedirs(self.output_dir, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.part_masks = self._segment_body_parts()
 
-        # Check if segmentation was successful
         if not self.part_masks:
-            logging.error("Body part segmentation failed. Aborting processing.")
+            logging.error("Body part segmentation failed.")
             return
 
         self._visualize_segmentation()
 
         self.results = {
             'character': {
-                'width': int(self.image_width),
-                'height': int(self.image_height),
+                'width': int(self.image_width) if self.image_width else 0,
+                'height': int(self.image_height) if self.image_height else 0,
                 'parts': {},
-                'joint_map': self.texture_relative_joint_map,
-                'skeleton': self.char_cfg['skeleton'],
+                'joint_map': self.texture_relative_joint_map if self.texture_relative_joint_map else {},
+                'skeleton': self.char_cfg.get('skeleton', []) if self.char_cfg else [],
                 'animations': {}
             }
         }
 
+        all_parts_svg_content_for_html = []
+
         for part_name, part_mask_data in self.part_masks.items():
             logging.info(f"Processing part: {part_name}")
-            part_image, part_mask_roi, roi = self._extract_body_part(self.texture, part_mask_data)
 
-            if part_image is None:
-                logging.warning(f"Could not extract part image for: {part_name}")
+            part_image_texture, _part_mask_roi_not_used, part_bbox_coords = self._extract_body_part(
+                self.texture, part_mask_data
+            )
+
+            if part_image_texture is None or part_bbox_coords is None:
+                logging.warning(f"Could not extract texture or bounding box for part '{part_name}'. Skipping.")
                 continue
 
-            part_output_path = os.path.join(self.output_dir, f"{part_name}.png")
-            if save_image(part_image, part_output_path):
-                contour = self._create_contour_from_mask(part_mask_data)
-                if contour is None or len(contour) < 3:
-                    logging.warning(f"Could not extract contour for: {part_name}")
-                    continue
+            roi_x, roi_y, roi_w, roi_h = part_bbox_coords
 
-                path_data = contour_to_svg_path(contour)
-                if not path_data:
-                    logging.warning(f"Could not generate SVG path data for: {part_name}")
-                    continue
+            part_contour = self._create_contour_from_mask(part_mask_data)
 
-                fill_color = BODY_PARTS[part_name].get('color', f"rgba({random.randint(0, 255)},{random.randint(0, 255)},{random.randint(0, 255)},0.5)")
-                svg_output_path = os.path.join(self.output_dir, f"{part_name}.svg")
-                save_svg(path_data, self.image_width, self.image_height, svg_output_path, fill=fill_color)
-
-                if not os.path.exists(svg_output_path):
-                    logging.error(f"Failed to save SVG file: {svg_output_path}")
-                else:
-                    logging.info(f"SVG file saved: {svg_output_path}")
-
-                local_pivot_offset = [0,0]
-                current_part_def = BODY_PARTS.get(part_name)
-                if current_part_def:
-                    # Uses standalone _get_proximal_joint_name for now
-                    proximal_joint_name = self._get_proximal_joint_name(part_name, current_part_def)
-                    if proximal_joint_name and self.texture_relative_joint_map and proximal_joint_name in self.texture_relative_joint_map:
-                        global_proximal_x, global_proximal_y = self.texture_relative_joint_map[proximal_joint_name]
-                        local_pivot_x = global_proximal_x - roi[0]
-                        local_pivot_y = global_proximal_y - roi[1]
-                        local_pivot_offset = [local_pivot_x, local_pivot_y]
-                    elif proximal_joint_name:
-                        logging.warning(f"Proximal joint '{proximal_joint_name}' not in map for {part_name}.")
-
-                self.results['character']['parts'][part_name] = {
-                    'roi': roi,
-                    'svg_path': svg_output_path,
-                    'image_path': part_output_path,
-                    'fill_color': fill_color,
-                    'local_pivot_offset': local_pivot_offset
-                }
-
-                if self.generate_animations and part_name in BODY_PARTS and 'animation_controls' in BODY_PARTS[part_name]:
-                    logging.info(f"Generating animation for: {part_name}")
-                    animation_config = BODY_PARTS[part_name].get('animation_controls', {})
-                    control_points_coords = []
-                    for control_def in animation_config.get('control_points', []):
-                        if 'joint' in control_def:
-                            joint_name_anim = control_def['joint']
-                            if self.texture_relative_joint_map and joint_name_anim in self.texture_relative_joint_map:
-                                x, y = self.texture_relative_joint_map[joint_name_anim]
-                                control_points_coords.append((x - roi[0], y - roi[1]))
-                        elif 'position' in control_def:
-                            x, y = control_def['position']
-                            control_points_coords.append((x - roi[0], y - roi[1]))
-
-                    if not control_points_coords and contour is not None:
-                        contour_points_np = np.array(contour).reshape(-1, 2)
-                        step = len(contour_points_np) // 4
-                        for i in range(0, len(contour_points_np), step):
-                            if len(control_points_coords) >= 4: break
-                            x, y = contour_points_np[i]
-                            control_points_coords.append((x - roi[0], y - roi[1]))
-
-                    keyframes_anim = animation_config.get('keyframes', [])
-                    if not keyframes_anim and control_points_coords:
-                        keyframes_anim = [control_points_coords.copy(), [], control_points_coords.copy()]
-                        center_x = sum(p[0] for p in control_points_coords) / len(control_points_coords)
-                        center_y = sum(p[1] for p in control_points_coords) / len(control_points_coords)
-                        angle_rad = np.radians(10)
-                        cos_val, sin_val = np.cos(angle_rad), np.sin(angle_rad)
-                        for x, y in control_points_coords:
-                            dx, dy = x - center_x, y - center_y
-                            keyframes_anim[1].append((center_x + dx * cos_val - dy * sin_val,
-                                                      center_y + dx * sin_val + dy * cos_val))
-                    try:
-                        animation_frames = animate_body_part(part_image, part_mask_roi, control_points_coords, keyframes_anim, self.num_frames)
-                        animation_output_path = os.path.join(self.output_dir, f"{part_name}_animation.gif")
-                        if save_animation(animation_frames, animation_output_path, self.fps):
-                            logging.info(f"Animation saved: {animation_output_path}")
-                            self.results['character']['animations'][part_name] = {
-                                'animation_path': animation_output_path,
-                                'control_points': control_points_coords,
-                                'keyframes': keyframes_anim,
-                                'frames': self.num_frames, 'fps': self.fps
-                            }
-                    except Exception as e:
-                        logging.error(f"Error generating animation for {part_name}: {e}", exc_info=True)
+            if part_contour is None:
+                logging.warning(f"Could not extract contour for part '{part_name}'. Skipping SVG generation.")
+                svg_file_relative = None
             else:
-                logging.error(f"Could not save part image for: {part_name}")
+                # Apply offset to the contour points directly
+                # Contour points are typically [[[x, y]], [[x,y]], ...] or [[x,y], [x,y], ...]
+                # Assuming contour is a list of points (e.g., from cv2.boundingRect on a single contour)
+                # or a list of lists of points.
+                # The path_data generation in svg_utils.py is:
+                # "M " + " L ".join([f"{p[0]},{p[1]}" for p_arr in contour for p in p_arr])
+                # This implies contour is like: [[[x1,y1]], [[x2,y2]], ...]
 
-        with open(os.path.join(self.output_dir, 'parts_info.json'), 'w') as f:
-            json.dump(self.results, f, indent=2, cls=NumpyEncoder)
+                adjusted_contour = np.array(part_contour, dtype=np.float32) # Ensure it's a NumPy array for easy subtraction
+                if adjusted_contour.ndim == 3 and adjusted_contour.shape[1] == 1: # Typical OpenCV contour shape [[[x,y]]]
+                    adjusted_contour[:, 0, 0] -= roi_x
+                    adjusted_contour[:, 0, 1] -= roi_y
+                elif adjusted_contour.ndim == 2: # Shape like [[x,y]]
+                    adjusted_contour[:, 0] -= roi_x
+                    adjusted_contour[:, 1] -= roi_y
+                else:
+                    logging.warning(f"Unexpected contour shape for part '{part_name}': {adjusted_contour.shape}. Offset may not be applied correctly.")
+                    # Fallback to original contour if shape is unexpected
+                    adjusted_contour = part_contour
+
+
+                # SVG path relative to the part's own bounding box (for individual SVGs)
+                # No longer pass offset, as it's applied to the contour directly
+                svg_path_str_for_file = contour_to_svg_path(adjusted_contour)
+
+                if not svg_path_str_for_file: # Check if string is empty
+                    logging.warning(f"Could not generate SVG path string for part '{part_name}'. Skipping SVG saving.")
+                    svg_file_relative = None
+                else:
+                    svg_file_path = self.output_dir / f"{part_name}.svg"
+                    # Save individual SVG with its own width/height from bounding box
+                    save_svg(svg_path_str_for_file, int(roi_w), int(roi_h), str(svg_file_path))
+                    logging.info(f"Individual SVG file saved: {svg_file_path}")
+                    svg_file_relative = f"{part_name}.svg"
+                    # The all_parts_svg_content_for_html was expecting the offset path,
+                    # but for consistency, we'll use the adjusted one here too.
+                    # If a global SVG is needed, that would require original coords.
+                    all_parts_svg_content_for_html.append(f'<g id="{part_name}">\\n{svg_path_str_for_file}\\n</g>')
+
+
+            # PNG 이미지 저장
+            png_file_path = self.output_dir / f"{part_name}.png"
+            save_image(part_image_texture, str(png_file_path))
+            png_file_relative = f"{part_name}.png"
+
+            local_pivot_x = roi_w / 2
+            local_pivot_y = roi_h / 2
+
+            current_part_def_data = BODY_PARTS.get(part_name, {})
+
+            self.results['character']['parts'][part_name] = {
+                "name": part_name,
+                "roi": [float(roi_x), float(roi_y), float(roi_w), float(roi_h)],
+                "svg_path": str(self.output_dir / svg_file_relative) if svg_file_relative else "",
+                "image_path": str(png_file_path),
+                "fill_color": current_part_def_data.get('color', f"rgba({random.randint(0,255)},{random.randint(0,255)},{random.randint(0,255)},0.5)"),
+                "local_pivot_offset": [float(local_pivot_x), float(local_pivot_y)],
+                "z_value": float(current_part_def_data.get("z_value", 0.0)),
+                "fixed": bool(current_part_def_data.get("fixed", False))
+            }
+
+            if self.generate_animations:
+                proximal_joint_name = self._get_proximal_joint_name(part_name, current_part_def_data)
+                if proximal_joint_name and self.texture_relative_joint_map and proximal_joint_name in self.texture_relative_joint_map:
+                    pivot_point = self.texture_relative_joint_map[proximal_joint_name]
+                    local_pivot_for_anim = (pivot_point[0] - roi_x, pivot_point[1] - roi_y)
+
+                    animation_frames = animate_body_part(part_image_texture, local_pivot_for_anim, num_frames=self.num_frames)
+                    animation_output_path = self.output_dir / f"{part_name}_animation.gif"
+                    save_animation(animation_frames, str(animation_output_path), fps=self.fps)
+                    logging.info(f"Animation for {part_name} saved to {animation_output_path}")
+                    self.results['character']['animations'][part_name] = {
+                        'animation_path': str(animation_output_path),
+                    }
+                else:
+                    logging.warning(f"Could not determine proximal joint or pivot for animation of {part_name}")
 
         self._generate_html_viewer()
+
+        pydantic_skeleton_joints = []
+        raw_skeleton_data_from_cfg = self.char_cfg.get('skeleton', []) if self.char_cfg else []
+
+        raw_joint_map = {j_data.get("name"): j_data for j_data in raw_skeleton_data_from_cfg}
+
+        for joint_data_from_cfg in raw_skeleton_data_from_cfg:
+            joint_name = joint_data_from_cfg.get("name")
+            if not joint_name:
+                logging.warning(f"Skipping joint with no name in char_cfg: {joint_data_from_cfg}")
+                continue
+
+            loc = joint_data_from_cfg.get("loc", [0.0, 0.0])
+            if not (isinstance(loc, list) and len(loc) == 2 and all(isinstance(p, (int, float)) for p in loc)):
+                logging.warning(f"Invalid 'loc' for joint {joint_name}: {loc}. Defaulting to [0.0, 0.0].")
+                loc = [0.0, 0.0]
+
+            parent_name = joint_data_from_cfg.get("parent")
+
+            pydantic_skeleton_joints.append({
+                "id": joint_name,
+                "name": joint_name,
+                "position": [float(loc[0]), float(loc[1])],
+                "parent": parent_name if parent_name in raw_joint_map else None
+            })
+
+        pydantic_parts = {}
+        for part_name, original_part_dict in self.results['character']['parts'].items():
+            svg_rel_path = Path(original_part_dict.get("svg_path", "")).name if original_part_dict.get("svg_path") else ""
+            img_rel_path = Path(original_part_dict.get("image_path", "")).name if original_part_dict.get("image_path") else ""
+
+            pydantic_parts[part_name] = {
+                "name": part_name,
+                "svg_path_file": svg_rel_path,
+                "roi": original_part_dict.get("roi"),
+                "image_path": img_rel_path,
+                "fill_color": original_part_dict.get("fill_color", 'rgba(128,128,128,0.5)'),
+                "z_value": float(original_part_dict.get("z_value", 0.0)),
+                "fixed": bool(original_part_dict.get("fixed", False)),
+                "local_pivot_offset": original_part_dict.get("local_pivot_offset")
+            }
+
+        character_name_from_cfg = self.char_cfg.get("name", self.char_dir.name) if self.char_cfg else self.char_dir.name
+
+        output_data_for_pydantic_json = {
+            "character": {
+                "name": character_name_from_cfg,
+                "parts": pydantic_parts,
+                "skeleton_joints": pydantic_skeleton_joints
+            }
+        }
+
+        parts_info_filepath = self.output_dir / "parts_info.json"
+        try:
+            with open(parts_info_filepath, 'w') as f:
+                json.dump(output_data_for_pydantic_json, f, indent=4)
+            logging.info(f"Pydantic-compatible parts_info.json saved to {parts_info_filepath}")
+        except Exception as e:
+            logging.error(f"Failed to save Pydantic-compatible parts_info.json: {e}", exc_info=True)
+
         logging.info(f"All body parts processed. Output directory: {self.output_dir}")
 
 def main():
