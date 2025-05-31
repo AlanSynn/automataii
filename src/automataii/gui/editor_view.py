@@ -646,6 +646,15 @@ class EditorView(QGraphicsView):
 
     # --- Skeleton Visualization --- #
 
+    def get_part_item_by_name(self, part_name: str) -> Optional[CharacterPartItem]:
+        """Finds a CharacterPartItem in the scene by its part_info.name."""
+        if not self.scene():
+            return None
+        for item in self.scene().items():
+            if isinstance(item, CharacterPartItem) and item.part_info and item.part_info.name == part_name:
+                return item
+        return None
+
     def visualize_skeleton(self, skeleton_data: dict, joint_items: list):
         """Temporarily draws the skeleton structure and joints on the scene."""
         self._clear_skeleton_visualization() # Clear previous visualization
@@ -700,8 +709,8 @@ class EditorView(QGraphicsView):
         self._skeleton_viz_items.clear()
 
     def update_part_visuals_from_ik(self, part_name: str, position: QPointF, rotation_degrees: float):
-        if part_name in self.part_items:
-            part_item = self.part_items[part_name]
+        part_item = self.get_part_item_by_name(part_name) # NEW WAY
+        if part_item: # Check if part_item was found
             # Convert rotation to be relative to the part's current rotation
             current_part_rotation = part_item.rotation()
             # The IK gives absolute world rotation, part_item.setRotation is also absolute world

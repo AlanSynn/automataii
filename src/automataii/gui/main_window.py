@@ -73,8 +73,14 @@ class AutomataDesigner(FramelessMainWindow):
     """
 
     def __init__(self, parent: Optional[QWidget] = None, debug_mode: bool = False):
+        # print("Executing AutomataDesigner.__init__ from src/automataii/gui/main_window.py - THIS IS A VERY LOUD DEBUG PRINT!", flush=True) # REMOVED
         super().__init__(parent)
+        # Force logging re-configuration here to ensure our prints are visible
+        # logging.basicConfig(level=logging.DEBUG,
+        #                     format='%(asctime)s - %(levelname)s - [%(name)s:%(module)s:%(lineno)d] %(message)s',
+        #                     force=True) # REMOVED
         self.debug_mode = debug_mode
+        # Use standard logging, assuming setup_logging in __main__ handles it.
         logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}")
         self.setWindowTitle("Automata Designer")
         self.titleBar.raise_()
@@ -128,6 +134,7 @@ class AutomataDesigner(FramelessMainWindow):
         # self.selected_pivot_d: Optional[QPointF] = None # Moved to EditorTab
         # self.selected_driver_center: Optional[QPointF] = None # Moved to EditorTab
         # self.selected_driven_center: Optional[QPointF] = None # Moved to EditorTab
+
         # Markers for selected points - these are drawn by EditorView, state might be in MainWindow if needed globally
         # self.cam_center_marker: Optional[QGraphicsEllipseItem] = None # Moved to EditorTab
         # self.pivot_a_marker: Optional[QGraphicsEllipseItem] = None # Moved to EditorTab
@@ -175,6 +182,19 @@ class AutomataDesigner(FramelessMainWindow):
         self._create_toolbar()  # Defines QActions or uses existing ones for toolbar
         self._connect_global_signals()
         self._connect_manager_signals() # New method for connecting manager signals
+
+        # AFTER ALL MANAGERS AND UI ARE CREATED AND CONNECTED
+        if self.skeleton_manager and self.ik_manager:
+            logging.info(f"AutomataDesigner.__init__ (END): Linking SkeletonManager (id:{id(self.skeleton_manager)}) to IKManager (id:{id(self.ik_manager)}).")
+            self.ik_manager.set_skeleton_manager(self.skeleton_manager)
+            ik_sm_ref = self.ik_manager.skeleton_manager_ref
+            logging.info(f"AutomataDesigner.__init__ (END): IKManager's skeleton_manager_ref is now id:{id(ik_sm_ref) if ik_sm_ref else 'None'}. Type: {type(ik_sm_ref)}")
+            if ik_sm_ref is None:
+                 logging.error("AutomataDesigner.__init__ (END): CRITICAL - IKManager.skeleton_manager_ref is None immediately after setting!")
+            elif ik_sm_ref != self.skeleton_manager:
+                 logging.error(f"AutomataDesigner.__init__ (END): CRITICAL - IKManager.skeleton_manager_ref (id:{id(ik_sm_ref)}) MISMATCHES self.skeleton_manager (id:{id(self.skeleton_manager)})!")
+        else:
+            logging.error("AutomataDesigner.__init__ (END): Critical error - SkeletonManager or IKManager not initialized before linking.")
 
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
@@ -940,30 +960,42 @@ class AutomataDesigner(FramelessMainWindow):
     @pyqtSlot(dict)
     def _handle_ik_visuals_update(self, part_transforms: Dict[str, Dict[str, Any]]):
         """Handles updates to part visuals from the IKManager."""
-        # logging.debug(f"MainWindow: Received ik_visuals_update: {part_transforms}")
+        # --- BEGIN ADDED DEBUG LOGGING (from previous step, can be kept or removed) ---
+        logging.debug(f"AutomataDesigner._handle_ik_visuals_update: Received part_transforms: {part_transforms}")
+        # --- END ADDED DEBUG LOGGING ---
         if self.editor_tab and self.editor_tab.editor_view:
-            if not part_transforms: # Check if dict is empty
-                # logging.debug("MainWindow: IK visuals update is empty, clearing editor view visuals or resetting.")
-                # Potentially clear visuals or reset poses if IK sends an empty dict after stop
-                # self.editor_tab.editor_view.clear_all_visual_parts_or_reset_to_setup_pose() # Example
-                pass # For now, do nothing if empty, specific clearing handled elsewhere
+            if not part_transforms:
+                pass
             else:
                 for part_name, transform_data in part_transforms.items():
-                    position_data = transform_data.get('position')
+                    # position_data = transform_data.get(\'position\') # OLD WAY, was list/tuple
+                    pos_x = transform_data.get('pos_x') # NEW WAY, float
+                    pos_y = transform_data.get('pos_y') # NEW WAY, float
                     rotation_degrees = transform_data.get('rotation_degrees')
 
-                    if position_data and isinstance(position_data, (list, tuple)) and len(position_data) >= 2:
-                        new_pos = QPointF(float(position_data[0]), float(position_data[1]))
-                        if rotation_degrees is not None:
-                            self.editor_tab.editor_view.update_part_visuals_from_ik(part_name, new_pos, float(rotation_degrees))
-                        else:
-                            logging.warning(f"MainWindow: Missing rotation for part {part_name} in IK visuals update.")
+                    position = None # Initialize position as None
+                    # if position_data and isinstance(position_data, (list, tuple)) and len(position_data) >= 2: # OLD WAY Check
+                    #     position = QPointF(float(position_data[0]), float(position_data[1]))
+                    if pos_x is not None and pos_y is not None: # NEW WAY Check
+                        position = QPointF(pos_x, pos_y)
                     else:
-                        logging.warning(f"MainWindow: Invalid or missing position for part {part_name} in IK visuals update.")
+                        # logging.warning(f\"MainWindow: Invalid or missing position for part {part_name} in IK visuals update.\") # OLD Warning
+                        logging.warning(f"MainWindow: Invalid or missing pos_x/pos_y for part {part_name} in IK visuals update. pos_x: {pos_x}, pos_y: {pos_y}") # Corrected f-string
+                        continue # Skip if essential components are missing
+
+                    if rotation_degrees is not None:
+                        # Check if position is valid before calling update
+                        if position is not None:
+                             self.editor_tab.editor_view.update_part_visuals_from_ik(part_name, position, float(rotation_degrees))
+                        else:
+                            # This case should now be caught by the continue above, but as a safeguard:
+                            logging.warning(f"MainWindow: Position was None for part {part_name} before calling update_part_visuals_from_ik. This shouldn't happen.") # Corrected f-string
+                    else:
+                        logging.warning(f"MainWindow: Missing rotation for part {part_name} in IK visuals update.") # Corrected f-string
                 if self.editor_tab.editor_view.scene():
                     self.editor_tab.editor_view.scene().update()
         else:
-            logging.warning("MainWindow: EditorTab or EditorView not available for IK visuals update.")
+            logging.warning("MainWindow: EditorTab or EditorView not available for IK visuals update.") # Corrected f-string
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""
@@ -1147,3 +1179,43 @@ class AutomataDesigner(FramelessMainWindow):
             logging.info(f"MainWindow: Relayed motion path update for '{part_name}' to IKManager.")
         else:
             logging.warning("MainWindow: IKManager does not have 'update_part_motion_path' method.")
+
+    def _on_character_visuals_updated(self, visuals_data: Dict[str, Dict[str, Any]]):
+        """Receives IK-driven visual updates and applies them to CharacterPartItems in EditorView."""
+        # --- BEGIN ADDED DEBUG LOGGING ---
+        logging.debug(f"AutomataDesigner._on_character_visuals_updated: Received visuals_data: {visuals_data}")
+        # --- END ADDED DEBUG LOGGING ---
+        if not self.editor_tab or not self.editor_tab.editor_view:
+            logging.warning("AutomataDesigner: EditorTab or EditorView not available for visual update.")
+            return
+
+        updated_part_names = []
+        for part_name, data in visuals_data.items():
+            # position = data.get('position') # QPointF OLD WAY
+            pos_x = data.get('pos_x') # float NEW WAY
+            pos_y = data.get('pos_y') # float NEW WAY
+            rotation_degrees = data.get('rotation_degrees') # float
+
+            position = None # Initialize position as None
+            if pos_x is not None and pos_y is not None:
+                position = QPointF(pos_x, pos_y)
+            else:
+                logging.warning(f"MainWindow: Invalid or missing pos_x/pos_y for part {part_name} in IK visuals update. pos_x: {pos_x}, pos_y: {pos_y}")
+                continue # Skip this part if essential position components are missing
+
+            # Ensure CharacterPartItem exists for this part_name
+            part_item = self.editor_tab.editor_view.get_part_item_by_name(part_name)
+            if part_item:
+                current_part_pos = part_item.pos()
+                current_part_rot = part_item.rotation()
+                logging.debug(f"AutomataDesigner: Updating part '{part_name}'. Current Pos: {current_part_pos}, Rot: {current_part_rot:.1f}. New Pos: {position}, Rot: {rotation_degrees:.1f}")
+                part_item.setPos(position) # Expects QPointF
+                if rotation_degrees is not None:
+                    part_item.setRotation(rotation_degrees) # Expects float degrees
+                updated_part_names.append(part_name)
+            else:
+                logging.warning(f"AutomataDesigner: Part item '{part_name}' not found in EditorView for visual update.")
+
+        if updated_part_names:
+            logging.debug(f"AutomataDesigner: Applied visual updates to parts: {updated_part_names}")
+            # self.editor_tab.editor_view.scene().update() # May not be necessary if item changes trigger update
