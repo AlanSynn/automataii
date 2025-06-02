@@ -63,10 +63,30 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self._load_texture()
         self._setup_selection_highlight()
 
-        if self.part_pixmap and not self.part_pixmap.isNull():
+        # Revised anchor_offset and initial position logic
+        if self.part_info.local_pivot_offset and len(self.part_info.local_pivot_offset) == 2:
+            self.anchor_offset = QPointF(self.part_info.local_pivot_offset[0], self.part_info.local_pivot_offset[1])
+            logging.debug(f"CharacterPartItem '{self.name()}': Set anchor_offset from local_pivot_offset: {self.anchor_offset}")
+        elif self.part_pixmap and not self.part_pixmap.isNull(): # Fallback to center if no local_pivot_offset
             self.anchor_offset = QPointF(self.part_pixmap.width() / 2, self.part_pixmap.height() / 2)
-            self.setPos(QPointF(self.part_info.x, self.part_info.y))
+            logging.debug(f"CharacterPartItem '{self.name()}': local_pivot_offset not found or invalid, using pixmap center as anchor_offset: {self.anchor_offset}")
+        else: # Fallback if pixmap also not available (e.g. placeholder creation failed, though unlikely)
+            self.anchor_offset = QPointF(0,0)
+            logging.warning(f"CharacterPartItem '{self.name()}': Could not determine anchor_offset, defaulting to (0,0).")
+
+        self.setTransformOriginPoint(self.anchor_offset)
+
+        # Set initial position based on part_info.x, y if available, otherwise default to (0,0) for now.
+        # The actual scene positioning should be handled by a layout manager or a higher-level setup logic.
+        initial_x = getattr(self.part_info, 'x', 0.0)
+        initial_y = getattr(self.part_info, 'y', 0.0)
+        self.setPos(QPointF(initial_x, initial_y))
+        logging.debug(f"CharacterPartItem '{self.name()}': Initial raw position set to ({initial_x}, {initial_y}). Transform origin: {self.transformOriginPoint()}")
+
+        if self.part_pixmap and not self.part_pixmap.isNull():
             self._bounding_rect_local = QRectF(0, 0, self.part_pixmap.width(), self.part_pixmap.height())
+        elif hasattr(self, '_bounding_rect_local') and not self._bounding_rect_local: # Ensure it is initialized if placeholder path was taken
+            self._bounding_rect_local = QRectF(0,0,50,50) # Default placeholder size
 
         self.update_motion_path_visual()
 

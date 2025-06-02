@@ -82,6 +82,7 @@ class PartInfo:
         self.effective_bbox_offset_x: float = model.effective_bbox_offset_x
         self.effective_bbox_offset_y: float = model.effective_bbox_offset_y
         self.show_anchor: bool = model.show_anchor
+        self.local_pivot_offset: Optional[List[float]] = model.local_pivot_offset
 
         self.motion_path_data: Optional[QPainterPath] = None
         if model.motion_path_data and model.motion_path_data.path_points:
@@ -153,7 +154,8 @@ class PartInfo:
             effective_bbox_offset_x=self.effective_bbox_offset_x,
             effective_bbox_offset_y=self.effective_bbox_offset_y,
             motion_path_data=motion_path_pydantic,
-            show_anchor=self.show_anchor
+            show_anchor=self.show_anchor,
+            local_pivot_offset=self.local_pivot_offset
         )
 
 class Joint:

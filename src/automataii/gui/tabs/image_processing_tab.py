@@ -5,7 +5,7 @@ import time
 import yaml
 import cv2  # Assuming cv2 is used by capture_image or process_image
 import json
-from typing import Optional
+from typing import Optional, Dict, Any
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -728,3 +728,45 @@ class ImageProcessingTab(QWidget):
         """Slot to control the visibility of the detailed processing steps group."""
         self.processing_steps_group.setVisible(visible)
         logging.info(f"Detailed processing steps visibility set to: {visible}")
+
+    def get_current_parts_visual_state(self) -> Optional[Dict[str, Dict[str, Any]]]:
+        """
+        Retrieves the current visual state (pivot scene position and world rotation)
+        of all CharacterPartItem instances currently displayed in the ImageProcessingView.
+        The rotation for all parts in this context is assumed to be 0 degrees,
+        as this method is called when transitioning from image processing (where parts are typically flat)
+        to the IK editor.
+        """
+        if not self.image_proc_view or not hasattr(self.image_proc_view, 'char_part_items'): # char_part_items in ImageProcessingView
+            logging.warning("ImageProcessingTab: ImageProcessingView or its char_part_items not available.")
+            return None
+
+        visual_states = {}
+        # Access char_part_items from the image_proc_view instance
+        if not self.image_proc_view.char_part_items:
+            logging.info("ImageProcessingTab: No character part items found in ImageProcessingView.")
+            return {} # Return empty if no parts are there
+
+        for part_name, item in self.image_proc_view.char_part_items.items(): # CORRECTED HERE
+            if item and item.scene(): # 아이템이 존재하고 씬에 추가되어 있는지 확인
+                # pivot_scene_pos = item.scenePos() # CharacterPartItem의 pivot이 scenePos()라고 가정 -> 수정 필요
+                # CharacterPartItem의 anchor_offset을 기준으로 실제 pivot의 scene 좌표를 가져옴
+                if hasattr(item, 'get_anchor_point_scene_pos'):
+                    pivot_scene_pos = item.get_anchor_point_scene_pos()
+                elif hasattr(item, 'anchor_offset'): # Fallback if get_anchor_point_scene_pos doesn't exist
+                    pivot_scene_pos = item.mapToScene(item.anchor_offset)
+                else: # Ultimate fallback: use item.scenePos() but log a warning
+                    pivot_scene_pos = item.scenePos()
+                    logging.warning(f"ImageProcessingTab: CharacterPartItem '{part_name}' missing 'anchor_offset' and 'get_anchor_point_scene_pos'. Using scenePos() as pivot estimate.")
+
+                # For the transition from ImageProcessingTab, world rotation is assumed to be 0.
+                world_rotation_degrees = 0.0
+
+                visual_states[part_name] = {
+                    "position": pivot_scene_pos, # This is a QPointF
+                    "rotation_degrees": world_rotation_degrees
+                }
+                logging.debug(f"ImageProcessingTab: Captured visual state for '{part_name}': Pivot ScenePos={pivot_scene_pos}, WorldRot=0.0")
+            else:
+                logging.debug(f"ImageProcessingTab: Skipping part '{part_name}' as it's not valid or not in a scene.")
+        return visual_states

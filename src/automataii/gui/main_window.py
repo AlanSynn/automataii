@@ -60,12 +60,12 @@ from ..core.mechanism_manager import MechanismManager
 
 from PyQt6.QtWidgets import QGraphicsEllipseItem
 
-from qframelesswindow import FramelessMainWindow
+# from qframelesswindow import FramelessMainWindow
 
 TARGET_CONTROL_POINTS = 8
 
 
-class AutomataDesigner(FramelessMainWindow):
+class AutomataDesigner(QMainWindow):
     """Main application window for the Automata Designer.
 
     Integrates image processing, skeleton editing, part assembly, motion definition,
@@ -83,7 +83,7 @@ class AutomataDesigner(FramelessMainWindow):
         # Use standard logging, assuming setup_logging in __main__ handles it.
         logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}")
         self.setWindowTitle("Automata Designer")
-        self.titleBar.raise_()
+        # self.titleBar.raise_()
         self.resize(1200, 680)  # Reduced height from 750
         self.setMinimumHeight(600)  # Set explicit minimum height
         logging.info("Initializing AutomataDesigner...")
@@ -480,6 +480,21 @@ class AutomataDesigner(FramelessMainWindow):
             self.statusBar().showMessage("Part data loaded successfully.", 3000)
             self.current_temp_char_dir = Path(final_bpe_char_dir_str)
             logging.info(f"MainWindow: Project loaded. Updated current_temp_char_dir to BPE output: {self.current_temp_char_dir}")
+
+            # NEW: Capture visual state from ImageProcessingTab and set it as IK initial pose
+            if hasattr(self.image_proc_tab, 'get_current_parts_visual_state'):
+                visual_state = self.image_proc_tab.get_current_parts_visual_state()
+                if visual_state:
+                    logging.info(f"MainWindow: Captured visual state from ImageProcessingTab for {len(visual_state)} parts. Setting as IK initial pose.")
+                    if self.ik_manager:
+                        self.ik_manager.set_initial_pose_from_visual_data(visual_state)
+                    else:
+                        logging.error("MainWindow: IKManager not available to set initial pose.")
+                else:
+                    logging.warning("MainWindow: ImageProcessingTab returned no visual state to set for IK.")
+            else:
+                logging.warning("MainWindow: ImageProcessingTab does not have get_current_parts_visual_state method.")
+
         else:
             self.statusBar().showMessage("Failed to load part data. Check logs.", 5000)
 
@@ -1127,46 +1142,6 @@ class AutomataDesigner(FramelessMainWindow):
             logging.info(f"MainWindow: Relayed motion path update for '{part_name}' to IKManager.")
         else:
             logging.warning("MainWindow: IKManager does not have 'update_part_motion_path' method.")
-
-    def _on_character_visuals_updated(self, visuals_data: Dict[str, Dict[str, Any]]):
-        """Receives IK-driven visual updates and applies them to CharacterPartItems in EditorView."""
-        # --- BEGIN ADDED DEBUG LOGGING ---
-        logging.debug(f"AutomataDesigner._on_character_visuals_updated: Received visuals_data: {visuals_data}")
-        # --- END ADDED DEBUG LOGGING ---
-        if not self.editor_tab or not self.editor_tab.editor_view:
-            logging.warning("AutomataDesigner: EditorTab or EditorView not available for visual update.")
-            return
-
-        updated_part_names = []
-        for part_name, data in visuals_data.items():
-            # position = data.get('position') # QPointF OLD WAY
-            pos_x = data.get('pos_x') # float NEW WAY
-            pos_y = data.get('pos_y') # float NEW WAY
-            rotation_degrees = data.get('rotation_degrees') # float
-
-            position = None # Initialize position as None
-            if pos_x is not None and pos_y is not None:
-                position = QPointF(pos_x, pos_y)
-            else:
-                logging.warning(f"MainWindow: Invalid or missing pos_x/pos_y for part {part_name} in IK visuals update. pos_x: {pos_x}, pos_y: {pos_y}")
-                continue # Skip this part if essential position components are missing
-
-            # Ensure CharacterPartItem exists for this part_name
-            part_item = self.editor_tab.editor_view.get_part_item_by_name(part_name)
-            if part_item:
-                current_part_pos = part_item.pos()
-                current_part_rot = part_item.rotation()
-                logging.debug(f"AutomataDesigner: Updating part '{part_name}'. Current Pos: {current_part_pos}, Rot: {current_part_rot:.1f}. New Pos: {position}, Rot: {rotation_degrees:.1f}")
-                part_item.setPos(position) # Expects QPointF
-                if rotation_degrees is not None:
-                    part_item.setRotation(rotation_degrees) # Expects float degrees
-                updated_part_names.append(part_name)
-            else:
-                logging.warning(f"AutomataDesigner: Part item '{part_name}' not found in EditorView for visual update.")
-
-        if updated_part_names:
-            logging.debug(f"AutomataDesigner: Applied visual updates to parts: {updated_part_names}")
-            # self.editor_tab.editor_view.scene().update() # May not be necessary if item changes trigger update
 
     @pyqtSlot(dict)
     def _handle_skeleton_pose_updated_from_ik(self, animated_pose_data_dict: Dict[str, Tuple[float, float]]):

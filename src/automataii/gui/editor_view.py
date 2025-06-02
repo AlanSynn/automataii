@@ -774,32 +774,22 @@ class EditorView(QGraphicsView):
             logging.warning("EditorView:update_skeleton_animation - skeleton_graphics_item is None. Cannot update pose.")
 
     def update_part_visuals_from_ik(self, part_name: str, position: QPointF, rotation_degrees: float):
-        part_item = self.get_part_item_by_name(part_name) # NEW WAY
-        if part_item: # Check if part_item was found
-            # Convert rotation to be relative to the part's current rotation
-            current_part_rotation = part_item.rotation()
-            # The IK gives absolute world rotation, part_item.setRotation is also absolute world
-            # We need to ensure the anchor point is correctly handled if the part itself rotates.
+        """Updates a single CharacterPartItem's position and rotation based on IK solver data."""
+        part_item = self.get_part_item_by_name(part_name)
+        if part_item:
+            # logging.debug(f"EditorView: Updating part '{part_name}'. Current Pos: {part_item.pos()}, Rot: {part_item.rotation():.1f}. Target Pivot Pos: {position}, Target Rot: {rotation_degrees:.1f}")
+            # Use set_scene_position_from_anchor to correctly position the part by its pivot
+            if hasattr(part_item, 'set_scene_position_from_anchor'):
+                part_item.set_scene_position_from_anchor(position)
+            else:
+                # Fallback if the method doesn't exist, though it should
+                logging.warning(f"EditorView: CharacterPartItem '{part_name}' missing 'set_scene_position_from_anchor'. Using setPos directly.")
+                part_item.setPos(position)
 
-            # For now, let's assume the IK system provides the final absolute rotation
-            # and position for the part's *anchor point*.
-            # The part_item's position is its top-left. We need to adjust its position
-            # so that its anchor_offset (when rotated) lands on the IK-driven `position`.
-
-            # 1. Calculate the vector from the part's origin to its anchor_offset, rotated by the new rotation
-            # This vector needs to be in scene coordinates if position is scene coordinates.
-            # part_item.anchor_offset is in local coords.
-            transform = QTransform().rotate(rotation_degrees)
-            rotated_anchor_vector_local = transform.map(part_item.anchor_offset)
-
-            # New position for the part's origin in the scene
-            new_part_origin_scene_pos = position - rotated_anchor_vector_local
-
-            part_item.setPos(new_part_origin_scene_pos)
-            part_item.setRotation(rotation_degrees) # Set absolute rotation
-            # logging.debug(f"EditorView: Updated part '{part_name}' from IK. Pos: {new_part_origin_scene_pos}, Rot: {rotation_degrees}")
+            part_item.setRotation(rotation_degrees)
+            # logging.debug(f"EditorView: Part '{part_name}' updated. New Pos: {part_item.pos()}, New Rot: {part_item.rotation():.1f}, New Pivot Scene Pos: {part_item.get_anchor_point_scene_pos() if hasattr(part_item, 'get_anchor_point_scene_pos') else 'N/A'}")
         else:
-            logging.warning(f"EditorView: Part '{part_name}' not found for IK update.")
+            logging.warning(f"EditorView: Part item '{part_name}' not found for IK update.")
 
     def set_selected_part(self, part_name: Optional[str], part_items: Dict[str, CharacterPartItem]):
         """Sets the visual state for the selected part and deselects others."""

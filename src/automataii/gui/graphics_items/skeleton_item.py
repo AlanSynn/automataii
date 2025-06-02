@@ -250,33 +250,3 @@ class SkeletonGraphicsItem(QGraphicsItem):
     def get_all_joint_positions(self) -> Dict[str, QPointF]:
         """Returns a dictionary of all current joint positions {id: QPointF}."""
         return {id: item.pos() for id, item in self._joint_items.items()}
-
-if __name__ == '__main__':
-    # This is a basic example. To run this, you'd need a QApplication and QGraphicsView.
-    from PyQt6.QtWidgets import QApplication, QGraphicsView, QGraphicsScene
-    import sys
-
-    app = QApplication(sys.argv)
-
-    scene = QGraphicsScene()
-    view = QGraphicsView(scene)
-
-    sample_skeleton = [
-        {'id': 'root', 'position': [50, 200], 'parent': None},
-        {'id': 'hip', 'position': [50, 150], 'parent': 'root'},
-        {'id': 'neck', 'position': [50, 50], 'parent': 'hip'},
-        {'id': 'head', 'position': [50, 20], 'parent': 'neck'},
-        {'id': 'left_shoulder', 'position': [20, 60], 'parent': 'neck'},
-        {'id': 'left_elbow', 'position': [20, 100], 'parent': 'left_shoulder'},
-        {'id': 'right_shoulder', 'position': [80, 60], 'parent': 'neck'},
-        {'id': 'right_elbow', 'position': [80, 100], 'parent': 'right_shoulder'},
-    ]
-
-    skeleton_item = SkeletonGraphicsItem(sample_skeleton)
-    scene.addItem(skeleton_item)
-
-    view.setWindowTitle("Skeleton Graphics Item Example")
-    view.resize(200, 250)
-    view.show()
-
-    sys.exit(app.exec())

@@ -64,6 +64,7 @@ class PartInfoModel(BaseModel):
     # or a reference to an external file. For now, assume it might be a list of QPointF-like tuples.
     motion_path_data: Optional[MotionPathDataModel] = None # Or List[QPointFModel] if simpler
     show_anchor: bool = False # Default to not showing the anchor
+    local_pivot_offset: Optional[List[float]] = Field(default=None, description="Local pivot offset [x, y] relative to the part's own origin (top-left of its ROI/image)")
 
     class Config:
         arbitrary_types_allowed = True # For QPointF if we decide to store it directly (not recommended for JSON)
@@ -72,6 +73,12 @@ class PartInfoModel(BaseModel):
     def roi_must_have_four_elements(cls, v):
         if v is not None and len(v) != 4:
             raise ValueError('roi must contain four float elements: [x, y, width, height]')
+        return v
+
+    @validator('local_pivot_offset')
+    def local_pivot_offset_must_have_two_elements(cls, v):
+        if v is not None and len(v) != 2:
+            raise ValueError('local_pivot_offset must contain two float elements: [x, y]')
         return v
 
 class SkeletonJointModel(BaseModel):

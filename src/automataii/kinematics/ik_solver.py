@@ -27,13 +27,13 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
         return
 
     # 모든 아이템의 초기 월드 회전값은 0으로 고정
-    for item in chain:
-        if not hasattr(item, '_initial_world_rotation'):
-            item._initial_world_rotation = 0.0  # 초기 월드 회전값은 항상 0
-            logging.debug(f"Set initial world rotation for {item.part_info.name}: 0.0 degrees")
-        # 현재 월드 회전값도 확인
-        current_world_rot = get_world_rotation(item)
-        logging.debug(f"{item.part_info.name} - Initial world rotation: 0.0, Current world rotation: {current_world_rot:.2f}")
+    # for item in chain:
+    #     if not hasattr(item, '_initial_world_rotation'):
+    #         item._initial_world_rotation = 0.0  # 초기 월드 회전값은 항상 0
+    #         logging.debug(f"Set initial world rotation for {item.part_info.name}: 0.0 degrees")
+    #     # 현재 월드 회전값도 확인
+    #     current_world_rot = get_world_rotation(item)
+    #     logging.debug(f"{item.part_info.name} - Initial world rotation: 0.0, Current world rotation: {current_world_rot:.2f}")
 
     end_effector_item = chain[-1]
     # end_effector_offset is the pivot point of the end effector part itself.
