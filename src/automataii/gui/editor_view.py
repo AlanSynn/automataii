@@ -16,6 +16,8 @@ from .graphics_items.skeleton_item import SkeletonGraphicsItem # Added
 # from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
 from ..config.z_indices import Z_MOTION_PATH_PREVIEW, Z_SKELETON_OVERLAY # Added Z_SKELETON_OVERLAY
 
+TARGET_PATH_POINTS = 12
+
 class EditorView(QGraphicsView):
     """Custom QGraphicsView for editor with joint definition, path drawing, and panning/zooming.
 
@@ -35,6 +37,7 @@ class EditorView(QGraphicsView):
         part_item_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
         part_item_double_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
         part_item_moved = pyqtSignal(CharacterPartItem, QPointF) # Emits item and its new scene position
+        path_data_cleared_for_component = pyqtSignal(str) # NEW: Emits component_key when its path data should be cleared
     """
     end_effector_selected = pyqtSignal(QPointF, QPointF)
     cam_center_selected = pyqtSignal(QPointF)
@@ -51,6 +54,7 @@ class EditorView(QGraphicsView):
     part_item_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
     part_item_double_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
     part_item_moved = pyqtSignal(CharacterPartItem, QPointF) # Emits item and its new scene position
+    path_data_cleared_for_component = pyqtSignal(str) # NEW: Emits component_key when its path data should be cleared
 
     def __init__(self, scene, parent_window=None):
         super().__init__(scene, parent_window)
@@ -119,6 +123,7 @@ class EditorView(QGraphicsView):
         self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY) # Set Z-value
 
         self.selection_markers: Dict[str, QGraphicsEllipseItem] = {} # For mechanism point markers
+        self.final_paths_map: Dict[str, QGraphicsPathItem] = {} # NEW: To store final green paths
 
     def reset_temp_visuals(self):
         """Clears temporary visual items like drawing guides or markers."""
@@ -325,40 +330,80 @@ class EditorView(QGraphicsView):
 
         if event.button() == Qt.MouseButton.LeftButton:
             if self.current_mode == 'define_motion_path' and self._is_drawing_freehand:
-                if len(self._motion_path_points) > 1: # Ensure there's more than just a click
-                    # Create the final green path
-                    final_path_data = QPainterPath()
-                    if self._motion_path_points:
-                        final_path_data.moveTo(self._motion_path_points[0])
-                        for point in self._motion_path_points[1:]:
-                            final_path_data.lineTo(point)
+                num_original_points = len(self._motion_path_points)
+                if num_original_points >= 3: # Need at least 3 points for a meaningful curve
 
-                    # For a smoother "NURBS-like" curve, one approach is to use cubicTo for segments.
-                    # This requires calculating control points. A simpler approach for visual smoothness
-                    # if precise NURBS isn't needed is to just use the points as is with a solid line,
-                    # or explore QPainterPath.quadTo or QPainterPath.cubicTo with simple control point heuristics.
-                    # For now, we'll use the points to form lines, styled differently.
+
+                    # Resample points
+                    # If fewer than TARGET_PATH_POINTS but >=3, use original points for spline for better representation
+                    # If more than TARGET_PATH_POINTS, resample down to TARGET_PATH_POINTS
+                    # _resample_points_simple currently pads if less, which might not be ideal for spline if too few.
+                    # Let's adjust the logic for spline points preparation here.
+
+                    points_for_spline = []
+                    if num_original_points < TARGET_PATH_POINTS:
+                        # If we have 3 to TARGET_PATH_POINTS-1 points, use them directly for the spline.
+                        # The spline creation will handle fewer points appropriately.
+                        points_for_spline = list(self._motion_path_points)
+                    else:
+                        # If more than or equal to TARGET_PATH_POINTS, resample to exactly TARGET_PATH_POINTS.
+                        points_for_spline = self._resample_points_simple(list(self._motion_path_points), TARGET_PATH_POINTS)
+
+                    if not points_for_spline or len(points_for_spline) < 3:
+                        logging.warning(f"Not enough points ({len(points_for_spline)}) for spline after resampling from {num_original_points}. Cancelling path.")
+                        self._cancel_motion_path_drawing()
+                        self._is_drawing_freehand = False
+                        self.set_mode('select')
+                        super().mouseReleaseEvent(event) # Call base before returning
+                        return
+
+                    # Create the final closed spline path
+                    final_path_data = self._create_spline_path(points_for_spline, closed_loop=True, tension=0.5)
 
                     final_path_item = QGraphicsPathItem()
-                    final_pen = QPen(QColor(0, 200, 0), 5.0) # Green, solid, slightly thick
+                    # User modified pen thickness to 5.0
+                    final_pen = QPen(QColor(0, 200, 0), 5.0) # Green, solid, very thick
                     final_pen.setCosmetic(True)
                     final_path_item.setPen(final_pen)
                     final_path_item.setPath(final_path_data)
                     final_path_item.setZValue(Z_MOTION_PATH_PREVIEW -1) # Draw below future previews
-                    self.scene().addItem(final_path_item)
 
-                    # Emit the original points for external handling (e.g., by IKManager)
-                    self.freehandPathCompleted.emit(list(self._motion_path_points))
-                    logging.debug(f"Completed and finalized freehand motion path with {len(self._motion_path_points)} points.")
+                    # Determine component_key for this path
+                    component_key = None
+                    if self.parent_window and hasattr(self.parent_window, 'sim_selected_component_key') and self.parent_window.sim_selected_component_key:
+                        component_key = self.parent_window.sim_selected_component_key
+                    elif self.current_target_item_for_path: # Fallback if sim_selected_component_key is not primary
+                        component_key = self.current_target_item_for_path.part_info.name
+
+                    if component_key:
+                        # Remove previous final path for this component, if any
+                        if component_key in self.final_paths_map:
+                            old_path_item = self.final_paths_map.pop(component_key)
+                            if old_path_item and old_path_item.scene():
+                                self.scene().removeItem(old_path_item)
+                                logging.debug(f"Removed previous final path for component '{component_key}'.")
+
+                        self.scene().addItem(final_path_item)
+                        self.final_paths_map[component_key] = final_path_item
+                        logging.debug(f"Added final path for component '{component_key}'.")
+                    else:
+                        # If no key, path is orphaned, but still add to scene for now (might be an error condition)
+                        self.scene().addItem(final_path_item)
+                        logging.warning("Final path created without a component key. It might be orphaned.")
+
+                    # Emit the RESAMPLED points for external handling (e.g., by IKManager)
+                    # as these are the points that define the final visual shape.
+                    self.freehandPathCompleted.emit(points_for_spline)
+                    logging.debug(f"Completed and finalized closed spline motion path with {len(points_for_spline)} points (resampled from {num_original_points}).")
 
                     # Clear the red dashed preview path
                     if self._motion_preview_path_item and self._motion_preview_path_item.scene():
                         self.scene().removeItem(self._motion_preview_path_item)
                         self._motion_preview_path_item = None
-                    self._motion_path_points.clear() # Clear points for next drawing session
+                    self._motion_path_points.clear() # Clear original drawn points for next session
 
-                else: # Path was just a click, or something went wrong
-                    logging.debug("Freehand path too short, cancelling.")
+                else: # Path had less than 3 points originally, not enough for a curve
+                    logging.debug(f"Freehand path too short ({num_original_points} points), cancelling. Need at least 3 for a curve.")
                     self._cancel_motion_path_drawing() # Clears preview, resets state
 
                 self._is_drawing_freehand = False
@@ -851,3 +896,143 @@ class EditorView(QGraphicsView):
 
         self._motion_preview_path_item.setPath(path)
         # logging.debug(f"Motion path preview updated with {len(self._motion_path_points)} points.")
+
+    def _create_spline_path(self, points: List[QPointF], closed_loop: bool = False, tension: float = 0.5) -> QPainterPath:
+        """Creates a QPainterPath from a list of points using Catmull-Rom like splines (approximated with Bezier curves)."""
+        path = QPainterPath()
+        if not points or len(points) < 2:
+            # If only one point, move to it. If empty, return empty path.
+            if len(points) == 1:
+                path.moveTo(points[0])
+            return path
+
+        n = len(points)
+        path.moveTo(points[0])
+
+        if n < 2: # Should have been caught above, but defensive
+            return path
+
+        # If only 2 points, draw a straight line
+        if n == 2:
+            path.lineTo(points[1])
+            if closed_loop:
+                path.lineTo(points[0]) # Close the loop
+            return path
+
+        # For Catmull-Rom like splines, we need to calculate control points
+        # for each segment P_i to P_{i+1}. The control points depend on P_{i-1} and P_{i+2}.
+
+        # Create a list of points for easy looping, handling closed loops
+        plot_points = list(points) # Make a mutable copy
+        if closed_loop:
+            # For a closed loop, extend the list with points from the other end to calculate edge control points
+            # P[-1], P[0], P[1], P[2], ... P[n-1], P[n], P[n+1] (where P[n]=P[0], P[n+1]=P[1] etc.)
+            plot_points.insert(0, points[n-1]) # P[-1] = P[n-1]
+            plot_points.append(points[0])      # P[n]   = P[0]
+            plot_points.append(points[1])      # P[n+1] = P[1]
+        else:
+            # For open loop, duplicate first and last points to handle endpoints
+            plot_points.insert(0, points[0])   # P[-1] = P[0]
+            plot_points.append(points[n-1])  # P[n]   = P[n-1]
+
+        # Iterate through the original points (from index 1 to n if open, or 1 to n+1 if closed for segments)
+        # The actual segments are from points[i] to points[i+1]
+        # plot_points indices will be one more than original points indices due to prepended point.
+
+        for i in range(1, len(plot_points) - 2): # Iterate up to the point before the last two extended points
+            p0 = plot_points[i-1]
+            p1 = plot_points[i]   # Current point (start of Bezier segment)
+            p2 = plot_points[i+1] # Next point (end of Bezier segment)
+            p3 = plot_points[i+2]
+
+            # Adjusting the scaling factor for control points might make the curve "gentler"
+            control_point_scale_factor = tension / 3 # tension is 0.5 by default, so factor is ~0.167
+
+            # Calculate Bezier control points for segment p1 to p2
+            # Control point 1: p1 + (p2 - p0) * control_point_scale_factor
+            cp1_x = p1.x() + (p2.x() - p0.x()) * control_point_scale_factor
+            cp1_y = p1.y() + (p2.y() - p0.y()) * control_point_scale_factor
+            cp1 = QPointF(cp1_x, cp1_y)
+
+            # Control point 2: p2 - (p3 - p1) * control_point_scale_factor
+            cp2_x = p2.x() - (p3.x() - p1.x()) * control_point_scale_factor
+            cp2_y = p2.y() - (p3.y() - p1.y()) * control_point_scale_factor
+            cp2 = QPointF(cp2_x, cp2_y)
+
+            path.cubicTo(cp1, cp2, p2)
+
+        if closed_loop:
+            # path.closeSubpath() # This might draw a straight line to close it.
+            # For a smooth close, the last cubicTo should naturally lead to points[0]
+            # The loop above should have handled the segment from points[n-1] to points[0]
+            # if plot_points was extended correctly.
+            # If not perfectly closed by the loop, QPainterPath.closeSubpath() can be used,
+            # or ensure the loop handles the last segment to the first point correctly.
+            # The current loop goes up to len(plot_points) - 3 segment starts.
+            # For a closed loop points = [A,B,C], plot_points = [C,A,B,C,A]
+            # i=1: p0=C, p1=A, p2=B, p3=C -> A to B (using C,A,B,C)
+            # i=2: p0=A, p1=B, p2=C, p3=A -> B to C (using A,B,C,A)
+            # i=3: p0=B, p1=C, p2=A, p3=B -> C to A (using B,C,A,B)
+            # This seems correct. It will generate n cubicTo segments for n original points.
+            pass # The loop should handle closing if points are set up right.
+
+        return path
+
+    def _resample_points_simple(self, points: List[QPointF], num_target_points: int) -> List[QPointF]:
+        """Resamples the given points to num_target_points. Simple version."""
+        if not points:
+            return []
+        n = len(points)
+        if n == 0 or num_target_points <= 0:
+            return []
+
+        # If original points are less than target and also very few (e.g. <3 for a spline),
+        # it might be better to return them as is, or an empty list if not usable.
+        # For this function, we'll aim to produce num_target_points if possible.
+
+        final_resampled: List[QPointF] = []
+        if n <= num_target_points:
+            final_resampled = points.copy()
+            # Pad with the last point if fewer points than num_target_points
+            if final_resampled: # Check if list is not empty after copy
+                while len(final_resampled) < num_target_points:
+                    final_resampled.append(final_resampled[-1])
+            elif num_target_points > 0: # Original points was empty, but target > 0
+                # Cannot meaningfully create points from nothing. Return empty.
+                # Or raise error, or return a default point list (e.g. [QPointF(0,0)] * num_target_points)
+                # For path drawing, empty is safer.
+                return []
+        else: # n > num_target_points
+            for i in range(num_target_points):
+                # Distribute selection across the original points
+                # Ensures that the first point is points[0] (for i=0)
+                # and for i=num_target_points-1, index should be n-1.
+                # float_idx = i * (n - 1) / (num_target_points - 1) if num_target_points > 1 else 0
+                # However, simple division often works well enough for visual representation.
+                idx = int(i * n / num_target_points) # Simple distribution
+                final_resampled.append(points[idx])
+        return final_resampled
+
+    def clear_visual_path_for_component(self, component_key: str):
+        """Removes the final visual path associated with the given component_key from the scene and map."""
+        if not component_key:
+            logging.warning("EditorView: clear_visual_path_for_component called with no component_key.")
+            return
+
+        logging.info(f"EditorView: Attempting to clear visual path for component '{component_key}'.")
+        path_item_to_remove = self.final_paths_map.pop(component_key, None)
+
+        if path_item_to_remove:
+            if path_item_to_remove.scene():
+                self.scene().removeItem(path_item_to_remove)
+                logging.debug(f"Removed visual path for component '{component_key}' from scene.")
+            else:
+                logging.debug(f"Visual path for component '{component_key}' was in map but not in scene.")
+
+            self.path_data_cleared_for_component.emit(component_key)
+            self._show_status_message(f"Path cleared for {component_key}.")
+        else:
+            logging.debug(f"No visual path found in map for component '{component_key}' to clear.")
+            # Still emit, as IKManager might have data even if visual wasn't shown or was already cleared
+            self.path_data_cleared_for_component.emit(component_key)
+            self._show_status_message(f"No visual path to clear for {component_key}, ensuring data is cleared.")

@@ -174,21 +174,19 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.update_motion_path_visual()
 
     def update_motion_path_visual(self):
+        # EditorView is now responsible for drawing the final motion paths.
+        # This CharacterPartItem will hold the motion_path data, but not draw it directly.
         if self.motion_path_item and self.motion_path_item.scene():
+            # If this item previously managed its own path visual, ensure it's cleaned up.
+            # This might be redundant if EditorView is the sole manager, but safe.
             self.motion_path_item.scene().removeItem(self.motion_path_item)
             self.motion_path_item = None
+            logging.debug(f"CharacterPartItem '{self.name()}': Cleared any self-managed motion_path_item. EditorView should handle visuals.")
 
         if self.motion_path and not self.motion_path.isEmpty():
-            pen = QPen(QColor(0, 200, 0, 180), 1.5)
-            pen.setCosmetic(True)
-            self.motion_path_item = QGraphicsPathItem(self.motion_path)
-            self.motion_path_item.setPen(pen)
-            self.motion_path_item.setZValue(Z_MOTION_PATH_LINE)
-            if self.scene():
-                 self.scene().addItem(self.motion_path_item)
-            logging.debug(f"Motion path visual updated for {self.name()}")
+            logging.debug(f"CharacterPartItem '{self.name()}': Has motion_path data. Visuals are managed by EditorView.")
         else:
-            logging.debug(f"No motion path to visualize for {self.name()}")
+            logging.debug(f"CharacterPartItem '{self.name()}': No motion path data.")
 
     def _setup_selection_highlight(self):
         pen = QPen(QColor(0, 120, 215, 200), 1.5)
