@@ -1,6 +1,7 @@
 import logging
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from pathlib import Path
+import math
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -18,22 +19,23 @@ from PyQt6.QtWidgets import (
     QApplication,
     QStyle,
     QListWidgetItem,
-    QMessageBox
+    QMessageBox,
+    QGraphicsLineItem,
+    QGraphicsEllipseItem
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QTimer
 from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtWidgets import QGraphicsItem # Added for type hinting
-from PyQt6.QtGui import QPixmap # Added QPixmap
+from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6.QtGui import QPixmap, QPen, QBrush
 
-# Import EditorScene and EditorView
-from ..editor_view import EditorView # Assuming editor_view.py is in the same parent directory (gui)
+from ..editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene
-from ..graphics_items.part_item import CharacterPartItem # UPDATED
-from automataii.core.models import PartInfo # Added PartInfo
+from ..graphics_items.part_item import CharacterPartItem
+from automataii.core.models import PartInfo
 
 from PyQt6.QtGui import QPainterPath
-from ..dialogs.recommendation_dialog import MechanismRecommendationDialog # ADDED
-from .utils import get_project_root # Assuming a utility to get project root
+from ..dialogs.recommendation_dialog import MechanismRecommendationDialog, MECHANISM_TYPE_USER_DISPLAY_4_BAR, MECHANISM_TYPE_USER_DISPLAY_3_BAR, MECHANISM_TYPE_USER_DISPLAY_CAM
+from .utils import get_project_root
 
 class EditorTab(QWidget):
     # Signals this tab might emit
@@ -135,6 +137,14 @@ class EditorTab(QWidget):
         self.pivot_d_marker: Optional[QGraphicsEllipseItem] = None
         self.driver_center_marker: Optional[QGraphicsEllipseItem] = None
         self.driven_center_marker: Optional[QGraphicsEllipseItem] = None
+
+        # Mechanism Simulation Timer and state
+        self.mechanism_simulation_timer = QTimer(self)
+        self.mechanism_simulation_timer.timeout.connect(self._update_mechanism_simulation)
+        self.current_mechanism_crank_angle_rad = 0.0 # For the loaded mechanism
+        self.mechanism_simulation_angular_step = math.radians(2.0) # Degrees per step
+        self.is_mechanism_simulating = False
+        self._initial_mechanism_crank_angle_rad = 0.0 # Store initial angle for reset
 
         self._init_ui()
 
@@ -653,59 +663,56 @@ class EditorTab(QWidget):
         self.stop_btn.setEnabled(True)
         self.reset_sim_btn.setEnabled(False)  # Can't reset while playing
 
+        if self.mechanism_visual_items: # Only start if a mechanism is loaded
+            self.is_mechanism_simulating = True
+            self.mechanism_simulation_timer.start(30) # Approx 33 FPS
+            logging.info("Mechanism simulation started.")
+
     def _stop_simulation_clicked(self):
         self.request_stop_simulation.emit()
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.reset_sim_btn.setEnabled(True)
 
+        if self.is_mechanism_simulating:
+            self.is_mechanism_simulating = False
+            self.mechanism_simulation_timer.stop()
+            logging.info("Mechanism simulation stopped.")
+
     def _reset_simulation_clicked(self):
         self.request_reset_simulation.emit()
+        # Stop mechanism simulation and reset its state
+        if self.is_mechanism_simulating:
+            self.is_mechanism_simulating = False
+            self.mechanism_simulation_timer.stop()
+
+        self.current_mechanism_crank_angle_rad = self._initial_mechanism_crank_angle_rad
+
+        # Re-display mechanism in its initial pose if it exists
+        # This requires storing the data of the last loaded mechanism or re-fetching if necessary
+        # For now, let's assume if mechanism_visual_items exist, we can re-evaluate its initial pose
+        # This part might need refinement: if _load_and_display_mechanism clears and redraws,
+        # it needs the original mechanism_data and user_path_center.
+        # A simple approach: if items exist, clear and re-load the *last known* mechanism.
+        # This implies storing `self.last_loaded_mechanism_data` and `self.last_user_path_center`.
+        # For now, we will just reset the angle. A full redraw to initial state
+        # would be more robust if _load_and_display_mechanism is called.
+        # Let's simplify: if a mechanism is loaded (visual items exist), update it to initial angle.
+        if self.mechanism_visual_items and hasattr(self, '_loaded_mechanism_params') and self._loaded_mechanism_params:
+             # Re-solve for initial angle and update visuals
+            mech_data_for_reset = self._loaded_mechanism_params.get("data")
+            user_path_center_for_reset = self._loaded_mechanism_params.get("user_path_center")
+            if mech_data_for_reset and user_path_center_for_reset:
+                 # We call a specialized update, not full load, to avoid re-creating items, just update lines
+                 self._update_displayed_mechanism_pose(self.current_mechanism_crank_angle_rad, mech_data_for_reset, user_path_center_for_reset)
+            logging.info(f"Mechanism reset to initial angle: {math.degrees(self.current_mechanism_crank_angle_rad):.1f} deg")
+
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.reset_sim_btn.setEnabled(
             False
-        )  # Should be true after reset if parts exist
-        self._update_button_states()  # Re-evaluate button states after reset
-
-    def _reset_all_animations_paths_poses(self):
-        # This will call a method on MainWindow
-        logging.info("EditorTab: Requesting reset of all animation paths and poses.")
-        self.request_reset_all_animations.emit()
+        )
         self._update_button_states()
-
-    def _toggle_test_anchors_visibility_in_view(self, checked: bool):
-        if hasattr(self.main_window, "_toggle_test_anchors_visibility"):
-            if checked:
-                self.editor_view.show_test_anchors()
-            else:
-                self.editor_view.hide_test_anchors()
-
-    def _update_mechanism_inputs_ui(self, mechanism_type: str):
-        self.cam_inputs_group.setVisible(mechanism_type == "Cam & Follower")
-        self.three_bar_inputs_group.setVisible(mechanism_type == "3-Bar Linkage")
-        self.four_bar_inputs_group.setVisible(mechanism_type == "4-Bar Linkage")
-        self.gear_inputs_group.setVisible(mechanism_type == "Gears (Simple Pair)")
-        self._update_generate_mechanism_button_state()
-
-    def _update_generate_mechanism_button_state(self):
-        # Simple check, can be made more robust based on selected points for each mechanism
-        can_generate = (
-            self.selected_part_name is not None
-            and self._get_selected_part_has_motion_path()
-        )
-
-        # Add specific checks for each mechanism type if needed
-        # e.g., for cam, ensure cam center is selected if it's a requirement not based on motion path target
-        self.generate_mechanism_btn.setEnabled(can_generate)
-
-    def _select_mechanism_point(self, point_type: str):
-        # This method will instruct main_window.editor_view to enter a point selection mode
-        # Point_type could be 'cam_center', 'pivot_a_3bar', 'pivot_a_4bar', 'pivot_d_4bar', 'driver_center', 'driven_center'
-        self.editor_view.start_mechanism_point_selection(point_type)
-        self.main_window.statusBar().showMessage(
-            f"Click in the scene to define {point_type.replace('_', ' ')}."
-        )
 
     def _generate_mechanism_clicked(self):
         # This method is called when the "Generate Mechanism" button is clicked.
@@ -771,8 +778,17 @@ class EditorTab(QWidget):
             # TODO: Implement loading and simulation of the selected mechanism
             # For now, just log the selection
             logging.info(f"Mechanism selected: {selected_mechanism.get('name')}, Type: {selected_mechanism.get('type')}")
-            QMessageBox.information(self, "Mechanism Selected",
-                                    f"Selected: {selected_mechanism.get('name')}\\nType: {selected_mechanism.get('type')}\\nScore (Hausdorff): {selected_mechanism.get('overall_score'):.4f}")
+            # QMessageBox.information(self, "Mechanism Selected",
+            #                         f"Selected: {selected_mechanism.get('name')}\\nType: {selected_mechanism.get('type')}\\nScore (Hausdorff): {selected_mechanism.get('overall_score'):.4f}")
+
+            # Calculate center of user path to pass for mechanism placement
+            user_path_center = QPointF(0,0) # Default
+            if user_motion_path and not user_motion_path.isEmpty():
+                user_path_center = user_motion_path.boundingRect().center()
+
+            # Store for potential reset
+            self._loaded_mechanism_params = {"data": selected_mechanism, "user_path_center": user_path_center}
+            self._load_and_display_mechanism(selected_mechanism, user_path_center)
 
             # Here, you would typically emit a signal or call a method to
             # load the mechanism definition into the EditorView,
@@ -845,30 +861,32 @@ class EditorTab(QWidget):
             self.fixed_part_check.setChecked(False)  # Reset
 
     def _update_button_states(self):
-        has_parts = self.parts_list.count() > 0
+        has_parts = self.parts_list.count() > 0 if self.parts_list else False # Add check for self.parts_list
         has_selection = self.selected_part_name is not None
-        is_sim_playing = self.stop_btn.isEnabled()  # If stop is enabled, sim is playing
+        is_sim_playing = self.stop_btn.isEnabled() if self.stop_btn else False # Add check for self.stop_btn
 
-        self.define_motion_path_btn.setEnabled(has_selection and not is_sim_playing)
-        self.clear_motion_path_btn.setEnabled(
-            has_selection
-            and not is_sim_playing
-            and self._get_selected_part_has_motion_path()
-        )
+        if self.define_motion_path_btn: self.define_motion_path_btn.setEnabled(has_selection and not is_sim_playing)
+        if self.clear_motion_path_btn:
+            self.clear_motion_path_btn.setEnabled(
+                has_selection
+                and not is_sim_playing
+                and self._get_selected_part_has_motion_path()
+            )
 
-        self.play_btn.setEnabled(has_parts and not is_sim_playing)
+        if self.play_btn: self.play_btn.setEnabled(has_parts and not is_sim_playing)
         # stop_btn state handled by play/stop clicks
-        self.reset_sim_btn.setEnabled(
-            has_parts and not is_sim_playing
-        )  # General sim reset
-        self.generate_mechanism_btn.setEnabled(
-            has_selection
-            and not is_sim_playing
-            and self._get_selected_part_has_motion_path()
-        )
-        self.blueprint_btn.setEnabled(has_parts)
-        self.save_alignment_btn.setEnabled(has_parts)
-        self._update_generate_mechanism_button_state()  # Re-check this specifically
+        if self.reset_sim_btn:
+            self.reset_sim_btn.setEnabled(
+                has_parts and not is_sim_playing
+            )  # General sim reset
+
+        # self.generate_mechanism_btn is now handled by _update_generate_mechanism_button_state
+        # Remove direct enabling/disabling from here if it exists, or ensure it's consistent.
+        # For now, let's rely on the specific method.
+
+        if self.blueprint_btn: self.blueprint_btn.setEnabled(has_parts)
+        if self.save_alignment_btn: self.save_alignment_btn.setEnabled(has_parts)
+        self._update_generate_mechanism_button_state()  # Ensure this is called to update the specific button
 
     def _get_selected_part_has_motion_path(self) -> bool:
         if (
@@ -1363,3 +1381,268 @@ class EditorTab(QWidget):
     #     # Update any model data if necessary, though direct manipulation might be handled by IK later
     #     # self.current_parts_info[part_name].scene_position = scene_pos # Example
     #     self.main_window.project_data_manager.update_part_position(part_name, scene_pos) # Example call
+
+    def _solve_four_bar_kinematics(self, P0: QPointF, P3: QPointF, L1: float, L2: float, L3: float, input_angle_L1_rad: float) -> Optional[Tuple[QPointF, QPointF, float, float, float]]:
+        """
+        Solves the forward kinematics for a four-bar linkage for a given input angle of L1.
+        P0 and P3 are fixed pivots. L1 is the crank, L2 the coupler, L3 the rocker.
+        Lengths are assumed to be already scaled for display.
+
+        Args:
+            P0: Position of the first fixed pivot (where L1 and L4 connect).
+            P3: Position of the second fixed pivot (where L3 and L4 connect).
+            L1: Length of the crank.
+            L2: Length of the coupler.
+            L3: Length of the rocker.
+            input_angle_L1_rad: Input angle of L1 (crank) in radians, relative to the positive x-axis.
+
+        Returns:
+            A tuple (P1, P2, l1_angle_rad, l2_angle_rad, l3_angle_rad) if a solution exists,
+            otherwise None. Angles are global (relative to positive x-axis).
+            P1 is the pivot between L1 and L2.
+            P2 is the pivot between L2 and L3.
+        """
+        # Calculate P1 based on P0, L1, and input_angle_L1_rad
+        P1 = QPointF(P0.x() + L1 * math.cos(input_angle_L1_rad),
+                    P0.y() + L1 * math.sin(input_angle_L1_rad))
+
+        # Now, find P2. P2 is at the intersection of two circles:
+        # Circle 1: center P1, radius L2
+        # Circle 2: center P3, radius L3
+        d_sq = (P3.x() - P1.x())**2 + (P3.y() - P1.y())**2
+        d = math.sqrt(d_sq)
+
+        # Check if solution is possible
+        if d > L2 + L3 or d < abs(L2 - L3):
+            logging.warning(f"4-Bar Kinematics: No solution. d={d}, L2+L3={L2+L3}, |L2-L3|={abs(L2-L3)}")
+            return None
+        if d == 0 and L2 != L3 : # P1 and P3 coincide, but L2 != L3
+             logging.warning(f"4-Bar Kinematics: No solution. P1 and P3 coincide, L2!=L3")
+             return None
+        if d == 0 and L2 == L3: # P1, P3 coincide, L2=L3. Infinite solutions for P2. Ambiguous.
+            # This case could be handled by choosing P2 to make L2 continue in L1's direction or other rule.
+            # For now, let's treat it as ambiguous / non-deterministic for a single pose.
+            logging.warning(f"4-Bar Kinematics: Ambiguous. P1,P3 coincide and L2=L3.")
+            # For a default pose, let P2 be along the line of L1.
+            # Angle of L2 = input_angle_L1_rad
+            # P2 = QPointF(P1.x() + L2 * math.cos(input_angle_L1_rad), P1.y() + L2 * math.sin(input_angle_L1_rad))
+            # But this might not satisfy the L3 constraint unless L3 is also 0.
+            return None # Or a more sophisticated handling
+
+        # Using law of cosines to find angles in triangle P1-P2-P3
+        # Angle at P1 in triangle P1P3P2 (angle between P1P3 and P1P2)
+        val_for_acos_gamma1 = (d_sq + L2**2 - L3**2) / (2 * d * L2)
+        if not (-1 <= val_for_acos_gamma1 <= 1): # Check due to potential floating point issues
+            logging.warning(f"4-Bar Kinematics: val_for_acos_gamma1 out of range: {val_for_acos_gamma1}. d={d}, L2={L2}, L3={L3}")
+            return None
+        gamma1 = math.acos(val_for_acos_gamma1)
+
+        # Angle of line P1P3 relative to positive x-axis
+        phi_P1P3 = math.atan2(P3.y() - P1.y(), P3.x() - P1.x())
+
+        # Angle of L2 (P1P2) - two solutions for P2: (phi_P1P3 - gamma1) or (phi_P1P3 + gamma1)
+        # We need a consistent way to choose. Let's choose one configuration.
+        # The "elbow" direction depends on this choice.
+        # For now, using (phi_P1P3 - gamma1) for l2_angle_rad. This is one of two configurations.
+        # A common convention is to choose the one that results in a "crossed" or "open" configuration
+        # based on the problem or an additional parameter. Let's pick one for now.
+        l2_angle_rad = phi_P1P3 - gamma1 # First solution for L2 angle
+
+        P2 = QPointF(P1.x() + L2 * math.cos(l2_angle_rad),
+                    P1.y() + L2 * math.sin(l2_angle_rad))
+
+        # Calculate angle of L3 (P3P2)
+        l3_angle_rad = math.atan2(P2.y() - P3.y(), P2.x() - P3.x())
+
+        # Actual angle of L1 is input_angle_L1_rad
+        l1_angle_rad = input_angle_L1_rad
+
+        return P1, P2, l1_angle_rad, l2_angle_rad, l3_angle_rad
+
+    def _load_and_display_mechanism(self, mechanism_data: Dict[str, Any], user_path_center: QPointF):
+        # Stop any ongoing simulation before clearing
+        if self.is_mechanism_simulating:
+            self.is_mechanism_simulating = False
+            self.mechanism_simulation_timer.stop()
+            logging.info("Stopped ongoing mechanism simulation before loading new one.")
+
+        # Clear previous mechanism visuals
+        for item in self.mechanism_visual_items:
+            if item.scene() == self.editor_scene:
+                self.editor_scene.removeItem(item)
+        self.mechanism_visual_items.clear()
+
+        mech_type = mechanism_data.get("type")
+        params = mechanism_data.get("parameters")
+
+        if not params:
+            logging.warning("No parameters found in mechanism data.")
+            return
+
+        # --- Constants for Drawing ---
+        SCALING_FACTOR = 50.0  # Pixels per unit length from JSON
+        LINK_COLOR = Qt.GlobalColor.darkCyan
+        LINK_THICKNESS = 3
+        PIVOT_COLOR = Qt.GlobalColor.red
+        PIVOT_RADIUS = 6
+        GROUND_LINK_COLOR = Qt.GlobalColor.gray
+
+        if mech_type == MECHANISM_TYPE_USER_DISPLAY_4_BAR: # Matches constant from recommendation_dialog
+            L1 = params.get("L1", 0.0) * SCALING_FACTOR
+            L2 = params.get("L2", 0.0) * SCALING_FACTOR
+            L3 = params.get("L3", 0.0) * SCALING_FACTOR
+            L4_ground = params.get("L4_ground", 0.0) * SCALING_FACTOR
+
+            if not all([L1 > 0, L2 > 0, L3 > 0, L4_ground > 0]):
+                logging.error("Invalid link lengths for 4-bar linkage.")
+                return
+
+            # Placement: Place P0 (start of ground link) offset from user_path_center
+            # P0 = QPointF(user_path_center.x() - L4_ground / 2, user_path_center.y() + max(L1,L2,L3) / 2) # Heuristic
+            P0 = QPointF(user_path_center.x() - L4_ground / 2, user_path_center.y() + L1) # Simpler offset for now
+            P3 = QPointF(P0.x() + L4_ground, P0.y()) # Horizontal ground link
+
+            # Initial input angle for L1 (e.g., 30 degrees)
+            initial_crank_angle_deg = 30.0
+            initial_crank_angle_rad = math.radians(initial_crank_angle_deg)
+            self.current_mechanism_crank_angle_rad = initial_crank_angle_rad # Store for simulation start
+            self._initial_mechanism_crank_angle_rad = initial_crank_angle_rad # Store for reset
+
+            kinematic_solution = self._solve_four_bar_kinematics(P0, P3, L1, L2, L3, initial_crank_angle_rad)
+
+            if kinematic_solution:
+                P1, P2, _, _, _ = kinematic_solution
+
+                # Create QGraphicsItems
+                link1_item = self.editor_scene.addLine(P0.x(), P0.y(), P1.x(), P1.y(), QPen(LINK_COLOR, LINK_THICKNESS))
+                link2_item = self.editor_scene.addLine(P1.x(), P1.y(), P2.x(), P2.y(), QPen(LINK_COLOR, LINK_THICKNESS))
+                link3_item = self.editor_scene.addLine(P2.x(), P2.y(), P3.x(), P3.y(), QPen(LINK_COLOR, LINK_THICKNESS))
+                ground_link_item = self.editor_scene.addLine(P3.x(), P3.y(), P0.x(), P0.y(), QPen(GROUND_LINK_COLOR, LINK_THICKNESS, style=Qt.PenStyle.DashLine))
+
+                pivot0_item = self.editor_scene.addEllipse(P0.x() - PIVOT_RADIUS, P0.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
+                pivot1_item = self.editor_scene.addEllipse(P1.x() - PIVOT_RADIUS, P1.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
+                pivot2_item = self.editor_scene.addEllipse(P2.x() - PIVOT_RADIUS, P2.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
+                pivot3_item = self.editor_scene.addEllipse(P3.x() - PIVOT_RADIUS, P3.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
+
+                self.mechanism_visual_items.extend([link1_item, link2_item, link3_item, ground_link_item, pivot0_item, pivot1_item, pivot2_item, pivot3_item])
+                logging.info(f"Displayed 4-bar linkage: P0({P0.x():.1f},{P0.y():.1f}), P1({P1.x():.1f},{P1.y():.1f}), P2({P2.x():.1f},{P2.y():.1f}), P3({P3.x():.1f},{P3.y():.1f})")
+            else:
+                QMessageBox.warning(self, "Mechanism Error", "Could not solve kinematics for the selected 4-bar linkage with the given parameters and initial angle.")
+                logging.error("Failed to display 4-bar linkage due to kinematic solution error.")
+
+        elif mech_type == MECHANISM_TYPE_USER_DISPLAY_3_BAR:
+            # TODO: Implement 3-bar linkage display
+            logging.info("3-Bar linkage display not yet implemented.")
+            pass
+        elif mech_type == MECHANISM_TYPE_USER_DISPLAY_CAM:
+            # TODO: Implement Cam display
+            logging.info("Cam mechanism display not yet implemented.")
+            pass
+        else:
+            logging.warning(f"Mechanism display not implemented for type: {mech_type}")
+
+        self.editor_scene.update()
+
+    def _update_mechanism_simulation(self):
+        """Updates the mechanism pose based on the current crank angle."""
+        if not self.is_mechanism_simulating or not self.mechanism_visual_items or \
+           not hasattr(self, '_loaded_mechanism_params') or not self._loaded_mechanism_params:
+            return
+
+        self.current_mechanism_crank_angle_rad += self.mechanism_simulation_angular_step
+        # Normalize angle to 0-2pi
+        self.current_mechanism_crank_angle_rad %= (2 * math.pi)
+
+        # Use stored parameters for the currently loaded mechanism
+        mechanism_data = self._loaded_mechanism_params.get("data")
+        user_path_center = self._loaded_mechanism_params.get("user_path_center") # Needed for P0, P3 re-calculation if not stored
+
+        if not mechanism_data or not user_path_center:
+            logging.warning("Missing loaded mechanism data for simulation update.")
+            self.mechanism_simulation_timer.stop()
+            self.is_mechanism_simulating = False
+            return
+
+        self._update_displayed_mechanism_pose(self.current_mechanism_crank_angle_rad, mechanism_data, user_path_center)
+
+    def _update_displayed_mechanism_pose(self, crank_angle_rad: float, mechanism_data: Dict[str, Any], user_path_center: QPointF):
+        """Helper function to update the visual items of a 4-bar linkage to a new pose."""
+        params = mechanism_data.get("parameters")
+        mech_type = mechanism_data.get("type")
+
+        if not params or mech_type != MECHANISM_TYPE_USER_DISPLAY_4_BAR:
+            logging.warning(f"Cannot update pose for mechanism type {mech_type} or missing params.")
+            return
+
+        SCALING_FACTOR = 50.0
+        L1 = params.get("L1", 0.0) * SCALING_FACTOR
+        L2 = params.get("L2", 0.0) * SCALING_FACTOR
+        L3 = params.get("L3", 0.0) * SCALING_FACTOR
+        L4_ground = params.get("L4_ground", 0.0) * SCALING_FACTOR
+
+        if not all([L1 > 0, L2 > 0, L3 > 0, L4_ground > 0]):
+            return # Already logged in _load_and_display
+
+        # Re-calculate P0, P3 based on user_path_center (consistent placement)
+        # This assumes P0, P3 are not part of mechanism_visual_items that are being transformed directly.
+        # If P0, P3 were visual items, we'd fetch their positions instead.
+        P0 = QPointF(user_path_center.x() - L4_ground / 2, user_path_center.y() + L1)
+        P3 = QPointF(P0.x() + L4_ground, P0.y())
+
+        kinematic_solution = self._solve_four_bar_kinematics(P0, P3, L1, L2, L3, crank_angle_rad)
+
+        if kinematic_solution:
+            P1_new, P2_new, _, _, _ = kinematic_solution
+
+            # Assuming visual items are stored in a specific order:
+            # [link1, link2, link3, ground_link, pivot0, pivot1, pivot2, pivot3]
+            if len(self.mechanism_visual_items) >= 8:
+                # Update Links
+                link1_item = self.mechanism_visual_items[0]
+                link2_item = self.mechanism_visual_items[1]
+                link3_item = self.mechanism_visual_items[2]
+                # ground_link_item = self.mechanism_visual_items[3] # Stays static
+
+                if isinstance(link1_item, QGraphicsLineItem): link1_item.setLine(P0.x(), P0.y(), P1_new.x(), P1_new.y())
+                if isinstance(link2_item, QGraphicsLineItem): link2_item.setLine(P1_new.x(), P1_new.y(), P2_new.x(), P2_new.y())
+                if isinstance(link3_item, QGraphicsLineItem): link3_item.setLine(P2_new.x(), P2_new.y(), P3.x(), P3.y())
+
+                # Update Pivots (P0 and P3 are fixed, P1 and P2 move)
+                pivot1_item = self.mechanism_visual_items[5]
+                pivot2_item = self.mechanism_visual_items[6]
+                PIVOT_RADIUS = 6 # Must match definition in _load_and_display
+
+                if isinstance(pivot1_item, QGraphicsEllipseItem): pivot1_item.setRect(P1_new.x() - PIVOT_RADIUS, P1_new.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2)
+                if isinstance(pivot2_item, QGraphicsEllipseItem): pivot2_item.setRect(P2_new.x() - PIVOT_RADIUS, P2_new.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2)
+
+                # Ensure P0 and P3 pivots are correctly positioned if they were created (they are static though)
+                # pivot0_item = self.mechanism_visual_items[4]
+                # pivot3_item = self.mechanism_visual_items[7]
+                # if isinstance(pivot0_item, QGraphicsEllipseItem): pivot0_item.setRect(P0.x() - PIVOT_RADIUS, P0.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2)
+                # if isinstance(pivot3_item, QGraphicsEllipseItem): pivot3_item.setRect(P3.x() - PIVOT_RADIUS, P3.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2)
+            else:
+                logging.warning("Mechanism visual items not found or in unexpected quantity for simulation update.")
+        else:
+            logging.warning(f"No kinematic solution for crank angle {math.degrees(crank_angle_rad):.1f} deg. Stopping simulation.")
+            self.mechanism_simulation_timer.stop()
+            self.is_mechanism_simulating = False
+            # Optionally inform user or revert to last good pose
+
+        self.editor_scene.update() # Update scene after item changes
+
+    def _update_generate_mechanism_button_state(self):
+        """Updates the enabled state of the 'Generate Mechanism' button."""
+        if not self.generate_mechanism_btn:
+            return
+
+        has_selection = self.selected_part_name is not None
+        is_sim_playing = self.stop_btn.isEnabled() if self.stop_btn else False
+        has_motion_path = self._get_selected_part_has_motion_path()
+
+        # Enable conditions:
+        # 1. A part is selected.
+        # 2. Simulation is NOT playing.
+        # 3. The selected part has a defined motion path.
+        can_generate = has_selection and not is_sim_playing and has_motion_path
+        self.generate_mechanism_btn.setEnabled(can_generate)
+        # logging.debug(f"Generate mechanism button state: {can_generate} (sel:{has_selection}, sim_play:{is_sim_playing}, path:{has_motion_path})")
