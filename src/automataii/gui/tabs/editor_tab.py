@@ -33,6 +33,7 @@ from automataii.core.models import PartInfo # Added PartInfo
 
 from PyQt6.QtGui import QPainterPath
 from ..dialogs.recommendation_dialog import MechanismRecommendationDialog # ADDED
+from .utils import get_project_root # Assuming a utility to get project root
 
 class EditorTab(QWidget):
     # Signals this tab might emit
@@ -707,53 +708,80 @@ class EditorTab(QWidget):
         )
 
     def _generate_mechanism_clicked(self):
+        # This method is called when the "Generate Mechanism" button is clicked.
+        # It should:
+        # 1. Get the motion path from the currently selected CharacterPartItem in EditorView.
+        # 2. Open the MechanismRecommendationDialog with this path.
+        # 3. Handle the selected mechanism from the dialog.
+
         if not self.selected_part_name:
-            QMessageBox.warning(
-                self,
-                "Mechanism Generation",
-                "Please select a target part with a motion path.",
-            )
+            QMessageBox.warning(self, "No Part Selected", "Please select a character part first.")
             return
 
-        # TODO: Replace with actual recommendation fetching logic
-        # For now, using empty list or dummy data for dialog testing
-        # Example: recommendations = self.main_window.mechanism_manager.get_recommendations(self.selected_part_name)
-        recommendations: List[Optional[Dict[str, Any]]] = []
-        # recommendations.append( { "name": "Test Cam", "type": "Cam & Follower", "overall_score": 0.9, "user_motion_path_local": QPainterPath() })
-        # recommendations.append( { "name": "Test Linkage", "type": "4-Bar Linkage", "overall_score": 0.8 })
+        part_item = self.current_editor_items.get(self.selected_part_name)
+        if not part_item:
+            QMessageBox.warning(self, "Part Not Found", f"Could not find the editor item for part: {self.selected_part_name}")
+            return
 
-        selected_mechanism_data = MechanismRecommendationDialog.get_recommendation(recommendations, self)
+        # Attempt to get QPainterPath from the part_item
+        # This assumes CharacterPartItem has a method or attribute to access its QPainterPath
+        # For example, if it stores the QGraphicsPathItem for its motion path:
+        user_motion_path: Optional[QPainterPath] = None
+        if hasattr(part_item, 'motion_path_item') and part_item.motion_path_item is not None:
+            user_motion_path = part_item.motion_path_item.path()
+        elif hasattr(part_item, 'part_info') and hasattr(part_item.part_info, 'motion_path_data') and isinstance(part_item.part_info.motion_path_data, QPainterPath):
+            user_motion_path = part_item.part_info.motion_path_data
 
-        if selected_mechanism_data:
-            mechanism_type = selected_mechanism_data.get("type", "Unknown")
-            # Ensure "cam" or "gears" from recommendation data maps to the full combo box text if needed
-            if mechanism_type == "cam": mechanism_type = "Cam & Follower"
-            if mechanism_type == "gears": mechanism_type = "Gears (Simple Pair)"
+        if not user_motion_path or user_motion_path.isEmpty():
+            QMessageBox.warning(self, "No Motion Path", f"No motion path defined for the selected part: {self.selected_part_name}. Please draw a path first.")
+            return
 
-            logging.info(f"EditorTab: Mechanism '{selected_mechanism_data.get('name')}' of type '{mechanism_type}' selected from dialog.")
+        # Define the path to the generated mechanism paths JSON file
+        # This should ideally be a more robust way to get the project path
+        try:
+            # Attempt to use a utility function if available
+            project_root_str = get_project_root() # Assuming it might return str or Path
+            project_root = Path(project_root_str) # Ensure it's a Path object
+            generated_paths_filepath = str(project_root / "kinematics" / "generated_mechanism_paths.json")
+        except NameError: # Fallback if get_project_root is not defined or fails
+             # This relative path might be fragile depending on execution context
+            logging.warning("get_project_root utility not found. Using potentially fragile relative path for JSON.")
+            base_path = Path(__file__).resolve().parent.parent.parent # automataii directory
+            generated_paths_filepath = str(base_path / "kinematics" / "generated_mechanism_paths.json")
+            # For a more direct approach if this file is in automataii/gui/tabs
+            # and json is in automataii/kinematics
+            # Assumes structure: automataii/gui/tabs/editor_tab.py
+            #                   automataii/kinematics/generated_mechanism_paths.json
 
-            # Prepare parameters for request_generate_mechanism
-            # Some parameters might come from selected_mechanism_data, others from current UI state
-            params = {
-                "target_part_name": self.selected_part_name,
-                "gear_ratio": self.gear_ratio_spin.value() if mechanism_type == "Gears (Simple Pair)" else None,
-                # Add other relevant parameters from selected_mechanism_data or EditorTab state as needed
-                # For example, if the dialog allows configuring specific points, pass them here.
-                "recommendation_data": selected_mechanism_data # Pass the full data for the generator to use
-            }
+        # Ensure the file exists before proceeding
+        if not Path(generated_paths_filepath).exists():
+            QMessageBox.critical(self, "Error", f"Mechanism data file not found at: {generated_paths_filepath}")
+            logging.error(f"Mechanism data file not found: {generated_paths_filepath}")
+            return
 
-            # Ensure the mechanism_type_combo reflects the selection from the dialog
-            # This might be useful if the generation logic relies on the combo box's current text.
-            # Find the index of the mechanism_type in the combo box
-            index = self.mechanism_type_combo.findText(mechanism_type)
-            if index != -1:
-                self.mechanism_type_combo.setCurrentIndex(index)
-            else:
-                logging.warning(f"EditorTab: Mechanism type '{mechanism_type}' from dialog not found in combo box. Generation might use default or fail.")
+        logging.debug(f"EditorTab: Showing MechanismRecommendationDialog for part '{self.selected_part_name}' with path and JSON: {generated_paths_filepath}")
 
-            self.request_generate_mechanism.emit(mechanism_type, params)
+        selected_mechanism = MechanismRecommendationDialog.get_recommendation(
+            user_motion_path=user_motion_path,
+            generated_paths_filepath=generated_paths_filepath,
+            parent=self
+        )
+
+        if selected_mechanism:
+            # TODO: Implement loading and simulation of the selected mechanism
+            # For now, just log the selection
+            logging.info(f"Mechanism selected: {selected_mechanism.get('name')}, Type: {selected_mechanism.get('type')}")
+            QMessageBox.information(self, "Mechanism Selected",
+                                    f"Selected: {selected_mechanism.get('name')}\\nType: {selected_mechanism.get('type')}\\nScore (Hausdorff): {selected_mechanism.get('overall_score'):.4f}")
+
+            # Here, you would typically emit a signal or call a method to
+            # load the mechanism definition into the EditorView,
+            # set up its simulation parameters, etc.
+            # Example: self.request_load_mechanism_into_scene.emit(selected_mechanism)
+
         else:
-            logging.info("EditorTab: Mechanism recommendation dialog cancelled or no selection made.")
+            logging.info("Mechanism recommendation dialog was cancelled or no mechanism selected.")
+            # self.main_window.statusBar().showMessage("Mechanism selection cancelled.", 2000)
 
     def _handle_zoom_change(self, zoom_text: str):
         try:

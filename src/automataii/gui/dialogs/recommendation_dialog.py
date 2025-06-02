@@ -1,5 +1,9 @@
 from typing import Any, Dict, List, Optional
 
+import numpy as np # Add numpy import
+from scipy.spatial.distance import directed_hausdorff # Add scipy import
+import json # Add json import
+
 from PyQt6.QtCore import Qt, pyqtSignal as Signal, QSize, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QBrush, QPainterPath, QPolygonF, QTransform
 from PyQt6.QtWidgets import (
@@ -20,6 +24,47 @@ from PyQt6.QtWidgets import (
 )
 
 # from automataii.utils.qt_helpers import create_round_rect_path # Not used in this version
+
+DEFAULT_NUM_SAMPLES_FOR_PATH = 100 # Default number of points to sample from QPainterPath
+
+def qpainterpath_to_numpy_array(path: QPainterPath, num_points: int = DEFAULT_NUM_SAMPLES_FOR_PATH) -> Optional[np.ndarray]:
+    """Converts a QPainterPath to a numpy array of (x, y) coordinates.
+
+    Args:
+        path: The QPainterPath to convert.
+        num_points: The number of points to sample along the path.
+
+    Returns:
+        A numpy array of shape (num_points, 2) or None if the path is empty or invalid.
+    """
+    if path.isEmpty() or num_points <= 0:
+        return None
+
+    points = []
+    for i in range(num_points):
+        percent = i / (num_points - 1) if num_points > 1 else 0
+        pt = path.pointAtPercent(percent)
+        points.append([pt.x(), pt.y()])
+    return np.array(points)
+
+def calculate_hausdorff_distance(path1_points: np.ndarray, path2_points: np.ndarray) -> float:
+    """Calculates the Hausdorff distance between two sets of points.
+
+    Args:
+        path1_points: Numpy array of points for the first path (N, 2).
+        path2_points: Numpy array of points for the second path (M, 2).
+
+    Returns:
+        The Hausdorff distance. Returns float('inf') if either path is empty or invalid.
+    """
+    if path1_points is None or path1_points.shape[0] == 0 or \
+       path2_points is None or path2_points.shape[0] == 0:
+        return float('inf')
+
+    # For a more robust measure, consider the maximum of the two directed distances
+    dist_1_to_2 = directed_hausdorff(path1_points, path2_points)[0]
+    dist_2_to_1 = directed_hausdorff(path2_points, path1_points)[0]
+    return max(dist_1_to_2, dist_2_to_1)
 
 class MechanismPreviewWidget(QGraphicsView):
     """A widget to display a preview of a single mechanism."""
@@ -316,6 +361,18 @@ class MechanismPreviewWidget(QGraphicsView):
 # Python's math functions for cos and sin
 from math import cos as _cos, sin as _sin, radians as _np_deg2rad
 
+# Define mechanism type constants for display and internal logic
+MECHANISM_TYPE_USER_DISPLAY_3_BAR = "3-Bar Linkage"
+MECHANISM_TYPE_USER_DISPLAY_4_BAR = "4-Bar Linkage"
+MECHANISM_TYPE_USER_DISPLAY_CAM = "Cam Profile"
+
+# Constants that might be used if JSON types are more specific or internal logic needs them
+# For now, we map directly from JSON types to user display types if simple,
+# or use these for more complex mapping logic if needed later.
+# MECHANISM_INTERNAL_TYPE_3_BAR = "3_BAR_INTERNAL_TYPE_KEY_FROM_JSON_IF_DIFFERENT"
+# MECHANISM_INTERNAL_TYPE_4_BAR_COUPLER = "4-bar Coupler" # Actual key from JSON
+# MECHANISM_INTERNAL_TYPE_CAM_PROFILE = "CAM_PROFILE_INTERNAL_TYPE_KEY_FROM_JSON_IF_DIFFERENT"
+
 class PreviewContainer(QWidget):
     """Container for a single preview and its title/select button."""
     selected = Signal(dict) # Emits the mechanism data when selected
@@ -372,50 +429,153 @@ class PreviewContainer(QWidget):
 class MechanismRecommendationDialog(QDialog):
     mechanism_selected = Signal(dict) # Emitted when a mechanism is chosen
 
-    def __init__(self, recommendations: List[Optional[Dict[str, Any]]], parent: Optional[QWidget] = None):
+    def __init__(self, user_motion_path: QPainterPath, generated_paths_filepath: str, num_samples_user_path: int = DEFAULT_NUM_SAMPLES_FOR_PATH, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("Mechanism Recommendations")
-        self.setMinimumSize(700, 400) # Start with a reasonable default size
+        self.setMinimumSize(700, 400)
         self.selected_mechanism_data: Optional[Dict[str, Any]] = None
 
-        main_layout = QVBoxLayout(self)
+        self.user_motion_path_original = user_motion_path # Keep original QPainterPath for preview
+        self.user_motion_path_np = qpainterpath_to_numpy_array(user_motion_path, num_samples_user_path)
 
-        # Scroll Area for Previews (if many recommendations)
-        # For now, assuming 1-3 recommendations, can add QScrollArea later if needed.
+        self.generated_paths_filepath = generated_paths_filepath
+        self.generated_paths_data = self._load_generated_paths(generated_paths_filepath)
+
+        main_layout = QVBoxLayout(self)
         self.previews_layout = QHBoxLayout()
         self.previews_layout.setSpacing(10)
         self.previews_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        # Populate with recommendations
+        recommendations = self._get_best_recommendations()
+
         if recommendations:
             for rec_data in recommendations:
-                if rec_data: # Ensure data is not None
-                    container = PreviewContainer(rec_data, self)
+                if rec_data:
+                    # Add user_motion_path_local to each recommendation for preview
+                    rec_data_with_user_path = rec_data.copy()
+                    rec_data_with_user_path["user_motion_path_local"] = self.user_motion_path_original
+
+                    container = PreviewContainer(rec_data_with_user_path, self)
                     container.selected.connect(self._on_select)
                     self.previews_layout.addWidget(container)
                 else:
-                    # Handle case where a recommendation in the list is None (e.g., error placeholder)
                     placeholder_label = QLabel("Invalid Recommendation Data")
                     placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                     placeholder_label.setFrameShape(QLabel.FrameShape.Box)
-                    placeholder_label.setFixedSize(220, 280) # Match PreviewContainer hint
+                    placeholder_label.setFixedSize(220, 280)
                     self.previews_layout.addWidget(placeholder_label)
-            self.previews_layout.addStretch() # Push previews to the left if fewer than max
+            self.previews_layout.addStretch()
         else:
-            no_recs_label = QLabel("No mechanism recommendations available at this time.")
+            no_recs_label = QLabel("No mechanism recommendations could be generated or found.")
             no_recs_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.previews_layout.addWidget(no_recs_label)
 
         main_layout.addLayout(self.previews_layout)
 
-        # Dialog Buttons (OK/Cancel)
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False) # Disabled until selection
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
         main_layout.addWidget(self.button_box)
 
         self.setLayout(main_layout)
+
+    def _load_generated_paths(self, filepath: str) -> List[Dict[str, Any]]:
+        """Loads mechanism paths from a JSON file and prepares them."""
+        loaded_paths = []
+        try:
+            with open(filepath, 'r') as f:
+                raw_data = json.load(f)
+
+            for item in raw_data:
+                path_coords = item.get("path_coordinates")
+                if path_coords and isinstance(path_coords, list) and len(path_coords) > 0:
+                    # Ensure coordinates are suitable for numpy array (e.g., list of lists/tuples)
+                    try:
+                        item["path_coordinates_np"] = np.array(path_coords, dtype=float)
+                        loaded_paths.append(item)
+                    except ValueError as e:
+                        print(f"Warning: Could not convert path_coordinates to numpy array for item: {item.get('type', 'N/A')}. Error: {e}")
+                        # Optionally skip this item or handle error
+                else:
+                    print(f"Warning: Missing or invalid 'path_coordinates' for item: {item.get('type', 'N/A')}")
+
+        except FileNotFoundError:
+            print(f"Error: Generated paths file not found at {filepath}")
+        except json.JSONDecodeError:
+            print(f"Error: Could not decode JSON from {filepath}")
+        except Exception as e:
+            print(f"An unexpected error occurred while loading generated paths: {e}")
+        return loaded_paths
+
+    def _get_best_recommendations(self) -> List[Optional[Dict[str, Any]]]:
+        """
+        Compares the user's motion path with generated paths using Hausdorff distance
+        and returns the best match for each defined mechanism type.
+        """
+        if self.user_motion_path_np is None or not self.generated_paths_data:
+            print("User motion path is not processed or no generated paths loaded.")
+            return []
+
+        best_recommendations_map = {
+            MECHANISM_TYPE_USER_DISPLAY_3_BAR: {"best_score": float('inf'), "data": None},
+            MECHANISM_TYPE_USER_DISPLAY_4_BAR: {"best_score": float('inf'), "data": None},
+            MECHANISM_TYPE_USER_DISPLAY_CAM:   {"best_score": float('inf'), "data": None}
+        }
+
+        # Mapping from JSON type strings to our user-facing display type constants.
+        # This needs to be accurate based on the strings in your JSON file.
+        type_mapping = {
+            # Example: If your JSON has a specific type for 3-bar mechanisms:
+            # "3-bar Output": MECHANISM_TYPE_USER_DISPLAY_3_BAR,
+            "4-bar Coupler": MECHANISM_TYPE_USER_DISPLAY_4_BAR, # Actual type from JSON
+            # Example: If your JSON has a specific type for cam mechanisms:
+            # "Cam Profile": MECHANISM_TYPE_USER_DISPLAY_CAM,
+            # Add other mappings if necessary for different mechanism variations.
+        }
+
+        for gen_path_data in self.generated_paths_data:
+            gen_path_np = gen_path_data.get("path_coordinates_np")
+            json_type_str = gen_path_data.get("type")
+
+            if gen_path_np is None or json_type_str is None:
+                continue
+
+            distance = calculate_hausdorff_distance(self.user_motion_path_np, gen_path_np)
+
+            target_mech_type = type_mapping.get(json_type_str)
+
+            if target_mech_type and distance < best_recommendations_map[target_mech_type]["best_score"]:
+                best_recommendations_map[target_mech_type]["best_score"] = distance
+
+                # Prepare data for PreviewContainer
+                # The 'name' could be derived or use json_type_str or a more descriptive field from JSON
+                # 'type' should be the user-friendly display type
+                # 'overall_score' is our Hausdorff distance (lower is better)
+                preview_data = {
+                    "name": gen_path_data.get("name", json_type_str), # Use a 'name' field if available in JSON
+                    "type": target_mech_type, # Use the consistent type
+                    "original_json_type": json_type_str, # Keep original type for reference if needed
+                    "overall_score": distance, # This is the Hausdorff distance
+                    "parameters": gen_path_data.get("parameters"),
+                    "path_coordinates_np": gen_path_np, # The mechanism's own path
+                    # "user_motion_path_local" will be added in __init__ before passing to PreviewContainer
+                }
+                best_recommendations_map[target_mech_type]["data"] = preview_data
+
+        # Collect valid recommendations
+        final_recommendations = []
+        # Iterate through the user display types to ensure order and check if recommendations were found
+        for mech_display_type in [MECHANISM_TYPE_USER_DISPLAY_3_BAR, MECHANISM_TYPE_USER_DISPLAY_4_BAR, MECHANISM_TYPE_USER_DISPLAY_CAM]:
+            if best_recommendations_map[mech_display_type]["data"] is not None:
+                final_recommendations.append(best_recommendations_map[mech_display_type]["data"])
+            else:
+                # Optionally, add a placeholder if no recommendation found for a type
+                print(f"No suitable recommendation found for type: {mech_display_type}")
+                # final_recommendations.append(None) # Or a placeholder dict like:
+                # final_recommendations.append({"name": f"No {mech_display_type} found", "type": mech_display_type, "overall_score": float('inf')})
+
+        return final_recommendations
 
     def _on_select(self, mechanism_data: Dict[str, Any]) -> None:
         self.selected_mechanism_data = mechanism_data
@@ -424,10 +584,10 @@ class MechanismRecommendationDialog(QDialog):
 
     @staticmethod
     def get_recommendation(
-        recommendations: List[Optional[Dict[str, Any]]], parent: Optional[QWidget] = None
+        user_motion_path: QPainterPath, generated_paths_filepath: str, num_samples_user_path: int = DEFAULT_NUM_SAMPLES_FOR_PATH, parent: Optional[QWidget] = None
     ) -> Optional[Dict[str, Any]]:
         """Static method to show the dialog and return the selected mechanism data."""
-        dialog = MechanismRecommendationDialog(recommendations, parent)
+        dialog = MechanismRecommendationDialog(user_motion_path, generated_paths_filepath, num_samples_user_path, parent)
         result = dialog.exec()
         if result == QDialog.DialogCode.Accepted:
             return dialog.selected_mechanism_data
