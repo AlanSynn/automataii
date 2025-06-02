@@ -43,6 +43,8 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.part_pixmap: Optional[QPixmap] = None
         self._bounding_rect_local: QRectF = QRectF()
         self.anchor_offset: QPointF = QPointF()
+        self.end_effector_offset: Optional[QPointF] = None  # IK end effector point
+        self.parent_item_name: Optional[str] = None  # Parent part name for IK chain
 
         self.motion_path: Optional[QPainterPath] = None
         self.motion_path_item: Optional[QGraphicsPathItem] = None
@@ -52,6 +54,11 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self._is_fixed: bool = part_info.fixed
         self.z_value = part_info.z_value if part_info.z_value is not None else Z_PART_DEFAULT
         self.setZValue(self.z_value)
+
+        # 초기 회전각을 명시적으로 0으로 설정 (월드 기준)
+        self.setRotation(0.0)
+        self._initial_world_rotation = 0.0  # 초기 월드 회전값은 항상 0
+        self._initial_local_rotation = 0.0  # 초기 로컬 회전값도 0
 
         self._load_texture()
         self._setup_selection_highlight()

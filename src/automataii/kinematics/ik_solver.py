@@ -3,6 +3,15 @@ import logging
 from PyQt6.QtCore import QPointF, QLineF
 from PyQt6.QtGui import QTransform
 
+def get_world_rotation(item):
+    """아이템의 월드 좌표계 기준 회전각을 구합니다."""
+    transform = item.sceneTransform()
+    # QTransform에서 회전각 추출
+    # m11 = cos(angle), m12 = -sin(angle)
+    # m21 = sin(angle), m22 = cos(angle)
+    angle_rad = math.atan2(transform.m21(), transform.m11())
+    return math.degrees(angle_rad)
+
 def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
     """Solve inverse kinematics using Cyclic Coordinate Descent algorithm.
 
@@ -16,6 +25,15 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
     if not chain:
         logging.warning("IK solver called with empty chain.")
         return
+
+    # 모든 아이템의 초기 월드 회전값은 0으로 고정
+    for item in chain:
+        if not hasattr(item, '_initial_world_rotation'):
+            item._initial_world_rotation = 0.0  # 초기 월드 회전값은 항상 0
+            logging.debug(f"Set initial world rotation for {item.part_info.name}: 0.0 degrees")
+        # 현재 월드 회전값도 확인
+        current_world_rot = get_world_rotation(item)
+        logging.debug(f"{item.part_info.name} - Initial world rotation: 0.0, Current world rotation: {current_world_rot:.2f}")
 
     end_effector_item = chain[-1]
     # end_effector_offset is the pivot point of the end effector part itself.
@@ -183,9 +201,18 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
                 clamped_delta_angle_deg = max(-max_angle_deg, min(max_angle_deg, delta_angle_deg))
 
                 if abs(clamped_delta_angle_deg) > 1e-3: # Only rotate if angle is significant
-                    new_rotation = current_rotation + clamped_delta_angle_deg
-                    logging.debug(f"    2-Link Special '{item_to_rotate.part_info.name}': CurrentRot={current_rotation:.2f}, DeltaAngle={delta_angle_deg:.2f} (clamped {clamped_delta_angle_deg:.2f}), NewRot={new_rotation:.2f}")
-                    item_to_rotate.setRotation(new_rotation)
+                    # 초기 월드 각도(0)에서부터의 누적 회전 계산
+                    current_world_rotation = get_world_rotation(item_to_rotate)
+                    # 목표 월드 회전 = 0 + 누적된 델타
+                    # 현재 상황에서 필요한 추가 회전
+                    target_world_rotation = current_world_rotation + clamped_delta_angle_deg
+
+                    # 로컬 회전 업데이트
+                    current_local_rotation = item_to_rotate.rotation()
+                    new_local_rotation = current_local_rotation + clamped_delta_angle_deg
+
+                    logging.debug(f"    2-Link Special '{item_to_rotate.part_info.name}': InitialWorld=0.0, CurrentWorld={current_world_rotation:.2f}, TargetWorld={target_world_rotation:.2f}, Delta={clamped_delta_angle_deg:.2f}, NewLocal={new_local_rotation:.2f}")
+                    item_to_rotate.setRotation(new_local_rotation)
                 else:
                     logging.debug(f"    2-Link Special '{item_to_rotate.part_info.name}': Delta angle {clamped_delta_angle_deg:.2f} too small, no rotation applied.")
 
@@ -262,8 +289,14 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
             # Apply rotation to current_item_to_rotate around its anchor_offset
             # The CharacterPartItem.setRotation() handles rotation around its transformOriginPoint (anchor_offset)
             old_rotation = current_item_to_rotate.rotation()
+
+            # 초기 월드 각도(0)에서부터의 회전 계산
+            current_world_rotation = get_world_rotation(current_item_to_rotate)
+
+            # 현재 상황에서 필요한 추가 회전을 적용
             new_rotation = old_rotation + angle_diff_deg
-            logging.debug(f"    Applying Rotation to '{current_item_to_rotate.part_info.name}': Old={old_rotation:.2f}, New={new_rotation:.2f}")
+
+            logging.debug(f"    Applying Rotation to '{current_item_to_rotate.part_info.name}': InitialWorld=0.0, CurrentWorld={current_world_rotation:.2f}, Delta={angle_diff_deg:.2f}, OldLocal={old_rotation:.2f}, NewLocal={new_rotation:.2f}")
             # TODO: Apply joint angle limits here by clamping new_rotation if necessary
             # based on parent/child joint constraints if they exist.
             current_item_to_rotate.setRotation(new_rotation)
