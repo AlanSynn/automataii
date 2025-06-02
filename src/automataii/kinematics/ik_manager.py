@@ -578,165 +578,190 @@ class IKManager(QObject):
 
         return updated_configs
 
-    def _solve_two_bone_ik(
-        self,
-        middle_joint_abstract_name: str,  # e.g., "left_elbow"
-        end_effector_abstract_name: str, # e.g., "left_hand"
-        target_pos: QPointF
-    ) -> Optional[Tuple[QPointF, QPointF]]:
-        """Solves 2-bone IK. Updates sim_joints_config directly. Uses abstract names, maps to standardized IDs internally."""
-
-        middle_joint_key = self._get_standardized_joint_id(middle_joint_abstract_name)
-        end_effector_key = self._get_standardized_joint_id(end_effector_abstract_name)
-
-        if not middle_joint_key or not end_effector_key:
-            logging.warning(f"IKManager._solve_two_bone_ik: Could not get standardized IDs for '{middle_joint_abstract_name}' or '{end_effector_abstract_name}'.")
-            return None
-
-        # 1. Get joint data (using standardized keys)
-        if not (middle_joint_key in self.sim_joints_config and end_effector_key in self.sim_joints_config):
-            logging.warning(f"IKManager._solve_two_bone_ik: Standardized joints '{middle_joint_key}' (from '{middle_joint_abstract_name}') or '{end_effector_key}' (from '{end_effector_abstract_name}') not in sim_joints_config.")
-            return None
-
-        # Get root_joint_key (parent of middle_joint_key)
-        # sim_limb_configs uses abstract names as keys and for parentAnchor.
-        # So, middle_joint_abstract_name is the key for sim_limb_configs.
-        root_joint_abstract_name = self.sim_limb_configs.get(middle_joint_abstract_name, {}).get('parentAnchor')
-        if not root_joint_abstract_name:
-            logging.warning(f"IKManager._solve_two_bone_ik: Could not find parentAnchor for abstract middle joint '{middle_joint_abstract_name}' in sim_limb_configs.")
-            return None
-
-        root_joint_key = self._get_standardized_joint_id(root_joint_abstract_name)
-        if not root_joint_key or root_joint_key not in self.sim_joints_config:
-            logging.warning(f"IKManager._solve_two_bone_ik: Could not find valid standardized root joint for abstract parent '{root_joint_abstract_name}' (STD ID: {root_joint_key}).")
-            return None
-
-        p0 = self.sim_joints_config[root_joint_key]['position']
-
-        # 2. Get limb lengths (L1: root to middle, L2: middle to end_effector)
-        # These labels come from sim_limb_configs, which uses abstract names as keys.
-        l1_label = self.sim_limb_configs.get(middle_joint_abstract_name, {}).get('label') # e.g., 'left_arm_upper'
-        l2_label = self.sim_limb_configs.get(end_effector_abstract_name, {}).get('label') # e.g., 'left_arm_lower'
-
-        if not l1_label or not l2_label or l1_label not in self.sim_limb_lengths or l2_label not in self.sim_limb_lengths:
-            logging.warning(f"IKManager._solve_two_bone_ik: Limb lengths for visual parts '{l1_label}' or '{l2_label}' not found.")
-            return None
-
-        l1 = self.sim_limb_lengths[l1_label]
-        l2 = self.sim_limb_lengths[l2_label]
+    def _solve_two_bone_ik(self, root_pos: QPointF, target_pos: QPointF, length1: float, length2: float, root_joint_std_id: str) -> Optional[Tuple[QPointF, QPointF]]:
+        """
+        Solves 2-bone IK for a given root, target, and bone lengths.
+        Returns (middle_joint_pos, end_effector_pos) or None if unsolvable.
+        """
+        p0 = root_pos
+        target = target_pos
+        l1 = length1
+        l2 = length2
 
         if l1 <= 0 or l2 <= 0:
-            logging.warning(f"IKManager._solve_two_bone_ik: Invalid limb lengths L1={l1}, L2={l2}.")
-            return None
+            logging.error(f"IKM: Invalid bone lengths l1={l1}, l2={l2} for {root_joint_std_id}. Cannot solve.")
+            safe_l1 = l1 if l1 > 0 else 1.0
+            safe_l2 = l2 if l2 > 0 else 1.0
+            p1_bail = QPointF(p0.x(), p0.y() + safe_l1)
+            p2_bail = QPointF(p1_bail.x(), p1_bail.y() + safe_l2)
+            return p1_bail, p2_bail
 
-        # 3. Calculate distance D from root (p0) to target_pos
-        dx = target_pos.x() - p0.x()
-        dy = target_pos.y() - p0.y()
-        dist_sq = dx * dx + dy * dy
-        dist = math.sqrt(dist_sq)
+        dx = target.x() - p0.x()
+        dy = target.y() - p0.y()
+        dist_sq = dx*dx + dy*dy
+        dist = math.sqrt(dist_sq) if dist_sq > 1e-12 else 0.0
 
-        # Check reachability
-        if dist > l1 + l2: # Target is too far
-            logging.debug(f"IKManager._solve_two_bone_ik: Target too far ({dist:.2f} > L1+L2 {l1+l2:.2f}). Stretching.")
-            # Stretch: place middle joint on the line p0-target_pos
-            ratio = l1 / (l1 + l2)
-            p1_new_x = p0.x() + ratio * dx
-            p1_new_y = p0.y() + ratio * dy
-            p1_new = QPointF(p1_new_x, p1_new_y)
-            p2_new = QPointF(target_pos.x(), target_pos.y()) # End effector is at target
-        elif dist < abs(l1 - l2): # Target is too close
-            logging.debug(f"IKManager._solve_two_bone_ik: Target too close ({dist:.2f} < |L1-L2| {abs(l1-l2):.2f}). Placing along p0-target line.")
-            # Place along the line from p0 towards target_pos, with l1 and l2 maintaining relative orientation.
-            # This is a simplification; could involve folding back based on bend direction.
-            ratio = l1 / dist if dist > 1e-5 else 0 # Avoid division by zero
-            p1_new_x = p0.x() + ratio * dx
-            p1_new_y = p0.y() + ratio * dy
-            # Then p2 is l2 away from p1_new, further along the same p0-target line or folded back.
-            # For simplicity, stretch it out for now (same as too far case but target is closer)
-            # This means p2 would be beyond target_pos if l1+l2 > dist. Let's place p2 at target.
-            p1_new = QPointF(p1_new_x, p1_new_y)
-            p2_new = QPointF(target_pos.x(), target_pos.y()) # Simplification
+        bend_direction = float(self.sim_joint_bend_directions.get(root_joint_std_id, -1.0)) # Default to -1 for typical elbow/knee
+
+        # Constants from __init__ or class level
+        # _max_elbow_flexion_deg = self.DEFAULT_MAX_ELBOW_FLEXION_DEG (assuming these are set)
+        # _epsilon_dist = self.DEFAULT_EPSILON_DIST
+        # _near_max_reach_threshold = self.DEFAULT_NEAR_MAX_REACH_THRESHOLD
+        # _near_min_reach_threshold = self.DEFAULT_NEAR_MIN_REACH_THRESHOLD
+        # Ensure these are accessible, e.g., self._max_elbow_flexion_deg if defined in __init__
+        # For safety, let's use direct values if not sure about self.DEFAULT_... availability here.
+        # It's better if these are correctly initialized as self. _max_elbow_flexion_deg etc. in __init__
+
+        _max_elbow_flexion_deg = getattr(self, '_max_elbow_flexion_deg', 160.0)
+        _epsilon_dist = getattr(self, '_epsilon_dist', 1.0)
+        _near_max_reach_threshold = getattr(self, '_near_max_reach_threshold', 5.0)
+        _near_min_reach_threshold = getattr(self, '_near_min_reach_threshold', 5.0)
+
+
+        min_elbow_internal_angle_rad = math.pi - math.radians(_max_elbow_flexion_deg)
+        min_elbow_internal_angle_rad = max(0.0, min(math.pi, min_elbow_internal_angle_rad))
+
+        cos_min_elbow_angle = math.cos(min_elbow_internal_angle_rad)
+        d_min_sq_with_limit = l1*l1 + l2*l2 - 2*l1*l2*cos_min_elbow_angle
+        if d_min_sq_with_limit < 0: d_min_sq_with_limit = 0
+        d_min_with_limit = math.sqrt(d_min_sq_with_limit)
+
+        # Case 1: Target is extremely close to the root joint.
+        if dist < _epsilon_dist:
+            logging.debug(f"  IKM ({root_joint_std_id}): Target AT ROOT ({dist:.2f} < {_epsilon_dist}). Using rest orientation.")
+            # Ensure sim_joint_rest_angles is initialized and accessible
+            # sim_joint_rest_angles = getattr(self, 'sim_joint_rest_angles', {})
+            base_angle_rad = math.radians(self.sim_joint_rest_angles.get(root_joint_std_id, 90.0))
+            p1_x = p0.x() + l1 * math.cos(base_angle_rad)
+            p1_y = p0.y() + l1 * math.sin(base_angle_rad)
+            p1_new = QPointF(p1_x, p1_y)
+            angle_of_bone2_from_p1 = base_angle_rad + bend_direction * (math.pi - min_elbow_internal_angle_rad)
+            p2_x = p1_new.x() + l2 * math.cos(angle_of_bone2_from_p1)
+            p2_y = p1_new.y() + l2 * math.sin(angle_of_bone2_from_p1)
+            p2_new = QPointF(p2_x, p2_y)
+            return p1_new, p2_new
+
+        # Case 2: Target is too far (or very close to max reach). Straighten limb towards target.
+        elif dist >= (l1 + l2 - _near_max_reach_threshold):
+            logging.debug(f"  IKM ({root_joint_std_id}): Target TOO FAR/near max reach ({dist:.2f} vs {l1+l2:.2f}). Forcing straight.")
+            angle_root_to_target = math.atan2(dy, dx)
+            p1_x = p0.x() + l1 * math.cos(angle_root_to_target)
+            p1_y = p0.y() + l1 * math.sin(angle_root_to_target)
+            p1_new = QPointF(p1_x, p1_y)
+            p2_x = p1_new.x() + l2 * math.cos(angle_root_to_target)
+            p2_y = p1_new.y() + l2 * math.sin(angle_root_to_target)
+            p2_new = QPointF(p2_x, p2_y)
+            return p1_new, p2_new
+
+        # Case 3: Target is too close for the elbow's flexion limit.
+        elif dist < (d_min_with_limit + _near_min_reach_threshold):
+            logging.debug(f"  IKM ({root_joint_std_id}): Target TOO CLOSE for flexion limit ({dist:.2f} vs {d_min_with_limit:.2f}). Aiming with max fold.")
+            angle_root_to_target = math.atan2(dy, dx)
+            dist_eff = d_min_with_limit
+
+            if dist_eff < _epsilon_dist: # d_min_with_limit is near zero
+                 logging.debug(f"  IKM ({root_joint_std_id}): d_min_with_limit is near zero. Using rest pose logic (from Case 3).")
+                 # sim_joint_rest_angles = getattr(self, 'sim_joint_rest_angles', {})
+                 base_angle_rad = math.radians(self.sim_joint_rest_angles.get(root_joint_std_id, 90.0))
+                 p1_x = p0.x() + l1 * math.cos(base_angle_rad)
+                 p1_y = p0.y() + l1 * math.sin(base_angle_rad)
+                 p1_new = QPointF(p1_x, p1_y)
+                 angle_of_bone2_from_p1 = base_angle_rad + bend_direction * (math.pi - min_elbow_internal_angle_rad)
+                 p2_x = p1_new.x() + l2 * math.cos(angle_of_bone2_from_p1)
+                 p2_y = p1_new.y() + l2 * math.sin(angle_of_bone2_from_p1)
+                 p2_new = QPointF(p2_x, p2_y)
+                 return p1_new, p2_new
+
+            cos_alpha_eff_numerator = dist_eff*dist_eff + l1*l1 - l2*l2
+            cos_alpha_eff_denominator = 2 * dist_eff * l1
+
+            if abs(cos_alpha_eff_denominator) < 1e-9:
+                logging.warning(f"  IKM ({root_joint_std_id}): Denominator zero in Case 3 alpha. Fallback straighten to target dir with max fold.")
+                p1_x_f = p0.x() + l1 * math.cos(angle_root_to_target)
+                p1_y_f = p0.y() + l1 * math.sin(angle_root_to_target)
+                p1_new_f = QPointF(p1_x_f, p1_y_f)
+                angle_bone2_world_f = angle_root_to_target + bend_direction * (math.pi - min_elbow_internal_angle_rad)
+                p2_x_f = p1_new_f.x() + l2 * math.cos(angle_bone2_world_f)
+                p2_y_f = p1_new_f.y() + l2 * math.sin(angle_bone2_world_f)
+                p2_new_f = QPointF(p2_x_f, p2_y_f)
+                return p1_new_f, p2_new_f
+
+            cos_alpha_eff = cos_alpha_eff_numerator / cos_alpha_eff_denominator
+            cos_alpha_eff = max(-1.0, min(1.0, cos_alpha_eff))
+            alpha_eff_rad = math.acos(cos_alpha_eff)
+
+            angle1_final_rad = angle_root_to_target - (bend_direction * alpha_eff_rad)
+
+            p1_x = p0.x() + l1 * math.cos(angle1_final_rad)
+            p1_y = p0.y() + l1 * math.sin(angle1_final_rad)
+            p1_new = QPointF(p1_x, p1_y)
+
+            angle_elbow_bend_from_bone1_line_rad = bend_direction * (math.pi - min_elbow_internal_angle_rad)
+
+            p2_x = p1_new.x() + l2 * math.cos(angle1_final_rad + angle_elbow_bend_from_bone1_line_rad)
+            p2_y = p1_new.y() + l2 * math.sin(angle1_final_rad + angle_elbow_bend_from_bone1_line_rad)
+            p2_new = QPointF(p2_x, p2_y)
+            return p1_new, p2_new
+
+        # Case 4: Standard triangle solve
         else:
-            # Target is reachable and not too close for a unique triangle solution (or two)
-            # 4. Calculate angles using Law of Cosines
-            # Angle at root joint (p0) between (p0-target) and L1
-            # cos(angle1) = (D^2 + L1^2 - L2^2) / (2 * D * L1)
-            if dist < 1e-5: # Target is at the root
-                 # Place middle joint based on preferred bend or previous pose
-                 # For now, let's place it along some default direction (e.g., x-axis from root)
-                 angle_at_root_to_target = 0 # Or some resting angle
-                 angle1 = math.pi / 2 # Default bend for middle joint
-            else:
-                cos_angle1_numerator = dist_sq + l1*l1 - l2*l2
-                cos_angle1_denominator = 2 * dist * l1
-                if abs(cos_angle1_denominator) < 1e-5: # Avoid division by zero / unstable result
-                    logging.warning("IKManager._solve_two_bone_ik: Unstable configuration for angle1 calculation (denominator close to zero).")
-                    return None # Or handle by snapping
-                cos_angle1 = cos_angle1_numerator / cos_angle1_denominator
-                # Clamp cos_angle1 to [-1, 1] due to potential floating point inaccuracies
-                cos_angle1 = max(-1.0, min(1.0, cos_angle1))
-                angle1 = math.acos(cos_angle1)
+            logging.debug(f"  IKM ({root_joint_std_id}): Target in normal range ({dist:.2f}). Triangle solve.")
+            l1_sq = l1*l1
+            l2_sq = l2*l2
 
-            # Angle at middle joint (p1) between L1 and L2 (internal angle of the triangle)
-            # cos(angle2) = (L1^2 + L2^2 - D^2) / (2 * L1 * L2)
-            cos_angle2_numerator = l1*l1 + l2*l2 - dist_sq
+            cos_angle2_numerator = l1_sq + l2_sq - dist_sq
             cos_angle2_denominator = 2 * l1 * l2
-            if abs(cos_angle2_denominator) < 1e-5:
-                 logging.warning("IKManager._solve_two_bone_ik: Unstable configuration for angle2 calculation (denominator close to zero).")
-                 return None
+
+            if abs(cos_angle2_denominator) < 1e-9:
+                 logging.warning(f"  IKM ({root_joint_std_id}): Denominator zero for cos_angle2. Fallback straighten.")
+                 angle_root_to_target_s = math.atan2(dy, dx)
+                 p1_x_s = p0.x() + l1 * math.cos(angle_root_to_target_s)
+                 p1_y_s = p0.y() + l1 * math.sin(angle_root_to_target_s)
+                 p1_new_s = QPointF(p1_x_s, p1_y_s)
+                 p2_x_s = p1_new_s.x() + l2 * math.cos(angle_root_to_target_s)
+                 p2_y_s = p1_new_s.y() + l2 * math.sin(angle_root_to_target_s)
+                 p2_new_s = QPointF(p2_x_s, p2_y_s)
+                 return p1_new_s, p2_new_s
+
             cos_angle2 = cos_angle2_numerator / cos_angle2_denominator
             cos_angle2 = max(-1.0, min(1.0, cos_angle2))
-            angle2 = math.acos(cos_angle2) # This is the interior angle, elbow bends by (pi - angle2)
+            angle2_triangle_rad = math.acos(cos_angle2)
 
-            # Determine bend direction (e.g., from sim_joint_bend_directions)
-            # sim_joint_bend_directions uses abstract names as keys (e.g. 'left_elbow')
-            bend_direction = self.sim_joint_bend_directions.get(middle_joint_abstract_name, 1)
+            angle2_triangle_rad = max(angle2_triangle_rad, min_elbow_internal_angle_rad)
 
-            # Overall angle of the line from root (p0) to target_pos
-            angle_root_to_target = math.atan2(dy, dx)
+            cos_alpha_numerator = dist_sq + l1_sq - l2_sq
+            cos_alpha_denominator = 2 * dist * l1
 
-            # Calculate global angle for L1 (p0 to p1_new)
-            # This depends on whether the elbow bends "up" or "down" relative to the p0-target line
-            final_angle_for_l1 = angle_root_to_target + (bend_direction * angle1)
+            if abs(cos_alpha_denominator) < 1e-9:
+                 logging.warning(f"  IKM ({root_joint_std_id}): Denominator zero for cos_alpha. Fallback straighten.")
+                 angle_root_to_target_s2 = math.atan2(dy, dx)
+                 p1_x_s2 = p0.x() + l1 * math.cos(angle_root_to_target_s2)
+                 p1_y_s2 = p0.y() + l1 * math.sin(angle_root_to_target_s2)
+                 p1_new_s2 = QPointF(p1_x_s2, p1_y_s2)
+                 angle_bone2_world_s2 = angle_root_to_target_s2 + bend_direction * (math.pi - angle2_triangle_rad)
+                 p2_x_s2 = p1_new_s2.x() + l2 * math.cos(angle_bone2_world_s2)
+                 p2_y_s2 = p1_new_s2.y() + l2 * math.sin(angle_bone2_world_s2)
+                 p2_new_s2 = QPointF(p2_x_s2, p2_y_s2)
+                 return p1_new_s2, p2_new_s2
 
-            # Calculate new position for middle joint (p1_new)
-            p1_new_x = p0.x() + l1 * math.cos(final_angle_for_l1)
-            p1_new_y = p0.y() + l1 * math.sin(final_angle_for_l1)
-            p1_new = QPointF(p1_new_x, p1_new_y)
+            cos_alpha = cos_alpha_numerator / cos_alpha_denominator
+            cos_alpha = max(-1.0, min(1.0, cos_alpha))
+            alpha_rad = math.acos(cos_alpha)
 
-            # Calculate global angle for L2 (p1_new to p2_new)
-            # The angle of L1 is final_angle_for_l1. The angle of L2 relative to L1 is (pi - angle2).
-            # So, global angle of L2 is final_angle_for_l1 + bend_direction * (pi - angle2)
-            # No, it's final_angle_for_l1 + bend_direction * (angle2 - math.pi) if angle2 is interior
-            # Or, simpler: angle of (p1_new -> p0) + bend_direction * angle2. Angle of (p1_new->p0) is final_angle_for_l1 + pi.
-            # The angle from p1_new to p2_new is final_angle_for_l1 + bend_direction * (angle2_elbow_extension)
-            # angle2_elbow_extension = pi - angle2. (e.g. if angle2=pi, elbow is straight, extension=0)
-            final_angle_for_l2 = final_angle_for_l1 + bend_direction * (math.pi - angle2) # Angle of second limb segment
+            angle_root_to_target_rad = math.atan2(dy, dx)
+            angle1_final_rad = angle_root_to_target_rad - (bend_direction * alpha_rad)
 
-            # Calculate new position for end_effector (p2_new)
-            p2_new_x = p1_new.x() + l2 * math.cos(final_angle_for_l2)
-            p2_new_y = p1_new.y() + l2 * math.sin(final_angle_for_l2)
-            p2_new = QPointF(p2_new_x, p2_new_y)
+            p1_x = p0.x() + l1 * math.cos(angle1_final_rad)
+            p1_y = p0.y() + l1 * math.sin(angle1_final_rad)
+            p1_new = QPointF(p1_x, p1_y)
 
-        # 5. Update sim_joints_config with new positions
-        # (Angles also need updating if your visual update relies on them, placeholder for now)
-        self.sim_joints_config[middle_joint_key]['position'] = p1_new
-        self.sim_joints_config[end_effector_key]['position'] = p2_new
+            angle_elbow_bend_from_bone1_line_rad = bend_direction * (math.pi - angle2_triangle_rad)
 
-        # Placeholder: update angles (these are not directly used by _update_character_part_visuals_from_ik yet)
-        # Angle of first bone (root to middle)
-        angle_p0_p1 = get_angle_between_points(p0, p1_new)
-        self.sim_joints_config[middle_joint_key]['angle'] = math.degrees(angle_p0_p1) # Angle of the bone ending at middle_joint
-        if root_joint_key in self.sim_joints_config: # Set angle of root joint based on first segment
-             self.sim_joints_config[root_joint_key]['angle'] = math.degrees(angle_p0_p1)
+            p2_x = p1_new.x() + l2 * math.cos(angle1_final_rad + angle_elbow_bend_from_bone1_line_rad)
+            p2_y = p1_new.y() + l2 * math.sin(angle1_final_rad + angle_elbow_bend_from_bone1_line_rad)
+            p2_new = QPointF(p2_x, p2_y)
 
-        # Angle of second bone (middle to end-effector)
-        angle_p1_p2 = get_angle_between_points(p1_new, p2_new)
-        # The angle stored for end_effector_key should be the angle of the bone segment *ending* at it.
-        self.sim_joints_config[end_effector_key]['angle'] = math.degrees(angle_p1_p2)
-
-        logging.debug(f"IKManager._solve_two_bone_ik: Solved for {middle_joint_abstract_name}({middle_joint_key}) -> {p1_new}, {end_effector_abstract_name}({end_effector_key}) -> {p2_new}")
-        return p1_new, p2_new
+            return p1_new, p2_new
 
     def _update_character_part_visuals_from_ik(self) -> None:
         """
@@ -1213,19 +1238,79 @@ class IKManager(QObject):
 
                 if target_pos_on_path:
                     if target_ik_joint_abstract_name in self.sim_two_bone_ik_effectors:
-                        # Find parent and grandparent for 2-bone IK
-                        limb_config = self.sim_limb_configs.get(target_ik_joint_abstract_name)
-                        if limb_config:
-                            middle_joint_abstract_name = limb_config.get('parentAnchor') # e.g. j_left_elbow
-                            # Need grandparent for 2-bone IK (anchor of the middle joint)
-                            # This requires traversing sim_limb_configs or having a direct parent map for IK joints
-                            # For simplicity, let's assume _solve_two_bone_ik handles finding its base internally or has it passed.
-                            # The current _solve_two_bone_ik takes middle_joint and end_effector.
-                            if middle_joint_abstract_name:
-                                self._solve_two_bone_ik(middle_joint_abstract_name, target_ik_joint_abstract_name, target_pos_on_path)
-                                logging.debug(f"IKManager._run_ik_animation_step: Attempting 2-bone IK. End-effector_abs: {target_ik_joint_abstract_name}, Middle_abs: {middle_joint_abstract_name}, Target_pos: {target_pos_on_path}")
+                        # This is the effector joint (e.g., 'left_hand')
+                        effector_limb_config = self.sim_limb_configs.get(target_ik_joint_abstract_name)
+                        if not effector_limb_config:
+                            logging.warning(f"IKM._run_ik_animation_step: No limb config for effector '{target_ik_joint_abstract_name}'.")
+                            continue
+
+                        middle_joint_abstract_name = effector_limb_config.get('parentAnchor') # e.g., 'left_elbow'
+                        part_label_for_l2 = effector_limb_config.get('label') # e.g., 'left_arm_lower' (visual part for bone l2)
+
+                        if not middle_joint_abstract_name or not part_label_for_l2:
+                            logging.warning(f"IKM._run_ik_animation_step: Incomplete limb config for effector '{target_ik_joint_abstract_name}' (missing parentAnchor or label).")
+                            continue
+
+                        # Now find the root joint and the label for l1 using the middle joint's config
+                        middle_limb_config = self.sim_limb_configs.get(middle_joint_abstract_name)
+                        if not middle_limb_config:
+                            logging.warning(f"IKM._run_ik_animation_step: No limb config for middle joint '{middle_joint_abstract_name}'.")
+                            continue
+
+                        root_joint_abstract_name = middle_limb_config.get('parentAnchor') # e.g., 'left_shoulder'
+                        part_label_for_l1 = middle_limb_config.get('label') # e.g., 'left_arm_upper' (visual part for bone l1)
+
+                        if not root_joint_abstract_name or not part_label_for_l1:
+                            logging.warning(f"IKM._run_ik_animation_step: Incomplete limb config for middle joint '{middle_joint_abstract_name}' (missing parentAnchor or label).")
+                            continue
+
+                        # Get standardized IDs
+                        root_std_id = self._get_standardized_joint_id(root_joint_abstract_name)
+                        middle_std_id = self._get_standardized_joint_id(middle_joint_abstract_name)
+                        effector_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name) # This is the target
+
+                        if not root_std_id or not middle_std_id or not effector_std_id:
+                            logging.warning(f"IKM._run_ik_animation_step: Could not get all std IDs for chain {root_joint_abstract_name} -> {middle_joint_abstract_name} -> {target_ik_joint_abstract_name}.")
+                            continue
+
+                        # Get current root position (p0 for the 2-bone IK solver)
+                        if root_std_id not in self.sim_joints_config or 'position' not in self.sim_joints_config[root_std_id]:
+                            logging.warning(f"IKM._run_ik_animation_step: Root joint '{root_std_id}' (from abstract '{root_joint_abstract_name}') position not found in sim_joints_config.")
+                            continue
+                        current_root_pos_for_ik = self.sim_joints_config[root_std_id]['position'] # This is a QPointF
+
+                        # Get bone lengths
+                        length1 = self.sim_limb_lengths.get(part_label_for_l1)
+                        length2 = self.sim_limb_lengths.get(part_label_for_l2)
+
+                        if length1 is None or length2 is None or length1 <= 0 or length2 <= 0: # Check for positive lengths
+                            logging.warning(f"IKM._run_ik_animation_step: Invalid or missing lengths for chain: l1 (part '{part_label_for_l1}')={length1}, l2 (part '{part_label_for_l2}')={length2}.")
+                            continue
+
+                        logging.debug(f"IKM._run_ik_animation_step: Calling _solve_two_bone_ik for: "
+                                      f"root_pos={current_root_pos_for_ik}, target_pos={target_pos_on_path}, "
+                                      f"l1={length1}, l2={length2}, root_joint_std_id='{root_std_id}'")
+
+                        # Call the solver
+                        # def _solve_two_bone_ik(self, root_pos: QPointF, target_pos: QPointF, length1: float, length2: float, root_joint_std_id: str)
+                        solved_points = self._solve_two_bone_ik(current_root_pos_for_ik, target_pos_on_path, length1, length2, root_std_id)
+
+                        if solved_points:
+                            p1_new, p2_new = solved_points # p1_new is the new middle joint, p2_new is the new effector joint
+                            # Update sim_joints_config with new positions
+                            if middle_std_id in self.sim_joints_config:
+                                self.sim_joints_config[middle_std_id]['position'] = p1_new
                             else:
-                                logging.warning(f"IKManager._run_ik_animation_step: Could not find middle joint for 2-bone IK target '{target_ik_joint_abstract_name}'.")
+                                logging.warning(f"IKM._run_ik_animation_step: Middle joint std_id '{middle_std_id}' not found in sim_joints_config to update position.")
+
+                            if effector_std_id in self.sim_joints_config:
+                                self.sim_joints_config[effector_std_id]['position'] = p2_new
+                            else:
+                                logging.warning(f"IKM._run_ik_animation_step: Effector joint std_id '{effector_std_id}' not found in sim_joints_config to update position.")
+
+                            logging.debug(f"  IKM Solved and updated: Middle ('{middle_std_id}') -> {p1_new}, Effector ('{effector_std_id}') -> {p2_new}")
+                        else:
+                            logging.warning(f"IKM._run_ik_animation_step: _solve_two_bone_ik returned None for chain rooted at '{root_std_id}' (abstract: '{root_joint_abstract_name}').")
                     else: # Assume single point control / 1-bone IK
                         # Find anchor for 1-bone IK
                         limb_config = self.sim_limb_configs.get(target_ik_joint_abstract_name)
