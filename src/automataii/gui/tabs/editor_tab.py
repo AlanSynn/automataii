@@ -32,6 +32,7 @@ from ..graphics_items.part_item import CharacterPartItem # UPDATED
 from automataii.core.models import PartInfo # Added PartInfo
 
 from PyQt6.QtGui import QPainterPath
+from ..dialogs.recommendation_dialog import MechanismRecommendationDialog # ADDED
 
 class EditorTab(QWidget):
     # Signals this tab might emit
@@ -257,78 +258,78 @@ class EditorTab(QWidget):
         mech_design_group = QGroupBox("Mechanism Design")
         mech_design_layout = QVBoxLayout(mech_design_group)
         mech_design_layout.setSpacing(10)
-        self.toggle_anchors_btn = QCheckBox("Show Test Anchors")
-        self.toggle_anchors_btn.setToolTip(
-            "Show/hide draggable test anchor points in the scene."
-        )
-        mech_design_layout.addWidget(self.toggle_anchors_btn)
-        mech_type_layout = QFormLayout()
-        self.mechanism_type_combo = QComboBox()
-        self.mechanism_type_combo.addItems(
-            ["Cam & Follower", "3-Bar Linkage", "4-Bar Linkage", "Gears (Simple Pair)"]
-        )
-        self.mechanism_type_combo.setToolTip("Select the type of mechanism to generate")
-        mech_type_layout.addRow("Type:", self.mechanism_type_combo)
-        mech_design_layout.addLayout(mech_type_layout)
-        self.mech_inputs_container = QWidget()
-        self.mech_inputs_layout = QVBoxLayout(
-            self.mech_inputs_container
-        )  # Layout to hold dynamic groups
-        self.mech_inputs_layout.setContentsMargins(0, 5, 0, 0)
-        self.mech_inputs_layout.setSpacing(8)
-        mech_design_layout.addWidget(self.mech_inputs_container)
+        # self.toggle_anchors_btn = QCheckBox("Show Test Anchors")
+        # self.toggle_anchors_btn.setToolTip(
+        #     "Show/hide draggable test anchor points in the scene."
+        # )
+        # mech_design_layout.addWidget(self.toggle_anchors_btn)
+        # mech_type_layout = QFormLayout()
+        # self.mechanism_type_combo = QComboBox()
+        # self.mechanism_type_combo.addItems(
+        #     ["Cam & Follower", "3-Bar Linkage", "4-Bar Linkage", "Gears (Simple Pair)"]
+        # )
+        # self.mechanism_type_combo.setToolTip("Select the type of mechanism to generate")
+        # mech_type_layout.addRow("Type:", self.mechanism_type_combo)
+        # mech_design_layout.addLayout(mech_type_layout)
+        # self.mech_inputs_container = QWidget()
+        # self.mech_inputs_layout = QVBoxLayout(
+        #     self.mech_inputs_container
+        # )  # Layout to hold dynamic groups
+        # self.mech_inputs_layout.setContentsMargins(0, 5, 0, 0)
+        # self.mech_inputs_layout.setSpacing(8)
+        # mech_design_layout.addWidget(self.mech_inputs_container)
 
-        self.cam_inputs_group = QGroupBox("Cam Settings")
-        cam_inputs_layout = QVBoxLayout(self.cam_inputs_group)
-        self.select_cam_center_btn = QPushButton("Select Cam Center")
-        self.select_cam_center_btn.setToolTip(
-            "Click in the scene to set the cam rotation center (default: torso center)"
-        )
-        cam_inputs_layout.addWidget(self.select_cam_center_btn)
-        self.mech_inputs_layout.addWidget(self.cam_inputs_group)
+        # self.cam_inputs_group = QGroupBox("Cam Settings")
+        # cam_inputs_layout = QVBoxLayout(self.cam_inputs_group)
+        # self.select_cam_center_btn = QPushButton("Select Cam Center")
+        # self.select_cam_center_btn.setToolTip(
+        #     "Click in the scene to set the cam rotation center (default: torso center)"
+        # )
+        # cam_inputs_layout.addWidget(self.select_cam_center_btn)
+        # self.mech_inputs_layout.addWidget(self.cam_inputs_group)
 
-        self.three_bar_inputs_group = QGroupBox("3-Bar Linkage Settings")
-        three_bar_layout = QVBoxLayout(self.three_bar_inputs_group)
-        self.select_pivot_a_3bar_btn = QPushButton("Select Fixed Pivot A")
-        self.select_pivot_a_3bar_btn.setToolTip(
-            "Click in the scene to set the first fixed pivot"
-        )
-        three_bar_layout.addWidget(self.select_pivot_a_3bar_btn)
-        self.mech_inputs_layout.addWidget(self.three_bar_inputs_group)
+        # self.three_bar_inputs_group = QGroupBox("3-Bar Linkage Settings")
+        # three_bar_layout = QVBoxLayout(self.three_bar_inputs_group)
+        # self.select_pivot_a_3bar_btn = QPushButton("Select Fixed Pivot A")
+        # self.select_pivot_a_3bar_btn.setToolTip(
+        #     "Click in the scene to set the first fixed pivot"
+        # )
+        # three_bar_layout.addWidget(self.select_pivot_a_3bar_btn)
+        # self.mech_inputs_layout.addWidget(self.three_bar_inputs_group)
 
-        self.four_bar_inputs_group = QGroupBox("4-Bar Linkage Settings")
-        four_bar_layout = QVBoxLayout(self.four_bar_inputs_group)
-        self.select_pivot_a_4bar_btn = QPushButton("Select Fixed Pivot A")
-        self.select_pivot_a_4bar_btn.setToolTip(
-            "Click in the scene to set the first fixed pivot"
-        )
-        four_bar_layout.addWidget(self.select_pivot_a_4bar_btn)
-        self.select_pivot_d_4bar_btn = QPushButton("Select Fixed Pivot D")
-        self.select_pivot_d_4bar_btn.setToolTip(
-            "Click in the scene to set the second fixed pivot"
-        )
-        four_bar_layout.addWidget(self.select_pivot_d_4bar_btn)
-        self.mech_inputs_layout.addWidget(self.four_bar_inputs_group)
+        # self.four_bar_inputs_group = QGroupBox("4-Bar Linkage Settings")
+        # four_bar_layout = QVBoxLayout(self.four_bar_inputs_group)
+        # self.select_pivot_a_4bar_btn = QPushButton("Select Fixed Pivot A")
+        # self.select_pivot_a_4bar_btn.setToolTip(
+        #     "Click in the scene to set the first fixed pivot"
+        # )
+        # four_bar_layout.addWidget(self.select_pivot_a_4bar_btn)
+        # self.select_pivot_d_4bar_btn = QPushButton("Select Fixed Pivot D")
+        # self.select_pivot_d_4bar_btn.setToolTip(
+        #     "Click in the scene to set the second fixed pivot"
+        # )
+        # four_bar_layout.addWidget(self.select_pivot_d_4bar_btn)
+        # self.mech_inputs_layout.addWidget(self.four_bar_inputs_group)
 
-        self.gear_inputs_group = QGroupBox("Gear Settings")
-        gear_inputs_layout = QFormLayout(self.gear_inputs_group)
-        gear_button_layout = QHBoxLayout()
-        self.select_driver_center_btn = QPushButton("Driver Center")
-        self.select_driver_center_btn.setToolTip("Click to set driver gear center")
-        self.select_driven_center_btn = QPushButton("Driven Center")
-        self.select_driven_center_btn.setToolTip("Click to set driven gear center")
-        gear_button_layout.addWidget(self.select_driver_center_btn)
-        gear_button_layout.addWidget(self.select_driven_center_btn)
-        gear_inputs_layout.addRow("Select Centers:", gear_button_layout)
-        self.gear_ratio_spin = QDoubleSpinBox()
-        self.gear_ratio_spin.setRange(0.01, 100.0)
-        self.gear_ratio_spin.setSingleStep(0.1)
-        self.gear_ratio_spin.setValue(1.0)
-        self.gear_ratio_spin.setToolTip(
-            "Set gear ratio (Driven Radius / Driver Radius)"
-        )
-        gear_inputs_layout.addRow("Gear Ratio:", self.gear_ratio_spin)
-        self.mech_inputs_layout.addWidget(self.gear_inputs_group)
+        # self.gear_inputs_group = QGroupBox("Gear Settings")
+        # gear_inputs_layout = QFormLayout(self.gear_inputs_group)
+        # gear_button_layout = QHBoxLayout()
+        # self.select_driver_center_btn = QPushButton("Driver Center")
+        # self.select_driver_center_btn.setToolTip("Click to set driver gear center")
+        # self.select_driven_center_btn = QPushButton("Driven Center")
+        # self.select_driven_center_btn.setToolTip("Click to set driven gear center")
+        # gear_button_layout.addWidget(self.select_driver_center_btn)
+        # gear_button_layout.addWidget(self.select_driven_center_btn)
+        # gear_inputs_layout.addRow("Select Centers:", gear_button_layout)
+        # self.gear_ratio_spin = QDoubleSpinBox()
+        # self.gear_ratio_spin.setRange(0.01, 100.0)
+        # self.gear_ratio_spin.setSingleStep(0.1)
+        # self.gear_ratio_spin.setValue(1.0)
+        # self.gear_ratio_spin.setToolTip(
+        #     "Set gear ratio (Driven Radius / Driver Radius)"
+        # )
+        # gear_inputs_layout.addRow("Gear Ratio:", self.gear_ratio_spin)
+        # self.mech_inputs_layout.addWidget(self.gear_inputs_group)
 
         self.generate_mechanism_btn = QPushButton("Generate Mechanism")
         self.generate_mechanism_btn.setToolTip(
@@ -339,9 +340,9 @@ class EditorTab(QWidget):
         # mech_design_layout.addStretch() # Removed to allow layer group to be below
         panel_layout.addWidget(mech_design_group)
 
-        self._update_mechanism_inputs_ui(
-            self.mechanism_type_combo.currentText()
-        )  # Call local method
+        # self._update_mechanism_inputs_ui(
+        #     self.mechanism_type_combo.currentText()
+        # )  # Call local method
 
         # Mechanism Layers Group
         self.layer_group = QGroupBox("Mechanism Layers")
@@ -374,19 +375,6 @@ class EditorTab(QWidget):
         panel_layout.addWidget(alignment_group)
 
         # Animation Controls Group (for motion paths / IK pose reset)
-        animation_controls_group = QGroupBox("Animation Path & Pose Controls")
-        animation_controls_layout = QVBoxLayout(animation_controls_group)
-        self.reset_all_animations_btn = QPushButton("Reset All Motion Paths & Poses")
-        self.reset_all_animations_btn.setIcon(
-            QApplication.style().standardIcon(
-                QStyle.StandardPixmap.SP_DialogResetButton
-            )
-        )
-        self.reset_all_animations_btn.setToolTip(
-            "Clears all drawn motion paths and resets character pose to initial skeleton definition."
-        )
-        animation_controls_layout.addWidget(self.reset_all_animations_btn)
-        panel_layout.addWidget(animation_controls_group)
 
         panel_layout.addStretch()
         control_panel.adjustSize()  # Adjust size before setting to scroll area
@@ -514,38 +502,35 @@ class EditorTab(QWidget):
         self.reset_sim_btn.clicked.connect(
             self._reset_simulation_clicked
         )  # General sim reset
-        self.reset_all_animations_btn.clicked.connect(
-            self._reset_all_animations_paths_poses
-        )  # Path/pose reset
 
-        self.toggle_anchors_btn.toggled.connect(
-            self._toggle_test_anchors_visibility_in_view
-        )
-        self.mechanism_type_combo.currentTextChanged.connect(
-            self._update_mechanism_inputs_ui
-        )
-        self.mechanism_type_combo.currentTextChanged.connect(
-            self._update_generate_mechanism_button_state
-        )
+        # self.toggle_anchors_btn.toggled.connect(
+        #     self._toggle_test_anchors_visibility_in_view
+        # )
+        # self.mechanism_type_combo.currentTextChanged.connect(
+        #     self._update_mechanism_inputs_ui
+        # )
+        # self.mechanism_type_combo.currentTextChanged.connect(
+        #     self._update_generate_mechanism_button_state
+        # )
 
-        self.select_cam_center_btn.clicked.connect(
-            lambda: self._select_mechanism_point("cam_center")
-        )
-        self.select_pivot_a_3bar_btn.clicked.connect(
-            lambda: self._select_mechanism_point("pivot_a_3bar")
-        )
-        self.select_pivot_a_4bar_btn.clicked.connect(
-            lambda: self._select_mechanism_point("pivot_a_4bar")
-        )
-        self.select_pivot_d_4bar_btn.clicked.connect(
-            lambda: self._select_mechanism_point("pivot_d_4bar")
-        )
-        self.select_driver_center_btn.clicked.connect(
-            lambda: self._select_mechanism_point("driver_center")
-        )
-        self.select_driven_center_btn.clicked.connect(
-            lambda: self._select_mechanism_point("driven_center")
-        )
+        # self.select_cam_center_btn.clicked.connect(
+        #     lambda: self._select_mechanism_point("cam_center")
+        # )
+        # self.select_pivot_a_3bar_btn.clicked.connect(
+        #     lambda: self._select_mechanism_point("pivot_a_3bar")
+        # )
+        # self.select_pivot_a_4bar_btn.clicked.connect(
+        #     lambda: self._select_mechanism_point("pivot_a_4bar")
+        # )
+        # self.select_pivot_d_4bar_btn.clicked.connect(
+        #     lambda: self._select_mechanism_point("pivot_d_4bar")
+        # )
+        # self.select_driver_center_btn.clicked.connect(
+        #     lambda: self._select_mechanism_point("driver_center")
+        # )
+        # self.select_driven_center_btn.clicked.connect(
+        #     lambda: self._select_mechanism_point("driven_center")
+        # )
 
         self.generate_mechanism_btn.clicked.connect(self._generate_mechanism_clicked)
         self.blueprint_btn.clicked.connect(self.request_generate_blueprint.emit)
@@ -730,17 +715,45 @@ class EditorTab(QWidget):
             )
             return
 
-        params = {
-            "target_part_name": self.selected_part_name,
-            "gear_ratio": self.gear_ratio_spin.value()
-            if self.mechanism_type_combo.currentText() == "Gears (Simple Pair)"
-            else None,
-            # MainWindow will fetch selected points (cam_center, pivots etc.) directly from its state
-            # or EditorView will provide them. This signal just triggers the process.
-        }
-        self.request_generate_mechanism.emit(
-            self.mechanism_type_combo.currentText(), params
-        )
+        # TODO: Replace with actual recommendation fetching logic
+        # For now, using empty list or dummy data for dialog testing
+        # Example: recommendations = self.main_window.mechanism_manager.get_recommendations(self.selected_part_name)
+        recommendations: List[Optional[Dict[str, Any]]] = []
+        # recommendations.append( { "name": "Test Cam", "type": "Cam & Follower", "overall_score": 0.9, "user_motion_path_local": QPainterPath() })
+        # recommendations.append( { "name": "Test Linkage", "type": "4-Bar Linkage", "overall_score": 0.8 })
+
+        selected_mechanism_data = MechanismRecommendationDialog.get_recommendation(recommendations, self)
+
+        if selected_mechanism_data:
+            mechanism_type = selected_mechanism_data.get("type", "Unknown")
+            # Ensure "cam" or "gears" from recommendation data maps to the full combo box text if needed
+            if mechanism_type == "cam": mechanism_type = "Cam & Follower"
+            if mechanism_type == "gears": mechanism_type = "Gears (Simple Pair)"
+
+            logging.info(f"EditorTab: Mechanism '{selected_mechanism_data.get('name')}' of type '{mechanism_type}' selected from dialog.")
+
+            # Prepare parameters for request_generate_mechanism
+            # Some parameters might come from selected_mechanism_data, others from current UI state
+            params = {
+                "target_part_name": self.selected_part_name,
+                "gear_ratio": self.gear_ratio_spin.value() if mechanism_type == "Gears (Simple Pair)" else None,
+                # Add other relevant parameters from selected_mechanism_data or EditorTab state as needed
+                # For example, if the dialog allows configuring specific points, pass them here.
+                "recommendation_data": selected_mechanism_data # Pass the full data for the generator to use
+            }
+
+            # Ensure the mechanism_type_combo reflects the selection from the dialog
+            # This might be useful if the generation logic relies on the combo box's current text.
+            # Find the index of the mechanism_type in the combo box
+            index = self.mechanism_type_combo.findText(mechanism_type)
+            if index != -1:
+                self.mechanism_type_combo.setCurrentIndex(index)
+            else:
+                logging.warning(f"EditorTab: Mechanism type '{mechanism_type}' from dialog not found in combo box. Generation might use default or fail.")
+
+            self.request_generate_mechanism.emit(mechanism_type, params)
+        else:
+            logging.info("EditorTab: Mechanism recommendation dialog cancelled or no selection made.")
 
     def _handle_zoom_change(self, zoom_text: str):
         try:
@@ -820,10 +833,6 @@ class EditorTab(QWidget):
         self.reset_sim_btn.setEnabled(
             has_parts and not is_sim_playing
         )  # General sim reset
-        self.reset_all_animations_btn.setEnabled(
-            has_parts and not is_sim_playing
-        )  # Path/pose reset
-
         self.generate_mechanism_btn.setEnabled(
             has_selection
             and not is_sim_playing
