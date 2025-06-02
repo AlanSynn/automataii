@@ -410,7 +410,7 @@ class IKManager(QObject):
             'left_knee':    {'parentAnchor': 'left_hip',      'label': 'left_leg_upper'},
             'left_foot':    {'parentAnchor': 'left_knee',     'label': 'left_leg_lower'},
             'right_knee':   {'parentAnchor': 'right_hip',     'label': 'right_leg_upper'},
-            'right_foot':   {'parentAnchor': 'right_knee',    'label': 'right_leg_lower'},
+            'right_foot':   {'parentAnchor': 'right_foot',    'label': 'right_leg_lower'},
         }
         logging.debug(f"IKManager: Populated sim_limb_configs: {self.sim_limb_configs}")
 
@@ -1275,6 +1275,215 @@ class IKManager(QObject):
 
         if animated_joint_scene_positions:
             self.skeleton_pose_updated.emit(animated_joint_scene_positions)
+
+    def get_world_rotation_degrees(self, transform: QTransform) -> float:
+        """Extracts rotation in degrees from a QTransform object."""
+        # atan2(shearY, scaleY)
+        # atan2(m21, m11) for rotation can be ambiguous with scaling/shearing.
+        # A more robust way might be needed if complex transforms are used.
+        # For simple rotation and uniform scaling:
+        # angle_rad = math.atan2(transform.m21(), transform.m11())
+        # However, QTransform.rotation() is intended for this but works on QMatrix, not QTransform directly.
+        # Let's use a common approach for 2D affine transform:
+        # rotation = atan2(m21/scaleX, m11/scaleX) or atan2(m12/scaleY, m22/scaleY) (careful with sign)
+        # For QTransform, m11, m12, m21, m22 store scale, shear, and rotation.
+        # If no shear and uniform scale sx=sy=s: m11=s*cos, m21=s*sin -> atan2(m21,m11) works.
+        # If scale is not 1, it cancels out in atan2(s*sin, s*cos).
+        # This should be reasonably robust for transforms typically applied to QGraphicsItems (translation, rotation, scale).
+        angle_rad = math.atan2(transform.m21(), transform.m11())
+        return math.degrees(angle_rad)
+
+    def capture_current_scene_pose_as_initial(self):
+        """
+        Captures the current visual pose of character parts from the scene
+        and sets this as the new initial pose for the IK skeleton.
+        """
+        logging.info("IKM: Attempting to capture current scene pose as initial IK state.")
+        if not self.main_window or not hasattr(self.main_window, 'editor_tab') or \
+           not self.main_window.editor_tab or not hasattr(self.main_window.editor_tab, 'current_editor_items'):
+            logging.error("IKM: Editor tab or current_editor_items not accessible.")
+            self.error_occurred.emit("Editor data not found for capturing pose.")
+            return
+
+        scene_items = self.main_window.editor_tab.current_editor_items
+        if not scene_items:
+            logging.error("IKM: No current editor items in editor tab.")
+            self.error_occurred.emit("No scene items to capture pose from.")
+            return
+
+        if not self._current_skeleton_data or 'joints' not in self._current_skeleton_data:
+            logging.error("IKM: Skeleton data not loaded. Cannot capture pose.")
+            self.error_occurred.emit("Skeleton data not loaded.")
+            return
+        if not self.project_parts_data:
+            logging.error("IKM: Project parts data not loaded. Cannot capture pose.")
+            self.error_occurred.emit("Project parts data not loaded.")
+            return
+        if not self.sim_joints_config:
+            logging.warning("IKM: sim_joints_config is empty. Attempting to initialize solver first.")
+            # Try to initialize if it hasn't been, this populates sim_limb_configs etc.
+            if not self.initialize_ik_solver():
+                logging.error("IKM: Failed to initialize IK solver. Cannot capture pose.")
+                self.error_occurred.emit("IK Solver failed to initialize.")
+                return
+            if not self.sim_joints_config: # Check again after attempt
+                logging.error("IKM: sim_joints_config still empty after initialization attempt.")
+                self.error_occurred.emit("IK Solver state invalid after init.")
+                return
+
+
+        new_sim_joints_config = {jid: data.copy() for jid, data in self.sim_joints_config.items()}
+        processed_visual_parts = set()
+
+        # Phase 1: Handle the torso/root first, as other parts might be relative to it implicitly
+        # This is a heuristic. A more robust way would be to define a clear root visual part.
+        # Let's assume "torso" visual part dictates the position/orientation of the "hip" IK joint.
+        torso_visual_part_name = "torso"
+        hip_ik_abstract_name = "hip" # As defined in char_cfg.yaml, mapped by ik_joint_ids_to_source_names or directly.
+                                   # Or use the root joint from skeleton_manager if available.
+
+        if torso_visual_part_name in scene_items and torso_visual_part_name in self.project_parts_data:
+            torso_scene_item = scene_items[torso_visual_part_name]
+            hip_std_id = self._get_standardized_joint_id(hip_ik_abstract_name)
+
+            if hip_std_id and hip_std_id in new_sim_joints_config:
+                new_sim_joints_config[hip_std_id]['position'] = torso_scene_item.scenePos()
+                new_sim_joints_config[hip_std_id]['angle'] = self.get_world_rotation_degrees(torso_scene_item.sceneTransform())
+                logging.debug(f"IKM_Capture: Set root IK joint '{hip_std_id}' from visual part '{torso_visual_part_name}' "
+                              f"Pos: {new_sim_joints_config[hip_std_id]['position']}, Angle: {new_sim_joints_config[hip_std_id]['angle']:.2f}")
+                processed_visual_parts.add(torso_visual_part_name)
+
+
+        # Phase 2: Process limb segments defined in sim_limb_configs
+        # These visual parts define a bone between two IK joints.
+        for ik_effector_abs, limb_config in self.sim_limb_configs.items():
+            parent_anchor_abs = limb_config.get('parentAnchor')
+            visual_part_label = limb_config.get('label') # This is the key for project_parts_data & scene_items
+
+            if not parent_anchor_abs or not visual_part_label:
+                logging.warning(f"IKM_Capture: Skipping limb config for effector '{ik_effector_abs}' due to missing parent or label.")
+                continue
+            if visual_part_label not in scene_items:
+                logging.warning(f"IKM_Capture: Visual part '{visual_part_label}' for limb not in scene_items. Skipping.")
+                continue
+            if visual_part_label not in self.sim_limb_lengths or self.sim_limb_lengths[visual_part_label] <= 0:
+                logging.warning(f"IKM_Capture: Missing or invalid length for visual part '{visual_part_label}'. Skipping.")
+                continue
+
+            scene_part_item = scene_items[visual_part_label]
+            parent_anchor_std = self._get_standardized_joint_id(parent_anchor_abs)
+            child_effector_std = self._get_standardized_joint_id(ik_effector_abs)
+
+            if not parent_anchor_std or not child_effector_std:
+                logging.warning(f"IKM_Capture: Could not get std IDs for limb '{visual_part_label}'. Skipping.")
+                continue
+            if parent_anchor_std not in new_sim_joints_config or child_effector_std not in new_sim_joints_config:
+                logging.warning(f"IKM_Capture: Std joints for limb '{visual_part_label}' not in config. Skipping.")
+                continue
+
+            # The visual part's scenePos is its pivot, assumed to be at the parent_anchor_std joint.
+            current_parent_pos = scene_part_item.scenePos()
+            current_part_world_angle_deg = self.get_world_rotation_degrees(scene_part_item.sceneTransform())
+
+            new_sim_joints_config[parent_anchor_std]['position'] = current_parent_pos
+            # The 'angle' for the parent_anchor_std should represent the orientation of the bone segment
+            # that starts at parent_anchor_std and ends at child_effector_std.
+            new_sim_joints_config[parent_anchor_std]['angle'] = current_part_world_angle_deg
+
+            length = self.sim_limb_lengths[visual_part_label]
+            rad_angle = math.radians(current_part_world_angle_deg)
+            new_child_effector_pos = QPointF(
+                current_parent_pos.x() + length * math.cos(rad_angle),
+                current_parent_pos.y() + length * math.sin(rad_angle)
+            )
+            new_sim_joints_config[child_effector_std]['position'] = new_child_effector_pos
+            # The 'angle' for child_effector_std will be determined if it's a parent in another limb_config,
+            # or by sim_selectable_components if it's a terminal joint with its own visual part.
+            logging.debug(f"IKM_Capture: Processed limb visual part '{visual_part_label}'.")
+            logging.debug(f"  Parent IK '{parent_anchor_std}': Pos={current_parent_pos}, Angle={current_part_world_angle_deg:.2f}")
+            logging.debug(f"  Child IK  '{child_effector_std}': Pos={new_child_effector_pos}")
+            processed_visual_parts.add(visual_part_label)
+
+        # Phase 3: Process other selectable components (e.g., head)
+        # These might be terminal parts or parts whose primary IK joint wasn't a parent_anchor in sim_limb_configs.
+        for comp_config in self.sim_selectable_components:
+            visual_part_name = comp_config.get('partName') # Visual part driving this
+            target_ik_joint_abs = comp_config.get('targetJointId') # IK joint being controlled
+
+            if not visual_part_name or not target_ik_joint_abs:
+                continue
+            if visual_part_name in processed_visual_parts and \
+               any(limb_cfg.get('label') == visual_part_name for limb_cfg in self.sim_limb_configs.values()):
+                # This visual part was already used to define a limb segment.
+                # Its corresponding IK joints (parent and child of that segment) are already set.
+                # We might only care about the target_ik_joint_abs if it's an *effector* of that limb
+                # and this selectable_component is meant to set its *terminal orientation*.
+                # For now, if visual_part_name was a limb label, assume its IK joints are mostly handled.
+                # The 'angle' of the effector might need specific handling here if this component
+                # defines its independent rotation.
+                log_msg_skip_sel = (f"IKM_Capture: Visual part '{visual_part_name}' for selectable target '{target_ik_joint_abs}' "
+                                    f"was already processed as a limb label. ")
+
+                # Check if target_ik_joint_abs is an effector from sim_limb_configs
+                target_ik_joint_std_check = self._get_standardized_joint_id(target_ik_joint_abs)
+                is_effector_of_limb = False
+                if target_ik_joint_std_check:
+                     is_effector_of_limb = any(self._get_standardized_joint_id(eff_abs) == target_ik_joint_std_check
+                                              for eff_abs in self.sim_limb_configs.keys())
+
+                if is_effector_of_limb:
+                    # The position of this target_ik_joint (effector) was set by limb processing.
+                    # This selectable_component might be intended to set its *angle* if it's a terminal joint.
+                    scene_item = scene_items.get(visual_part_name)
+                    if scene_item and target_ik_joint_std_check in new_sim_joints_config:
+                        # Assume visual_part_name's rotation defines the angle of the target_ik_joint_std itself.
+                        # This is for terminal joints like hands, feet, head.
+                        new_sim_joints_config[target_ik_joint_std_check]['angle'] = self.get_world_rotation_degrees(scene_item.sceneTransform())
+                        logging.debug(log_msg_skip_sel + f"Updated angle of IK effector '{target_ik_joint_std_check}' to {new_sim_joints_config[target_ik_joint_std_check]['angle']:.2f} based on visual '{visual_part_name}'.")
+                    else:
+                        logging.debug(log_msg_skip_sel + "Skipping further updates for this selectable component.")
+                else:
+                     logging.debug(log_msg_skip_sel + "Skipping (not a direct effector of a processed limb).")
+                continue # Move to next selectable component
+
+            if visual_part_name not in scene_items:
+                logging.warning(f"IKM_Capture: Visual part '{visual_part_name}' for selectable component not in scene_items. Skipping.")
+                continue
+
+            scene_item = scene_items[visual_part_name]
+            target_ik_joint_std = self._get_standardized_joint_id(target_ik_joint_abs)
+
+            if not target_ik_joint_std or target_ik_joint_std not in new_sim_joints_config:
+                logging.warning(f"IKM_Capture: Target IK joint '{target_ik_joint_abs}' (std: {target_ik_joint_std}) for visual '{visual_part_name}' not valid. Skipping.")
+                continue
+
+            # This handles parts like "head" (visual) controlled by "neck" (IK joint)
+            # where "neck" is not a parent_anchor of a limb defined by "head" visual part.
+            new_sim_joints_config[target_ik_joint_std]['position'] = scene_item.scenePos()
+            new_sim_joints_config[target_ik_joint_std]['angle'] = self.get_world_rotation_degrees(scene_item.sceneTransform())
+            logging.debug(f"IKM_Capture: Processed selectable component for visual part '{visual_part_name}'.")
+            logging.debug(f"  Target IK '{target_ik_joint_std}': Pos={new_sim_joints_config[target_ik_joint_std]['position']}, Angle={new_sim_joints_config[target_ik_joint_std]['angle']:.2f}")
+            processed_visual_parts.add(visual_part_name)
+
+
+        # Finalize
+        self.sim_joints_config = new_sim_joints_config
+        self._initial_snapshot = {k: v.copy() for k, v in self.sim_joints_config.items()}
+        logging.info("IKM: Successfully captured current scene pose and updated initial snapshot.")
+
+        # Trigger visual updates to reflect the new initial pose
+        self._update_character_part_visuals_from_ik() # Emits character_visuals_updated
+
+        final_joint_scene_positions = {
+            jid: (data['position'].x(), data['position'].y())
+            for jid, data in self.sim_joints_config.items() if 'position' in data and data['position'] is not None
+        }
+        if final_joint_scene_positions:
+            self.skeleton_pose_updated.emit(final_joint_scene_positions)
+
+        self.animation_state_changed.emit("reset") # Notify UI that state has been reset
+        if self.main_window and hasattr(self.main_window, 'statusBar'):
+            self.main_window.statusBar().showMessage("IK pose reset to current scene configuration.", 3000)
 
     @property
     def dynamic_joints(self) -> Dict[str, Dict[str, Any]]:

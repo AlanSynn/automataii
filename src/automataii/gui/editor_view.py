@@ -326,13 +326,43 @@ class EditorView(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.current_mode == 'define_motion_path' and self._is_drawing_freehand:
                 if len(self._motion_path_points) > 1: # Ensure there's more than just a click
-                    self.freehandPathCompleted.emit(list(self._motion_path_points)) # Emit copies
-                    logging.debug(f"Completed freehand motion path with {len(self._motion_path_points)} points.")
+                    # Create the final green path
+                    final_path_data = QPainterPath()
+                    if self._motion_path_points:
+                        final_path_data.moveTo(self._motion_path_points[0])
+                        for point in self._motion_path_points[1:]:
+                            final_path_data.lineTo(point)
+
+                    # For a smoother "NURBS-like" curve, one approach is to use cubicTo for segments.
+                    # This requires calculating control points. A simpler approach for visual smoothness
+                    # if precise NURBS isn't needed is to just use the points as is with a solid line,
+                    # or explore QPainterPath.quadTo or QPainterPath.cubicTo with simple control point heuristics.
+                    # For now, we'll use the points to form lines, styled differently.
+
+                    final_path_item = QGraphicsPathItem()
+                    final_pen = QPen(QColor(0, 200, 0), 5.0) # Green, solid, slightly thick
+                    final_pen.setCosmetic(True)
+                    final_path_item.setPen(final_pen)
+                    final_path_item.setPath(final_path_data)
+                    final_path_item.setZValue(Z_MOTION_PATH_PREVIEW -1) # Draw below future previews
+                    self.scene().addItem(final_path_item)
+
+                    # Emit the original points for external handling (e.g., by IKManager)
+                    self.freehandPathCompleted.emit(list(self._motion_path_points))
+                    logging.debug(f"Completed and finalized freehand motion path with {len(self._motion_path_points)} points.")
+
+                    # Clear the red dashed preview path
+                    if self._motion_preview_path_item and self._motion_preview_path_item.scene():
+                        self.scene().removeItem(self._motion_preview_path_item)
+                        self._motion_preview_path_item = None
+                    self._motion_path_points.clear() # Clear points for next drawing session
+
                 else: # Path was just a click, or something went wrong
                     logging.debug("Freehand path too short, cancelling.")
                     self._cancel_motion_path_drawing() # Clears preview, resets state
+
                 self._is_drawing_freehand = False
-                # Preview remains until mode changes or new path started for this item
+                self.set_mode('select') # Switch to select mode
 
         super().mouseReleaseEvent(event) # Call base for other release events
 
@@ -811,7 +841,8 @@ class EditorView(QGraphicsView):
 
         if self._motion_preview_path_item is None:
             self._motion_preview_path_item = QGraphicsPathItem()
-            pen = QPen(QColor(0, 100, 200, 150), 1.5) # Blueish, semi-transparent
+            # Updated pen style for drawing phase
+            pen = QPen(QColor(255, 0, 0, 180), 4.0) # Red, thicker, semi-transparent
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True) # Ensures consistent thickness regardless of zoom
             self._motion_preview_path_item.setPen(pen)
