@@ -778,15 +778,21 @@ class EditorView(QGraphicsView):
         part_item = self.get_part_item_by_name(part_name)
         if part_item:
             # logging.debug(f"EditorView: Updating part '{part_name}'. Current Pos: {part_item.pos()}, Rot: {part_item.rotation():.1f}. Target Pivot Pos: {position}, Target Rot: {rotation_degrees:.1f}")
-            # Use set_scene_position_from_anchor to correctly position the part by its pivot
+
+            # Set rotation FIRST
+            part_item.setRotation(rotation_degrees)
+
+            # Then set position based on the new rotation
             if hasattr(part_item, 'set_scene_position_from_anchor'):
                 part_item.set_scene_position_from_anchor(position)
             else:
                 # Fallback if the method doesn't exist, though it should
                 logging.warning(f"EditorView: CharacterPartItem '{part_name}' missing 'set_scene_position_from_anchor'. Using setPos directly.")
+                # This fallback path might be problematic if 'position' is truly the pivot's target world position,
+                # and the part's local_pivot_offset is not (0,0).
+                # However, CharacterPartItem should always have set_scene_position_from_anchor.
                 part_item.setPos(position)
 
-            part_item.setRotation(rotation_degrees)
             # logging.debug(f"EditorView: Part '{part_name}' updated. New Pos: {part_item.pos()}, New Rot: {part_item.rotation():.1f}, New Pivot Scene Pos: {part_item.get_anchor_point_scene_pos() if hasattr(part_item, 'get_anchor_point_scene_pos') else 'N/A'}")
         else:
             logging.warning(f"EditorView: Part item '{part_name}' not found for IK update.")

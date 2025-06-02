@@ -1009,34 +1009,33 @@ class AutomataDesigner(QMainWindow):
                 pass
             else:
                 for part_name, transform_data in part_transforms.items():
-                    # position_data = transform_data.get(\'position\') # OLD WAY, was list/tuple
-                    pos_x = transform_data.get('pos_x') # NEW WAY, float
-                    pos_y = transform_data.get('pos_y') # NEW WAY, float
+                    position_data = transform_data.get('position') # MODIFIED: Get 'position' list/tuple
                     rotation_degrees = transform_data.get('rotation_degrees')
 
-                    position = None # Initialize position as None
-                    # if position_data and isinstance(position_data, (list, tuple)) and len(position_data) >= 2: # OLD WAY Check
-                    #     position = QPointF(float(position_data[0]), float(position_data[1]))
-                    if pos_x is not None and pos_y is not None: # NEW WAY Check
-                        position = QPointF(pos_x, pos_y)
+                    position: Optional[QPointF] = None # Initialize position as None
+
+                    if position_data and isinstance(position_data, (list, tuple)) and len(position_data) == 2:
+                        try:
+                            position = QPointF(float(position_data[0]), float(position_data[1]))
+                        except (TypeError, ValueError) as e:
+                            logging.warning(f"MainWindow: Error converting position data {position_data} for part {part_name}: {e}")
+                            continue # Skip if conversion fails
                     else:
-                        # logging.warning(f\"MainWindow: Invalid or missing position for part {part_name} in IK visuals update.\") # OLD Warning
-                        logging.warning(f"MainWindow: Invalid or missing pos_x/pos_y for part {part_name} in IK visuals update. pos_x: {pos_x}, pos_y: {pos_y}") # Corrected f-string
+                        logging.warning(f"MainWindow: Invalid or missing position_data for part {part_name} in IK visuals update. Data: {position_data}")
                         continue # Skip if essential components are missing
 
                     if rotation_degrees is not None:
                         # Check if position is valid before calling update
                         if position is not None:
                              self.editor_tab.editor_view.update_part_visuals_from_ik(part_name, position, float(rotation_degrees))
-                        else:
-                            # This case should now be caught by the continue above, but as a safeguard:
-                            logging.warning(f"MainWindow: Position was None for part {part_name} before calling update_part_visuals_from_ik. This shouldn't happen.") # Corrected f-string
+                        # else: # This path should not be reached due to `continue` above, but as a safeguard:
+                            # logging.warning(f"MainWindow: Position was None for part {part_name} before calling update_part_visuals_from_ik. This shouldn't happen.")
                     else:
-                        logging.warning(f"MainWindow: Missing rotation for part {part_name} in IK visuals update.") # Corrected f-string
+                        logging.warning(f"MainWindow: Missing rotation for part {part_name} in IK visuals update.")
                 if self.editor_tab.editor_view.scene():
                     self.editor_tab.editor_view.scene().update()
         else:
-            logging.warning("MainWindow: EditorTab or EditorView not available for IK visuals update.") # Corrected f-string
+            logging.warning("MainWindow: EditorTab or EditorView not available for IK visuals update.")
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""
