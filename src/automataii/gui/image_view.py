@@ -12,7 +12,7 @@ import cv2 # Added for cv2.findContours etc.
 from ..core.models import PartInfo
 from ..utils.svg_utils import contour_to_svg_path
 from .graphics_items.part_item import CharacterPartItem # UPDATED
-from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED
+# from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED # Commented out
 from .graphics_items.anchor_item import AnchorItem # UPDATED (if it was moved, otherwise adjust)
 
 # --- Helper Functions for Vector Math (can be static or outside class) ---
@@ -82,7 +82,8 @@ class ImageProcessingView(QGraphicsView):
         self.last_active_joint_for_guide = None
 
         # For dragging joints
-        self.dragged_joint_item: Optional[SkeletonJoint] = None
+        # self.dragged_joint_item: Optional[SkeletonJoint] = None # Commented out
+        self.dragged_joint_item = None # Keep attribute, but type is now generic
         self.drag_start_pos: Optional[QPointF] = None
         self.drag_start_pos_offset: Optional[QPointF] = None
 
@@ -339,179 +340,56 @@ class ImageProcessingView(QGraphicsView):
         if self.debug_mode:
             self.viewport().update()
 
-    def load_skeleton(self, skeleton_data_dict: dict):
-        """Loads and displays skeleton data from a dictionary.
-
-        Handles different dictionary formats (char_cfg list-based, standardized model dict-based).
-        Scales and positions the skeleton based on the loaded image and bounding box.
+    def load_skeleton(self, skeleton_data_dict: Optional[dict]):
+        """Loads skeleton data and visualizes it.
+        'skeleton_data_dict' is expected to be the direct output of yaml.safe_load from char_cfg.yaml
+        or a similar dictionary structure.
+        Example: {'skeleton': [{'name': 'hip', 'parent': None, 'loc': [0,0]}, ...], 'scale': 1.0, 'offset': [0,0]}
         """
-        if not self.scene():
-            logging.error("ImageProcessingView has no scene.")
+        if not self.scene() or not self.image_item:
+            logging.error("Scene or image_item not available for skeleton loading.")
             return False
 
-        if skeleton_data_dict is None or not skeleton_data_dict: # Handle None or empty dict
-            self._clear_skeleton()
-            logging.info("ImageProcessingView: Cleared skeleton due to None or empty input.")
+        # Handle None input gracefully
+        if skeleton_data_dict is None:
+            logging.info("ImageProcessingView: load_skeleton called with None. Clearing skeleton.")
+            self._clear_skeleton() # Clear previous skeleton visuals and data
+            self.original_skeleton_data = None
             self.scene().update()
-            return True
+            return True # Successfully handled None by clearing
 
-        logging.info("Loading skeleton data into ImageProcessingView.")
-        self._clear_skeleton()  # Clear previous skeleton
-        self.original_skeleton_data = skeleton_data_dict.copy() # Store for saving
+        logging.info(f"ImageProcessingView: load_skeleton called with keys: {list(skeleton_data_dict.keys()) if skeleton_data_dict else 'None'}")
+        self._clear_skeleton() # Clear previous skeleton visuals and data
 
-        pixmap = self.image_item.pixmap() if self.image_item else None
-        if not pixmap:
-            logging.warning("ImageProcessingView: No image loaded, cannot display skeleton relative to image.")
-            # Optionally, could still try to draw skeleton at origin if no image context is okay
-            # For now, let's assume image context is usually required for this view's purpose.
+        self.original_skeleton_data = skeleton_data_dict # Store the raw data
+
+        char_cfg_skeleton_list = skeleton_data_dict.get('skeleton')
+        if not isinstance(char_cfg_skeleton_list, list):
+            logging.error(f"Skeleton data format error: 'skeleton' key not found or not a list. Got: {type(char_cfg_skeleton_list)}")
+            self.original_skeleton_data = None # Clear if format is bad
             return False
 
-        img_w, img_h = pixmap.width(), pixmap.height()
-        logging.debug(f"Image size: {img_w}x{img_h}")
-        logging.debug(f"Image item x, y: {self.image_item.pos().x()}, {self.image_item.pos().y()}")
+        # --- Placeholder for non-interactive visualization (if needed directly in this view) ---
+        # This section can be expanded if a simple, non-editable overlay is desired here.
+        # For now, the primary purpose is to process and hold self.original_skeleton_data.
+        # Interactive editing was via SkeletonJoint/SkeletonLine, which are removed.
 
-        self._clear_char_cfg_marker()
-        char_cfg_origin_x = skeleton_data_dict.get('bbox_origin_x') # From original char_cfg data
-        char_cfg_origin_y = skeleton_data_dict.get('bbox_origin_y')
-        # Standardized model might have metadata for original bbox if needed, or we rely on image_item for positioning
+        # Example of how you might store joint positions if needed by other parts of this view:
+        # temp_joint_positions = {}
+        # for joint_data in char_cfg_skeleton_list:
+        #     name = joint_data.get('name')
+        #     loc = joint_data.get('loc')
+        #     if name and loc and len(loc) == 2:
+        #         # These positions are relative to char_cfg origin/bounding box
+        #         # They would need transformation to scene coordinates if drawn directly.
+        #         temp_joint_positions[name] = QPointF(loc[0], loc[1])
+        # logging.info(f"ImageProcessingView: Parsed {len(temp_joint_positions)} joint positions (raw from char_cfg).")
+        # --- End Placeholder ---
 
-        if char_cfg_origin_x is not None and char_cfg_origin_y is not None:
-            logging.info(f"Found char_cfg origin: ({char_cfg_origin_x}, {char_cfg_origin_y})")
-            marker_size = 10 # Adjust size as needed
-            self.char_cfg_origin_marker = QGraphicsEllipseItem(
-                char_cfg_origin_x - marker_size / 2,
-                char_cfg_origin_y - marker_size / 2,
-                marker_size, marker_size
-            )
-            pen = QPen(Qt.GlobalColor.black, 1); pen.setCosmetic(True)
-            self.char_cfg_origin_marker.setPen(pen)
-            self.char_cfg_origin_marker.setBrush(QBrush(Qt.GlobalColor.green))
-            self.char_cfg_origin_marker.setZValue(5)
-            self.char_cfg_origin_marker.setParentItem(self.image_item)
-            self.char_cfg_origin_marker.setVisible(self.debug_mode)
-        elif 'source_format' not in skeleton_data_dict: # Only warn if it's not a standardized dict already
-            logging.warning("Could not find 'bbox_origin_x' or 'bbox_origin_y' in char_cfg-style data.")
-
-        # Determine scale factor (less relevant if coordinates are already scaled in standardized form)
-        # For char_cfg style, bounding_box is used. For standardized, coords might be absolute.
-        scale = 1.0
-        if self.bounding_box and 'skeleton' in skeleton_data_dict: # char_cfg style
-            bb_w = self.bounding_box['right'] - self.bounding_box['left']
-            bb_h = self.bounding_box['bottom'] - self.bounding_box['top']
-            if bb_w > 0 and bb_h > 0:
-                scale_x = img_w / bb_w
-                scale_y = img_h / bb_h
-                scale = min(scale_x, scale_y)
-                logging.info(f"Using bounding box for scaling. BB WxH: {bb_w}x{bb_h}, Image WxH: {img_w}x{img_h}, Scale: {scale:.2f}")
-            else: logging.warning("Invalid bounding box dimensions for char_cfg, using scale 1.0")
-        elif 'skeleton' in skeleton_data_dict: # char_cfg style but no bounding_box loaded
-            logging.info("No bounding box found for char_cfg, using scale 1.0 for visualization.")
-
-        # --- Process skeleton structure ---
-        joint_details_for_lines = {} # name -> {'pos': QPointF, 'parent_name': str}
-
-        # Try char_cfg list format first ('skeleton' key with a list)
-        if 'skeleton' in skeleton_data_dict and isinstance(skeleton_data_dict['skeleton'], list):
-            logging.debug("Processing char_cfg list-based skeleton format for ImageProcessingView.")
-            skeleton_list = skeleton_data_dict['skeleton']
-            for joint_data in skeleton_list:
-                name = joint_data.get('name')
-                loc = joint_data.get('loc') # These are relative to bbox_origin for char_cfg
-                parent_name = joint_data.get('parent')
-                if not name or not loc or len(loc) < 2:
-                    logging.warning(f"Skipping invalid char_cfg joint data: {joint_data}")
-                    continue
-
-                orig_x, orig_y = loc[0], loc[1]
-                # 'loc' coordinates from char_cfg are already relative to the texture.png's content origin.
-                # self.image_item (texture.png) is placed at scene (0,0).
-                # So, loc[0], loc[1] are the coordinates directly on the image_item.
-                item_relative_x = orig_x
-                item_relative_y = orig_y
-
-                # The bbox_origin_x/y from char_cfg (stored as char_cfg_origin_x/y here)
-                # defines how texture.png was cropped. It's not an additional offset for 'loc'.
-                # if char_cfg_origin_x is not None and char_cfg_origin_y is not None:
-                # item_relative_x = char_cfg_origin_x + orig_x # Incorrect: double offset
-                # item_relative_y = char_cfg_origin_y + orig_y # Incorrect: double offset
-
-                skel_joint = SkeletonJoint(name, item_relative_x, item_relative_y)
-                skel_joint.setParentItem(self.image_item)
-                self.joints[name] = skel_joint
-                joint_details_for_lines[name] = {'pos': skel_joint.pos(), 'parent_name': parent_name}
-
-                # Add joint label (if not root)
-                if parent_name is not None:
-                    label_text = f"{name}\n -> {parent_name}"
-                    label_item = QGraphicsTextItem(label_text); label_item.setDefaultTextColor(QColor("red"))
-                    label_item.setPos(skel_joint.pos() + QPointF(5, -10)); label_item.setZValue(101)
-                    label_item.setVisible(self.debug_mode); self.scene().addItem(label_item)
-                    self.joint_labels[name] = label_item
-
-            # Create lines from parent info in char_cfg list format
-            for name, details in joint_details_for_lines.items():
-                parent_name = details['parent_name']
-                if parent_name and parent_name in self.joints:
-                    line = SkeletonLine(self.joints[parent_name], self.joints[name])
-                    self.scene().addItem(line); self.lines.append(line)
-
-        # Try standardized model dict format (has 'joints' and 'hierarchy' keys)
-        elif 'joints' in skeleton_data_dict and 'hierarchy' in skeleton_data_dict and isinstance(skeleton_data_dict['joints'], dict):
-            logging.debug("Processing standardized model dictionary format for ImageProcessingView.")
-            standardized_joints_dict = skeleton_data_dict['joints']
-            hierarchy = skeleton_data_dict['hierarchy']
-
-            for joint_id, std_joint_data_dict in standardized_joints_dict.items():
-                # Ensure std_joint_data_dict is a dict, not a StandardizedJointModel object directly
-                if not isinstance(std_joint_data_dict, dict):
-                    logging.warning(f"Skipping joint {joint_id}: data is not a dict ({type(std_joint_data_dict)}). Expected model_dump output.")
-                    continue
-
-                joint_name = std_joint_data_dict.get('name', joint_id) # Use name, fallback to ID
-                pos_list = std_joint_data_dict.get('position')
-                if not pos_list or len(pos_list) < 2:
-                    logging.warning(f"Skipping standardized joint '{joint_name}' due to missing/invalid position: {pos_list}")
-                    continue
-
-                # Coordinates from standardized model are typically absolute or relative to a defined origin.
-                # For ImageProcessingView, we assume they should be drawn relative to the image_item's (0,0) if image exists.
-                # If a global offset/transform is needed, it should be applied here or before calling.
-                item_relative_x, item_relative_y = float(pos_list[0]), float(pos_list[1])
-
-                skel_joint = SkeletonJoint(joint_name, item_relative_x, item_relative_y)
-                skel_joint.setParentItem(self.image_item)
-                self.joints[joint_name] = skel_joint # Use name as key for consistency if possible
-                # Store original ID if different from name, might be useful for line creation from hierarchy
-                joint_details_for_lines[joint_id] = {'pos': skel_joint.pos(), 'name': joint_name, 'parent_id': std_joint_data_dict.get('parent_id')}
-
-            # Create lines using hierarchy from standardized model
-            # Need a map from joint_id to joint_name if they differ and hierarchy uses IDs
-            id_to_name_map = {jid: details['name'] for jid, details in joint_details_for_lines.items()}
-
-            for parent_id_from_hier, child_ids_list in hierarchy.items():
-                parent_name = id_to_name_map.get(parent_id_from_hier)
-                if not parent_name or parent_name not in self.joints:
-                    logging.debug(f"Parent '{parent_name}' (ID: {parent_id_from_hier}) for hierarchy not in drawn joints. Skipping its children lines.")
-                    continue
-
-                parent_joint_item = self.joints[parent_name]
-                for child_id_from_hier in child_ids_list:
-                    child_name = id_to_name_map.get(child_id_from_hier)
-                    if not child_name or child_name not in self.joints:
-                        logging.debug(f"Child '{child_name}' (ID: {child_id_from_hier}) for hierarchy not in drawn joints. Skipping line.")
-                        continue
-                    child_joint_item = self.joints[child_name]
-                    line = SkeletonLine(parent_joint_item, child_joint_item)
-                    self.scene().addItem(line); self.lines.append(line)
-
-        else:
-            logging.error(f"Unsupported skeleton data format in ImageProcessingView: Keys={list(skeleton_data_dict.keys())}")
-            self.original_skeleton_data = None # Clear if format is truly unsupported
-            return False
-
-        logging.info(f"Skeleton loaded into ImageProcessingView: {len(self.joints)} joints, {len(self.lines)} lines.")
-        self.reset_view() # Adjust view after loading
-        return True
+        # Mark that skeleton data is "loaded" for this view, even if not fully visualized interactively.
+        logging.info("ImageProcessingView: Skeleton data processed (raw data stored). Interactive editing is disabled.")
+        self.scene().update()
+        return True # Indicate success in processing the data format
 
     def _clear_char_cfg_marker(self):
         """Removes the char_cfg origin marker from the scene."""
@@ -674,35 +552,28 @@ class ImageProcessingView(QGraphicsView):
             label_item = self.joint_labels[joint_name]
             label_item.setPos(joint_item.pos() + QPointF(5, -10))
 
-    def _update_lines(self, joint_item: SkeletonJoint):
+    def _update_lines(self, joint_item):
         """Updates the lines connected to a moved joint."""
-        # In Python 3.8, joint_item.name might not exist if SkeletonJoint doesn't define it.
-        # Assuming SkeletonJoint has a 'joint_name' attribute based on skeleton_item.py
-        joint_name = joint_item.joint_name
-        for line in self.lines:
-            # Ensure comparison is with the correct attribute if line stores names
-            if (line.joint1 and line.joint1.joint_name == joint_name) or \
-               (line.joint2 and line.joint2.joint_name == joint_name):
-                line.update_position()
+        # joint_item: SkeletonJoint # Commented out type hint
+        """Updates lines connected to the moved joint."""
+        # for line in self.lines[:]: # Iterate over a copy
+        #     if line.joint1 == joint_item or line.joint2 == joint_item:
+        #         line.update_position()
+        pass # Placeholder
 
-        # Update label position when joint moves
-        self._update_joint_label_position(joint_name)
+    def get_lines_connected_to_joint(self, target_joint):
+        # target_joint: SkeletonJoint # Commented out type hint
+        """Returns a list of SkeletonLine items connected to the target joint."""
+        # connected_lines = []
+        # for line in self.lines:
+        #     if line.joint1 == target_joint or line.joint2 == target_joint:
+        #         connected_lines.append(line)
+        # return connected_lines
+        return [] # Return empty list
 
-    # --- Perpendicular Cut Guide Methods ---
-    def get_lines_connected_to_joint(self, target_joint: SkeletonJoint) -> List[SkeletonLine]:
-        """Finds all SkeletonLines connected to the target_joint."""
-        connected_lines = []
-        # self.lines is already populated with SkeletonLine items
-        for line in self.lines:
-            if line.joint1 == target_joint or line.joint2 == target_joint:
-                connected_lines.append(line)
-        return connected_lines
-
-    def calculate_perpendicular_cut_guide(self, joint: SkeletonJoint) -> Optional[QLineF]:
-        """
-        Calculates a perpendicular guide line at a given joint.
-        Returns a QLineF representing the guide, or None.
-        """
+    def calculate_perpendicular_cut_guide(self, joint):
+        # joint: SkeletonJoint # Commented out type hint
+        """Calculates a perpendicular line segment at the joint, oriented along its bone(s)."""
         if not joint or not joint.scene(): # Ensure joint is valid and in scene
             return None
 
@@ -783,13 +654,9 @@ class ImageProcessingView(QGraphicsView):
             return QLineF(joint_pos + normalized_guide_dir * (guide_length / 2),
                           joint_pos - normalized_guide_dir * (guide_length / 2))
 
-
-    def update_and_draw_cut_guides(self, active_joint: Optional[SkeletonJoint]):
-        """
-        Clears old guides and draws a new one for the active_joint.
-        Call this when the active joint changes (e.g., on hover or selection).
-        """
-        # Clear existing guides
+    def update_and_draw_cut_guides(self, active_joint: Optional[Any]): # Changed type hint from SkeletonJoint
+        """Updates and draws perpendicular cut guides for the active joint."""
+        # Clear existing guide lines
         for item in self.current_guide_lines:
             if item.scene():
                 self.scene().removeItem(item)
@@ -807,7 +674,6 @@ class ImageProcessingView(QGraphicsView):
             guide_item.setZValue(150) # Ensure it's visible above most things
             self.current_guide_lines.append(guide_item)
             logging.debug(f"Drew cut guide for joint {active_joint.joint_name}")
-    # --- End Perpendicular Cut Guide Methods ---
 
     # --- New methods for managing interactive CharacterPartItems ---
     def clear_character_parts(self):
@@ -908,42 +774,51 @@ class ImageProcessingView(QGraphicsView):
             self.image_item.setVisible(not show)
 
     def mousePressEvent(self, event: QEvent):
+        # Check if the click is on a joint
         item = self.itemAt(event.pos())
-        if isinstance(item, SkeletonJoint) and self.scene().mouseGrabberItem() is None: # Ensure no other item is already grabbing mouse
-            self.dragged_joint_item = item
-            # Calculate offset from item's origin to mouse click position
-            self.drag_start_pos_offset = self.dragged_joint_item.mapFromScene(event.scenePos())
-            self.dragged_joint_item.set_selected(True) # Visual feedback
-            self.scene().update()
-            event.accept() # Accept event to prevent further processing by parent/view
-            return # Do not call super if we are handling the drag
+        # if isinstance(item, SkeletonJoint): # Commented out
+        #     self.dragged_joint_item = item
+        #     self.drag_start_pos = event.scenePos()
+        #     self.drag_start_pos_offset = self.dragged_joint_item.scenePos() - self.drag_start_pos
+        #     # Bring to front
+        #     self.dragged_joint_item.setZValue(self.dragged_joint_item.zValue() + 1)
+        #     self.update_and_draw_cut_guides(self.dragged_joint_item) # Update guides for active joint
+        #     return # Consume event if joint is clicked
+        # else: # Clicked on background or other item
+        #     self.dragged_joint_item = None
+        #     self.update_and_draw_cut_guides(None) # Clear guides if no joint is active
 
-        super().mousePressEvent(event) # Default handling for other items or view dragging
+        super().mousePressEvent(event) # Call super for panning etc.
 
     def mouseMoveEvent(self, event: QEvent):
-        if self.dragged_joint_item:
-            new_scene_pos_for_joint_origin = event.scenePos() - self.drag_start_pos_offset
-            self.dragged_joint_item.setPos(new_scene_pos_for_joint_origin)
-            self._update_lines(self.dragged_joint_item) # Update connected skeleton lines
-            self._update_joint_label_position(self.dragged_joint_item.joint_name) # Update label
+        if self.dragged_joint_item and self.drag_start_pos:
+            current_scene_pos = event.scenePos()
+            # Calculate new position based on drag start and current mouse position
+            # This provides a more direct drag feel compared to just setting item's pos to mouse pos
+            # new_pos = self.dragged_joint_item.mapToParent(self.dragged_joint_item.mapFromScene(current_scene_pos + self.drag_start_pos_offset))
+            # self.dragged_joint_item.setPos(new_pos) # this was causing issues
 
-            # Update the linked CharacterPartItem
-            self._update_linked_part_position(self.dragged_joint_item.joint_name, new_scene_pos_for_joint_origin)
+            # Simpler: move the joint to the current mouse position in scene coordinates
+            self.dragged_joint_item.setPos(current_scene_pos + self.drag_start_pos_offset)
 
-            self.scene().update()
-            event.accept()
-            return
+            self._update_lines(self.dragged_joint_item)
+            self._update_joint_label_position(self.dragged_joint_item.name) # Update label
+            self._update_linked_part_position(self.dragged_joint_item.name, self.dragged_joint_item.scenePos())
+            self.update_and_draw_cut_guides(self.dragged_joint_item) # Update guides for active joint
+            return # Consume event
 
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QEvent):
-        if self.dragged_joint_item:
-            self.dragged_joint_item.set_selected(False) # Visual feedback
-            self.dragged_joint_item = None
-            self.drag_start_pos_offset = None
-            self.scene().update()
-            event.accept()
-            return
+        # if self.dragged_joint_item:
+        #     # Reset Z-value
+        #     self.dragged_joint_item.setZValue(self.dragged_joint_item.zValue() -1)
+        #     self.dragged_joint_item = None
+        #     self.drag_start_pos = None
+        #     self.drag_start_pos_offset = None
+        #     # Do not clear guides here, they stay until another joint is selected or background clicked
+        #     # self.update_and_draw_cut_guides(None) # This would clear them
+        #     return # Consume event
 
         super().mouseReleaseEvent(event)
 
@@ -1006,29 +881,3 @@ class ImageProcessingView(QGraphicsView):
             logging.debug(f"Moved part '{part_name_to_move}' to scene pos {part_item.pos()} to align its anchor with joint '{joint_name}' at {new_joint_scene_pos}")
         else:
             logging.debug(f"No part found or mapped to move for joint '{joint_name}'. Searched for part: {part_name_to_move}")
-
-
-    def update_and_draw_cut_guides(self, active_joint: Optional[SkeletonJoint]):
-        """
-        Clears old guides and draws a new one for the active_joint.
-        Call this when the active joint changes (e.g., on hover or selection).
-        """
-        # Clear existing guides
-        for item in self.current_guide_lines:
-            if item.scene():
-                self.scene().removeItem(item)
-        self.current_guide_lines = []
-
-        if not active_joint or not self.scene(): # Ensure scene is available
-            return
-
-        guide_line_data = self.calculate_perpendicular_cut_guide(active_joint)
-
-        if guide_line_data:
-            pen = QPen(QColor("cyan"), 1.5, Qt.PenStyle.DashLine)
-            pen.setCosmetic(True) # Keep pen width constant regardless of zoom
-            guide_item = self.scene().addLine(guide_line_data, pen)
-            guide_item.setZValue(150) # Ensure it's visible above most things
-            self.current_guide_lines.append(guide_item)
-            logging.debug(f"Drew cut guide for joint {active_joint.joint_name}")
-    # --- End New methods ---

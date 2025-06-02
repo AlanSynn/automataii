@@ -16,7 +16,7 @@ Z_SKELETON_JOINTS = 6
 Z_MOTION_PATH_LINE = 20
 
 # Anchors / Pivots / Control Points
-Z_ANCHOR_POINT = 30
+Z_ANCHOR_POINT = 35
 Z_MECHANISM_PIVOT = 102
 Z_IK_CONTROL_POINT = 103
 
@@ -24,6 +24,7 @@ Z_IK_CONTROL_POINT = 103
 Z_SELECTION_HIGHLIGHT = 40 # Used by CharacterPartItem for its selection outline
 Z_HOVER_HIGHLIGHT = 106
 Z_TOOLTIP_LIKE_OVERLAY = 200 # For temporary info displays
+Z_PART_ITEM_SELECTED_HIGHLIGHT = 40
 
 # Debug Visuals (should be on top of everything if active)
 Z_DEBUG_BOUNDING_BOX = 500
@@ -32,3 +33,6 @@ Z_DEBUG_IK_SOLVER_VIS = 502
 
 # Z-index for the temporary path being drawn by the user in EditorView
 Z_MOTION_PATH_PREVIEW = 45 # Higher than selection highlight and finalized paths
+Z_SKELETON_OVERLAY = 40 # For SkeletonGraphicsItem, above parts, below motion path preview
+Z_SELECTION_MARKER = 50 # For mechanism point markers like pivot A, D etc.
+Z_TOOLTIP = 100 # Tooltips should be on top

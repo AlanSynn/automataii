@@ -8,18 +8,19 @@ from pathlib import Path
 if TYPE_CHECKING:
     from .models_pydantic import PartInfoModel as PydanticPartInfoModel, MotionPathDataModel, QPointFModel # For type hinting
 
-try:
-    from svgpathtools import svg2paths, Path as SvgPathToolPath, Line, Arc, CubicBezier, QuadraticBezier # Aliased Path
-    HAS_SVGPATH = True
-except ImportError:
-    logging.warning("svgpathtools not found. SVG parsing will be unavailable. pip install svgpathtools")
-    HAS_SVGPATH = False
-    # Define dummy classes if the library is missing
-    class SvgPathToolPath: pass
-    class Line: pass
-    class Arc: pass
-    class CubicBezier: pass
-    class QuadraticBezier: pass
+# svgpathtools is no longer needed for basic PartInfo if rendering is via QPixmap
+# try:
+#     from svgpathtools import svg2paths, Path as SvgPathToolPath, Line, Arc, CubicBezier, QuadraticBezier # Aliased Path
+#     HAS_SVGPATH = True
+# except ImportError:
+#     logging.warning("svgpathtools not found. SVG parsing will be unavailable. pip install svgpathtools")
+#     HAS_SVGPATH = False
+#     # Define dummy classes if the library is missing
+#     class SvgPathToolPath: pass
+#     class Line: pass
+#     class Arc: pass
+#     class CubicBezier: pass
+#     class QuadraticBezier: pass
 
 # --- Constants ---
 SKELETON_JOINTS = ["head", "neck", "right_shoulder", "right_elbow", "right_wrist",
@@ -65,13 +66,12 @@ class PartInfo:
     like QPainterPath and parsed SVG data.
     It is initialized from a validated PartInfoModel.
     """
-    def __init__(self, model: 'PydanticPartInfoModel', resolved_image_path: Optional[str] = None, resolved_svg_path_file: Optional[str] = None):
+    def __init__(self, model: 'PydanticPartInfoModel', resolved_image_path: Optional[str] = None):
         from .models_pydantic import QPointFModel # Late import for type hint resolution
         self.name: str = model.name
         self.roi: Optional[List[float]] = model.roi
         # Store resolved absolute paths if provided, otherwise use what's in the model (which might be relative)
         self.image_path: Optional[str] = resolved_image_path if resolved_image_path is not None else model.image_path
-        self.svg_path_file: Optional[str] = resolved_svg_path_file if resolved_svg_path_file is not None else model.svg_path # model.svg_path is alias for svg_path_file
         self.fill_color: str = model.fill_color
         self.z_value: float = model.z_value
         self.fixed: bool = model.fixed
@@ -107,18 +107,12 @@ class PartInfo:
                         logging.warning(f"Skipping invalid point data in motion_path_data for {self.name}: {p_model}")
             self.motion_path_data = path
 
-        self.svg_paths: List[SvgPathToolPath] = []
         self.qpainter_path: QPainterPath = QPainterPath()
         self.x: float = self.roi[0] if self.roi and len(self.roi) == 4 else 0.0
         self.y: float = self.roi[1] if self.roi and len(self.roi) == 4 else 0.0
 
-        if HAS_SVGPATH and self.svg_path_file:
-            self._parse_svg()
-        elif not self.svg_path_file:
-            logging.debug(f"No SVG path file provided for part {self.name}. QPainterPath will be empty.")
-
     @classmethod
-    def from_pydantic(cls, model: 'PydanticPartInfoModel', project_dir: Optional['Path'] = None) -> 'PartInfo': # Added project_dir
+    def from_pydantic(cls, model: 'PydanticPartInfoModel', project_dir: Optional['Path'] = None) -> 'PartInfo':
         """Creates a PartInfo instance from a validated PartInfoModel, resolving paths if project_dir is given."""
         from pathlib import Path # Ensure Path is available
 
@@ -127,13 +121,8 @@ class PartInfo:
             resolved_img_path = str(project_dir / model.image_path)
             # logging.debug(f"Resolved image path for {model.name}: {resolved_img_path}")
 
-        resolved_svg_path = model.svg_path # Pydantic model uses svg_path (alias for svg_path_file)
-        if project_dir and model.svg_path and not Path(model.svg_path).is_absolute():
-            resolved_svg_path = str(project_dir / model.svg_path)
-            # logging.debug(f"Resolved SVG path for {model.name}: {resolved_svg_path}")
-
         # Pass resolved paths to constructor
-        return cls(model, resolved_image_path=resolved_img_path, resolved_svg_path_file=resolved_svg_path)
+        return cls(model, resolved_image_path=resolved_img_path)
 
     def to_pydantic_model(self) -> 'PydanticPartInfoModel':
         from .models_pydantic import PydanticPartInfoModel, MotionPathDataModel, QPointFModel # Late import
@@ -152,7 +141,6 @@ class PartInfo:
 
         return PydanticPartInfoModel(
             name=self.name,
-            svg_path=self.svg_path_file, # Alias 'svg_path_file' in Pydantic model
             roi=self.roi,
             z_value=self.z_value,
             image_path=self.image_path,
@@ -167,40 +155,6 @@ class PartInfo:
             motion_path_data=motion_path_pydantic,
             show_anchor=self.show_anchor
         )
-
-    def _parse_svg(self):
-        # Ensure self.svg_path_file is used as it's the attribute holding the path
-        if self.svg_path_file and os.path.exists(self.svg_path_file):
-            try:
-                # Use aliased SvgPathToolPath
-                paths, attributes, svg_attribs = svg2paths(self.svg_path_file, return_svg_attributes=True)
-                self.svg_paths = paths
-                path = QPainterPath()
-                for p_idx, p_tool_path in enumerate(paths): # Renamed p to p_tool_path
-                    if not p_tool_path or not list(p_tool_path): continue
-
-                    path.moveTo(QPointF(p_tool_path.start.real, p_tool_path.start.imag))
-                    for segment_idx, segment in enumerate(p_tool_path):
-                        # logging.debug(f"Part {self.name}, Path {p_idx}, Segment {segment_idx}: {type(segment)} End: ({segment.end.real}, {segment.end.imag})")
-                        if isinstance(segment, Line):
-                            path.lineTo(QPointF(segment.end.real, segment.end.imag))
-                        elif isinstance(segment, CubicBezier):
-                            path.cubicTo(QPointF(segment.control1.real, segment.control1.imag),
-                                         QPointF(segment.control2.real, segment.control2.imag),
-                                         QPointF(segment.end.real, segment.end.imag))
-                        elif isinstance(segment, QuadraticBezier):
-                            path.quadTo(QPointF(segment.control.real, segment.control.imag),
-                                        QPointF(segment.end.real, segment.end.imag))
-                        elif isinstance(segment, Arc):
-                            logging.warning(f"SVG Arc in {self.name} approximated as LineTo.")
-                            path.lineTo(QPointF(segment.end.real, segment.end.imag))
-                        else:
-                            path.lineTo(QPointF(segment.end.real, segment.end.imag))
-                self.qpainter_path = path.simplified()
-            except Exception as e:
-                logging.error(f"Error parsing SVG {self.svg_path_file} for part {self.name}: {e}", exc_info=True)
-        else:
-             logging.warning(f"SVG file not found or path not specified for {self.name}: {self.svg_path_file}")
 
 class Joint:
     """Joint connecting two parts"""

@@ -1003,12 +1003,38 @@ class EditorTab(QWidget):
 
     def on_skeleton_updated(self, skeleton_data: Optional[Dict]):
         """Called by MainWindow when the skeleton is updated."""
-        # This tab primarily deals with parts, but might need to
-        # update visualizations if it shows skeleton-related info or uses it for mechanism hints.
         logging.info(
             f"EditorTab received skeleton update: {'Exists' if skeleton_data else 'None'}"
         )
-        # For now, just log. If EditorTab needs to display skeleton, add logic here.
+
+        if self.editor_view:
+            if skeleton_data:
+                # skeleton_data is likely from StandardizedSkeletonModel.model_dump()
+                # So, skeleton_data.get('joints') will be Dict[str, Dict] where the inner dict is the dumped joint model.
+                standardized_joints_dict = skeleton_data.get('joints', {}) # Dict[std_id, Dict]
+                hierarchy = skeleton_data.get('hierarchy', {})     # Dict[std_id, List[std_child_id]]
+
+                skeleton_for_view = []
+                if isinstance(standardized_joints_dict, dict):
+                    for joint_id, joint_model_dict in standardized_joints_dict.items(): # Iterate through the dictionary of dictionaries
+                        pos_list = joint_model_dict.get('position')
+                        pos = QPointF(pos_list[0], pos_list[1]) if pos_list and len(pos_list) == 2 else QPointF()
+
+                        skeleton_for_view.append({
+                            'id': joint_model_dict.get('id', joint_id), # Use key as fallback for id
+                            'name': joint_model_dict.get('name'),
+                            'position': pos,
+                            'parent': joint_model_dict.get('parent_id'),
+                            'color': joint_model_dict.get('color', 'blue'),
+                            'label': joint_model_dict.get('label')
+                        })
+
+                logging.debug(f"EditorTab: Visualizing skeleton with {len(skeleton_for_view)} joints and hierarchy keys: {list(hierarchy.keys())}")
+                self.editor_view.visualize_skeleton(skeleton_for_view, hierarchy)
+            else:
+                logging.info("EditorTab: Clearing skeleton visualization because skeleton_data is None.")
+                self.editor_view.visualize_skeleton([], {})
+
         self._update_button_states()
 
     def set_part_properties_visibility(self, visible: bool):

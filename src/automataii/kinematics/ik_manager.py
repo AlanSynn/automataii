@@ -38,6 +38,7 @@ class IKManager(QObject):
     ik_solver_initialized = pyqtSignal(bool, dict) # success, initial_joint_config {joint_name: {'position': QPointF, 'angle': float}}
     error_occurred = pyqtSignal(str)
     simulation_data_generated = pyqtSignal(dict) # For mechanism generation later
+    skeleton_pose_updated = pyqtSignal(dict) # NEW SIGNAL for raw joint positions
 
     def __init__(self, main_window_ref, parent: Optional[QObject] = None): # main_window_ref for statusbar or config access initially
         super().__init__(parent)
@@ -230,13 +231,41 @@ class IKManager(QObject):
 
     def set_project_parts_data(self, parts_data: Dict[str, 'PartInfo']):
         """Sets the parts data from the current project, used for animation paths etc."""
-        logging.info(f"IKManager: Project parts data set. {len(parts_data)} parts.")
-        self.project_parts_data = parts_data.copy()
+        logging.info(f"IKManager: set_project_parts_data called. Received {len(parts_data)} parts. Pending paths: {list(self._pending_motion_paths.keys())}")
+        if 'head' in parts_data:
+            logging.info(f"IKManager: 'head' part IS IN incoming parts_data for set_project_parts_data.")
+            head_part_info_incoming = parts_data['head']
+            logging.info(f"IKManager: 'head' (incoming) motion_path_data IS {'SET' if hasattr(head_part_info_incoming, 'motion_path_data') and head_part_info_incoming.motion_path_data else 'None/Empty'}")
+        else:
+            logging.info(f"IKManager: 'head' part IS NOT in incoming parts_data for set_project_parts_data.")
+
+        self.project_parts_data = parts_data.copy() # Create a copy
+        if 'head' in self.project_parts_data:
+            logging.info(f"IKManager: 'head' part exists in self.project_parts_data after copy.")
+        else:
+            logging.info(f"IKManager: 'head' part DOES NOT exist in self.project_parts_data after copy.")
+
+
         # Apply any pending motion paths that might have been set before parts data
         for part_name, path in self._pending_motion_paths.items():
             if part_name in self.project_parts_data:
+                logging.info(f"IKManager: Applying pending motion path for part '{part_name}'.")
                 self.project_parts_data[part_name].motion_path_data = path # motion_path_data should be QPainterPath
+                if part_name == 'head':
+                    logging.info(f"IKManager: Applied PENDING motion path for 'head'. Path elements: {path.elementCount() if path else 'None'}")
+                    logging.info(f"IKManager: project_parts_data['head'].motion_path_data IS NOW {'SET' if self.project_parts_data['head'].motion_path_data else 'None/Empty'}")
+            else:
+                logging.warning(f"IKManager: Could not apply pending motion path for '{part_name}'. Part not found in self.project_parts_data after copy.")
+
         self._pending_motion_paths.clear()
+
+        if 'head' in self.project_parts_data:
+            head_part_info_final = self.project_parts_data['head']
+            logging.info(f"IKManager: AFTER pending paths, project_parts_data['head'].motion_path_data IS {'SET' if hasattr(head_part_info_final, 'motion_path_data') and head_part_info_final.motion_path_data else 'None/Empty'}")
+        else:
+            logging.info(f"IKManager: AFTER pending paths, 'head' part still not in self.project_parts_data.")
+
+
         self._try_initialize_solver()
 
     def _try_initialize_solver(self) -> None:
@@ -1004,7 +1033,7 @@ class IKManager(QObject):
 
     def _run_ik_animation_step(self):
         if not self._animation_start_time_qelapsed or not self.ik_animation_timer.isActive():
-            return
+            return # Animation not running or timer not active
 
         elapsed_ms = self._animation_start_time_qelapsed.elapsed()
         if self.animation_duration <= 0: # Avoid division by zero if duration is invalid
@@ -1013,84 +1042,115 @@ class IKManager(QObject):
             self._current_animation_progress = (elapsed_ms % self.animation_duration) / float(self.animation_duration)
 
         if elapsed_ms >= self.animation_duration and self.animation_duration > 0:
+            # Loop the animation by restarting the elapsed timer
             self._animation_start_time_qelapsed.start()
+            # Ensure progress resets to 0 at the exact loop point
+            # This might be slightly off due to timer granularity, but usually fine.
 
+        # Ensure progress is strictly within [0, 1) for path calculations
         if self._current_animation_progress >= 1.0:
             self._current_animation_progress = 0.0 # Loop
-            # Or stop: self.stop_animation(); return
+        # Or stop: self.stop_animation(); return
 
         logging.debug(f"IKManager._run_ik_animation_step: Progress {self._current_animation_progress:.2f}")
 
         if not self.project_parts_data:
             logging.warning("IKManager._run_ik_animation_step: Missing project_parts_data.")
             return
-        if not self.sim_joints_config:
+
+        if not self.sim_joints_config: # Check if the IK rig definition is loaded
             logging.warning("IKManager._run_ik_animation_step: Missing sim_joints_config (IK not fully initialized).")
             return
+
         if not self.sim_selectable_components:
             logging.warning("IKManager._run_ik_animation_step: No sim_selectable_components defined.")
             return
+
         if not self._current_skeleton_data or 'joint_map' not in self._current_skeleton_data:
             logging.error("IKManager._run_ik_animation_step: Missing skeleton data or joint_map.")
             return
 
+        # This is where the core IK logic happens and self.dynamic_joints gets updated.
+        # The existing logic iterates sim_selectable_components, finds paths, solves IK, and updates dynamic_joints.
+        # We will assume that by the end of this loop, self.dynamic_joints contains the latest animated joint positions.
 
-        current_joint_angles = {name: data.get('angle', 0.0) for name, data in self.sim_joints_config.items()}
-        solved_something_in_step = False
-
-        logging.debug(f"IKManager._run_ik_animation_step: Iterating {len(self.sim_selectable_components)} selectable components.")
-        for component_config in self.sim_selectable_components:
-            part_name_for_path = component_config.get('partName')
-            target_ik_joint_abstract_name = component_config.get('targetJointId') # This is an abstract name
-
-            if not part_name_for_path or not target_ik_joint_abstract_name:
+        # --- Existing IK solving logic (simplified representation) ---
+        for component in self.sim_selectable_components:
+            target_ik_joint_abstract_name = component.get('targetJointId') # e.g., j_left_wrist
+            if not target_ik_joint_abstract_name:
                 continue
 
-            if part_name_for_path in self.project_parts_data:
-                part_info = self.project_parts_data[part_name_for_path]
+            part_name_for_path = component.get('partName') # e.g., left_arm_lower (visual part this IK component drives)
+            part_info = self.project_parts_data.get(part_name_for_path)
 
-                motion_path_obj = None
-                if hasattr(part_info, 'motion_path_data') and part_info.motion_path_data:
-                    motion_path_obj = part_info.motion_path_data
-                elif hasattr(part_info, 'motion_path') and part_info.motion_path:
-                    motion_path_obj = part_info.motion_path
+            if part_info and part_info.motion_path_data:
+                motion_path_obj = part_info.motion_path_data # This should be QPainterPath
+                target_pos_on_path = self._get_point_on_path(motion_path_obj, self._current_animation_progress)
 
-                if motion_path_obj:
-                    target_pos_on_path = self._get_point_on_path(motion_path_obj, self._current_animation_progress)
-
-                    if target_pos_on_path:
-                        # Check if this target_ik_joint_abstract_name is an end-effector of a 2-bone chain
-                        middle_joint_abstract_name = self.sim_limb_configs.get(target_ik_joint_abstract_name, {}).get('parentAnchor')
-
-                        if middle_joint_abstract_name: # It's a 2-bone IK effector
-                            logging.debug(f"IKManager._run_ik_animation_step: Attempting 2-bone IK. End-effector_abs: {target_ik_joint_abstract_name}, Middle_abs: {middle_joint_abstract_name}, Target_pos: {target_pos_on_path}")
-                            new_positions = self._solve_two_bone_ik(middle_joint_abstract_name, target_ik_joint_abstract_name, target_pos_on_path)
-
-                            if new_positions:
-                                logging.info(f"IKManager: Solved 2-bone IK for abstract effector '{target_ik_joint_abstract_name}'.") # Pos details in _solve_two_bone_ik log
-                                solved_something_in_step = True
-                        else: # It's a single-point control (e.g., 'neck' controlling 'head' visual part)
+                if target_pos_on_path:
+                    if target_ik_joint_abstract_name in self.sim_two_bone_ik_effectors:
+                        # Find parent and grandparent for 2-bone IK
+                        limb_config = self.sim_limb_configs.get(target_ik_joint_abstract_name)
+                        if limb_config:
+                            middle_joint_abstract_name = limb_config.get('parentAnchor') # e.g. j_left_elbow
+                            # Need grandparent for 2-bone IK (anchor of the middle joint)
+                            # This requires traversing sim_limb_configs or having a direct parent map for IK joints
+                            # For simplicity, let's assume _solve_two_bone_ik handles finding its base internally or has it passed.
+                            # The current _solve_two_bone_ik takes middle_joint and end_effector.
+                            if middle_joint_abstract_name:
+                                self._solve_two_bone_ik(middle_joint_abstract_name, target_ik_joint_abstract_name, target_pos_on_path)
+                                logging.debug(f"IKManager._run_ik_animation_step: Attempting 2-bone IK. End-effector_abs: {target_ik_joint_abstract_name}, Middle_abs: {middle_joint_abstract_name}, Target_pos: {target_pos_on_path}")
+                            else:
+                                logging.warning(f"IKManager._run_ik_animation_step: Could not find middle joint for 2-bone IK target '{target_ik_joint_abstract_name}'.")
+                    else: # Assume single point control / 1-bone IK
+                        # Find anchor for 1-bone IK
+                        limb_config = self.sim_limb_configs.get(target_ik_joint_abstract_name)
+                        anchor_joint_abstract_name = limb_config.get('parentAnchor') if limb_config else None
+                        if anchor_joint_abstract_name:
+                            # Correctly use the result of _solve_single_bone_ik
+                            solved_single_bone_data = self._solve_single_bone_ik(target_ik_joint_abstract_name, anchor_joint_abstract_name, np.array([target_pos_on_path.x(), target_pos_on_path.y()]))
+                            if solved_single_bone_data:
+                                for joint_std_id, data_updates in solved_single_bone_data.items():
+                                    if joint_std_id in self.sim_joints_config:
+                                        self.sim_joints_config[joint_std_id].update(data_updates)
+                                    else:
+                                        # This case should ideally not happen if solver is initialized properly
+                                        self.sim_joints_config[joint_std_id] = data_updates
+                                    logging.debug(f"IKM._run_ik_animation_step: Updated sim_joints_config for '{joint_std_id}' from _solve_single_bone_ik.")
+                        else:
+                            # This case might mean the joint is a root or directly manipulated, not part of a limb chain here.
+                            # Or it's a component that doesn't move via IK but has a path (e.g. root itself moving along a path)
+                            # We might need to update its position directly if so.
                             target_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name)
-                            if target_std_id and target_std_id in self.sim_joints_config:
+                            if target_std_id and target_std_id in self.sim_joints_config: # Check sim_joints_config now
                                 self.sim_joints_config[target_std_id]['position'] = target_pos_on_path
-                                # Angle might need to be updated based on parent or other logic, placeholder for now
-                                # self.sim_joints_config[target_std_id]['angle'] = ...
-                                logging.info(f"IKManager: Applied direct single-point control for abstract joint '{target_ik_joint_abstract_name}' (STD ID: {target_std_id}) to pos {target_pos_on_path}.")
-                                solved_something_in_step = True
+                                # Potentially update angle if it's a root or has a fixed orientation relative to path
+                                logging.debug(f"IKM._run_ik_animation_step: Directly moved joint '{target_std_id}' (from abs '{target_ik_joint_abstract_name}') to path position {target_pos_on_path}.")
                             else:
                                 logging.warning(f"IKManager._run_ik_animation_step: Could not apply single-point control for abstract joint '{target_ik_joint_abstract_name}'. STD ID '{target_std_id}' not found or not in sim_joints_config.")
-                    else:
-                        logging.debug(f"IKManager._run_ik_animation_step: No target_pos_on_path for component '{part_name_for_path}' at progress {self._current_animation_progress:.2f}.")
                 else:
-                    logging.debug(f"IKManager._run_ik_animation_step: No motion path for component linked to IK joint abstract name '{target_ik_joint_abstract_name}'. Single-bone IK cannot be attempted without a target. Skipping for this component.")
+                    logging.debug(f"IKManager._run_ik_animation_step: No target_pos_on_path for component '{part_name_for_path}' at progress {self._current_animation_progress:.2f}.")
             else:
-                logging.debug(f"IKManager._run_ik_animation_step: Part '{part_name_for_path}' (for path) not in project_parts_data. Component: {component_config.get('name')}, skipping IK solve.")
+                logging.debug(f"IKManager._run_ik_animation_step: No motion path for component linked to IK joint abstract name '{target_ik_joint_abstract_name}'. Single-bone IK cannot be attempted without a target. Skipping for this component.")
+        # --- End of existing IK solving logic (simplified) ---
 
-        if solved_something_in_step or True:
-            logging.debug("IKManager._run_ik_animation_step: Calling _update_character_part_visuals_from_ik.")
-            self._update_character_part_visuals_from_ik()
-        else:
-            logging.debug("IKManager._run_ik_animation_step: Nothing solved, no visual update triggered by this step.")
+        # After all IK updates, dynamic_joints holds the current pose.
+        # Now, update character part visuals based on the new IK pose.
+        self._update_character_part_visuals_from_ik() # This emits character_visuals_updated for parts
+
+        # NEW: Prepare and emit raw joint positions for SkeletonGraphicsItem
+        # Populate from self.sim_joints_config as it's the most up-to-date source of solved positions
+        animated_joint_scene_positions: Dict[str, Tuple[float, float]] = {}
+        if self.sim_joints_config:
+            for joint_std_id, joint_data in self.sim_joints_config.items():
+                pos = joint_data.get('position') # position is a QPointF
+                if pos is not None: # Ensure position exists and is a QPointF
+                    animated_joint_scene_positions[joint_std_id] = (pos.x(), pos.y())
+                else:
+                    logging.warning(f"IKManager._run_ik_animation_step: Joint '{joint_std_id}' in sim_joints_config missing 'position' QPointF data.")
+
+        if animated_joint_scene_positions:
+            self.skeleton_pose_updated.emit(animated_joint_scene_positions)
 
     @property
     def dynamic_joints(self) -> Dict[str, Dict[str, Any]]:
@@ -1116,6 +1176,8 @@ class IKManager(QObject):
         sm_ref_id_at_entry = id(self.skeleton_manager_ref) if self.skeleton_manager_ref else None
         sm_model_exists_at_entry = (self.skeleton_manager_ref and self.skeleton_manager_ref.standardized_model) is not None
         logging.info(f"IKManager (id:{id(self)}).update_part_motion_path ENTRY for '{part_name}'. skeleton_manager_ref ID: {sm_ref_id_at_entry}, its model exists: {sm_model_exists_at_entry}")
+        if part_name == 'head':
+            logging.info(f"IKManager: update_part_motion_path CALLED FOR 'head'. Path elements: {motion_qpath.elementCount() if motion_qpath else 'None'}")
 
         current_skel_state_at_entry = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
         if self._current_skeleton_data and 'joints' in self._current_skeleton_data:
@@ -1124,24 +1186,11 @@ class IKManager(QObject):
             current_skel_state_at_entry += f", 'joints' key MISSING."
         logging.info(f"IKManager (id:{id(self)}).update_part_motion_path (pre-workaround) for '{part_name}'. _current_skeleton_data state: {current_skel_state_at_entry}")
 
-        # WORKAROUND for _current_skeleton_data mysteriously becoming None
-        if self._current_skeleton_data is None:
-            logging.warning(f"IKManager (id:{id(self)}): _current_skeleton_data is None in update_part_motion_path for '{part_name}'. Attempting to re-acquire from SkeletonManager.")
-            if self.skeleton_manager_ref and self.skeleton_manager_ref.standardized_model:
-                logging.info(f"IKManager (id:{id(self)}): SkeletonManager ref (id:{id(self.skeleton_manager_ref)}) and its standardized_model exist. Re-setting _current_skeleton_data.")
-                self._current_skeleton_data = self.skeleton_manager_ref.standardized_model.model_dump()
-                # Log state after re-acquire attempt, using the property getter which is fine here
-                post_reacquire_state = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
-                logging.info(f"IKManager (id:{id(self)}): _current_skeleton_data state AFTER re-acquire attempt: {post_reacquire_state}")
-            else:
-                log_msg_sm_ref = "MISSING" if not self.skeleton_manager_ref else f"EXISTS (id:{id(self.skeleton_manager_ref)})"
-                log_msg_sm_model = "N/A" if not self.skeleton_manager_ref else ("MISSING" if not self.skeleton_manager_ref.standardized_model else "EXISTS")
-                logging.error(f"IKManager (id:{id(self)}): Cannot re-acquire skeleton data. SkeletonManager ref: {log_msg_sm_ref}, SkeletonManager.standardized_model: {log_msg_sm_model}")
-        # END WORKAROUND
-
         if not self.project_parts_data:
             logging.warning(f"IKManager (id:{id(self)}): Cannot update motion path for '{part_name}'. project_parts_data is not set. Storing path as pending.")
             self._pending_motion_paths[part_name] = motion_qpath
+            if part_name == 'head':
+                logging.info(f"IKManager: 'head's path stored as PENDING because project_parts_data is not set.")
             # Log state of _current_skeleton_data here for context, even if pending
             final_skel_state_for_log = "IS None" if self._current_skeleton_data is None else f"EXISTS (Keys: {list(self._current_skeleton_data.keys()) if self._current_skeleton_data else 'EMPTY'})"
             logging.info(f"IKManager.update_part_motion_path (project_parts_data not set, pending '{part_name}'): Final _current_skeleton_data state for this call: {final_skel_state_for_log}")
@@ -1151,9 +1200,14 @@ class IKManager(QObject):
             part_info = self.project_parts_data[part_name]
             part_info.motion_path_data = motion_qpath # Ensure QPainterPath is stored in motion_path_data
             logging.info(f"IKManager (id:{id(self)}): Updated motion path for part '{part_name}'. Path elements: {motion_qpath.elementCount() if motion_qpath else 'None'}")
+            if part_name == 'head':
+                logging.info(f"IKManager: 'head' motion_path_data directly updated in self.project_parts_data['head'].")
+                logging.info(f"IKManager: project_parts_data['head'].motion_path_data IS NOW {'SET' if self.project_parts_data['head'].motion_path_data else 'None/Empty'}")
         else:
             logging.warning(f"IKManager (id:{id(self)}): Part '{part_name}' not found in project_parts_data. Storing path as pending.")
             self._pending_motion_paths[part_name] = motion_qpath
+            if part_name == 'head':
+                logging.info(f"IKManager: 'head's path stored as PENDING because 'head' not in project_parts_data.")
             # No return here, still try to init solver if other conditions met, though this part won't have a path for now
 
         # Log state of _current_skeleton_data BEFORE calling _try_initialize_solver

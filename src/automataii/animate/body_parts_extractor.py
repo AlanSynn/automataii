@@ -20,7 +20,6 @@ from PyQt6.QtCore import Qt
 from .part_definitions import BODY_PARTS
 from .templates import HTML_VIEWER_TEMPLATE, PART_CARD_TEMPLATE
 from ..utils.helpers import NumpyEncoder
-from ..utils.svg_utils import contour_to_svg_path, save_svg
 from ..utils.image_utils import save_image
 
 def create_bone_mask(joint_map, start_joint, end_joint, mask_shape, thickness=20):
@@ -832,8 +831,8 @@ class BodyPartsExtractor:
 
         part_cards = ""
         for part_name, part_info in self.results['character']['parts'].items():
-            image_path = os.path.basename(part_info['image_path'])
-            svg_path = os.path.basename(part_info['svg_path'])
+            image_path = os.path.basename(part_info.get('image_path', '')) # Use .get for safety
+            svg_path = os.path.basename(part_info.get('svg_path', '')) # Use .get for safety, will be empty string if key missing
             animation_element = ""
             if 'animations' in self.results['character'] and part_name in self.results['character']['animations']:
                 animation_path = os.path.basename(self.results['character']['animations'][part_name]['animation_path'])
@@ -862,125 +861,48 @@ class BodyPartsExtractor:
             logging.error(f"Failed to write HTML viewer: {e}")
 
     def _extract_body_part(self, full_texture: np.ndarray, part_mask_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[Tuple[int, int, int, int]]]:
-        """Extracts a specific body part from the texture using its mask.
-
-        Args:
-            full_texture (np.ndarray): The original character texture.
-            part_mask_data (np.ndarray): The binary mask for the specific body part.
-
-        Returns:
-            Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[Tuple[int, int, int, int]]]:
-                - Cropped part texture (RGBA).
-                - Cropped part mask (binary).
-                - Bounding box (x, y, w, h) of the part within the original texture.
-                Returns (None, None, None) if extraction fails.
-        """
-        if part_mask_data is None or np.count_nonzero(part_mask_data) == 0:
-            logging.debug("Empty part mask provided to _extract_body_part.")
+        """Extracts the part texture, creates an alpha channel, and finds the bounding box."""
+        if part_mask_data is None or np.sum(part_mask_data) == 0:
+            logging.warning("Empty or None mask provided to _extract_body_part.")
             return None, None, None
 
-        # Ensure mask is uint8 and binary (0 or 255)
+        # Ensure mask is boolean for findContours
         if part_mask_data.dtype != np.uint8:
             part_mask_data = part_mask_data.astype(np.uint8)
-        if set(np.unique(part_mask_data)) - {0, 255}: # Check if values other than 0 and 255 exist
-             _, part_mask_data = cv2.threshold(part_mask_data, 127, 255, cv2.THRESH_BINARY)
-
 
         # Find contours to get the bounding box
-        # Ensure part_mask_data is suitable for findContours (binary, uint8)
-        # This check is now redundant if done above, but kept for clarity of findContours requirements.
-        if part_mask_data.ndim == 3 and part_mask_data.shape[2] == 3:
-            # Convert to grayscale if it's somehow a 3-channel mask
-            part_mask_gray = cv2.cvtColor(part_mask_data, cv2.COLOR_BGR2GRAY)
-            _, binary_mask = cv2.threshold(part_mask_gray, 1, 255, cv2.THRESH_BINARY)
-        elif part_mask_data.ndim == 2:
-            # Ensure it's binary if it's already single channel
-            _, binary_mask = cv2.threshold(part_mask_data, 1, 255, cv2.THRESH_BINARY)
-        else:
-            logging.error(f"Unexpected mask dimension or type for findContours: {part_mask_data.shape}, {part_mask_data.dtype}")
-            return None, None, None
-
-        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+        contours, _ = cv2.findContours(part_mask_data, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
-            logging.debug("No contours found in part mask for _extract_body_part.")
+            logging.warning("No contours found in part_mask_data.")
             return None, None, None
 
-        # Get bounding box of the largest contour
+        # Assuming the largest contour corresponds to the part
         main_contour = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(main_contour)
 
         if w == 0 or h == 0:
-            logging.debug("Zero width or height bounding box for extracted part.")
+            logging.warning(f"Zero width or height bounding box for a part. Mask sum: {np.sum(part_mask_data)}")
+            # Create a minimal 1x1 texture to avoid errors downstreams if needed
+            # return np.zeros((1, 1, 3), dtype=np.uint8), np.zeros((1, 1), dtype=np.uint8), (x,y,1,1)
             return None, None, None
 
-        # Crop texture and mask
-        cropped_texture_bgr = full_texture[y:y+h, x:x+w]
-        cropped_mask = binary_mask[y:y+h, x:x+w] # Use the processed binary_mask
 
-        # Convert cropped texture to RGBA using the cropped mask
-        if cropped_texture_bgr.shape[:2] != cropped_mask.shape:
-            logging.warning(f"Shape mismatch between cropped texture {cropped_texture_bgr.shape[:2]} and mask {cropped_mask.shape}. Resizing mask.")
-            # Attempt to resize mask to texture size. This can happen with very small parts or edge cases.
-            cropped_mask = cv2.resize(cropped_mask, (cropped_texture_bgr.shape[1], cropped_texture_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
-            _, cropped_mask = cv2.threshold(cropped_mask, 127, 255, cv2.THRESH_BINARY) # Ensure binary after resize
+        # Extract the part texture using the bounding box
+        part_texture_cropped = full_texture[y:y+h, x:x+w]
 
+        # Create an alpha channel from the mask (cropped to the bounding box)
+        alpha_channel_cropped = part_mask_data[y:y+h, x:x+w]
+        alpha_channel_cropped = np.where(alpha_channel_cropped > 0, 255, 0).astype(np.uint8)
 
-        cropped_texture_rgba = cv2.cvtColor(cropped_texture_bgr, cv2.COLOR_BGR2BGRA)
-        cropped_texture_rgba[:, :, 3] = cropped_mask # Set alpha channel
-
-        return cropped_texture_rgba, cropped_mask, (x, y, w, h)
-
-    def _create_contour_from_mask(self, part_mask_data: np.ndarray) -> Optional[np.ndarray]:
-        """Creates a contour from a binary mask."""
-        if part_mask_data is None or np.count_nonzero(part_mask_data) == 0:
-            return None
-
-        # Ensure mask is uint8 and binary (0 or 255)
-        # This is critical for cv2.findContours
-        processed_mask = part_mask_data
-        if processed_mask.dtype != np.uint8:
-            processed_mask = processed_mask.astype(np.uint8)
-
-        # Ensure it's truly binary (0 and 255).
-        # If it has other values (e.g., 0 and 1, or grayscale after some ops), threshold it.
-        unique_values = np.unique(processed_mask)
-        if not (len(unique_values) <= 2 and (0 in unique_values and 255 in unique_values or 0 in unique_values and len(unique_values) == 1 or 255 in unique_values and len(unique_values) == 1 )):
-            # If not strictly 0 and 255, or just 0, or just 255, then threshold
-            # This handles masks that might be 0/1 or other grayscale values.
-            # We assume any non-zero value is part of the mask.
-             logging.debug(f"Mask for contour creation is not strictly binary 0/255 (values: {unique_values}). Thresholding.")
-             _, processed_mask = cv2.threshold(processed_mask, 1, 255, cv2.THRESH_BINARY)
+        if part_texture_cropped.shape[:2] != alpha_channel_cropped.shape[:2]:
+            logging.error(f"Shape mismatch! Texture: {part_texture_cropped.shape[:2]}, Alpha: {alpha_channel_cropped.shape[:2]}. ROI: ({x},{y},{w},{h})")
+            # This case should ideally not happen if ROI is correct
+            # Fallback: resize alpha to match texture (less ideal, check ROI logic)
+            alpha_channel_cropped = cv2.resize(alpha_channel_cropped, (part_texture_cropped.shape[1], part_texture_cropped.shape[0]), interpolation=cv2.INTER_NEAREST)
 
 
-        # Defensive check for dimensionality, findContours expects 2D
-        if processed_mask.ndim == 3:
-            if processed_mask.shape[2] == 1: # Grayscale image with an extra dimension
-                processed_mask = processed_mask.squeeze(axis=2)
-            elif processed_mask.shape[2] > 1: # e.g. BGR image used as mask by mistake
-                logging.warning(f"Mask for contour creation has {processed_mask.shape[2]} channels. Converting to grayscale.")
-                processed_mask = cv2.cvtColor(processed_mask, cv2.COLOR_BGR2GRAY) # Or BGRA2GRAY if 4 channels
-                 # Threshold again after conversion
-                _, processed_mask = cv2.threshold(processed_mask, 1, 255, cv2.THRESH_BINARY)
-
-
-        try:
-            contours, _ = cv2.findContours(processed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                return max(contours, key=cv2.contourArea)
-        except cv2.error as e:
-            logging.error(f"OpenCV error in findContours within _create_contour_from_mask: {e}")
-            logging.error(f"Mask details: dtype={processed_mask.dtype}, shape={processed_mask.shape}, unique_values={np.unique(processed_mask)}")
-            # Save problematic mask for debugging
-            debug_mask_path = self.output_dir / f"error_mask_contour_{random.randint(1000,9999)}.png"
-            try:
-                cv2.imwrite(str(debug_mask_path), processed_mask)
-                logging.error(f"Problematic mask saved to: {debug_mask_path}")
-            except Exception as save_e:
-                logging.error(f"Could not save problematic mask: {save_e}")
-
-            return None
-        return None
+        logging.debug(f"Extracted part with ROI: x={x}, y={y}, w={w}, h={h}. Texture shape: {part_texture_cropped.shape}, Alpha shape: {alpha_channel_cropped.shape}")
+        return part_texture_cropped, alpha_channel_cropped, (x, y, w, h)
 
     def process(self):
         """메인 처리 함수: 파트 분할, SVG 생성, 애니메이션 (선택적)."""
@@ -1009,8 +931,6 @@ class BodyPartsExtractor:
             }
         }
 
-        all_parts_svg_content_for_html = []
-
         for part_name, part_mask_data in self.part_masks.items():
             logging.info(f"Processing part: {part_name}")
 
@@ -1024,55 +944,41 @@ class BodyPartsExtractor:
 
             roi_x, roi_y, roi_w, roi_h = part_bbox_coords
 
-            part_contour = self._create_contour_from_mask(part_mask_data)
-
-            if part_contour is None:
-                logging.warning(f"Could not extract contour for part '{part_name}'. Skipping SVG generation.")
-                svg_file_relative = None
-            else:
-                # Apply offset to the contour points directly
-                # Contour points are typically [[[x, y]], [[x,y]], ...] or [[x,y], [x,y], ...]
-                # Assuming contour is a list of points (e.g., from cv2.boundingRect on a single contour)
-                # or a list of lists of points.
-                # The path_data generation in svg_utils.py is:
-                # "M " + " L ".join([f"{p[0]},{p[1]}" for p_arr in contour for p in p_arr])
-                # This implies contour is like: [[[x1,y1]], [[x2,y2]], ...]
-
-                adjusted_contour = np.array(part_contour, dtype=np.float32) # Ensure it's a NumPy array for easy subtraction
-                if adjusted_contour.ndim == 3 and adjusted_contour.shape[1] == 1: # Typical OpenCV contour shape [[[x,y]]]
-                    adjusted_contour[:, 0, 0] -= roi_x
-                    adjusted_contour[:, 0, 1] -= roi_y
-                elif adjusted_contour.ndim == 2: # Shape like [[x,y]]
-                    adjusted_contour[:, 0] -= roi_x
-                    adjusted_contour[:, 1] -= roi_y
-                else:
-                    logging.warning(f"Unexpected contour shape for part '{part_name}': {adjusted_contour.shape}. Offset may not be applied correctly.")
-                    # Fallback to original contour if shape is unexpected
-                    adjusted_contour = part_contour
-
-
-                # SVG path relative to the part's own bounding box (for individual SVGs)
-                # No longer pass offset, as it's applied to the contour directly
-                svg_path_str_for_file = contour_to_svg_path(adjusted_contour)
-
-                if not svg_path_str_for_file: # Check if string is empty
-                    logging.warning(f"Could not generate SVG path string for part '{part_name}'. Skipping SVG saving.")
-                    svg_file_relative = None
-                else:
-                    svg_file_path = self.output_dir / f"{part_name}.svg"
-                    # Save individual SVG with its own width/height from bounding box
-                    save_svg(svg_path_str_for_file, int(roi_w), int(roi_h), str(svg_file_path))
-                    logging.info(f"Individual SVG file saved: {svg_file_path}")
-                    svg_file_relative = f"{part_name}.svg"
-                    # The all_parts_svg_content_for_html was expecting the offset path,
-                    # but for consistency, we'll use the adjusted one here too.
-                    # If a global SVG is needed, that would require original coords.
-                    all_parts_svg_content_for_html.append(f'<g id="{part_name}">\\n{svg_path_str_for_file}\\n</g>')
-
-
             # PNG 이미지 저장
             png_file_path = self.output_dir / f"{part_name}.png"
-            save_image(part_image_texture, str(png_file_path))
+
+            # part_image_texture is BGR (from _extract_body_part from self.texture which is likely BGR)
+            # _part_mask_roi_not_used is the alpha channel (from _extract_body_part)
+            # We need to combine them into a BGRA image for saving with transparency.
+            bgra_image_to_save = None
+            if part_image_texture is not None and _part_mask_roi_not_used is not None:
+                if part_image_texture.shape[:2] == _part_mask_roi_not_used.shape[:2]:
+                    if part_image_texture.ndim == 2: # Grayscale texture
+                        # Convert grayscale to BGR first then add alpha
+                        bgr_texture = cv2.cvtColor(part_image_texture, cv2.COLOR_GRAY2BGR)
+                        bgra_image_to_save = cv2.cvtColor(bgr_texture, cv2.COLOR_BGR2BGRA)
+                    elif part_image_texture.shape[2] == 3: # BGR texture
+                        bgra_image_to_save = cv2.cvtColor(part_image_texture, cv2.COLOR_BGR2BGRA)
+                    elif part_image_texture.shape[2] == 4: # Already has alpha (e.g. RGBA or BGRA)
+                        bgra_image_to_save = part_image_texture # Assume it's correctly formatted
+                    else:
+                        logging.error(f"Part '{part_name}' has unexpected texture channels: {part_image_texture.shape}")
+
+                    if bgra_image_to_save is not None and bgra_image_to_save.shape[2] == 4:
+                        bgra_image_to_save[:, :, 3] = _part_mask_roi_not_used # Apply/overwrite alpha channel
+                    else:
+                        logging.error(f"Failed to create BGRA image for part '{part_name}'. Texture shape: {part_image_texture.shape}")
+                        bgra_image_to_save = None # Ensure it's None if conversion failed
+                else:
+                    logging.error(f"Shape mismatch between texture and alpha for part '{part_name}': {part_image_texture.shape[:2]} vs {_part_mask_roi_not_used.shape[:2]}")
+
+            if bgra_image_to_save is not None:
+                save_image(bgra_image_to_save, str(png_file_path))
+            else:
+                logging.error(f"Skipping PNG save for part '{part_name}' due to previous errors.")
+                # Optionally, save the BGR part if alpha fails, or skip entirely
+                # save_image(part_image_texture, str(png_file_path)) # Fallback to saving without alpha
+
             png_file_relative = f"{part_name}.png"
 
             local_pivot_x = roi_w / 2
@@ -1083,7 +989,6 @@ class BodyPartsExtractor:
             self.results['character']['parts'][part_name] = {
                 "name": part_name,
                 "roi": [float(roi_x), float(roi_y), float(roi_w), float(roi_h)],
-                "svg_path": str(self.output_dir / svg_file_relative) if svg_file_relative else "",
                 "image_path": str(png_file_path),
                 "fill_color": current_part_def_data.get('color', f"rgba({random.randint(0,255)},{random.randint(0,255)},{random.randint(0,255)},0.5)"),
                 "local_pivot_offset": [float(local_pivot_x), float(local_pivot_y)],
@@ -1136,18 +1041,16 @@ class BodyPartsExtractor:
 
         pydantic_parts = {}
         for part_name, original_part_dict in self.results['character']['parts'].items():
-            svg_rel_path = Path(original_part_dict.get("svg_path", "")).name if original_part_dict.get("svg_path") else ""
             img_rel_path = Path(original_part_dict.get("image_path", "")).name if original_part_dict.get("image_path") else ""
 
             pydantic_parts[part_name] = {
                 "name": part_name,
-                "svg_path_file": svg_rel_path,
                 "roi": original_part_dict.get("roi"),
                 "image_path": img_rel_path,
                 "fill_color": original_part_dict.get("fill_color", 'rgba(128,128,128,0.5)'),
+                "local_pivot_offset": original_part_dict.get("local_pivot_offset"),
                 "z_value": float(original_part_dict.get("z_value", 0.0)),
-                "fixed": bool(original_part_dict.get("fixed", False)),
-                "local_pivot_offset": original_part_dict.get("local_pivot_offset")
+                "fixed": bool(original_part_dict.get("fixed", False))
             }
 
         character_name_from_cfg = self.char_cfg.get("name", self.char_dir.name) if self.char_cfg else self.char_dir.name

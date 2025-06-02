@@ -28,7 +28,7 @@ from PyQt6.QtCore import (
     QRectF,
 )
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 # Local imports (adjust paths as needed)
 from .image_view import ImageProcessingView
@@ -887,36 +887,62 @@ class AutomataDesigner(FramelessMainWindow):
             logging.warning("MechanismManager or its mechanism_visuals_ready signal not found.")
 
     def _connect_manager_signals(self):
-        """Connect signals from various managers like ProjectDataManager."""
-        # Ensure ProjectDataManager exists and has the signal
-        if hasattr(self.project_data_manager, 'project_data_loaded_signal'): # Assuming signal name is project_data_loaded_signal
-            self.project_data_manager.project_data_loaded_signal.connect(self._handle_project_data_loaded)
-        elif hasattr(self.project_data_manager, 'project_data_loaded'): # Common naming convention
+        """Connect signals from various managers to MainWindow slots or other manager slots."""
+        logging.debug("MainWindow: Connecting manager signals...")
+
+        # ProjectDataManager signals
+        if self.project_data_manager:
+            try: self.project_data_manager.project_data_loaded.disconnect(self._handle_project_data_loaded)
+            except TypeError: pass
             self.project_data_manager.project_data_loaded.connect(self._handle_project_data_loaded)
-        else:
-            logging.warning("ProjectDataManager does not have a 'project_data_loaded' or 'project_data_loaded_signal' signal to connect.")
 
-        if hasattr(self.project_data_manager, 'project_data_cleared_signal'): # Assuming signal name
-            self.project_data_manager.project_data_cleared_signal.connect(self._handle_project_data_cleared)
-        elif hasattr(self.project_data_manager, 'project_data_cleared'):
-             self.project_data_manager.project_data_cleared.connect(self._handle_project_data_cleared)
-        else:
-            logging.warning("ProjectDataManager does not have a 'project_data_cleared' or 'project_data_cleared_signal' signal to connect.")
+            try: self.project_data_manager.project_data_cleared.disconnect(self._handle_project_data_cleared)
+            except TypeError: pass
+            self.project_data_manager.project_data_cleared.connect(self._handle_project_data_cleared)
 
-        if hasattr(self.project_data_manager, 'error_occurred_signal'): # Assuming signal name
-            self.project_data_manager.error_occurred_signal.connect(self._handle_project_manager_error)
-        elif hasattr(self.project_data_manager, 'error_occurred'):
+            try: self.project_data_manager.error_occurred.disconnect(self._handle_project_manager_error)
+            except TypeError: pass
             self.project_data_manager.error_occurred.connect(self._handle_project_manager_error)
-        else:
-            logging.warning("ProjectDataManager does not have an 'error_occurred' or 'error_occurred_signal' signal to connect.")
 
-        # SkeletonManager connections (already in _connect_global_signals, ensure no duplication)
-        if hasattr(self.skeleton_manager, 'skeleton_updated') and not self._is_signal_connected(self.skeleton_manager.skeleton_updated, self._on_skeleton_manager_updated):
+        # SkeletonManager signals
+        if self.skeleton_manager:
+            # Connect to a slot in MainWindow that might update UI or pass to other relevant managers
+            try: self.skeleton_manager.skeleton_updated.disconnect(self._on_skeleton_manager_updated)
+            except TypeError: pass
             self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
 
-        # IKManager connections (already in _connect_global_signals, ensure no duplication)
-        if hasattr(self.ik_manager, 'character_visuals_updated') and not self._is_signal_connected(self.ik_manager.character_visuals_updated, self._handle_ik_visuals_update):
+            # If IKManager needs direct skeleton updates from SkeletonManager
+            if self.ik_manager:
+                try: self.skeleton_manager.skeleton_updated.disconnect(self.ik_manager.on_skeleton_data_updated_from_manager)
+                except TypeError: pass # Allow it to fail if not connected
+                self.skeleton_manager.skeleton_updated.connect(self.ik_manager.on_skeleton_data_updated_from_manager)
+                logging.info("MainWindow: Connected SkeletonManager.skeleton_updated to IKManager.on_skeleton_data_updated_from_manager")
+
+        # IKManager signals
+        if self.ik_manager:
+            # Connect IK visuals update to a handler in MainWindow (or directly to EditorTab if appropriate)
+            try: self.ik_manager.character_visuals_updated.disconnect(self._handle_ik_visuals_update)
+            except TypeError: pass
             self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
+            logging.info("MainWindow: Connected IKManager.character_visuals_updated to self._handle_ik_visuals_update")
+
+            # Connect IK animation state to EditorTab's handler
+            if hasattr(self, 'editor_tab') and self.editor_tab and hasattr(self.ik_manager, 'animation_state_changed'):
+                try: self.ik_manager.animation_state_changed.disconnect(self.editor_tab.on_simulation_state_changed)
+                except TypeError: pass
+                self.ik_manager.animation_state_changed.connect(self.editor_tab.on_simulation_state_changed)
+                logging.info("MainWindow: Connected IKManager.animation_state_changed to EditorTab.on_simulation_state_changed")
+
+            # NEW: Connect skeleton_pose_updated from IKManager to a new handler in MainWindow
+            if hasattr(self.ik_manager, 'skeleton_pose_updated'):
+                try: self.ik_manager.skeleton_pose_updated.disconnect(self._handle_skeleton_pose_updated_from_ik)
+                except TypeError: pass
+                self.ik_manager.skeleton_pose_updated.connect(self._handle_skeleton_pose_updated_from_ik)
+                logging.info("MainWindow: Connected IKManager.skeleton_pose_updated to self._handle_skeleton_pose_updated_from_ik")
+
+        # ... any other manager signal connections ...
+
+        logging.debug("MainWindow: Finished connecting manager signals.")
 
     def _is_signal_connected(self, signal, slot) -> bool:
         # Helper to check if a signal is connected to a specific slot
@@ -1038,135 +1064,57 @@ class AutomataDesigner(FramelessMainWindow):
         QMessageBox.critical(self, "Project Error", f"An error occurred: {error_message}")
 
     def _load_project_into_editor_tab(self, project_file_model: ProjectFileModel):
-        if not self.project_data_manager or not self.project_data_manager.project_dir:
-            logging.error("MainWindow: ProjectDataManager or project_dir not available to load into editor.")
-            QMessageBox.critical(self, "Error", "Project data or directory not properly loaded.")
+        """Loads parts and skeleton data into the EditorTab's view."""
+        logging.debug(f"MainWindow:_load_project_into_editor_tab - Attempting to load project: {project_file_model.project_name if project_file_model else 'None'}")
+        if not self.editor_tab:
+            logging.error("EditorTab not initialized. Cannot load project data.")
             return
 
-        parts_data = self.project_data_manager.parts
-
-        if not parts_data:
-            logging.warning("MainWindow: No parts data found in ProjectDataManager to load into editor tab.")
-            self.editor_tab.clear_editor_content()
-            self.action_manager.update_action_states(parts_loaded=False)
+        if not project_file_model or not project_file_model.character:
+            logging.error("Invalid project_file_model or character data provided to _load_project_into_editor_tab.")
+            self.editor_tab.clear_editor_content() # Clear tab if data is bad
             return
 
-        # Texture atlas is no longer loaded or passed here.
-        # EditorTab.set_parts_data now only takes parts_data.
+        parts_data = project_file_model.character.parts
+        skeleton_data_pydantic_list = project_file_model.character.skeleton_joints # This is List[PydanticSkeletonJointModel]
+        character_name = project_file_model.character.name
+        hierarchy_dict = project_file_model.character.hierarchy_dict # This should be {parent_std_id: [child_std_id, ...]}
+
+        # Convert Pydantic SkeletonJointModel list to the List[Dict[str, Any]] expected by visualize_skeleton
+        skeleton_for_view = []
+        if skeleton_data_pydantic_list:
+            for pydantic_joint in skeleton_data_pydantic_list:
+                joint_dict = {
+                    'id': pydantic_joint.id, # Standardized ID
+                    'name': pydantic_joint.name, # Original name/label from source
+                    'position': QPointF(pydantic_joint.position[0], pydantic_joint.position[1]),
+                    'parent': pydantic_joint.parent_id, # Standardized parent ID
+                    'color': pydantic_joint.color,
+                    'label': pydantic_joint.label # Original name from char_cfg for this joint
+                }
+                skeleton_for_view.append(joint_dict)
+
+        logging.debug(f"MainWindow:_load_project_into_editor_tab - Prepared skeleton_for_view (count: {len(skeleton_for_view)}): {skeleton_for_view}")
+        logging.debug(f"MainWindow:_load_project_into_editor_tab - Prepared hierarchy_dict (keys: {list(hierarchy_dict.keys()) if hierarchy_dict else 'None'}): {hierarchy_dict}")
+
+        # Clear previous content and load new parts
+        self.editor_tab.clear_editor_content()
         self.editor_tab.set_parts_data(parts_data)
-        logging.info(f"MainWindow: Loaded {len(parts_data)} parts into EditorTab.")
-        self.action_manager.update_action_states(parts_loaded=True, skeleton_loaded=bool(self.project_data_manager.get_current_skeleton_model_dict()))
 
-        if self.ik_manager:
-            try: self.ik_manager.character_visuals_updated.disconnect(self._handle_ik_visuals_update)
-            except TypeError: pass
-            self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
+        # Call visualize_skeleton on the EditorTab's EditorView instance
+        if self.editor_tab.editor_view and skeleton_for_view:
+            logging.debug(f"MainWindow: Calling editor_view.visualize_skeleton with {len(skeleton_for_view)} joints.")
+            self.editor_tab.editor_view.visualize_skeleton(skeleton_for_view)
+        elif self.editor_tab.editor_view:
+            logging.debug("MainWindow: No skeleton data in project, clearing skeleton visualization.")
+            self.editor_tab.editor_view.visualize_skeleton([]) # Clear if no skeleton
 
-            try: self.ik_manager.ik_solver_initialized.disconnect(self._on_ik_solver_initialized_for_alignment)
-            except TypeError: pass
-            self.ik_manager.ik_solver_initialized.connect(self._on_ik_solver_initialized_for_alignment)
+        # Ensure the view is updated and potentially fits content
+        self.editor_tab.editor_view.scene().update() # Update scene
+        # Consider calling fit_view or reset_view if appropriate after loading
+        # self.editor_tab.editor_view.zoom_to_fit() # Example
 
-        if self.ik_manager and self.project_data_manager:
-            skeleton_dict_for_ik = self.project_data_manager.get_current_skeleton_model_dict()
-            if skeleton_dict_for_ik:
-                 logging.info("MainWindow: Sending loaded skeleton to IKManager.")
-                 self.ik_manager.on_skeleton_data_updated_from_manager(skeleton_dict_for_ik)
-            else:
-                logging.warning("MainWindow: No skeleton data available in PDM to send to IKManager on project load.")
-                self.ik_manager.clear_ik_data()
-
-        self.update_window_title()
-        self.editor_tab.zoom_to_fit()
-
-    @pyqtSlot(bool)
-    def _on_ik_solver_initialized_for_alignment(self, initialized: bool):
-        if initialized:
-            logging.info("MainWindow: IK Solver initialized. Proceeding with initial part alignment.")
-            self._align_parts_to_ik_skeleton_initial()
-        else:
-            logging.warning("MainWindow: IK Solver failed to initialize. Initial part alignment skipped.")
-
-    def _align_parts_to_ik_skeleton_initial(self):
-        if not self.editor_tab or not self.ik_manager or not self.ik_manager.sim_joints_config:
-            logging.warning("MainWindow: Cannot align parts. EditorTab, IKManager, or IK sim_joints_config not ready.")
-            return
-
-        if not self.editor_tab.current_editor_items:
-            logging.info("MainWindow: No editor items to align.")
-            return
-
-        logging.info("MainWindow: Aligning parts to initial IK skeleton pose.")
-
-        # sim_joints_config has the *initial* positions of the IK rig's joints.
-        # These are the target positions for the parts' anchors.
-        ik_rig_joint_initial_positions = self.ik_manager.sim_joints_config
-
-        for part_item_name, part_item_widget in self.editor_tab.current_editor_items.items():
-            if not isinstance(part_item_widget, CharacterPartItem):
-                continue
-
-            # Find the IK joint key that this visual part (part_item_name) corresponds to.
-            # This mapping depends on how parts are linked to the IK rig.
-            # Often, a part is controlled by the state of its *proximal* IK joint.
-            # Example: 'left_arm_lower' (visual part) is controlled by the 'j_left_elbow' IK joint's position and
-            # the vector from 'j_left_elbow' to 'j_left_wrist' for rotation.
-            # The POSITION of the part item itself should be based on its main driving IK joint.
-
-            # We need a map: visual_part_name -> controlling_ik_joint_key_for_positioning
-            # This might differ from ik_manager.ik_part_to_actual_part_name which is ik_model_part_name -> actual_display_name
-            # Let's assume for now a direct mapping or a convention.
-            # A common convention: a part is parented to an IK joint, its visual represents the limb extending from that joint.
-            # The part's visual origin (often top-left of its pixmap) needs to be set such that its anchor_offset aligns with the IK joint.
-
-            # Iterate through ik_manager.sim_limb_configs. The 'label' in sim_limb_configs IS the visual part name.
-            # The 'parentAnchor' is the IK joint this visual part is attached to.
-            target_ik_joint_key_for_position = None
-            for ik_effector_key, limb_conf in self.ik_manager.sim_limb_configs.items():
-                if limb_conf.get('label') == part_item_name: # part_item_name is like 'left_arm_lower'
-                    target_ik_joint_key_for_position = limb_conf.get('parentAnchor') # e.g., 'j_left_elbow'
-                    break
-
-            # Handle parts like 'torso' or 'head' that might be directly driven by one joint, not a limb config
-            if not target_ik_joint_key_for_position:
-                # Check self.ik_manager.ik_part_to_actual_part_name for reverse mapping
-                for ik_model_name, actual_name_in_editor in self.ik_manager.ik_part_to_actual_part_name.items():
-                    if actual_name_in_editor == part_item_name:
-                        # ik_model_name could be 'head'. We need the IK joint this corresponds to, e.g., 'j_neck_base' for head part, or 'j_head_tip' for head IK target.
-                        # This needs a clearer mapping: visual part name -> IK joint it pivots around.
-                        # Assuming for 'head', it pivots around 'j_neck_base'. For 'torso', around root (e.g. 'j_hip_root')
-                        if part_item_name == "head" and "j_neck_base" in ik_rig_joint_initial_positions:
-                            target_ik_joint_key_for_position = "j_neck_base"
-                            break
-                        if part_item_name == "torso" and "j_hip_root" in ik_rig_joint_initial_positions: # Assuming a root joint for torso
-                            target_ik_joint_key_for_position = "j_hip_root"
-                            break
-                        # Fallback: if the ik_model_name itself is a joint in the rig, use that (less common)
-                        if ik_model_name in ik_rig_joint_initial_positions:
-                            target_ik_joint_key_for_position = ik_model_name
-                            break
-                        break # Found in ik_part_to_actual_part_name, stop inner loop
-
-            if target_ik_joint_key_for_position and target_ik_joint_key_for_position in ik_rig_joint_initial_positions:
-                ik_joint_data = ik_rig_joint_initial_positions[target_ik_joint_key_for_position]
-                ik_joint_scene_pos = QPointF(ik_joint_data['x'], ik_joint_data['y'])
-
-                # The CharacterPartItem's anchor_offset is already its rotational center (center of its pixmap).
-                # We want this anchor_offset (in local coords) to be at ik_joint_scene_pos (in scene coords).
-                # item_scene_pos + item_anchor_offset_rotated = ik_joint_scene_pos
-                # Since initial rotation is 0, item_anchor_offset_rotated = item.anchor_offset (which is local)
-                # So, item_scene_pos = ik_joint_scene_pos - item.anchor_offset (if anchor_offset were in scene space, but it's local)
-                # The item's position (top-left of its pixmap) should be: ik_joint_scene_pos - part_item_widget.anchor_offset
-
-                new_item_pos = ik_joint_scene_pos - part_item_widget.anchor_offset
-                part_item_widget.setPos(new_item_pos)
-                part_item_widget.setRotation(0) # Ensure initial rotation is zero
-                part_item_widget.update() # Ensure repaint
-                logging.info(f"  Aligned part '{part_item_name}' (anchor at {part_item_widget.anchor_offset}) to IK joint '{target_ik_joint_key_for_position}' at {ik_joint_scene_pos}. Item pos set to {new_item_pos}.")
-            else:
-                logging.warning(f"  Could not find corresponding IK joint or initial position for part '{part_item_name}'. Alignment skipped.")
-
-        self.editor_tab.editor_view.scene().update()
-        self.editor_tab.editor_view.zoom_to_fit() # Re-fit after alignment
+        logging.info(f"MainWindow: Finished _load_project_into_editor_tab for {character_name}")
 
     @pyqtSlot(str, QPainterPath)
     def _handle_part_motion_path_update_from_editor_tab(self, part_name: str, motion_qpath: QPainterPath):
@@ -1219,3 +1167,13 @@ class AutomataDesigner(FramelessMainWindow):
         if updated_part_names:
             logging.debug(f"AutomataDesigner: Applied visual updates to parts: {updated_part_names}")
             # self.editor_tab.editor_view.scene().update() # May not be necessary if item changes trigger update
+
+    @pyqtSlot(dict)
+    def _handle_skeleton_pose_updated_from_ik(self, animated_pose_data_dict: Dict[str, Tuple[float, float]]):
+        """Handles the raw animated skeleton pose update from IKManager."""
+        logging.debug(f"MainWindow:_handle_skeleton_pose_updated_from_ik - Received animated_pose_data_dict (count: {len(animated_pose_data_dict)}): {animated_pose_data_dict if len(animated_pose_data_dict) < 5 else str(list(animated_pose_data_dict.items())[:5]) + '...'}")
+        if self.editor_tab and self.editor_tab.editor_view:
+            # Pass the raw animated data directly
+            self.editor_tab.editor_view.update_skeleton_animation(animated_pose_data_dict)
+        else:
+            logging.warning("MainWindow: Cannot relay skeleton pose update, EditorTab or EditorView not available.")

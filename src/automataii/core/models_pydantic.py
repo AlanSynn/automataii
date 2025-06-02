@@ -42,10 +42,9 @@ class MotionPathDataModel(BaseModel): # Placeholder for more complex motion path
 class PartInfoModel(BaseModel):
     """Pydantic model for individual part data from project files."""
     name: str # Will be populated from the key of the parts dictionary
-    svg_path: Optional[str] = Field(None, alias='svg_path_file') # Path to the SVG file
     roi: Optional[List[float]] = None # Region of Interest [x, y, width, height]
     z_value: float = 0.0
-    image_path: Optional[str] = None # Path to PNG file (optional)
+    image_path: Optional[str] = None # Path to the image file (e.g., PNG)
     fill_color: str = 'rgba(128,128,128,0.5)' # Default gray
     fixed: bool = False
     opacity: float = 1.0
@@ -67,7 +66,6 @@ class PartInfoModel(BaseModel):
     show_anchor: bool = False # Default to not showing the anchor
 
     class Config:
-        populate_by_name = True # Allows using alias for svg_path_file
         arbitrary_types_allowed = True # For QPointF if we decide to store it directly (not recommended for JSON)
 
     @validator('roi')

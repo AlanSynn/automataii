@@ -12,8 +12,9 @@ from typing import Optional, Dict, List, Any, Tuple
 
 from .graphics_items.part_item import CharacterPartItem # UPDATED
 from .graphics_items.anchor_item import AnchorItem # UPDATED
+from .graphics_items.skeleton_item import SkeletonGraphicsItem # Added
 # from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
-from ..config.z_indices import Z_MOTION_PATH_PREVIEW # Added Z_MOTION_PATH_PREVIEW
+from ..config.z_indices import Z_MOTION_PATH_PREVIEW, Z_SKELETON_OVERLAY # Added Z_SKELETON_OVERLAY
 
 class EditorView(QGraphicsView):
     """Custom QGraphicsView for editor with joint definition, path drawing, and panning/zooming.
@@ -112,12 +113,10 @@ class EditorView(QGraphicsView):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
 
-        # Skeleton visualization attributes
-        self._skeleton_viz_items = []
-        self._skeleton_viz_timer = QTimer(self)
-        self._skeleton_viz_timer.setSingleShot(True)
-        self._skeleton_viz_timer.setInterval(3000) # Display for 3 seconds
-        self._skeleton_viz_timer.timeout.connect(self._clear_skeleton_visualization)
+        # Skeleton visualization attributes (NEW)
+        self.skeleton_graphics_item = SkeletonGraphicsItem()
+        self.scene().addItem(self.skeleton_graphics_item)
+        self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY) # Set Z-value
 
         self.selection_markers: Dict[str, QGraphicsEllipseItem] = {} # For mechanism point markers
 
@@ -655,58 +654,49 @@ class EditorView(QGraphicsView):
                 return item
         return None
 
-    def visualize_skeleton(self, skeleton_data: dict, joint_items: list):
-        """Temporarily draws the skeleton structure and joints on the scene."""
-        self._clear_skeleton_visualization() # Clear previous visualization
+    def visualize_skeleton(self, skeleton_data: List[Dict[str, Any]], hierarchy_data: Dict[str, List[str]]):
+        """
+        Visualizes the skeleton using SkeletonGraphicsItem.
+        The skeleton_data should be a list of joint dictionaries as expected by SkeletonGraphicsItem.
+        Example: [{'id': 'neck', 'position': [100,100], 'parent': 'torso'}, ...]
+        """
+        logging.debug(f"EditorView:visualize_skeleton - Received skeleton_data (count: {len(skeleton_data)}): {skeleton_data}")
+        logging.debug(f"EditorView:visualize_skeleton - Received hierarchy_data (keys: {list(hierarchy_data.keys()) if hierarchy_data else 'None'}): {hierarchy_data}")
 
-        if not skeleton_data or 'skeleton' not in skeleton_data or not isinstance(skeleton_data['skeleton'], list):
-            logging.warning("visualize_skeleton called with invalid or missing skeleton data.")
+        if not self.scene():
+            logging.error("EditorView: No scene available to visualize skeleton.")
             return
 
-        skeleton_list = skeleton_data['skeleton']
-        joint_locations = {j['name']: QPointF(float(j['loc'][0]), float(j['loc'][1]))
-                           for j in skeleton_list if j.get('name') and j.get('loc') and len(j.get('loc')) >= 2}
-
-        bone_pen = QPen(QColor("#FF5733"), 2, Qt.PenStyle.SolidLine) # Bright orange for bones
-        joint_brush = QBrush(QColor("#FFC300")) # Yellow for joints
-        joint_pen = QPen(QColor("#C70039"), 1)    # Dark red outline for joints
-        joint_radius = 4
-
-        # Draw bones
-        for joint_info in skeleton_list:
-            child_name = joint_info.get('name')
-            parent_name = joint_info.get('parent')
-
-            if child_name in joint_locations and parent_name and parent_name in joint_locations:
-                p1 = joint_locations[parent_name]
-                p2 = joint_locations[child_name]
-                bone_line = QGraphicsLineItem(QLineF(p1, p2))
-                bone_line.setPen(bone_pen)
-                bone_line.setZValue(500) # Draw on top
-                self.scene().addItem(bone_line)
-                self._skeleton_viz_items.append(bone_line)
-
-        # Draw joints (circles)
-        for name, loc in joint_locations.items():
-            joint_circle = QGraphicsEllipseItem(loc.x() - joint_radius, loc.y() - joint_radius,
-                                                joint_radius * 2, joint_radius * 2)
-            joint_circle.setBrush(joint_brush)
-            joint_circle.setPen(joint_pen)
-            joint_circle.setZValue(501) # Draw on top of bones
-            self.scene().addItem(joint_circle)
-            self._skeleton_viz_items.append(joint_circle)
-
-        logging.info(f"Visualizing skeleton with {len(joint_locations)} joints and associated bones.")
-        self._skeleton_viz_timer.start() # Start timer to auto-clear visualization
-
-    def _clear_skeleton_visualization(self):
-        """Removes temporary skeleton visualization items from the scene."""
-        if not self._skeleton_viz_items:
+        if not skeleton_data: # This now implies skeleton_data is an empty list if clearing
+            # If skeleton_data is empty or None, clear the current skeleton display
+            if self.skeleton_graphics_item:
+                logging.debug("EditorView: visualize_skeleton - Clearing existing skeleton item.")
+                # load_skeleton_data with empty data will clear it
+                self.skeleton_graphics_item.load_skeleton_data([], {}) # Pass empty hierarchy too
+            else:
+                logging.debug("EditorView: visualize_skeleton - No skeleton data and no existing item to clear.")
             return
-        logging.debug(f"Clearing {len(self._skeleton_viz_items)} skeleton visualization items.")
-        for item in self._skeleton_viz_items:
-            self.scene().removeItem(item)
-        self._skeleton_viz_items.clear()
+
+        if self.skeleton_graphics_item is None:
+            logging.debug("EditorView: visualize_skeleton - Creating new SkeletonGraphicsItem.")
+            # Pass both skeleton_data and hierarchy_data to the constructor or load_skeleton_data
+            self.skeleton_graphics_item = SkeletonGraphicsItem(skeleton_data, hierarchy_data)
+            self.scene().addItem(self.skeleton_graphics_item)
+            self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY)
+        else:
+            logging.debug("EditorView: visualize_skeleton - Updating existing SkeletonGraphicsItem.")
+            # Call load_skeleton_data with both skeleton_data and hierarchy_data
+            self.skeleton_graphics_item.load_skeleton_data(skeleton_data, hierarchy_data)
+
+        self.scene().update() # Trigger a repaint of the scene
+
+    def update_skeleton_animation(self, animated_joint_positions: Dict[str, Tuple[float, float]]):
+        """Updates the skeleton item with new animated joint positions."""
+        logging.debug(f"EditorView:update_skeleton_animation - Received animated_joint_positions (count: {len(animated_joint_positions)}): {animated_joint_positions if len(animated_joint_positions) < 5 else str(list(animated_joint_positions.items())[:5]) + '...'}")
+        if self.skeleton_graphics_item: # Check if skeleton_graphics_item exists
+            self.skeleton_graphics_item.set_animated_pose(animated_joint_positions) # Corrected method name
+        else:
+            logging.warning("EditorView:update_skeleton_animation - skeleton_graphics_item is None. Cannot update pose.")
 
     def update_part_visuals_from_ik(self, part_name: str, position: QPointF, rotation_degrees: float):
         part_item = self.get_part_item_by_name(part_name) # NEW WAY

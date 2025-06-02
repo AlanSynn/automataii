@@ -58,47 +58,78 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
         if self.part_pixmap and not self.part_pixmap.isNull():
             self.anchor_offset = QPointF(self.part_pixmap.width() / 2, self.part_pixmap.height() / 2)
-            self.setPos(QPointF(part_info.x, part_info.y))
+            self.setPos(QPointF(self.part_info.x, self.part_info.y))
+            self._bounding_rect_local = QRectF(0, 0, self.part_pixmap.width(), self.part_pixmap.height())
 
         self.update_motion_path_visual()
 
     def _load_texture(self):
-        """Loads the texture for this part from its individual PNG file."""
+        """Loads the texture for this part from its image file (PNG)."""
         if not self.part_info or not self.part_info.name:
             logging.error("CharacterPartItem: PartInfo or part name is missing, cannot load texture.")
             self._create_placeholder_pixmap()
             return
 
-        svg_path = self.project_dir / f"{self.part_info.name}.svg"
-        png_path = self.project_dir / f"{self.part_info.name}.png"
+        potential_path_str: Optional[str] = None
+
+        # 1. Prioritize image_path if it's absolute and exists
+        if self.part_info.image_path and Path(self.part_info.image_path).is_absolute():
+            if Path(self.part_info.image_path).exists():
+                potential_path_str = self.part_info.image_path
+                logging.info(f"CharacterPartItem '{self.part_info.name}': Attempting to load texture from absolute image_path: {potential_path_str}")
+            else:
+                logging.warning(f"CharacterPartItem '{self.part_info.name}': Absolute image_path does not exist: {self.part_info.image_path}")
+
+        # 2. If not loaded, try project_dir + image_path (if image_path is relative) or project_dir + name.png
+        if not potential_path_str:
+            if self.part_info.image_path: # Could be a relative path or just a filename
+                path_to_try = self.project_dir / self.part_info.image_path
+            else: # Fallback to name.png if image_path is not set
+                path_to_try = self.project_dir / f"{self.part_info.name}.png"
+
+            if path_to_try.exists():
+                potential_path_str = str(path_to_try)
+                logging.info(f"CharacterPartItem '{self.part_info.name}': Attempting to load texture from resolved path: {potential_path_str}")
+            else:
+                # Construct the old fallback name.png path just in case it's the only one available during transition
+                legacy_png_path = self.project_dir / f"{self.part_info.name}.png"
+                if legacy_png_path.exists():
+                     potential_path_str = str(legacy_png_path)
+                     logging.info(f"CharacterPartItem '{self.part_info.name}': Attempting to load texture from legacy path: {potential_path_str}")
+                else:
+                    logging.warning(f"CharacterPartItem '{self.part_info.name}': Texture file not found at {path_to_try}"
+                                    f"{' or ' + str(legacy_png_path) if str(path_to_try) != str(legacy_png_path) else ''}. Creating placeholder.")
+
 
         loaded_successfully = False
-        if svg_path.exists():
-            temp_pixmap = QPixmap()
-            if temp_pixmap.load(str(svg_path)):
+        if potential_path_str:
+            temp_pixmap = QPixmap(potential_path_str)
+            if not temp_pixmap.isNull():
+                # Apply ROI scaling if ROI is valid and specifies dimensions
                 if self.part_info.roi and len(self.part_info.roi) == 4 and self.part_info.roi[2] > 0 and self.part_info.roi[3] > 0:
-                    target_width, target_height = self.part_info.roi[2], self.part_info.roi[3]
-                    self.part_pixmap = temp_pixmap.scaled(int(target_width), int(target_height),
-                                                          Qt.AspectRatioMode.KeepAspectRatio,
+                    target_width, target_height = int(self.part_info.roi[2]), int(self.part_info.roi[3])
+                    self.part_pixmap = temp_pixmap.scaled(target_width, target_height,
+                                                          Qt.AspectRatioMode.KeepAspectRatio, # Or IgnoreAspectRatio if ROI defines exact output size
                                                           Qt.TransformationMode.SmoothTransformation)
+                    logging.info(f"CharacterPartItem '{self.part_info.name}': Loaded and scaled texture from {potential_path_str} to {target_width}x{target_height}")
                 else:
-                    self.part_pixmap = temp_pixmap
+                    self.part_pixmap = temp_pixmap # Use as is
+                    logging.info(f"CharacterPartItem '{self.part_info.name}': Loaded texture from {potential_path_str}")
                 loaded_successfully = True
-                logging.info(f"CharacterPartItem '{self.part_info.name}': Loaded SVG texture from {svg_path}")
+            else:
+                logging.error(f"CharacterPartItem '{self.part_info.name}': Failed to load QPixmap from {potential_path_str}")
 
-        if not loaded_successfully and png_path.exists():
-            self.part_pixmap = QPixmap(str(png_path))
-            if not self.part_pixmap.isNull():
-                loaded_successfully = True
-                logging.info(f"CharacterPartItem '{self.part_info.name}': Loaded PNG texture from {png_path}")
-
-        if not loaded_successfully or (self.part_pixmap and self.part_pixmap.isNull()):
-            logging.warning(f"CharacterPartItem '{self.part_info.name}': Texture file not found at {svg_path} or {png_path}, or failed to load. Creating placeholder.")
+        if not loaded_successfully:
+            # If potential_path_str was None, the earlier warning about file not found already occurred.
+            # If it was not None but loading failed, this ensures placeholder creation.
+            if potential_path_str: # Only log this specific message if a path was attempted
+                 logging.warning(f"CharacterPartItem '{self.part_info.name}': Failed to load texture from {potential_path_str}. Creating placeholder.")
             self._create_placeholder_pixmap()
+
 
         if self.part_pixmap:
              self.setPixmap(self.part_pixmap)
-        self._bounding_rect_local = self.boundingRect()
+        # self._bounding_rect_local = self.boundingRect() # This will be set after pixmap is set and position is known, or in __init__
 
     def _create_placeholder_pixmap(self):
         width = 50
