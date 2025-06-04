@@ -617,9 +617,6 @@ class AutomataDesigner(QMainWindow):
             )
             self.project_dir = Path(project_directory_path) # Update project_dir in MainWindow, ensure it's Path
 
-            # Texture atlas is no longer loaded here; CharacterPartItem handles individual textures.
-            # logging.debug("MainWindow: Texture atlas loading skipped as parts load their own.")
-
             # Pass PartInfo data to EditorTab. It no longer needs texture_atlas_pixmap.
             self.editor_tab.set_parts_data(parts_info)
 
@@ -627,11 +624,16 @@ class AutomataDesigner(QMainWindow):
             if hasattr(self.ik_manager, 'set_project_parts_data'):
                 self.ik_manager.set_project_parts_data(parts_info)
 
-            current_skeleton_data = self.project_data_manager.raw_skeleton_data
-            if current_skeleton_data:
-                self.skeleton_manager.load_skeleton_from_project_data(current_skeleton_data, parts_info)
+            current_skeleton_data_raw = self.project_data_manager.raw_skeleton_data # This is List[Dict]
+            if current_skeleton_data_raw:
+                # SkeletonManager loads from raw, then emits standardized data
+                self.skeleton_manager.load_skeleton_from_project_data(current_skeleton_data_raw, parts_info)
+                # The actual caching in EditorTab happens when skeleton_manager.skeleton_updated is emitted
+                # and handled by _on_skeleton_manager_updated, which then calls editor_tab.cache_initial_skeleton.
             else:
-                self.skeleton_manager.clear_data()
+                self.skeleton_manager.clear_data() # Will emit skeleton_updated(None)
+                if hasattr(self.editor_tab, 'cache_initial_skeleton'):
+                    self.editor_tab.cache_initial_skeleton(None) # Ensure cache is cleared if no skeleton
 
             self.image_proc_tab.on_parts_loaded_in_editor(True)
 
@@ -675,7 +677,7 @@ class AutomataDesigner(QMainWindow):
     def _handle_project_data_cleared(self):
         """Handles the project_data_cleared signal from ProjectDataManager."""
         logging.info("MainWindow: Handling project data cleared signal.")
-        self.editor_tab.clear_editor_content()
+        self.editor_tab.clear_editor_content() # This will also clear EditorTab's _initial_skeleton_data_cache
         self.skeleton_manager.clear_data() # This will emit skeleton_updated with None
         if self.ik_manager:
             self.ik_manager.reset_all_ik_systems_and_data() # Use the new method name
@@ -986,19 +988,25 @@ class AutomataDesigner(QMainWindow):
             return False
 
     @pyqtSlot(dict)
-    def _on_skeleton_manager_updated(self, standardized_skeleton_data: dict):
-        """Slot called when SkeletonManager has new processed skeleton data."""
-        logging.info("MainWindow: SkeletonManager updated. Notifying tabs. IKManager will handle its own re-initialization.")
+    def _on_skeleton_manager_updated(self, standardized_skeleton_data_dict: Optional[dict]):
+        """Slot called when SkeletonManager has new processed skeleton data (dictionary format)."""
+        logging.info("MainWindow: SkeletonManager updated. Notifying tabs. IKManager will handle its own re-initialization if needed.")
 
-        # Notify tabs that might need the direct standardized skeleton data
+        # Cache the initial skeleton data in EditorTab
+        if hasattr(self.editor_tab, 'cache_initial_skeleton'):
+            self.editor_tab.cache_initial_skeleton(standardized_skeleton_data_dict)
+        else:
+            logging.warning("MainWindow: EditorTab does not have cache_initial_skeleton method.")
+
+        # Notify tabs that might need the direct standardized skeleton data for display
         if hasattr(self.image_proc_tab, 'on_skeleton_updated_externally'):
-            self.image_proc_tab.on_skeleton_updated_externally(standardized_skeleton_data)
+            self.image_proc_tab.on_skeleton_updated_externally(standardized_skeleton_data_dict)
 
         if hasattr(self.editor_tab, 'on_skeleton_updated'):
-            self.editor_tab.on_skeleton_updated(standardized_skeleton_data)
+            self.editor_tab.on_skeleton_updated(standardized_skeleton_data_dict)
 
-        # MODIFIED: Pass the received dictionary to the status bar update method
-        self.update_status_bar_with_skeleton_info(standardized_skeleton_data)
+        # Update status bar
+        self.update_status_bar_with_skeleton_info(standardized_skeleton_data_dict)
 
     # MODIFIED: Method now accepts the skeleton data dictionary
     def update_status_bar_with_skeleton_info(self, skeleton_data_dict: Optional[dict]):

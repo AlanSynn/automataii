@@ -126,6 +126,9 @@ class EditorTab(QWidget):
         # Store for defined joints within this tab
         self.joints: List[Dict] = [] # List of joint data dictionaries
 
+        # Cache for initial skeleton data, to be set by MainWindow
+        self._initial_skeleton_data_cache: Optional[Dict] = None
+
         # Mechanism selection points - moved from MainWindow
         self.selected_cam_center: Optional[QPointF] = None
         self.selected_pivot_a: Optional[QPointF] = None
@@ -708,6 +711,16 @@ class EditorTab(QWidget):
                  self._update_displayed_mechanism_pose(self.current_mechanism_crank_angle_rad, mech_data_for_reset, user_path_center_for_reset)
             logging.info(f"Mechanism reset to initial angle: {math.degrees(self.current_mechanism_crank_angle_rad):.1f} deg")
 
+        # Reset skeleton visualization to its cached initial state
+        if self._initial_skeleton_data_cache:
+            # Use a copy of the cached data to avoid modifying the cache if on_skeleton_updated does
+            self.on_skeleton_updated(self._initial_skeleton_data_cache.copy())
+            logging.info("EditorTab: Skeleton visualization reset to cached initial state.")
+        else:
+            # Fallback if no cached data (e.g., parts were never loaded or cleared by MainWindow)
+            self.on_skeleton_updated(None)
+            logging.warning("EditorTab: No cached initial skeleton data for reset. Skeleton will be cleared.")
+
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.reset_sim_btn.setEnabled(
@@ -979,6 +992,8 @@ class EditorTab(QWidget):
 
         self.parts_cleared.emit()
         self.parts_loaded.emit(False)
+        self._initial_skeleton_data_cache = None # Clear cached skeleton data when editor content is cleared
+        logging.info("EditorTab: Cleared cached initial skeleton data.")
 
     def on_parts_loaded_or_cleared(self, parts_exist: bool):
         """Called by MainWindow when parts are loaded or cleared."""
@@ -1058,13 +1073,18 @@ class EditorTab(QWidget):
         pass
 
     def on_skeleton_updated(self, skeleton_data: Optional[Dict]):
-        """Called by MainWindow when the skeleton is updated."""
+        """Called by MainWindow when the skeleton is updated.
+           This method is for *displaying* the skeleton.
+           Initial skeleton caching is handled by `cache_initial_skeleton`.
+        """
         logging.info(
-            f"EditorTab received skeleton update: {'Exists' if skeleton_data else 'None'}"
+            f"EditorTab received skeleton update for display: {'Exists' if skeleton_data else 'None'}"
         )
 
+        # Caching logic removed from here, will be handled by a dedicated method.
+
         if self.editor_view:
-            if skeleton_data:
+            if skeleton_data: # This is the data to display *now*
                 # skeleton_data is likely from StandardizedSkeletonModel.model_dump()
                 # So, skeleton_data.get('joints') will be Dict[str, Dict] where the inner dict is the dumped joint model.
                 standardized_joints_dict = skeleton_data.get('joints', {}) # Dict[std_id, Dict]
@@ -1097,6 +1117,16 @@ class EditorTab(QWidget):
         """Slot to control visibility of the part properties group."""
         self.part_properties_group.setVisible(visible)
         logging.info(f"EditorTab: Part properties visibility set to {visible}")
+
+    # New method to cache initial skeleton data
+    def cache_initial_skeleton(self, skeleton_data_dict: Optional[Dict]):
+        """Caches the initial skeleton data dictionary provided by MainWindow."""
+        if skeleton_data_dict:
+            self._initial_skeleton_data_cache = skeleton_data_dict.copy() # Store a copy
+            logging.info("EditorTab: Initial skeleton data has been cached.")
+        else:
+            self._initial_skeleton_data_cache = None
+            logging.info("EditorTab: Initial skeleton data cache has been cleared (set to None).")
 
     # Slot for freehandPathCompleted signal from EditorView
     @pyqtSlot(list)  # Changed to match signal: list of QPointF
