@@ -12,6 +12,7 @@ class OptionsTab(QWidget):
     debugModeChanged = pyqtSignal(bool) # Signal for debug mode
     setting_changed = pyqtSignal(str, object) # Generic signal for any setting change
     advancedProcessingVisibilityChanged = pyqtSignal(bool) # For detailed processing steps visibility
+    unitChanged = pyqtSignal(str) # NEW: Signal for unit changes
 
     def __init__(self, initial_anim_duration: float = 2.0, parent=None):
         super().__init__(parent)
@@ -96,7 +97,26 @@ class OptionsTab(QWidget):
 
         layout.addWidget(workflow_group)
 
+        # --- Display Unit Settings ---
+        unit_settings_group = QGroupBox("Grid & Display Units")
+        unit_settings_layout = QFormLayout(unit_settings_group)
+        unit_settings_layout.setSpacing(10)
+
+        self.unit_combo = QComboBox()
+        self.unit_combo.addItems(["cm", "inch", "px"]) # Standard units
+        self.unit_combo.setCurrentText("cm") # Default to cm
+        self.unit_combo.currentTextChanged.connect(self._on_unit_changed)
+        self.unit_combo.setToolTip("Select the unit system for grid display in editor views.")
+        unit_settings_layout.addRow("Grid Unit System:", self.unit_combo)
+
+        layout.addWidget(unit_settings_group)
+
         layout.addStretch() # Push all groups to the top
+
+    def _on_unit_changed(self, unit_text: str):
+        """Emits signals when the unit system selection changes."""
+        self.unitChanged.emit(unit_text)
+        self.setting_changed.emit("unit_system", unit_text) # Also emit through generic signal
 
     def set_theme(self, theme_name: str):
         """Sets the theme combo box to the given theme name."""

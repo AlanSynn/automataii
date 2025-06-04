@@ -332,6 +332,11 @@ class AutomataDesigner(QMainWindow):
         # Connect advanced processing visibility toggle
         if hasattr(self.options_tab, 'advancedProcessingVisibilityChanged') and hasattr(self.image_proc_tab, '_toggle_detailed_processing_visibility'):
             self.options_tab.advancedProcessingVisibilityChanged.connect(self.image_proc_tab._toggle_detailed_processing_visibility)
+        # Connect unit changed signal (assuming OptionsTab will have it)
+        if hasattr(self.options_tab, 'unitChanged'):
+            self.options_tab.unitChanged.connect(self._handle_unit_changed)
+        else:
+            logging.warning("MainWindow: OptionsTab does not have unitChanged signal. Unit selection may not work.")
 
         # Connect menu actions using ActionManager
         self.action_manager.connect_action("load_parts", self.load_parts_dialog)
@@ -855,6 +860,11 @@ class AutomataDesigner(QMainWindow):
             # Connect advanced processing visibility toggle
             if hasattr(self.options_tab, 'advancedProcessingVisibilityChanged') and hasattr(self.image_proc_tab, '_toggle_detailed_processing_visibility'):
                 self.options_tab.advancedProcessingVisibilityChanged.connect(self.image_proc_tab._toggle_detailed_processing_visibility)
+            # Connect unit changed signal (assuming OptionsTab will have it)
+            if hasattr(self.options_tab, 'unitChanged'):
+                self.options_tab.unitChanged.connect(self._handle_unit_changed)
+            else:
+                logging.warning("MainWindow: OptionsTab does not have unitChanged signal. Unit selection may not work.")
 
         # EditorTab signals
         if hasattr(self, 'editor_tab') and self.editor_tab:
@@ -1051,6 +1061,8 @@ class AutomataDesigner(QMainWindow):
             self._toggle_toolbar_visibility(bool(value))
         elif setting_name == "part_properties_visibility":
             self._toggle_part_properties_visibility(bool(value))
+        elif setting_name == "unit_system": # Assuming this will be the setting_name from OptionsTab
+            self._handle_unit_changed(str(value))
         elif setting_name == "debug_mode":
             # Assuming ImageProcessingTab has a method to set debug mode
             if hasattr(self.image_proc_tab, 'set_debug_mode'):
@@ -1071,6 +1083,24 @@ class AutomataDesigner(QMainWindow):
     def show_about_qt_dialog(self):
         """Displays the 'About Qt' dialog."""
         QMessageBox.aboutQt(self, "About Qt")
+
+    @pyqtSlot(str)
+    def _handle_unit_changed(self, unit: str):
+        """Handles the unit system change from OptionsTab."""
+        logging.info(f"MainWindow: Unit system changed to: {unit}")
+        # Pass the new unit to EditorView
+        if hasattr(self.editor_tab, 'editor_view') and hasattr(self.editor_tab.editor_view, 'set_display_unit'):
+            self.editor_tab.editor_view.set_display_unit(unit)
+        else:
+            logging.warning("MainWindow: EditorView or its set_display_unit method not found.")
+
+        # Pass the new unit to ImageProcessingView (via ImageProcessingTab)
+        if hasattr(self.image_proc_tab, 'image_proc_view') and hasattr(self.image_proc_tab.image_proc_view, 'set_display_unit'):
+            self.image_proc_tab.image_proc_view.set_display_unit(unit)
+        else:
+            logging.warning("MainWindow: ImageProcessingView or its set_display_unit method not found.")
+
+        self.statusBar().showMessage(f"Display unit set to {unit}", 3000)
 
     def _handle_project_manager_error(self, error_message: str):
         """Handles error signals from the ProjectDataManager."""

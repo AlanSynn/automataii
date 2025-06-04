@@ -1,25 +1,33 @@
 import sys
 import logging
 import argparse
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QStandardPaths, Qt
 import os
-# QPalette, QColor, Qt removed from here if no longer directly used
 
-# Automataii specific imports
+try:
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QStandardPaths, Qt
+except ImportError:
+    try:
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import QStandardPaths, Qt
+    except ImportError:
+        print("This application requires PyQt6 or PySide6; please install one of these packages.", file=sys.stderr)
+        sys.exit(1)
+
 from automataii.gui.main_window import AutomataDesigner
 from automataii.utils.config import AppConfig
 from automataii.utils.styling import LIGHT_STYLE
 
-# Import qtreload
-from qtreload import install_hot_reload
+try:
+    from qtreload import install_hot_reload
+except ImportError:
+    def install_hot_reload():
+        pass
 
-# Configure logging first
 from automataii.utils.logging_config import setup_logging
 
 def main():
     """Main function to initialize and run the Automataii application."""
-    # MODIFIED: Add argument parsing
     parser = argparse.ArgumentParser(description="Automataii Application")
     parser.add_argument(
         "--debug",
@@ -28,11 +36,9 @@ def main():
     )
     args = parser.parse_args()
 
-    # MODIFIED: Configure logging based on --debug flag
     log_level = logging.DEBUG if args.debug else logging.INFO
     setup_logging(console_log_level=log_level)
 
-    # Attempt to set High DPI scaling attributes (optional, but good for modern displays)
     try:
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
@@ -41,32 +47,18 @@ def main():
     except AttributeError:
         logging.warning("Could not set High DPI attributes (Qt version might be too old or attributes moved).")
 
-    # Create application instance
     app = QApplication(sys.argv)
 
-    # Apply Dark Theme Palette
-    # apply_dark_theme(app)
     app.setStyleSheet(LIGHT_STYLE)
 
-    # Initialize configuration (if any)
     AppConfig.initialize()
 
-    # Create and show the main window
     logging.info("Creating main window...")
     main_window = AutomataDesigner(debug_mode=args.debug)
-
-    # --- Install Hot Reload ---
-    # Define modules to watch (adjust as needed - e.g., your main package)
-    # modules_to_reload = ["gui.main_window", "gui.editor_view", "gui.image_processing_view"]
-    # logging.info(f"Installing hot-reloader for modules: {modules_to_reload}")
-    # # Keep a reference to the widget to prevent garbage collection
-    # main_window.reloader_widget = install_hot_reload(modules_to_reload)
-    # --------------------------
 
     main_window.show()
     logging.info("Application started.")
 
-    # Start the application event loop
     sys.exit(app.exec())
 
 if __name__ == "__main__":

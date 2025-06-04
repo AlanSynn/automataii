@@ -10,11 +10,11 @@ import numpy as np
 import cv2 # Added for cv2.findContours etc.
 from PyQt6.QtWidgets import QApplication
 
-from ..core.models import PartInfo
-from ..utils.svg_utils import contour_to_svg_path
-from .graphics_items.part_item import CharacterPartItem # UPDATED
+from ...core.models import PartInfo
+from ...utils.svg_utils import contour_to_svg_path
+from ..graphics_items.part_item import CharacterPartItem # UPDATED
 # from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED # Commented out
-from .graphics_items.anchor_item import AnchorItem # UPDATED (if it was moved, otherwise adjust)
+from ..graphics_items.anchor_item import AnchorItem # UPDATED (if it was moved, otherwise adjust)
 
 # --- Helper Functions for Vector Math (can be static or outside class) ---
 def normalize_vector(vector: QPointF) -> QPointF:
@@ -54,7 +54,7 @@ class ImageProcessingView(QGraphicsView):
         self.viewport().setAttribute(Qt.WidgetAttribute.WA_AcceptTouchEvents)
         self.grabGesture(Qt.GestureType.PinchGesture)
         self._pinch_mode = False
-        self._pinch_start_scale = 1.0
+        self._pinch_start_view_scale = 1.0
 
         # Scene items management
         self.image_item = None
@@ -87,6 +87,12 @@ class ImageProcessingView(QGraphicsView):
         self.dragged_joint_item = None # Keep attribute, but type is now generic
         self.drag_start_pos: Optional[QPointF] = None
         self.drag_start_pos_offset: Optional[QPointF] = None
+
+        # Zoom control variables (new, similar to EditorView)
+        self._zoom_level = 0
+        self._zoom_factor_base = 1.05 # Base factor for low sensitivity (each step is 5% zoom)
+        self._min_zoom_level = -47 # Approx 1.05^-47 ~= 0.1
+        self._max_zoom_level = 47  # Approx 1.05^47 ~= 10.0
 
         # Rounded corners and white background for the viewport
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
@@ -203,36 +209,74 @@ class ImageProcessingView(QGraphicsView):
         """Handle pinch gesture logic for zooming."""
         if gesture.state() == Qt.GestureState.GestureStarted:
             self._pinch_mode = True
-            self._pinch_start_scale = self.transform().m11()
+            self._pinch_start_view_scale = self.transform().m11()
         elif gesture.state() == Qt.GestureState.GestureUpdated and self._pinch_mode:
-            target_scale = self._pinch_start_scale * gesture.scaleFactor()
-            # Clamp the target scale
-            target_scale = max(0.1, min(target_scale, 10.0))
+            target_scale = self._pinch_start_view_scale * gesture.scaleFactor()
 
-            current_scale = self.transform().m11()
-            if abs(target_scale - current_scale) > 0.001:
-                 zoom_factor = target_scale / current_scale
-                 self.scale(zoom_factor, zoom_factor)
+            # Clamp the target scale
+            target_scale = max(self._zoom_factor_base ** self._min_zoom_level, min(target_scale, self._zoom_factor_base ** self._max_zoom_level))
+            target_scale = max(0.1, min(target_scale, 10.0)) # Absolute limits
+
+            current_view_scale = self.transform().m11()
+            if abs(target_scale - current_view_scale) > 0.001:
+                 zoom_factor_to_apply = target_scale / current_view_scale
+                 self.scale(zoom_factor_to_apply, zoom_factor_to_apply)
         elif gesture.state() == Qt.GestureState.GestureFinished:
             self._pinch_mode = False
+            # Update zoom level to closest discrete step after pinch zooming
+            current_scale = self.transform().m11()
+            if current_scale > 0 and self._zoom_factor_base > 1 and self._zoom_factor_base != 0:
+                closest_zoom_level = round(math.log(current_scale, self._zoom_factor_base))
+                self._zoom_level = max(self._min_zoom_level, min(closest_zoom_level, self._max_zoom_level))
+
+    def zoom(self, step: int):
+        """Zooms the view by a given step, adjusting the discrete zoom level."""
+        if step == 0:
+            return
+
+        new_zoom_level = self._zoom_level + step
+        new_zoom_level = max(self._min_zoom_level, min(new_zoom_level, self._max_zoom_level))
+
+        if new_zoom_level != self._zoom_level:
+            current_scale = self.transform().m11()
+            target_scale = self._zoom_factor_base ** new_zoom_level
+            target_scale = max(0.1, min(target_scale, 10.0)) # Absolute limits
+
+            if abs(target_scale - current_scale) < 0.00001 and ((step > 0 and self._zoom_level == self._max_zoom_level) or (step < 0 and self._zoom_level == self._min_zoom_level)):
+                self._zoom_level = new_zoom_level # Ensure level is updated
+                return
+
+            if current_scale <= 0: # Safeguard
+                self.resetTransform()
+                current_scale = 1.0
+                self._zoom_level = 0
+                effective_step = max(self._min_zoom_level, min(step, self._max_zoom_level)) if step != 0 else 0
+                new_zoom_level = self._zoom_level + effective_step
+                new_zoom_level = max(self._min_zoom_level, min(new_zoom_level, self._max_zoom_level))
+                target_scale = self._zoom_factor_base ** new_zoom_level
+                target_scale = max(0.1, min(target_scale, 10.0))
+
+            factor_to_apply = target_scale / current_scale if current_scale != 0 else target_scale
+            if abs(factor_to_apply - 1.0) > 0.000001:
+                self.scale(factor_to_apply, factor_to_apply)
+
+            self._zoom_level = new_zoom_level
+            # self.zoom_changed.emit(self.transform().m11()) # ImageProcessingView does not have this signal by default
+            self.scene().update()
 
     def wheelEvent(self, event):
-        """Handle mouse wheel for zooming when not pinching."""
-        if not self._pinch_mode:
-            zoom_in = event.angleDelta().y() > 0
-            factor = 1.15 if zoom_in else 1 / 1.15
+        """Handle mouse wheel for zooming based on discrete zoom levels."""
+        if self._pinch_mode:
+            return
 
-            current_scale = self.transform().m11()
-            new_scale = current_scale * factor
+        delta = event.angleDelta().y()
+        step = 0
+        if delta > 0:
+            step = 1
+        elif delta < 0:
+            step = -1
 
-            # Limit zoom range (10% to 1000%)
-            if 0.0999 < new_scale < 10.001: # Allow slight overshoot for float precision
-                clamped_new_scale = max(0.1, min(new_scale, 10.0))
-                if abs(clamped_new_scale - new_scale) > 0.0001 : # if clamping happened
-                    factor = clamped_new_scale / current_scale
-
-                self.scale(factor, factor)
-                self.scene().update()
+        self.zoom(step)
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
         """Draws debug information on top of the view."""
@@ -559,12 +603,20 @@ class ImageProcessingView(QGraphicsView):
     def reset_view(self):
         """Resets the view transformation and fits the image if available."""
         self.resetTransform()
+        self._zoom_level = 0 # Reset zoom level
         if self.image_item:
             # Fit content slightly zoomed out
             rect = self.image_item.boundingRect()
             self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
             self.scale(0.95, 0.95) # Zoom out slightly
             self.centerOn(rect.center())
+            # After fitInView, update _zoom_level to match the new scale
+            current_scale = self.transform().m11()
+            if current_scale > 0 and self._zoom_factor_base > 1 and self._zoom_factor_base != 0:
+                self._zoom_level = round(math.log(current_scale, self._zoom_factor_base))
+                self._zoom_level = max(self._min_zoom_level, min(self._zoom_level, self._max_zoom_level))
+            else:
+                self._zoom_level = 0
         elif self.joints: # Fit skeleton if no image
              rect = self.scene().itemsBoundingRect()
              if rect.isValid(): self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
@@ -578,6 +630,25 @@ class ImageProcessingView(QGraphicsView):
                 padding = 20
                 rect.adjust(-padding, -padding, padding, padding)
                 self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                # After fitInView, update _zoom_level to match the new scale
+                current_scale = self.transform().m11()
+                if current_scale > 0 and self._zoom_factor_base > 1 and self._zoom_factor_base != 0:
+                    self._zoom_level = round(math.log(current_scale, self._zoom_factor_base))
+                    self._zoom_level = max(self._min_zoom_level, min(self._zoom_level, self._max_zoom_level))
+                else:
+                    self._zoom_level = 0
+        elif self.scene(): # Fallback to scene bounding rect if no image_item
+            rect = self.scene().itemsBoundingRect()
+            if rect.isValid():
+                padding = 20
+                rect.adjust(-padding, -padding, padding, padding)
+                self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                current_scale = self.transform().m11()
+                if current_scale > 0 and self._zoom_factor_base > 1 and self._zoom_factor_base != 0:
+                    self._zoom_level = round(math.log(current_scale, self._zoom_factor_base))
+                    self._zoom_level = max(self._min_zoom_level, min(self._zoom_level, self._max_zoom_level))
+                else:
+                    self._zoom_level = 0
 
     def visualize_skeleton(self, skeleton_data: dict, joint_items: list = None):
         """Temporarily draws the skeleton structure on the scene."""

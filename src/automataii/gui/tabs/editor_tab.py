@@ -28,7 +28,7 @@ from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6.QtGui import QPixmap, QPen, QBrush
 
-from ..editor_view import EditorView
+from ..views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene
 from ..graphics_items.part_item import CharacterPartItem
 from automataii.core.models import PartInfo
