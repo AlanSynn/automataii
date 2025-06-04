@@ -494,32 +494,27 @@ class BodyPartsExtractor:
             logging.error("Character config not loaded for joint map preparation.")
             return
 
-        original_joint_map = self._create_joint_map(self.char_cfg['skeleton'])
-        logging.debug(f"Original joint map from char_cfg: {original_joint_map}")
+        # original_joint_map의 'loc' 좌표는 char_cfg.yaml에서 오며,
+        # image_to_annotations.py에 의해 'cropped' 이미지 기준으로 저장됩니다.
+        # 따라서 이 좌표가 이미 최종 텍스처 기준 좌표입니다.
+        self.texture_relative_joint_map = self._create_joint_map(self.char_cfg['skeleton'])
+        logging.debug(f"Texture-relative joint map (should be same as original from char_cfg): {self.texture_relative_joint_map}")
 
-        offset_x, offset_y = 0, 0
+        # bounding_box.yaml의 offset 정보는 여기서는 직접 사용하지 않습니다.
+        # 해당 정보는 텍스처 자체의 원본 위치를 알 때 필요할 수 있으나,
+        # 조인트 좌표는 이미 텍스처(cropped 이미지) 기준으로 char_cfg에 저장됩니다.
         bounding_box_path = self.char_dir / 'bounding_box.yaml'
         if bounding_box_path.exists():
             try:
                 with open(bounding_box_path, 'r') as f:
                     bbox_data = yaml.safe_load(f)
                 if isinstance(bbox_data, dict) and 'left' in bbox_data and 'top' in bbox_data:
-                    offset_x = bbox_data['left']
-                    offset_y = bbox_data['top']
-                    logging.info(f"Loaded bounding box offset: left={offset_x}, top={offset_y}")
-                else:
-                    logging.warning(f"Invalid bounding_box.yaml format. Using (0,0) offset.")
+                    # 이 offset 정보는 로깅 또는 다른 용도로는 사용할 수 있습니다.
+                    logging.info(f"Bounding box offset from bounding_box.yaml: left={bbox_data['left']}, top={bbox_data['top']} (This offset is NOT applied to joint coordinates here as they are already texture-relative).")
             except Exception as e:
-                logging.warning(f"Error loading bounding_box.yaml: {e}. Using (0,0) offset.")
+                logging.warning(f"Error loading bounding_box.yaml: {e}. This does not affect joint map calculation if char_cfg is correct.")
         else:
-            logging.info(f"bounding_box.yaml not found. Assuming (0,0) offset.")
-
-        self.texture_relative_joint_map = {}
-        for name, loc in original_joint_map.items():
-            adj_x = int(loc[0] - offset_x)
-            adj_y = int(loc[1] - offset_y)
-            self.texture_relative_joint_map[name] = (adj_x, adj_y)
-        logging.debug(f"Texture-relative joint map: {self.texture_relative_joint_map}")
+            logging.info(f"bounding_box.yaml not found. This is acceptable if char_cfg contains texture-relative joint coordinates.")
 
     def _create_bone_mask(self, start_joint_name: str, end_joint_name: str, mask_shape: Tuple[int, int], thickness: int = 20) -> Optional[np.ndarray]:
         """두 관절 사이의 뼈대 마스크를 생성합니다"""
@@ -981,23 +976,38 @@ class BodyPartsExtractor:
 
             png_file_relative = f"{part_name}.png"
 
-            local_pivot_x = roi_w / 2
-            local_pivot_y = roi_h / 2
+            # --- MODIFIED: Calculate local_pivot_offset based on anchor joint ---
+            local_pivot_x = None
+            local_pivot_y = None
 
-            current_part_def_data = BODY_PARTS.get(part_name, {})
+            current_part_def_from_body_parts = BODY_PARTS.get(part_name, {})
+            anchor_joint_id = current_part_def_from_body_parts.get("anchor_joint")
+
+            if anchor_joint_id and self.texture_relative_joint_map and anchor_joint_id in self.texture_relative_joint_map:
+                anchor_tex_x, anchor_tex_y = self.texture_relative_joint_map[anchor_joint_id]
+                local_pivot_x = float(anchor_tex_x - roi_x)
+                local_pivot_y = float(anchor_tex_y - roi_y)
+                logging.debug(f"Part '{part_name}': Calculated local_pivot_offset [{local_pivot_x}, {local_pivot_y}] from anchor_joint '{anchor_joint_id}' ({anchor_tex_x}, {anchor_tex_y}) and ROI ({roi_x}, {roi_y}).")
+            else:
+                # Fallback to ROI center if anchor joint info is not available
+                local_pivot_x = float(roi_w / 2)
+                local_pivot_y = float(roi_h / 2)
+                logging.warning(f"Part '{part_name}': Could not find anchor_joint '{anchor_joint_id}' in joint map or anchor_joint_id is not defined. Defaulting local_pivot_offset to ROI center [{local_pivot_x}, {local_pivot_y}].")
+            # --- END MODIFICATION ---
 
             self.results['character']['parts'][part_name] = {
                 "name": part_name,
                 "roi": [float(roi_x), float(roi_y), float(roi_w), float(roi_h)],
                 "image_path": str(png_file_path),
-                "fill_color": current_part_def_data.get('color', f"rgba({random.randint(0,255)},{random.randint(0,255)},{random.randint(0,255)},0.5)"),
+                "fill_color": current_part_def_from_body_parts.get('color', f"rgba({random.randint(0,255)},{random.randint(0,255)},{random.randint(0,255)},0.5)"),
                 "local_pivot_offset": [float(local_pivot_x), float(local_pivot_y)],
-                "z_value": float(current_part_def_data.get("z_value", 0.0)),
-                "fixed": bool(current_part_def_data.get("fixed", False))
+                "z_value": float(current_part_def_from_body_parts.get("z_value", 0.0)),
+                "fixed": bool(current_part_def_from_body_parts.get("fixed", False)),
+                "anchor_joint_id": current_part_def_from_body_parts.get("anchor_joint") # ADDED anchor_joint_id
             }
 
             if self.generate_animations:
-                proximal_joint_name = self._get_proximal_joint_name(part_name, current_part_def_data)
+                proximal_joint_name = self._get_proximal_joint_name(part_name, current_part_def_from_body_parts)
                 if proximal_joint_name and self.texture_relative_joint_map and proximal_joint_name in self.texture_relative_joint_map:
                     pivot_point = self.texture_relative_joint_map[proximal_joint_name]
                     local_pivot_for_anim = (pivot_point[0] - roi_x, pivot_point[1] - roi_y)
@@ -1040,8 +1050,12 @@ class BodyPartsExtractor:
             })
 
         pydantic_parts = {}
-        for part_name, original_part_dict in self.results['character']['parts'].items():
+        for part_name in self.results['character']['parts'].keys():
+            original_part_dict = self.results['character']['parts'][part_name] # Get the dictionary populated in the earlier loop
             img_rel_path = Path(original_part_dict.get("image_path", "")).name if original_part_dict.get("image_path") else ""
+
+            # Fetch definition from BODY_PARTS to get the authoritative anchor_joint
+            current_part_def_from_body_parts = BODY_PARTS.get(part_name, {})
 
             pydantic_parts[part_name] = {
                 "name": part_name,
@@ -1050,7 +1064,9 @@ class BodyPartsExtractor:
                 "fill_color": original_part_dict.get("fill_color", 'rgba(128,128,128,0.5)'),
                 "local_pivot_offset": original_part_dict.get("local_pivot_offset"),
                 "z_value": float(original_part_dict.get("z_value", 0.0)),
-                "fixed": bool(original_part_dict.get("fixed", False))
+                "fixed": bool(original_part_dict.get("fixed", False)),
+                # Ensure anchor_joint_id is sourced from BODY_PARTS for the Pydantic model
+                "anchor_joint_id": current_part_def_from_body_parts.get("anchor_joint")
             }
 
         character_name_from_cfg = self.char_cfg.get("name", self.char_dir.name) if self.char_cfg else self.char_dir.name

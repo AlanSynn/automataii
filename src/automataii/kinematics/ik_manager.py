@@ -411,7 +411,7 @@ class IKManager(QObject):
             'left_knee':    {'parentAnchor': 'left_hip',      'label': 'left_leg_upper'},
             'left_foot':    {'parentAnchor': 'left_knee',     'label': 'left_leg_lower'},
             'right_knee':   {'parentAnchor': 'right_hip',     'label': 'right_leg_upper'},
-            'right_foot':   {'parentAnchor': 'right_foot',    'label': 'right_leg_lower'},
+            'right_foot':   {'parentAnchor': 'right_knee',    'label': 'right_leg_lower'},
         }
         logging.debug(f"IKManager: Populated sim_limb_configs: {self.sim_limb_configs}")
 

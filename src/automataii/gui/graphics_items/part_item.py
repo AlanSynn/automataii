@@ -28,13 +28,14 @@ class CharacterPartItem(QGraphicsPixmapItem):
     # part_double_clicked = pyqtSignal(str) # Emits part name when double-clicked
     # position_changed_by_user = pyqtSignal(str, QPointF) # name, new_scene_pos
 
-    def __init__(self, part_info: PartInfo, project_dir: Path, parent: Optional[QGraphicsItem] = None):
+    def __init__(self, part_info: PartInfo, project_dir: Path, parent: Optional[QGraphicsItem] = None, debug_mode: bool = False):
         # QObject.__init__(self) # Removed
         QGraphicsPixmapItem.__init__(self, parent) # Initialize QGraphicsPixmapItem (or super() if only one base class)
         # super().__init__(parent) # Alternative if only QGraphicsPixmapItem is base
 
         self.part_info = part_info
         self.project_dir = project_dir # Store project_dir for texture loading
+        self.debug_mode = debug_mode # ADDED: Store debug_mode
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -43,6 +44,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.part_pixmap: Optional[QPixmap] = None
         self._bounding_rect_local: QRectF = QRectF()
         self.anchor_offset: QPointF = QPointF()
+        self.anchor_joint_id: Optional[str] = part_info.anchor_joint_id
         self.end_effector_offset: Optional[QPointF] = None  # IK end effector point
         self.parent_item_name: Optional[str] = None  # Parent part name for IK chain
 
@@ -246,10 +248,53 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: Optional[QWidget] = None):
         super().paint(painter, option, widget)
-        if self.part_info.show_anchor:
-            painter.setPen(QPen(Qt.GlobalColor.red, 2))
-            painter.setBrush(QBrush(Qt.GlobalColor.red))
-            painter.drawEllipse(self.anchor_offset, 3, 3)
+
+        if self.debug_mode:
+            painter.save()
+
+            # Draw bounding box
+            pen_bbox = QPen(Qt.GlobalColor.red, 0.5) # Thin red line for bbox
+            pen_bbox.setCosmetic(True)
+            painter.setPen(pen_bbox)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect())
+
+            # Draw anchor_offset (transform origin)
+            anchor_color = Qt.GlobalColor.blue
+            painter.setPen(QPen(anchor_color, 1))
+            painter.setBrush(QBrush(anchor_color))
+            # Draw a small circle for the anchor_offset
+            painter.drawEllipse(self.anchor_offset, 2, 2)
+
+            # Draw text information
+            font = painter.font()
+            font.setPointSize(8)
+            painter.setFont(font)
+            painter.setPen(Qt.GlobalColor.black)
+
+            text_lines = [
+                f"Name: {self.name()}",
+                f"ScenePos: ({self.scenePos().x():.1f}, {self.scenePos().y():.1f})",
+                f"Pos: ({self.pos().x():.1f}, {self.pos().y():.1f})",
+                f"AnchorOffset: ({self.anchor_offset.x():.1f}, {self.anchor_offset.y():.1f})",
+                f"Rotation: {self.rotation():.1f}",
+                f"Z: {self.zValue():.1f}"
+            ]
+
+            # Position text slightly offset from the top-left of the bounding rect
+            text_y_offset = 0
+            for i, line in enumerate(text_lines):
+                painter.drawText(QPointF(self.boundingRect().left() + 2, self.boundingRect().top() + 10 + i * 10), line)
+                text_y_offset += 10
+
+            painter.restore()
+
+        if self.part_info.show_anchor: # This is a separate flag, not tied to debug_mode
+            painter.save()
+            painter.setPen(QPen(Qt.GlobalColor.magenta, 2)) # Changed color to differentiate from debug anchor
+            painter.setBrush(QBrush(Qt.GlobalColor.magenta))
+            painter.drawEllipse(self.anchor_offset, 3, 3) # Slightly larger
+            painter.restore()
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
         """Handle item changes, like position changes by the user."""

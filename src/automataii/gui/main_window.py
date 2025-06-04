@@ -18,7 +18,8 @@ from PyQt6.QtGui import (
     QPen,
     QPainterPath,
     QBrush,
-    QPixmap
+    QPixmap,
+    QTransform
 )
 from PyQt6.QtCore import (
     Qt,
@@ -1010,42 +1011,54 @@ class AutomataDesigner(QMainWindow):
     # --- New Slot for IKManager Signals ---
     @pyqtSlot(dict)
     def _handle_ik_visuals_update(self, part_transforms: Dict[str, Dict[str, Any]]):
-        """Handles updates to part visuals from the IKManager."""
-        # --- BEGIN ADDED DEBUG LOGGING (from previous step, can be kept or removed) ---
-        logging.debug(f"AutomataDesigner._handle_ik_visuals_update: Received part_transforms: {part_transforms}")
-        # --- END ADDED DEBUG LOGGING ---
-        if self.editor_tab and self.editor_tab.editor_view:
-            if not part_transforms:
-                pass
+        """Handles updates to part visuals from the IKManager.
+           Transforms part-centric data to joint-centric for EditorView.
+        """
+        logging.debug(f"MainWindow._handle_ik_visuals_update: Received part_transforms: {part_transforms}")
+
+        if not (self.editor_tab and self.editor_tab.editor_view and \
+                  self.project_data_manager and self.project_data_manager.parts):
+            logging.warning("MainWindow: Cannot handle IK visuals update. EditorTab, EditorView, or ProjectDataManager (with parts) is not available.")
+            return
+
+        if not part_transforms:
+            logging.debug("MainWindow: Received empty part_transforms. No visual update needed.")
+            return
+
+        joint_centric_data: Dict[str, Dict[str, Any]] = {}
+        for part_name, transform_data in part_transforms.items():
+            part_info = self.project_data_manager.parts.get(part_name)
+
+            if not part_info:
+                logging.warning(f"MainWindow: PartInfo for '{part_name}' not found in ProjectDataManager. Skipping this part for IK update.")
+                continue
+
+            anchor_joint_id = part_info.anchor_joint_id
+            if not anchor_joint_id:
+                continue
+
+            # ASSUMPTION: transform_data.get('position') IS the target scene_position for the anchor_joint_id.
+            anchor_joint_target_pos_list = transform_data.get('position')  # Expected: List[float, float]
+            part_target_rotation_degrees = transform_data.get('rotation_degrees')
+
+            if anchor_joint_target_pos_list and isinstance(anchor_joint_target_pos_list, (list, tuple)) and len(anchor_joint_target_pos_list) == 2 and part_target_rotation_degrees is not None:
+                try:
+                    anchor_joint_target_scene_pos = QPointF(float(anchor_joint_target_pos_list[0]), float(anchor_joint_target_pos_list[1]))
+                    part_target_rotation = float(part_target_rotation_degrees)
+
+                    joint_centric_data[anchor_joint_id] = {
+                        'scene_position': anchor_joint_target_scene_pos, # Directly use the position from IKManager
+                        'world_rotation_degrees': part_target_rotation
+                    }
+                except (TypeError, ValueError) as e:
+                    logging.warning(f"MainWindow: Error converting data for part '{part_name}' (joint '{anchor_joint_id}'): {e}. Data: P={anchor_joint_target_pos_list}, R={part_target_rotation_degrees}")
             else:
-                for part_name, transform_data in part_transforms.items():
-                    position_data = transform_data.get('position') # MODIFIED: Get 'position' list/tuple
-                    rotation_degrees = transform_data.get('rotation_degrees')
+                logging.warning(f"MainWindow: Invalid or missing position/rotation for part '{part_name}' (joint '{anchor_joint_id}'). Data: P={anchor_joint_target_pos_list}, R={part_target_rotation_degrees}")
 
-                    position: Optional[QPointF] = None # Initialize position as None
-
-                    if position_data and isinstance(position_data, (list, tuple)) and len(position_data) == 2:
-                        try:
-                            position = QPointF(float(position_data[0]), float(position_data[1]))
-                        except (TypeError, ValueError) as e:
-                            logging.warning(f"MainWindow: Error converting position data {position_data} for part {part_name}: {e}")
-                            continue # Skip if conversion fails
-                    else:
-                        logging.warning(f"MainWindow: Invalid or missing position_data for part {part_name} in IK visuals update. Data: {position_data}")
-                        continue # Skip if essential components are missing
-
-                    if rotation_degrees is not None:
-                        # Check if position is valid before calling update
-                        if position is not None:
-                             self.editor_tab.editor_view.update_part_visuals_from_ik(part_name, position, float(rotation_degrees))
-                        # else: # This path should not be reached due to `continue` above, but as a safeguard:
-                            # logging.warning(f"MainWindow: Position was None for part {part_name} before calling update_part_visuals_from_ik. This shouldn't happen.")
-                    else:
-                        logging.warning(f"MainWindow: Missing rotation for part {part_name} in IK visuals update.")
-                if self.editor_tab.editor_view.scene():
-                    self.editor_tab.editor_view.scene().update()
+        if joint_centric_data:
+            self.editor_tab.editor_view.update_visuals_from_animation_data(joint_centric_data)
         else:
-            logging.warning("MainWindow: EditorTab or EditorView not available for IK visuals update.")
+            logging.info("MainWindow: No valid joint-centric data generated from part_transforms to update visuals.")
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""

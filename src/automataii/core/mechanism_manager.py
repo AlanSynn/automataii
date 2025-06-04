@@ -125,7 +125,7 @@ if __name__ == '__main__':
     class MockPartInfo(PartInfo):
         def __init__(self, name, x=0, y=0):
             super().__init__(name=name, path="", x=x, y=y, z_value=0, fixed=False, scale=1.0, rotation=0, opacity=1.0, group="",
-                             original_svg_path="", υψηλής_ποιότητας_svg_path="", effective_bbox_offset_x=0,
+                             original_svg_path="", enhanced_svg_path="", effective_bbox_offset_x=0,
                              effective_bbox_offset_y=0, motion_path_data=None)
 
     mock_target_part = MockPartInfo(name="leg_lower", x=50, y=50)

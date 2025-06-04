@@ -53,7 +53,7 @@ class PartInfoModel(BaseModel):
     # Fields that might be populated by other processes or specific to certain views/data sources
     # These are often not directly in the minimal parts_info.json but might be if project saving evolves
     original_svg_path: Optional[str] = None # Path to original, unmodified SVG
-    υψηλής_ποιότητας_svg_path: Optional[str] = None # Path to a high-quality version of the SVG
+    enhanced_svg_path: Optional[str] = None # Path to a high-quality version of the SVG
 
     # Offset data, likely calculated, but good to have if it's ever stored
     effective_bbox_offset_x: float = 0.0
@@ -65,6 +65,7 @@ class PartInfoModel(BaseModel):
     motion_path_data: Optional[MotionPathDataModel] = None # Or List[QPointFModel] if simpler
     show_anchor: bool = False # Default to not showing the anchor
     local_pivot_offset: Optional[List[float]] = Field(default=None, description="Local pivot offset [x, y] relative to the part's own origin (top-left of its ROI/image)")
+    anchor_joint_id: Optional[str] = Field(default=None, description="ID of the skeleton joint this part is primarily anchored to")
 
     class Config:
         arbitrary_types_allowed = True # For QPointF if we decide to store it directly (not recommended for JSON)

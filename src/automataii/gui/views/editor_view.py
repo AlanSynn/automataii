@@ -939,29 +939,58 @@ class EditorView(QGraphicsView):
         else:
             logging.warning("EditorView:update_skeleton_animation - skeleton_graphics_item is None. Cannot update pose.")
 
-    def update_part_visuals_from_ik(self, part_name: str, position: QPointF, rotation_degrees: float):
-        """Updates a single CharacterPartItem's position and rotation based on IK solver data."""
-        part_item = self.get_part_item_by_name(part_name)
-        if part_item:
-            # logging.debug(f"EditorView: Updating part '{part_name}'. Current Pos: {part_item.pos()}, Rot: {part_item.rotation():.1f}. Target Pivot Pos: {position}, Target Rot: {rotation_degrees:.1f}")
+    def update_visuals_from_animation_data(self, joint_data: Dict[str, Dict[str, Any]]):
+        """Updates skeleton and part visuals based on joint-centric animation data."""
+        if not self.scene():
+            logging.warning("EditorView: No scene available for animation update.")
+            return
 
-            # Set rotation FIRST
-            part_item.setRotation(rotation_degrees)
+        # 1. Update Skeleton Visualization
+        # Extract all joint positions for the skeleton item
+        all_joint_positions: Dict[str, Tuple[float, float]] = {}
+        for joint_id, data in joint_data.items():
+            pos = data.get('scene_position')
+            if pos and isinstance(pos, QPointF):
+                all_joint_positions[joint_id] = (pos.x(), pos.y())
+            # else: logging.warning(f"Joint {joint_id} missing scene_position in animation data") # Can be noisy
 
-            # Then set position based on the new rotation
-            if hasattr(part_item, 'set_scene_position_from_anchor'):
-                part_item.set_scene_position_from_anchor(position)
-            else:
-                # Fallback if the method doesn't exist, though it should
-                logging.warning(f"EditorView: CharacterPartItem '{part_name}' missing 'set_scene_position_from_anchor'. Using setPos directly.")
-                # This fallback path might be problematic if 'position' is truly the pivot's target world position,
-                # and the part's local_pivot_offset is not (0,0).
-                # However, CharacterPartItem should always have set_scene_position_from_anchor.
-                part_item.setPos(position)
-
-            # logging.debug(f"EditorView: Part '{part_name}' updated. New Pos: {part_item.pos()}, New Rot: {part_item.rotation():.1f}, New Pivot Scene Pos: {part_item.get_anchor_point_scene_pos() if hasattr(part_item, 'get_anchor_point_scene_pos') else 'N/A'}")
+        if self.skeleton_graphics_item:
+            self.skeleton_graphics_item.set_animated_pose(all_joint_positions)
         else:
-            logging.warning(f"EditorView: Part item '{part_name}' not found for IK update.")
+            logging.warning("EditorView: SkeletonGraphicsItem not available to update animated pose.")
+
+        # 2. Update CharacterPartItems
+        for item in self.scene().items():
+            if not isinstance(item, CharacterPartItem):
+                continue
+
+            part_item: CharacterPartItem = item
+            anchor_joint_id = part_item.anchor_joint_id
+
+            if not anchor_joint_id:
+                # logging.debug(f"Part item '{part_item.name()}' has no anchor_joint_id. Skipping animation update for it.")
+                continue
+
+            if anchor_joint_id not in joint_data:
+                # logging.warning(f"Anchor joint '{anchor_joint_id}' for part '{part_item.name()}' not found in animation data. Skipping.")
+                continue
+
+            joint_transform = joint_data[anchor_joint_id]
+            target_joint_scene_pos = joint_transform.get('scene_position')
+            # Default to part's current rotation if not specified for the joint
+            target_part_world_rotation = joint_transform.get('world_rotation_degrees', part_item.rotation())
+
+            if not isinstance(target_joint_scene_pos, QPointF):
+                logging.warning(f"Invalid or missing 'scene_position' for joint '{anchor_joint_id}' affecting part '{part_item.name()}'. Skipping position update.")
+                continue
+
+            # Apply rotation first
+            part_item.setRotation(float(target_part_world_rotation))
+            # Then set position using the anchor
+            part_item.set_scene_position_from_anchor(target_joint_scene_pos)
+            # logging.debug(f"Updated part {part_item.name()} based on joint {anchor_joint_id}")
+
+        self.scene().update() # Update scene once after all items are processed
 
     def set_selected_part(self, part_name: Optional[str], part_items: Dict[str, CharacterPartItem]):
         """Sets the visual state for the selected part and deselects others."""

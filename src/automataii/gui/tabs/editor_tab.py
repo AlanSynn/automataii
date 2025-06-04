@@ -62,6 +62,7 @@ class EditorTab(QWidget):
         self.main_window = (
             main_window  # Reference to MainWindow for global actions, data, status bar
         )
+        self.debug_mode = getattr(main_window, 'debug_mode', False) # Get debug_mode from main_window
 
         # Instantiate scene and view here
         self.editor_scene = QGraphicsScene(self)
@@ -926,7 +927,7 @@ class EditorTab(QWidget):
 
         for part_name, p_info in self.current_parts_info.items():
             # CharacterPartItem now loads its own texture using project_dir and p_info.name
-            item = CharacterPartItem(part_info=p_info, project_dir=project_dir)
+            item = CharacterPartItem(part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode) # Pass debug_mode
 
             self.editor_scene.addItem(item)
             created_editor_items[part_name] = item

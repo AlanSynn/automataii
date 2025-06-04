@@ -78,11 +78,12 @@ class PartInfo:
         self.opacity: float = model.opacity
         self.group: Optional[str] = model.group
         self.original_svg_path: Optional[str] = model.original_svg_path
-        self.υψηλής_ποιότητας_svg_path: Optional[str] = model.υψηλής_ποιότητας_svg_path
+        self.enhanced_svg_path: Optional[str] = model.enhanced_svg_path
         self.effective_bbox_offset_x: float = model.effective_bbox_offset_x
         self.effective_bbox_offset_y: float = model.effective_bbox_offset_y
         self.show_anchor: bool = model.show_anchor
         self.local_pivot_offset: Optional[List[float]] = model.local_pivot_offset
+        self.anchor_joint_id: Optional[str] = model.anchor_joint_id
 
         self.motion_path_data: Optional[QPainterPath] = None
         if model.motion_path_data and model.motion_path_data.path_points:
@@ -150,12 +151,13 @@ class PartInfo:
             opacity=self.opacity,
             group=self.group,
             original_svg_path=self.original_svg_path,
-            υψηλής_ποιότητας_svg_path=self.υψηλής_ποιότητας_svg_path,
+            enhanced_svg_path=self.enhanced_svg_path,
             effective_bbox_offset_x=self.effective_bbox_offset_x,
             effective_bbox_offset_y=self.effective_bbox_offset_y,
             motion_path_data=motion_path_pydantic,
             show_anchor=self.show_anchor,
-            local_pivot_offset=self.local_pivot_offset
+            local_pivot_offset=self.local_pivot_offset,
+            anchor_joint_id=self.anchor_joint_id
         )
 
 class Joint:
