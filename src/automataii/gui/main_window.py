@@ -404,8 +404,25 @@ class AutomataDesigner(QMainWindow):
     def _handle_landing_image_selected(self, image_path: str):
         """Handles image selection from the landing tab."""
         logging.info(f"MainWindow: Landing tab selected image: {image_path}")
-        # The landing tab already handles loading the image and switching tabs
-        # This is just for any additional main window level handling if needed
+
+        if hasattr(self, 'image_proc_tab') and self.image_proc_tab is not None:
+            # Load the image in the image processing tab
+            loaded_successfully = self.image_proc_tab._load_image_from_path(image_path)
+
+            if loaded_successfully:
+                # Switch to the image processing tab
+                for i in range(self.tab_widget.count()):
+                    if self.tab_widget.widget(i) == self.image_proc_tab:
+                        self.tab_widget.setCurrentIndex(i)
+                        logging.info(f"MainWindow: Switched to Image Processing Tab and loaded {Path(image_path).name}")
+                        self.statusBar().showMessage(f"Loaded: {Path(image_path).name}", 3000)
+                        break
+            else:
+                logging.error(f"MainWindow: Failed to load image {image_path} in ImageProcessingTab.")
+                QMessageBox.warning(self, "Image Load Error", f"Could not load the selected image: {Path(image_path).name}")
+        else:
+            logging.error("MainWindow: image_proc_tab is not available or not initialized.")
+            QMessageBox.critical(self, "Error", "Image Processing Tab is not available.")
 
     @pyqtSlot()
     def switch_to_editor_tab(self):

@@ -307,16 +307,16 @@ class LandingTab(QWidget):
         logging.info(f"Example image selected: {image_path}")
         self.image_selected.emit(image_path)
 
+        # Switch to the image processing tab
+        for i in range(self.main_window.tab_widget.count()):
+            if self.main_window.tab_widget.widget(i) == self.main_window.image_proc_tab:
+                self.main_window.tab_widget.setCurrentIndex(i)
+                break
+
         # Switch to image processing tab and load the image
         if hasattr(self.main_window, 'image_proc_tab'):
             # Load the image in the image processing tab
             self.main_window.image_proc_tab._load_image_from_path(image_path)
-
-            # Switch to the image processing tab
-            for i in range(self.main_window.tab_widget.count()):
-                if self.main_window.tab_widget.widget(i) == self.main_window.image_proc_tab:
-                    self.main_window.tab_widget.setCurrentIndex(i)
-                    break
 
         self.main_window.statusBar().showMessage(f"Loaded: {Path(image_path).name}", 3000)
 
