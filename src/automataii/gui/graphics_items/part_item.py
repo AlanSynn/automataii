@@ -336,29 +336,12 @@ class CharacterPartItem(QGraphicsPixmapItem):
         return self.mapToScene(self.anchor_offset)
 
     def set_scene_position_from_anchor(self, scene_anchor_pos: QPointF):
-        transform = QTransform().rotate(self.rotation())
-        rotated_anchor_offset = transform.map(self.anchor_offset)
-        new_pos = scene_anchor_pos - rotated_anchor_offset
-        self.setPos(new_pos)
-
-    def update_visual_from_part_info(self):
-        if self.is_fixed != self.part_info.fixed:
-            self.set_fixed(self.part_info.fixed)
-        new_z = self.part_info.z_value if self.part_info.z_value is not None else Z_PART_DEFAULT
-        if self.z_value != new_z:
-            self.z_value = new_z
-            self.setZValue(self.z_value)
-
-        if hasattr(self.part_info, 'motion_path') and isinstance(self.part_info.motion_path, QPainterPath):
-             if self.motion_path != self.part_info.motion_path:
-                  self.set_motion_path(self.part_info.motion_path)
-        elif hasattr(self.part_info, 'motion_path_data') and isinstance(self.part_info.motion_path_data, list):
-            new_qpath = QPainterPath()
-            if self.part_info.motion_path_data and len(self.part_info.motion_path_data) > 0 and isinstance(self.part_info.motion_path_data[0], QPointF) :
-                new_qpath.moveTo(self.part_info.motion_path_data[0])
-                for pt in self.part_info.motion_path_data[1:]:
-                    if isinstance(pt, QPointF):
-                         new_qpath.lineTo(pt)
-            if self.motion_path != new_qpath:
-                 self.set_motion_path(new_qpath)
-        self.update()
+        # Given that self.transformOriginPoint is self.anchor_offset,
+        # and item.setRotation() rotates around this transformOriginPoint.
+        # The vector from the item's origin (0,0) to its anchor_offset,
+        # when transformed by rotation and scale around the anchor_offset itself,
+        # effectively results in the anchor_offset (in its new orientation)
+        # being at self.anchor_offset relative to the item's origin, if the item's origin were (0,0).
+        # Thus, item.pos() + self.anchor_offset (in the scene's rotated sense) should be scene_anchor_pos.
+        # This simplifies to: item.pos() = scene_anchor_pos - self.anchor_offset
+        self.setPos(scene_anchor_pos - self.anchor_offset)

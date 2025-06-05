@@ -6,7 +6,7 @@ including skeleton definition for IK, solving IK for limbs, and managing
 IK-driven animation state.
 """
 import logging
-from typing import Optional, Dict, Any, List, Tuple, Set
+from typing import Optional, Dict, Any, List, Tuple, Set, TYPE_CHECKING
 from pathlib import Path
 import math # Already present, but good to ensure
 import inspect # For logging the caller in the property setter
@@ -20,13 +20,12 @@ from PyQt6.QtGui import QTransform, QPainterPath
 # SkeletonManager provides data, even if it's as a dictionary dump.
 # IKManager will need to understand this structure.
 from ..core.models_skeleton import StandardizedSkeletonModel, StandardizedJointModel # For type hinting if directly using models
+from ..core.models import PartInfo # For PartInfo type hint
+from ..gui.graphics_items.part_item import CharacterPartItem # For CharacterPartItem type hint
 
-# Placeholder for actual IK solver logic if it's separate
-# from ..core.ik_solver import IKSolver # Example if you have a dedicated solver
+if TYPE_CHECKING:
+    from ..core.skeleton_manager import SkeletonManager
 
-# Helper function for vector operations if needed (e.g., angle, normalization)
-def get_angle_between_points(p1: QPointF, p2: QPointF) -> float:
-    return math.atan2(p2.y() - p1.y(), p2.x() - p1.x())
 
 class IKManager(QObject):
     """Manages IK related data, setup, and solving."""
@@ -105,11 +104,11 @@ class IKManager(QObject):
         self._current_animation_progress: float = 0.0 # Normalized 0-1
 
         # Reference to the SkeletonManager (passed from MainWindow)
-        self.skeleton_manager_ref: Optional['SkeletonManager'] = None # Keep as ref, avoid circular type hint with str
+        self.skeleton_manager_ref: Optional['SkeletonManager'] = None # Use forward reference string
 
         # Project data references (populated by on_project_data_loaded or similar)
         self.project_dir: Optional[Path] = None # Still useful for context if IK needs to load related files
-        self.project_parts_data: Dict[str, 'PartInfo'] = {} # Holds PartInfo for IK-relevant parts
+        self.project_parts_data: Dict[str, PartInfo] = {} # Use imported PartInfo
 
         # Placeholder for an actual IK solving utility/library if used
         # self.ik_solver_instance = IKSolver()
@@ -204,7 +203,7 @@ class IKManager(QObject):
         else:
             logging.warning(f"IKManager: Invalid animation duration: {duration_ms} ms. Must be positive.")
 
-    def set_skeleton_manager(self, skeleton_manager_instance: Optional['SkeletonManager']): # Use string for type hint & allow None
+    def set_skeleton_manager(self, skeleton_manager_instance: Optional['SkeletonManager']): # Use forward reference string
         old_ref_id = id(self.skeleton_manager_ref) if self.skeleton_manager_ref else None
         new_ref_id = id(skeleton_manager_instance) if skeleton_manager_instance else None
         logging.info(f"IKManager (id:{id(self)}): set_skeleton_manager called. Old ref_id: {old_ref_id}, New ref_id: {new_ref_id}. New instance type: {type(skeleton_manager_instance)}")
@@ -230,7 +229,7 @@ class IKManager(QObject):
         else:
             logging.warning(f"IKManager (id:{id(self)}): SkeletonManager instance was set to None.")
 
-    def set_project_parts_data(self, parts_data: Dict[str, 'PartInfo']):
+    def set_project_parts_data(self, parts_data: Dict[str, PartInfo]): # Use imported PartInfo
         """Sets the parts data from the current project, used for animation paths etc."""
         logging.info(f"IKManager: set_project_parts_data called. Received {len(parts_data)} parts. Pending paths: {list(self._pending_motion_paths.keys())}")
         if 'head' in parts_data:
@@ -416,15 +415,81 @@ class IKManager(QObject):
         logging.debug(f"IKManager: Populated sim_limb_configs: {self.sim_limb_configs}")
 
         # 4. Define preferred bend directions for middle joints (e.g., elbows, knees)
-        # 1 for positive bend (e.g. elbow bends "forwards"), -1 for negative ("backwards")
-        # These are relative to a default pose or a plane.
-        self.sim_joint_bend_directions = {
-            'left_elbow': 1,
-            'right_elbow': 1,
-            'left_knee': -1,  # 무릎은 보통 뒤로 굽혀짐
-            'right_knee': -1,
-        }
+        # This will now be calculated based on the initial pose.
+        self.sim_joint_bend_directions = {}
+        middle_joints_to_process = ['left_elbow', 'right_elbow', 'left_knee', 'right_knee']
+
+        for middle_joint_abstract_name in middle_joints_to_process:
+            # Find P0 (root), P1 (middle), P2 (effector)
+            # P1 is the middle_joint_abstract_name
+            p1_std_id = self._get_standardized_joint_id(middle_joint_abstract_name)
+            if not p1_std_id or p1_std_id not in self.sim_joints_config:
+                logging.warning(f"IKManager: Middle joint '{middle_joint_abstract_name}' (std: {p1_std_id}) not found in sim_joints_config for bend direction calculation.")
+                continue
+
+            p1_pos = self.sim_joints_config[p1_std_id]['position']
+
+            # Find P0 (parent of P1)
+            middle_joint_limb_config = self.sim_limb_configs.get(middle_joint_abstract_name)
+            if not middle_joint_limb_config:
+                logging.warning(f"IKManager: No limb config found for middle joint '{middle_joint_abstract_name}'. Cannot find P0.")
+                continue
+            p0_abstract_name = middle_joint_limb_config.get('parentAnchor')
+            if not p0_abstract_name:
+                logging.warning(f"IKManager: No parentAnchor found for middle joint '{middle_joint_abstract_name}'. Cannot find P0.")
+                continue
+            p0_std_id = self._get_standardized_joint_id(p0_abstract_name)
+            if not p0_std_id or p0_std_id not in self.sim_joints_config:
+                logging.warning(f"IKManager: Root joint '{p0_abstract_name}' (std: {p0_std_id}) for middle '{middle_joint_abstract_name}' not in sim_joints_config.")
+                continue
+            p0_pos = self.sim_joints_config[p0_std_id]['position']
+
+            # Find P2 (child of P1, which is an effector)
+            p2_std_id = None
+            p2_abstract_name = None
+            for effector_abs_name, config_data in self.sim_limb_configs.items():
+                if config_data.get('parentAnchor') == middle_joint_abstract_name:
+                    p2_abstract_name = effector_abs_name
+                    p2_std_id = self._get_standardized_joint_id(effector_abs_name)
+                    break
+
+            if not p2_std_id or p2_std_id not in self.sim_joints_config:
+                logging.warning(f"IKManager: Effector joint (child of '{middle_joint_abstract_name}') not found or not in sim_joints_config.")
+                continue
+            p2_pos = self.sim_joints_config[p2_std_id]['position']
+
+            # Calculate signed area (related to cross product z-component)
+            # (P1.x - P0.x) * (P2.y - P0.y) - (P1.y - P0.y) * (P2.x - P0.x)
+            # A positive value means P0-P1-P2 is a counter-clockwise turn (P1 is "to the left" of vector P0P2).
+            # A negative value means P0-P1-P2 is a clockwise turn (P1 is "to the right" of vector P0P2).
+            # The IK solver's bend_direction: positive usually means counter-clockwise bend.
+            signed_area = (p1_pos.x() - p0_pos.x()) * (p2_pos.y() - p0_pos.y()) - \
+                          (p1_pos.y() - p0_pos.y()) * (p2_pos.x() - p0_pos.x())
+
+            if abs(signed_area) < 1e-6: # Collinear or very close to it
+                # Default to a common bend direction (e.g., 1 for elbows, -1 for knees if that's the convention)
+                # For now, let's default to 1, assuming this means "outward" or "forward" bend.
+                # This might need adjustment based on character's typical pose.
+                self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
+                logging.info(f"IKManager: Joints for '{middle_joint_abstract_name}' are collinear. Defaulting bend_direction to 1.")
+            elif signed_area > 0: # P1 is to the "left" (CCW turn from P0P2 to P0P1)
+                self.sim_joint_bend_directions[middle_joint_abstract_name] = 1 # Assuming 1 means this direction
+            else: # signed_area < 0, P1 is to the "right" (CW turn)
+                self.sim_joint_bend_directions[middle_joint_abstract_name] = -1 # Assuming -1 means this direction
+
+            logging.info(f"IKManager: Calculated bend_direction for '{middle_joint_abstract_name}': {self.sim_joint_bend_directions[middle_joint_abstract_name]} (signed_area: {signed_area:.2f})")
+
         logging.debug(f"IKManager: Populated sim_joint_bend_directions: {self.sim_joint_bend_directions}")
+
+        # 5. Initialize rest angles for joints (used when IK can't reach target)
+        if not hasattr(self, 'sim_joint_rest_angles'):
+            self.sim_joint_rest_angles = {
+                'left_shoulder': 180.0,  # Left arm pointing left
+                'right_shoulder': 0.0,   # Right arm pointing right
+                'left_hip': -90.0,       # Left leg pointing down
+                'right_hip': -90.0,      # Right leg pointing down
+            }
+        logging.debug(f"IKManager: Using sim_joint_rest_angles: {self.sim_joint_rest_angles}")
 
         # 5. Populate sim_limb_lengths from project_parts_data
         # This uses the 'label' from sim_limb_configs as the key into project_parts_data (visual part name)
@@ -602,7 +667,7 @@ class IKManager(QObject):
         dist_sq = dx*dx + dy*dy
         dist = math.sqrt(dist_sq) if dist_sq > 1e-12 else 0.0
 
-        bend_direction = float(self.sim_joint_bend_directions.get(root_joint_std_id, -1.0)) # Default to -1 for typical elbow/knee
+        bend_direction = float(self.sim_joint_bend_directions.get(root_joint_std_id, 1.0)) # Default to -1 for typical elbow/knee
 
         # Constants from __init__ or class level
         # _max_elbow_flexion_deg = self.DEFAULT_MAX_ELBOW_FLEXION_DEG (assuming these are set)
@@ -764,298 +829,358 @@ class IKManager(QObject):
 
             return p1_new, p2_new
 
-    def _update_character_part_visuals_from_ik(self) -> None:
-        """
-        Updates the visual representation of character parts based on solved IK joint positions.
-        This involves deriving part positions/rotations from global IK joint configurations.
-        Emits `character_visuals_updated` signal.
-        """
-        updated_visuals: Dict[str, Dict[str, Any]] = {}
-        processed_visual_parts: Set[str] = set()
+    def _apply_ik_to_limb_chains(self, editor_items: Dict[str, CharacterPartItem]) -> None: # Use imported CharacterPartItem
+        """Applies CCD IK to arm and leg chains to maintain proper joint constraints."""
+        from ..kinematics.ik_solver import solve_ik_ccd
 
-        if not self.project_parts_data:
-            logging.warning("IKManager FK: Missing project_parts_data for FK update.")
-            return
-        if not self.sim_joints_config:
-            logging.warning("IKManager FK: Missing sim_joints_config for FK update.")
-            return
-        if not self.sim_limb_configs:
-            logging.warning("IKManager FK: Missing sim_limb_configs for FK update (limb segments might not be processed correctly).")
-            # Continue, as some parts might still be processable via sim_selectable_components
-        if not self._current_skeleton_data or 'joint_map' not in self._current_skeleton_data:
+        # Define the limb chains - maps end effector joint to chain parts
+        limb_chains = {
+            # Left arm: torso -> upper arm -> lower arm
+            'left_hand': {
+                'chain_parts': ['torso', 'left_arm_upper', 'left_arm_lower'],
+                'target_joint': 'left_hand'
+            },
+            # Right arm: torso -> upper arm -> lower arm
+            'right_hand': {
+                'chain_parts': ['torso', 'right_arm_upper', 'right_arm_lower'],
+                'target_joint': 'right_hand'
+            },
+            # Left leg: torso -> upper leg -> lower leg
+            'left_foot': {
+                'chain_parts': ['torso', 'left_leg_upper', 'left_leg_lower'],
+                'target_joint': 'left_foot'
+            },
+            # Right leg: torso -> upper leg -> lower leg
+            'right_foot': {
+                'chain_parts': ['torso', 'right_leg_upper', 'right_leg_lower'],
+                'target_joint': 'right_foot'
+            }
+        }
+
+        # Process each limb chain
+        for effector_joint, chain_config in limb_chains.items():
+            chain_parts = chain_config['chain_parts']
+            target_joint = chain_config['target_joint']
+
+            # Build the chain of CharacterPartItems
+            chain = []
+            all_parts_available = True
+
+            for part_name in chain_parts:
+                if part_name in editor_items:
+                    part_item = editor_items[part_name]
+                    # Mark torso as fixed so it doesn't move during IK
+                    # if part_name == 'torso':
+                    #     part_item.is_fixed = True
+                    chain.append(part_item)
+                else:
+                    all_parts_available = False
+                    logging.debug(f"IKManager: Part '{part_name}' not found for {effector_joint} chain")
+                    break
+
+            if not all_parts_available or len(chain) < 2:
+                continue
+
+            # Get target position from sim_joints_config
+            target_joint_std = self._get_standardized_joint_id(target_joint)
+            if not target_joint_std or target_joint_std not in self.sim_joints_config:
+                logging.debug(f"IKManager: Target joint '{target_joint}' not found in sim_joints_config")
+                continue
+
+            target_pos = self.sim_joints_config[target_joint_std].get('position')
+            if not target_pos:
+                continue
+
+            # Apply IK to the chain
+            logging.debug(f"IKManager: Applying IK for {effector_joint} chain with {len(chain)} parts, target: {target_pos}")
+            solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0)
+
+    def _update_character_part_visuals_from_ik(self) -> None:
+        """Updates character part visuals using proper IK chains for arms and legs.
+
+        - First applies CCD IK to multi-joint chains (arms/legs)
+        - Then computes world‑space position & rotation for each joint
+        - Emits ``character_visuals_updated`` with a mapping ``{std_joint_id: {...}}``.
+        """
+        if not (self._current_skeleton_data and 'joint_map' in self._current_skeleton_data):
             logging.error("IKManager FK: Missing skeleton data or joint_map for FK update.")
             return
 
-        # 애니메이션 진행률이 0이면 모든 파트를 초기 상태(월드 앵글 0)로 설정
-        is_initial_state = abs(self._current_animation_progress) < 1e-6
-
-        # 1. Process Limb Segments first
-        # These are parts that visually represent a bone between two IK joints.
-        # Example: 'left_arm_upper' (visual part) is defined by 'left_shoulder' (parent IK) and 'left_elbow' (child IK).
-        logging.debug(f"IKManager FK: Processing {len(self.sim_limb_configs)} limb configs.")
-        # sim_limb_configs: keys are abstract effector names (e.g. 'left_elbow', 'left_hand')
-        # values contain abstract parentAnchor names (e.g. 'left_shoulder', 'left_elbow')
-        for ik_effector_abstract_name, limb_config_data in self.sim_limb_configs.items():
-            parent_ik_anchor_abstract_name = limb_config_data.get('parentAnchor')
-            visual_part_name = limb_config_data.get('label') # This label should match a key in project_parts_data
-
-            if not parent_ik_anchor_abstract_name or not visual_part_name:
-                logging.warning(f"IKManager FK: Skipping limb config for abstract effector '{ik_effector_abstract_name}' due to missing parentAnchor or label.")
-                continue
-
-            if visual_part_name not in self.project_parts_data:
-                logging.warning(f"IKManager FK: Visual part '{visual_part_name}' for limb (effector '{ik_effector_abstract_name}') not found in project_parts_data.")
-                continue
-
-            parent_ik_anchor_std_id = self._get_standardized_joint_id(parent_ik_anchor_abstract_name)
-            ik_effector_std_id = self._get_standardized_joint_id(ik_effector_abstract_name)
-
-            if not parent_ik_anchor_std_id or not ik_effector_std_id:
-                logging.warning(f"IKManager FK: Could not get standardized IDs for limb '{visual_part_name}' (parent_abs: '{parent_ik_anchor_abstract_name}', effector_abs: '{ik_effector_abstract_name}').")
-                continue
-
-            if parent_ik_anchor_std_id not in self.sim_joints_config or ik_effector_std_id not in self.sim_joints_config:
-                logging.warning(f"IKManager FK: Standardized IK joints '{parent_ik_anchor_std_id}' or '{ik_effector_std_id}' for limb '{visual_part_name}' not found in sim_joints_config.")
-                continue
-
-            # --- BEGIN ADDED DEBUG LOGGING (Limb - Parent) ---
-            parent_joint_config_entry = self.sim_joints_config.get(parent_ik_anchor_std_id)
-            logging.debug(f"IKManager FK (Limb Parent Check): For visual part '{visual_part_name}', parent IK std_id '{parent_ik_anchor_std_id}'. sim_joints_config entry: {parent_joint_config_entry}")
-            # --- END ADDED DEBUG LOGGING ---
-            parent_ik_joint_pos = self.sim_joints_config[parent_ik_anchor_std_id].get('position')
-
-            # --- BEGIN ADDED DEBUG LOGGING (Limb - Child/Effector) ---
-            child_joint_config_entry = self.sim_joints_config.get(ik_effector_std_id)
-            logging.debug(f"IKManager FK (Limb Child Check): For visual part '{visual_part_name}', child/effector IK std_id '{ik_effector_std_id}'. sim_joints_config entry: {child_joint_config_entry}")
-            # --- END ADDED DEBUG LOGGING ---
-            child_ik_joint_pos = self.sim_joints_config[ik_effector_std_id].get('position')
-
-            if not parent_ik_joint_pos or not child_ik_joint_pos:
-                logging.warning(f"IKManager FK: Missing position data for standardized IK joints '{parent_ik_anchor_std_id}' or '{ik_effector_std_id}'.")
-                continue
-
-            position_for_visual = parent_ik_joint_pos
-
-            # 초기 상태에서는 회전을 0으로 설정
-            if is_initial_state:
-                rotation_for_visual_deg = 0.0
-            else:
-                delta_x = child_ik_joint_pos.x() - parent_ik_joint_pos.x()
-                delta_y = child_ik_joint_pos.y() - parent_ik_joint_pos.y()
-                rotation_for_visual_rad = math.atan2(delta_y, delta_x)
-                rotation_for_visual_deg = math.degrees(rotation_for_visual_rad)
-
-            updated_visuals[visual_part_name] = {
-                'position': [position_for_visual.x(), position_for_visual.y()],
-                'rotation_degrees': rotation_for_visual_deg
-            }
-            processed_visual_parts.add(visual_part_name)
-            logging.debug(f"IKManager FK (Limb): Updated '{visual_part_name}' (ParentIK_abs: {parent_ik_anchor_abstract_name}/{parent_ik_anchor_std_id}, ChildIK_abs: {ik_effector_abstract_name}/{ik_effector_std_id}). Pos: [{position_for_visual.x():.1f}, {position_for_visual.y():.1f}], Rot: {rotation_for_visual_deg:.1f}")
-
-        # 2. Process Other Controlled Parts (e.g., head, torso, if not covered by limbs)
-        logging.debug(f"IKManager FK: Processing {len(self.sim_selectable_components)} selectable components for non-limb parts.")
-        # sim_selectable_components: values contain abstract targetJointId
-        for component_config in self.sim_selectable_components:
-            visual_part_name = component_config.get('partName')
-            target_ik_joint_abstract_name = component_config.get('targetJointId')
-
-            if not visual_part_name or not target_ik_joint_abstract_name:
-                logging.warning(f"IKManager FK: Skipping selectable component due to missing partName or targetJointId: {component_config.get('name')}")
-                continue
-
-            if visual_part_name in processed_visual_parts:
-                logging.debug(f"IKManager FK: Visual part '{visual_part_name}' already processed as a limb segment. Skipping.")
-                continue
-
-            if visual_part_name not in self.project_parts_data:
-                logging.warning(f"IKManager FK: Visual part '{visual_part_name}' for selectable component '{component_config.get('name')}' not in project_parts_data.")
-                continue
-
-            target_ik_joint_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name)
-            if not target_ik_joint_std_id:
-                logging.warning(f"IKManager FK: Could not get standardized ID for target abstract joint '{target_ik_joint_abstract_name}' of selectable '{visual_part_name}'.")
-                continue
-
-            if target_ik_joint_std_id not in self.sim_joints_config:
-                logging.warning(f"IKManager FK: Target standardized IK joint '{target_ik_joint_std_id}' (from abstract '{target_ik_joint_abstract_name}') for selectable '{visual_part_name}' not in sim_joints_config.")
-                continue
-
-            target_ik_joint_data = self.sim_joints_config[target_ik_joint_std_id]
-            # --- BEGIN ADDED DEBUG LOGGING (Selectable Target) ---
-            logging.debug(f"IKManager FK (Selectable Target Check): For visual part '{visual_part_name}', target IK std_id '{target_ik_joint_std_id}'. Full entry from sim_joints_config: {target_ik_joint_data}")
-            # --- END ADDED DEBUG LOGGING ---
-            position_for_visual = target_ik_joint_data.get('position')
-
-            if not position_for_visual:
-                logging.warning(f"IKManager FK: Missing position data for target standardized IK joint '{target_ik_joint_std_id}'.")
-                continue
-
-            # 초기 상태에서는 회전을 0으로 설정
-            if is_initial_state:
-                rotation_for_visual_deg = 0.0
-            else:
-                rotation_for_visual_deg = 0.0
-                # The 'parent' stored in sim_joints_config[target_ik_joint_std_id] IS already a standardized ID (or None)
-                parent_of_target_ik_joint_std_id = target_ik_joint_data.get('parent')
-
-                if parent_of_target_ik_joint_std_id and parent_of_target_ik_joint_std_id in self.sim_joints_config:
-                    parent_ik_joint_data = self.sim_joints_config[parent_of_target_ik_joint_std_id]
-                    parent_ik_joint_pos = parent_ik_joint_data.get('position')
-                    if parent_ik_joint_pos:
-                        delta_x = position_for_visual.x() - parent_ik_joint_pos.x()
-                        delta_y = position_for_visual.y() - parent_ik_joint_pos.y()
-                        if abs(delta_x) > 1e-6 or abs(delta_y) > 1e-6:
-                            rotation_rad = math.atan2(delta_y, delta_x)
-                            rotation_for_visual_deg = math.degrees(rotation_rad)
-                        else:
-                            rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0)
-                            logging.debug(f"IKManager FK: Target STD IK '{target_ik_joint_std_id}' and parent STD '{parent_of_target_ik_joint_std_id}' at same pos. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
-                    else:
-                        rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0)
-                        logging.debug(f"IKManager FK: Parent STD IK '{parent_of_target_ik_joint_std_id}' missing pos. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
-                else:
-                    rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0)
-                    logging.debug(f"IKManager FK: No parent for target STD IK '{target_ik_joint_std_id}'. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
-
-            updated_visuals[visual_part_name] = {
-                'position': [position_for_visual.x(), position_for_visual.y()],
-                'rotation_degrees': rotation_for_visual_deg
-            }
-            processed_visual_parts.add(visual_part_name)
-            logging.debug(f"IKManager FK (Selectable): Updated '{visual_part_name}' (TargetIK_abs: {target_ik_joint_abstract_name}/{target_ik_joint_std_id}). Pos: [{position_for_visual.x():.1f}, {position_for_visual.y():.1f}], Rot: {rotation_for_visual_deg:.1f}")
-
-        if updated_visuals:
-            logging.info(f"IKManager FK: Emitting character_visuals_updated with {len(updated_visuals)} parts.")
-            self.character_visuals_updated.emit(updated_visuals)
-        else:
-            logging.debug("IKManager FK: No visual updates to emit from FK process.")
-
-        # 3. IK 체인을 구성하여 solve_ik_ccd 호출 (다리 움직임을 위해)
+        # Apply IK to character parts if we have access to them
         if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
             editor_items = self.main_window.editor_tab.current_editor_items
 
-            # 왼쪽 다리 IK 체인 구성
-            left_leg_chain = []
-            if 'torso' in editor_items:
-                left_leg_chain.append(editor_items['torso'])
-            if 'left_leg_upper' in editor_items:
-                left_leg_chain.append(editor_items['left_leg_upper'])
-            if 'left_leg_lower' in editor_items:
-                left_leg_chain.append(editor_items['left_leg_lower'])
+            # Build and solve IK chains for arms and legs
+            self._apply_ik_to_limb_chains(editor_items)
 
-            # 왼발 목표 위치가 있으면 IK 적용
-            if len(left_leg_chain) >= 2 and 'left_foot' in self.sim_joints_config:
-                target_pos = self.sim_joints_config['left_foot'].get('position')
-                if target_pos:
-                    from ..kinematics.ik_solver import solve_ik_ccd
-                    logging.debug(f"IKManager: Applying CCD IK for left leg chain with {len(left_leg_chain)} items")
-                    solve_ik_ccd(left_leg_chain, target_pos, iterations=10, tolerance=1.0)
+        updated: Dict[str, Dict[str, Any]] = {}
+        processed_parts: Set[str] = set()
 
-            # 오른쪽 다리 IK 체인 구성
-            right_leg_chain = []
-            if 'torso' in editor_items:
-                right_leg_chain.append(editor_items['torso'])
-            if 'right_leg_upper' in editor_items:
-                right_leg_chain.append(editor_items['right_leg_upper'])
-            if 'right_leg_lower' in editor_items:
-                right_leg_chain.append(editor_items['right_leg_lower'])
+        # ------------------------ helpers ------------------------
+        std = self._get_standardized_joint_id  # alias
 
-            # 오른발 목표 위치가 있으면 IK 적용
-            if len(right_leg_chain) >= 2 and 'right_foot' in self.sim_joints_config:
-                target_pos = self.sim_joints_config['right_foot'].get('position')
-                if target_pos:
-                    from ..kinematics.ik_solver import solve_ik_ccd
-                    logging.debug(f"IKManager: Applying CCD IK for right leg chain with {len(right_leg_chain)} items")
-                    solve_ik_ccd(right_leg_chain, target_pos, iterations=10, tolerance=1.0)
+        def pos(jid: str):
+            return self.sim_joints_config.get(jid, {}).get('position')
 
-            # 왼쪽 팔 IK 체인 구성
-            left_arm_chain = []
-            if 'torso' in editor_items:
-                left_arm_chain.append(editor_items['torso'])
-            if 'left_arm_upper' in editor_items:
-                left_arm_chain.append(editor_items['left_arm_upper'])
-            if 'left_arm_lower' in editor_items:
-                left_arm_chain.append(editor_items['left_arm_lower'])
+        def angle_between(a, b):
+            return math.degrees(math.atan2(b.y() - a.y(), b.x() - a.x()))
 
-            # 왼손 목표 위치가 있으면 IK 적용
-            if len(left_arm_chain) >= 2 and 'left_hand' in self.sim_joints_config:
-                target_pos = self.sim_joints_config['left_hand'].get('position')
-                if target_pos:
-                    from ..kinematics.ik_solver import solve_ik_ccd
-                    logging.debug(f"IKManager: Applying CCD IK for left arm chain with {len(left_arm_chain)} items")
-                    solve_ik_ccd(left_arm_chain, target_pos, iterations=10, tolerance=1.0)
+        # -------------------- 1. limbs (2‑joint) -----------------
+        for eff_abs, limb in self.sim_limb_configs.items():
+            part_name = limb.get('label')
+            parent_id = std(limb.get('parentAnchor'))
+            child_id = std(eff_abs)  # <‑‑ fix: effector abstract name, not label
+            if not (part_name and parent_id and child_id):
+                continue
 
-            # 오른쪽 팔 IK 체인 구성
-            right_arm_chain = []
-            if 'torso' in editor_items:
-                right_arm_chain.append(editor_items['torso'])
-            if 'right_arm_upper' in editor_items:
-                right_arm_chain.append(editor_items['right_arm_upper'])
-            if 'right_arm_lower' in editor_items:
-                right_arm_chain.append(editor_items['right_arm_lower'])
+            p_parent, p_child = pos(parent_id), pos(child_id)
+            if not (p_parent and p_child):
+                continue
 
-            # 오른손 목표 위치가 있으면 IK 적용
-            if len(right_arm_chain) >= 2 and 'right_hand' in self.sim_joints_config:
-                target_pos = self.sim_joints_config['right_hand'].get('position')
-                if target_pos:
-                    from ..kinematics.ik_solver import solve_ik_ccd
-                    logging.debug(f"IKManager: Applying CCD IK for right arm chain with {len(right_arm_chain)} items")
-                    solve_ik_ccd(right_arm_chain, target_pos, iterations=10, tolerance=1.0)
+            rot = angle_between(p_parent, p_child)
+            # record *anchor* (parent) entry – what sprites use
+            updated[parent_id] = {
+                'scene_position': p_parent,
+                'world_rotation_degrees': rot,
+            }
+            # record child as well – useful for chains or debug overlays
+            updated[child_id] = {
+                'scene_position': p_child,
+                'world_rotation_degrees': self.sim_joints_config[child_id].get('angle', rot),
+            }
+            processed_parts.add(part_name)
 
-    # --- Animation Control Methods (to be moved/adapted from MainWindow) ---
+        # ---------------- 2. single‑joint parts ------------------
+        for comp in self.sim_selectable_components:
+            part_name = comp.get('partName')
+            if not part_name or part_name in processed_parts:
+                continue
+
+            jid = std(comp.get('targetJointId'))
+            pj = pos(jid)
+            if not (jid and pj):
+                continue
+
+            rot = self.sim_joints_config[jid].get('angle', 0.0)
+            parent_id = self.sim_joints_config[jid].get('parent')
+            if parent_id and pos(parent_id):
+                rot = angle_between(pos(parent_id), pj)
+
+            updated[jid] = {
+                'scene_position': pj,
+                'world_rotation_degrees': 0,
+            }
+            processed_parts.add(part_name)
+
+        # --------------------- emit ------------------------------
+        if updated:
+            logging.debug("IKManager FK: Emitting visuals for %d joints", len(updated))
+            self.character_visuals_updated.emit(updated)
+
+    # def _update_character_part_visuals_from_ik(self) -> None:
+    #     """
+    #     Updates the visual representation of character parts based on solved IK joint positions.
+    #     This involves deriving part positions/rotations from global IK joint configurations.
+    #     Emits `character_visuals_updated` signal.
+    #     """
+    #     updated_visuals: Dict[str, Dict[str, Any]] = {}
+    #     processed_visual_parts: Set[str] = set()
+
+    #     if not self._current_skeleton_data or 'joint_map' not in self._current_skeleton_data:
+    #         logging.error("IKManager FK: Missing skeleton data or joint_map for FK update.")
+    #         return
+
+
+    #     # 1. Process Limb Segments first
+    #     for ik_effector_abstract_name, limb_config_data in self.sim_limb_configs.items():
+    #         parent_ik_anchor_abstract_name = limb_config_data.get('parentAnchor')
+    #         visual_part_name = limb_config_data.get('label') # This label should match a key in project_parts_data
+
+
+    #         parent_ik_anchor_std_id = self._get_standardized_joint_id(parent_ik_anchor_abstract_name)
+    #         ik_effector_std_id = self._get_standardized_joint_id(ik_effector_abstract_name)
+
+    #         if not parent_ik_anchor_std_id or not ik_effector_std_id:
+    #             logging.warning(f"IKManager FK: Could not get standardized IDs for limb '{visual_part_name}' (parent_abs: '{parent_ik_anchor_abstract_name}', effector_abs: '{ik_effector_abstract_name}').")
+    #             continue
+
+    #         if parent_ik_anchor_std_id not in self.sim_joints_config or ik_effector_std_id not in self.sim_joints_config:
+    #             logging.warning(f"IKManager FK: Standardized IK joints '{parent_ik_anchor_std_id}' or '{ik_effector_std_id}' for limb '{visual_part_name}' not found in sim_joints_config.")
+    #             continue
+
+    #         parent_joint_config_entry = self.sim_joints_config.get(parent_ik_anchor_std_id)
+    #         logging.debug(f"IKManager FK (Limb Parent Check): For visual part '{visual_part_name}', parent IK std_id '{parent_ik_anchor_std_id}'. sim_joints_config entry: {parent_joint_config_entry}")
+    #         parent_ik_joint_pos = self.sim_joints_config[parent_ik_anchor_std_id].get('position')
+
+    #         child_joint_config_entry = self.sim_joints_config.get(ik_effector_std_id)
+    #         logging.debug(f"IKManager FK (Limb Child Check): For visual part '{visual_part_name}', child/effector IK std_id '{ik_effector_std_id}'. sim_joints_config entry: {child_joint_config_entry}")
+    #         child_ik_joint_pos = self.sim_joints_config[ik_effector_std_id].get('position')
+
+    #         if not parent_ik_joint_pos or not child_ik_joint_pos:
+    #             logging.warning(f"IKManager FK: Missing position data for standardized IK joints '{parent_ik_anchor_std_id}' or '{ik_effector_std_id}'.")
+    #             continue
+
+    #         position_for_visual = parent_ik_joint_pos
+
+
+    #         delta_x = child_ik_joint_pos.x() - parent_ik_joint_pos.x()
+    #         delta_y = child_ik_joint_pos.y() - parent_ik_joint_pos.y()
+    #         rotation_for_visual_rad = math.atan2(delta_y, delta_x)
+    #         rotation_for_visual_deg = math.degrees(rotation_for_visual_rad)
+
+    #         updated_visuals[parent_ik_anchor_std_id] = {
+    #             'scene_position': position_for_visual,
+    #             'world_rotation_degrees': rotation_for_visual_deg
+    #         }
+    #         processed_visual_parts.add(visual_part_name)
+    #         logging.debug(f"IKManager FK (Limb): Updated '{visual_part_name}' (ParentIK_abs: {parent_ik_anchor_abstract_name}/{parent_ik_anchor_std_id}, ChildIK_abs: {ik_effector_abstract_name}/{ik_effector_std_id}). Pos: [{position_for_visual.x():.1f}, {position_for_visual.y():.1f}], Rot: {rotation_for_visual_deg:.1f}")
+
+    #     # 2. Process Other Controlled Parts (e.g., head, torso, if not covered by limbs)
+    #     logging.debug(f"IKManager FK: Processing {len(self.sim_selectable_components)} selectable components for non-limb parts.")
+    #     # sim_selectable_components: values contain abstract targetJointId
+    #     for component_config in self.sim_selectable_components:
+    #         visual_part_name = component_config.get('partName')
+    #         target_ik_joint_abstract_name = component_config.get('targetJointId')
+
+    #         if not visual_part_name or not target_ik_joint_abstract_name:
+    #             logging.warning(f"IKManager FK: Skipping selectable component due to missing partName or targetJointId: {component_config.get('name')}")
+    #             continue
+
+    #         if visual_part_name in processed_visual_parts:
+    #             logging.debug(f"IKManager FK: Visual part '{visual_part_name}' already processed as a limb segment. Skipping.")
+    #             continue
+
+    #         if visual_part_name not in self.project_parts_data:
+    #             logging.warning(f"IKManager FK: Visual part '{visual_part_name}' for selectable component '{component_config.get('name')}' not in project_parts_data.")
+    #             continue
+
+    #         target_ik_joint_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name)
+    #         if not target_ik_joint_std_id:
+    #             logging.warning(f"IKManager FK: Could not get standardized ID for target abstract joint '{target_ik_joint_abstract_name}' of selectable '{visual_part_name}'.")
+    #             continue
+
+    #         if target_ik_joint_std_id not in self.sim_joints_config:
+    #             logging.warning(f"IKManager FK: Target standardized IK joint '{target_ik_joint_std_id}' (from abstract '{target_ik_joint_abstract_name}') for selectable '{visual_part_name}' not in sim_joints_config.")
+    #             continue
+
+    #         target_ik_joint_data = self.sim_joints_config[target_ik_joint_std_id]
+    #         logging.debug(f"IKManager FK (Selectable Target Check): For visual part '{visual_part_name}', target IK std_id '{target_ik_joint_std_id}'. Full entry from sim_joints_config: {target_ik_joint_data}")
+    #         position_for_visual = target_ik_joint_data.get('position')
+
+    #         if not position_for_visual:
+    #             logging.warning(f"IKManager FK: Missing position data for target standardized IK joint '{target_ik_joint_std_id}'.")
+    #             continue
+
+    #         rotation_for_visual_deg = 0.0
+    #         parent_of_target_ik_joint_std_id = target_ik_joint_data.get('parent')
+
+    #         if parent_of_target_ik_joint_std_id and parent_of_target_ik_joint_std_id in self.sim_joints_config:
+    #             parent_ik_joint_data = self.sim_joints_config[parent_of_target_ik_joint_std_id]
+    #             parent_ik_joint_pos = parent_ik_joint_data.get('position')
+    #             if parent_ik_joint_pos:
+    #                 delta_x = position_for_visual.x() - parent_ik_joint_pos.x()
+    #                 delta_y = position_for_visual.y() - parent_ik_joint_pos.y()
+    #                 if abs(delta_x) > 1e-6 or abs(delta_y) > 1e-6:
+    #                     rotation_rad = math.atan2(delta_y, delta_x)
+    #                     rotation_for_visual_deg = math.degrees(rotation_rad)
+    #                 else:
+    #                     rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0)
+    #                     logging.debug(f"IKManager FK: Target STD IK '{target_ik_joint_std_id}' and parent STD '{parent_of_target_ik_joint_std_id}' at same pos. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
+    #             else:
+    #                 rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0)
+    #                 logging.debug(f"IKManager FK: Parent STD IK '{parent_of_target_ik_joint_std_id}' missing pos. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
+    #         else:
+    #             rotation_for_visual_deg = target_ik_joint_data.get('angle', 0.0)
+    #             logging.debug(f"IKManager FK: No parent for target STD IK '{target_ik_joint_std_id}'. Using stored angle {rotation_for_visual_deg:.1f} for '{visual_part_name}'.")
+
+    #         updated_visuals[target_ik_joint_std_id] = {
+    #             'scene_position': position_for_visual,
+    #             'world_rotation_degrees': rotation_for_visual_deg
+    #         }
+    #         processed_visual_parts.add(visual_part_name)
+    #         logging.debug(f"IKManager FK (Selectable): Updated '{visual_part_name}' (TargetIK_abs: {target_ik_joint_abstract_name}/{target_ik_joint_std_id}). Pos: [{position_for_visual.x():.1f}, {position_for_visual.y():.1f}], Rot: {rotation_for_visual_deg:.1f}")
+
+    #     if updated_visuals:
+    #         logging.info(f"IKManager FK: Emitting character_visuals_updated with {len(updated_visuals)} parts.")
+    #         self.character_visuals_updated.emit(updated_visuals)
+    #     else:
+    #         logging.debug("IKManager FK: No visual updates to emit from FK process.")
+
+    #     # 3. IK 체인을 구성하여 solve_ik_ccd 호출 (다리 움직임을 위해)
+    #     if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
+    #         editor_items = self.main_window.editor_tab.current_editor_items
+
+    #         # 왼쪽 다리 IK 체인 구성
+    #         left_leg_chain = []
+    #         if 'torso' in editor_items:
+    #             left_leg_chain.append(editor_items['torso'])
+    #         if 'left_leg_upper' in editor_items:
+    #             left_leg_chain.append(editor_items['left_leg_upper'])
+    #         if 'left_leg_lower' in editor_items:
+    #             left_leg_chain.append(editor_items['left_leg_lower'])
+
+    #         # 왼발 목표 위치가 있으면 IK 적용
+    #         if len(left_leg_chain) >= 2 and 'left_foot' in self.sim_joints_config:
+    #             target_pos = self.sim_joints_config['left_foot'].get('position')
+    #             if target_pos:
+    #                 from ..kinematics.ik_solver import solve_ik_ccd
+    #                 logging.debug(f"IKManager: Applying CCD IK for left leg chain with {len(left_leg_chain)} items")
+    #                 solve_ik_ccd(left_leg_chain, target_pos, iterations=10, tolerance=1.0)
+
+    #         # 오른쪽 다리 IK 체인 구성
+    #         right_leg_chain = []
+    #         if 'torso' in editor_items:
+    #             right_leg_chain.append(editor_items['torso'])
+    #         if 'right_leg_upper' in editor_items:
+    #             right_leg_chain.append(editor_items['right_leg_upper'])
+    #         if 'right_leg_lower' in editor_items:
+    #             right_leg_chain.append(editor_items['right_leg_lower'])
+
+    #         # 오른발 목표 위치가 있으면 IK 적용
+    #         if len(right_leg_chain) >= 2 and 'right_foot' in self.sim_joints_config:
+    #             target_pos = self.sim_joints_config['right_foot'].get('position')
+    #             if target_pos:
+    #                 from ..kinematics.ik_solver import solve_ik_ccd
+    #                 logging.debug(f"IKManager: Applying CCD IK for right leg chain with {len(right_leg_chain)} items")
+    #                 solve_ik_ccd(right_leg_chain, target_pos, iterations=10, tolerance=1.0)
+
+    #         # 왼쪽 팔 IK 체인 구성
+    #         left_arm_chain = []
+    #         if 'torso' in editor_items:
+    #             left_arm_chain.append(editor_items['torso'])
+    #         if 'left_arm_upper' in editor_items:
+    #             left_arm_chain.append(editor_items['left_arm_upper'])
+    #         if 'left_arm_lower' in editor_items:
+    #             left_arm_chain.append(editor_items['left_arm_lower'])
+
+    #         # 왼손 목표 위치가 있으면 IK 적용
+    #         if len(left_arm_chain) >= 2 and 'left_hand' in self.sim_joints_config:
+    #             target_pos = self.sim_joints_config['left_hand'].get('position')
+    #             if target_pos:
+    #                 from ..kinematics.ik_solver import solve_ik_ccd
+    #                 logging.debug(f"IKManager: Applying CCD IK for left arm chain with {len(left_arm_chain)} items")
+    #                 solve_ik_ccd(left_arm_chain, target_pos, iterations=10, tolerance=1.0)
+
+    #         # 오른쪽 팔 IK 체인 구성
+    #         right_arm_chain = []
+    #         if 'torso' in editor_items:
+    #             right_arm_chain.append(editor_items['torso'])
+    #         if 'right_arm_upper' in editor_items:
+    #             right_arm_chain.append(editor_items['right_arm_upper'])
+    #         if 'right_arm_lower' in editor_items:
+    #             right_arm_chain.append(editor_items['right_arm_lower'])
+
+    #         # 오른손 목표 위치가 있으면 IK 적용
+    #         if len(right_arm_chain) >= 2 and 'right_hand' in self.sim_joints_config:
+    #             target_pos = self.sim_joints_config['right_hand'].get('position')
+    #             if target_pos:
+    #                 from ..kinematics.ik_solver import solve_ik_ccd
+    #                 logging.debug(f"IKManager: Applying CCD IK for right arm chain with {len(right_arm_chain)} items")
+    #                 solve_ik_ccd(right_arm_chain, target_pos, iterations=10, tolerance=1.0)
+
+    # --- Animation Control Methods ---
     def start_animation(self):
         """Starts the IK-driven animation."""
-        solver_ok = self.ik_solver is not None
-        dynamic_joints_ok = bool(self.dynamic_joints) and len(self.dynamic_joints) > 0
-        snapshot_ok = bool(self._initial_snapshot) and len(self._initial_snapshot) > 0
-
-        logging.debug(f"IKManager.start_animation Conditions: solver_ok: {solver_ok} (solver: {self.ik_solver}), dynamic_joints_ok: {dynamic_joints_ok} (len: {len(self.dynamic_joints if self.dynamic_joints is not None else [])}), snapshot_ok: {snapshot_ok} (len: {len(self._initial_snapshot if self._initial_snapshot is not None else [])})")
-
-        if not (solver_ok and dynamic_joints_ok and snapshot_ok):
-            logging.warning("IKManager: Cannot start animation. Pre-conditions not met (solver, dynamic joints, or snapshot).")
-            self.animation_state_changed.emit("stopped") # Notify that animation attempt failed
-            # self.main_window.statusBar().showMessage("Animation cannot start: IK not ready.", 3000) # MainWindow should listen to animation_state_changed
-            return
-
-        if self._animation_start_time_qelapsed and self._animation_start_time_qelapsed.isValid() and not self._animation_start_time_qelapsed.hasExpired(0):
-            logging.debug("IKManager: Animation already started.")
-            return
-
-        animation_possible = False
-        for part_name, part_info in self.project_parts_data.items(): # Iterate with names for logging
-            has_path = part_info.motion_path_data and not part_info.motion_path_data.isEmpty()
-            if has_path:
-                animation_possible = True
-                break
-        # The previous combined loop was incorrect. This simplified check is better for now.
-        # The original outer loop for dynamic_joints was not used effectively.
-
-        if not animation_possible:
-            logging.warning("IKManager: Cannot start animation. No motion paths defined for any parts in project_parts_data.")
-            self.main_window.statusBar().showMessage("Animation cannot start: No motion paths defined.", 3000)
-            return
-
-        # 애니메이션 시작 전에 모든 파트를 초기 상태로 리셋
-        logging.info("IKManager: Resetting all parts to initial state before starting animation.")
-        # if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
-        #     editor_items = self.main_window.editor_tab.current_editor_items
-        #     for part_name, part_item in editor_items.items():
-        #         # 각 파트의 회전을 0으로 리셋
-        #         part_item.setRotation(0.0)
-        #         # 초기 월드 회전값도 0으로 확인
-        #         if not hasattr(part_item, '_initial_world_rotation'):
-        #             part_item._initial_world_rotation = 0.0
-
-                # 파트의 초기 위치로 이동 (PartInfo에서)
-                # if part_name in self.project_parts_data:
-                #     part_info = self.project_parts_data[part_name]
-                #     part_item.setPos(QPointF(part_info.x, part_info.y))
-
-        # 스켈레톤 조인트도 초기 상태로 리셋
-        if self._initial_snapshot:
-            self.sim_joints_config = {k: v.copy() for k, v in self._initial_snapshot.items()}
-            self._sim_dynamic_joints_data = {k: v.copy() for k, v in self._initial_snapshot.items() if k in self._sim_dynamic_joints_data}
-
         logging.info("IKManager: Starting animation.")
         self.main_window.statusBar().showMessage("Playing IK Animation...", 2000)
         if self._animation_start_time_qelapsed is None:
@@ -1375,198 +1500,6 @@ class IKManager(QObject):
         angle_rad = math.atan2(transform.m21(), transform.m11())
         return math.degrees(angle_rad)
 
-    def capture_current_scene_pose_as_initial(self):
-        """
-        Captures the current visual pose of character parts from the scene
-        and sets this as the new initial pose for the IK skeleton.
-        """
-        logging.info("IKM: Attempting to capture current scene pose as initial IK state.")
-        if not self.main_window or not hasattr(self.main_window, 'editor_tab') or \
-           not self.main_window.editor_tab or not hasattr(self.main_window.editor_tab, 'current_editor_items'):
-            logging.error("IKM: Editor tab or current_editor_items not accessible.")
-            self.error_occurred.emit("Editor data not found for capturing pose.")
-            return
-
-        scene_items = self.main_window.editor_tab.current_editor_items
-        if not scene_items:
-            logging.error("IKM: No current editor items in editor tab.")
-            self.error_occurred.emit("No scene items to capture pose from.")
-            return
-
-        if not self._current_skeleton_data or 'joints' not in self._current_skeleton_data:
-            logging.error("IKM: Skeleton data not loaded. Cannot capture pose.")
-            self.error_occurred.emit("Skeleton data not loaded.")
-            return
-        if not self.project_parts_data:
-            logging.error("IKM: Project parts data not loaded. Cannot capture pose.")
-            self.error_occurred.emit("Project parts data not loaded.")
-            return
-        if not self.sim_joints_config:
-            logging.warning("IKM: sim_joints_config is empty. Attempting to initialize solver first.")
-            # Try to initialize if it hasn't been, this populates sim_limb_configs etc.
-            if not self.initialize_ik_solver():
-                logging.error("IKM: Failed to initialize IK solver. Cannot capture pose.")
-                self.error_occurred.emit("IK Solver failed to initialize.")
-                return
-            if not self.sim_joints_config: # Check again after attempt
-                logging.error("IKM: sim_joints_config still empty after initialization attempt.")
-                self.error_occurred.emit("IK Solver state invalid after init.")
-                return
-
-
-        new_sim_joints_config = {jid: data.copy() for jid, data in self.sim_joints_config.items()}
-        processed_visual_parts = set()
-
-        # Phase 1: Handle the torso/root first, as other parts might be relative to it implicitly
-        # This is a heuristic. A more robust way would be to define a clear root visual part.
-        # Let's assume "torso" visual part dictates the position/orientation of the "hip" IK joint.
-        torso_visual_part_name = "torso"
-        hip_ik_abstract_name = "hip" # As defined in char_cfg.yaml, mapped by ik_joint_ids_to_source_names or directly.
-                                   # Or use the root joint from skeleton_manager if available.
-
-        if torso_visual_part_name in scene_items and torso_visual_part_name in self.project_parts_data:
-            torso_scene_item = scene_items[torso_visual_part_name]
-            hip_std_id = self._get_standardized_joint_id(hip_ik_abstract_name)
-
-            if hip_std_id and hip_std_id in new_sim_joints_config:
-                new_sim_joints_config[hip_std_id]['position'] = torso_scene_item.scenePos()
-                new_sim_joints_config[hip_std_id]['angle'] = self.get_world_rotation_degrees(torso_scene_item.sceneTransform())
-                logging.debug(f"IKM_Capture: Set root IK joint '{hip_std_id}' from visual part '{torso_visual_part_name}' "
-                              f"Pos: {new_sim_joints_config[hip_std_id]['position']}, Angle: {new_sim_joints_config[hip_std_id]['angle']:.2f}")
-                processed_visual_parts.add(torso_visual_part_name)
-
-
-        # Phase 2: Process limb segments defined in sim_limb_configs
-        # These visual parts define a bone between two IK joints.
-        for ik_effector_abs, limb_config in self.sim_limb_configs.items():
-            parent_anchor_abs = limb_config.get('parentAnchor')
-            visual_part_label = limb_config.get('label') # This is the key for project_parts_data & scene_items
-
-            if not parent_anchor_abs or not visual_part_label:
-                logging.warning(f"IKM_Capture: Skipping limb config for effector '{ik_effector_abs}' due to missing parent or label.")
-                continue
-            if visual_part_label not in scene_items:
-                logging.warning(f"IKM_Capture: Visual part '{visual_part_label}' for limb not in scene_items. Skipping.")
-                continue
-            if visual_part_label not in self.sim_limb_lengths or self.sim_limb_lengths[visual_part_label] <= 0:
-                logging.warning(f"IKM_Capture: Missing or invalid length for visual part '{visual_part_label}'. Skipping.")
-                continue
-
-            scene_part_item = scene_items[visual_part_label]
-            parent_anchor_std = self._get_standardized_joint_id(parent_anchor_abs)
-            child_effector_std = self._get_standardized_joint_id(ik_effector_abs)
-
-            if not parent_anchor_std or not child_effector_std:
-                logging.warning(f"IKM_Capture: Could not get std IDs for limb '{visual_part_label}'. Skipping.")
-                continue
-            if parent_anchor_std not in new_sim_joints_config or child_effector_std not in new_sim_joints_config:
-                logging.warning(f"IKM_Capture: Std joints for limb '{visual_part_label}' not in config. Skipping.")
-                continue
-
-            # The visual part's scenePos is its pivot, assumed to be at the parent_anchor_std joint.
-            current_parent_pos = scene_part_item.scenePos()
-            current_part_world_angle_deg = self.get_world_rotation_degrees(scene_part_item.sceneTransform())
-
-            new_sim_joints_config[parent_anchor_std]['position'] = current_parent_pos
-            # The 'angle' for the parent_anchor_std should represent the orientation of the bone segment
-            # that starts at parent_anchor_std and ends at child_effector_std.
-            new_sim_joints_config[parent_anchor_std]['angle'] = current_part_world_angle_deg
-
-            length = self.sim_limb_lengths[visual_part_label]
-            rad_angle = math.radians(current_part_world_angle_deg)
-            new_child_effector_pos = QPointF(
-                current_parent_pos.x() + length * math.cos(rad_angle),
-                current_parent_pos.y() + length * math.sin(rad_angle)
-            )
-            new_sim_joints_config[child_effector_std]['position'] = new_child_effector_pos
-            # The 'angle' for child_effector_std will be determined if it's a parent in another limb_config,
-            # or by sim_selectable_components if it's a terminal joint with its own visual part.
-            logging.debug(f"IKM_Capture: Processed limb visual part '{visual_part_label}'.")
-            logging.debug(f"  Parent IK '{parent_anchor_std}': Pos={current_parent_pos}, Angle={current_part_world_angle_deg:.2f}")
-            logging.debug(f"  Child IK  '{child_effector_std}': Pos={new_child_effector_pos}")
-            processed_visual_parts.add(visual_part_label)
-
-        # Phase 3: Process other selectable components (e.g., head)
-        # These might be terminal parts or parts whose primary IK joint wasn't a parent_anchor in sim_limb_configs.
-        for comp_config in self.sim_selectable_components:
-            visual_part_name = comp_config.get('partName') # Visual part driving this
-            target_ik_joint_abs = comp_config.get('targetJointId') # IK joint being controlled
-
-            if not visual_part_name or not target_ik_joint_abs:
-                continue
-            if visual_part_name in processed_visual_parts and \
-               any(limb_cfg.get('label') == visual_part_name for limb_cfg in self.sim_limb_configs.values()):
-                # This visual part was already used to define a limb segment.
-                # Its corresponding IK joints (parent and child of that segment) are already set.
-                # We might only care about the target_ik_joint_abs if it's an *effector* of that limb
-                # and this selectable_component is meant to set its *terminal orientation*.
-                # For now, if visual_part_name was a limb label, assume its IK joints are mostly handled.
-                # The 'angle' of the effector might need specific handling here if this component
-                # defines its independent rotation.
-                log_msg_skip_sel = (f"IKM_Capture: Visual part '{visual_part_name}' for selectable target '{target_ik_joint_abs}' "
-                                    f"was already processed as a limb label. ")
-
-                # Check if target_ik_joint_abs is an effector from sim_limb_configs
-                target_ik_joint_std_check = self._get_standardized_joint_id(target_ik_joint_abs)
-                is_effector_of_limb = False
-                if target_ik_joint_std_check:
-                     is_effector_of_limb = any(self._get_standardized_joint_id(eff_abs) == target_ik_joint_std_check
-                                              for eff_abs in self.sim_limb_configs.keys())
-
-                if is_effector_of_limb:
-                    # The position of this target_ik_joint (effector) was set by limb processing.
-                    # This selectable_component might be intended to set its *angle* if it's a terminal joint.
-                    scene_item = scene_items.get(visual_part_name)
-                    if scene_item and target_ik_joint_std_check in new_sim_joints_config:
-                        # Assume visual_part_name's rotation defines the angle of the target_ik_joint_std itself.
-                        # This is for terminal joints like hands, feet, head.
-                        new_sim_joints_config[target_ik_joint_std_check]['angle'] = self.get_world_rotation_degrees(scene_item.sceneTransform())
-                        logging.debug(log_msg_skip_sel + f"Updated angle of IK effector '{target_ik_joint_std_check}' to {new_sim_joints_config[target_ik_joint_std_check]['angle']:.2f} based on visual '{visual_part_name}'.")
-                    else:
-                        logging.debug(log_msg_skip_sel + "Skipping further updates for this selectable component.")
-                else:
-                     logging.debug(log_msg_skip_sel + "Skipping (not a direct effector of a processed limb).")
-                continue # Move to next selectable component
-
-            if visual_part_name not in scene_items:
-                logging.warning(f"IKM_Capture: Visual part '{visual_part_name}' for selectable component not in scene_items. Skipping.")
-                continue
-
-            scene_item = scene_items[visual_part_name]
-            target_ik_joint_std = self._get_standardized_joint_id(target_ik_joint_abs)
-
-            if not target_ik_joint_std or target_ik_joint_std not in new_sim_joints_config:
-                logging.warning(f"IKM_Capture: Target IK joint '{target_ik_joint_abs}' (std: {target_ik_joint_std}) for visual '{visual_part_name}' not valid. Skipping.")
-                continue
-
-            # This handles parts like "head" (visual) controlled by "neck" (IK joint)
-            # where "neck" is not a parent_anchor of a limb defined by "head" visual part.
-            new_sim_joints_config[target_ik_joint_std]['position'] = scene_item.scenePos()
-            new_sim_joints_config[target_ik_joint_std]['angle'] = self.get_world_rotation_degrees(scene_item.sceneTransform())
-            logging.debug(f"IKM_Capture: Processed selectable component for visual part '{visual_part_name}'.")
-            logging.debug(f"  Target IK '{target_ik_joint_std}': Pos={new_sim_joints_config[target_ik_joint_std]['position']}, Angle={new_sim_joints_config[target_ik_joint_std]['angle']:.2f}")
-            processed_visual_parts.add(visual_part_name)
-
-
-        # Finalize
-        self.sim_joints_config = new_sim_joints_config
-        self._initial_snapshot = {k: v.copy() for k, v in self.sim_joints_config.items()}
-        logging.info("IKM: Successfully captured current scene pose and updated initial snapshot.")
-
-        # Trigger visual updates to reflect the new initial pose
-        self._update_character_part_visuals_from_ik() # Emits character_visuals_updated
-
-        final_joint_scene_positions = {
-            jid: (data['position'].x(), data['position'].y())
-            for jid, data in self.sim_joints_config.items() if 'position' in data and data['position'] is not None
-        }
-        if final_joint_scene_positions:
-            self.skeleton_pose_updated.emit(final_joint_scene_positions)
-
-        self.animation_state_changed.emit("reset") # Notify UI that state has been reset
-        if self.main_window and hasattr(self.main_window, 'statusBar'):
-            self.main_window.statusBar().showMessage("IK pose reset to current scene configuration.", 3000)
-
     @property
     def dynamic_joints(self) -> Dict[str, Dict[str, Any]]:
         return self._sim_dynamic_joints_data
@@ -1575,15 +1508,6 @@ class IKManager(QObject):
     def dynamic_joints(self, value: Dict[str, Dict[str, Any]]):
         logging.debug(f"IKManager: dynamic_joints setter called with {len(value)} items.")
         self._sim_dynamic_joints_data = value
-
-    def get_dynamic_joint_data(self, ik_joint_key: str) -> Optional[Dict[str, Any]]:
-        return self._sim_dynamic_joints_data.get(ik_joint_key)
-
-    def update_dynamic_joint_data(self, ik_joint_key: str, data: Dict[str, Any]):
-        if ik_joint_key in self._sim_dynamic_joints_data:
-            self._sim_dynamic_joints_data[ik_joint_key].update(data)
-        else:
-            self._sim_dynamic_joints_data[ik_joint_key] = data
 
     def update_part_motion_path(self, part_name: str, motion_qpath: QPainterPath):
         """Updates the motion path for a specific part in the IKManager's project_parts_data."""
@@ -1634,216 +1558,6 @@ class IKManager(QObject):
         logging.info(f"IKManager.update_part_motion_path (before _try_initialize_solver): Final _current_skeleton_data state for this call: {final_skel_state_before_try_init}")
 
         self._try_initialize_solver() # Re-check if solver is now ready
-
-    def set_initial_pose_from_visual_data(self, visual_parts_data: Dict[str, Dict[str, Any]]):
-        """
-        Sets the initial pose of the IK skeleton based on a provided dictionary of visual part transforms.
-        All visual parts are assumed to be at 0 degrees world rotation.
-        This method aims to create an _initial_snapshot where all IK joint angles are 0.0,
-        and their positions align with the visual parts' 0-degree rotated state, maintaining
-        the original skeleton's bone integrity for parts not directly driven by visual data.
-        """
-        logging.info(f"IKM.set_initial_pose_from_visual_data: Received visual data for {len(visual_parts_data)} parts.")
-
-        # --- Essential Data Checks ---
-        if not self.sim_joints_config:
-            logging.warning("IKM.set_initial_pose: self.sim_joints_config is empty. Attempting initialization.")
-            if not self.initialize_ik_solver():
-                logging.error("IKM.set_initial_pose: Failed to initialize IK solver. Cannot set initial pose.")
-                self.error_occurred.emit("IK Solver not initialized. Cannot set initial pose.")
-                return
-            if not self.sim_joints_config: # Check again
-                logging.error("IKM.set_initial_pose: self.sim_joints_config still empty after init attempt.")
-                self.error_occurred.emit("IK Solver state invalid. Cannot set initial pose.")
-                return
-
-        if not self.project_parts_data:
-            logging.error("IKM.set_initial_pose: project_parts_data not loaded.")
-            self.error_occurred.emit("Project parts data not loaded for IK initial pose.")
-            return
-
-        if not self._current_skeleton_data or \
-           'joints' not in self._current_skeleton_data or \
-           'hierarchy' not in self._current_skeleton_data or \
-           'root_joint_ids' not in self._current_skeleton_data:
-            logging.error("IKM.set_initial_pose: Essential _current_skeleton_data missing.")
-            self.error_occurred.emit("Core skeleton definition missing for IK initial pose.")
-            return
-
-        # --- Preparation ---
-        # 1. Store the original bind pose from the solver for relative calculations
-        original_bind_pose_config = copy.deepcopy(self.sim_joints_config)
-
-        # 2. Prepare the new configuration, starting from the bind pose structure.
-        #    This ensures all joints from the original skeleton are present.
-        new_sim_joints_config = copy.deepcopy(self.sim_joints_config)
-
-        # 3. Universal Step: Set all IK joint angles in the new configuration to 0.0.
-        #    This is the target state for all IK joints' local rotations.
-        for joint_std_id in new_sim_joints_config:
-            new_sim_joints_config[joint_std_id]['angle'] = 0.0
-        logging.debug("IKM.set_initial_pose: All joint angles in new_sim_joints_config reset to 0.0.")
-
-        # --- Phase 1: Update positions for IK joints directly mapped from visual parts ---
-        # These visual parts' positions (at 0-degree rotation) will dictate the
-        # world position of their corresponding IK joints.
-        processed_ik_joints = set() # Track IK joints whose positions are set by visual data
-
-        logging.debug(f"IKM.set_initial_pose: Starting Phase 1 - Processing {len(visual_parts_data)} visual parts.")
-        for visual_part_name, part_visual_info in visual_parts_data.items():
-            part_definition = self.project_parts_data.get(visual_part_name)
-            if not part_definition:
-                logging.warning(f"IKM.set_initial_pose (Phase 1): No part definition for visual part '{visual_part_name}'. Skipping.")
-                continue
-
-            ik_settings_data: Dict[str, Any] = {}
-            if hasattr(part_definition, 'ik_settings') and isinstance(part_definition.ik_settings, dict):
-                ik_settings_data = part_definition.ik_settings
-
-            target_ik_joint_abs = ik_settings_data.get('target_joint_abstract_name')
-            if not target_ik_joint_abs:
-                # This visual part doesn't directly drive an IK joint's position in this phase.
-                continue
-
-            visual_part_roi_x = part_visual_info.get('x')
-            visual_part_roi_y = part_visual_info.get('y')
-            # visual_part_rotation_degrees = part_visual_info.get('rotation_degrees') # Assumed to be 0.0
-
-            if visual_part_roi_x is None or visual_part_roi_y is None:
-                logging.warning(f"IKM.set_initial_pose (Phase 1): Visual part '{visual_part_name}' missing x/y. Skipping.")
-                continue
-
-            part_roi_top_left_world = QPointF(float(visual_part_roi_x), float(visual_part_roi_y))
-
-            local_pivot_offset_data: Optional[List[float]] = None
-            if hasattr(part_definition, 'local_pivot_offset') and \
-               isinstance(part_definition.local_pivot_offset, (list, tuple)) and \
-               len(part_definition.local_pivot_offset) == 2:
-                local_pivot_offset_data = [float(part_definition.local_pivot_offset[0]), float(part_definition.local_pivot_offset[1])]
-
-            if not local_pivot_offset_data:
-                logging.warning(f"IKM.set_initial_pose (Phase 1): Visual part '{visual_part_name}' has invalid or missing local_pivot_offset. Using ROI top-left as pivot.")
-                actual_pivot_world_pos = part_roi_top_left_world
-            else:
-                # Visual part rotation is 0. Pivot offset is relative to top-left.
-                actual_pivot_world_pos = part_roi_top_left_world + QPointF(local_pivot_offset_data[0], local_pivot_offset_data[1])
-
-            target_ik_joint_std = self._get_standardized_joint_id(target_ik_joint_abs)
-            if not target_ik_joint_std or target_ik_joint_std not in new_sim_joints_config:
-                logging.warning(f"IKM.set_initial_pose (Phase 1): Target IK joint '{target_ik_joint_abs}' (std: {target_ik_joint_std}) for visual '{visual_part_name}' not in new_sim_joints_config. Skipping.")
-                continue
-
-            new_sim_joints_config[target_ik_joint_std]['position'] = actual_pivot_world_pos
-            # Angle for this joint is already 0.0 from the universal step.
-            processed_ik_joints.add(target_ik_joint_std)
-            logging.debug(f"IKM.set_initial_pose (Phase 1): IK joint '{target_ik_joint_std}' (from visual '{visual_part_name}') set to Pos: {actual_pivot_world_pos}.")
-
-        # --- Phase 2: Hierarchical update for other IK joint positions ---
-        # For IK joints NOT directly set by visual data, their positions are derived
-        # from their parent's new position, maintaining the original bone's relative offset vector.
-        # This preserves the skeleton's structure under the "all joints at 0-degree angle" constraint.
-        logging.debug(f"IKM.set_initial_pose: Starting Phase 2 - Hierarchical propagation. {len(processed_ik_joints)} joints already set by visual data.")
-
-        # Use a queue for breadth-first or depth-first traversal (order matters for propagation)
-        # Start with root joints of the skeleton.
-        processing_queue: List[str] = list(self._current_skeleton_data.get('root_joint_ids', []))
-        visited_for_fk_pass: Set[str] = set() # Tracks joints whose children have been queued/processed
-
-        queue_idx = 0
-        while queue_idx < len(processing_queue):
-            parent_std_id_for_fk = processing_queue[queue_idx]
-            queue_idx += 1
-
-            if parent_std_id_for_fk in visited_for_fk_pass:
-                continue # Already processed this parent and its children
-            visited_for_fk_pass.add(parent_std_id_for_fk)
-
-            # Ensure parent exists in both current and original configurations
-            if parent_std_id_for_fk not in new_sim_joints_config or \
-               parent_std_id_for_fk not in original_bind_pose_config:
-                logging.warning(f"IKM.set_initial_pose (Phase 2): Parent joint '{parent_std_id_for_fk}' missing from new_sim_config or original_bind_config. Skipping its children.")
-                continue
-
-            parent_current_pos = new_sim_joints_config[parent_std_id_for_fk].get('position')
-            if parent_current_pos is None: # Should be a QPointF
-                logging.warning(f"IKM.set_initial_pose (Phase 2): Parent joint '{parent_std_id_for_fk}' has no position in new_sim_joints_config. Skipping its children.")
-                continue
-
-            # Get children from the main skeleton hierarchy
-            children_of_parent = self._current_skeleton_data['hierarchy'].get(parent_std_id_for_fk, [])
-
-            for child_std_id in children_of_parent:
-                if child_std_id not in new_sim_joints_config or \
-                   child_std_id not in original_bind_pose_config:
-                    logging.warning(f"IKM.set_initial_pose (Phase 2): Child joint '{child_std_id}' of '{parent_std_id_for_fk}' missing from configs. Skipping.")
-                    continue
-
-                if child_std_id in processed_ik_joints:
-                    # This child's position was set directly by visual data in Phase 1.
-                    # Its position is authoritative. We just need to ensure it's added to the
-                    # queue so its own children can be processed later if they weren't in processed_ik_joints.
-                    logging.debug(f"IKM.set_initial_pose (Phase 2): Child '{child_std_id}' (parent '{parent_std_id_for_fk}') already processed by visual data. Using its authoritative position.")
-                else:
-                    # This child's position needs to be derived relative to its parent.
-                    parent_original_pos = original_bind_pose_config[parent_std_id_for_fk].get('position')
-                    child_original_pos = original_bind_pose_config[child_std_id].get('position')
-
-                    if parent_original_pos is None or child_original_pos is None:
-                        logging.warning(f"IKM.set_initial_pose (Phase 2): Original positions missing for '{parent_std_id_for_fk}' or '{child_std_id}'. Cannot calculate relative vector. Skipping update for '{child_std_id}'.")
-                        continue
-
-                    # Calculate the bone vector in the original bind pose (world coordinates)
-                    original_offset_vector = child_original_pos - parent_original_pos
-
-                    # The parent's new world angle is 0.0. So, the original world offset vector
-                    # can be directly added to the parent's new world position to get the child's new world position.
-                    new_child_pos = parent_current_pos + original_offset_vector
-                    new_sim_joints_config[child_std_id]['position'] = new_child_pos
-                    # Angle for child_std_id is already 0.0 from the universal step.
-                    logging.debug(f"IKM.set_initial_pose (Phase 2): Child '{child_std_id}' (parent '{parent_std_id_for_fk}') not in processed_ik_joints. New Pos: {new_child_pos} (derived from parent '{parent_current_pos}' + original offset '{original_offset_vector}').")
-
-                # Add child to the queue for processing its own children, if not already visited as a parent
-                if child_std_id not in visited_for_fk_pass and child_std_id not in processing_queue[queue_idx:]: # Avoid re-adding if already in queue further down
-                    processing_queue.append(child_std_id)
-
-        logging.debug(f"IKM.set_initial_pose: Completed Phase 2. Total joints processed in FK hierarchy: {len(visited_for_fk_pass)}.")
-
-        # --- Finalization ---
-        self._initial_snapshot = copy.deepcopy(new_sim_joints_config)
-        # Also update the active simulation config to this new 0-angle initial state.
-        # This is crucial if animation starts immediately or if reset_simulation uses it.
-        self.sim_joints_config = copy.deepcopy(new_sim_joints_config)
-
-        logging.info(f"IKM.set_initial_pose: Initial IK pose snapshot created/updated. Total joints: {len(self._initial_snapshot)}.")
-        # For less verbose logging, conditionally print or summarize:
-        # if logging.getLogger().isEnabledFor(logging.DEBUG):
-        #     logging.debug(f"IKM.set_initial_pose: _initial_snapshot: {self._initial_snapshot}")
-        # else:
-        #     logging.info(f"IKM.set_initial_pose: Snapshot updated. Example 'hip_1': {self._initial_snapshot.get('hip_1', 'N/A')}")
-
-
-        # Reset animation progress and update visuals to reflect this new initial state
-        self._current_animation_progress = 0.0
-        self._update_character_part_visuals_from_ik() # This should now use the corrected sim_joints_config
-
-        # Emit the new initial joint positions for skeleton visualization in EditorView
-        initial_joint_scene_positions: Dict[str, Tuple[float, float]] = {}
-        if self._initial_snapshot: # Use the definitive initial snapshot
-            for joint_std_id, joint_data in self._initial_snapshot.items():
-                pos = joint_data.get('position') # Should be QPointF
-                if pos is not None:
-                    initial_joint_scene_positions[joint_std_id] = (pos.x(), pos.y())
-
-        if initial_joint_scene_positions:
-            self.skeleton_pose_updated.emit(initial_joint_scene_positions)
-            logging.debug(f"IKM.set_initial_pose: Emitted skeleton_pose_updated with {len(initial_joint_scene_positions)} joints from _initial_snapshot.")
-
-        if self.main_window and hasattr(self.main_window, 'statusBar'):
-            self.main_window.statusBar().showMessage("IK system initialized with current visual pose (all angles zeroed).", 3000)
-
-        self.ik_solver_initialized.emit(True, self._initial_snapshot) # Emit success with the new initial config
-        self.animation_state_changed.emit("reset") # Indicate state is reset
-
 
 if __name__ == '__main__':
     from PyQt6.QtWidgets import QApplication

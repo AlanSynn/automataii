@@ -13,7 +13,7 @@ def get_world_rotation(item):
     return math.degrees(angle_rad)
 
 def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
-    """Solve inverse kinematics using Cyclic Coordinate Descent algorithm.
+    """Solve inverse kinematics using Cyclic Coordinate Descent algorithm with FABRIK-style constraints.
 
     Args:
         chain (list): List of CharacterPartItem objects forming the kinematic chain,
@@ -26,38 +26,50 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
         logging.warning("IK solver called with empty chain.")
         return
 
-    # 모든 아이템의 초기 월드 회전값은 0으로 고정
-    # for item in chain:
-    #     if not hasattr(item, '_initial_world_rotation'):
-    #         item._initial_world_rotation = 0.0  # 초기 월드 회전값은 항상 0
-    #         logging.debug(f"Set initial world rotation for {item.part_info.name}: 0.0 degrees")
-    #     # 현재 월드 회전값도 확인
-    #     current_world_rot = get_world_rotation(item)
-    #     logging.debug(f"{item.part_info.name} - Initial world rotation: 0.0, Current world rotation: {current_world_rot:.2f}")
+    if len(chain) < 2:
+        logging.warning("IK solver requires at least 2 items in chain.")
+        return
 
+    # Store original bone lengths to maintain skeleton structure
+    bone_lengths = []
+    original_positions = []
+    
+    for i in range(len(chain)):
+        item = chain[i]
+        pos = item.mapToScene(item.anchor_offset)
+        original_positions.append(pos)
+        
+        if i > 0:
+            prev_pos = original_positions[i-1]
+            length = QLineF(prev_pos, pos).length()
+            bone_lengths.append(length)
+            logging.debug(f"IK: Bone length between {chain[i-1].part_info.name} and {item.part_info.name}: {length:.2f}")
+
+    # Check if the target is reachable
+    total_length = sum(bone_lengths)
+    base_pos = original_positions[0]
+    target_distance = QLineF(base_pos, target_pos).length()
+    
+    if target_distance > total_length:
+        logging.debug(f"IK: Target unreachable. Distance: {target_distance:.2f}, Total length: {total_length:.2f}")
+        # Stretch the chain towards target
+        _stretch_chain_to_target(chain, bone_lengths, base_pos, target_pos)
+        return
+
+    # Use FABRIK solver which better maintains bone lengths
+    _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations, tolerance)
+    return
+    
+    # Original CCD implementation below (kept for reference but not used)
     end_effector_item = chain[-1]
-    # end_effector_offset is the pivot point of the end effector part itself.
-    # For IK, the target is usually the tip/edge of the end effector, not its pivot.
-    # Let's assume end_effector_offset is the point on the end_effector we want to reach target_pos.
-    # If end_effector_offset is None, we can default to its center or a predefined point.
     if end_effector_item.end_effector_offset:
         end_effector_local_pos = end_effector_item.end_effector_offset
     else:
-        # Default to the center of the end effector item if no specific offset is set.
-        # This might not be ideal for all parts, but provides a fallback.
         end_effector_local_pos = end_effector_item.boundingRect().center()
-        # logging.warning(f"End effector item {end_effector_item.part_info.name} has no end_effector_offset. Using boundingRec.center() as IK target point on item.")
 
     if len(chain) == 1:
         logging.warning(f"IK solver: Single item chain for {end_effector_item.part_info.name}. CCD requires at least 2 links.")
         return
-
-    # The number of movable joints is len(chain) - 1.
-    # The items in the chain are indexed 0 (base) to N-1 (end_effector).
-    # The joints are between item[j] and item[j+1].
-    # We iterate from the joint closest to the end effector (N-2 -> N-1)
-    # down to the joint closest to the base (0 -> 1).
-    # So, the parent item whose rotation we modify is chain[j].
 
     for iteration in range(iterations):
         if not end_effector_item.scene():
@@ -213,6 +225,10 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
 
                     logging.debug(f"    2-Link Special '{item_to_rotate.part_info.name}': InitialWorld=0.0, CurrentWorld={current_world_rotation:.2f}, TargetWorld={target_world_rotation:.2f}, Delta={clamped_delta_angle_deg:.2f}, NewLocal={new_local_rotation:.2f}")
                     item_to_rotate.setRotation(new_local_rotation)
+                    
+                    # Enforce bone length constraint for 2-link chain
+                    if len(bone_lengths) > 0:
+                        _enforce_bone_length_constraints(chain, bone_lengths, 0)
                 else:
                     logging.debug(f"    2-Link Special '{item_to_rotate.part_info.name}': Delta angle {clamped_delta_angle_deg:.2f} too small, no rotation applied.")
 
@@ -300,6 +316,9 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
             # TODO: Apply joint angle limits here by clamping new_rotation if necessary
             # based on parent/child joint constraints if they exist.
             current_item_to_rotate.setRotation(new_rotation)
+            
+            # Enforce bone length constraints to maintain skeleton structure
+            _enforce_bone_length_constraints(chain, bone_lengths, j)
 
     # After all iterations, check final error
     if end_effector_item.scene():
@@ -308,6 +327,134 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
         logging.debug(f"IK finished after {iterations} iterations, final error: {final_error:.2f}")
     else:
         logging.warning("IK finished, but end effector item was no longer in scene.")
+
+def _enforce_bone_length_constraints(chain, bone_lengths, rotated_joint_index):
+    """Enforces bone length constraints after rotating a joint.
+    
+    Args:
+        chain: The IK chain of CharacterPartItems
+        bone_lengths: Original bone lengths to maintain
+        rotated_joint_index: Index of the joint that was just rotated
+    """
+    # After rotating joint j, we need to update positions of all children
+    # to maintain bone lengths
+    for i in range(rotated_joint_index + 1, len(chain)):
+        parent_item = chain[i - 1]
+        child_item = chain[i]
+        target_length = bone_lengths[i - 1]
+        
+        # Get current positions
+        parent_anchor_scene = parent_item.mapToScene(parent_item.anchor_offset)
+        child_anchor_scene = child_item.mapToScene(child_item.anchor_offset)
+        
+        # Calculate current direction from parent to child
+        direction = child_anchor_scene - parent_anchor_scene
+        current_length = QLineF(parent_anchor_scene, child_anchor_scene).length()
+        
+        if current_length < 0.1:  # Avoid division by zero
+            # If joints are coincident, use a default direction
+            direction = QPointF(target_length, 0)
+            current_length = target_length
+        
+        # Normalize direction and scale to target length
+        direction_normalized = direction / current_length
+        new_child_pos = parent_anchor_scene + direction_normalized * target_length
+        
+        # Update child position to maintain bone length
+        child_item.set_scene_position_from_anchor(new_child_pos)
+        
+        logging.debug(f"    Enforced bone length {target_length:.2f} between {parent_item.part_info.name} and {child_item.part_info.name}")
+
+def _stretch_chain_to_target(chain, bone_lengths, base_pos, target_pos):
+    """Stretches the chain towards an unreachable target while maintaining bone lengths."""
+    direction = target_pos - base_pos
+    total_length = QLineF(base_pos, target_pos).length()
+    if total_length < 0.1:
+        return
+    
+    direction_normalized = direction / total_length
+    
+    # Position each joint along the line from base to target
+    current_pos = base_pos
+    for i in range(1, len(chain)):
+        bone_length = bone_lengths[i-1]
+        current_pos = current_pos + direction_normalized * bone_length
+        chain[i].set_scene_position_from_anchor(current_pos)
+        
+        # Update rotation to point to next joint
+        if i > 0:
+            prev_item = chain[i-1]
+            angle_rad = math.atan2(direction_normalized.y(), direction_normalized.x())
+            prev_item.setRotation(math.degrees(angle_rad))
+
+def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1.0):
+    """Solves IK using FABRIK (Forward And Backward Reaching Inverse Kinematics)."""
+    if len(chain) < 2:
+        return
+    
+    # Get current joint positions
+    joint_positions = []
+    for item in chain:
+        pos = item.mapToScene(item.anchor_offset)
+        joint_positions.append(QPointF(pos))
+    
+    base_pos = joint_positions[0]
+    
+    for iteration in range(iterations):
+        # Forward pass: start from end effector and work towards base
+        joint_positions[-1] = QPointF(target_pos)
+        
+        for i in range(len(chain) - 2, -1, -1):
+            current_pos = joint_positions[i]
+            next_pos = joint_positions[i + 1]
+            bone_length = bone_lengths[i]
+            
+            direction = current_pos - next_pos
+            distance = QLineF(current_pos, next_pos).length()
+            
+            if distance < 0.1:
+                direction = QPointF(bone_length, 0)
+                distance = bone_length
+            
+            direction_normalized = direction / distance
+            joint_positions[i] = next_pos + direction_normalized * bone_length
+        
+        # Backward pass: start from base and work towards end effector
+        joint_positions[0] = QPointF(base_pos)  # Fix base position
+        
+        for i in range(1, len(chain)):
+            prev_pos = joint_positions[i - 1]
+            current_pos = joint_positions[i]
+            bone_length = bone_lengths[i - 1]
+            
+            direction = current_pos - prev_pos
+            distance = QLineF(prev_pos, current_pos).length()
+            
+            if distance < 0.1:
+                direction = QPointF(bone_length, 0)
+                distance = bone_length
+            
+            direction_normalized = direction / distance
+            joint_positions[i] = prev_pos + direction_normalized * bone_length
+        
+        # Check convergence
+        end_pos = joint_positions[-1]
+        error = QLineF(end_pos, target_pos).length()
+        if error < tolerance:
+            logging.debug(f"FABRIK converged in {iteration + 1} iterations, error: {error:.2f}")
+            break
+    
+    # Apply final positions and rotations to chain items
+    for i in range(len(chain)):
+        item = chain[i]
+        new_pos = joint_positions[i]
+        item.set_scene_position_from_anchor(new_pos)
+        
+        # Calculate rotation to point to next joint
+        if i < len(chain) - 1:
+            next_pos = joint_positions[i + 1]
+            angle_rad = math.atan2(next_pos.y() - new_pos.y(), next_pos.x() - new_pos.x())
+            item.setRotation(math.degrees(angle_rad))
 
 # Helper function (if needed for manual transform updates)
 # def update_transform_based_on_parent(item, parent_item):

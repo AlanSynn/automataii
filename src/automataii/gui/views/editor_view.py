@@ -74,6 +74,8 @@ class EditorView(QGraphicsView):
         # Enable touch gestures
         self.grabGesture(Qt.GestureType.PinchGesture)
 
+        self._joint_map_original_to_std: Dict[str, str] = {} # original_name -> std_id
+
         # Pinch-to-zoom variables
         self._pinch_mode = False
         self._pinch_start_view_scale = 1.0
@@ -154,6 +156,15 @@ class EditorView(QGraphicsView):
         else:
             logging.warning(f"EditorView: Invalid display unit '{unit}'. Using current: {self.display_unit}")
 
+    def set_joint_map(self, joint_map: Optional[Dict[str, str]]):
+        """Sets the joint map (original name to standardized ID)."""
+        if joint_map:
+            self._joint_map_original_to_std = joint_map
+            logging.debug(f"EditorView: Joint map set with {len(joint_map)} entries.")
+        else:
+            self._joint_map_original_to_std = {}
+            logging.debug("EditorView: Joint map cleared.")
+
     def drawBackground(self, painter: QPainter, rect: QRectF):
         """Draws a grid background based on the current display unit."""
         super().drawBackground(painter, rect) # Draw the default background first (e.g., if a brush is set)
@@ -226,15 +237,6 @@ class EditorView(QGraphicsView):
         self._reset_joint_definition_state() # Clears joint definition markers
         self._cleanup_motion_path_visuals()  # Clears motion path drawing previews
         # Add other specific clear calls here if new temp visuals are added
-
-    def clear_ik_debug_visuals(self):
-        """Placeholder for clearing IK specific debug visuals from the scene."""
-        # Implement logic to find and remove IK debug items if they are added directly to the scene
-        # For example, if they are stored in a list self._ik_debug_items:
-        #     if item.scene() == self.scene(): # Check if item is in this scene
-        #         self.scene().removeItem(item)
-        # self._ik_debug_items.clear()
-        logging.debug("EditorView: clear_ik_debug_visuals called (placeholder).")
 
     # --- Mode Management ---
 
@@ -857,15 +859,6 @@ class EditorView(QGraphicsView):
         self._animation_time = 0.0
         self.set_mode('select') # Usually stop simulation implies reset
 
-    def _save_original_transforms(self):
-        """Saves the current transforms of all part items."""
-        self._original_transforms.clear()
-        logging.debug("Saving original item transforms.")
-        for item_name, item in self.parent_window.editor_items.items(): # Use main window's dictionary
-            if isinstance(item, CharacterPartItem) and item.scene() == self.scene():
-                self._original_transforms[item_name] = item.transform() # Store the full QTransform
-                # logging.debug(f"  Saved {item_name}: transform={item.transform()}")
-
     def _restore_original_transforms(self):
         """Restores the saved transforms of all part items."""
         logging.debug(f"Restoring {len(self._original_transforms)} original item transforms.")
@@ -948,7 +941,7 @@ class EditorView(QGraphicsView):
         # 1. Update Skeleton Visualization
         # Extract all joint positions for the skeleton item
         all_joint_positions: Dict[str, Tuple[float, float]] = {}
-        for joint_id, data in joint_data.items():
+        for joint_id, data in joint_data.items(): # joint_id here is the key from the input joint_data
             pos = data.get('scene_position')
             if pos and isinstance(pos, QPointF):
                 all_joint_positions[joint_id] = (pos.x(), pos.y())
@@ -960,35 +953,40 @@ class EditorView(QGraphicsView):
             logging.warning("EditorView: SkeletonGraphicsItem not available to update animated pose.")
 
         # 2. Update CharacterPartItems
-        for item in self.scene().items():
-            if not isinstance(item, CharacterPartItem):
-                continue
+        # Iterate over known CharacterPartItems from the parent EditorTab for efficiency
+        if hasattr(self.parent_window, 'current_editor_items') and isinstance(self.parent_window.current_editor_items, dict):
+            for part_item in self.parent_window.current_editor_items.values():
+                if not isinstance(part_item, CharacterPartItem): # Should not happen if current_editor_items is well-maintained
+                    continue
 
-            part_item: CharacterPartItem = item
-            anchor_joint_id = part_item.anchor_joint_id
+                original_anchor_joint_name = part_item.anchor_joint_id # This is an ORIGINAL NAME (e.g., "left_shoulder")
 
-            if not anchor_joint_id:
-                # logging.debug(f"Part item '{part_item.name()}' has no anchor_joint_id. Skipping animation update for it.")
-                continue
+                if not original_anchor_joint_name:
+                    # logging.debug(f"Part item '{part_item.name()}' has no anchor_joint_id. Skipping animation update for it.")
+                    continue
 
-            if anchor_joint_id not in joint_data:
-                # logging.warning(f"Anchor joint '{anchor_joint_id}' for part '{part_item.name()}' not found in animation data. Skipping.")
-                continue
+                standardized_anchor_joint_id = self._joint_map_original_to_std.get(original_anchor_joint_name)
 
-            joint_transform = joint_data[anchor_joint_id]
-            target_joint_scene_pos = joint_transform.get('scene_position')
-            # Default to part's current rotation if not specified for the joint
-            target_part_world_rotation = joint_transform.get('world_rotation_degrees', part_item.rotation())
+                if not standardized_anchor_joint_id:
+                    logging.warning(f"EditorView: Could not find standardized ID for part '{part_item.name()}'s original anchor joint '{original_anchor_joint_name}'. Joint map has {len(self._joint_map_original_to_std)} entries. Skipping part update.")
+                    continue
 
-            if not isinstance(target_joint_scene_pos, QPointF):
-                logging.warning(f"Invalid or missing 'scene_position' for joint '{anchor_joint_id}' affecting part '{part_item.name()}'. Skipping position update.")
-                continue
+                if standardized_anchor_joint_id not in joint_data:
+                    logging.warning(f"EditorView: Standardized anchor joint '{standardized_anchor_joint_id}' (orig: '{original_anchor_joint_name}') for part '{part_item.name()}' not found as a key in joint_data. Skipping part update.")
+                    continue
 
-            # Apply rotation first
-            part_item.setRotation(float(target_part_world_rotation))
-            # Then set position using the anchor
-            part_item.set_scene_position_from_anchor(target_joint_scene_pos)
-            # logging.debug(f"Updated part {part_item.name()} based on joint {anchor_joint_id}")
+                joint_transform_data = joint_data[standardized_anchor_joint_id]
+                target_joint_scene_pos = joint_transform_data.get('scene_position')
+                target_part_world_rotation = joint_transform_data.get('world_rotation_degrees', part_item.rotation())
+
+                if not isinstance(target_joint_scene_pos, QPointF):
+                    logging.warning(f"Invalid or missing 'scene_position' for joint '{standardized_anchor_joint_id}' affecting part '{part_item.name()}'. Skipping position update.")
+                    continue
+
+                part_item.setRotation(float(0))
+                part_item.set_scene_position_from_anchor(target_joint_scene_pos)
+        else:
+            logging.warning("EditorView: parent_window (EditorTab) does not have current_editor_items or it's not a dict. Cannot update part visuals.")
 
         self.scene().update() # Update scene once after all items are processed
 

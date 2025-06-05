@@ -150,6 +150,9 @@ class EditorTab(QWidget):
         self.is_mechanism_simulating = False
         self._initial_mechanism_crank_angle_rad = 0.0 # Store initial angle for reset
 
+        self.current_simulation_state: str = "stopped" # For logging IK updates
+        self.ik_log_counter: Dict[str, int] = {} # To limit logs per part/state
+
         self._init_ui()
 
         # Connect signals from self.editor_view now that it exists
@@ -581,7 +584,6 @@ class EditorTab(QWidget):
 
         self.update_part_properties_panel(self.selected_part_name)
         self._update_button_states()
-        self._update_gizmo_visibility()
 
     def _handle_part_list_click(self, item: QListWidgetItem):
         # Currently, currentItemChanged handles selection. This could be for other interactions.
@@ -994,21 +996,8 @@ class EditorTab(QWidget):
         self.parts_loaded.emit(False)
         self._initial_skeleton_data_cache = None # Clear cached skeleton data when editor content is cleared
         logging.info("EditorTab: Cleared cached initial skeleton data.")
-
-    def on_parts_loaded_or_cleared(self, parts_exist: bool):
-        """Called by MainWindow when parts are loaded or cleared."""
-        # This method is now largely superseded by set_parts_data and clear_editor_content
-        # If MainWindow calls this, it should probably just forward to the new methods
-        # or this connection should be removed and MainWindow should call set_parts_data/clear_editor_content directly.
-        logging.debug(f"EditorTab.on_parts_loaded_or_cleared called with: {parts_exist}. Consider refactoring.")
-        if parts_exist:
-            # Assuming parts_data is now sourced from project_data_manager by MainWindow
-            # This direct access is what we are trying to remove.
-            # self.set_parts_data(self.main_window.project_data_manager.parts, self.main_window.project_data_manager.editor_items)
-            pass # MainWindow should call set_parts_data directly
-        else:
-            self.clear_editor_content() # This is correct
-        # self._update_button_states() # set_parts_data and clear_editor_content handle this
+        if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Also clear map in view
+            self.editor_view.set_joint_map(None)
 
     @pyqtSlot(str)
     def on_simulation_state_changed(self, state_string: str):
@@ -1067,6 +1056,9 @@ class EditorTab(QWidget):
         # Update other UI elements if necessary
         self._update_mechanism_controls_based_on_simulation(is_playing)
 
+        self.current_simulation_state = state_string # Update current state
+        self.ik_log_counter.clear() # Reset log counter when simulation state changes
+
     def _update_mechanism_controls_based_on_simulation(self, is_simulating: bool):
         # Implementation of this method is not provided in the original file or the code block
         # This method should be implemented to update other UI elements based on the simulation state
@@ -1113,20 +1105,21 @@ class EditorTab(QWidget):
 
         self._update_button_states()
 
-    def set_part_properties_visibility(self, visible: bool):
-        """Slot to control visibility of the part properties group."""
-        self.part_properties_group.setVisible(visible)
-        logging.info(f"EditorTab: Part properties visibility set to {visible}")
-
     # New method to cache initial skeleton data
     def cache_initial_skeleton(self, skeleton_data_dict: Optional[Dict]):
         """Caches the initial skeleton data dictionary provided by MainWindow."""
         if skeleton_data_dict:
             self._initial_skeleton_data_cache = skeleton_data_dict.copy() # Store a copy
             logging.info("EditorTab: Initial skeleton data has been cached.")
+            # Pass the joint_map to the editor_view
+            if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
+                joint_map = self._initial_skeleton_data_cache.get('joint_map')
+                self.editor_view.set_joint_map(joint_map)
         else:
             self._initial_skeleton_data_cache = None
             logging.info("EditorTab: Initial skeleton data cache has been cleared (set to None).")
+            if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
+                self.editor_view.set_joint_map(None) # Clear map in view as well
 
     # Slot for freehandPathCompleted signal from EditorView
     @pyqtSlot(list)  # Changed to match signal: list of QPointF
@@ -1347,6 +1340,7 @@ class EditorTab(QWidget):
 
     def handle_ik_update(self, ik_results: Dict[str, Dict[str, Any]]):
         """Receives IK results and updates the EditorView."""
+        logging.debug(f"[IK_ENTRY_TRACE] EditorTab.handle_ik_update entered. Current state: {self.current_simulation_state}. IK Results count: {len(ik_results)}") # New entry log
         if not self.editor_view:
             logging.warning("EditorTab: EditorView not available to handle IK update.")
             return
@@ -1356,25 +1350,13 @@ class EditorTab(QWidget):
             # logging.debug("EditorTab: IK results are empty, nothing to update in view.")
             return
 
-        for part_name, transform_data in ik_results.items():
-            position_data = transform_data.get('position')
-            rotation_degrees = transform_data.get('rotation_degrees')
+        # Corrected: ik_results is the joint_centric_data
+        if ik_results:
+            self.editor_view.update_visuals_from_animation_data(ik_results)
+        else:
+            logging.info("EditorTab.handle_ik_update: No valid joint-centric data generated from ik_results to update visuals.")
 
-            if position_data and isinstance(position_data, (list, tuple)) and len(position_data) >= 2:
-                new_pos = QPointF(float(position_data[0]), float(position_data[1]))
-                if rotation_degrees is not None:
-                    self.editor_view.update_part_visuals_from_ik(part_name, new_pos, float(rotation_degrees))
-                else:
-                    logging.warning(f"EditorTab: Missing rotation for part {part_name} in IK update.")
-            else:
-                logging.warning(f"EditorTab: Invalid or missing position for part {part_name} in IK update.")
-
-        self.editor_view.scene().update() # Update once after all parts are processed
-
-    def _update_gizmo_visibility(self):
-        # Implementation of this method is not provided in the original file or the code block
-        # This method should be implemented to update other UI elements based on the simulation state
-        pass
+        self.editor_view.scene().update() # update_visuals_from_animation_data should handle scene update
 
     # New handlers for signals from EditorView
     def _handle_part_item_clicked_from_view(self, clicked_item: CharacterPartItem):
@@ -1404,14 +1386,6 @@ class EditorTab(QWidget):
         logging.debug(f"EditorTab: Part '{part_name}' double-clicked in view.")
         # Add logic for double-click action, e.g., open a detailed properties dialog
         QMessageBox.information(self, "Part Double-Clicked", f"Part '{part_name}' was double-clicked.")
-
-    # def _handle_part_item_moved_from_view(self, moved_item: CharacterPartItem, scene_pos: QPointF):
-    #     """Handles a CharacterPartItem being moved in the EditorView."""
-    #     part_name = moved_item.name()
-    #     logging.debug(f"EditorTab: Part '{part_name}' moved in view to {scene_pos}.")
-    #     # Update any model data if necessary, though direct manipulation might be handled by IK later
-    #     # self.current_parts_info[part_name].scene_position = scene_pos # Example
-    #     self.main_window.project_data_manager.update_part_position(part_name, scene_pos) # Example call
 
     def _solve_four_bar_kinematics(self, P0: QPointF, P3: QPointF, L1: float, L2: float, L3: float, input_angle_L1_rad: float) -> Optional[Tuple[QPointF, QPointF, float, float, float]]:
         """
@@ -1513,7 +1487,7 @@ class EditorTab(QWidget):
         # --- Constants for Drawing ---
         SCALING_FACTOR = 50.0  # Pixels per unit length from JSON
         LINK_COLOR = Qt.GlobalColor.darkCyan
-        LINK_THICKNESS = 3
+        LINK_THICKNESS = 10
         PIVOT_COLOR = Qt.GlobalColor.red
         PIVOT_RADIUS = 6
         GROUND_LINK_COLOR = Qt.GlobalColor.gray

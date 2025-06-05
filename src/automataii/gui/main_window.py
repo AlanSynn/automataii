@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
 # Local imports (adjust paths as needed)
+from .views.editor_view import EditorView # ADD THIS IMPORT
 from .image_view import ImageProcessingView
 from .graphics_items.part_item import CharacterPartItem
 from ..utils.styling import LIGHT_STYLE, DARK_STYLE, UIColors
@@ -74,19 +75,11 @@ class AutomataDesigner(QMainWindow):
     """
 
     def __init__(self, parent: Optional[QWidget] = None, debug_mode: bool = False):
-        # print("Executing AutomataDesigner.__init__ from src/automataii/gui/main_window.py - THIS IS A VERY LOUD DEBUG PRINT!", flush=True) # REMOVED
         super().__init__(parent)
-        # Force logging re-configuration here to ensure our prints are visible
-        # logging.basicConfig(level=logging.DEBUG,
-        #                     format='%(asctime)s - %(levelname)s - [%(name)s:%(module)s:%(lineno)d] %(message)s',
-        #                     force=True) # REMOVED
         self.debug_mode = debug_mode
-        # Use standard logging, assuming setup_logging in __main__ handles it.
         logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}")
-        self.setWindowTitle("Automata Designer")
-        # self.titleBar.raise_()
-        self.resize(1200, 680)  # Reduced height from 750
-        self.setMinimumHeight(600)  # Set explicit minimum height
+        self.resize(1200, 680)
+        self.setMinimumHeight(600)
         logging.info("Initializing AutomataDesigner...")
 
         # Create action manager for centralized action management
@@ -104,60 +97,25 @@ class AutomataDesigner(QMainWindow):
         # Create MechanismManager
         self.mechanism_manager = MechanismManager(self)
 
-        # --- Data Storage ---
-        # self.editor_items = {}  # part_name: CharacterPartItem (in editor scene) # REMOVED - EditorTab now manages its items
-        # self.joints = []  # List of Joint objects # REMOVED - EditorTab will manage its joints
-        # self.mechanism_visuals = {}  # layer_name: list[QGraphicsItem] # REMOVED - EditorTab manages this
-        # self.layer_checkboxes = {}  # layer_name: QCheckBox # REMOVED - EditorTab manages this
-        # self._body_parts_viz_items = []  # REMOVED - Unused
-        # self._body_parts_viz_items_image = []  # REMOVED - Unused
-        # self.anchor_items = {}  # REMOVED - Unused
-
-        # --- Viewer Tab Data ---
         self.viewer_char_texture_item: Optional[QGraphicsPixmapItem] = None
         self.viewer_skeleton_items: List[QGraphicsItem] = []
         self.viewer_body_part_items: Dict[str, CharacterPartItem] = {}
         self.viewer_loaded_parts_info: Optional[dict] = None
         self.viewer_loaded_texture_path: Optional[str] = None
-        # Placeholder for the actual scene and view for the viewer tab
         self.viewer_scene: Optional[QGraphicsScene] = None
         self.viewer_view: Optional[EditorView] = None
 
         # --- Initialize scenes and views that were previously in tab creation methods ---
-        # self.image_proc_scene = QGraphicsScene() # Moved to ImageProcessingTab
-        # self.image_proc_view = ImageProcessingView(self.image_proc_scene, self) # Moved to ImageProcessingTab
-        # self.editor_scene = QGraphicsScene() # Moved to EditorTab
-        # self.editor_view = EditorView(self.editor_scene, self) # Moved to EditorTab
 
         # Mechanism Design State - These are now managed by EditorTab or via signals
-        # self.selected_cam_center: Optional[QPointF] = None # Moved to EditorTab
-        # self.selected_pivot_a: Optional[QPointF] = None # Moved to EditorTab
-        # self.selected_pivot_d: Optional[QPointF] = None # Moved to EditorTab
-        # self.selected_driver_center: Optional[QPointF] = None # Moved to EditorTab
-        # self.selected_driven_center: Optional[QPointF] = None # Moved to EditorTab
 
         # Markers for selected points - these are drawn by EditorView, state might be in MainWindow if needed globally
-        # self.cam_center_marker: Optional[QGraphicsEllipseItem] = None # Moved to EditorTab
-        # self.pivot_a_marker: Optional[QGraphicsEllipseItem] = None # Moved to EditorTab
-        # self.pivot_d_marker: Optional[QGraphicsEllipseItem] = None # Moved to EditorTab
-        # self.driver_center_marker: Optional[QGraphicsEllipseItem] = None # Moved to EditorTab
-        # self.driven_center_marker: Optional[QGraphicsEllipseItem] = None # Moved to EditorTab
 
-        # Image processing workflow data moved to ImageProcessingTab
-        # self.input_image_path = None # Moved
-        # self.character_dir = None # Potentially still needed for project-level, but tab specific one is moved. For now, keep project-level one.
         self.project_dir: Optional[str] = None  # Renamed/clarified for project scope
 
         # IK Animation Timer (New)
-        # self.ik_animation_timer = QTimer(self)
-        # self.ik_animation_timer.setInterval(30)  # Approx 33 FPS
-        # self.ik_animation_timer.timeout.connect(
-        #     self._run_ik_animation_step
-        # )  # Connect to new animation step
-        # self.ik_animation_speed = 0.5  # Default animation speed, similar to JS example
-        # self.animation_duration = 3000
+        # IK Animation Timer (New)
 
-        # --- Toolbar Reference ---
         self.main_toolbar = None
 
         # Tracking active dialogs
@@ -172,7 +130,6 @@ class AutomataDesigner(QMainWindow):
         )
 
         # Load Parts and Styles
-        # self.load_initial_data() # Commented out: Method definition not found, functionality likely moved or obsolete.
 
         # Load custom application fonts
         self._load_custom_fonts()
@@ -200,60 +157,7 @@ class AutomataDesigner(QMainWindow):
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
 
-        # self.scene_joints_snapshot = {}  # Will store the calculated scene_joints from _initialize_new_ik_skeleton_definitions # MODIFIED - Moved to IKManager
-        # self.ik_part_to_actual_part_name = { # MODIFIED - Moved to IKManager
-        #     "head": "head",
-        #     "torso": "torso",
-        #     "left_upper_arm": "left_arm_upper",
-        #     "left_forearm": "left_arm_lower",
-        #     "right_upper_arm": "right_arm_upper",
-        #     "right_forearm": "right_arm_lower",
-        #     "left_thigh": "left_leg_upper",
-        #     "left_calf": "left_leg_lower",
-        #     "right_thigh": "right_leg_upper",
-        #     "right_calf": "right_leg_lower",
-        # } # MODIFIED
-        # self._active_path_definition_target_joint_id: Optional[str] = ( # MODIFIED - Moved to IKManager (if it's pure IK state)
-        #     None  # Stores the joint ID while path definition is active
-        # ) # MODIFIED
-        # self.ik_to_json_joint_map_config = {  # Maps our IK joint IDs to keys in the char_cfg.yaml/joint_map # MODIFIED - Moved to IKManager
-        #     "j_neck_base": "neck",  # Anchor
-        #     "j_left_shoulder": "left_shoulder",  # Anchor
-        #     "j_right_shoulder": "right_shoulder",  # Anchor
-        #     "j_left_hip": "left_hip",  # Anchor
-        #     "j_right_hip": "right_hip",  # Anchor
-        #     "j_head": "neck",  # Distal end for head (uses neck as its proximal point from char_cfg)
-        #     # Actual j_head position will be calculated based on neck_base + head_length
-        #     "j_left_elbow": "left_elbow",
-        #     "j_left_wrist": "left_hand",
-        #     "j_right_elbow": "right_elbow",
-        #     "j_right_wrist": "right_hand",
-        #     "j_left_knee": "left_knee",
-        #     "j_left_ankle": "left_foot",
-        #     "j_right_knee": "right_knee",
-        #     "j_right_ankle": "right_foot",
-        # } # MODIFIED
-
-        # --- New IK System Data --- # MODIFIED
-        # self.sim_joints_config = {}  # Stores structure: { 'j_neck_base': {'xOffset': ..., 'yOffset': ..., 'label': ...}, ... } # MODIFIED - Moved to IKManager
-        # self.sim_limb_configs = {}  # Stores structure: { 'j_head': {'parentAnchor': ..., 'angle': ..., 'length': ...}, ... } # MODIFIED - Moved to IKManager
-        # self.sim_limb_lengths = {}  # Stores structure: { 'head': 35, 'upperArm': 55, ... } # MODIFIED - Moved to IKManager
-        # self.sim_selectable_components = []  # List of dicts defining selectable parts for IK path definition # MODIFIED - Moved to IKManager
-        # self.sim_two_bone_ik_effectors = []  # List of joint IDs that are end-effectors of a 2-bone chain # MODIFIED - Moved to IKManager
-        # self.sim_joint_bend_directions = {}  # { 'j_left_elbow': -1, ... } # MODIFIED - Moved to IKManager
-
-        # Actual data store for sim_dynamic_joints property # MODIFIED
-        # self._sim_dynamic_joints_data: Dict[str, Dict[str, Any]] = {} # MODIFIED - Moved to IKManager
-        # logging.info("[ATTR_DEBUG] Initializing self._sim_dynamic_joints_data = {}") # MODIFIED
-
-        # self.sim_selected_component_key = None  # Stores the targetJointId of the currently selected component for path drawing # MODIFIED - Moved to IKManager (if pure IK state)
-        # self.current_parts_info_data = None  # Will store loaded parts_info.json content # REMOVED - ProjectDataManager is source of truth
-        # self.effective_bounding_box_offset = QPointF( # REMOVED - Managed by ProjectDataManager
-        #     0, 0
-        # )  # Will store calculated offset
-        # ... (other attributes remain the same) ...
-
-    # --- UI Initialization ---
+# --- UI Initialization ---
 
     def _init_ui(self):
         """Sets up the main user interface layout and widgets."""
@@ -276,21 +180,6 @@ class AutomataDesigner(QMainWindow):
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         self.tab_widget.addTab(self.options_tab, "Options")
 
-        # --- Connect Signals from EditorView --- (These are now connected within EditorTab)
-        # self.editor_view.freehandPathCompleted.connect(
-        #     self._handle_freehand_path_completed
-        # )
-        # self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancelled)
-        # self.editor_view.joint_defined.connect(
-        #     self.request_create_joint
-        # )  # MainWindow handles this logic
-        # # Mechanism point selection signals from EditorView connected to MainWindow slots
-        # self.editor_view.cam_center_selected.connect(self._handle_cam_center_set)
-        # self.editor_view.pivot_a_selected.connect(self._handle_pivot_a_set)
-        # self.editor_view.pivot_d_selected.connect(self._handle_pivot_d_set)
-        # self.editor_view.driver_center_selected.connect(self._handle_driver_center_set)
-        # self.editor_view.driven_center_selected.connect(self._handle_driven_center_set)
-
         # --- Connect Signals from ImageProcessingTab ---
         self.image_proc_tab.parts_generated.connect(
             self.handle_parts_generated_from_tab
@@ -311,10 +200,6 @@ class AutomataDesigner(QMainWindow):
         self.editor_tab.request_save_alignment.connect(
             self.save_character_alignment_impl
         )
-        # self.editor_tab.parts_loaded.connect(self.image_proc_tab.on_parts_loaded_in_editor)
-        # self.editor_tab.parts_cleared.connect(lambda: self.image_proc_tab.on_parts_loaded_in_editor(False))
-        # These are better handled in self.load_parts and self.clear_project_data
-
         # --- Connect Signals from OptionsTab ---
         self.options_tab.animationDurationChanged.connect(
             self.ik_manager.set_animation_duration
@@ -418,17 +303,14 @@ class AutomataDesigner(QMainWindow):
     def _on_tab_changed(self, index: int):
         current_tab = self.tab_widget.widget(index)
         if hasattr(current_tab, "tab_name"):
-            self.statusBar().showMessage(f"{current_tab.tab_name} tab active") # type: ignore
+            self.statusBar().showMessage(f"{current_tab.tab_name} tab active")
         else:
             self.statusBar().showMessage(f"Tab {index+1} active")
 
         # If EditorTab is selected, ensure its view is updated if parts are loaded
-        if current_tab == self.editor_tab and self.project_data_manager.parts:
-            # This might be redundant if EditorTab updates itself on data load
-            # Consider if a specific refresh is needed here.
-            # For now, we assume EditorTab is populated by _handle_project_data_loaded
-            logging.debug("Editor tab selected, parts should be loaded if project is open.")
-            pass
+        if current_tab == self.editor_tab:
+            if hasattr(self.editor_tab, "editor_view") and self.editor_tab.editor_view is not None:
+                self.editor_tab.editor_view.zoom_to_fit()
 
     # --- New Slots for ImageProcessingTab Signals ---
     @pyqtSlot(dict, str)
@@ -486,20 +368,6 @@ class AutomataDesigner(QMainWindow):
             self.statusBar().showMessage("Part data loaded successfully.", 3000)
             self.current_temp_char_dir = Path(final_bpe_char_dir_str)
             logging.info(f"MainWindow: Project loaded. Updated current_temp_char_dir to BPE output: {self.current_temp_char_dir}")
-
-            # NEW: Capture visual state from ImageProcessingTab and set it as IK initial pose
-            if hasattr(self.image_proc_tab, 'get_current_parts_visual_state'):
-                visual_state = self.image_proc_tab.get_current_parts_visual_state()
-                if visual_state:
-                    logging.info(f"MainWindow: Captured visual state from ImageProcessingTab for {len(visual_state)} parts. Setting as IK initial pose.")
-                    if self.ik_manager:
-                        self.ik_manager.set_initial_pose_from_visual_data(visual_state)
-                    else:
-                        logging.error("MainWindow: IKManager not available to set initial pose.")
-                else:
-                    logging.warning("MainWindow: ImageProcessingTab returned no visual state to set for IK.")
-            else:
-                logging.warning("MainWindow: ImageProcessingTab does not have get_current_parts_visual_state method.")
 
         else:
             self.statusBar().showMessage("Failed to load part data. Check logs.", 5000)
@@ -637,7 +505,6 @@ class AutomataDesigner(QMainWindow):
 
             self.image_proc_tab.on_parts_loaded_in_editor(True)
 
-            self.setWindowTitle(f"Automata Designer - {Path(project_directory_path).name}")
             self.statusBar().showMessage(f"Project loaded: {project_directory_path}")
             self.action_manager.update_actions_for_project_state(True)
 
@@ -754,55 +621,6 @@ class AutomataDesigner(QMainWindow):
         # Call actual alignment saving logic here
         self.statusBar().showMessage("Character alignment save requested.")
 
-    # --- Simulation Control Methods (Play/Stop/Reset buttons in EditorTab, signals to these) ---
-    # def _start_ik_animation(self): # MODIFIED - Moved to IKManager
-    #     if not self.parts or not self.skeleton_data or not self.ik_solver: # MODIFIED
-    #         logging.warning("Cannot start animation: No parts, skeleton, or IK solver.") # MODIFIED
-    #         # Ensure EditorTab buttons are reset if animation doesn't start # MODIFIED
-    #         if hasattr(self.editor_tab, "on_simulation_state_changed"): # MODIFIED
-    #             self.editor_tab.on_simulation_state_changed( # MODIFIED
-    #                 is_playing=False, can_reset=bool(self.parts) # MODIFIED
-    #             ) # MODIFIED
-    #         return # MODIFIED
-    #     # ... (existing logic for _start_ik_animation) # MODIFIED
-    #     if hasattr(self.editor_tab, "on_simulation_state_changed"): # MODIFIED
-    #         self.editor_tab.on_simulation_state_changed( # MODIFIED
-    #             is_playing=True, can_reset=False # MODIFIED
-    #         ) # MODIFIED
-
-    # def _stop_ik_animation(self): # MODIFIED - Moved to IKManager
-    #     # ... (existing logic for _stop_ik_animation) # MODIFIED
-    #     if hasattr(self.editor_tab, "on_simulation_state_changed"): # MODIFIED
-    #         self.editor_tab.on_simulation_state_changed( # MODIFIED
-    #             is_playing=False, can_reset=bool(self.parts) # MODIFIED
-    #         ) # MODIFIED
-
-    # def _reset_ik_animation_state(self): # MODIFIED - Moved to IKManager
-    #     # ... (existing logic for _reset_ik_animation_state) # MODIFIED
-    #     if hasattr(self.editor_tab, "on_simulation_state_changed"): # MODIFIED
-    #         self.editor_tab.on_simulation_state_changed( # MODIFIED
-    #             is_playing=False, can_reset=bool(self.parts) # MODIFIED
-    #         ) # MODIFIED
-
-    # --- IK Solver and Animation Step (To be moved to IKManager) --- # MODIFIED
-    # def _run_ik_animation_step(self): # MODIFIED - Moved to IKManager
-        # This entire method's logic needs to be transferred to IKManager._run_ik_animation_step
-        # logging.debug("MainWindow: _run_ik_animation_step")
-        # ... (complex logic involving part paths, IK solving, updating visuals) ...
-    #     pass # MODIFIED
-
-    # def _solve_single_bone_ik(self, joint_id: str, target_pos: QPointF) -> Optional[QPointF]: # MODIFIED - Moved to IKManager (Placeholder exists)
-        # Logic to be transferred
-    #     pass # MODIFIED
-
-    # def _solve_two_bone_ik(self, upper_limb_id: str, lower_limb_id: str, target_pos: QPointF) -> Optional[Tuple[QPointF, QPointF]]: # MODIFIED - Moved to IKManager (Placeholder exists)
-        # Logic to be transferred
-    #     pass # MODIFIED
-
-    # def _update_character_part_visuals_from_ik(self): # MODIFIED - Moved to IKManager (Placeholder exists, emits signal)
-        # Logic to be transferred (or rather, ensure IKManager emits necessary data via its signal)
-    #     pass # MODIFIED
-
     # Method for reset_all_animations_btn in EditorTab (if EditorTab calls it directly)
     def _reset_all_animations_button_clicked(self):
         logging.info("MainWindow: Resetting all animation paths and poses.")
@@ -872,11 +690,6 @@ class AutomataDesigner(QMainWindow):
         # EditorTab signals
         if hasattr(self, 'editor_tab') and self.editor_tab:
             self.editor_tab.request_generate_mechanism.connect(self.handle_generate_mechanism_request)
-            # self.editor_tab.request_save_alignment.connect(self.save_character_alignment_impl) # connect if this is the final handler
-            # self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation) # connect to ik_manager
-            # self.editor_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)   # connect to ik_manager
-            # self.editor_tab.request_reset_simulation.connect(self.ik_manager.reset_simulation) # connect to ik_manager
-            # self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl) # connect if this is the final handler
 
             # More robust connections to IKManager, checking method existence
             if hasattr(self.ik_manager, 'start_animation'):
@@ -1022,51 +835,12 @@ class AutomataDesigner(QMainWindow):
         """Handles updates to part visuals from the IKManager.
            Transforms part-centric data to joint-centric for EditorView.
         """
-        logging.debug(f"MainWindow._handle_ik_visuals_update: Received part_transforms: {part_transforms}")
-
-        if not (self.editor_tab and self.editor_tab.editor_view and \
-                  self.project_data_manager and self.project_data_manager.parts):
-            logging.warning("MainWindow: Cannot handle IK visuals update. EditorTab, EditorView, or ProjectDataManager (with parts) is not available.")
-            return
-
-        if not part_transforms:
-            logging.debug("MainWindow: Received empty part_transforms. No visual update needed.")
-            return
-
-        joint_centric_data: Dict[str, Dict[str, Any]] = {}
-        for part_name, transform_data in part_transforms.items():
-            part_info = self.project_data_manager.parts.get(part_name)
-
-            if not part_info:
-                logging.warning(f"MainWindow: PartInfo for '{part_name}' not found in ProjectDataManager. Skipping this part for IK update.")
-                continue
-
-            anchor_joint_id = part_info.anchor_joint_id
-            if not anchor_joint_id:
-                continue
-
-            # ASSUMPTION: transform_data.get('position') IS the target scene_position for the anchor_joint_id.
-            anchor_joint_target_pos_list = transform_data.get('position')  # Expected: List[float, float]
-            part_target_rotation_degrees = transform_data.get('rotation_degrees')
-
-            if anchor_joint_target_pos_list and isinstance(anchor_joint_target_pos_list, (list, tuple)) and len(anchor_joint_target_pos_list) == 2 and part_target_rotation_degrees is not None:
-                try:
-                    anchor_joint_target_scene_pos = QPointF(float(anchor_joint_target_pos_list[0]), float(anchor_joint_target_pos_list[1]))
-                    part_target_rotation = float(part_target_rotation_degrees)
-
-                    joint_centric_data[anchor_joint_id] = {
-                        'scene_position': anchor_joint_target_scene_pos, # Directly use the position from IKManager
-                        'world_rotation_degrees': part_target_rotation
-                    }
-                except (TypeError, ValueError) as e:
-                    logging.warning(f"MainWindow: Error converting data for part '{part_name}' (joint '{anchor_joint_id}'): {e}. Data: P={anchor_joint_target_pos_list}, R={part_target_rotation_degrees}")
-            else:
-                logging.warning(f"MainWindow: Invalid or missing position/rotation for part '{part_name}' (joint '{anchor_joint_id}'). Data: P={anchor_joint_target_pos_list}, R={part_target_rotation_degrees}")
-
-        if joint_centric_data:
-            self.editor_tab.editor_view.update_visuals_from_animation_data(joint_centric_data)
-        else:
-            logging.info("MainWindow: No valid joint-centric data generated from part_transforms to update visuals.")
+        # The EditorTab.handle_ik_update method is now responsible for processing
+        # these part_transforms and updating its view.
+        if self.editor_tab:
+            self.editor_tab.handle_ik_update(part_transforms)
+        # else: # This case is already handled by the check at the beginning of the method
+            # logging.warning("MainWindow: EditorTab not available to handle IK visuals update.")
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""
