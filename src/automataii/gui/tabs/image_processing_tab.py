@@ -314,6 +314,61 @@ class ImageProcessingTab(QWidget):
         else:
             QMessageBox.warning(self, "Load Error", f"Could not load image: {filepath}")
 
+    def _load_image_from_path(self, image_path: str):
+        """Load an image directly from a given path (used by landing tab)."""
+        if not os.path.exists(image_path):
+            logging.error(f"Image path does not exist: {image_path}")
+            return False
+
+        if self.image_proc_view.load_image(image_path):
+            self.input_image_path = image_path
+            # Try to infer character_dir if not set
+            potential_char_dir = os.path.dirname(image_path)
+            # A simple heuristic: if a 'character_data' or 'output' subdir exists, or parts_info.json, assume it's a root
+            if (
+                os.path.exists(os.path.join(potential_char_dir, "character_data"))
+                or os.path.exists(os.path.join(potential_char_dir, "output"))
+                or os.path.exists(os.path.join(potential_char_dir, "parts_info.json"))
+            ):
+                self.character_dir = potential_char_dir
+            elif os.path.basename(potential_char_dir) in [
+                "source_images",
+                "input_images",
+                "images",
+            ]:
+                self.character_dir = os.path.dirname(
+                    potential_char_dir
+                )  # Go one level up
+            else:  # Default to image's directory if no better guess
+                self.character_dir = potential_char_dir
+
+            self.main_window.statusBar().showMessage(
+                f"Loaded input image: {os.path.basename(image_path)}"
+            )
+            logging.info(
+                f"Input image loaded: {image_path}. Character dir set to: {self.character_dir}"
+            )
+
+            # Show the processing steps group when an image is loaded
+            self.processing_steps_group.setVisible(True)
+
+            # Automatically try to process if an image is loaded
+            if self.input_image_path and self.character_dir:
+                logging.info("Automatically proceeding with image processing and part generation.")
+                self.process_image() # This will internally call load_skeleton
+                # Check if skeleton was loaded successfully before creating parts
+                if self.skeleton_data: # Check if skeleton_data was set by process_image (via load_skeleton)
+                    self.create_parts_from_skeleton()
+                else:
+                    logging.warning("Skeleton data not available after process_image, skipping part generation.")
+                    QMessageBox.warning(self, "Processing Step Skipped", "Skeleton not found after image processing. Body part generation was skipped.")
+            else:
+                logging.warning("Cannot auto-process: input_image_path or character_dir not set.")
+            return True
+        else:
+            QMessageBox.warning(self, "Load Error", f"Could not load image: {image_path}")
+            return False
+
     def capture_image(self):
         try:
             dialog = CameraDialog(self)

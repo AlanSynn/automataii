@@ -41,6 +41,7 @@ from ..core.models import PartInfo # ProjectFileModel is in models_pydantic
 from ..core.models_pydantic import ProjectFileModel # Added ProjectFileModel from correct location
 
 # Import new tab modules
+from .tabs.landing_tab import LandingTab
 from .tabs.image_processing_tab import ImageProcessingTab
 from .tabs.editor_tab import EditorTab
 from .tabs.options_tab import OptionsTab
@@ -168,6 +169,10 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget = QTabWidget()
         main_layout.addWidget(self.tab_widget)
 
+        # --- Tab 0: Landing Page ---
+        self.landing_tab = LandingTab(self)
+        self.tab_widget.addTab(self.landing_tab, "Welcome")
+
         # --- Tab 1: Image Processing ---
         self.image_proc_tab = ImageProcessingTab(self)
         self.tab_widget.addTab(self.image_proc_tab, "Character Selection")
@@ -179,6 +184,9 @@ class AutomataDesigner(QMainWindow):
         # --- Tab 3: Options ---
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         self.tab_widget.addTab(self.options_tab, "Options")
+
+        # --- Connect Signals from LandingTab ---
+        self.landing_tab.image_selected.connect(self._handle_landing_image_selected)
 
         # --- Connect Signals from ImageProcessingTab ---
         self.image_proc_tab.parts_generated.connect(
@@ -391,6 +399,13 @@ class AutomataDesigner(QMainWindow):
         else:
             logging.error("MainWindow: SkeletonManager not available to handle skeleton update.")
             QMessageBox.warning(self, "Error", "SkeletonManager not initialized. Cannot process skeleton.")
+
+    @pyqtSlot(str)
+    def _handle_landing_image_selected(self, image_path: str):
+        """Handles image selection from the landing tab."""
+        logging.info(f"MainWindow: Landing tab selected image: {image_path}")
+        # The landing tab already handles loading the image and switching tabs
+        # This is just for any additional main window level handling if needed
 
     @pyqtSlot()
     def switch_to_editor_tab(self):

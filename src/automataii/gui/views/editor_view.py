@@ -983,7 +983,8 @@ class EditorView(QGraphicsView):
                     logging.warning(f"Invalid or missing 'scene_position' for joint '{standardized_anchor_joint_id}' affecting part '{part_item.name()}'. Skipping position update.")
                     continue
 
-                part_item.setRotation(float(0))
+                # Apply the calculated world rotation instead of fixing to 0
+                part_item.setRotation(float(target_part_world_rotation))
                 part_item.set_scene_position_from_anchor(target_joint_scene_pos)
         else:
             logging.warning("EditorView: parent_window (EditorTab) does not have current_editor_items or it's not a dict. Cannot update part visuals.")

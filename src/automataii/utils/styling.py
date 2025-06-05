@@ -3,6 +3,14 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
 class UIColors:
+    # New color palette
+    BITTERSWEET = QColor("#ff595e")
+    SUNGLOW = QColor("#ffca3a")
+    YELLOW_GREEN = QColor("#8ac926")
+    STEEL_BLUE = QColor("#1982c4")
+    ULTRA_VIOLET = QColor("#6a4c93")
+    
+    # Existing mechanism colors
     COMPONENT_FRONT = QColor("#87CEEB")  # SkyBlue
     COMPONENT_BACK = QColor("#4682B4")  # SteelBlue
     COMPONENT_BORDER = QColor(Qt.GlobalColor.black)

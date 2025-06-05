@@ -952,8 +952,8 @@ class EditorTab(QWidget):
         self.parts_loaded.emit(True)
         self.populate_parts_list()
         self._update_button_states()
-        self.editor_view.zoom_to_fit() # Adjust view after loading parts
-        logging.info(f"EditorTab: Added {len(self.current_editor_items)} items to the scene.")
+        self.editor_view.reset_view() # Set view to 100% zoom and center
+        logging.info(f"EditorTab: Added {len(self.current_editor_items)} items to the scene and reset view to 100%.")
 
     def clear_editor_content(self):
         """Clears all parts, joints, and mechanism visuals from the editor scene."""

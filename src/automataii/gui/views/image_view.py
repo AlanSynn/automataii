@@ -601,25 +601,37 @@ class ImageProcessingView(QGraphicsView):
     # --- View Control ---
 
     def reset_view(self):
-        """Resets the view transformation and fits the image if available."""
+        """Resets the view transformation and sets zoom to 100% if an image is available."""
         self.resetTransform()
-        self._zoom_level = 0 # Reset zoom level
+        self._zoom_level = 0 # Corresponds to 1.0 scale (100%)
+        # Calculate the scale factor for 100% zoom based on _zoom_factor_base and _zoom_level = 0
+        # This is effectively self.scale(1.0, 1.0) if transform is identity,
+        # but set_zoom_level handles discrete steps.
+        # We want an actual scale of 1.0.
+
+        # Get current scale
+        current_scale_m11 = self.transform().m11()
+        if current_scale_m11 == 0: # Should not happen with resetTransform, but as a safeguard
+            current_scale_m11 = 1.0
+
+        # Calculate the required factor to reach 1.0 scale from current_scale_m11
+        factor_to_apply = 1.0 / current_scale_m11
+        self.scale(factor_to_apply, factor_to_apply)
+
+        # Update internal zoom level to match 1.0 scale
+        # _zoom_level = 0 should correspond to _zoom_factor_base ** 0 = 1.0
+        self._zoom_level = 0
+
         if self.image_item:
-            # Fit content slightly zoomed out
-            rect = self.image_item.boundingRect()
-            self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
-            self.scale(0.95, 0.95) # Zoom out slightly
-            self.centerOn(rect.center())
-            # After fitInView, update _zoom_level to match the new scale
-            current_scale = self.transform().m11()
-            if current_scale > 0 and self._zoom_factor_base > 1 and self._zoom_factor_base != 0:
-                self._zoom_level = round(math.log(current_scale, self._zoom_factor_base))
-                self._zoom_level = max(self._min_zoom_level, min(self._zoom_level, self._max_zoom_level))
-            else:
-                self._zoom_level = 0
-        elif self.joints: # Fit skeleton if no image
+            # Center the view on the image
+            self.centerOn(self.image_item.boundingRect().center())
+        elif self.joints: # Fit skeleton if no image and trying to center
              rect = self.scene().itemsBoundingRect()
-             if rect.isValid(): self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+             if rect.isValid(): self.centerOn(rect.center())
+        # Ensure the combo box in the tab reflects 100%
+        # This view doesn't directly control the combo box, the tab does.
+        # The tab should call a method like set_zoom_level(1.0) or update its combo.
+        # For now, the view's internal state is 100%.
 
     def zoom_to_fit(self):
         """Zoom to fit all items in the view."""

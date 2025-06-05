@@ -388,9 +388,33 @@ def _stretch_chain_to_target(chain, bone_lengths, base_pos, target_pos):
             prev_item.setRotation(math.degrees(angle_rad))
 
 def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1.0):
-    """Solves IK using FABRIK (Forward And Backward Reaching Inverse Kinematics)."""
+    """Solves IK using FABRIK (Forward And Backward Reaching Inverse Kinematics) with angle preservation."""
     if len(chain) < 2:
         return
+    
+    # Store initial angles for each part in the chain
+    initial_angles = []
+    for i in range(len(chain)):
+        item = chain[i]
+        
+        # Check if item already has an initial world rotation set
+        if hasattr(item, '_initial_world_rotation'):
+            initial_angles.append(item._initial_world_rotation)
+        elif not hasattr(item, '_initial_ik_angle'):
+            # Calculate initial angle from skeleton joint positions
+            if i < len(chain) - 1:
+                current_anchor = item.mapToScene(item.anchor_offset)
+                next_item = chain[i + 1]
+                next_anchor = next_item.mapToScene(next_item.anchor_offset)
+                angle_rad = math.atan2(next_anchor.y() - current_anchor.y(), 
+                                     next_anchor.x() - current_anchor.x())
+                item._initial_ik_angle = math.degrees(angle_rad)
+            else:
+                # For end effector, use current rotation
+                item._initial_ik_angle = item.rotation()
+            initial_angles.append(item._initial_ik_angle)
+        else:
+            initial_angles.append(item._initial_ik_angle)
     
     # Get current joint positions
     joint_positions = []
@@ -453,8 +477,19 @@ def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1
         # Calculate rotation to point to next joint
         if i < len(chain) - 1:
             next_pos = joint_positions[i + 1]
-            angle_rad = math.atan2(next_pos.y() - new_pos.y(), next_pos.x() - new_pos.x())
-            item.setRotation(math.degrees(angle_rad))
+            # Calculate current angle
+            current_angle_rad = math.atan2(next_pos.y() - new_pos.y(), 
+                                          next_pos.x() - new_pos.x())
+            current_angle_deg = math.degrees(current_angle_rad)
+            
+            # Calculate angle delta from initial
+            angle_delta = current_angle_deg - initial_angles[i]
+            
+            # Apply rotation (which should be initial world angle 0 + delta)
+            item.setRotation(angle_delta)
+            
+            logging.debug(f"FABRIK: {item.part_info.name} - Initial angle: {initial_angles[i]:.1f}°, "
+                         f"Current angle: {current_angle_deg:.1f}°, Delta: {angle_delta:.1f}°")
 
 # Helper function (if needed for manual transform updates)
 # def update_transform_based_on_parent(item, parent_item):
