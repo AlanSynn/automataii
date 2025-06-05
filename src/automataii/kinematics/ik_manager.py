@@ -490,9 +490,17 @@ class IKManager(QObject):
                 self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
                 logging.info(f"IKManager: Joints for '{middle_joint_abstract_name}' are collinear. Defaulting bend_direction to 1.")
             elif signed_area > 0: # P1 is to the "left" (CCW turn from P0P2 to P0P1)
-                self.sim_joint_bend_directions[middle_joint_abstract_name] = 1 # Assuming 1 means this direction
+                # Invert the bend direction for arms to match desired behavior
+                if 'elbow' in middle_joint_abstract_name:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Inverted for arms
+                else:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
             else: # signed_area < 0, P1 is to the "right" (CW turn)
-                self.sim_joint_bend_directions[middle_joint_abstract_name] = -1 # Assuming -1 means this direction
+                # Invert the bend direction for arms to match desired behavior
+                if 'elbow' in middle_joint_abstract_name:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Inverted for arms
+                else:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1
 
             logging.info(f"IKManager: Calculated bend_direction for '{middle_joint_abstract_name}': {self.sim_joint_bend_directions[middle_joint_abstract_name]} (signed_area: {signed_area:.2f})")
 

@@ -353,19 +353,11 @@ class ImageProcessingTab(QWidget):
 
             # Show the processing steps group when an image is loaded
             self.processing_steps_group.setVisible(True)
+            self.update_button_states() # Ensure buttons are in correct state after loading image
 
-            # Automatically try to process if an image is loaded
-            if self.input_image_path and self.character_dir:
-                logging.info("Automatically proceeding with image processing and part generation.")
-                self.process_image() # This will internally call load_skeleton
-                # Check if skeleton was loaded successfully before creating parts
-                if self.skeleton_data: # Check if skeleton_data was set by process_image (via load_skeleton)
-                    self.create_parts_from_skeleton()
-                else:
-                    logging.warning("Skeleton data not available after process_image, skipping part generation.")
-                    QMessageBox.warning(self, "Processing Step Skipped", "Skeleton not found after image processing. Body part generation was skipped.")
-            else:
-                logging.warning("Cannot auto-process: input_image_path or character_dir not set.")
+            # Automatic processing removed as per user request.
+            # User will now need to click buttons in "Processing Steps" to proceed.
+            logging.info("Image loaded. Automatic processing steps are disabled. User must initiate processing manually.")
             return True
         else:
             QMessageBox.warning(self, "Load Error", f"Could not load image: {image_path}")

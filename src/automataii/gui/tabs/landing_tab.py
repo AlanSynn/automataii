@@ -309,19 +309,10 @@ class LandingTab(QWidget):
         """Handle image selection."""
         logging.info(f"Example image selected: {image_path}")
         self.image_selected.emit(image_path)
-
-        # Switch to the image processing tab
-        for i in range(self.main_window.tab_widget.count()):
-            if self.main_window.tab_widget.widget(i) == self.main_window.image_proc_tab:
-                self.main_window.tab_widget.setCurrentIndex(i)
-                break
-
-        # Switch to image processing tab and load the image
-        if hasattr(self.main_window, 'image_proc_tab'):
-            # Load the image in the image processing tab
-            self.main_window.image_proc_tab._load_image_from_path(image_path)
-
-        self.main_window.statusBar().showMessage(f"Loaded: {Path(image_path).name}", 3000)
+        # The MainWindow._handle_landing_image_selected slot will handle
+        # loading the image into ImageProcessingTab, switching tabs,
+        # and updating the status bar.
+        # Therefore, the direct calls to switch tab and load image here are removed.
 
     def _load_custom_image(self):
         """Open file dialog to load a custom image."""
