@@ -943,9 +943,33 @@ class EditorTab(QWidget):
         for part_name, p_info in self.current_parts_info.items():
             # CharacterPartItem now loads its own texture using project_dir and p_info.name
             item = CharacterPartItem(part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode) # Pass debug_mode
+            
+            # Parts are cropped images that should start at 0° rotation
+            # The skeleton joint angles are for the bones, not the visual parts
+            # Keep the default rotation of 0° as set in CharacterPartItem.__init__
 
             self.editor_scene.addItem(item)
             created_editor_items[part_name] = item
+            
+            # Position parts at their anchor joints if skeleton data is available
+            if p_info.anchor_joint_id and self._initial_skeleton_data_cache:
+                joint_map = self._initial_skeleton_data_cache.get('joint_map', {})
+                joints_dict = self._initial_skeleton_data_cache.get('joints', {})
+                
+                # Find standardized joint ID from original anchor_joint_id
+                std_joint_id = None
+                for orig_name, std_id in joint_map.items():
+                    if orig_name == p_info.anchor_joint_id:
+                        std_joint_id = std_id
+                        break
+                
+                if std_joint_id and std_joint_id in joints_dict:
+                    joint_data = joints_dict[std_joint_id]
+                    joint_pos = joint_data.get('position', [0, 0])
+                    if len(joint_pos) >= 2:
+                        scene_pos = QPointF(joint_pos[0], joint_pos[1])
+                        item.set_scene_position_from_anchor(scene_pos)
+                        logging.info(f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})")
 
         self.current_editor_items = created_editor_items
 
@@ -1115,11 +1139,45 @@ class EditorTab(QWidget):
             if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
                 joint_map = self._initial_skeleton_data_cache.get('joint_map')
                 self.editor_view.set_joint_map(joint_map)
+            
+            # Parts should remain at 0° rotation as they are cropped images
+            # The skeleton angles are used for IK calculations, not initial part display
+            
+            # Position parts at their anchor joints if parts are already loaded
+            if self.current_editor_items:
+                self._position_parts_at_anchor_joints()
         else:
             self._initial_skeleton_data_cache = None
             logging.info("EditorTab: Initial skeleton data cache has been cleared (set to None).")
             if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
                 self.editor_view.set_joint_map(None) # Clear map in view as well
+    
+    def _position_parts_at_anchor_joints(self):
+        """Positions parts at their anchor joint locations based on skeleton data."""
+        if not self._initial_skeleton_data_cache or 'joints' not in self._initial_skeleton_data_cache:
+            return
+        
+        joint_map = self._initial_skeleton_data_cache.get('joint_map', {})
+        joints_dict = self._initial_skeleton_data_cache.get('joints', {})
+        
+        for part_name, part_item in self.current_editor_items.items():
+            if part_name in self.current_parts_info:
+                p_info = self.current_parts_info[part_name]
+                if p_info.anchor_joint_id:
+                    # Find standardized joint ID from original anchor_joint_id
+                    std_joint_id = None
+                    for orig_name, std_id in joint_map.items():
+                        if orig_name == p_info.anchor_joint_id:
+                            std_joint_id = std_id
+                            break
+                    
+                    if std_joint_id and std_joint_id in joints_dict:
+                        joint_data = joints_dict[std_joint_id]
+                        joint_pos = joint_data.get('position', [0, 0])
+                        if len(joint_pos) >= 2:
+                            scene_pos = QPointF(joint_pos[0], joint_pos[1])
+                            part_item.set_scene_position_from_anchor(scene_pos)
+                            logging.info(f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})")
 
     # Slot for freehandPathCompleted signal from EditorView
     @pyqtSlot(list)  # Changed to match signal: list of QPointF

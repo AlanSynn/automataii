@@ -959,25 +959,38 @@ class IKManager(QObject):
             if not (p_parent and p_child):
                 continue
 
-            # Calculate current angle
+            # Calculate current angle between parent and child
             current_angle = angle_between(p_parent, p_child)
 
-            # Get initial angle from the snapshot
-            initial_angle = get_initial_angle(parent_id)
+            # Get initial angle between parent and child from when the limb was set up
+            # We need to find the initial positions to calculate the initial angle
+            initial_parent_pos = None
+            initial_child_pos = None
+            if self._initial_snapshot:
+                if parent_id in self._initial_snapshot:
+                    initial_parent_pos = self._initial_snapshot[parent_id].get('position')
+                if child_id in self._initial_snapshot:
+                    initial_child_pos = self._initial_snapshot[child_id].get('position')
+            
+            initial_angle = 0.0
+            if initial_parent_pos and initial_child_pos:
+                initial_angle = angle_between(initial_parent_pos, initial_child_pos)
 
-            # Calculate the rotation delta
-            rotation_delta = current_angle - initial_angle
+            # Calculate rotation delta from skeleton's initial pose
+            joint_angle_delta = current_angle - initial_angle
 
-            # Since parts start at world angle 0, the rotation to apply is just the delta
-            rot = rotation_delta
+            # Parts start at 0° rotation (they are cropped images)
+            # So the part's world rotation should be 0° + joint_angle_delta
+            part_world_rotation = 0.0 + joint_angle_delta
 
-            logging.debug(f"IKManager FK (Limb): Part '{part_name}' - Initial angle: {initial_angle:.1f}°, "
-                        f"Current angle: {current_angle:.1f}°, Delta (rotation): {rot:.1f}°")
+            logging.debug(f"IKManager FK (Limb): Part '{part_name}' - Initial limb angle: {initial_angle:.1f}°, "
+                        f"Current limb angle: {current_angle:.1f}°, Delta: {joint_angle_delta:.1f}°, "
+                        f"Part world rotation: {part_world_rotation:.1f}°")
 
             # record *anchor* (parent) entry – what sprites use
             updated[parent_id] = {
                 'scene_position': p_parent,
-                'world_rotation_degrees': rot,  # Now using delta, not absolute
+                'world_rotation_degrees': part_world_rotation,  # Absolute rotation for the part
             }
             # record child as well – useful for chains or debug overlays
             child_current_angle = self.sim_joints_config[child_id].get('angle', 0.0)
@@ -1009,18 +1022,23 @@ class IKManager(QObject):
             if parent_id and pos(parent_id):
                 current_angle = angle_between(pos(parent_id), pj)
 
-            # Get initial angle
-            initial_angle = get_initial_angle(jid)
+            # Get initial angle of the skeleton joint
+            initial_joint_angle = get_initial_angle(jid)
 
-            # Calculate rotation delta
-            rot = current_angle - initial_angle
+            # Calculate rotation delta from skeleton's initial pose
+            joint_angle_delta = current_angle - initial_joint_angle
 
-            logging.debug(f"IKManager FK (Single): Part '{part_name}' - Initial angle: {initial_angle:.1f}°, "
-                        f"Current angle: {current_angle:.1f}°, Delta (rotation): {rot:.1f}°")
+            # Parts start at 0° rotation (they are cropped images)
+            # So the part's world rotation should be 0° + joint_angle_delta
+            part_world_rotation = 0.0 + joint_angle_delta
+
+            logging.debug(f"IKManager FK (Single): Part '{part_name}' - Joint initial angle: {initial_joint_angle:.1f}°, "
+                        f"Joint current angle: {current_angle:.1f}°, Joint delta: {joint_angle_delta:.1f}°, "
+                        f"Part world rotation: {part_world_rotation:.1f}°")
 
             updated[jid] = {
                 'scene_position': pj,
-                'world_rotation_degrees': rot,  # Use delta instead of absolute
+                'world_rotation_degrees': part_world_rotation,  # Absolute rotation for the part
             }
             processed_parts.add(part_name)
 
@@ -1066,15 +1084,13 @@ class IKManager(QObject):
             logging.warning("IKManager: No initial snapshot available for reset.")
             return
 
-        # Reset all parts to initial state (world angle 0)
+        # Reset all parts to initial state
         if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
             editor_items = self.main_window.editor_tab.current_editor_items
             for part_name, part_item in editor_items.items():
-                # Reset rotation to 0 (initial world rotation)
-                part_item.setRotation(0.0)
-
-                # Store initial world rotation as 0
-                part_item._initial_world_rotation = 0.0
+                # Reset rotation to stored initial world rotation
+                initial_rotation = getattr(part_item, '_initial_world_rotation', 0.0)
+                part_item.setRotation(initial_rotation)
 
                 # Reset to initial position from PartInfo
                 if part_name in self.project_parts_data:
