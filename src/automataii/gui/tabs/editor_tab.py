@@ -842,24 +842,34 @@ class EditorTab(QWidget):
 
     def populate_parts_list(self):
         self.parts_list.clear()
-        if not self.current_parts_info: # Check if there's data to populate from
+        if not self.current_parts_info:
             self.update_part_properties_panel(None)
             self._update_button_states()
             self.parts_loaded.emit(False)
             return
 
-        sorted_part_names = sorted(
-            self.current_parts_info.keys(),
-            key=lambda name: self.current_parts_info[name].z_value,
-            reverse=True,
-        )
-        for part_name in sorted_part_names:
-            item = QListWidgetItem(part_name)
-            item.setData(Qt.ItemDataRole.UserRole, part_name) # Store part_name in UserRole
-            self.parts_list.addItem(item)
+        # Define the desired parts, their system names, and display order
+        ORDERED_DISPLAY_PARTS = [
+            ("head", "Head"),
+            ("left_arm_lower", "Left Arm"),
+            ("right_arm_lower", "Right Arm"),
+            ("left_leg_lower", "Left Leg"),
+            ("right_leg_lower", "Right Leg"),
+        ]
+
+        parts_added_to_list_count = 0
+        for system_name, display_name in ORDERED_DISPLAY_PARTS:
+            if system_name in self.current_parts_info:
+                item = QListWidgetItem(display_name)  # Use display name for the list item text
+                item.setData(Qt.ItemDataRole.UserRole, system_name)  # Store the actual system name
+                self.parts_list.addItem(item)
+                parts_added_to_list_count +=1
+
+        logging.info(f"Populated parts list with {parts_added_to_list_count} items based on defined mapping.")
+
         self.update_part_properties_panel(None)  # Clear properties panel initially
         self._update_button_states()
-        self.parts_loaded.emit(self.parts_list.count() > 0)
+        self.parts_loaded.emit(parts_added_to_list_count > 0)
 
     def update_part_properties_panel(self, part_name: Optional[str]):
         if part_name and part_name in self.current_parts_info:
@@ -943,14 +953,14 @@ class EditorTab(QWidget):
         for part_name, p_info in self.current_parts_info.items():
             # CharacterPartItem now loads its own texture using project_dir and p_info.name
             item = CharacterPartItem(part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode) # Pass debug_mode
-            
+
             # Parts are cropped images that should start at 0° rotation
             # The skeleton joint angles are for the bones, not the visual parts
             # Keep the default rotation of 0° as set in CharacterPartItem.__init__
 
             self.editor_scene.addItem(item)
             created_editor_items[part_name] = item
-            
+
             # Position parts at their anchor joints if skeleton data is available
             # If anchor_joint_id is not set, try to get it from BODY_PARTS definitions
             anchor_joint_id = p_info.anchor_joint_id
@@ -964,18 +974,18 @@ class EditorTab(QWidget):
                         logging.info(f"EditorTab: Using fallback anchor_joint '{anchor_joint_id}' for part '{part_name}' from BODY_PARTS")
                 except ImportError:
                     logging.warning("EditorTab: Could not import BODY_PARTS for fallback anchor joint lookup")
-            
+
             if anchor_joint_id and self._initial_skeleton_data_cache:
                 joint_map = self._initial_skeleton_data_cache.get('joint_map', {})
                 joints_dict = self._initial_skeleton_data_cache.get('joints', {})
-                
+
                 # Find standardized joint ID from original anchor_joint_id
                 std_joint_id = None
                 for orig_name, std_id in joint_map.items():
                     if orig_name == anchor_joint_id:
                         std_joint_id = std_id
                         break
-                
+
                 if std_joint_id and std_joint_id in joints_dict:
                     joint_data = joints_dict[std_joint_id]
                     joint_pos = joint_data.get('position', [0, 0])
@@ -1157,10 +1167,10 @@ class EditorTab(QWidget):
             if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
                 joint_map = self._initial_skeleton_data_cache.get('joint_map')
                 self.editor_view.set_joint_map(joint_map)
-            
+
             # Parts should remain at 0° rotation as they are cropped images
             # The skeleton angles are used for IK calculations, not initial part display
-            
+
             # Position parts at their anchor joints if parts are already loaded
             if self.current_editor_items:
                 self._position_parts_at_anchor_joints()
@@ -1169,26 +1179,26 @@ class EditorTab(QWidget):
             logging.info("EditorTab: Initial skeleton data cache has been cleared (set to None).")
             if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
                 self.editor_view.set_joint_map(None) # Clear map in view as well
-    
+
     def _position_parts_at_anchor_joints(self):
         """Positions parts at their anchor joint locations based on skeleton data."""
         if not self._initial_skeleton_data_cache or 'joints' not in self._initial_skeleton_data_cache:
             return
-        
+
         joint_map = self._initial_skeleton_data_cache.get('joint_map', {})
         joints_dict = self._initial_skeleton_data_cache.get('joints', {})
-        
+
         # Import BODY_PARTS for fallback anchor joint lookup
         try:
             from automataii.animate.part_definitions import BODY_PARTS
         except ImportError:
             BODY_PARTS = {}
             logging.warning("EditorTab: Could not import BODY_PARTS for fallback anchor joint lookup")
-        
+
         for part_name, part_item in self.current_editor_items.items():
             if part_name in self.current_parts_info:
                 p_info = self.current_parts_info[part_name]
-                
+
                 # Get anchor_joint_id, with fallback to BODY_PARTS
                 anchor_joint_id = p_info.anchor_joint_id
                 if not anchor_joint_id and BODY_PARTS:
@@ -1196,7 +1206,7 @@ class EditorTab(QWidget):
                     anchor_joint_id = part_def.get('anchor_joint')
                     if anchor_joint_id:
                         logging.info(f"EditorTab: Using fallback anchor_joint '{anchor_joint_id}' for part '{part_name}' from BODY_PARTS")
-                
+
                 if anchor_joint_id:
                     # Find standardized joint ID from original anchor_joint_id
                     std_joint_id = None
@@ -1204,7 +1214,7 @@ class EditorTab(QWidget):
                         if orig_name == anchor_joint_id:
                             std_joint_id = std_id
                             break
-                    
+
                     if std_joint_id and std_joint_id in joints_dict:
                         joint_data = joints_dict[std_joint_id]
                         joint_pos = joint_data.get('position', [0, 0])
