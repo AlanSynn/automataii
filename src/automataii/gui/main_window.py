@@ -416,6 +416,9 @@ class AutomataDesigner(QMainWindow):
                         self.tab_widget.setCurrentIndex(i)
                         logging.info(f"MainWindow: Switched to Image Processing Tab and loaded {Path(image_path).name}")
                         self.statusBar().showMessage(f"Loaded: {Path(image_path).name}", 3000)
+                        # Ensure detailed processing group is hidden on this specific transition
+                        if hasattr(self.image_proc_tab, '_toggle_detailed_processing_visibility'):
+                            self.image_proc_tab._toggle_detailed_processing_visibility(False)
                         break
             else:
                 logging.error(f"MainWindow: Failed to load image {image_path} in ImageProcessingTab.")

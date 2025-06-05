@@ -68,7 +68,11 @@ class CharacterPartItem(QGraphicsPixmapItem):
         # Revised anchor_offset and initial position logic
         if self.part_info.local_pivot_offset and len(self.part_info.local_pivot_offset) == 2:
             self.anchor_offset = QPointF(self.part_info.local_pivot_offset[0], self.part_info.local_pivot_offset[1])
-            logging.debug(f"CharacterPartItem '{self.name()}': Set anchor_offset from local_pivot_offset: {self.anchor_offset}")
+            # Log warning if anchor_offset is at (0,0) which might indicate a problem
+            if self.anchor_offset.x() == 0 and self.anchor_offset.y() == 0:
+                logging.warning(f"CharacterPartItem '{self.name()}': anchor_offset is (0,0) - this might cause alignment issues")
+            else:
+                logging.debug(f"CharacterPartItem '{self.name()}': Set anchor_offset from local_pivot_offset: {self.anchor_offset}")
         elif self.part_pixmap and not self.part_pixmap.isNull(): # Fallback to center if no local_pivot_offset
             self.anchor_offset = QPointF(self.part_pixmap.width() / 2, self.part_pixmap.height() / 2)
             logging.debug(f"CharacterPartItem '{self.name()}': local_pivot_offset not found or invalid, using pixmap center as anchor_offset: {self.anchor_offset}")
@@ -344,4 +348,11 @@ class CharacterPartItem(QGraphicsPixmapItem):
         # being at self.anchor_offset relative to the item's origin, if the item's origin were (0,0).
         # Thus, item.pos() + self.anchor_offset (in the scene's rotated sense) should be scene_anchor_pos.
         # This simplifies to: item.pos() = scene_anchor_pos - self.anchor_offset
-        self.setPos(scene_anchor_pos - self.anchor_offset)
+        new_pos = scene_anchor_pos - self.anchor_offset
+        self.setPos(new_pos)
+        
+        # Debug logging for torso alignment issues
+        if self.name() == "torso":
+            logging.info(f"CharacterPartItem 'torso': Setting position from anchor. "
+                        f"scene_anchor_pos={scene_anchor_pos}, anchor_offset={self.anchor_offset}, "
+                        f"resulting pos={new_pos}")

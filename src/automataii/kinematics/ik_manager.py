@@ -406,7 +406,7 @@ class IKManager(QObject):
             # Add other controls as needed
             {'name': 'Left Foot Control',   'partName': 'left_leg_lower', 'targetJointId': 'left_foot'},
             {'name': 'Right Foot Control',  'partName': 'right_leg_lower','targetJointId': 'right_foot'},
-            # {'name': 'Torso Control',       'partName': 'torso',          'targetJointId': 'hip'}, # or 'torso' if 'torso' is an IK joint
+            {'name': 'Torso Control',       'partName': 'torso',          'targetJointId': 'torso'}, # Use 'torso' as targetJointId since that's the joint name
         ]
         logging.debug(f"IKManager: Populated sim_selectable_components: {self.sim_selectable_components}")
 

@@ -151,6 +151,7 @@ class LandingTab(QWidget):
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet(f"""
             color: {self.STEEL_BLUE};
+            font-family: 'Comic Sans MS', 'Papyrus', cursive, fantasy;
             font-size: 64px;
             font-weight: bold;
             margin-bottom: 5px;
@@ -161,6 +162,7 @@ class LandingTab(QWidget):
         description_label = QLabel(description_text)
         description_font = QFont()
         description_font.setPointSize(14) # Slightly smaller than subtitle
+        description_font.setBold(True) # Make bold
         description_label.setFont(description_font)
         description_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         description_label.setStyleSheet("""
@@ -175,10 +177,11 @@ class LandingTab(QWidget):
         subtitle_font = QFont()
         subtitle_font.setPointSize(16) # Adjusted font size
         subtitle_font.setItalic(True) # Make italic
+        subtitle_font.setBold(True) # Make bold
         subtitle_label.setFont(subtitle_font)
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle_label.setStyleSheet(f"""
-            color: {self.YELLOW_GREEN};
+            color: black;
             margin-top: 10px;
             margin-bottom: 20px;
         """)

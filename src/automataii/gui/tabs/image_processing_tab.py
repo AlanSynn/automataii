@@ -61,6 +61,10 @@ class ImageProcessingTab(QWidget):
         self.image_proc_scene = QGraphicsScene(self)
         self.image_proc_view = ImageProcessingView(self.image_proc_scene, self)
 
+        # Add the new ProcessingStepsGroup, initially hidden
+        self.processing_steps_group = ProcessingStepsGroup()
+        self.processing_steps_group.setVisible(False) # Hidden by default
+
         self._init_ui()
 
     def _init_ui(self):
@@ -85,11 +89,6 @@ class ImageProcessingTab(QWidget):
         input_layout.addWidget(self.capture_image_btn)
         panel_layout.addWidget(input_group)
 
-        # Add the new ProcessingStepsGroup, initially hidden
-        self.processing_steps_group = ProcessingStepsGroup()
-        self.processing_steps_group.setVisible(False) # Hidden by default
-        panel_layout.addWidget(self.processing_steps_group)
-
         # Output Group
         output_group = QGroupBox("Next")
         output_layout = QVBoxLayout(output_group)
@@ -97,6 +96,9 @@ class ImageProcessingTab(QWidget):
         self.next_stage_btn = QPushButton("Proceed to Editor")
         output_layout.addWidget(self.next_stage_btn)
         panel_layout.addWidget(output_group)
+
+        # Processing Group
+        panel_layout.addWidget(self.processing_steps_group)
 
         # View Options Group
         view_options_group = QGroupBox("View Options")
