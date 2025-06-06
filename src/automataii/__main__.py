@@ -11,28 +11,24 @@ except ImportError:
         from PySide6.QtWidgets import QApplication
         from PySide6.QtCore import QStandardPaths, Qt
     except ImportError:
-        print("This application requires PyQt6 or PySide6; please install one of these packages.", file=sys.stderr)
+        print(
+            "This application requires PyQt6 or PySide6; please install one of these packages.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 from automataii.gui.main_window import AutomataDesigner
 from automataii.utils.config import AppConfig
 from automataii.utils.styling import LIGHT_STYLE
 
-try:
-    from qtreload import install_hot_reload
-except ImportError:
-    def install_hot_reload():
-        pass
-
 from automataii.utils.logging_config import setup_logging
+
 
 def main():
     """Main function to initialize and run the Automataii application."""
     parser = argparse.ArgumentParser(description="Automataii Application")
     parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug logging and features."
+        "--debug", action="store_true", help="Enable debug logging and features."
     )
     args = parser.parse_args()
 
@@ -43,9 +39,13 @@ def main():
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-        logging.info("High DPI environment variables set (QT_AUTO_SCREEN_SCALE_FACTOR=1).")
+        logging.info(
+            "High DPI environment variables set (QT_AUTO_SCREEN_SCALE_FACTOR=1)."
+        )
     except AttributeError:
-        logging.warning("Could not set High DPI attributes (Qt version might be too old or attributes moved).")
+        logging.warning(
+            "Could not set High DPI attributes (Qt version might be too old or attributes moved)."
+        )
 
     app = QApplication(sys.argv)
 
@@ -60,6 +60,7 @@ def main():
     logging.info("Application started.")
 
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()

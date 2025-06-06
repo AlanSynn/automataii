@@ -1,10 +1,11 @@
 """Module for generating n-bar linkage mechanisms."""
+
 import logging
 import math
 from typing import Optional, Dict, List, Any, Tuple
 from PyQt6.QtCore import QPointF, QLineF
 from PyQt6.QtGui import QPainterPath
-import numpy as np # For more complex geometry if needed in future
+import numpy as np  # For more complex geometry if needed in future
 
 from .base_mechanism import BaseMechanism
 
@@ -13,24 +14,26 @@ from .base_mechanism import BaseMechanism
 
 # Default color palettes for visualization consistency if needed here
 # (though usually colors are decided by the visualizer)
-LINK_COLORS_FRONT = ['skyblue', 'lightcoral', 'lightgreen', 'silver']
-LINK_COLORS_BACK = ['steelblue', 'indianred', 'seagreen', 'darkgray']
-PIN_COLORS_FRONT = ['blue', 'red', 'green', 'black']
-PIN_COLORS_BACK = ['darkblue', 'darkred', 'darkgreen', 'dimgray']
+LINK_COLORS_FRONT = ["skyblue", "lightcoral", "lightgreen", "silver"]
+LINK_COLORS_BACK = ["steelblue", "indianred", "seagreen", "darkgray"]
+PIN_COLORS_FRONT = ["blue", "red", "green", "black"]
+PIN_COLORS_BACK = ["darkblue", "darkred", "darkgreen", "dimgray"]
+
 
 class Linkage(BaseMechanism):
     """
     Generates n-bar linkage mechanism data.
     """
+
     def __init__(self, name: str = "Linkage Mechanism"):
         super().__init__(name, mechanism_type="Linkage")
 
     def _generate_3bar_data(
         self,
-        base_pos: QPointF = QPointF(0,0),
+        base_pos: QPointF = QPointF(0, 0),
         scale: float = 1.0,
         link_lengths: Optional[Dict[str, float]] = None,
-        input_angle_deg: float = 30.0
+        input_angle_deg: float = 30.0,
     ) -> Optional[Dict[str, Any]]:
         """
         Generates data for a representative 3-bar linkage (crank-rocker type often).
@@ -54,7 +57,7 @@ class Linkage(BaseMechanism):
         if link_lengths is None:
             l1 = 50 * scale  # Crank
             l2 = 70 * scale  # Coupler
-            l3_ext = 40 * scale # Coupler extension from p1 towards a coupler point
+            l3_ext = 40 * scale  # Coupler extension from p1 towards a coupler point
         else:
             l1 = link_lengths.get("l1", 50 * scale)
             l2 = link_lengths.get("l2", 70 * scale)
@@ -76,9 +79,11 @@ class Linkage(BaseMechanism):
         # For a simple 3-bar display (crank + coupler + point on coupler):
         # We define p1. The link l2 starts at p1. We need a direction for l2.
         # Let coupler make an angle, say, -30 deg relative to crank for visual separation
-        coupler_angle_rel_rad = math.radians(-45) # Angle of coupler relative to crank
+        coupler_angle_rel_rad = math.radians(-45)  # Angle of coupler relative to crank
         theta_coupler_rad = theta1_rad + coupler_angle_rel_rad
-        p2_imaginary = p1 + QPointF(l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad))
+        p2_imaginary = p1 + QPointF(
+            l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad)
+        )
 
         # The coupler extension point (p_coupler_end) extends from p1 along the coupler l2 direction by l3_ext
         # Or, for more general look, let l3_ext be a point on the coupler body (triangle p0-p1-p_coupler_end).
@@ -86,33 +91,35 @@ class Linkage(BaseMechanism):
         # Or simplify: l1 is crank, l2 is a link attached to p1, and p_coupler_end is its end.
         # Let's redefine: l1=crank, l2=coupler link from p1. p_coupler_end is not used directly from l3_ext.
         # Instead, l2 is the main coupler arm. This makes it a 2-link open chain for visualization.
-        p2 = p1 + QPointF(l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad))
+        p2 = p1 + QPointF(
+            l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad)
+        )
 
         points = {
             "p0": [p0.x(), p0.y()],
             "p1": [p1.x(), p1.y()],
-            "p2": [p2.x(), p2.y()], # This is effectively the end of the second link.
-                                    # For a true 3-bar with a third grounded pivot, IK is needed for p2.
-                                    # For now, this is an open chain: ground-p0-p1-p2.
+            "p2": [p2.x(), p2.y()],  # This is effectively the end of the second link.
+            # For a true 3-bar with a third grounded pivot, IK is needed for p2.
+            # For now, this is an open chain: ground-p0-p1-p2.
         }
-        final_link_lengths = {"l1": l1, "l2": l2} # l1=p0-p1, l2=p1-p2
+        final_link_lengths = {"l1": l1, "l2": l2}  # l1=p0-p1, l2=p1-p2
 
         return {
             "type": "linkage",
-            "bar_type": "3-bar (Open Chain)", # Clarify that this is an open chain for visualization
+            "bar_type": "3-bar (Open Chain)",  # Clarify that this is an open chain for visualization
             "name": "Generated 3-Bar Linkage",
             "points": points,
             "link_lengths": final_link_lengths,
-            "thickness": 10 * scale * 0.2, # Example thickness
-            "input_angle_deg": input_angle_deg
+            "thickness": 10 * scale * 0.2,  # Example thickness
+            "input_angle_deg": input_angle_deg,
         }
 
     def _generate_4bar_data(
         self,
-        base_pos: QPointF = QPointF(0,0),
+        base_pos: QPointF = QPointF(0, 0),
         scale: float = 1.0,
-        link_lengths: Optional[Dict[str, float]] = None, # l1, l2, l3, l4 (ground)
-        input_angle_deg: float = 60.0 # Angle of crank l1
+        link_lengths: Optional[Dict[str, float]] = None,  # l1, l2, l3, l4 (ground)
+        input_angle_deg: float = 60.0,  # Angle of crank l1
     ) -> Optional[Dict[str, Any]]:
         """
         Generates data for a representative 4-bar linkage.
@@ -145,18 +152,22 @@ class Linkage(BaseMechanism):
         theta1_rad = math.radians(input_angle_deg)
 
         p0 = QPointF(base_pos.x(), base_pos.y())
-        p3_fixed = QPointF(base_pos.x() + l4, base_pos.y()) # Second fixed pivot along x-axis from p0
+        p3_fixed = QPointF(
+            base_pos.x() + l4, base_pos.y()
+        )  # Second fixed pivot along x-axis from p0
 
         p1 = p0 + QPointF(l1 * math.cos(theta1_rad), l1 * math.sin(theta1_rad))
 
         # Solve for p2 (intersection of two circles)
         # Circle 1: center p1, radius l2
         # Circle 2: center p3_fixed, radius l3
-        d_sq = (p1.x() - p3_fixed.x())**2 + (p1.y() - p3_fixed.y())**2
+        d_sq = (p1.x() - p3_fixed.x()) ** 2 + (p1.y() - p3_fixed.y()) ** 2
         d = math.sqrt(d_sq)
 
         # Check for constructibility
-        if d > (l2 + l3) or d < abs(l2 - l3) or d == 0: # Links cannot reach or collinear issue
+        if (
+            d > (l2 + l3) or d < abs(l2 - l3) or d == 0
+        ):  # Links cannot reach or collinear issue
             # print(f"4-bar linkage not constructible with l1={l1}, l2={l2}, l3={l3}, l4={l4}, d={d:.2f}, theta1={input_angle_deg:.1f}")
             # Return a "broken" or default state if not constructible, or None
             # For previews, might want to show something still.
@@ -171,10 +182,14 @@ class Linkage(BaseMechanism):
         # h = sqrt(l2^2 - a^2)
         # Ensure l2^2 - a^2 is not negative due to float precision
         h_sq = l2**2 - a**2
-        if h_sq < -1e-9: # Allow small negative due to precision, but treat as non-constructible if significant
+        if (
+            h_sq < -1e-9
+        ):  # Allow small negative due to precision, but treat as non-constructible if significant
             # print(f"4-bar linkage: h_sq negative ({h_sq:.2f}), non-constructible.")
             return None
-        h = math.sqrt(max(0, h_sq)) # max(0, ..) to handle tiny negatives from precision
+        h = math.sqrt(
+            max(0, h_sq)
+        )  # max(0, ..) to handle tiny negatives from precision
 
         # Midpoint between p1 and intersection of line p1-p3_fixed and line perpendicular to p2
         p_mid_x = p3_fixed.x() + a * (p1.x() - p3_fixed.x()) / d
@@ -199,7 +214,7 @@ class Linkage(BaseMechanism):
             "p0": [p0.x(), p0.y()],
             "p1": [p1.x(), p1.y()],
             "p2": [p2.x(), p2.y()],
-            "p3_fixed": [p3_fixed.x(), p3_fixed.y()]
+            "p3_fixed": [p3_fixed.x(), p3_fixed.y()],
         }
         final_link_lengths = {"l1": l1, "l2": l2, "l3": l3, "l4": l4}
 
@@ -209,7 +224,7 @@ class Linkage(BaseMechanism):
             "name": "Generated 4-Bar Linkage",
             "points": points,
             "link_lengths": final_link_lengths,
-            "thickness": 10 * scale * 0.2, # Example thickness
+            "thickness": 10 * scale * 0.2,  # Example thickness
             "input_angle_deg": input_angle_deg,
             # Could add Grashof condition info here if needed
         }
@@ -235,7 +250,8 @@ class Linkage(BaseMechanism):
             logging.error(f"Unknown linkage bar_type: {bar_type}")
             return None
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Example Usage (mainly for illustration, QT objects might need app context)
     logging.basicConfig(level=logging.INFO)
     linkage_generator = Linkage()
@@ -252,10 +268,7 @@ if __name__ == '__main__':
 
     print("\n--- Testing 3-Bar Linkage --- (Now an open chain: Ground-Crank-Coupler)")
     linkage_3bar_data = linkage_generator.generate(
-        bar_type="3bar",
-        base_pos=QPointF(10,10),
-        scale=1.0,
-        input_angle_deg=45
+        bar_type="3bar", base_pos=QPointF(10, 10), scale=1.0, input_angle_deg=45
     )
     if linkage_3bar_data:
         print("3-Bar Data:")
@@ -266,10 +279,7 @@ if __name__ == '__main__':
 
     print("\n--- Testing 4-Bar Linkage --- (Grashof crank-rocker by default)")
     linkage_4bar_data = linkage_generator.generate(
-        bar_type="4bar",
-        base_pos=QPointF(0,0),
-        scale=1.0,
-        input_angle_deg=30
+        bar_type="4bar", base_pos=QPointF(0, 0), scale=1.0, input_angle_deg=30
     )
     if linkage_4bar_data:
         print("4-Bar Data (Default, 30 deg):")
@@ -278,12 +288,12 @@ if __name__ == '__main__':
     else:
         print("Failed to generate 4-bar linkage data (Default, 30 deg).")
 
-    custom_lengths_4bar = {"l1": 30, "l2": 80, "l3": 70, "l4": 60} # Another Grashof
+    custom_lengths_4bar = {"l1": 30, "l2": 80, "l3": 70, "l4": 60}  # Another Grashof
     linkage_4bar_custom = linkage_generator.generate(
         bar_type="4bar",
-        base_pos=QPointF(50,50),
+        base_pos=QPointF(50, 50),
         link_lengths=custom_lengths_4bar,
-        input_angle_deg=90
+        input_angle_deg=90,
     )
     if linkage_4bar_custom:
         print("\n4-Bar Data (Custom, 90 deg):")
@@ -293,8 +303,15 @@ if __name__ == '__main__':
         print("\nFailed to generate 4-bar linkage data (Custom, 90 deg).")
 
     # Test non-constructible 4-bar
-    non_constructible_lengths = {"l1": 20, "l2": 20, "l3": 20, "l4": 100} # l1+l2+l3 < l4
-    linkage_4bar_fail = linkage_generator.generate(bar_type="4bar", link_lengths=non_constructible_lengths)
+    non_constructible_lengths = {
+        "l1": 20,
+        "l2": 20,
+        "l3": 20,
+        "l4": 100,
+    }  # l1+l2+l3 < l4
+    linkage_4bar_fail = linkage_generator.generate(
+        bar_type="4bar", link_lengths=non_constructible_lengths
+    )
     if linkage_4bar_fail is None:
         print("\nSuccessfully identified non-constructible 4-bar linkage as None.")
     else:
@@ -304,12 +321,12 @@ if __name__ == '__main__':
     # Test another non-constructible 4-bar (links too short to span d)
     non_constructible_lengths_2 = {"l1": 30, "l2": 20, "l3": 20, "l4": 100}
     linkage_4bar_fail_2 = linkage_generator.generate(
-        bar_type="4bar",
-        link_lengths=non_constructible_lengths_2,
-        input_angle_deg=0
+        bar_type="4bar", link_lengths=non_constructible_lengths_2, input_angle_deg=0
     )
     if linkage_4bar_fail_2 is None:
-        print("\nSuccessfully identified non-constructible 4-bar linkage (case 2) as None.")
+        print(
+            "\nSuccessfully identified non-constructible 4-bar linkage (case 2) as None."
+        )
     else:
         print("\nError: Non-constructible 4-bar linkage (case 2) did not return None.")
         # print(linkage_4bar_fail_2)

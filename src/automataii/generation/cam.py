@@ -7,22 +7,24 @@ from PyQt6.QtGui import QPainterPath, QPolygonF
 
 from .base_mechanism import BaseMechanism
 
+
 class Cam(BaseMechanism):
     """
     Generates cam mechanism data.
     """
+
     def __init__(self, name: str = "Cam Mechanism"):
         super().__init__(name, mechanism_type="Cam")
 
     def generate(
         self,
         cam_center_scene: QPointF,
-        follower_path_points: List[QPointF], # Should be QPointF from resampled path
+        follower_path_points: List[QPointF],  # Should be QPointF from resampled path
         follower_radius: float = 5.0,
         num_samples: int = 360,
-        return_dict: bool = False, # Added flag
-        base_radius_override: Optional[float] = None # For default/preview cams
-    ) -> Any: # Returns QPainterPath or Dict
+        return_dict: bool = False,  # Added flag
+        base_radius_override: Optional[float] = None,  # For default/preview cams
+    ) -> Any:  # Returns QPainterPath or Dict
         """
         Generates a cam profile based on a list of follower center points.
         The cam is assumed to rotate clockwise, follower moves accordingly.
@@ -50,16 +52,16 @@ class Cam(BaseMechanism):
             return QPainterPath() if not return_dict else {}
 
         cam_profile_path = QPainterPath()
-        cam_profile_points_world = [] # Store points for potential dictionary return
+        cam_profile_points_world = []  # Store points for potential dictionary return
 
-        min_dist_to_center = float('inf')
+        min_dist_to_center = float("inf")
         max_dist_to_center = 0.0
 
         if base_radius_override is not None:
             # Generate a simple eccentric cam for preview or default
             # For simplicity, let's make it a circle offset from cam_center
             # This part is more for placeholder/preview generation
-            eccentricity = base_radius_override * 0.4 # Example eccentricity
+            eccentricity = base_radius_override * 0.4  # Example eccentricity
             actual_cam_radius = base_radius_override - eccentricity
 
             # Cam profile is a circle of actual_cam_radius, whose center is offset by eccentricity
@@ -68,14 +70,23 @@ class Cam(BaseMechanism):
             # This needs to be thought through more carefully if this function is the sole source of this shape.
             # For now, let's assume the preview data for cam includes specific base_radius, eccentric_radius, angle.
             # This function, if base_radius_override is used, will create a simple circular cam for that base radius.
-            cam_profile_path.addEllipse(QRectF(-base_radius_override, -base_radius_override,
-                                               base_radius_override*2, base_radius_override*2))
+            cam_profile_path.addEllipse(
+                QRectF(
+                    -base_radius_override,
+                    -base_radius_override,
+                    base_radius_override * 2,
+                    base_radius_override * 2,
+                )
+            )
             min_dist_to_center = base_radius_override
             max_dist_to_center = base_radius_override
             # Add points for dict if needed
             for i in range(num_samples):
                 angle = 2 * math.pi * i / num_samples
-                pt = QPointF(base_radius_override * math.cos(angle), base_radius_override * math.sin(angle))
+                pt = QPointF(
+                    base_radius_override * math.cos(angle),
+                    base_radius_override * math.sin(angle),
+                )
                 cam_profile_points_world.append(pt + cam_center_scene)
 
         elif follower_path_points:
@@ -100,18 +111,22 @@ class Cam(BaseMechanism):
 
                 if isinstance(path_element_or_point, QPointF):
                     follower_center_world = path_element_or_point
-                else: # Assuming it's a QPainterPath.Element or similar with x, y methods
+                else:  # Assuming it's a QPainterPath.Element or similar with x, y methods
                     try:
                         # QPainterPath.Element has .x and .y attributes
-                        follower_center_world = QPointF(path_element_or_point.x, path_element_or_point.y)
+                        follower_center_world = QPointF(
+                            path_element_or_point.x, path_element_or_point.y
+                        )
                     except AttributeError:
-                        logging.error(f"Cannot convert path element {path_element_or_point} (type: {type(path_element_or_point)}) to QPointF in cam generation.")
+                        logging.error(
+                            f"Cannot convert path element {path_element_or_point} (type: {type(path_element_or_point)}) to QPointF in cam generation."
+                        )
                         # Skip this problematic point to avoid crashing; cam profile might be incomplete/incorrect.
                         continue
 
                 # Vector from cam center to follower center in world coords
                 vec_cf_world = follower_center_world - cam_center_scene
-                dist_cf = math.sqrt(vec_cf_world.x()**2 + vec_cf_world.y()**2)
+                dist_cf = math.sqrt(vec_cf_world.x() ** 2 + vec_cf_world.y() ** 2)
                 min_dist_to_center = min(min_dist_to_center, dist_cf)
                 max_dist_to_center = max(max_dist_to_center, dist_cf)
 
@@ -119,8 +134,10 @@ class Cam(BaseMechanism):
                 # (equivalent to follower path rotating by +theta_rad around cam)
                 # This point is on the pitch curve of the cam (center of follower relative to cam)
                 pitch_curve_point_cam_frame = QPointF(
-                    vec_cf_world.x() * math.cos(-theta_rad) - vec_cf_world.y() * math.sin(-theta_rad),
-                    vec_cf_world.x() * math.sin(-theta_rad) + vec_cf_world.y() * math.cos(-theta_rad)
+                    vec_cf_world.x() * math.cos(-theta_rad)
+                    - vec_cf_world.y() * math.sin(-theta_rad),
+                    vec_cf_world.x() * math.sin(-theta_rad)
+                    + vec_cf_world.y() * math.cos(-theta_rad),
                 )
 
                 # The cam surface point is offset from pitch_curve_point_cam_frame by follower_radius
@@ -133,16 +150,20 @@ class Cam(BaseMechanism):
                 # If this path is for the CAM SURFACE, we need to offset by follower_radius.
                 # Let's assume this function generates the PITCH CURVE first, then offsets for cam surface.
 
-                cam_profile_points_world.append(pitch_curve_point_cam_frame + cam_center_scene) # Store world points of pitch curve
+                cam_profile_points_world.append(
+                    pitch_curve_point_cam_frame + cam_center_scene
+                )  # Store world points of pitch curve
 
                 if i == 0:
-                    cam_profile_path.moveTo(pitch_curve_point_cam_frame) # Path relative to (0,0) for cam
+                    cam_profile_path.moveTo(
+                        pitch_curve_point_cam_frame
+                    )  # Path relative to (0,0) for cam
                 else:
                     cam_profile_path.lineTo(pitch_curve_point_cam_frame)
 
             if cam_profile_points_world:
                 cam_profile_path.closeSubpath()
-            else: # Should not happen if follower_path_points is valid
+            else:  # Should not happen if follower_path_points is valid
                 return QPainterPath() if not return_dict else {}
 
         # Cam profile path generated is relative to (0,0) assuming cam center IS (0,0).
@@ -163,41 +184,60 @@ class Cam(BaseMechanism):
             # The current generated path can be complex.
 
             # For preview purposes, estimate some simple parameters if not overridden
-            preview_base_radius = base_radius_override if base_radius_override is not None else (effective_base_radius or 40)
-            preview_eccentric_radius = (effective_peak_radius - effective_base_radius) / 2 if effective_peak_radius > effective_base_radius else preview_base_radius * 0.4
-            if preview_eccentric_radius <=0 : preview_eccentric_radius = preview_base_radius * 0.4 # Ensure positive
+            preview_base_radius = (
+                base_radius_override
+                if base_radius_override is not None
+                else (effective_base_radius or 40)
+            )
+            preview_eccentric_radius = (
+                (effective_peak_radius - effective_base_radius) / 2
+                if effective_peak_radius > effective_base_radius
+                else preview_base_radius * 0.4
+            )
+            if preview_eccentric_radius <= 0:
+                preview_eccentric_radius = preview_base_radius * 0.4  # Ensure positive
 
             return {
                 "type": "Cam & Follower",
                 "cam_center_scene": [cam_center_scene.x(), cam_center_scene.y()],
-                "profile_path_qt": cam_profile_path, # This is the PITCH CURVE relative to (0,0)
-                "profile_points_world": [[p.x(), p.y()] for p in cam_profile_points_world], # Pitch curve points in world coords
+                "profile_path_qt": cam_profile_path,  # This is the PITCH CURVE relative to (0,0)
+                "profile_points_world": [
+                    [p.x(), p.y()] for p in cam_profile_points_world
+                ],  # Pitch curve points in world coords
                 "follower_radius": follower_radius,
-                "base_radius": preview_base_radius, # Effective base radius for preview
-                "eccentric_radius": preview_eccentric_radius, # Effective eccentricity for preview
-                "angle_offset_rad": math.pi / 4, # Placeholder for preview angle
-                "min_dist_pitch_curve_to_center": min_dist_to_center if min_dist_to_center != float('inf') else 0,
+                "base_radius": preview_base_radius,  # Effective base radius for preview
+                "eccentric_radius": preview_eccentric_radius,  # Effective eccentricity for preview
+                "angle_offset_rad": math.pi / 4,  # Placeholder for preview angle
+                "min_dist_pitch_curve_to_center": (
+                    min_dist_to_center if min_dist_to_center != float("inf") else 0
+                ),
                 "max_dist_pitch_curve_to_center": max_dist_to_center,
-                "description": "Generated from follower path" if follower_path_points else "Default eccentric cam"
+                "description": (
+                    "Generated from follower path"
+                    if follower_path_points
+                    else "Default eccentric cam"
+                ),
             }
         else:
             return cam_profile_path
 
 
 def _generate_offset_curve(points: List[QPointF], offset: float) -> QPainterPath:
-    """ Generates an offset curve (simplified). Not fully robust. """
+    """Generates an offset curve (simplified). Not fully robust."""
     offset_path = QPainterPath()
-    if len(points) < 2: return offset_path
+    if len(points) < 2:
+        return offset_path
 
     for i in range(len(points)):
         p1 = points[i]
-        p2 = points[(i + 1) % len(points)] # Next point, wraps around for closed curve
+        p2 = points[(i + 1) % len(points)]  # Next point, wraps around for closed curve
 
         # Calculate normal (simplified)
         dx = p2.x() - p1.x()
         dy = p2.y() - p1.y()
-        length = math.sqrt(dx*dx + dy*dy)
-        if length == 0: continue
+        length = math.sqrt(dx * dx + dy * dy)
+        if length == 0:
+            continue
 
         # Normal vector (pointing outwards for CCW path)
         norm_x = -dy / length
@@ -210,13 +250,13 @@ def _generate_offset_curve(points: List[QPointF], offset: float) -> QPainterPath
         if i == 0:
             offset_path.moveTo(offset_p1)
         else:
-            offset_path.lineTo(offset_p1) # This creates a polyline of offset points.
-                                         # For smooth curves, Bezier segments based on normals needed.
+            offset_path.lineTo(offset_p1)  # This creates a polyline of offset points.
+            # For smooth curves, Bezier segments based on normals needed.
     offset_path.closeSubpath()
     return offset_path
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example Usage
     cam_generator = Cam()
     print(f"Cam Generator Description: {cam_generator.get_description()}")
@@ -225,18 +265,22 @@ if __name__ == '__main__':
     path = []
     for i in range(100):
         angle = 2 * math.pi * i / 100
-        radius = 50 + 20 * math.sin(5 * angle) # A wobbly circle path for follower
-        path.append(QPointF(center.x() + radius * math.cos(angle),
-                          center.y() + radius * math.sin(angle)))
+        radius = 50 + 20 * math.sin(5 * angle)  # A wobbly circle path for follower
+        path.append(
+            QPointF(
+                center.x() + radius * math.cos(angle),
+                center.y() + radius * math.sin(angle),
+            )
+        )
 
     # Test returning QPainterPath
     cam_path_only = cam_generator.generate(
-        cam_center_scene=center,
-        follower_path_points=path,
-        follower_radius=5
+        cam_center_scene=center, follower_path_points=path, follower_radius=5
     )
     if cam_path_only and not cam_path_only.isEmpty():
-        print(f"Generated QPainterPath for cam. BoundingRect (relative to 0,0): {cam_path_only.boundingRect()}")
+        print(
+            f"Generated QPainterPath for cam. BoundingRect (relative to 0,0): {cam_path_only.boundingRect()}"
+        )
     else:
         print("Failed to generate QPainterPath for cam.")
 
@@ -245,7 +289,7 @@ if __name__ == '__main__':
         cam_center_scene=center,
         follower_path_points=path,
         follower_radius=5,
-        return_dict=True
+        return_dict=True,
     )
     if cam_data:
         print("\nGenerated Cam Data Dictionary:")
@@ -253,7 +297,9 @@ if __name__ == '__main__':
             if key == "profile_path_qt":
                 print(f"  {key}: QPainterPath (boundingRect: {value.boundingRect()})")
             elif key == "profile_points_world":
-                print(f"  {key}: List of {len(value)} points (first: {value[0] if value else 'N/A'})")
+                print(
+                    f"  {key}: List of {len(value)} points (first: {value[0] if value else 'N/A'})"
+                )
             else:
                 print(f"  {key}: {value}")
         # Example: visualize the path (requires QApplication if showing widgets)
@@ -273,11 +319,11 @@ if __name__ == '__main__':
 
     # Test with base_radius_override (for default/preview cam)
     default_cam_data = cam_generator.generate(
-        cam_center_scene=QPointF(50,50),
-        follower_path_points=[], # No follower path
+        cam_center_scene=QPointF(50, 50),
+        follower_path_points=[],  # No follower path
         follower_radius=0,
         return_dict=True,
-        base_radius_override=30
+        base_radius_override=30,
     )
     if default_cam_data:
         print("\nGenerated Default Cam Data (using base_radius_override):")

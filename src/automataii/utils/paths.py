@@ -7,6 +7,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
 def get_app_temp_dir() -> Path:
     """
     Returns the base temporary directory for the Automataii application.
@@ -19,7 +20,10 @@ def get_app_temp_dir() -> Path:
     app_temp_dir.mkdir(parents=True, exist_ok=True)
     return app_temp_dir
 
-def get_session_temp_dir(session_id: Optional[str] = None, clear_existing: bool = False) -> Path:
+
+def get_session_temp_dir(
+    session_id: Optional[str] = None, clear_existing: bool = False
+) -> Path:
     """
     Returns a unique temporary directory for a specific processing session or project instance.
     If no session_id is provided, a new UUID will be generated.
@@ -41,19 +45,27 @@ def get_session_temp_dir(session_id: Optional[str] = None, clear_existing: bool 
         logger.debug(f"No session_id provided, generated new UUID: {session_id}")
 
     # Sanitize session_id to be a valid directory name (simple sanitization)
-    safe_session_id = "".join(c for c in session_id if c.isalnum() or c in ('_', '-')).strip()
-    if not safe_session_id: # If sanitization results in empty string, use a UUID
+    safe_session_id = "".join(
+        c for c in session_id if c.isalnum() or c in ("_", "-")
+    ).strip()
+    if not safe_session_id:  # If sanitization results in empty string, use a UUID
         safe_session_id = str(uuid.uuid4())
-        logger.warning(f"Provided session_id ('{session_id}') sanitized to empty. Using UUID: {safe_session_id}")
+        logger.warning(
+            f"Provided session_id ('{session_id}') sanitized to empty. Using UUID: {safe_session_id}"
+        )
 
     project_temp_dir = base_temp_dir / safe_session_id
 
     if project_temp_dir.exists() and clear_existing:
-        logger.debug(f"Clearing existing temporary session directory: {project_temp_dir}")
+        logger.debug(
+            f"Clearing existing temporary session directory: {project_temp_dir}"
+        )
         try:
             shutil.rmtree(project_temp_dir)
         except OSError as e:
-            logger.error(f"Error removing directory {project_temp_dir}: {e}", exc_info=True)
+            logger.error(
+                f"Error removing directory {project_temp_dir}: {e}", exc_info=True
+            )
             # Proceed to try creating it, maybe it was partially deleted or permissions issue
 
     project_temp_dir.mkdir(parents=True, exist_ok=True)
@@ -64,7 +76,8 @@ def get_session_temp_dir(session_id: Optional[str] = None, clear_existing: bool 
 
     return project_temp_dir
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Configure logging for testing
     logging.basicConfig(level=logging.DEBUG)
 
@@ -87,7 +100,7 @@ if __name__ == '__main__':
     print(f"Session temp dir 2 (custom-ID): {session_dir2}")
     assert session_dir2.exists()
     assert session_dir2.name == custom_id
-    assert not (session_dir2 / "test_file.txt").exists() # Should be cleared
+    assert not (session_dir2 / "test_file.txt").exists()  # Should be cleared
 
     # Test clearing
     (session_dir2 / "another_file.txt").write_text("world")
@@ -102,6 +115,6 @@ if __name__ == '__main__':
     session_dir4 = get_session_temp_dir(session_id=problem_id)
     print(f"Session temp dir 4 (problem_id sanitized): {session_dir4}")
     assert session_dir4.exists()
-    assert session_dir4.name != problem_id # Name should be sanitized
+    assert session_dir4.name != problem_id  # Name should be sanitized
 
     print("Path utility tests completed.")

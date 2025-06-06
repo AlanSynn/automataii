@@ -63,7 +63,7 @@ class ImageProcessingTab(QWidget):
 
         # Add the new ProcessingStepsGroup, initially hidden
         self.processing_steps_group = ProcessingStepsGroup()
-        self.processing_steps_group.setVisible(False) # Hidden by default
+        self.processing_steps_group.setVisible(False)  # Hidden by default
 
         self._init_ui()
 
@@ -127,7 +127,8 @@ class ImageProcessingTab(QWidget):
         self.image_zoom_combo = QComboBox()
         self.image_zoom_combo.setEditable(True)
         self.image_zoom_combo.setFixedSize(80, 28)
-        self.image_zoom_combo.setStyleSheet("""
+        self.image_zoom_combo.setStyleSheet(
+            """
             QComboBox {
                 border: 1px solid #d0d7de;
                 border-radius: 6px;
@@ -138,7 +139,8 @@ class ImageProcessingTab(QWidget):
             QComboBox:hover {
                 border-color: #586069;
             }
-        """)
+        """
+        )
         zoom_levels = ["50%", "75%", "90%", "100%", "125%", "150%", "200%"]
         self.image_zoom_combo.addItems(zoom_levels)
         self.image_zoom_combo.setCurrentText("100%")
@@ -146,7 +148,8 @@ class ImageProcessingTab(QWidget):
 
         self.image_fit_btn = QPushButton("Fit")
         self.image_fit_btn.setFixedSize(45, 28)
-        self.image_fit_btn.setStyleSheet("""
+        self.image_fit_btn.setStyleSheet(
+            """
             QPushButton {
                 border: 1px solid #d0d7de;
                 border-radius: 4px;
@@ -162,7 +165,8 @@ class ImageProcessingTab(QWidget):
             QPushButton:pressed {
                 background-color: #e9ecef;
             }
-        """)
+        """
+        )
         self.image_fit_btn.setToolTip("Zoom to fit all items")
 
         zoom_layout.addWidget(self.image_zoom_combo)
@@ -172,13 +176,15 @@ class ImageProcessingTab(QWidget):
         right_layout.addWidget(self.image_proc_view, 1)
 
         zoom_toolbar.setParent(right_panel)
-        zoom_toolbar.setStyleSheet("""
+        zoom_toolbar.setStyleSheet(
+            """
             QWidget {
                 background-color: rgba(248, 249, 250, 0.9);
                 border: 1px solid rgba(208, 215, 222, 0.8);
                 border-radius: 1px;
             }
-        """)
+        """
+        )
         zoom_toolbar.show()
 
         def position_image_zoom_toolbar():
@@ -222,7 +228,9 @@ class ImageProcessingTab(QWidget):
         self.processing_steps_group.processImageClicked.connect(self.process_image)
         self.processing_steps_group.editSkeletonClicked.connect(self.edit_skeleton)
         self.processing_steps_group.saveSkeletonClicked.connect(self.save_skeleton)
-        self.processing_steps_group.generatePartsClicked.connect(self.create_parts_from_skeleton)
+        self.processing_steps_group.generatePartsClicked.connect(
+            self.create_parts_from_skeleton
+        )
 
         self.next_stage_btn.clicked.connect(self.next_stage)
 
@@ -235,9 +243,7 @@ class ImageProcessingTab(QWidget):
         self.show_parts_checkbox.toggled.connect(self._toggle_parts_visibility_in_view)
 
     def _toggle_skeleton_visibility_in_view(self, checked: bool):
-        if (
-            self.image_proc_view
-        ):
+        if self.image_proc_view:
             self.image_proc_view.show_skeleton_visuals(checked)
 
     def _toggle_parts_visibility_in_view(self, checked: bool):
@@ -245,16 +251,32 @@ class ImageProcessingTab(QWidget):
             return
 
         if checked:
-            if self.main_window and self.main_window.project_data_manager and self.main_window.project_data_manager.parts:
+            if (
+                self.main_window
+                and self.main_window.project_data_manager
+                and self.main_window.project_data_manager.parts
+            ):
                 parts_info = self.main_window.project_data_manager.parts
-                effective_offset = self.main_window.project_data_manager.effective_bounding_box_offset
+                effective_offset = (
+                    self.main_window.project_data_manager.effective_bounding_box_offset
+                )
                 # skeleton_to_part_map can be an empty dict if not immediately relevant for ImageProcessingView display
-                self.image_proc_view.load_character_parts(parts_info, {}, effective_offset)
+                self.image_proc_view.load_character_parts(
+                    parts_info, {}, effective_offset
+                )
                 self.image_proc_view.show_part_visuals(True)
             else:
-                logging.warning("ImageProcessingTab: Cannot show parts, ProjectDataManager has no parts loaded.")
-                self.show_parts_checkbox.setChecked(False) # Uncheck if data is not available
-                QMessageBox.information(self, "View Parts", "No part data has been loaded into the project yet. Please process an image first.")
+                logging.warning(
+                    "ImageProcessingTab: Cannot show parts, ProjectDataManager has no parts loaded."
+                )
+                self.show_parts_checkbox.setChecked(
+                    False
+                )  # Uncheck if data is not available
+                QMessageBox.information(
+                    self,
+                    "View Parts",
+                    "No part data has been loaded into the project yet. Please process an image first.",
+                )
         else:
             self.image_proc_view.show_part_visuals(False)
             # Optionally, clear them if they are re-added every time show is true.
@@ -303,16 +325,26 @@ class ImageProcessingTab(QWidget):
             # Automatically try to process if an image is loaded
             # self.process_image() # Or user clicks process button
             if self.input_image_path and self.character_dir:
-                logging.info("Automatically proceeding with image processing and part generation.")
-                self.process_image() # This will internally call load_skeleton
+                logging.info(
+                    "Automatically proceeding with image processing and part generation."
+                )
+                self.process_image()  # This will internally call load_skeleton
                 # Check if skeleton was loaded successfully before creating parts
-                if self.skeleton_data: # Check if skeleton_data was set by process_image (via load_skeleton)
+                if self.skeleton_data:  # Check if skeleton_data was set by process_image (via load_skeleton)
                     self.create_parts_from_skeleton()
                 else:
-                    logging.warning("Skeleton data not available after process_image, skipping part generation.")
-                    QMessageBox.warning(self, "Processing Step Skipped", "Skeleton not found after image processing. Body part generation was skipped.")
+                    logging.warning(
+                        "Skeleton data not available after process_image, skipping part generation."
+                    )
+                    QMessageBox.warning(
+                        self,
+                        "Processing Step Skipped",
+                        "Skeleton not found after image processing. Body part generation was skipped.",
+                    )
             else:
-                logging.warning("Cannot auto-process: input_image_path or character_dir not set.")
+                logging.warning(
+                    "Cannot auto-process: input_image_path or character_dir not set."
+                )
         else:
             QMessageBox.warning(self, "Load Error", f"Could not load image: {filepath}")
 
@@ -353,7 +385,7 @@ class ImageProcessingTab(QWidget):
 
             # Show the processing steps group when an image is loaded
             self.processing_steps_group.setVisible(True)
-            self.update_button_states() # Ensure buttons are in correct state after loading image
+            self.update_button_states()  # Ensure buttons are in correct state after loading image
 
             # Automatically try to process if an image is loaded
             if self.input_image_path and self.character_dir:
@@ -361,14 +393,22 @@ class ImageProcessingTab(QWidget):
                 if self.skeleton_data:
                     self.create_parts_from_skeleton()
                 else:
-                    QMessageBox.warning(self, "Processing Step Skipped", "Skeleton not found after image processing. Body part generation was skipped.")
+                    QMessageBox.warning(
+                        self,
+                        "Processing Step Skipped",
+                        "Skeleton not found after image processing. Body part generation was skipped.",
+                    )
 
             # Automatic processing removed as per user request.
             # User will now need to click buttons in "Processing Steps" to proceed.
-            logging.info("Image loaded. Automatic processing steps are disabled. User must initiate processing manually.")
+            logging.info(
+                "Image loaded. Automatic processing steps are disabled. User must initiate processing manually."
+            )
             return True
         else:
-            QMessageBox.warning(self, "Load Error", f"Could not load image: {image_path}")
+            QMessageBox.warning(
+                self, "Load Error", f"Could not load image: {image_path}"
+            )
             return False
 
     def capture_image(self):
@@ -376,9 +416,11 @@ class ImageProcessingTab(QWidget):
             dialog = CameraDialog(self)
             self.active_camera_dialogs.append(dialog)
             dialog.finished.connect(
-                lambda: self.active_camera_dialogs.remove(dialog)
-                if dialog in self.active_camera_dialogs
-                else None
+                lambda: (
+                    self.active_camera_dialogs.remove(dialog)
+                    if dialog in self.active_camera_dialogs
+                    else None
+                )
             )
 
             if (
@@ -425,11 +467,13 @@ class ImageProcessingTab(QWidget):
             return
 
         self.main_window.statusBar().showMessage("Processing image...")
-        QApplication.processEvents() # Ensure UI updates
+        QApplication.processEvents()  # Ensure UI updates
 
-        progress_dialog = QProgressDialog("Processing image, please wait...", None, 0, 0, self)
+        progress_dialog = QProgressDialog(
+            "Processing image, please wait...", None, 0, 0, self
+        )
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setCancelButton(None) # No cancel button for now
+        progress_dialog.setCancelButton(None)  # No cancel button for now
         progress_dialog.show()
         QApplication.processEvents()
 
@@ -442,31 +486,47 @@ class ImageProcessingTab(QWidget):
                 self.current_temp_char_dir = annotation_results["output_dir"]
                 char_cfg_file_path = annotation_results["char_cfg_path"]
 
-                logging.info(f"Image processing successful. Annotation results: {annotation_results}")
-                self.main_window.statusBar().showMessage(f"Image processed. Temp files at {self.current_temp_char_dir}", 5000)
+                logging.info(
+                    f"Image processing successful. Annotation results: {annotation_results}"
+                )
+                self.main_window.statusBar().showMessage(
+                    f"Image processed. Temp files at {self.current_temp_char_dir}", 5000
+                )
 
                 # Load skeleton data from the generated char_cfg.yaml
                 if self.load_skeleton_data_from_config(char_cfg_file_path):
                     # Skeleton data is loaded into self.skeleton_data and skeleton_updated emitted
                     logging.info(f"Skeleton loaded from {char_cfg_file_path}")
                     # Update view with the new texture from temp dir
-                    if self.image_proc_view.load_image(annotation_results["texture_path"]): # Load the cropped texture
-                         # And the skeleton for visualization
+                    if self.image_proc_view.load_image(
+                        annotation_results["texture_path"]
+                    ):  # Load the cropped texture
+                        # And the skeleton for visualization
                         self.image_proc_view.load_skeleton(self.skeleton_data)
                         self.show_skeleton_checkbox.setChecked(True)
                 else:
-                    QMessageBox.critical(self, "Error", f"Failed to load skeleton from {char_cfg_file_path}")
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        f"Failed to load skeleton from {char_cfg_file_path}",
+                    )
             else:
                 self.current_annotation_results = None
                 self.current_temp_char_dir = None
-                QMessageBox.critical(self, "Error", "Image processing (image_to_annotations) failed.")
-                self.main_window.statusBar().showMessage("Image processing failed.", 5000)
+                QMessageBox.critical(
+                    self, "Error", "Image processing (image_to_annotations) failed."
+                )
+                self.main_window.statusBar().showMessage(
+                    "Image processing failed.", 5000
+                )
 
         except Exception as e:
             self.current_annotation_results = None
             self.current_temp_char_dir = None
             logging.error(f"Error during image processing: {e}", exc_info=True)
-            QMessageBox.critical(self, "Processing Error", f"An unexpected error occurred: {e}")
+            QMessageBox.critical(
+                self, "Processing Error", f"An unexpected error occurred: {e}"
+            )
             self.main_window.statusBar().showMessage(f"Processing error: {e}", 5000)
         finally:
             progress_dialog.close()
@@ -507,7 +567,7 @@ class ImageProcessingTab(QWidget):
                     f"Skeleton loaded from {char_cfg_filepath}. Character_dir is now {self.character_dir}"
                 )
                 self.skeleton_updated.emit(self.skeleton_data)  # Emit signal
-                self.update_button_states() # Update states, which will include the new group
+                self.update_button_states()  # Update states, which will include the new group
                 return True
             else:
                 raise RuntimeError("ImageProcessingView failed to load skeleton data.")
@@ -522,9 +582,7 @@ class ImageProcessingTab(QWidget):
             return False
 
     def edit_skeleton(self):
-        if (
-            not self.image_proc_view.joints
-        ):  # Check if joints are loaded in the view
+        if not self.image_proc_view.joints:  # Check if joints are loaded in the view
             QMessageBox.information(
                 self,
                 "Edit Skeleton",
@@ -532,9 +590,7 @@ class ImageProcessingTab(QWidget):
             )
             return
         # The view itself should handle the editability of joints. This button might just serve as a toggle or focus.
-        self.image_proc_view.set_edit_mode(
-            True
-        )  # Assuming view has such a method
+        self.image_proc_view.set_edit_mode(True)  # Assuming view has such a method
         self.main_window.statusBar().showMessage(
             "Skeleton editing enabled. Drag joints to modify."
         )
@@ -582,46 +638,65 @@ class ImageProcessingTab(QWidget):
 
     def create_parts_from_skeleton(self):
         """Initiates part creation using BodyPartsExtractor based on current skeleton and image."""
-        if not self.current_annotation_results or not self.current_annotation_results.get('texture_path') or \
-           not self.current_annotation_results.get('char_cfg_path') or not self.current_temp_char_dir:
-            QMessageBox.warning(self, "Missing Data",
-                                "Cannot create parts. Texture, char_cfg, or temp directory not available. Please process image first.")
+        if (
+            not self.current_annotation_results
+            or not self.current_annotation_results.get("texture_path")
+            or not self.current_annotation_results.get("char_cfg_path")
+            or not self.current_temp_char_dir
+        ):
+            QMessageBox.warning(
+                self,
+                "Missing Data",
+                "Cannot create parts. Texture, char_cfg, or temp directory not available. Please process image first.",
+            )
             return
 
         # texture_path_str = self.current_annotation_results['texture_path'] # Used by BodyPartsExtractor internally via char_dir
         # char_cfg_path_str = self.current_annotation_results['char_cfg_path'] # Used by BodyPartsExtractor internally via char_dir
         # mask_path_str = self.current_annotation_results.get('mask_path') # Used by BodyPartsExtractor internally via char_dir
 
-        logging.info(f"Creating parts using custom BodyPartsExtractor. Input char_dir: {self.current_temp_char_dir}")
+        logging.info(
+            f"Creating parts using custom BodyPartsExtractor. Input char_dir: {self.current_temp_char_dir}"
+        )
         self.main_window.statusBar().showMessage("Generating character parts...", 5000)
 
-        progress_dialog = QProgressDialog("Generating body parts...", "Cancel", 0, 0, self)
+        progress_dialog = QProgressDialog(
+            "Generating body parts...", "Cancel", 0, 0, self
+        )
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         progress_dialog.setAutoClose(True)
         progress_dialog.show()
-        QApplication.processEvents() # Ensure dialog shows
+        QApplication.processEvents()  # Ensure dialog shows
 
         try:
             # Define the intended output directory for this custom BodyPartsExtractor
             # It will create this directory if it doesn't exist.
             # Ensure bpe_output_dir is INSIDE the current_temp_char_dir for proper session isolation.
             bpe_output_dir = Path(self.current_temp_char_dir) / "bpe_output"
-            bpe_output_dir.mkdir(parents=True, exist_ok=True) # Ensure it exists
+            bpe_output_dir.mkdir(parents=True, exist_ok=True)  # Ensure it exists
 
             self.body_parts_extractor = BodyPartsExtractor(
-                char_dir=str(self.current_temp_char_dir), # This is the input dir containing char_cfg, texture, mask
-                output_dir=str(bpe_output_dir) # This is where parts_info.json and part SVGs should go
+                char_dir=str(
+                    self.current_temp_char_dir
+                ),  # This is the input dir containing char_cfg, texture, mask
+                output_dir=str(
+                    bpe_output_dir
+                ),  # This is where parts_info.json and part SVGs should go
             )
 
             # Call process() method of the custom extractor
-            self.body_parts_extractor.process() # This method saves parts_info.json inside its self.output_dir
+            self.body_parts_extractor.process()  # This method saves parts_info.json inside its self.output_dir
 
             # The body_parts_extractor.output_dir should now be bpe_output_dir
-            actual_bpe_output_dir_from_extractor = Path(self.body_parts_extractor.output_dir)
+            actual_bpe_output_dir_from_extractor = Path(
+                self.body_parts_extractor.output_dir
+            )
 
             # Verify the extractor used the intended output directory
             if actual_bpe_output_dir_from_extractor != bpe_output_dir:
-                logging.warning(f"BodyPartsExtractor output dir {actual_bpe_output_dir_from_extractor} differs from intended {bpe_output_dir}. Using intended dir for consistency.")
+                logging.warning(
+                    f"BodyPartsExtractor output dir {actual_bpe_output_dir_from_extractor} differs from intended {bpe_output_dir}. Using intended dir for consistency."
+                )
                 # Force using the intended directory for subsequent operations
                 # This assumes parts_info.json was indeed written to actual_bpe_output_dir_from_extractor,
                 # and we might need to reconcile if it truly went elsewhere.
@@ -629,16 +704,25 @@ class ImageProcessingTab(QWidget):
                 # For now, trust that BPE will write to the directory it was told to, or that its self.output_dir is correct.
                 # The critical path is finding parts_info.json.
 
-            expected_parts_info_path = actual_bpe_output_dir_from_extractor / "parts_info.json"
+            expected_parts_info_path = (
+                actual_bpe_output_dir_from_extractor / "parts_info.json"
+            )
 
             if not expected_parts_info_path.exists():
-                logging.error(f"CRITICAL: parts_info.json was NOT found at {expected_parts_info_path} immediately after custom BodyPartsExtractor finished processing.")
-                QMessageBox.critical(self, "Parts Generation Error",
-                                     f"parts_info.json was not created by BodyPartsExtractor at the expected location:\\n{expected_parts_info_path}\\n\\nPlease check the application logs for errors from BodyPartsExtractor.")
+                logging.error(
+                    f"CRITICAL: parts_info.json was NOT found at {expected_parts_info_path} immediately after custom BodyPartsExtractor finished processing."
+                )
+                QMessageBox.critical(
+                    self,
+                    "Parts Generation Error",
+                    f"parts_info.json was not created by BodyPartsExtractor at the expected location:\\n{expected_parts_info_path}\\n\\nPlease check the application logs for errors from BodyPartsExtractor.",
+                )
                 progress_dialog.close()
                 return
             else:
-                logging.info(f"SUCCESS: parts_info.json found at {expected_parts_info_path} after custom BodyPartsExtractor processing.")
+                logging.info(
+                    f"SUCCESS: parts_info.json found at {expected_parts_info_path} after custom BodyPartsExtractor processing."
+                )
 
             self.current_parts_info_path = str(expected_parts_info_path)
 
@@ -650,15 +734,23 @@ class ImageProcessingTab(QWidget):
 
             if self.current_annotation_results:
                 # Pass the actual_bpe_output_dir_from_extractor where parts_info.json resides
-                self.parts_generated.emit(self.current_annotation_results, str(actual_bpe_output_dir_from_extractor))
+                self.parts_generated.emit(
+                    self.current_annotation_results,
+                    str(actual_bpe_output_dir_from_extractor),
+                )
             else:
-                logging.error("Cannot emit parts_generated: self.current_annotation_results is None.")
+                logging.error(
+                    "Cannot emit parts_generated: self.current_annotation_results is None."
+                )
 
             self.update_button_states()
 
         except Exception as e:
             progress_dialog.close()
-            logging.error(f"Error during part creation with custom BodyPartsExtractor: {e}", exc_info=True)
+            logging.error(
+                f"Error during part creation with custom BodyPartsExtractor: {e}",
+                exc_info=True,
+            )
             QMessageBox.critical(self, "Part Creation Error", f"An error occurred: {e}")
         finally:
             if progress_dialog.isVisible():
@@ -667,8 +759,16 @@ class ImageProcessingTab(QWidget):
     def next_stage(self):
         # Before switching, ensure parts have been processed and loaded by ProjectDataManager
         # The source of truth for parts being ready for the editor is the ProjectDataManager
-        if not self.main_window or not self.main_window.project_data_manager or not self.main_window.project_data_manager.parts:
-            QMessageBox.information(self, "Next Stage", "Please process image and generate parts, then ensure they are loaded into the project first.")
+        if (
+            not self.main_window
+            or not self.main_window.project_data_manager
+            or not self.main_window.project_data_manager.parts
+        ):
+            QMessageBox.information(
+                self,
+                "Next Stage",
+                "Please process image and generate parts, then ensure they are loaded into the project first.",
+            )
             return
 
         # If skeleton data is also ready, it's good, but parts are essential for the editor tab's primary content.
@@ -730,11 +830,14 @@ class ImageProcessingTab(QWidget):
             process_enabled=has_image,
             edit_enabled=has_skeleton,
             save_enabled=has_skeleton,
-            generate_enabled=(has_skeleton and has_image)
+            generate_enabled=(has_skeleton and has_image),
         )
 
         # next_stage_btn enabled if parts_info.json has been generated (or parts loaded in main_window)
-        parts_are_actually_loaded = self.main_window.project_data_manager.parts is not None and len(self.main_window.project_data_manager.parts) > 0
+        parts_are_actually_loaded = (
+            self.main_window.project_data_manager.parts is not None
+            and len(self.main_window.project_data_manager.parts) > 0
+        )
         self.next_stage_btn.setEnabled(parts_are_actually_loaded)
 
     def on_parts_loaded_in_editor(self, loaded: bool):
@@ -758,7 +861,7 @@ class ImageProcessingTab(QWidget):
         # 5. MainWindow tells EditorTab to populate from ProjectDataManager.
         # So, this slot might be less critical if the above flow is robust.
 
-        self.update_button_states() # General state update
+        self.update_button_states()  # General state update
 
     def on_skeleton_updated_externally(self, skeleton_data: Optional[dict]):
         """
@@ -770,7 +873,11 @@ class ImageProcessingTab(QWidget):
         self.skeleton_data = skeleton_data
         # MODIFIED: Check image_item and its pixmap directly
         texture_loaded = False
-        if self.image_proc_view and self.image_proc_view.image_item and not self.image_proc_view.image_item.pixmap().isNull():
+        if (
+            self.image_proc_view
+            and self.image_proc_view.image_item
+            and not self.image_proc_view.image_item.pixmap().isNull()
+        ):
             texture_loaded = True
 
         if texture_loaded and self.skeleton_data:
@@ -779,7 +886,7 @@ class ImageProcessingTab(QWidget):
         elif not self.skeleton_data:
             # self.image_proc_view.clear_skeleton_visuals() # load_skeleton with None/empty should handle this
             if self.image_proc_view:
-                 self.image_proc_view.load_skeleton(None) # Explicitly clear with None
+                self.image_proc_view.load_skeleton(None)  # Explicitly clear with None
             self.show_skeleton_checkbox.setChecked(False)
         self.update_button_states()
 

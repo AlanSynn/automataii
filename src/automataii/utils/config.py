@@ -5,6 +5,7 @@ class AppConfig:
     """
     Configuration File
     """
+
     APP_NAME: str = "Automata Designer"
 
     @classmethod
@@ -13,6 +14,7 @@ class AppConfig:
         Perform any necessary initializations here, e.g.:
         - Loading settings from a file
         """
+
     def get_var(self) -> Any:
         """
         Get the Var.

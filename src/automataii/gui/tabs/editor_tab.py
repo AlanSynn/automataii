@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsEllipseItem,
     QDialog,
-    QGraphicsPathItem
+    QGraphicsPathItem,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QTimer, QRectF
 from PyQt6.QtCore import pyqtSlot
@@ -36,8 +36,14 @@ from ..graphics_items.part_item import CharacterPartItem
 from automataii.core.models import PartInfo
 
 from PyQt6.QtGui import QPainterPath
-from ..dialogs.recommendation_dialog import MechanismRecommendationDialog, MECHANISM_TYPE_USER_DISPLAY_4_BAR, MECHANISM_TYPE_USER_DISPLAY_3_BAR, MECHANISM_TYPE_USER_DISPLAY_CAM
+from ..dialogs.recommendation_dialog import (
+    MechanismRecommendationDialog,
+    MECHANISM_TYPE_USER_DISPLAY_4_BAR,
+    MECHANISM_TYPE_USER_DISPLAY_3_BAR,
+    MECHANISM_TYPE_USER_DISPLAY_CAM,
+)
 from .utils import get_project_root
+
 
 class EditorTab(QWidget):
     # Signals this tab might emit
@@ -56,19 +62,23 @@ class EditorTab(QWidget):
     parts_loaded = pyqtSignal(
         bool
     )  # Emitted when parts are loaded/cleared (True if loaded)
-    request_reset_all_animations = pyqtSignal() # New signal
-    motion_path_updated = pyqtSignal(str, QPainterPath) # part_name, path
+    request_reset_all_animations = pyqtSignal()  # New signal
+    motion_path_updated = pyqtSignal(str, QPainterPath)  # part_name, path
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = (
             main_window  # Reference to MainWindow for global actions, data, status bar
         )
-        self.debug_mode = getattr(main_window, 'debug_mode', False) # Get debug_mode from main_window
+        self.debug_mode = getattr(
+            main_window, "debug_mode", False
+        )  # Get debug_mode from main_window
 
         # Instantiate scene and view here
         self.editor_scene = QGraphicsScene(self)
-        self.editor_view = EditorView(self.editor_scene, self) # Pass self (EditorTab) as parent to EditorView
+        self.editor_view = EditorView(
+            self.editor_scene, self
+        )  # Pass self (EditorTab) as parent to EditorView
 
         # --- UI Elements owned by this tab ---
         self.parts_list: Optional[QListWidget] = None
@@ -124,11 +134,13 @@ class EditorTab(QWidget):
 
         # Store for generated mechanism visuals
         self.mechanism_visual_items: List[QGraphicsItem] = []
-        self.mechanisms: Dict[str, Dict[str, Any]] = {}  # Store multiple mechanisms by ID
+        self.mechanisms: Dict[
+            str, Dict[str, Any]
+        ] = {}  # Store multiple mechanisms by ID
         self.active_mechanism_id: Optional[str] = None
 
         # Store for defined joints within this tab
-        self.joints: List[Dict] = [] # List of joint data dictionaries
+        self.joints: List[Dict] = []  # List of joint data dictionaries
 
         # Cache for initial skeleton data, to be set by MainWindow
         self._initial_skeleton_data_cache: Optional[Dict] = None
@@ -148,14 +160,16 @@ class EditorTab(QWidget):
 
         # Mechanism Simulation Timer and state
         self.mechanism_simulation_timer = QTimer(self)
-        self.mechanism_simulation_timer.timeout.connect(self._update_mechanism_simulation)
-        self.current_mechanism_crank_angle_rad = 0.0 # For the loaded mechanism
-        self.mechanism_simulation_angular_step = math.radians(2.0) # Degrees per step
+        self.mechanism_simulation_timer.timeout.connect(
+            self._update_mechanism_simulation
+        )
+        self.current_mechanism_crank_angle_rad = 0.0  # For the loaded mechanism
+        self.mechanism_simulation_angular_step = math.radians(2.0)  # Degrees per step
         self.is_mechanism_simulating = False
-        self._initial_mechanism_crank_angle_rad = 0.0 # Store initial angle for reset
+        self._initial_mechanism_crank_angle_rad = 0.0  # Store initial angle for reset
 
-        self.current_simulation_state: str = "stopped" # For logging IK updates
-        self.ik_log_counter: Dict[str, int] = {} # To limit logs per part/state
+        self.current_simulation_state: str = "stopped"  # For logging IK updates
+        self.ik_log_counter: Dict[str, int] = {}  # To limit logs per part/state
 
         self._init_ui()
 
@@ -164,7 +178,9 @@ class EditorTab(QWidget):
 
     def _connect_editor_view_signals(self):
         """Connect signals from this tab's EditorView instance."""
-        self.editor_view.freehandPathCompleted.connect(self._handle_freehand_path_completed)
+        self.editor_view.freehandPathCompleted.connect(
+            self._handle_freehand_path_completed
+        )
         self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancelled)
         self.editor_view.joint_defined.connect(self.handle_joint_defined)
         # Mechanism point selection signals from EditorView connected to EditorTab slots
@@ -176,8 +192,12 @@ class EditorTab(QWidget):
         self.editor_view.zoom_changed.connect(self._update_zoom_combo_from_view)
 
         # Connect to new EditorView signals for item interactions
-        self.editor_view.part_item_clicked.connect(self._handle_part_item_clicked_from_view)
-        self.editor_view.part_item_double_clicked.connect(self._handle_part_item_double_clicked_from_view)
+        self.editor_view.part_item_clicked.connect(
+            self._handle_part_item_clicked_from_view
+        )
+        self.editor_view.part_item_double_clicked.connect(
+            self._handle_part_item_double_clicked_from_view
+        )
         # self.editor_view.part_item_moved.connect(self._handle_part_item_moved_from_view) # Deferred
 
     def _init_ui(self):
@@ -443,7 +463,8 @@ class EditorTab(QWidget):
         self.zoom_combo = QComboBox()
         self.zoom_combo.setEditable(True)
         self.zoom_combo.setFixedSize(70, 28)
-        self.zoom_combo.setStyleSheet("""
+        self.zoom_combo.setStyleSheet(
+            """
             QComboBox {
                 border: 1px solid #d0d7de;
                 border-radius: 6px;
@@ -454,7 +475,8 @@ class EditorTab(QWidget):
             QComboBox:hover {
                 border-color: #586069;
             }
-        """)
+        """
+        )
         zoom_levels = ["50%", "75%", "90%", "100%", "125%", "150%", "200%"]
         self.zoom_combo.addItems(zoom_levels)
         self.zoom_combo.setCurrentText("100%")
@@ -462,7 +484,8 @@ class EditorTab(QWidget):
 
         self.fit_btn = QPushButton("Fit")
         self.fit_btn.setFixedSize(45, 28)
-        self.fit_btn.setStyleSheet("""
+        self.fit_btn.setStyleSheet(
+            """
             QPushButton {
                 border: 1px solid #d0d7de;
                 border-radius: 4px;
@@ -478,7 +501,8 @@ class EditorTab(QWidget):
             QPushButton:pressed {
                 background-color: #e9ecef;
             }
-        """)
+        """
+        )
         self.fit_btn.setToolTip("Zoom to fit all items in editor view")
 
         zoom_layout.addWidget(self.zoom_combo)
@@ -487,13 +511,15 @@ class EditorTab(QWidget):
         right_layout.addWidget(self.editor_view, 1)
 
         zoom_toolbar.setParent(right_panel)  # Attach to right_panel for positioning
-        zoom_toolbar.setStyleSheet("""
+        zoom_toolbar.setStyleSheet(
+            """
             QWidget {
                 background-color: rgba(248, 249, 250, 0.9);
                 border: 1px solid rgba(208, 215, 222, 0.8);
                 border-radius: 1px;
             }
-        """)
+        """
+        )
         zoom_toolbar.show()
 
         def position_editor_zoom_toolbar():
@@ -594,14 +620,16 @@ class EditorTab(QWidget):
     ):
         """Handles selection changes from the parts_list QListWidget."""
         if current:
-            part_name = current.data(Qt.ItemDataRole.UserRole) # Get part name from item data
+            part_name = current.data(
+                Qt.ItemDataRole.UserRole
+            )  # Get part name from item data
             if part_name and part_name in self.current_editor_items:
                 self.selected_part_name = part_name
                 # Highlight in scene (EditorView handles visual selection based on QGraphicsScene selection model)
                 # Ensure the scene's selection model is updated if list widget drives selection
                 item_to_select = self.current_editor_items[part_name]
-                self.editor_scene.clearSelection() # Clear previous scene selection
-                item_to_select.setSelected(True)   # Select the item in the scene
+                self.editor_scene.clearSelection()  # Clear previous scene selection
+                item_to_select.setSelected(True)  # Select the item in the scene
 
                 logging.debug(f"EditorTab: Part '{part_name}' selected via list.")
             else:
@@ -629,7 +657,7 @@ class EditorTab(QWidget):
             if self.selected_part_name in self.current_parts_info:
                 self.current_parts_info[self.selected_part_name].z_value = z_value
             # self.main_window.editor_scene.update() # Scene is local now
-            self.editor_scene.update() # Ensure scene redraws
+            self.editor_scene.update()  # Ensure scene redraws
             logging.info(f"Set Z-value for {self.selected_part_name} to {z_value}")
 
     def _update_selected_part_fixed(self, state_int: int):
@@ -647,15 +675,19 @@ class EditorTab(QWidget):
 
     def _toggle_define_motion_path_mode(self, checked: bool):
         if not self.selected_part_name:
-            self.define_motion_path_btn.setChecked(False) # Ensure button is off if no selection
-            self.editor_view.set_mode('select') # Ensure view is in select mode
+            self.define_motion_path_btn.setChecked(
+                False
+            )  # Ensure button is off if no selection
+            self.editor_view.set_mode("select")  # Ensure view is in select mode
             return
 
         selected_part_item = self.current_editor_items.get(self.selected_part_name)
         if not selected_part_item:
             self.define_motion_path_btn.setChecked(False)
-            self.editor_view.set_mode('select')
-            logging.warning(f"EditorTab: Selected part '{self.selected_part_name}' not found for motion path.")
+            self.editor_view.set_mode("select")
+            logging.warning(
+                f"EditorTab: Selected part '{self.selected_part_name}' not found for motion path."
+            )
             return
 
         if checked:
@@ -698,9 +730,9 @@ class EditorTab(QWidget):
         self.stop_btn.setEnabled(True)
         self.reset_sim_btn.setEnabled(False)  # Can't reset while playing
 
-        if self.mechanism_visual_items: # Only start if a mechanism is loaded
+        if self.mechanism_visual_items:  # Only start if a mechanism is loaded
             self.is_mechanism_simulating = True
-            self.mechanism_simulation_timer.start(30) # Approx 33 FPS
+            self.mechanism_simulation_timer.start(30)  # Approx 33 FPS
             logging.info("Mechanism simulation started.")
 
     def _stop_simulation_clicked(self):
@@ -726,37 +758,47 @@ class EditorTab(QWidget):
         self.current_mechanism_crank_angle_rad = self._initial_mechanism_crank_angle_rad
 
         # Clear last P2 position tracker
-        if hasattr(self, '_last_P2_position'):
+        if hasattr(self, "_last_P2_position"):
             del self._last_P2_position
 
         # Reset mechanism to initial pose if it exists
         if self.active_mechanism_id and self.active_mechanism_id in self.mechanisms:
             mech_info = self.mechanisms[self.active_mechanism_id]
-            params = mech_info['params']
+            params = mech_info["params"]
 
             # Re-solve for initial angle
             solution = self._solve_four_bar_kinematics(
-                params['P0'], params['P3'],
-                params['L1'], params['L2'], params['L3'],
-                self._initial_mechanism_crank_angle_rad
+                params["P0"],
+                params["P3"],
+                params["L1"],
+                params["L2"],
+                params["L3"],
+                self._initial_mechanism_crank_angle_rad,
             )
 
             if solution:
                 P1, P2, _, _, _ = solution
 
                 # Update visual items to initial positions
-                items = mech_info['items']
+                items = mech_info["items"]
                 if len(items) >= 8:
                     # Update links
                     if isinstance(items[0], QGraphicsLineItem):
-                        items[0].setLine(params['P0'].x(), params['P0'].y(), P1.x(), P1.y())
+                        items[0].setLine(
+                            params["P0"].x(), params["P0"].y(), P1.x(), P1.y()
+                        )
                     if isinstance(items[1], QGraphicsLineItem):
                         items[1].setLine(P1.x(), P1.y(), P2.x(), P2.y())
                     if isinstance(items[2], QGraphicsLineItem):
-                        items[2].setLine(P2.x(), P2.y(), params['P3'].x(), params['P3'].y())
+                        items[2].setLine(
+                            P2.x(), P2.y(), params["P3"].x(), params["P3"].y()
+                        )
 
                     # Update pivots
-                    from ..graphics_items.mechanism_anchor_item import MechanismAnchorItem
+                    from ..graphics_items.mechanism_anchor_item import (
+                        MechanismAnchorItem,
+                    )
+
                     if isinstance(items[5], MechanismAnchorItem):
                         items[5].set_center_pos(P1)
                     elif isinstance(items[5], QGraphicsEllipseItem):
@@ -767,18 +809,22 @@ class EditorTab(QWidget):
                     elif isinstance(items[6], QGraphicsEllipseItem):
                         items[6].setRect(P2.x() - 4, P2.y() - 4, 8, 8)
 
-            logging.info(f"Mechanism reset to initial angle: {math.degrees(self.current_mechanism_crank_angle_rad):.1f}°")
+            logging.info(
+                f"Mechanism reset to initial angle: {math.degrees(self.current_mechanism_crank_angle_rad):.1f}°"
+            )
 
         # Reset parts to original positions
         for part_name, part_item in self.current_editor_items.items():
-            if hasattr(part_item, '_original_anchor_pos'):
+            if hasattr(part_item, "_original_anchor_pos"):
                 part_item.set_scene_position_from_anchor(part_item._original_anchor_pos)
                 del part_item._original_anchor_pos
 
         # Reset skeleton visualization to its cached initial state
         if self._initial_skeleton_data_cache:
             self.on_skeleton_updated(self._initial_skeleton_data_cache.copy())
-            logging.info("EditorTab: Skeleton visualization reset to cached initial state.")
+            logging.info(
+                "EditorTab: Skeleton visualization reset to cached initial state."
+            )
         else:
             self.on_skeleton_updated(None)
             logging.warning("EditorTab: No cached initial skeleton data for reset.")
@@ -798,39 +844,66 @@ class EditorTab(QWidget):
         # 3. Handle the selected mechanism from the dialog.
 
         if not self.selected_part_name:
-            QMessageBox.warning(self, "No Part Selected", "Please select a character part first.")
+            QMessageBox.warning(
+                self, "No Part Selected", "Please select a character part first."
+            )
             return
 
         part_item = self.current_editor_items.get(self.selected_part_name)
         if not part_item:
-            QMessageBox.warning(self, "Part Not Found", f"Could not find the editor item for part: {self.selected_part_name}")
+            QMessageBox.warning(
+                self,
+                "Part Not Found",
+                f"Could not find the editor item for part: {self.selected_part_name}",
+            )
             return
 
         # Attempt to get QPainterPath from the part_item
         # This assumes CharacterPartItem has a method or attribute to access its QPainterPath
         # For example, if it stores the QGraphicsPathItem for its motion path:
         user_motion_path: Optional[QPainterPath] = None
-        if hasattr(part_item, 'motion_path_item') and part_item.motion_path_item is not None:
+        if (
+            hasattr(part_item, "motion_path_item")
+            and part_item.motion_path_item is not None
+        ):
             user_motion_path = part_item.motion_path_item.path()
-        elif hasattr(part_item, 'part_info') and hasattr(part_item.part_info, 'motion_path_data') and isinstance(part_item.part_info.motion_path_data, QPainterPath):
+        elif (
+            hasattr(part_item, "part_info")
+            and hasattr(part_item.part_info, "motion_path_data")
+            and isinstance(part_item.part_info.motion_path_data, QPainterPath)
+        ):
             user_motion_path = part_item.part_info.motion_path_data
 
         if not user_motion_path or user_motion_path.isEmpty():
-            QMessageBox.warning(self, "No Motion Path", f"No motion path defined for the selected part: {self.selected_part_name}. Please draw a path first.")
+            QMessageBox.warning(
+                self,
+                "No Motion Path",
+                f"No motion path defined for the selected part: {self.selected_part_name}. Please draw a path first.",
+            )
             return
 
         # Define the path to the generated mechanism paths JSON file
         # This should ideally be a more robust way to get the project path
         try:
             # Attempt to use a utility function if available
-            project_root_str = get_project_root() # Assuming it might return str or Path
-            project_root = Path(project_root_str) # Ensure it's a Path object
-            generated_paths_filepath = str(project_root / "kinematics" / "generated_mechanism_paths.json")
-        except NameError: # Fallback if get_project_root is not defined or fails
-             # This relative path might be fragile depending on execution context
-            logging.warning("get_project_root utility not found. Using potentially fragile relative path for JSON.")
-            base_path = Path(__file__).resolve().parent.parent.parent # automataii directory
-            generated_paths_filepath = str(base_path / "kinematics" / "generated_mechanism_paths.json")
+            project_root_str = (
+                get_project_root()
+            )  # Assuming it might return str or Path
+            project_root = Path(project_root_str)  # Ensure it's a Path object
+            generated_paths_filepath = str(
+                project_root / "kinematics" / "generated_mechanism_paths.json"
+            )
+        except NameError:  # Fallback if get_project_root is not defined or fails
+            # This relative path might be fragile depending on execution context
+            logging.warning(
+                "get_project_root utility not found. Using potentially fragile relative path for JSON."
+            )
+            base_path = (
+                Path(__file__).resolve().parent.parent.parent
+            )  # automataii directory
+            generated_paths_filepath = str(
+                base_path / "kinematics" / "generated_mechanism_paths.json"
+            )
             # For a more direct approach if this file is in automataii/gui/tabs
             # and json is in automataii/kinematics
             # Assumes structure: automataii/gui/tabs/editor_tab.py
@@ -838,17 +911,23 @@ class EditorTab(QWidget):
 
         # Ensure the file exists before proceeding
         if not Path(generated_paths_filepath).exists():
-            QMessageBox.critical(self, "Error", f"Mechanism data file not found at: {generated_paths_filepath}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Mechanism data file not found at: {generated_paths_filepath}",
+            )
             logging.error(f"Mechanism data file not found: {generated_paths_filepath}")
             return
 
-        logging.debug(f"EditorTab: Showing MechanismRecommendationDialog for part '{self.selected_part_name}' with path and JSON: {generated_paths_filepath}")
+        logging.debug(
+            f"EditorTab: Showing MechanismRecommendationDialog for part '{self.selected_part_name}' with path and JSON: {generated_paths_filepath}"
+        )
 
         # Create dialog
         dialog = MechanismRecommendationDialog(
             user_motion_path=user_motion_path,
             generated_paths_filepath=generated_paths_filepath,
-            parent=self
+            parent=self,
         )
 
         # Connect preview signal for immediate display
@@ -856,14 +935,20 @@ class EditorTab(QWidget):
 
         # Store user path info for preview
         self._preview_user_path = user_motion_path
-        self._preview_user_path_center = user_motion_path.boundingRect().center() if not user_motion_path.isEmpty() else QPointF(0, 0)
+        self._preview_user_path_center = (
+            user_motion_path.boundingRect().center()
+            if not user_motion_path.isEmpty()
+            else QPointF(0, 0)
+        )
 
         # Execute dialog
         result = dialog.exec()
 
         if result == QDialog.DialogCode.Accepted and dialog.selected_mechanism_data:
             selected_mechanism = dialog.selected_mechanism_data
-            logging.info(f"Mechanism selected: {selected_mechanism.get('name')}, Type: {selected_mechanism.get('type')}")
+            logging.info(
+                f"Mechanism selected: {selected_mechanism.get('name')}, Type: {selected_mechanism.get('type')}"
+            )
 
             # Calculate center of user path to pass for mechanism placement
             user_path_center = self._preview_user_path_center
@@ -872,14 +957,21 @@ class EditorTab(QWidget):
             mechanism_id = f"{self.selected_part_name}_{len(self.mechanisms)}"
 
             # Store for potential reset
-            self._loaded_mechanism_params = {"data": selected_mechanism, "user_path_center": user_path_center}
-            self._load_and_display_mechanism(selected_mechanism, user_path_center, mechanism_id=mechanism_id)
+            self._loaded_mechanism_params = {
+                "data": selected_mechanism,
+                "user_path_center": user_path_center,
+            }
+            self._load_and_display_mechanism(
+                selected_mechanism, user_path_center, mechanism_id=mechanism_id
+            )
 
             # Clear any preview paths
             self._clear_preview_paths()
 
         else:
-            logging.info("Mechanism recommendation dialog was cancelled or no mechanism selected.")
+            logging.info(
+                "Mechanism recommendation dialog was cancelled or no mechanism selected."
+            )
             # Clear any preview displays
             self._clear_preview_mechanism()
 
@@ -928,12 +1020,18 @@ class EditorTab(QWidget):
         parts_added_to_list_count = 0
         for system_name, display_name in ORDERED_DISPLAY_PARTS:
             if system_name in self.current_parts_info:
-                item = QListWidgetItem(display_name)  # Use display name for the list item text
-                item.setData(Qt.ItemDataRole.UserRole, system_name)  # Store the actual system name
+                item = QListWidgetItem(
+                    display_name
+                )  # Use display name for the list item text
+                item.setData(
+                    Qt.ItemDataRole.UserRole, system_name
+                )  # Store the actual system name
                 self.parts_list.addItem(item)
-                parts_added_to_list_count +=1
+                parts_added_to_list_count += 1
 
-        logging.info(f"Populated parts list with {parts_added_to_list_count} items based on defined mapping.")
+        logging.info(
+            f"Populated parts list with {parts_added_to_list_count} items based on defined mapping."
+        )
 
         self.update_part_properties_panel(None)  # Clear properties panel initially
         self._update_button_states()
@@ -955,11 +1053,16 @@ class EditorTab(QWidget):
             self.fixed_part_check.setChecked(False)  # Reset
 
     def _update_button_states(self):
-        has_parts = self.parts_list.count() > 0 if self.parts_list else False # Add check for self.parts_list
+        has_parts = (
+            self.parts_list.count() > 0 if self.parts_list else False
+        )  # Add check for self.parts_list
         has_selection = self.selected_part_name is not None
-        is_sim_playing = self.stop_btn.isEnabled() if self.stop_btn else False # Add check for self.stop_btn
+        is_sim_playing = (
+            self.stop_btn.isEnabled() if self.stop_btn else False
+        )  # Add check for self.stop_btn
 
-        if self.define_motion_path_btn: self.define_motion_path_btn.setEnabled(has_selection and not is_sim_playing)
+        if self.define_motion_path_btn:
+            self.define_motion_path_btn.setEnabled(has_selection and not is_sim_playing)
         if self.clear_motion_path_btn:
             self.clear_motion_path_btn.setEnabled(
                 has_selection
@@ -967,7 +1070,8 @@ class EditorTab(QWidget):
                 and self._get_selected_part_has_motion_path()
             )
 
-        if self.play_btn: self.play_btn.setEnabled(has_parts and not is_sim_playing)
+        if self.play_btn:
+            self.play_btn.setEnabled(has_parts and not is_sim_playing)
         # stop_btn state handled by play/stop clicks
         if self.reset_sim_btn:
             self.reset_sim_btn.setEnabled(
@@ -978,8 +1082,10 @@ class EditorTab(QWidget):
         # Remove direct enabling/disabling from here if it exists, or ensure it's consistent.
         # For now, let's rely on the specific method.
 
-        if self.blueprint_btn: self.blueprint_btn.setEnabled(has_parts)
-        if self.save_alignment_btn: self.save_alignment_btn.setEnabled(has_parts)
+        if self.blueprint_btn:
+            self.blueprint_btn.setEnabled(has_parts)
+        if self.save_alignment_btn:
+            self.save_alignment_btn.setEnabled(has_parts)
         self._update_generate_mechanism_button_state()  # Ensure this is called to update the specific button
 
     def _get_selected_part_has_motion_path(self) -> bool:
@@ -994,7 +1100,7 @@ class EditorTab(QWidget):
     # --- Slots for MainWindow signals / Data update methods ---
     def set_parts_data(self, parts_info: Dict[str, PartInfo]):
         """Sets parts data for the editor, creating CharacterPartItem instances."""
-        self.clear_editor_content() # Clear previous content first
+        self.clear_editor_content()  # Clear previous content first
 
         self.current_parts_info = parts_info if parts_info else {}
         created_editor_items: Dict[str, CharacterPartItem] = {}
@@ -1002,17 +1108,27 @@ class EditorTab(QWidget):
         if not self.current_parts_info:
             logging.info("EditorTab: No parts data to set.")
             self.parts_loaded.emit(False)
-            self.populate_parts_list() # Update list (will be empty)
+            self.populate_parts_list()  # Update list (will be empty)
             self._update_button_states()
             return
 
         project_dir = None
-        if self.main_window and hasattr(self.main_window, 'project_data_manager') and self.main_window.project_data_manager.project_dir:
+        if (
+            self.main_window
+            and hasattr(self.main_window, "project_data_manager")
+            and self.main_window.project_data_manager.project_dir
+        ):
             project_dir = self.main_window.project_data_manager.project_dir
         else:
-            logging.error("EditorTab: Project directory not available from ProjectDataManager. Part items may not load correctly.")
+            logging.error(
+                "EditorTab: Project directory not available from ProjectDataManager. Part items may not load correctly."
+            )
             # Show a message to the user, as this is critical
-            QMessageBox.critical(self, "Error", "Project directory is missing. Cannot load part textures.")
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Project directory is missing. Cannot load part textures.",
+            )
             self.parts_loaded.emit(False)
             self.populate_parts_list()
             self._update_button_states()
@@ -1020,7 +1136,9 @@ class EditorTab(QWidget):
 
         for part_name, p_info in self.current_parts_info.items():
             # CharacterPartItem now loads its own texture using project_dir and p_info.name
-            item = CharacterPartItem(part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode) # Pass debug_mode
+            item = CharacterPartItem(
+                part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
+            )  # Pass debug_mode
 
             # Parts are cropped images that should start at 0° rotation
             # The skeleton joint angles are for the bones, not the visual parts
@@ -1036,16 +1154,21 @@ class EditorTab(QWidget):
                 # Import BODY_PARTS as a fallback
                 try:
                     from automataii.animate.part_definitions import BODY_PARTS
+
                     part_def = BODY_PARTS.get(part_name, {})
-                    anchor_joint_id = part_def.get('anchor_joint')
+                    anchor_joint_id = part_def.get("anchor_joint")
                     if anchor_joint_id:
-                        logging.info(f"EditorTab: Using fallback anchor_joint '{anchor_joint_id}' for part '{part_name}' from BODY_PARTS")
+                        logging.info(
+                            f"EditorTab: Using fallback anchor_joint '{anchor_joint_id}' for part '{part_name}' from BODY_PARTS"
+                        )
                 except ImportError:
-                    logging.warning("EditorTab: Could not import BODY_PARTS for fallback anchor joint lookup")
+                    logging.warning(
+                        "EditorTab: Could not import BODY_PARTS for fallback anchor joint lookup"
+                    )
 
             if anchor_joint_id and self._initial_skeleton_data_cache:
-                joint_map = self._initial_skeleton_data_cache.get('joint_map', {})
-                joints_dict = self._initial_skeleton_data_cache.get('joints', {})
+                joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+                joints_dict = self._initial_skeleton_data_cache.get("joints", {})
 
                 # Find standardized joint ID from original anchor_joint_id
                 std_joint_id = None
@@ -1056,24 +1179,30 @@ class EditorTab(QWidget):
 
                 if std_joint_id and std_joint_id in joints_dict:
                     joint_data = joints_dict[std_joint_id]
-                    joint_pos = joint_data.get('position', [0, 0])
+                    joint_pos = joint_data.get("position", [0, 0])
                     if len(joint_pos) >= 2:
                         scene_pos = QPointF(joint_pos[0], joint_pos[1])
                         item.set_scene_position_from_anchor(scene_pos)
-                        logging.info(f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})")
+                        logging.info(
+                            f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})"
+                        )
                 else:
                     # Log if we couldn't find the anchor joint
-                    logging.warning(f"EditorTab: Could not find anchor joint for part '{part_name}'. "
-                                  f"anchor_joint_id='{anchor_joint_id}', std_joint_id='{std_joint_id}', "
-                                  f"Available joints: {list(joints_dict.keys())}")
+                    logging.warning(
+                        f"EditorTab: Could not find anchor joint for part '{part_name}'. "
+                        f"anchor_joint_id='{anchor_joint_id}', std_joint_id='{std_joint_id}', "
+                        f"Available joints: {list(joints_dict.keys())}"
+                    )
 
         self.current_editor_items = created_editor_items
 
         self.parts_loaded.emit(True)
         self.populate_parts_list()
         self._update_button_states()
-        self.editor_view.reset_view() # Set view to 100% zoom and center
-        logging.info(f"EditorTab: Added {len(self.current_editor_items)} items to the scene and reset view to 100%.")
+        self.editor_view.reset_view()  # Set view to 100% zoom and center
+        logging.info(
+            f"EditorTab: Added {len(self.current_editor_items)} items to the scene and reset view to 100%."
+        )
 
     def clear_editor_content(self):
         """Clears all parts, joints, and mechanism visuals from the editor scene."""
@@ -1083,8 +1212,8 @@ class EditorTab(QWidget):
             return
 
         # Clear CharacterPartItems
-        for item in list(self.current_editor_items.values()): # Iterate over a copy
-            if item.scene() == self.editor_scene: # Check if item is in this scene
+        for item in list(self.current_editor_items.values()):  # Iterate over a copy
+            if item.scene() == self.editor_scene:  # Check if item is in this scene
                 self.editor_scene.removeItem(item)
             # Optionally, explicitly delete the Python object if it's not managed by Qt's parent/child
             # For QObject/QGraphicsItem, removeItem and no Python references should be enough for GC
@@ -1097,7 +1226,7 @@ class EditorTab(QWidget):
         # for joint_item in self.visual_joint_items:
         # self.editor_scene.removeItem(joint_item)
         # self.visual_joint_items.clear()
-        self.joints.clear() # Clear the joint data list
+        self.joints.clear()  # Clear the joint data list
 
         # Clear Mechanism Visuals
         for item in self.mechanism_visual_items:
@@ -1109,14 +1238,18 @@ class EditorTab(QWidget):
         self.populate_parts_list()  # Update list (will be empty)
         self.update_part_properties_panel(None)
         self._update_button_states()
-        self.editor_view.reset_temp_visuals() # Clear any temporary drawing items in view
+        self.editor_view.reset_temp_visuals()  # Clear any temporary drawing items in view
         self.editor_view.set_mode("select")
 
         self.parts_cleared.emit()
         self.parts_loaded.emit(False)
-        self._initial_skeleton_data_cache = None # Clear cached skeleton data when editor content is cleared
+        self._initial_skeleton_data_cache = (
+            None  # Clear cached skeleton data when editor content is cleared
+        )
         logging.info("EditorTab: Cleared cached initial skeleton data.")
-        if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Also clear map in view
+        if self.editor_view and hasattr(
+            self.editor_view, "set_joint_map"
+        ):  # Also clear map in view
             self.editor_view.set_joint_map(None)
 
     @pyqtSlot(str)
@@ -1132,42 +1265,47 @@ class EditorTab(QWidget):
         is_playing = False
         can_play = False
         can_stop = False
-        can_reset = False # Default can_reset to False, enable if data exists
+        can_reset = False  # Default can_reset to False, enable if data exists
 
         if state_string == "playing":
             is_playing = True
             can_play = False
             can_stop = True
-            can_reset = False # Cannot reset while playing
+            can_reset = False  # Cannot reset while playing
         elif state_string == "stopped":
             is_playing = False
             # Check if there's data to play/reset
             # This depends on whether skeleton/parts are loaded, which IKManager might know
             # For now, assume if stopped, can play if data exists.
-            can_play = bool(self.current_editor_items) # Or check ProjectDataManager via MainWindow if needed
+            can_play = bool(
+                self.current_editor_items
+            )  # Or check ProjectDataManager via MainWindow if needed
             can_stop = False
             can_reset = bool(self.current_editor_items)
         elif state_string == "reset":
             is_playing = False
             can_play = bool(self.current_editor_items)
             can_stop = False
-            can_reset = False # After reset, usually cannot reset again immediately unless new state allows
-                              # Let's assume reset means back to initial, can play, cannot reset further.
-                              # Or, if reset clears data, then can_reset would be false.
-                              # For now, if state is "reset", assume it's ready to play again if data exists.
-            can_reset = bool(self.current_editor_items) # Can reset if there's something to reset
+            can_reset = False  # After reset, usually cannot reset again immediately unless new state allows
+            # Let's assume reset means back to initial, can play, cannot reset further.
+            # Or, if reset clears data, then can_reset would be false.
+            # For now, if state is "reset", assume it's ready to play again if data exists.
+            can_reset = bool(
+                self.current_editor_items
+            )  # Can reset if there's something to reset
         else:
-            logging.warning(f"EditorTab: Unknown simulation state string: {state_string}")
+            logging.warning(
+                f"EditorTab: Unknown simulation state string: {state_string}"
+            )
             # Default to a safe state (e.g., not playing, can play if items exist)
             is_playing = False
             can_play = bool(self.current_editor_items)
             can_stop = False
             can_reset = bool(self.current_editor_items)
 
-
         if self.play_btn:
             self.play_btn.setEnabled(can_play and not is_playing)
-            self.play_btn.setChecked(is_playing) # Reflects if it's actively playing
+            self.play_btn.setChecked(is_playing)  # Reflects if it's actively playing
         if self.stop_btn:
             self.stop_btn.setEnabled(can_stop and is_playing)
         if self.reset_sim_btn:
@@ -1176,8 +1314,8 @@ class EditorTab(QWidget):
         # Update other UI elements if necessary
         self._update_mechanism_controls_based_on_simulation(is_playing)
 
-        self.current_simulation_state = state_string # Update current state
-        self.ik_log_counter.clear() # Reset log counter when simulation state changes
+        self.current_simulation_state = state_string  # Update current state
+        self.ik_log_counter.clear()  # Reset log counter when simulation state changes
 
     def _update_mechanism_controls_based_on_simulation(self, is_simulating: bool):
         # Implementation of this method is not provided in the original file or the code block
@@ -1186,8 +1324,8 @@ class EditorTab(QWidget):
 
     def on_skeleton_updated(self, skeleton_data: Optional[Dict]):
         """Called by MainWindow when the skeleton is updated.
-           This method is for *displaying* the skeleton.
-           Initial skeleton caching is handled by `cache_initial_skeleton`.
+        This method is for *displaying* the skeleton.
+        Initial skeleton caching is handled by `cache_initial_skeleton`.
         """
         logging.info(
             f"EditorTab received skeleton update for display: {'Exists' if skeleton_data else 'None'}"
@@ -1196,31 +1334,52 @@ class EditorTab(QWidget):
         # Caching logic removed from here, will be handled by a dedicated method.
 
         if self.editor_view:
-            if skeleton_data: # This is the data to display *now*
+            if skeleton_data:  # This is the data to display *now*
                 # skeleton_data is likely from StandardizedSkeletonModel.model_dump()
                 # So, skeleton_data.get('joints') will be Dict[str, Dict] where the inner dict is the dumped joint model.
-                standardized_joints_dict = skeleton_data.get('joints', {}) # Dict[std_id, Dict]
-                hierarchy = skeleton_data.get('hierarchy', {})     # Dict[std_id, List[std_child_id]]
+                standardized_joints_dict = skeleton_data.get(
+                    "joints", {}
+                )  # Dict[std_id, Dict]
+                hierarchy = skeleton_data.get(
+                    "hierarchy", {}
+                )  # Dict[std_id, List[std_child_id]]
 
                 skeleton_for_view = []
                 if isinstance(standardized_joints_dict, dict):
-                    for joint_id, joint_model_dict in standardized_joints_dict.items(): # Iterate through the dictionary of dictionaries
-                        pos_list = joint_model_dict.get('position')
-                        pos = QPointF(pos_list[0], pos_list[1]) if pos_list and len(pos_list) == 2 else QPointF()
+                    for (
+                        joint_id,
+                        joint_model_dict,
+                    ) in (
+                        standardized_joints_dict.items()
+                    ):  # Iterate through the dictionary of dictionaries
+                        pos_list = joint_model_dict.get("position")
+                        pos = (
+                            QPointF(pos_list[0], pos_list[1])
+                            if pos_list and len(pos_list) == 2
+                            else QPointF()
+                        )
 
-                        skeleton_for_view.append({
-                            'id': joint_model_dict.get('id', joint_id), # Use key as fallback for id
-                            'name': joint_model_dict.get('name'),
-                            'position': pos,
-                            'parent': joint_model_dict.get('parent_id'),
-                            'color': joint_model_dict.get('color', 'blue'),
-                            'label': joint_model_dict.get('label')
-                        })
+                        skeleton_for_view.append(
+                            {
+                                "id": joint_model_dict.get(
+                                    "id", joint_id
+                                ),  # Use key as fallback for id
+                                "name": joint_model_dict.get("name"),
+                                "position": pos,
+                                "parent": joint_model_dict.get("parent_id"),
+                                "color": joint_model_dict.get("color", "blue"),
+                                "label": joint_model_dict.get("label"),
+                            }
+                        )
 
-                logging.debug(f"EditorTab: Visualizing skeleton with {len(skeleton_for_view)} joints and hierarchy keys: {list(hierarchy.keys())}")
+                logging.debug(
+                    f"EditorTab: Visualizing skeleton with {len(skeleton_for_view)} joints and hierarchy keys: {list(hierarchy.keys())}"
+                )
                 self.editor_view.visualize_skeleton(skeleton_for_view, hierarchy)
             else:
-                logging.info("EditorTab: Clearing skeleton visualization because skeleton_data is None.")
+                logging.info(
+                    "EditorTab: Clearing skeleton visualization because skeleton_data is None."
+                )
                 self.editor_view.visualize_skeleton([], {})
 
         self._update_button_states()
@@ -1229,11 +1388,15 @@ class EditorTab(QWidget):
     def cache_initial_skeleton(self, skeleton_data_dict: Optional[Dict]):
         """Caches the initial skeleton data dictionary provided by MainWindow."""
         if skeleton_data_dict:
-            self._initial_skeleton_data_cache = skeleton_data_dict.copy() # Store a copy
+            self._initial_skeleton_data_cache = (
+                skeleton_data_dict.copy()
+            )  # Store a copy
             logging.info("EditorTab: Initial skeleton data has been cached.")
             # Pass the joint_map to the editor_view
-            if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
-                joint_map = self._initial_skeleton_data_cache.get('joint_map')
+            if self.editor_view and hasattr(
+                self.editor_view, "set_joint_map"
+            ):  # Check if method exists
+                joint_map = self._initial_skeleton_data_cache.get("joint_map")
                 self.editor_view.set_joint_map(joint_map)
 
             # Parts should remain at 0° rotation as they are cropped images
@@ -1244,24 +1407,33 @@ class EditorTab(QWidget):
                 self._position_parts_at_anchor_joints()
         else:
             self._initial_skeleton_data_cache = None
-            logging.info("EditorTab: Initial skeleton data cache has been cleared (set to None).")
-            if self.editor_view and hasattr(self.editor_view, 'set_joint_map'): # Check if method exists
-                self.editor_view.set_joint_map(None) # Clear map in view as well
+            logging.info(
+                "EditorTab: Initial skeleton data cache has been cleared (set to None)."
+            )
+            if self.editor_view and hasattr(
+                self.editor_view, "set_joint_map"
+            ):  # Check if method exists
+                self.editor_view.set_joint_map(None)  # Clear map in view as well
 
     def _position_parts_at_anchor_joints(self):
         """Positions parts at their anchor joint locations based on skeleton data."""
-        if not self._initial_skeleton_data_cache or 'joints' not in self._initial_skeleton_data_cache:
+        if (
+            not self._initial_skeleton_data_cache
+            or "joints" not in self._initial_skeleton_data_cache
+        ):
             return
 
-        joint_map = self._initial_skeleton_data_cache.get('joint_map', {})
-        joints_dict = self._initial_skeleton_data_cache.get('joints', {})
+        joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+        joints_dict = self._initial_skeleton_data_cache.get("joints", {})
 
         # Import BODY_PARTS for fallback anchor joint lookup
         try:
             from automataii.animate.part_definitions import BODY_PARTS
         except ImportError:
             BODY_PARTS = {}
-            logging.warning("EditorTab: Could not import BODY_PARTS for fallback anchor joint lookup")
+            logging.warning(
+                "EditorTab: Could not import BODY_PARTS for fallback anchor joint lookup"
+            )
 
         for part_name, part_item in self.current_editor_items.items():
             if part_name in self.current_parts_info:
@@ -1271,9 +1443,11 @@ class EditorTab(QWidget):
                 anchor_joint_id = p_info.anchor_joint_id
                 if not anchor_joint_id and BODY_PARTS:
                     part_def = BODY_PARTS.get(part_name, {})
-                    anchor_joint_id = part_def.get('anchor_joint')
+                    anchor_joint_id = part_def.get("anchor_joint")
                     if anchor_joint_id:
-                        logging.info(f"EditorTab: Using fallback anchor_joint '{anchor_joint_id}' for part '{part_name}' from BODY_PARTS")
+                        logging.info(
+                            f"EditorTab: Using fallback anchor_joint '{anchor_joint_id}' for part '{part_name}' from BODY_PARTS"
+                        )
 
                 if anchor_joint_id:
                     # Find standardized joint ID from original anchor_joint_id
@@ -1285,16 +1459,20 @@ class EditorTab(QWidget):
 
                     if std_joint_id and std_joint_id in joints_dict:
                         joint_data = joints_dict[std_joint_id]
-                        joint_pos = joint_data.get('position', [0, 0])
+                        joint_pos = joint_data.get("position", [0, 0])
                         if len(joint_pos) >= 2:
                             scene_pos = QPointF(joint_pos[0], joint_pos[1])
                             part_item.set_scene_position_from_anchor(scene_pos)
-                            logging.info(f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})")
+                            logging.info(
+                                f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})"
+                            )
                     else:
                         # Log if we couldn't find the anchor joint
-                        logging.warning(f"EditorTab (_position_parts_at_anchor_joints): Could not find anchor joint for part '{part_name}'. "
-                                      f"anchor_joint_id='{anchor_joint_id}', std_joint_id='{std_joint_id}', "
-                                      f"Available joints: {list(joints_dict.keys())}")
+                        logging.warning(
+                            f"EditorTab (_position_parts_at_anchor_joints): Could not find anchor joint for part '{part_name}'. "
+                            f"anchor_joint_id='{anchor_joint_id}', std_joint_id='{std_joint_id}', "
+                            f"Available joints: {list(joints_dict.keys())}"
+                        )
 
     # Slot for freehandPathCompleted signal from EditorView
     @pyqtSlot(list)  # Changed to match signal: list of QPointF
@@ -1308,7 +1486,9 @@ class EditorTab(QWidget):
         current_parts_info = self.main_window.project_data_manager.parts
 
         if not current_parts_info or part_name not in current_parts_info:
-            logging.warning(f"_handle_freehand_path_completed: Part {part_name} not in PDM.parts.")
+            logging.warning(
+                f"_handle_freehand_path_completed: Part {part_name} not in PDM.parts."
+            )
             return
 
         motion_qpath = QPainterPath()
@@ -1317,7 +1497,9 @@ class EditorTab(QWidget):
             for point in path_points[1:]:
                 motion_qpath.lineTo(point)
         else:
-            logging.info(f"Received empty path points for {part_name}. Clearing existing path.")
+            logging.info(
+                f"Received empty path points for {part_name}. Clearing existing path."
+            )
 
         current_parts_info[part_name].motion_path = motion_qpath
         logging.debug(f"EditorTab: Updated motion_path in PDM.parts for '{part_name}'.")
@@ -1326,14 +1508,20 @@ class EditorTab(QWidget):
             char_part_item = self.current_editor_items[part_name]
             char_part_item.set_motion_path(motion_qpath)
         else:
-            logging.warning(f"_handle_freehand_path_completed: Item {part_name} not in editor_items.")
+            logging.warning(
+                f"_handle_freehand_path_completed: Item {part_name} not in editor_items."
+            )
 
         self.motion_path_updated.emit(part_name, motion_qpath)
 
-        self.main_window.statusBar().showMessage(f"Motion path updated for {part_name}. Draw again or toggle mode off.")
+        self.main_window.statusBar().showMessage(
+            f"Motion path updated for {part_name}. Draw again or toggle mode off."
+        )
         # DO NOT toggle button here: self.define_motion_path_btn.setChecked(False)
-        self._update_button_states() # Update clear button state, etc.
-        logging.info(f"Freehand motion path completed for {part_name} with {len(path_points)} points.")
+        self._update_button_states()  # Update clear button state, etc.
+        logging.info(
+            f"Freehand motion path completed for {part_name} with {len(path_points)} points."
+        )
 
     # Slot for drawing_cancelled signal from EditorView
     def _handle_drawing_cancelled(self):
@@ -1348,11 +1536,22 @@ class EditorTab(QWidget):
         if self.cam_center_marker:
             self.editor_scene.removeItem(self.cam_center_marker)
         self.cam_center_marker = self.editor_scene.addEllipse(
-            point.x() - 4, point.y() - 4, 8, 8,
-            QPen(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta),
-            QBrush(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta)
+            point.x() - 4,
+            point.y() - 4,
+            8,
+            8,
+            QPen(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
+            QBrush(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
         )
-        self.cam_center_marker.setZValue(1000) # Ensure it's on top
+        self.cam_center_marker.setZValue(1000)  # Ensure it's on top
         logging.info(f"EditorTab: Cam center set at: {point}")
         self._update_generate_mechanism_button_state()
 
@@ -1361,9 +1560,20 @@ class EditorTab(QWidget):
         if self.pivot_a_marker:
             self.editor_scene.removeItem(self.pivot_a_marker)
         self.pivot_a_marker = self.editor_scene.addEllipse(
-            point.x() - 4, point.y() - 4, 8, 8,
-            QPen(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta),
-            QBrush(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta)
+            point.x() - 4,
+            point.y() - 4,
+            8,
+            8,
+            QPen(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
+            QBrush(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
         )
         self.pivot_a_marker.setZValue(1000)
         logging.info(f"EditorTab: Pivot A set at: {point}")
@@ -1374,9 +1584,20 @@ class EditorTab(QWidget):
         if self.pivot_d_marker:
             self.editor_scene.removeItem(self.pivot_d_marker)
         self.pivot_d_marker = self.editor_scene.addEllipse(
-            point.x() - 4, point.y() - 4, 8, 8,
-            QPen(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta),
-            QBrush(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta)
+            point.x() - 4,
+            point.y() - 4,
+            8,
+            8,
+            QPen(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
+            QBrush(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
         )
         self.pivot_d_marker.setZValue(1000)
         logging.info(f"EditorTab: Pivot D set at: {point}")
@@ -1387,9 +1608,20 @@ class EditorTab(QWidget):
         if self.driver_center_marker:
             self.editor_scene.removeItem(self.driver_center_marker)
         self.driver_center_marker = self.editor_scene.addEllipse(
-            point.x() - 4, point.y() - 4, 8, 8,
-            QPen(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta),
-            QBrush(self.main_window.UIColors.DEBUG_HELPER_COLOR if hasattr(self.main_window, 'UIColors') else Qt.GlobalColor.magenta)
+            point.x() - 4,
+            point.y() - 4,
+            8,
+            8,
+            QPen(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
+            QBrush(
+                self.main_window.UIColors.DEBUG_HELPER_COLOR
+                if hasattr(self.main_window, "UIColors")
+                else Qt.GlobalColor.magenta
+            ),
         )
         self.driver_center_marker.setZValue(1000)
         logging.info(f"EditorTab: Driver Gear center set at: {point}")
@@ -1397,7 +1629,9 @@ class EditorTab(QWidget):
 
     def _handle_driven_center_set(self, point: QPointF):
         self.selected_driven_center = point
-        self.editor_view.draw_selection_marker(point, 'driven_center') # Instruct view to draw
+        self.editor_view.draw_selection_marker(
+            point, "driven_center"
+        )  # Instruct view to draw
         self._update_generate_mechanism_button_state()
 
     # --- Public slots for view actions (for MainWindow connection) ---
@@ -1459,12 +1693,14 @@ class EditorTab(QWidget):
 
         # Optionally, update the view or fit to new items if desired
         # self.editor_view.zoom_to_fit() # Example
-        self.main_window.statusBar().showMessage(f"{len(self.mechanism_visual_items)} mechanism components generated.", 3000)
+        self.main_window.statusBar().showMessage(
+            f"{len(self.mechanism_visual_items)} mechanism components generated.", 3000
+        )
 
     @pyqtSlot(dict)
     def handle_joint_defined(self, joint_data: dict):
         """Handles the joint_defined signal from EditorView.
-           Stores the joint data and potentially updates UI or triggers further processing.
+        Stores the joint data and potentially updates UI or triggers further processing.
         """
         logging.info(f"EditorTab: Received joint_defined signal: {joint_data}")
         # Expected joint_data: { 'parent_item_name': str, 'child_item_name': str, 'parent_pos': QPointF, 'child_pos': QPointF, 'parent_item': CharacterPartItem, 'child_item': CharacterPartItem }
@@ -1478,7 +1714,7 @@ class EditorTab(QWidget):
 
         self.main_window.statusBar().showMessage(
             f"Joint defined between {joint_data.get('parent_item_name', 'N/A')} and {joint_data.get('child_item_name', 'N/A')}",
-            3000
+            3000,
         )
         # Potentially update button states or other UI elements based on new joint
         self._update_button_states()
@@ -1492,13 +1728,19 @@ class EditorTab(QWidget):
         cleared_count = 0
         for item_name, item_widget in self.current_editor_items.items():
             path_cleared_on_item = False
-            if hasattr(item_widget, 'motion_path_item') and item_widget.motion_path_item:
+            if (
+                hasattr(item_widget, "motion_path_item")
+                and item_widget.motion_path_item
+            ):
                 if item_widget.motion_path_item.scene() == self.editor_scene:
                     self.editor_scene.removeItem(item_widget.motion_path_item)
                 item_widget.motion_path_item = None
                 path_cleared_on_item = True
 
-            if hasattr(item_widget, 'motion_path_points') and item_widget.motion_path_points:
+            if (
+                hasattr(item_widget, "motion_path_points")
+                and item_widget.motion_path_points
+            ):
                 item_widget.motion_path_points = []
                 path_cleared_on_item = True
 
@@ -1508,14 +1750,18 @@ class EditorTab(QWidget):
                 item_widget.update()
 
         if cleared_count > 0:
-            logging.info(f"EditorTab: Cleared visual motion paths for {cleared_count} items.")
-            self.editor_view.update() # Update the entire view to ensure all changes are reflected
+            logging.info(
+                f"EditorTab: Cleared visual motion paths for {cleared_count} items."
+            )
+            self.editor_view.update()  # Update the entire view to ensure all changes are reflected
         else:
             logging.info("EditorTab: No visual motion paths found to clear.")
 
     def handle_ik_update(self, ik_results: Dict[str, Dict[str, Any]]):
         """Receives IK results and updates the EditorView."""
-        logging.debug(f"[IK_ENTRY_TRACE] EditorTab.handle_ik_update entered. Current state: {self.current_simulation_state}. IK Results count: {len(ik_results)}") # New entry log
+        logging.debug(
+            f"[IK_ENTRY_TRACE] EditorTab.handle_ik_update entered. Current state: {self.current_simulation_state}. IK Results count: {len(ik_results)}"
+        )  # New entry log
         if not self.editor_view:
             logging.warning("EditorTab: EditorView not available to handle IK update.")
             return
@@ -1529,9 +1775,11 @@ class EditorTab(QWidget):
         if ik_results:
             self.editor_view.update_visuals_from_animation_data(ik_results)
         else:
-            logging.info("EditorTab.handle_ik_update: No valid joint-centric data generated from ik_results to update visuals.")
+            logging.info(
+                "EditorTab.handle_ik_update: No valid joint-centric data generated from ik_results to update visuals."
+            )
 
-        self.editor_view.scene().update() # update_visuals_from_animation_data should handle scene update
+        self.editor_view.scene().update()  # update_visuals_from_animation_data should handle scene update
 
     # New handlers for signals from EditorView
     def _handle_part_item_clicked_from_view(self, clicked_item: CharacterPartItem):
@@ -1544,7 +1792,9 @@ class EditorTab(QWidget):
         for i in range(self.parts_list.count()):
             list_item = self.parts_list.item(i)
             if list_item.data(Qt.ItemDataRole.UserRole) == part_name:
-                self.parts_list.setCurrentItem(list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect)
+                self.parts_list.setCurrentItem(
+                    list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect
+                )
                 break
 
         # Ensure the item is also selected in the scene (QGraphicsView might do this, but be explicit)
@@ -1555,14 +1805,26 @@ class EditorTab(QWidget):
         self._update_button_states()
         self._update_gizmo_visibility()
 
-    def _handle_part_item_double_clicked_from_view(self, double_clicked_item: CharacterPartItem):
+    def _handle_part_item_double_clicked_from_view(
+        self, double_clicked_item: CharacterPartItem
+    ):
         """Handles a CharacterPartItem being double-clicked in the EditorView."""
         part_name = double_clicked_item.name()
         logging.debug(f"EditorTab: Part '{part_name}' double-clicked in view.")
         # Add logic for double-click action, e.g., open a detailed properties dialog
-        QMessageBox.information(self, "Part Double-Clicked", f"Part '{part_name}' was double-clicked.")
+        QMessageBox.information(
+            self, "Part Double-Clicked", f"Part '{part_name}' was double-clicked."
+        )
 
-    def _solve_four_bar_kinematics(self, P0: QPointF, P3: QPointF, L1: float, L2: float, L3: float, input_angle_L1_rad: float) -> Optional[Tuple[QPointF, QPointF, float, float, float]]:
+    def _solve_four_bar_kinematics(
+        self,
+        P0: QPointF,
+        P3: QPointF,
+        L1: float,
+        L2: float,
+        L3: float,
+        input_angle_L1_rad: float,
+    ) -> Optional[Tuple[QPointF, QPointF, float, float, float]]:
         """
         Solves the forward kinematics for a four-bar linkage for a given input angle of L1.
         P0 and P3 are fixed pivots. L1 is the crank, L2 the coupler, L3 the rocker.
@@ -1583,23 +1845,31 @@ class EditorTab(QWidget):
             P2 is the pivot between L2 and L3.
         """
         # Calculate P1 based on P0, L1, and input_angle_L1_rad
-        P1 = QPointF(P0.x() + L1 * math.cos(input_angle_L1_rad),
-                    P0.y() + L1 * math.sin(input_angle_L1_rad))
+        P1 = QPointF(
+            P0.x() + L1 * math.cos(input_angle_L1_rad),
+            P0.y() + L1 * math.sin(input_angle_L1_rad),
+        )
 
         # Now, find P2. P2 is at the intersection of two circles:
         # Circle 1: center P1, radius L2
         # Circle 2: center P3, radius L3
-        d_sq = (P3.x() - P1.x())**2 + (P3.y() - P1.y())**2
+        d_sq = (P3.x() - P1.x()) ** 2 + (P3.y() - P1.y()) ** 2
         d = math.sqrt(d_sq)
 
         # Check if solution is possible
         if d > L2 + L3 or d < abs(L2 - L3):
-            logging.warning(f"4-Bar Kinematics: No solution. d={d}, L2+L3={L2+L3}, |L2-L3|={abs(L2-L3)}")
+            logging.warning(
+                f"4-Bar Kinematics: No solution. d={d}, L2+L3={L2 + L3}, |L2-L3|={abs(L2 - L3)}"
+            )
             return None
-        if d == 0 and L2 != L3 : # P1 and P3 coincide, but L2 != L3
-             logging.warning(f"4-Bar Kinematics: No solution. P1 and P3 coincide, L2!=L3")
-             return None
-        if d == 0 and L2 == L3: # P1, P3 coincide, L2=L3. Infinite solutions for P2. Ambiguous.
+        if d == 0 and L2 != L3:  # P1 and P3 coincide, but L2 != L3
+            logging.warning(
+                f"4-Bar Kinematics: No solution. P1 and P3 coincide, L2!=L3"
+            )
+            return None
+        if (
+            d == 0 and L2 == L3
+        ):  # P1, P3 coincide, L2=L3. Infinite solutions for P2. Ambiguous.
             # This case could be handled by choosing P2 to make L2 continue in L1's direction or other rule.
             # For now, let's treat it as ambiguous / non-deterministic for a single pose.
             logging.warning(f"4-Bar Kinematics: Ambiguous. P1,P3 coincide and L2=L3.")
@@ -1607,13 +1877,17 @@ class EditorTab(QWidget):
             # Angle of L2 = input_angle_L1_rad
             # P2 = QPointF(P1.x() + L2 * math.cos(input_angle_L1_rad), P1.y() + L2 * math.sin(input_angle_L1_rad))
             # But this might not satisfy the L3 constraint unless L3 is also 0.
-            return None # Or a more sophisticated handling
+            return None  # Or a more sophisticated handling
 
         # Using law of cosines to find angles in triangle P1-P2-P3
         # Angle at P1 in triangle P1P3P2 (angle between P1P3 and P1P2)
         val_for_acos_gamma1 = (d_sq + L2**2 - L3**2) / (2 * d * L2)
-        if not (-1 <= val_for_acos_gamma1 <= 1): # Check due to potential floating point issues
-            logging.warning(f"4-Bar Kinematics: val_for_acos_gamma1 out of range: {val_for_acos_gamma1}. d={d}, L2={L2}, L3={L3}")
+        if not (
+            -1 <= val_for_acos_gamma1 <= 1
+        ):  # Check due to potential floating point issues
+            logging.warning(
+                f"4-Bar Kinematics: val_for_acos_gamma1 out of range: {val_for_acos_gamma1}. d={d}, L2={L2}, L3={L3}"
+            )
             return None
         gamma1 = math.acos(val_for_acos_gamma1)
 
@@ -1626,11 +1900,15 @@ class EditorTab(QWidget):
 
         for sign in [-1, 1]:  # Try both elbow configurations
             l2_angle_rad = phi_P1P3 + sign * gamma1
-            P2_test = QPointF(P1.x() + L2 * math.cos(l2_angle_rad),
-                            P1.y() + L2 * math.sin(l2_angle_rad))
+            P2_test = QPointF(
+                P1.x() + L2 * math.cos(l2_angle_rad),
+                P1.y() + L2 * math.sin(l2_angle_rad),
+            )
 
             # Verify the solution
-            dist_P2_P3 = math.sqrt((P2_test.x() - P3.x())**2 + (P2_test.y() - P3.y())**2)
+            dist_P2_P3 = math.sqrt(
+                (P2_test.x() - P3.x()) ** 2 + (P2_test.y() - P3.y()) ** 2
+            )
             if abs(dist_P2_P3 - L3) < 0.001:  # Small tolerance for floating point
                 solutions.append((P2_test, l2_angle_rad))
 
@@ -1658,11 +1936,13 @@ class EditorTab(QWidget):
         self._clear_preview_mechanism()
 
         # Display the mechanism as preview
-        self._load_and_display_mechanism(mechanism_data, self._preview_user_path_center, is_preview=True)
+        self._load_and_display_mechanism(
+            mechanism_data, self._preview_user_path_center, is_preview=True
+        )
 
     def _clear_preview_mechanism(self):
         """Clear preview mechanism visuals if they exist."""
-        if hasattr(self, '_preview_mechanism_items'):
+        if hasattr(self, "_preview_mechanism_items"):
             for item in self._preview_mechanism_items:
                 if item.scene() == self.editor_scene:
                     self.editor_scene.removeItem(item)
@@ -1670,13 +1950,19 @@ class EditorTab(QWidget):
 
     def _clear_preview_paths(self):
         """Clear any preview path visualizations."""
-        if hasattr(self, '_preview_path_items'):
+        if hasattr(self, "_preview_path_items"):
             for item in self._preview_path_items:
                 if item.scene() == self.editor_scene:
                     self.editor_scene.removeItem(item)
             self._preview_path_items.clear()
 
-    def _load_and_display_mechanism(self, mechanism_data: Dict[str, Any], user_path_center: QPointF, is_preview: bool = False, mechanism_id: Optional[str] = None):
+    def _load_and_display_mechanism(
+        self,
+        mechanism_data: Dict[str, Any],
+        user_path_center: QPointF,
+        is_preview: bool = False,
+        mechanism_id: Optional[str] = None,
+    ):
         # Stop any ongoing simulation before clearing
         if not is_preview and self.is_mechanism_simulating:
             self.is_mechanism_simulating = False
@@ -1685,7 +1971,7 @@ class EditorTab(QWidget):
 
         # Choose the appropriate item list based on preview status
         if is_preview:
-            if not hasattr(self, '_preview_mechanism_items'):
+            if not hasattr(self, "_preview_mechanism_items"):
                 self._preview_mechanism_items = []
             items_list = self._preview_mechanism_items
             # Clear previous preview items
@@ -1711,11 +1997,14 @@ class EditorTab(QWidget):
 
         # Get user's drawn path
         user_motion_path = None
-        if hasattr(self, '_preview_user_path') and self._preview_user_path:
+        if hasattr(self, "_preview_user_path") and self._preview_user_path:
             user_motion_path = self._preview_user_path
-        elif self.selected_part_name and self.selected_part_name in self.current_editor_items:
+        elif (
+            self.selected_part_name
+            and self.selected_part_name in self.current_editor_items
+        ):
             part_item = self.current_editor_items[self.selected_part_name]
-            if hasattr(part_item, 'motion_path_item') and part_item.motion_path_item:
+            if hasattr(part_item, "motion_path_item") and part_item.motion_path_item:
                 user_motion_path = part_item.motion_path_item.path()
 
         if not user_motion_path or user_motion_path.isEmpty():
@@ -1723,7 +2012,9 @@ class EditorTab(QWidget):
             return
 
         # --- Constants for Drawing ---
-        LINK_COLOR = Qt.GlobalColor.darkCyan if not is_preview else Qt.GlobalColor.darkGray
+        LINK_COLOR = (
+            Qt.GlobalColor.darkCyan if not is_preview else Qt.GlobalColor.darkGray
+        )
         LINK_THICKNESS = 6 if not is_preview else 4
         PIVOT_COLOR = Qt.GlobalColor.red if not is_preview else Qt.GlobalColor.darkRed
         PIVOT_RADIUS = 4
@@ -1731,7 +2022,9 @@ class EditorTab(QWidget):
 
         if mech_type == MECHANISM_TYPE_USER_DISPLAY_4_BAR and path_coords:
             # Align mechanism path to user path
-            scale_factor, translation, rotation = self._align_paths(user_motion_path, path_coords)
+            scale_factor, translation, rotation = self._align_paths(
+                user_motion_path, path_coords
+            )
 
             # Apply scaling to link lengths
             L1 = params.get("L1", 1.0) * scale_factor
@@ -1781,12 +2074,14 @@ class EditorTab(QWidget):
             if aligned_path_points:
                 target_start = aligned_path_points[0]
                 best_angle = 0
-                best_distance = float('inf')
+                best_distance = float("inf")
 
                 # Try different angles to find closest to path start
                 for angle_deg in range(0, 360, 5):
                     angle_rad = math.radians(angle_deg)
-                    solution = self._solve_four_bar_kinematics(P0, P3, L1, L2, L3, angle_rad)
+                    solution = self._solve_four_bar_kinematics(
+                        P0, P3, L1, L2, L3, angle_rad
+                    )
                     if solution:
                         _, P2, _, _, _ = solution
                         distance = (P2 - target_start).manhattanLength()
@@ -1810,24 +2105,40 @@ class EditorTab(QWidget):
                     "L1": L1,
                     "L2": L2,
                     "L3": L3,
-                    "L4_ground": L4_ground
+                    "L4_ground": L4_ground,
                 }
 
             # Solve initial kinematics
-            kinematic_solution = self._solve_four_bar_kinematics(P0, P3, L1, L2, L3, initial_crank_angle_rad)
+            kinematic_solution = self._solve_four_bar_kinematics(
+                P0, P3, L1, L2, L3, initial_crank_angle_rad
+            )
 
             if kinematic_solution:
                 P1, P2, _, _, _ = kinematic_solution
 
                 # Create visual items (rest of the code remains similar)
-                link1_item = self.editor_scene.addLine(P0.x(), P0.y(), P1.x(), P1.y(), QPen(LINK_COLOR, LINK_THICKNESS))
-                link2_item = self.editor_scene.addLine(P1.x(), P1.y(), P2.x(), P2.y(), QPen(LINK_COLOR, LINK_THICKNESS))
-                link3_item = self.editor_scene.addLine(P2.x(), P2.y(), P3.x(), P3.y(), QPen(LINK_COLOR, LINK_THICKNESS))
-                ground_link_item = self.editor_scene.addLine(P3.x(), P3.y(), P0.x(), P0.y(), QPen(GROUND_LINK_COLOR, LINK_THICKNESS, style=Qt.PenStyle.DashLine))
+                link1_item = self.editor_scene.addLine(
+                    P0.x(), P0.y(), P1.x(), P1.y(), QPen(LINK_COLOR, LINK_THICKNESS)
+                )
+                link2_item = self.editor_scene.addLine(
+                    P1.x(), P1.y(), P2.x(), P2.y(), QPen(LINK_COLOR, LINK_THICKNESS)
+                )
+                link3_item = self.editor_scene.addLine(
+                    P2.x(), P2.y(), P3.x(), P3.y(), QPen(LINK_COLOR, LINK_THICKNESS)
+                )
+                ground_link_item = self.editor_scene.addLine(
+                    P3.x(),
+                    P3.y(),
+                    P0.x(),
+                    P0.y(),
+                    QPen(GROUND_LINK_COLOR, LINK_THICKNESS, style=Qt.PenStyle.DashLine),
+                )
 
                 # Create pivots (code continues as before...)
                 if not is_preview:
-                    from ..graphics_items.mechanism_anchor_item import MechanismAnchorItem
+                    from ..graphics_items.mechanism_anchor_item import (
+                        MechanismAnchorItem,
+                    )
 
                     pivot0_item = MechanismAnchorItem("P0", P0, PIVOT_RADIUS)
                     pivot0_item.default_color = QColor(200, 100, 100)
@@ -1847,9 +2158,15 @@ class EditorTab(QWidget):
 
                     # Connect signals
                     pivot0_item.signals.position_changed.connect(
-                        lambda anchor_id, pos: self._on_mechanism_anchor_moved(anchor_id, pos, mechanism_id))
+                        lambda anchor_id, pos: self._on_mechanism_anchor_moved(
+                            anchor_id, pos, mechanism_id
+                        )
+                    )
                     pivot3_item.signals.position_changed.connect(
-                        lambda anchor_id, pos: self._on_mechanism_anchor_moved(anchor_id, pos, mechanism_id))
+                        lambda anchor_id, pos: self._on_mechanism_anchor_moved(
+                            anchor_id, pos, mechanism_id
+                        )
+                    )
 
                     self.editor_scene.addItem(pivot0_item)
                     self.editor_scene.addItem(pivot1_item)
@@ -1857,31 +2174,76 @@ class EditorTab(QWidget):
                     self.editor_scene.addItem(pivot3_item)
                 else:
                     # Simple ellipses for preview
-                    pivot0_item = self.editor_scene.addEllipse(P0.x() - PIVOT_RADIUS, P0.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
-                    pivot1_item = self.editor_scene.addEllipse(P1.x() - PIVOT_RADIUS, P1.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
-                    pivot2_item = self.editor_scene.addEllipse(P2.x() - PIVOT_RADIUS, P2.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
-                    pivot3_item = self.editor_scene.addEllipse(P3.x() - PIVOT_RADIUS, P3.y() - PIVOT_RADIUS, PIVOT_RADIUS*2, PIVOT_RADIUS*2, QPen(Qt.GlobalColor.black), QBrush(PIVOT_COLOR))
+                    pivot0_item = self.editor_scene.addEllipse(
+                        P0.x() - PIVOT_RADIUS,
+                        P0.y() - PIVOT_RADIUS,
+                        PIVOT_RADIUS * 2,
+                        PIVOT_RADIUS * 2,
+                        QPen(Qt.GlobalColor.black),
+                        QBrush(PIVOT_COLOR),
+                    )
+                    pivot1_item = self.editor_scene.addEllipse(
+                        P1.x() - PIVOT_RADIUS,
+                        P1.y() - PIVOT_RADIUS,
+                        PIVOT_RADIUS * 2,
+                        PIVOT_RADIUS * 2,
+                        QPen(Qt.GlobalColor.black),
+                        QBrush(PIVOT_COLOR),
+                    )
+                    pivot2_item = self.editor_scene.addEllipse(
+                        P2.x() - PIVOT_RADIUS,
+                        P2.y() - PIVOT_RADIUS,
+                        PIVOT_RADIUS * 2,
+                        PIVOT_RADIUS * 2,
+                        QPen(Qt.GlobalColor.black),
+                        QBrush(PIVOT_COLOR),
+                    )
+                    pivot3_item = self.editor_scene.addEllipse(
+                        P3.x() - PIVOT_RADIUS,
+                        P3.y() - PIVOT_RADIUS,
+                        PIVOT_RADIUS * 2,
+                        PIVOT_RADIUS * 2,
+                        QPen(Qt.GlobalColor.black),
+                        QBrush(PIVOT_COLOR),
+                    )
 
-                items_list.extend([link1_item, link2_item, link3_item, ground_link_item, pivot0_item, pivot1_item, pivot2_item, pivot3_item])
+                items_list.extend(
+                    [
+                        link1_item,
+                        link2_item,
+                        link3_item,
+                        ground_link_item,
+                        pivot0_item,
+                        pivot1_item,
+                        pivot2_item,
+                        pivot3_item,
+                    ]
+                )
 
                 # Store mechanism info if not preview
                 if not is_preview and mechanism_id:
                     self.mechanisms[mechanism_id] = {
-                        'type': mech_type,
-                        'data': mechanism_data,
-                        'items': items_list.copy(),
-                        'params': {
-                            'L1': L1, 'L2': L2, 'L3': L3, 'L4_ground': L4_ground,
-                            'P0': P0, 'P3': P3
+                        "type": mech_type,
+                        "data": mechanism_data,
+                        "items": items_list.copy(),
+                        "params": {
+                            "L1": L1,
+                            "L2": L2,
+                            "L3": L3,
+                            "L4_ground": L4_ground,
+                            "P0": P0,
+                            "P3": P3,
                         },
-                        'aligned_path_points': aligned_path_points,
-                        'part_name': self.selected_part_name,
-                        'visible': True
+                        "aligned_path_points": aligned_path_points,
+                        "part_name": self.selected_part_name,
+                        "visible": True,
                     }
                     self.active_mechanism_id = mechanism_id
 
                     # Add to list widget
-                    list_item = QListWidgetItem(f"{self.selected_part_name} - {mech_type}")
+                    list_item = QListWidgetItem(
+                        f"{self.selected_part_name} - {mech_type}"
+                    )
                     list_item.setData(Qt.ItemDataRole.UserRole, mechanism_id)
                     self.mechanisms_list.addItem(list_item)
 
@@ -1889,11 +2251,19 @@ class EditorTab(QWidget):
                 if not is_preview:
                     self._add_aligned_path_visualization(aligned_path_points)
 
-                logging.info(f"Displayed aligned 4-bar linkage with proper path matching")
+                logging.info(
+                    f"Displayed aligned 4-bar linkage with proper path matching"
+                )
             else:
                 if not is_preview:
-                    QMessageBox.warning(self, "Mechanism Error", "Could not solve kinematics for the aligned 4-bar linkage.")
-                logging.error("Failed to display 4-bar linkage due to kinematic solution error.")
+                    QMessageBox.warning(
+                        self,
+                        "Mechanism Error",
+                        "Could not solve kinematics for the aligned 4-bar linkage.",
+                    )
+                logging.error(
+                    "Failed to display 4-bar linkage due to kinematic solution error."
+                )
 
         # Handle other mechanism types...
         elif mech_type == MECHANISM_TYPE_USER_DISPLAY_3_BAR:
@@ -1907,7 +2277,7 @@ class EditorTab(QWidget):
 
     def _add_aligned_path_visualization(self, aligned_path_points: List[QPointF]):
         """Add visualization of the aligned mechanism path."""
-        if not hasattr(self, '_mechanism_path_items'):
+        if not hasattr(self, "_mechanism_path_items"):
             self._mechanism_path_items = []
 
         # Clear previous path items
@@ -1941,9 +2311,17 @@ class EditorTab(QWidget):
         self._current_mechanism_path = path
         self._current_mechanism_path_points = aligned_path_points
 
-    def _add_mechanism_path_visualization(self, mechanism_data: Dict[str, Any], P0: QPointF, P3: QPointF, L1: float, L2: float, L3: float):
+    def _add_mechanism_path_visualization(
+        self,
+        mechanism_data: Dict[str, Any],
+        P0: QPointF,
+        P3: QPointF,
+        L1: float,
+        L2: float,
+        L3: float,
+    ):
         """Add a blue path showing the mechanism's motion trajectory."""
-        if not hasattr(self, '_mechanism_path_items'):
+        if not hasattr(self, "_mechanism_path_items"):
             self._mechanism_path_items = []
 
         # Clear previous path items
@@ -1954,25 +2332,35 @@ class EditorTab(QWidget):
 
         # Use the provided path coordinates if available
         path_coords = mechanism_data.get("path_coordinates", [])
-        if path_coords and hasattr(self, '_mechanism_offset'):
+        if path_coords and hasattr(self, "_mechanism_offset"):
             # Use the pre-calculated path from JSON
             path = QPainterPath()
             offset = self._mechanism_offset
 
             # Get the same scaling factor used for the mechanism
             user_path_bounds = QRectF()
-            if hasattr(self, '_preview_user_path') and self._preview_user_path:
+            if hasattr(self, "_preview_user_path") and self._preview_user_path:
                 user_path_bounds = self._preview_user_path.boundingRect()
-            elif self.selected_part_name and self.selected_part_name in self.current_editor_items:
+            elif (
+                self.selected_part_name
+                and self.selected_part_name in self.current_editor_items
+            ):
                 part_item = self.current_editor_items[self.selected_part_name]
-                if hasattr(part_item, 'motion_path_item') and part_item.motion_path_item:
+                if (
+                    hasattr(part_item, "motion_path_item")
+                    and part_item.motion_path_item
+                ):
                     user_path_bounds = part_item.motion_path_item.path().boundingRect()
 
             # Use the stored scaling factor if available
-            if hasattr(self, '_mechanism_scale'):
+            if hasattr(self, "_mechanism_scale"):
                 SCALING_FACTOR = self._mechanism_scale
             else:
-                path_size = max(user_path_bounds.width(), user_path_bounds.height()) if not user_path_bounds.isEmpty() else 100
+                path_size = (
+                    max(user_path_bounds.width(), user_path_bounds.height())
+                    if not user_path_bounds.isEmpty()
+                    else 100
+                )
                 SCALING_FACTOR = path_size * 0.8
 
             # Transform and create the path
@@ -1989,7 +2377,10 @@ class EditorTab(QWidget):
                     path.lineTo(point)
 
             # Close the path if it's a closed curve
-            if len(path_points) > 2 and (path_points[0] - path_points[-1]).manhattanLength() < 10:
+            if (
+                len(path_points) > 2
+                and (path_points[0] - path_points[-1]).manhattanLength() < 10
+            ):
                 path.closeSubpath()
 
             # Store the path points for skeleton animation
@@ -2033,9 +2424,16 @@ class EditorTab(QWidget):
         # Store the path for potential use by skeleton
         self._current_mechanism_path = path
 
-    def _add_3bar_path_visualization(self, mechanism_data: Dict[str, Any], P0: QPointF, L1: float, L2: float, slider_y: float):
+    def _add_3bar_path_visualization(
+        self,
+        mechanism_data: Dict[str, Any],
+        P0: QPointF,
+        L1: float,
+        L2: float,
+        slider_y: float,
+    ):
         """Add path visualization for 3-bar linkage."""
-        if not hasattr(self, '_mechanism_path_items'):
+        if not hasattr(self, "_mechanism_path_items"):
             self._mechanism_path_items = []
 
         # Clear previous path items
@@ -2053,14 +2451,13 @@ class EditorTab(QWidget):
             angle = (i / num_samples) * 2 * math.pi
 
             # Crank endpoint
-            P1 = QPointF(P0.x() + L1 * math.cos(angle),
-                        P0.y() + L1 * math.sin(angle))
+            P1 = QPointF(P0.x() + L1 * math.cos(angle), P0.y() + L1 * math.sin(angle))
 
             # Slider position (horizontal motion only)
             # Using law of cosines to find slider position
             dy = P1.y() - slider_y
             if abs(dy) < L2:  # Check if rod can reach
-                dx = math.sqrt(L2*L2 - dy*dy)
+                dx = math.sqrt(L2 * L2 - dy * dy)
                 slider_x = P1.x() + dx
                 P2 = QPointF(slider_x, slider_y)
                 path_points.append(P2)
@@ -2082,9 +2479,15 @@ class EditorTab(QWidget):
         self._current_mechanism_path = path
         self._current_mechanism_path_points = path_points
 
-    def _add_cam_path_visualization(self, mechanism_data: Dict[str, Any], cam_center: QPointF, cam_radius: float, eccentricity: float):
+    def _add_cam_path_visualization(
+        self,
+        mechanism_data: Dict[str, Any],
+        cam_center: QPointF,
+        cam_radius: float,
+        eccentricity: float,
+    ):
         """Add path visualization for cam mechanism."""
-        if not hasattr(self, '_mechanism_path_items'):
+        if not hasattr(self, "_mechanism_path_items"):
             self._mechanism_path_items = []
 
         # Clear previous path items
@@ -2127,26 +2530,32 @@ class EditorTab(QWidget):
         self._current_mechanism_path = path
         self._current_mechanism_path_points = path_points
 
-    def _on_mechanism_anchor_moved(self, anchor_id: str, new_position: QPointF, mechanism_id: str):
+    def _on_mechanism_anchor_moved(
+        self, anchor_id: str, new_position: QPointF, mechanism_id: str
+    ):
         """Handle mechanism anchor being moved by user."""
-        logging.info(f"Anchor {anchor_id} moved to {new_position} for mechanism {mechanism_id}")
+        logging.info(
+            f"Anchor {anchor_id} moved to {new_position} for mechanism {mechanism_id}"
+        )
 
         if mechanism_id not in self.mechanisms:
             return
 
         mech_info = self.mechanisms[mechanism_id]
-        params = mech_info['params']
+        params = mech_info["params"]
 
         # Update anchor positions
         if anchor_id == "P0":
-            old_P0 = params['P0']
-            params['P0'] = new_position
+            old_P0 = params["P0"]
+            params["P0"] = new_position
             # Keep L4_ground constant, update P3
-            params['P3'] = QPointF(new_position.x() + params['L4_ground'], new_position.y())
+            params["P3"] = QPointF(
+                new_position.x() + params["L4_ground"], new_position.y()
+            )
         elif anchor_id == "P3":
-            params['P3'] = new_position
+            params["P3"] = new_position
             # Update L4_ground based on new P3 position
-            params['L4_ground'] = abs(new_position.x() - params['P0'].x())
+            params["L4_ground"] = abs(new_position.x() - params["P0"].x())
 
         # Update the mechanism visualization
         self._update_mechanism_from_anchors(mechanism_id)
@@ -2157,18 +2566,18 @@ class EditorTab(QWidget):
             return
 
         mech_info = self.mechanisms[mechanism_id]
-        params = mech_info['params']
-        items = mech_info['items']
+        params = mech_info["params"]
+        items = mech_info["items"]
 
         # Get current positions
-        P0 = params['P0']
-        P3 = params['P3']
-        L1 = params['L1']
-        L2 = params['L2']
-        L3 = params['L3']
+        P0 = params["P0"]
+        P3 = params["P3"]
+        L1 = params["L1"]
+        L2 = params["L2"]
+        L3 = params["L3"]
 
         # Recalculate kinematics with current angle
-        current_angle = getattr(self, 'current_mechanism_crank_angle_rad', 0)
+        current_angle = getattr(self, "current_mechanism_crank_angle_rad", 0)
         solution = self._solve_four_bar_kinematics(P0, P3, L1, L2, L3, current_angle)
 
         if solution:
@@ -2188,6 +2597,7 @@ class EditorTab(QWidget):
 
                 # Update pivot positions
                 from ..graphics_items.mechanism_anchor_item import MechanismAnchorItem
+
                 # P0 (items[4]) and P3 (items[7]) positions are already updated by drag
                 if isinstance(items[5], MechanismAnchorItem):
                     items[5].set_center_pos(P1)
@@ -2197,7 +2607,9 @@ class EditorTab(QWidget):
                     items[7].set_center_pos(P3)
 
             # Update the blue path
-            self._add_mechanism_path_visualization(mech_info['data'], P0, P3, L1, L2, L3)
+            self._add_mechanism_path_visualization(
+                mech_info["data"], P0, P3, L1, L2, L3
+            )
 
         self.editor_scene.update()
 
@@ -2214,7 +2626,7 @@ class EditorTab(QWidget):
         # Update button states based on visibility
         if mechanism_id in self.mechanisms:
             mech_info = self.mechanisms[mechanism_id]
-            if mech_info.get('visible', True):
+            if mech_info.get("visible", True):
                 self.show_mechanism_btn.setEnabled(False)
                 self.hide_mechanism_btn.setEnabled(True)
             else:
@@ -2225,10 +2637,10 @@ class EditorTab(QWidget):
         """Show the selected mechanism."""
         if self.active_mechanism_id and self.active_mechanism_id in self.mechanisms:
             mech_info = self.mechanisms[self.active_mechanism_id]
-            mech_info['visible'] = True
+            mech_info["visible"] = True
 
             # Show all items
-            for item in mech_info['items']:
+            for item in mech_info["items"]:
                 item.setVisible(True)
 
             # Update buttons
@@ -2240,10 +2652,10 @@ class EditorTab(QWidget):
         """Hide the selected mechanism."""
         if self.active_mechanism_id and self.active_mechanism_id in self.mechanisms:
             mech_info = self.mechanisms[self.active_mechanism_id]
-            mech_info['visible'] = False
+            mech_info["visible"] = False
 
             # Hide all items
-            for item in mech_info['items']:
+            for item in mech_info["items"]:
                 item.setVisible(False)
 
             # Update buttons
@@ -2257,7 +2669,7 @@ class EditorTab(QWidget):
             mech_info = self.mechanisms[self.active_mechanism_id]
 
             # Remove all items from scene
-            for item in mech_info['items']:
+            for item in mech_info["items"]:
                 if item.scene() == self.editor_scene:
                     self.editor_scene.removeItem(item)
 
@@ -2288,11 +2700,14 @@ class EditorTab(QWidget):
             return
 
         # Check if we have an active mechanism with aligned path
-        if not self.active_mechanism_id or self.active_mechanism_id not in self.mechanisms:
+        if (
+            not self.active_mechanism_id
+            or self.active_mechanism_id not in self.mechanisms
+        ):
             return
 
         mech_info = self.mechanisms[self.active_mechanism_id]
-        aligned_path_points = mech_info.get('aligned_path_points', [])
+        aligned_path_points = mech_info.get("aligned_path_points", [])
 
         if not aligned_path_points:
             logging.warning("No aligned path points for mechanism simulation")
@@ -2300,24 +2715,26 @@ class EditorTab(QWidget):
 
         # Update crank angle
         self.current_mechanism_crank_angle_rad += self.mechanism_simulation_angular_step
-        self.current_mechanism_crank_angle_rad %= (2 * math.pi)
+        self.current_mechanism_crank_angle_rad %= 2 * math.pi
 
         # Get mechanism parameters
-        params = mech_info['params']
-        P0 = params['P0']
-        P3 = params['P3']
-        L1 = params['L1']
-        L2 = params['L2']
-        L3 = params['L3']
+        params = mech_info["params"]
+        P0 = params["P0"]
+        P3 = params["P3"]
+        L1 = params["L1"]
+        L2 = params["L2"]
+        L3 = params["L3"]
 
         # Solve kinematics for current angle
-        solution = self._solve_four_bar_kinematics(P0, P3, L1, L2, L3, self.current_mechanism_crank_angle_rad)
+        solution = self._solve_four_bar_kinematics(
+            P0, P3, L1, L2, L3, self.current_mechanism_crank_angle_rad
+        )
 
         if solution:
             P1, P2, _, _, _ = solution
 
             # Update visual items
-            items = mech_info['items']
+            items = mech_info["items"]
             if len(items) >= 8:
                 # Update links
                 if isinstance(items[0], QGraphicsLineItem):
@@ -2329,6 +2746,7 @@ class EditorTab(QWidget):
 
                 # Update moving pivots
                 from ..graphics_items.mechanism_anchor_item import MechanismAnchorItem
+
                 if isinstance(items[5], MechanismAnchorItem):
                     items[5].set_center_pos(P1)
                 elif isinstance(items[5], QGraphicsEllipseItem):
@@ -2340,7 +2758,7 @@ class EditorTab(QWidget):
                     items[6].setRect(P2.x() - 4, P2.y() - 4, 8, 8)
 
             # Find the closest point on the aligned path to P2
-            min_distance = float('inf')
+            min_distance = float("inf")
             closest_path_point = aligned_path_points[0]
             closest_index = 0
 
@@ -2353,25 +2771,41 @@ class EditorTab(QWidget):
 
             # The mechanism's output point P2 is the target for the IK chain.
             # Emit a signal to notify the IKManager.
-            if self.selected_part_name and hasattr(self.main_window, 'ik_manager'):
+            if self.selected_part_name and hasattr(self.main_window, "ik_manager"):
                 target_path_for_ik = QPainterPath()
-                target_path_for_ik.moveTo(P2) # P2 is the calculated output point of the mechanism
-                self.motion_path_updated.emit(self.selected_part_name, target_path_for_ik)
+                target_path_for_ik.moveTo(
+                    P2
+                )  # P2 is the calculated output point of the mechanism
+                self.motion_path_updated.emit(
+                    self.selected_part_name, target_path_for_ik
+                )
 
             # Log progress occasionally
             if int(math.degrees(self.current_mechanism_crank_angle_rad)) % 30 == 0:
-                logging.debug(f"Mechanism simulation: angle={math.degrees(self.current_mechanism_crank_angle_rad):.0f}°, "
-                            f"P2=({P2.x():.1f}, {P2.y():.1f}), closest_path_index={closest_index}")
+                logging.debug(
+                    f"Mechanism simulation: angle={math.degrees(self.current_mechanism_crank_angle_rad):.0f}°, "
+                    f"P2=({P2.x():.1f}, {P2.y():.1f}), closest_path_index={closest_index}"
+                )
         else:
-            logging.warning(f"No kinematic solution at angle {math.degrees(self.current_mechanism_crank_angle_rad):.1f}°")
+            logging.warning(
+                f"No kinematic solution at angle {math.degrees(self.current_mechanism_crank_angle_rad):.1f}°"
+            )
             # Optionally stop or skip this angle
 
         self.editor_scene.update()
 
-    def _update_displayed_mechanism_pose(self, crank_angle_rad: float, mechanism_data: Dict[str, Any], user_path_center: QPointF):
+    def _update_displayed_mechanism_pose(
+        self,
+        crank_angle_rad: float,
+        mechanism_data: Dict[str, Any],
+        user_path_center: QPointF,
+    ):
         """Helper function to update the visual items of a mechanism to a new pose."""
         # This is now primarily used for reset functionality
-        if not self.active_mechanism_id or self.active_mechanism_id not in self.mechanisms:
+        if (
+            not self.active_mechanism_id
+            or self.active_mechanism_id not in self.mechanisms
+        ):
             # Fallback to previous implementation for compatibility
             params = mechanism_data.get("parameters")
             mech_type = mechanism_data.get("type")
@@ -2381,12 +2815,12 @@ class EditorTab(QWidget):
 
         # Use the stored mechanism info
         mech_info = self.mechanisms[self.active_mechanism_id]
-        params = mech_info['params']
-        P0 = params['P0']
-        P3 = params['P3']
-        L1 = params['L1']
-        L2 = params['L2']
-        L3 = params['L3']
+        params = mech_info["params"]
+        P0 = params["P0"]
+        P3 = params["P3"]
+        L1 = params["L1"]
+        L2 = params["L2"]
+        L3 = params["L3"]
 
         # Solve kinematics
         solution = self._solve_four_bar_kinematics(P0, P3, L1, L2, L3, crank_angle_rad)
@@ -2395,7 +2829,7 @@ class EditorTab(QWidget):
             P1, P2, _, _, _ = solution
 
             # Update visual items
-            items = mech_info['items']
+            items = mech_info["items"]
             if len(items) >= 8:
                 # Update links
                 if isinstance(items[0], QGraphicsLineItem):
@@ -2407,6 +2841,7 @@ class EditorTab(QWidget):
 
                 # Update pivots
                 from ..graphics_items.mechanism_anchor_item import MechanismAnchorItem
+
                 if isinstance(items[5], MechanismAnchorItem):
                     items[5].set_center_pos(P1)
                 elif isinstance(items[5], QGraphicsEllipseItem):
@@ -2419,7 +2854,9 @@ class EditorTab(QWidget):
 
         self.editor_scene.update()
 
-    def _align_paths(self, user_path: QPainterPath, mechanism_coords: List[List[float]]) -> Tuple[float, QPointF, float]:
+    def _align_paths(
+        self, user_path: QPainterPath, mechanism_coords: List[List[float]]
+    ) -> Tuple[float, QPointF, float]:
         """
         Align mechanism path coordinates to user-drawn path.
         Returns: (scale_factor, translation_offset, rotation_angle)
@@ -2439,14 +2876,23 @@ class EditorTab(QWidget):
         mech_xs = [p.x() for p in mech_points]
         mech_ys = [p.y() for p in mech_points]
         mech_bounds = QRectF(
-            min(mech_xs), min(mech_ys),
+            min(mech_xs),
+            min(mech_ys),
             max(mech_xs) - min(mech_xs),
-            max(mech_ys) - min(mech_ys)
+            max(mech_ys) - min(mech_ys),
         )
 
         # Calculate scale to match sizes
-        scale_x = user_bounds.width() / mech_bounds.width() if mech_bounds.width() > 0 else 1.0
-        scale_y = user_bounds.height() / mech_bounds.height() if mech_bounds.height() > 0 else 1.0
+        scale_x = (
+            user_bounds.width() / mech_bounds.width()
+            if mech_bounds.width() > 0
+            else 1.0
+        )
+        scale_y = (
+            user_bounds.height() / mech_bounds.height()
+            if mech_bounds.height() > 0
+            else 1.0
+        )
 
         # Use uniform scaling to preserve mechanism proportions
         scale_factor = min(scale_x, scale_y)
@@ -2463,7 +2909,7 @@ class EditorTab(QWidget):
         scaled_mech_ys = [p.y() for p in scaled_mech_points]
         scaled_mech_center = QPointF(
             sum(scaled_mech_xs) / len(scaled_mech_xs),
-            sum(scaled_mech_ys) / len(scaled_mech_ys)
+            sum(scaled_mech_ys) / len(scaled_mech_ys),
         )
 
         # Translation to align centers

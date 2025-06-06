@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
+
 class ProcessingStepsGroup(QGroupBox):
     """A group box containing buttons for detailed image processing steps."""
+
     # Define signals for each button click if they need to be handled externally
     processImageClicked = pyqtSignal()
     editSkeletonClicked = pyqtSignal()
@@ -36,14 +38,21 @@ class ProcessingStepsGroup(QGroupBox):
         # Initially, this group might be hidden
         # self.setVisible(False) # Visibility will be controlled by ImageProcessingTab
 
-    def set_buttons_enabled_state(self, process_enabled: bool, edit_enabled: bool, save_enabled: bool, generate_enabled: bool):
+    def set_buttons_enabled_state(
+        self,
+        process_enabled: bool,
+        edit_enabled: bool,
+        save_enabled: bool,
+        generate_enabled: bool,
+    ):
         """Allows external control over the enabled state of the buttons."""
         self.process_image_btn.setEnabled(process_enabled)
         self.edit_skeleton_btn.setEnabled(edit_enabled)
         self.save_skeleton_btn.setEnabled(save_enabled)
         self.create_parts_btn.setEnabled(generate_enabled)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     from PyQt6.QtWidgets import QApplication
     import sys
 
@@ -66,8 +75,10 @@ if __name__ == '__main__':
 
     # Toggle visibility button for testing
     toggle_btn = QPushButton("Toggle Steps Visibility")
+
     def toggle_visibility():
         steps_group.setVisible(not steps_group.isVisible())
+
     toggle_btn.clicked.connect(toggle_visibility)
     main_layout.addWidget(toggle_btn)
 

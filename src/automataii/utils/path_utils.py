@@ -1,8 +1,9 @@
-"""Path manipulation utilities.
-"""
+"""Path manipulation utilities."""
+
 from PyQt6.QtGui import QPainterPath
 from PyQt6.QtCore import QPointF
 from typing import List
+
 
 def create_smooth_path(points: List[QPointF]) -> QPainterPath:
     """Creates a smooth QPainterPath from a list of points using Catmull-Rom-like splines (converted to Bezier segments).
@@ -44,7 +45,8 @@ def create_smooth_path(points: List[QPointF]) -> QPainterPath:
     # trying to make it smooth. It's not a full spline algorithm.
 
     if n < 2:
-        if n == 1: path.moveTo(points[0])
+        if n == 1:
+            path.moveTo(points[0])
         return path
 
     path.moveTo(points[0])
@@ -53,7 +55,7 @@ def create_smooth_path(points: List[QPointF]) -> QPainterPath:
         return path
 
     # Handle first segment as line or quadratic
-    path.lineTo(points[1]) # Start with a line to the second point
+    path.lineTo(points[1])  # Start with a line to the second point
 
     # For subsequent points, use cubic Bezier. Control points need calculation.
     # A robust spline implementation is non-trivial.

@@ -2,6 +2,7 @@ from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 
+
 class UIColors:
     # New color palette
     BITTERSWEET = QColor("#ff595e")
@@ -9,7 +10,7 @@ class UIColors:
     YELLOW_GREEN = QColor("#8ac926")
     STEEL_BLUE = QColor("#1982c4")
     ULTRA_VIOLET = QColor("#6a4c93")
-    
+
     # Existing mechanism colors
     COMPONENT_FRONT = QColor("#87CEEB")  # SkyBlue
     COMPONENT_BACK = QColor("#4682B4")  # SteelBlue
@@ -39,6 +40,7 @@ class UIColors:
     MOTION_PATH_COLOR = QColor(0, 255, 0, 150)
     DEBUG_HELPER_COLOR = QColor(255, 0, 255, 180)  # Magenta for helpers
 
+
 def apply_dark_theme(app: QApplication) -> None:
     """Applies a dark theme palette to the QApplication instance."""
     palette = QPalette()
@@ -54,12 +56,25 @@ def apply_dark_theme(app: QApplication) -> None:
     palette.setColor(QPalette.ColorRole.BrightText, Qt.GlobalColor.red)
     palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
     palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
-    palette.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white) # White text on highlight
+    palette.setColor(
+        QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white
+    )  # White text on highlight
     # Set disabled colors
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(127, 127, 127))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(127, 127, 127))
-    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.ButtonText,
+        QColor(127, 127, 127),
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.WindowText,
+        QColor(127, 127, 127),
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127)
+    )
     app.setPalette(palette)
+
 
 # Stylesheets for the Automata Designer application
 

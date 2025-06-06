@@ -12,17 +12,20 @@ logger = logging.getLogger(__name__)
 
 # Define number of classes for each stage and total
 NUM_STAGE1_CLASSES = 4  # 0:bg, 1:head, 2:body, 3:limbs (example)
-NUM_STAGE2_CLASSES = 14 # Non-facial parts + background
-NUM_STAGE3_CLASSES = 11 # Facial parts + background within face crop
+NUM_STAGE2_CLASSES = 14  # Non-facial parts + background
+NUM_STAGE3_CLASSES = 11  # Facial parts + background within face crop
 NUM_TOTAL_CLASSES = 25  # Total semantic labels
 
 # Placeholder mapping (Needs actual dataset definition)
 # Map Stage 2 indices (0-13) to Final indices (0-24)
-STAGE2_TO_FINAL_MAP = {i: i for i in range(NUM_STAGE2_CLASSES)} # Example: direct map
+STAGE2_TO_FINAL_MAP = {i: i for i in range(NUM_STAGE2_CLASSES)}  # Example: direct map
 # Map Stage 3 indices (0-10) within face crop to Final indices (0-24)
-STAGE3_TO_FINAL_MAP = {i: i + NUM_STAGE2_CLASSES for i in range(1, NUM_STAGE3_CLASSES)} # Example: offset map, skipping bg
-STAGE3_BACKGROUND_IDX = 0 # Assuming index 0 is background in stage 3
-FACE_CLASS_INDEX_STAGE2 = 1 # Placeholder index for 'face' in stage 2 output
+STAGE3_TO_FINAL_MAP = {
+    i: i + NUM_STAGE2_CLASSES for i in range(1, NUM_STAGE3_CLASSES)
+}  # Example: offset map, skipping bg
+STAGE3_BACKGROUND_IDX = 0  # Assuming index 0 is background in stage 3
+FACE_CLASS_INDEX_STAGE2 = 1  # Placeholder index for 'face' in stage 2 output
+
 
 class CharSegNet(nn.Module):
     """
@@ -37,9 +40,10 @@ class CharSegNet(nn.Module):
         freeze_encoder (bool): If True, freezes the weights of the SAM image encoder.
                                Defaults to False, allowing fine-tuning.
     """
+
     def __init__(
         self,
-        sam_model_type: str = "vit_h", # Default to largest model
+        sam_model_type: str = "vit_h",  # Default to largest model
         sam_checkpoint: str | None = None,
         freeze_encoder: bool = False,
     ) -> None:
@@ -136,12 +140,13 @@ class CharSegNet(nn.Module):
         return x
 
     def _get_face_crops_and_masks(
-        self,
-        image: torch.Tensor,
-        stage2_logits: torch.Tensor,
-        face_class_index: int
-    ) -> Tuple[List[Optional[torch.Tensor]], List[Optional[torch.Tensor]], List[Optional[List[int]]]]:
-        """ Get face crops, masks, and bounding boxes based on Stage 2 output.
+        self, image: torch.Tensor, stage2_logits: torch.Tensor, face_class_index: int
+    ) -> Tuple[
+        List[Optional[torch.Tensor]],
+        List[Optional[torch.Tensor]],
+        List[Optional[List[int]]],
+    ]:
+        """Get face crops, masks, and bounding boxes based on Stage 2 output.
 
         Returns:
             Tuple containing lists (one element per batch item):
@@ -158,7 +163,7 @@ class CharSegNet(nn.Module):
         face_probs = torch.softmax(stage2_logits, dim=1)[:, face_class_index, :, :]
         # Thresholding or finding the largest connected component might be needed
         # Simple thresholding for now:
-        face_binary_mask_full = (face_probs > 0.5) # (B, H, W)
+        face_binary_mask_full = face_probs > 0.5  # (B, H, W)
 
         if not face_binary_mask_full.any():
             logger.warning("No face region found based on Stage 2 output.")
@@ -175,7 +180,7 @@ class CharSegNet(nn.Module):
 
         for i in range(batch_size):
             if not face_binary_mask_full[i].any():
-                continue # No face found in this batch item
+                continue  # No face found in this batch item
 
             box = boxes[i].round().int()
             x1, y1, x2, y2 = box.tolist()
@@ -184,12 +189,16 @@ class CharSegNet(nn.Module):
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(image.shape[3], x2), min(image.shape[2], y2)
             if x1 >= x2 or y1 >= y2:
-                logger.warning(f"Invalid bounding box for batch {i}: {[x1, y1, x2, y2]}")
+                logger.warning(
+                    f"Invalid bounding box for batch {i}: {[x1, y1, x2, y2]}"
+                )
                 continue
 
             # Crop the original image and the binary face mask
-            crop = image[i:i+1, :, y1:y2, x1:x2]
-            mask_crop = face_binary_mask_full[i:i+1, y1:y2, x1:x2].unsqueeze(1).float() # (1, 1, H_crop, W_crop)
+            crop = image[i : i + 1, :, y1:y2, x1:x2]
+            mask_crop = (
+                face_binary_mask_full[i : i + 1, y1:y2, x1:x2].unsqueeze(1).float()
+            )  # (1, 1, H_crop, W_crop)
 
             face_crops[i] = crop
             face_masks[i] = mask_crop
@@ -197,7 +206,9 @@ class CharSegNet(nn.Module):
 
         return face_crops, face_masks, face_bboxes
 
-    def _upsample_logits(self, logits: torch.Tensor, target_size: Tuple[int, int]) -> torch.Tensor:
+    def _upsample_logits(
+        self, logits: torch.Tensor, target_size: Tuple[int, int]
+    ) -> torch.Tensor:
         """Upsamples logits to the target spatial size."""
         # Expects logits shape (B, C, H, W)
         if logits.shape[-2:] == target_size:
@@ -224,7 +235,7 @@ class CharSegNet(nn.Module):
                                            'stage3_logits', 'final_logits'.
                                      Logits are typically (B, NumClasses, H_out, W_out).
         """
-        original_size = image.shape[-2:] # (H, W)
+        original_size = image.shape[-2:]  # (H, W)
         batch_size = image.shape[0]
         device = image.device
 
@@ -234,10 +245,14 @@ class CharSegNet(nn.Module):
         # should ideally match what was used during their fine-tuning.
         # Using standard SAM preprocessing for now.
         processed_image = self._preprocess(image)
-        image_embeddings = self.image_encoder(processed_image) # (B, EmbedDim, H_feat, W_feat)
+        image_embeddings = self.image_encoder(
+            processed_image
+        )  # (B, EmbedDim, H_feat, W_feat)
 
         # --- Stage 1: Coarse Segmentation ---
-        sparse_embeddings_stage1, dense_embeddings_stage1 = self.original_prompt_encoder(None, None, None)
+        sparse_embeddings_stage1, dense_embeddings_stage1 = (
+            self.original_prompt_encoder(None, None, None)
+        )
         stage1_masks_low_res, stage1_iou = self.decoder_stage1(
             image_embeddings=image_embeddings,
             image_pe=self.original_prompt_encoder.get_dense_pe(),
@@ -245,21 +260,34 @@ class CharSegNet(nn.Module):
             dense_prompt_embeddings=dense_embeddings_stage1,
             multimask_output=False,
         )
-        stage1_logits_low_res = self.decoder_stage1.output_semantic_head(stage1_masks_low_res)
+        stage1_logits_low_res = self.decoder_stage1.output_semantic_head(
+            stage1_masks_low_res
+        )
         # Upsample to original input size (before padding)
-        stage1_logits = self._upsample_logits(stage1_logits_low_res, (self.input_size, self.input_size))
-        stage1_logits = stage1_logits[..., :original_size[0], :original_size[1]] # Remove padding
+        stage1_logits = self._upsample_logits(
+            stage1_logits_low_res, (self.input_size, self.input_size)
+        )
+        stage1_logits = stage1_logits[
+            ..., : original_size[0], : original_size[1]
+        ]  # Remove padding
 
-        s_coarse_mask_for_prompt = torch.argmax(stage1_logits, dim=1, keepdim=True).float()
+        s_coarse_mask_for_prompt = torch.argmax(
+            stage1_logits, dim=1, keepdim=True
+        ).float()
         # Preprocess mask for prompt encoder (e.g., resize to its expected input size)
         # Assuming prompt encoder expects 256x256 masks
-        s_coarse_mask_processed = F.interpolate(s_coarse_mask_for_prompt, size=(256, 256), mode='bilinear', align_corners=False)
+        s_coarse_mask_processed = F.interpolate(
+            s_coarse_mask_for_prompt,
+            size=(256, 256),
+            mode="bilinear",
+            align_corners=False,
+        )
 
         # --- Stage 2: Fine Segmentation ---
         _, dense_embeddings_stage2 = self.prompt_encoder_stage2(
             points=None, boxes=None, masks=s_coarse_mask_processed
         )
-        sparse_embeddings_stage2, _ = self.original_prompt_encoder(None,None,None)
+        sparse_embeddings_stage2, _ = self.original_prompt_encoder(None, None, None)
 
         stage2_masks_low_res, stage2_iou = self.decoder_stage2(
             image_embeddings=image_embeddings,
@@ -268,10 +296,15 @@ class CharSegNet(nn.Module):
             dense_prompt_embeddings=dense_embeddings_stage2,
             multimask_output=False,
         )
-        stage2_logits_low_res = self.decoder_stage2.output_semantic_head(stage2_masks_low_res)
-        stage2_logits = self._upsample_logits(stage2_logits_low_res, (self.input_size, self.input_size))
-        stage2_logits = stage2_logits[..., :original_size[0], :original_size[1]] # Remove padding
-
+        stage2_logits_low_res = self.decoder_stage2.output_semantic_head(
+            stage2_masks_low_res
+        )
+        stage2_logits = self._upsample_logits(
+            stage2_logits_low_res, (self.input_size, self.input_size)
+        )
+        stage2_logits = stage2_logits[
+            ..., : original_size[0], : original_size[1]
+        ]  # Remove padding
 
         # --- Stage 3: Facial Feature Segmentation (Placeholder Logic) ---
         # TODO: Verify FACE_CLASS_INDEX_STAGE2 based on actual dataset labels.
@@ -282,13 +315,18 @@ class CharSegNet(nn.Module):
         # Initialize stage 3 logits tensor (filled with low value e.g. -inf for background)
         stage3_logits_full = torch.full(
             (batch_size, NUM_STAGE3_CLASSES, *original_size),
-            float('-inf'), device=device
+            float("-inf"),
+            device=device,
         )
-        stage3_logits_full[:, STAGE3_BACKGROUND_IDX, :, :] = 0 # Set background score
+        stage3_logits_full[:, STAGE3_BACKGROUND_IDX, :, :] = 0  # Set background score
 
         for i in range(batch_size):
-            if face_crops[i] is None or face_masks_for_prompt[i] is None or face_bboxes[i] is None:
-                continue # Skip if no face detected for this item
+            if (
+                face_crops[i] is None
+                or face_masks_for_prompt[i] is None
+                or face_bboxes[i] is None
+            ):
+                continue  # Skip if no face detected for this item
 
             face_crop = face_crops[i]
             face_mask_prompt = face_masks_for_prompt[i]
@@ -300,101 +338,128 @@ class CharSegNet(nn.Module):
             # TODO: Check if image_embeddings can be cropped directly instead of re-encoding
             # Cropping embeddings might be more efficient if architecture allows.
             try:
-                 # Re-encode the cropped image
+                # Re-encode the cropped image
                 crop_embeddings = self.image_encoder(processed_crop)
             except Exception as e:
-                logger.error(f"Error encoding face crop for batch {i}: {e}. Skipping Stage 3 for this item.")
+                logger.error(
+                    f"Error encoding face crop for batch {i}: {e}. Skipping Stage 3 for this item."
+                )
                 continue
 
             # Preprocess mask for prompt encoder
-            face_mask_processed = F.interpolate(face_mask_prompt, size=(256, 256), mode='bilinear', align_corners=False)
+            face_mask_processed = F.interpolate(
+                face_mask_prompt, size=(256, 256), mode="bilinear", align_corners=False
+            )
 
             # Encode face mask prompt
             _, dense_embeddings_stage3 = self.prompt_encoder_stage3(
                 points=None, boxes=None, masks=face_mask_processed
             )
-            sparse_embeddings_stage3, _ = self.original_prompt_encoder(None,None,None)
+            sparse_embeddings_stage3, _ = self.original_prompt_encoder(None, None, None)
 
             # Run Stage 3 Decoder
             stage3_masks_crop_low_res, _ = self.decoder_stage3(
                 image_embeddings=crop_embeddings,
-                image_pe=self.original_prompt_encoder.get_dense_pe(), # TODO: Check if PE needs adjustment for crop
+                image_pe=self.original_prompt_encoder.get_dense_pe(),  # TODO: Check if PE needs adjustment for crop
                 sparse_prompt_embeddings=sparse_embeddings_stage3,
                 dense_prompt_embeddings=dense_embeddings_stage3,
                 multimask_output=False,
             )
-            stage3_logits_crop_low_res = self.decoder_stage3.output_semantic_head(stage3_masks_crop_low_res)
+            stage3_logits_crop_low_res = self.decoder_stage3.output_semantic_head(
+                stage3_masks_crop_low_res
+            )
 
             # Upsample logits to the size of the *original crop* (before padding)
-            stage3_logits_crop = self._upsample_logits(stage3_logits_crop_low_res, (self.input_size, self.input_size))
-            stage3_logits_crop = stage3_logits_crop[..., :crop_original_size[0], :crop_original_size[1]] # Remove padding
+            stage3_logits_crop = self._upsample_logits(
+                stage3_logits_crop_low_res, (self.input_size, self.input_size)
+            )
+            stage3_logits_crop = stage3_logits_crop[
+                ..., : crop_original_size[0], : crop_original_size[1]
+            ]  # Remove padding
 
             # Place the cropped logits back into the full-size tensor
             # Use torch.logsumexp to safely combine scores where overlaps might occur (though ideally minimal)
             # Adding a large negative value where the crop isn't ensures non-crop areas aren't affected
-            temp_logits = torch.full_like(stage3_logits_full[i], float('-inf'))
+            temp_logits = torch.full_like(stage3_logits_full[i], float("-inf"))
             temp_logits[:, y1:y2, x1:x2] = stage3_logits_crop
-            stage3_logits_full[i] = torch.logsumexp(torch.stack([stage3_logits_full[i], temp_logits]), dim=0)
+            stage3_logits_full[i] = torch.logsumexp(
+                torch.stack([stage3_logits_full[i], temp_logits]), dim=0
+            )
             # Ensure background class remains dominant outside the face bbox
-            mask_outside_face = torch.ones_like(stage3_logits_full[i,0], dtype=torch.bool)
+            mask_outside_face = torch.ones_like(
+                stage3_logits_full[i, 0], dtype=torch.bool
+            )
             mask_outside_face[y1:y2, x1:x2] = False
-            stage3_logits_full[i, STAGE3_BACKGROUND_IDX, mask_outside_face] = 0 # Set background outside face
-            stage3_logits_full[i, 1:, mask_outside_face] = float('-inf') # Set other classes outside face to -inf
-
+            stage3_logits_full[i, STAGE3_BACKGROUND_IDX, mask_outside_face] = (
+                0  # Set background outside face
+            )
+            stage3_logits_full[i, 1:, mask_outside_face] = float(
+                "-inf"
+            )  # Set other classes outside face to -inf
 
         # --- Combine Results (Placeholder Logic) ---
         # TODO: Define accurate STAGE2_TO_FINAL_MAP and STAGE3_TO_FINAL_MAP based on dataset.
         # TODO: Refine combination logic, potentially handling overlaps more robustly.
         final_logits = torch.full(
             (batch_size, NUM_TOTAL_CLASSES, *original_size),
-            float('-inf'), device=device
+            float("-inf"),
+            device=device,
         )
 
         # Map Stage 2 logits to final logits
         for stage2_idx, final_idx in STAGE2_TO_FINAL_MAP.items():
             # Use logsumexp for safer combination if indices potentially overlap
-            final_logits[:, final_idx, :, :] = torch.logsumexp(torch.stack([
-                final_logits[:, final_idx, :, :],
-                stage2_logits[:, stage2_idx, :, :]
-            ]), dim=0)
+            final_logits[:, final_idx, :, :] = torch.logsumexp(
+                torch.stack(
+                    [
+                        final_logits[:, final_idx, :, :],
+                        stage2_logits[:, stage2_idx, :, :],
+                    ]
+                ),
+                dim=0,
+            )
 
         # Map Stage 3 logits (already placed in full tensor) to final logits
         for stage3_idx, final_idx in STAGE3_TO_FINAL_MAP.items():
             if stage3_idx == STAGE3_BACKGROUND_IDX:
-                 continue # Don't map stage 3 background
+                continue  # Don't map stage 3 background
 
             # Combine scores from stage 3 into the final tensor
             # We overwrite or combine based on the specific logic needed.
             # Using logsumexp allows combining probabilities where regions might be predicted by both.
-            final_logits[:, final_idx, :, :] = torch.logsumexp(torch.stack([
-                final_logits[:, final_idx, :, :],
-                stage3_logits_full[:, stage3_idx, :, :]
-            ]), dim=0)
+            final_logits[:, final_idx, :, :] = torch.logsumexp(
+                torch.stack(
+                    [
+                        final_logits[:, final_idx, :, :],
+                        stage3_logits_full[:, stage3_idx, :, :],
+                    ]
+                ),
+                dim=0,
+            )
 
         # Ensure background class is handled correctly (e.g., lowest probability if not explicitly predicted)
         # Or determine background based on where no other class has high probability
         # final_logits[:, BACKGROUND_CLASS_FINAL_IDX, :, :] = ...
 
-
         return {
             "stage1_logits": stage1_logits,
             "stage2_logits": stage2_logits,
-            "stage3_logits": stage3_logits_full, # Return the full-size stage 3 logits
+            "stage3_logits": stage3_logits_full,  # Return the full-size stage 3 logits
             "final_logits": final_logits,
         }
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example Usage (Requires a SAM checkpoint file)
     import os
-    import cv2 # For reading image
+    import cv2  # For reading image
 
     # --- Configuration ---
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Make sure SAM_CHECKPOINT path is correct
-    SAM_CHECKPOINT_DIR = os.path.expanduser("~/Downloads/checkpoints") # Or adjust path
+    SAM_CHECKPOINT_DIR = os.path.expanduser("~/Downloads/checkpoints")  # Or adjust path
     SAM_CHECKPOINT = os.path.join(SAM_CHECKPOINT_DIR, "sam_vit_h_4b8939.pth")
-    SAM_MODEL_TYPE = "vit_h" # Must match the checkpoint
+    SAM_MODEL_TYPE = "vit_h"  # Must match the checkpoint
     # Example image path (replace with your image)
     # IMAGE_PATH = "path/to/your/childlike_drawing.png"
 
@@ -404,8 +469,12 @@ if __name__ == '__main__':
     # --- Check if Checkpoint Exists ---
     if not os.path.isfile(SAM_CHECKPOINT):
         logger.error(f"SAM Checkpoint not found at: {SAM_CHECKPOINT}")
-        logger.error("Please download the SAM ViT-H checkpoint (e.g., from https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth) ")
-        logger.error(f"and place it in {SAM_CHECKPOINT_DIR} or update the SAM_CHECKPOINT variable.")
+        logger.error(
+            "Please download the SAM ViT-H checkpoint (e.g., from https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth) "
+        )
+        logger.error(
+            f"and place it in {SAM_CHECKPOINT_DIR} or update the SAM_CHECKPOINT variable."
+        )
         exit()
 
     # --- Model Initialization ---
@@ -413,7 +482,7 @@ if __name__ == '__main__':
     try:
         model = CharSegNet(sam_model_type=SAM_MODEL_TYPE, sam_checkpoint=SAM_CHECKPOINT)
         model.to(DEVICE)
-        model.eval() # Set to evaluation mode for inference example
+        model.eval()  # Set to evaluation mode for inference example
         logger.info("Model initialized successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize model: {e}", exc_info=True)
@@ -434,14 +503,16 @@ if __name__ == '__main__':
     # logger.info(f"Loaded image with shape: {image_tensor.shape}")
 
     # --- Use Dummy Input Instead (as image path is commented out) ---
-    input_size_h, input_size_w = 512, 600 # Example non-square size
-    dummy_image = torch.rand(1, 3, input_size_h, input_size_w) * 255.0 # Simulate image pixel range
+    input_size_h, input_size_w = 512, 600  # Example non-square size
+    dummy_image = (
+        torch.rand(1, 3, input_size_h, input_size_w) * 255.0
+    )  # Simulate image pixel range
     image_tensor = dummy_image.to(DEVICE)
     logger.info(f"Using dummy input tensor: {image_tensor.shape}")
 
     # --- Forward Pass ---
     logger.info("Performing forward pass...")
-    with torch.no_grad(): # Disable gradient calculations for inference
+    with torch.no_grad():  # Disable gradient calculations for inference
         try:
             output = model(image_tensor)
             logger.info("Forward pass completed.")
@@ -450,13 +521,13 @@ if __name__ == '__main__':
             logger.info("Output dictionary keys: %s", list(output.keys()))
             for key, tensor in output.items():
                 if tensor is not None:
-                     logger.info(f"  Output '{key}' shape: {tensor.shape}")
+                    logger.info(f"  Output '{key}' shape: {tensor.shape}")
                 else:
-                     logger.info(f"  Output '{key}' is None")
+                    logger.info(f"  Output '{key}' is None")
 
             # Example: Get final predicted class labels
-            if output['final_logits'] is not None:
-                final_predictions = torch.argmax(output['final_logits'], dim=1)
+            if output["final_logits"] is not None:
+                final_predictions = torch.argmax(output["final_logits"], dim=1)
                 logger.info(f"Final prediction labels shape: {final_predictions.shape}")
                 # TODO: Visualize the segmentation map (e.g., using matplotlib)
             else:

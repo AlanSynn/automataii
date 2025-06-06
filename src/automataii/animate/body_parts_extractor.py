@@ -24,8 +24,13 @@ from ..utils.image_utils import save_image
 class FastSkeletonSegmenter:
     """Optimized skeleton-driven body part segmentation"""
 
-    def __init__(self, mask: np.ndarray, joint_map: Dict[str, Tuple[int, int]],
-                 part_definitions: Dict[str, Any], scale_factor: float = 0.5):
+    def __init__(
+        self,
+        mask: np.ndarray,
+        joint_map: Dict[str, Tuple[int, int]],
+        part_definitions: Dict[str, Any],
+        scale_factor: float = 0.5,
+    ):
         self.mask = mask
         self.joint_map = joint_map
         self.part_definitions = part_definitions
@@ -35,11 +40,16 @@ class FastSkeletonSegmenter:
         # Pre-compute scaled versions for faster processing
         self.scaled_height = int(self.height * scale_factor)
         self.scaled_width = int(self.width * scale_factor)
-        self.scaled_mask = cv2.resize(mask, (self.scaled_width, self.scaled_height),
-                                     interpolation=cv2.INTER_NEAREST)
+        self.scaled_mask = cv2.resize(
+            mask,
+            (self.scaled_width, self.scaled_height),
+            interpolation=cv2.INTER_NEAREST,
+        )
 
         # Pre-compute coordinate grids
-        self.y_grid, self.x_grid = np.mgrid[0:self.scaled_height, 0:self.scaled_width]
+        self.y_grid, self.x_grid = np.mgrid[
+            0 : self.scaled_height, 0 : self.scaled_width
+        ]
         self.coords = np.column_stack([self.x_grid.ravel(), self.y_grid.ravel()])
 
         # Cache for distance computations
@@ -69,8 +79,9 @@ class FastSkeletonSegmenter:
             scaled_mask = cv2.bitwise_and(scaled_mask, self.scaled_mask)
 
             # Upscale to original resolution
-            full_mask = cv2.resize(scaled_mask, (self.width, self.height),
-                                  interpolation=cv2.INTER_NEAREST)
+            full_mask = cv2.resize(
+                scaled_mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST
+            )
 
             # Clean up
             full_mask = self._fast_postprocess(full_mask)
@@ -88,8 +99,9 @@ class FastSkeletonSegmenter:
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {}
             for part_name, part_def in self.part_definitions.items():
-                future = executor.submit(self._create_part_influence_vectorized,
-                                       part_name, part_def)
+                future = executor.submit(
+                    self._create_part_influence_vectorized, part_name, part_def
+                )
                 futures[part_name] = future
 
             for part_name, future in futures.items():
@@ -99,10 +111,11 @@ class FastSkeletonSegmenter:
 
         return influence_maps
 
-    def _create_part_influence_vectorized(self, part_name: str,
-                                        part_def: Dict[str, Any]) -> Optional[np.ndarray]:
+    def _create_part_influence_vectorized(
+        self, part_name: str, part_def: Dict[str, Any]
+    ) -> Optional[np.ndarray]:
         """Create influence map using vectorized operations"""
-        joints = part_def.get('joints', [])
+        joints = part_def.get("joints", [])
         if not joints:
             return None
 
@@ -124,8 +137,9 @@ class FastSkeletonSegmenter:
         scaled_joints = []
         for joint in mapped_joints:
             x, y = self.joint_map[joint]
-            scaled_joints.append((int(x * self.scale_factor),
-                                int(y * self.scale_factor)))
+            scaled_joints.append(
+                (int(x * self.scale_factor), int(y * self.scale_factor))
+            )
 
         # Create influence map
         influence = np.zeros((self.scaled_height, self.scaled_width), dtype=np.float32)
@@ -133,7 +147,7 @@ class FastSkeletonSegmenter:
         # Bone influences (vectorized)
         for i in range(len(scaled_joints) - 1):
             bone_influence = self._create_bone_influence_vectorized(
-                scaled_joints[i], scaled_joints[i+1]
+                scaled_joints[i], scaled_joints[i + 1]
             )
             influence = np.maximum(influence, bone_influence)
 
@@ -141,16 +155,17 @@ class FastSkeletonSegmenter:
         joint_positions = np.array(scaled_joints)
         if joint_positions.shape[0] > 0:
             # Compute distances from all pixels to all joints at once
-            distances = cdist(self.coords, joint_positions, metric='euclidean')
+            distances = cdist(self.coords, joint_positions, metric="euclidean")
 
             # Gaussian influence for each joint
             sigma = 30 * self.scale_factor
-            joint_influences = np.exp(-distances**2 / (2 * sigma**2))
+            joint_influences = np.exp(-(distances**2) / (2 * sigma**2))
 
             # Take maximum influence across all joints
             max_joint_influence = np.max(joint_influences, axis=1)
-            max_joint_influence = max_joint_influence.reshape(self.scaled_height,
-                                                              self.scaled_width)
+            max_joint_influence = max_joint_influence.reshape(
+                self.scaled_height, self.scaled_width
+            )
             influence = np.maximum(influence, max_joint_influence)
 
         # Apply part-specific modulation
@@ -158,8 +173,9 @@ class FastSkeletonSegmenter:
 
         return influence
 
-    def _create_bone_influence_vectorized(self, p1: Tuple[int, int],
-                                        p2: Tuple[int, int]) -> np.ndarray:
+    def _create_bone_influence_vectorized(
+        self, p1: Tuple[int, int], p2: Tuple[int, int]
+    ) -> np.ndarray:
         """Vectorized bone influence calculation"""
         # Cache key
         cache_key = (p1, p2)
@@ -194,27 +210,28 @@ class FastSkeletonSegmenter:
 
         # Convert to influence
         sigma = (20 + line_length * 0.1) * self.scale_factor
-        influence = np.exp(-distances**2 / (2 * sigma**2))
+        influence = np.exp(-(distances**2) / (2 * sigma**2))
 
         # Cache result
         self._distance_cache[cache_key] = influence
 
         return influence
 
-    def _apply_part_modulation_fast(self, influence: np.ndarray,
-                                   part_name: str) -> np.ndarray:
+    def _apply_part_modulation_fast(
+        self, influence: np.ndarray, part_name: str
+    ) -> np.ndarray:
         """Fast part-specific modulation"""
-        if 'head' in part_name:
+        if "head" in part_name:
             # Boost upper region
             y_gradient = np.linspace(1, 0, self.scaled_height)[:, np.newaxis]
-            influence *= (1 + 0.5 * y_gradient)
+            influence *= 1 + 0.5 * y_gradient
 
-        elif 'torso' in part_name:
+        elif "torso" in part_name:
             # Slight blur and boost
             influence = gaussian_filter(influence, sigma=2)
             influence *= 1.2
 
-        elif any(term in part_name for term in ['arm', 'leg']):
+        elif any(term in part_name for term in ["arm", "leg"]):
             # Light blur
             influence = gaussian_filter(influence, sigma=1)
 
@@ -233,8 +250,14 @@ class FastSkeletonSegmenter:
 
 
 class BodyPartsExtractor:
-    def __init__(self, char_dir: str, output_dir: Optional[str] = None,
-                 generate_animations: bool = False, num_frames: int = 30, fps: int = 24):
+    def __init__(
+        self,
+        char_dir: str,
+        output_dir: Optional[str] = None,
+        generate_animations: bool = False,
+        num_frames: int = 30,
+        fps: int = 24,
+    ):
         self.char_dir = Path(char_dir)
         self.output_dir = Path(output_dir)
         self.generate_animations = generate_animations
@@ -252,7 +275,7 @@ class BodyPartsExtractor:
 
     def _read_char_config(self, config_path: str) -> Optional[Dict[str, Any]]:
         try:
-            with open(config_path, 'r') as f:
+            with open(config_path, "r") as f:
                 return yaml.safe_load(f)
         except:
             return None
@@ -263,27 +286,27 @@ class BodyPartsExtractor:
         # Handle different skeleton data formats
         if isinstance(skeleton_data, dict):
             # New format with 'joints' key
-            if 'joints' in skeleton_data:
-                joints = skeleton_data['joints']
+            if "joints" in skeleton_data:
+                joints = skeleton_data["joints"]
                 if isinstance(joints, dict):
                     # joints is a dict of joint_id -> joint_data
                     for joint_id, joint_data in joints.items():
-                        if isinstance(joint_data, dict) and 'position' in joint_data:
-                            pos = joint_data['position']
+                        if isinstance(joint_data, dict) and "position" in joint_data:
+                            pos = joint_data["position"]
                             if len(pos) >= 2:
                                 # Extract joint name from id
-                                joint_name = '_'.join(joint_id.split('_')[:-1])
+                                joint_name = "_".join(joint_id.split("_")[:-1])
                                 if not joint_name:
-                                    joint_name = joint_id.split('_')[0]
+                                    joint_name = joint_id.split("_")[0]
                                 joint_map[joint_name] = (int(pos[0]), int(pos[1]))
                 elif isinstance(joints, list):
                     # joints is a list
                     for joint in joints:
-                        if 'name' in joint and 'position' in joint:
-                            joint_map[joint['name']] = tuple(joint['position'])
+                        if "name" in joint and "position" in joint:
+                            joint_map[joint["name"]] = tuple(joint["position"])
             # Also check 'joint_map' key
-            elif 'joint_map' in skeleton_data:
-                joint_map_data = skeleton_data['joint_map']
+            elif "joint_map" in skeleton_data:
+                joint_map_data = skeleton_data["joint_map"]
                 if isinstance(joint_map_data, dict):
                     for joint_name, pos in joint_map_data.items():
                         if isinstance(pos, (list, tuple)) and len(pos) >= 2:
@@ -291,25 +314,27 @@ class BodyPartsExtractor:
         elif isinstance(skeleton_data, list):
             # Old format - list of joints
             for joint in skeleton_data:
-                if 'name' in joint and 'loc' in joint:
-                    joint_map[joint['name']] = tuple(joint['loc'])
+                if "name" in joint and "loc" in joint:
+                    joint_map[joint["name"]] = tuple(joint["loc"])
 
         return joint_map
 
-    def _get_proximal_joint_name(self, part_name: str, part_definition: Dict[str, Any]) -> Optional[str]:
-        if part_name == 'head':
-            return 'neck'
-        if part_name == 'torso':
+    def _get_proximal_joint_name(
+        self, part_name: str, part_definition: Dict[str, Any]
+    ) -> Optional[str]:
+        if part_name == "head":
+            return "neck"
+        if part_name == "torso":
             return None
-        joints = part_definition.get('joints')
+        joints = part_definition.get("joints")
         if joints and isinstance(joints, list) and len(joints) > 0:
             return joints[0]
         return None
 
     def _load_initial_data(self) -> bool:
-        char_cfg_path = os.path.join(self.char_dir, 'char_cfg.yaml')
-        texture_path = os.path.join(self.char_dir, 'texture.png')
-        mask_path = os.path.join(self.char_dir, 'mask.png')
+        char_cfg_path = os.path.join(self.char_dir, "char_cfg.yaml")
+        texture_path = os.path.join(self.char_dir, "texture.png")
+        mask_path = os.path.join(self.char_dir, "mask.png")
 
         if not all(os.path.exists(p) for p in [char_cfg_path, texture_path, mask_path]):
             return False
@@ -321,8 +346,8 @@ class BodyPartsExtractor:
         if self.char_cfg is None or self.texture is None or self.mask is None:
             return False
 
-        self.image_height = self.char_cfg['height']
-        self.image_width = self.char_cfg['width']
+        self.image_height = self.char_cfg["height"]
+        self.image_width = self.char_cfg["width"]
         return True
 
     def _prepare_joint_map(self):
@@ -331,9 +356,9 @@ class BodyPartsExtractor:
 
         # Try different possible keys for skeleton data
         skeleton_data = None
-        if 'skeleton' in self.char_cfg:
-            skeleton_data = self.char_cfg['skeleton']
-        elif 'joints' in self.char_cfg:
+        if "skeleton" in self.char_cfg:
+            skeleton_data = self.char_cfg["skeleton"]
+        elif "joints" in self.char_cfg:
             # If char_cfg directly contains joints
             skeleton_data = self.char_cfg
 
@@ -359,7 +384,7 @@ class BodyPartsExtractor:
             self.mask,
             self.texture_relative_joint_map,
             BODY_PARTS,
-            scale_factor=scale_factor
+            scale_factor=scale_factor,
         )
 
         # Perform fast segmentation
@@ -373,19 +398,28 @@ class BodyPartsExtractor:
         return part_masks
 
     def _visualize_segmentation(self):
-        if self.mask is None or not self.part_masks or self.texture_relative_joint_map is None:
+        if (
+            self.mask is None
+            or not self.part_masks
+            or self.texture_relative_joint_map is None
+        ):
             return
 
-        output_path = os.path.join(self.output_dir, 'segmentation_vis.png')
+        output_path = os.path.join(self.output_dir, "segmentation_vis.png")
         height, width = self.mask.shape
         vis_image = np.zeros((height, width, 3), dtype=np.uint8)
 
         colors = {
-            'head': (255, 0, 0), 'torso': (0, 255, 0),
-            'left_arm_upper': (0, 0, 255), 'left_arm_lower': (255, 255, 0),
-            'right_arm_upper': (255, 0, 255), 'right_arm_lower': (0, 255, 255),
-            'left_leg_upper': (128, 0, 0), 'left_leg_lower': (0, 128, 0),
-            'right_leg_upper': (0, 0, 128), 'right_leg_lower': (128, 128, 0),
+            "head": (255, 0, 0),
+            "torso": (0, 255, 0),
+            "left_arm_upper": (0, 0, 255),
+            "left_arm_lower": (255, 255, 0),
+            "right_arm_upper": (255, 0, 255),
+            "right_arm_lower": (0, 255, 255),
+            "left_leg_upper": (128, 0, 0),
+            "left_leg_lower": (0, 128, 0),
+            "right_leg_upper": (0, 0, 128),
+            "right_leg_lower": (128, 128, 0),
         }
 
         for part_name, part_mask in self.part_masks.items():
@@ -397,12 +431,23 @@ class BodyPartsExtractor:
 
         for joint_name, joint_pos in self.texture_relative_joint_map.items():
             cv2.circle(vis_image, joint_pos, 5, (255, 255, 255), -1)
-            cv2.putText(vis_image, joint_name, (joint_pos[0]+5, joint_pos[1]-5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(
+                vis_image,
+                joint_name,
+                (joint_pos[0] + 5, joint_pos[1] - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1,
+            )
 
         cv2.imwrite(output_path, vis_image)
 
-    def _extract_body_part(self, full_texture: np.ndarray, part_mask_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[Tuple[int, int, int, int]]]:
+    def _extract_body_part(
+        self, full_texture: np.ndarray, part_mask_data: np.ndarray
+    ) -> Tuple[
+        Optional[np.ndarray], Optional[np.ndarray], Optional[Tuple[int, int, int, int]]
+    ]:
         if part_mask_data is None or np.sum(part_mask_data) == 0:
             return None, None, None
 
@@ -426,41 +471,54 @@ class BodyPartsExtractor:
         if w == 0 or h == 0:
             return None, None, None
 
-        part_texture_cropped = full_texture[y:y+h, x:x+w]
-        alpha_channel_cropped = part_mask_data[y:y+h, x:x+w]
-        alpha_channel_cropped = np.where(alpha_channel_cropped > 0, 255, 0).astype(np.uint8)
+        part_texture_cropped = full_texture[y : y + h, x : x + w]
+        alpha_channel_cropped = part_mask_data[y : y + h, x : x + w]
+        alpha_channel_cropped = np.where(alpha_channel_cropped > 0, 255, 0).astype(
+            np.uint8
+        )
 
         return part_texture_cropped, alpha_channel_cropped, (x, y, w, h)
 
     def _generate_html_viewer(self):
-        if not self.results or 'character' not in self.results or 'parts' not in self.results['character']:
+        if (
+            not self.results
+            or "character" not in self.results
+            or "parts" not in self.results["character"]
+        ):
             return
 
         part_cards = ""
-        for part_name, part_info in self.results['character']['parts'].items():
-            image_path = os.path.basename(part_info.get('image_path', ''))
-            svg_path = os.path.basename(part_info.get('svg_path', ''))
+        for part_name, part_info in self.results["character"]["parts"].items():
+            image_path = os.path.basename(part_info.get("image_path", ""))
+            svg_path = os.path.basename(part_info.get("svg_path", ""))
             animation_element = ""
-            if 'animations' in self.results['character'] and part_name in self.results['character']['animations']:
-                animation_path = os.path.basename(self.results['character']['animations'][part_name]['animation_path'])
+            if (
+                "animations" in self.results["character"]
+                and part_name in self.results["character"]["animations"]
+            ):
+                animation_path = os.path.basename(
+                    self.results["character"]["animations"][part_name]["animation_path"]
+                )
                 animation_element = f'<div class="animation-container"><h4>Animation</h4><img src="{animation_path}" alt="{part_name} Animation" class="part-animation"></div>'
             part_card = PART_CARD_TEMPLATE.format(
-                part_name=part_name.replace('_', ' ').title(),
+                part_name=part_name.replace("_", " ").title(),
                 image_path=image_path,
                 svg_path=svg_path,
-                animation_element=animation_element
+                animation_element=animation_element,
             )
             part_cards += part_card
 
-        texture_path = os.path.relpath(os.path.join(self.char_dir, 'image.png'), self.output_dir)
+        texture_path = os.path.relpath(
+            os.path.join(self.char_dir, "image.png"), self.output_dir
+        )
         segmentation_path = "segmentation_vis.png"
         html_content = HTML_VIEWER_TEMPLATE.format(
             texture_path=texture_path,
             segmentation_path=segmentation_path,
-            part_cards=part_cards
+            part_cards=part_cards,
         )
-        html_output_path = os.path.join(self.output_dir, 'viewer.html')
-        with open(html_output_path, 'w') as f:
+        html_output_path = os.path.join(self.output_dir, "viewer.html")
+        with open(html_output_path, "w") as f:
             f.write(html_content)
 
     def process(self):
@@ -472,6 +530,7 @@ class BodyPartsExtractor:
 
         # Time the segmentation
         import time
+
         start_time = time.time()
         self.part_masks = self._segment_body_parts()
         print(f"Segmentation took {time.time() - start_time:.2f} seconds")
@@ -482,19 +541,27 @@ class BodyPartsExtractor:
         self._visualize_segmentation()
 
         self.results = {
-            'character': {
-                'width': int(self.image_width) if self.image_width else 0,
-                'height': int(self.image_height) if self.image_height else 0,
-                'parts': {},
-                'joint_map': self.texture_relative_joint_map if self.texture_relative_joint_map else {},
-                'skeleton': self.char_cfg.get('skeleton', self.char_cfg.get('joints', [])) if self.char_cfg else [],
-                'animations': {}
+            "character": {
+                "width": int(self.image_width) if self.image_width else 0,
+                "height": int(self.image_height) if self.image_height else 0,
+                "parts": {},
+                "joint_map": (
+                    self.texture_relative_joint_map
+                    if self.texture_relative_joint_map
+                    else {}
+                ),
+                "skeleton": (
+                    self.char_cfg.get("skeleton", self.char_cfg.get("joints", []))
+                    if self.char_cfg
+                    else []
+                ),
+                "animations": {},
             }
         }
 
         for part_name, part_mask_data in self.part_masks.items():
-            part_image_texture, alpha_channel, part_bbox_coords = self._extract_body_part(
-                self.texture, part_mask_data
+            part_image_texture, alpha_channel, part_bbox_coords = (
+                self._extract_body_part(self.texture, part_mask_data)
             )
 
             if part_image_texture is None or part_bbox_coords is None:
@@ -537,24 +604,34 @@ class BodyPartsExtractor:
                             anchor_joint_found = jname
                             break
 
-                if anchor_joint_found and anchor_joint_found in self.texture_relative_joint_map:
-                    anchor_tex_x, anchor_tex_y = self.texture_relative_joint_map[anchor_joint_found]
+                if (
+                    anchor_joint_found
+                    and anchor_joint_found in self.texture_relative_joint_map
+                ):
+                    anchor_tex_x, anchor_tex_y = self.texture_relative_joint_map[
+                        anchor_joint_found
+                    ]
                     local_pivot_x = float(anchor_tex_x - roi_x)
                     local_pivot_y = float(anchor_tex_y - roi_y)
 
-            self.results['character']['parts'][part_name] = {
+            self.results["character"]["parts"][part_name] = {
                 "name": part_name,
                 "roi": [float(roi_x), float(roi_y), float(roi_w), float(roi_h)],
                 "image_path": str(png_file_path),
-                "fill_color": current_part_def.get('color', f"rgba({random.randint(0,255)},{random.randint(0,255)},{random.randint(0,255)},0.5)"),
+                "fill_color": current_part_def.get(
+                    "color",
+                    f"rgba({random.randint(0, 255)},{random.randint(0, 255)},{random.randint(0, 255)},0.5)",
+                ),
                 "local_pivot_offset": [local_pivot_x, local_pivot_y],
                 "z_value": float(current_part_def.get("z_value", 0.0)),
                 "fixed": bool(current_part_def.get("fixed", False)),
-                "anchor_joint_id": anchor_joint_id
+                "anchor_joint_id": anchor_joint_id,
             }
 
             if self.generate_animations:
-                proximal_joint_name = self._get_proximal_joint_name(part_name, current_part_def)
+                proximal_joint_name = self._get_proximal_joint_name(
+                    part_name, current_part_def
+                )
                 if proximal_joint_name and self.texture_relative_joint_map:
                     # Try exact match first
                     proximal_joint_found = proximal_joint_name
@@ -566,15 +643,31 @@ class BodyPartsExtractor:
                                 proximal_joint_found = jname
                                 break
 
-                    if proximal_joint_found and proximal_joint_found in self.texture_relative_joint_map:
-                        pivot_point = self.texture_relative_joint_map[proximal_joint_found]
-                        local_pivot_for_anim = (pivot_point[0] - roi_x, pivot_point[1] - roi_y)
+                    if (
+                        proximal_joint_found
+                        and proximal_joint_found in self.texture_relative_joint_map
+                    ):
+                        pivot_point = self.texture_relative_joint_map[
+                            proximal_joint_found
+                        ]
+                        local_pivot_for_anim = (
+                            pivot_point[0] - roi_x,
+                            pivot_point[1] - roi_y,
+                        )
 
-                        animation_frames = animate_body_part(part_image_texture, local_pivot_for_anim, num_frames=self.num_frames)
-                        animation_output_path = self.output_dir / f"{part_name}_animation.gif"
-                        save_animation(animation_frames, str(animation_output_path), fps=self.fps)
-                        self.results['character']['animations'][part_name] = {
-                            'animation_path': str(animation_output_path),
+                        animation_frames = animate_body_part(
+                            part_image_texture,
+                            local_pivot_for_anim,
+                            num_frames=self.num_frames,
+                        )
+                        animation_output_path = (
+                            self.output_dir / f"{part_name}_animation.gif"
+                        )
+                        save_animation(
+                            animation_frames, str(animation_output_path), fps=self.fps
+                        )
+                        self.results["character"]["animations"][part_name] = {
+                            "animation_path": str(animation_output_path),
                         }
 
         self._generate_html_viewer()
@@ -583,35 +676,41 @@ class BodyPartsExtractor:
         pydantic_skeleton_joints = []
 
         # Get skeleton data with fallbacks
-        skeleton_data = self.char_cfg.get('skeleton', []) if self.char_cfg else []
-        if not skeleton_data and self.char_cfg and 'joints' in self.char_cfg:
+        skeleton_data = self.char_cfg.get("skeleton", []) if self.char_cfg else []
+        if not skeleton_data and self.char_cfg and "joints" in self.char_cfg:
             # Try to construct from joints data
-            joints_data = self.char_cfg['joints']
+            joints_data = self.char_cfg["joints"]
             if isinstance(joints_data, dict):
                 for joint_id, joint_info in joints_data.items():
                     if isinstance(joint_info, dict):
                         # Extract joint name from id
-                        joint_name = '_'.join(joint_id.split('_')[:-1])
+                        joint_name = "_".join(joint_id.split("_")[:-1])
                         if not joint_name:
-                            joint_name = joint_id.split('_')[0]
+                            joint_name = joint_id.split("_")[0]
 
-                        pos = joint_info.get('position', [0.0, 0.0])
+                        pos = joint_info.get("position", [0.0, 0.0])
                         if isinstance(pos, (list, tuple)) and len(pos) >= 2:
                             pos = [float(pos[0]), float(pos[1])]
                         else:
                             pos = [0.0, 0.0]
 
-                        parent = joint_info.get('parent')
+                        parent = joint_info.get("parent")
 
-                        pydantic_skeleton_joints.append({
-                            "id": joint_name,
-                            "name": joint_name,
-                            "position": pos,
-                            "parent": parent
-                        })
+                        pydantic_skeleton_joints.append(
+                            {
+                                "id": joint_name,
+                                "name": joint_name,
+                                "position": pos,
+                                "parent": parent,
+                            }
+                        )
         elif isinstance(skeleton_data, list):
             # Old format
-            raw_joint_map = {j_data.get("name"): j_data for j_data in skeleton_data if isinstance(j_data, dict)}
+            raw_joint_map = {
+                j_data.get("name"): j_data
+                for j_data in skeleton_data
+                if isinstance(j_data, dict)
+            }
 
             for joint_data in skeleton_data:
                 if not isinstance(joint_data, dict):
@@ -627,52 +726,66 @@ class BodyPartsExtractor:
 
                 parent_name = joint_data.get("parent")
 
-                pydantic_skeleton_joints.append({
-                    "id": joint_name,
-                    "name": joint_name,
-                    "position": [float(loc[0]), float(loc[1])],
-                    "parent": parent_name if parent_name in raw_joint_map else None
-                })
+                pydantic_skeleton_joints.append(
+                    {
+                        "id": joint_name,
+                        "name": joint_name,
+                        "position": [float(loc[0]), float(loc[1])],
+                        "parent": parent_name if parent_name in raw_joint_map else None,
+                    }
+                )
 
         pydantic_parts = {}
-        for part_name in self.results['character']['parts'].keys():
-            original_part = self.results['character']['parts'][part_name]
-            img_rel_path = Path(original_part.get("image_path", "")).name if original_part.get("image_path") else ""
+        for part_name in self.results["character"]["parts"].keys():
+            original_part = self.results["character"]["parts"][part_name]
+            img_rel_path = (
+                Path(original_part.get("image_path", "")).name
+                if original_part.get("image_path")
+                else ""
+            )
             current_part_def = BODY_PARTS.get(part_name, {})
 
             pydantic_parts[part_name] = {
                 "name": part_name,
                 "roi": original_part.get("roi"),
                 "image_path": img_rel_path,
-                "fill_color": original_part.get("fill_color", 'rgba(128,128,128,0.5)'),
+                "fill_color": original_part.get("fill_color", "rgba(128,128,128,0.5)"),
                 "local_pivot_offset": original_part.get("local_pivot_offset"),
                 "z_value": float(original_part.get("z_value", 0.0)),
                 "fixed": bool(original_part.get("fixed", False)),
-                "anchor_joint_id": current_part_def.get("anchor_joint")
+                "anchor_joint_id": current_part_def.get("anchor_joint"),
             }
 
-        character_name = self.char_cfg.get("name", self.char_dir.name) if self.char_cfg else self.char_dir.name
+        character_name = (
+            self.char_cfg.get("name", self.char_dir.name)
+            if self.char_cfg
+            else self.char_dir.name
+        )
 
         output_data = {
             "character": {
                 "name": character_name,
                 "parts": pydantic_parts,
-                "skeleton_joints": pydantic_skeleton_joints
+                "skeleton_joints": pydantic_skeleton_joints,
             }
         }
 
         parts_info_filepath = self.output_dir / "parts_info.json"
-        with open(parts_info_filepath, 'w') as f:
+        with open(parts_info_filepath, "w") as f:
             json.dump(output_data, f, indent=4)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Extract character body parts using skeleton')
-    parser.add_argument('char_dir', help='Character directory path')
-    parser.add_argument('--output', '-o', default=None, help='Output directory path')
-    parser.add_argument('--no-animation', action='store_true', help='Disable animation generation')
-    parser.add_argument('--frames', '-f', type=int, default=30, help='Animation frames')
-    parser.add_argument('--fps', type=int, default=24, help='Animation FPS')
+    parser = argparse.ArgumentParser(
+        description="Extract character body parts using skeleton"
+    )
+    parser.add_argument("char_dir", help="Character directory path")
+    parser.add_argument("--output", "-o", default=None, help="Output directory path")
+    parser.add_argument(
+        "--no-animation", action="store_true", help="Disable animation generation"
+    )
+    parser.add_argument("--frames", "-f", type=int, default=30, help="Animation frames")
+    parser.add_argument("--fps", type=int, default=24, help="Animation FPS")
 
     args = parser.parse_args()
 
@@ -681,9 +794,10 @@ def main():
         output_dir=args.output,
         generate_animations=not args.no_animation,
         num_frames=args.frames,
-        fps=args.fps
+        fps=args.fps,
     )
     extractor.process()
+
 
 if __name__ == "__main__":
     main()

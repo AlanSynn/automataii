@@ -3,11 +3,13 @@ from typing import Dict, Any, Optional
 
 # from PyQt6.QtCore import QPointF # Common import, might be needed by subclasses
 
+
 class BaseMechanism(ABC):
     """
     Abstract base class for mechanism generation.
     Provides a common interface for generating mechanism data.
     """
+
     def __init__(self, name: str, mechanism_type: str):
         self.name = name
         self.mechanism_type = mechanism_type
@@ -30,7 +32,4 @@ class BaseMechanism(ABC):
         """
         Returns a basic description of the mechanism instance.
         """
-        return {
-            "name": self.name,
-            "type": self.mechanism_type
-        }
+        return {"name": self.name, "type": self.mechanism_type}

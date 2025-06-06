@@ -1,6 +1,7 @@
 """
 ActionManager module for centralizing QAction management.
 """
+
 import logging
 from typing import Dict, Optional, Callable, Any
 
@@ -38,7 +39,7 @@ class ActionManager(QObject):
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DialogOpenButton),
             tooltip="Load character parts from a file",
             shortcut=QKeySequence("Ctrl+O"),
-            status_tip="Load character parts from a file"
+            status_tip="Load character parts from a file",
         )
 
         self.create_action(
@@ -47,7 +48,7 @@ class ActionManager(QObject):
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DialogSaveButton),
             tooltip="Save the current project",
             shortcut=QKeySequence("Ctrl+S"),
-            status_tip="Save the current project"
+            status_tip="Save the current project",
         )
 
         self.create_action(
@@ -55,7 +56,7 @@ class ActionManager(QObject):
             text="E&xit",
             tooltip="Exit the application",
             shortcut=QKeySequence("Ctrl+Q"),
-            status_tip="Exit the application"
+            status_tip="Exit the application",
         )
 
         # View actions
@@ -64,7 +65,7 @@ class ActionManager(QObject):
             text="Zoom &In",
             tooltip="Zoom in",
             shortcut=QKeySequence("Ctrl++"),
-            status_tip="Zoom in on the view"
+            status_tip="Zoom in on the view",
         )
 
         self.create_action(
@@ -72,7 +73,7 @@ class ActionManager(QObject):
             text="Zoom &Out",
             tooltip="Zoom out",
             shortcut=QKeySequence("Ctrl+-"),
-            status_tip="Zoom out from the view"
+            status_tip="Zoom out from the view",
         )
 
         self.create_action(
@@ -80,14 +81,14 @@ class ActionManager(QObject):
             text="Zoom to &Fit",
             tooltip="Zoom to fit all content",
             shortcut=QKeySequence("Ctrl+0"),
-            status_tip="Zoom to fit all content in view"
+            status_tip="Zoom to fit all content in view",
         )
 
         self.create_action(
             action_id="reset_view",
             text="&Reset View",
             tooltip="Reset the view to default",
-            status_tip="Reset the view to default position and scale"
+            status_tip="Reset the view to default position and scale",
         )
 
         # Edit actions
@@ -98,7 +99,7 @@ class ActionManager(QObject):
             tooltip="Undo last action",
             shortcut=QKeySequence("Ctrl+Z"),
             status_tip="Undo the last action",
-            enabled=False # Initially disabled
+            enabled=False,  # Initially disabled
         )
 
         self.create_action(
@@ -108,7 +109,7 @@ class ActionManager(QObject):
             tooltip="Redo last undone action",
             shortcut=QKeySequence("Ctrl+Y"),
             status_tip="Redo the last undone action",
-            enabled=False # Initially disabled
+            enabled=False,  # Initially disabled
         )
 
         # Help actions
@@ -116,7 +117,7 @@ class ActionManager(QObject):
             action_id="about",
             text="&About...",
             tooltip="Show information about the application",
-            status_tip="Show information about the application"
+            status_tip="Show information about the application",
         )
 
         # Toolbar-specific actions (placeholders)
@@ -125,7 +126,7 @@ class ActionManager(QObject):
             text="New",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_FileIcon),
             tooltip="Create a new project",
-            status_tip="Create a new project"
+            status_tip="Create a new project",
         )
 
         self.create_action(
@@ -133,7 +134,7 @@ class ActionManager(QObject):
             text="Export",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_ArrowRight),
             tooltip="Export the current project",
-            status_tip="Export the current project"
+            status_tip="Export the current project",
         )
 
     def create_action(
@@ -146,7 +147,7 @@ class ActionManager(QObject):
         status_tip: Optional[str] = None,
         checkable: bool = False,
         checked: bool = False,
-        enabled: bool = True
+        enabled: bool = True,
     ) -> QAction:
         """
         Create a QAction and add it to the managed actions dictionary.
@@ -325,4 +326,6 @@ class ActionManager(QObject):
         # self.set_action_enabled("load_parts", True)
         # self.set_action_enabled("new_project", True)
         # self.set_action_enabled("exit", True)
-        logging.debug(f"ActionManager: Updated project-dependent actions enabled state to: {project_loaded}")
+        logging.debug(
+            f"ActionManager: Updated project-dependent actions enabled state to: {project_loaded}"
+        )

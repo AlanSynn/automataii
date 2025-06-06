@@ -7,6 +7,7 @@ import logging
 from scipy.ndimage import distance_transform_edt
 from .arap import ARAP
 
+
 def deform_body_part(part_image, part_mask, control_points, target_points):
     """
     ARAP(As-Rigid-As-Possible) 알고리즘을 사용하여 신체 부위를 변형합니다.
@@ -25,7 +26,9 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
         return part_image
 
     # 마스크 경계 윤곽선 추출
-    contours, _ = cv2.findContours(part_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        part_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
     if not contours:
         return part_image
 
@@ -55,8 +58,10 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
     # 삼각분할을 위해 점들을 추가 (유효 범위 내의 점만)
     for point in points:
         # 유효 범위 확인 후 추가
-        if (rect[0] < point[0] < rect[0] + rect[2] and
-            rect[1] < point[1] < rect[1] + rect[3]):
+        if (
+            rect[0] < point[0] < rect[0] + rect[2]
+            and rect[1] < point[1] < rect[1] + rect[3]
+        ):
             try:
                 subdiv.insert(point)
             except cv2.error:
@@ -85,9 +90,15 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
         pt3 = (t[4], t[5])
 
         # 삼각형 꼭지점이 points 리스트에 있는지 확인
-        idx1 = next((i for i, p in enumerate(points) if np.allclose(p, pt1, atol=1.0)), None)
-        idx2 = next((i for i, p in enumerate(points) if np.allclose(p, pt2, atol=1.0)), None)
-        idx3 = next((i for i, p in enumerate(points) if np.allclose(p, pt3, atol=1.0)), None)
+        idx1 = next(
+            (i for i, p in enumerate(points) if np.allclose(p, pt1, atol=1.0)), None
+        )
+        idx2 = next(
+            (i for i, p in enumerate(points) if np.allclose(p, pt2, atol=1.0)), None
+        )
+        idx3 = next(
+            (i for i, p in enumerate(points) if np.allclose(p, pt3, atol=1.0)), None
+        )
 
         if idx1 is not None and idx2 is not None and idx3 is not None:
             triangle_indices.append(np.array([idx1, idx2, idx3], dtype=np.int32))
@@ -132,8 +143,18 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
         # 각 삼각형에 대해 변형 맵 계산
         for triangle in triangle_indices:
             # 원본 및 변형된 삼각형 꼭지점
-            src_tri = np.array([vertices[triangle[0]], vertices[triangle[1]], vertices[triangle[2]]], dtype=np.float32)
-            dst_tri = np.array([deformed_vertices[triangle[0]], deformed_vertices[triangle[1]], deformed_vertices[triangle[2]]], dtype=np.float32)
+            src_tri = np.array(
+                [vertices[triangle[0]], vertices[triangle[1]], vertices[triangle[2]]],
+                dtype=np.float32,
+            )
+            dst_tri = np.array(
+                [
+                    deformed_vertices[triangle[0]],
+                    deformed_vertices[triangle[1]],
+                    deformed_vertices[triangle[2]],
+                ],
+                dtype=np.float32,
+            )
 
             # 삼각형 영역 계산
             mask = np.zeros((height, width), dtype=np.uint8)
@@ -148,8 +169,12 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
                     for x in range(width):
                         if mask[y, x]:
                             # 아핀 변환 적용
-                            dst_x = warp_mat[0, 0] * x + warp_mat[0, 1] * y + warp_mat[0, 2]
-                            dst_y = warp_mat[1, 0] * x + warp_mat[1, 1] * y + warp_mat[1, 2]
+                            dst_x = (
+                                warp_mat[0, 0] * x + warp_mat[0, 1] * y + warp_mat[0, 2]
+                            )
+                            dst_y = (
+                                warp_mat[1, 0] * x + warp_mat[1, 1] * y + warp_mat[1, 2]
+                            )
                             map_x[y, x] = dst_x
                             map_y[y, x] = dst_y
             except cv2.error:
@@ -163,7 +188,10 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
         print(f"변형 맵 계산 실패: {e}")
         return part_image
 
-def animate_body_part(part_image, part_mask, control_points, animation_keyframes, num_frames=30):
+
+def animate_body_part(
+    part_image, part_mask, control_points, animation_keyframes, num_frames=30
+):
     """
     신체 부위의 애니메이션 시퀀스를 생성합니다.
 
@@ -192,7 +220,11 @@ def animate_body_part(part_image, part_mask, control_points, animation_keyframes
         # 시작 프레임 추가
         if i == 0:
             try:
-                frames.append(deform_body_part(part_image, part_mask, control_points, start_keyframe))
+                frames.append(
+                    deform_body_part(
+                        part_image, part_mask, control_points, start_keyframe
+                    )
+                )
             except Exception as e:
                 print(f"시작 프레임 생성 실패: {e}")
                 frames.append(part_image)
@@ -215,7 +247,9 @@ def animate_body_part(part_image, part_mask, control_points, animation_keyframes
 
             try:
                 # ARAP 알고리즘을 사용하여 신체 부위 변형
-                deformed_frame = deform_body_part(part_image, part_mask, control_points, current_points)
+                deformed_frame = deform_body_part(
+                    part_image, part_mask, control_points, current_points
+                )
                 frames.append(deformed_frame)
             except Exception as e:
                 print(f"보간 프레임 생성 실패: {e}")
@@ -224,12 +258,17 @@ def animate_body_part(part_image, part_mask, control_points, animation_keyframes
         # 마지막 키프레임만 추가 (마지막 반복에서)
         if i == keyframe_count - 2:
             try:
-                frames.append(deform_body_part(part_image, part_mask, control_points, end_keyframe))
+                frames.append(
+                    deform_body_part(
+                        part_image, part_mask, control_points, end_keyframe
+                    )
+                )
             except Exception as e:
                 print(f"마지막 프레임 생성 실패: {e}")
                 frames.append(part_image)
 
     return frames
+
 
 def save_animation(frames, output_path, fps=24):
     """
@@ -244,7 +283,7 @@ def save_animation(frames, output_path, fps=24):
         print("저장할 프레임이 없습니다.")
         return False
 
-    if output_path.endswith('.gif'):
+    if output_path.endswith(".gif"):
         # GIF로 저장
         import imageio
 
@@ -264,10 +303,10 @@ def save_animation(frames, output_path, fps=24):
         print(f"GIF 저장 완료: {output_path}")
         return True
 
-    elif output_path.endswith('.mp4'):
+    elif output_path.endswith(".mp4"):
         # MP4로 저장
         height, width = frames[0].shape[:2]
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
         for frame in frames:

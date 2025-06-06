@@ -32,78 +32,69 @@ BODY_PARTS: Dict[str, Dict[str, Any]] = {
         "color": "rgba(255,0,0,0.5)",
         "z_value": 10,
         "fixed": False,
-        "anchor_joint": "neck"
+        "anchor_joint": "neck",
     },
-
     "torso": {
         "joints": ["neck", "torso", "pelvis", "left_shoulder", "right_shoulder"],
         "color": "rgba(0,255,0,0.5)",
         "z_value": 0,
         "fixed": True,
-        "anchor_joint": "torso"
+        "anchor_joint": "torso",
     },
-
     "left_arm_upper": {
         "joints": ["left_shoulder", "left_elbow"],
         "color": "rgba(0,0,255,0.5)",
         "z_value": 5,
         "fixed": False,
-        "anchor_joint": "left_shoulder"
+        "anchor_joint": "left_shoulder",
     },
-
     "left_arm_lower": {
         "joints": ["left_elbow", "left_wrist", "left_hand"],
         "color": "rgba(255,255,0,0.5)",
         "z_value": 4,
         "fixed": False,
-        "anchor_joint": "left_elbow"
+        "anchor_joint": "left_elbow",
     },
-
     "right_arm_upper": {
         "joints": ["right_shoulder", "right_elbow"],
         "color": "rgba(255,0,255,0.5)",
         "z_value": 5,
         "fixed": False,
-        "anchor_joint": "right_shoulder"
+        "anchor_joint": "right_shoulder",
     },
-
     "right_arm_lower": {
         "joints": ["right_elbow", "right_wrist", "right_hand"],
         "color": "rgba(0,255,255,0.5)",
         "z_value": 4,
         "fixed": False,
-        "anchor_joint": "right_elbow"
+        "anchor_joint": "right_elbow",
     },
-
     "left_leg_upper": {
         "joints": ["left_hip", "left_knee"],
         "color": "rgba(128,0,0,0.5)",
         "z_value": 2,
         "fixed": False,
-        "anchor_joint": "left_hip"
+        "anchor_joint": "left_hip",
     },
-
     "left_leg_lower": {
         "joints": ["left_knee", "left_ankle", "left_foot"],
         "color": "rgba(0,128,0,0.5)",
         "z_value": 1,
         "fixed": False,
-        "anchor_joint": "left_knee"
+        "anchor_joint": "left_knee",
     },
-
     "right_leg_upper": {
         "joints": ["right_hip", "right_knee"],
         "color": "rgba(0,0,128,0.5)",
         "z_value": 2,
         "fixed": False,
-        "anchor_joint": "right_hip"
+        "anchor_joint": "right_hip",
     },
-
     "right_leg_lower": {
         "joints": ["right_knee", "right_ankle", "right_foot"],
         "color": "rgba(128,0,128,0.5)",
         "z_value": 1,
         "fixed": False,
-        "anchor_joint": "right_knee"
+        "anchor_joint": "right_knee",
     },
 }

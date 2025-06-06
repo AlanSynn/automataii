@@ -4,13 +4,15 @@ Mechanism Manager for Automataii.
 This class handles the logic for generating different types of mechanisms
 based on user input and character part data.
 """
+
 import logging
 from typing import Optional, Dict, Any, List
 
 from PyQt6.QtCore import QObject, pyqtSignal, QPointF
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsItem
 
-from .models import PartInfo # Assuming PartInfo is in core.models
+from .models import PartInfo  # Assuming PartInfo is in core.models
+
 
 class MechanismManager(QObject):
     """
@@ -19,10 +21,12 @@ class MechanismManager(QObject):
 
     # Signal emitted when new mechanism visual items are ready to be added to a scene.
     # The list could contain QGraphicsItem instances or dictionaries describing them.
-    mechanism_visuals_ready = pyqtSignal(list) # List[QGraphicsItem] or List[Dict]
+    mechanism_visuals_ready = pyqtSignal(list)  # List[QGraphicsItem] or List[Dict]
 
     # Signal emitted when mechanism data (non-visual) is generated or updated.
-    mechanism_data_updated = pyqtSignal(dict) # Dict containing mechanism parameters, joint info, etc.
+    mechanism_data_updated = pyqtSignal(
+        dict
+    )  # Dict containing mechanism parameters, joint info, etc.
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -34,7 +38,7 @@ class MechanismManager(QObject):
         params: Dict[str, Any],
         target_part_info: PartInfo,
         all_parts_info: Dict[str, PartInfo],
-        editor_scene_center: QPointF # Example: center of the editor scene or a key reference point
+        editor_scene_center: QPointF,  # Example: center of the editor scene or a key reference point
     ) -> None:
         """
         Generates the specified type of mechanism.
@@ -74,46 +78,60 @@ class MechanismManager(QObject):
 
             # Use target part's current position as a reference if motion path is empty
             ref_point = QPointF(target_part_info.x, target_part_info.y)
-            if target_part_info.motion_path_data and hasattr(target_part_info.motion_path_data, 'pointAtPercent'):
+            if target_part_info.motion_path_data and hasattr(
+                target_part_info.motion_path_data, "pointAtPercent"
+            ):
                 # QPainterPath
-                 ref_point = target_part_info.motion_path_data.pointAtPercent(0.0)
-            elif isinstance(target_part_info.motion_path_data, list) and target_part_info.motion_path_data:
+                ref_point = target_part_info.motion_path_data.pointAtPercent(0.0)
+            elif (
+                isinstance(target_part_info.motion_path_data, list)
+                and target_part_info.motion_path_data
+            ):
                 # List of QPointF
-                 ref_point = target_part_info.motion_path_data[0]
-
+                ref_point = target_part_info.motion_path_data[0]
 
             # Create a dummy circle as a placeholder visual
-            dummy_item = QGraphicsEllipseItem(ref_point.x() - 20, ref_point.y() - 20, 40, 40)
-            dummy_item.setBrush(QBrush(QColor(255, 0, 0, 100))) # Semi-transparent red
+            dummy_item = QGraphicsEllipseItem(
+                ref_point.x() - 20, ref_point.y() - 20, 40, 40
+            )
+            dummy_item.setBrush(QBrush(QColor(255, 0, 0, 100)))  # Semi-transparent red
             dummy_item.setToolTip(f"Generated {mechanism_type} (placeholder)")
             generated_items.append(dummy_item)
 
-            logging.info(f"MechanismManager: Created placeholder visual for {mechanism_type} at {ref_point}")
+            logging.info(
+                f"MechanismManager: Created placeholder visual for {mechanism_type} at {ref_point}"
+            )
 
         except Exception as e:
             logging.error(f"MechanismManager: Error creating placeholder visual: {e}")
-
 
         if generated_items:
             self.mechanism_visuals_ready.emit(generated_items)
 
         self.mechanism_data_updated.emit(generated_data)
-        logging.info(f"MechanismManager: Generation process complete for {mechanism_type}.")
+        logging.info(
+            f"MechanismManager: Generation process complete for {mechanism_type}."
+        )
+
 
 # Example usage (for testing, not part of the class)
-if __name__ == '__main__':
+if __name__ == "__main__":
     from PyQt6.QtWidgets import QApplication
     import sys
 
     logging.basicConfig(level=logging.DEBUG)
-    app = QApplication(sys.argv) # QApplication instance is required for QObject signals
+    app = QApplication(
+        sys.argv
+    )  # QApplication instance is required for QObject signals
 
     manager = MechanismManager()
 
     def handle_visuals(items: list):
         logging.info(f"Test: Received {len(items)} visual items.")
         for item in items:
-            logging.info(f"  Item type: {type(item)}, Tooltip: {item.toolTip() if hasattr(item, 'toolTip') else 'N/A'}")
+            logging.info(
+                f"  Item type: {type(item)}, Tooltip: {item.toolTip() if hasattr(item, 'toolTip') else 'N/A'}"
+            )
 
     def handle_data(data: dict):
         logging.info(f"Test: Received mechanism data: {data}")
@@ -124,20 +142,33 @@ if __name__ == '__main__':
     # Mock PartInfo
     class MockPartInfo(PartInfo):
         def __init__(self, name, x=0, y=0):
-            super().__init__(name=name, path="", x=x, y=y, z_value=0, fixed=False, scale=1.0, rotation=0, opacity=1.0, group="",
-                             original_svg_path="", enhanced_svg_path="", effective_bbox_offset_x=0,
-                             effective_bbox_offset_y=0, motion_path_data=None)
+            super().__init__(
+                name=name,
+                path="",
+                x=x,
+                y=y,
+                z_value=0,
+                fixed=False,
+                scale=1.0,
+                rotation=0,
+                opacity=1.0,
+                group="",
+                original_svg_path="",
+                enhanced_svg_path="",
+                effective_bbox_offset_x=0,
+                effective_bbox_offset_y=0,
+                motion_path_data=None,
+            )
 
     mock_target_part = MockPartInfo(name="leg_lower", x=50, y=50)
-    mock_target_part.motion_path_data = [QPointF(50,50), QPointF(100,100)]
-
+    mock_target_part.motion_path_data = [QPointF(50, 50), QPointF(100, 100)]
 
     manager.generate_mechanism(
         mechanism_type="4-Bar Linkage",
         params={"pivot_a": QPointF(10, 10), "pivot_d": QPointF(100, 10)},
         target_part_info=mock_target_part,
         all_parts_info={"leg_lower": mock_target_part},
-        editor_scene_center=QPointF(0,0)
+        editor_scene_center=QPointF(0, 0),
     )
 
     # app.exec() # Not needed for this non-GUI test of signals

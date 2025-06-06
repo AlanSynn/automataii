@@ -1,5 +1,6 @@
 import cv2
-import numpy as np # Potentially useful for type hinting 'image'
+import numpy as np  # Potentially useful for type hinting 'image'
+
 
 def save_image(image: np.ndarray, output_path: str) -> bool:
     """Saves a NumPy array image to the specified path using OpenCV.

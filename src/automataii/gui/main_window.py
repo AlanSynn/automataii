@@ -11,16 +11,9 @@ from PyQt6.QtWidgets import (
     QToolBar,
     QGraphicsItem,
     QGraphicsPixmapItem,
-    QFileDialog
+    QFileDialog,
 )
-from PyQt6.QtGui import (
-    QColor,
-    QPen,
-    QPainterPath,
-    QBrush,
-    QPixmap,
-    QTransform
-)
+from PyQt6.QtGui import QColor, QPen, QPainterPath, QBrush, QPixmap, QTransform
 from PyQt6.QtCore import (
     Qt,
     QPointF,
@@ -32,13 +25,15 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
 # Local imports (adjust paths as needed)
-from .views.editor_view import EditorView # ADD THIS IMPORT
+from .views.editor_view import EditorView  # ADD THIS IMPORT
 from .image_view import ImageProcessingView
 from .graphics_items.part_item import CharacterPartItem
 from ..utils.styling import LIGHT_STYLE, DARK_STYLE, UIColors
 
-from ..core.models import PartInfo # ProjectFileModel is in models_pydantic
-from ..core.models_pydantic import ProjectFileModel # Added ProjectFileModel from correct location
+from ..core.models import PartInfo  # ProjectFileModel is in models_pydantic
+from ..core.models_pydantic import (
+    ProjectFileModel,
+)  # Added ProjectFileModel from correct location
 
 # Import new tab modules
 from .tabs.landing_tab import LandingTab
@@ -140,25 +135,35 @@ class AutomataDesigner(QMainWindow):
         self._create_menus()  # Defines QActions and populates menubar
         self._create_toolbar()  # Defines QActions or uses existing ones for toolbar
         self._connect_global_signals()
-        self._connect_manager_signals() # New method for connecting manager signals
+        self._connect_manager_signals()  # New method for connecting manager signals
 
         # AFTER ALL MANAGERS AND UI ARE CREATED AND CONNECTED
         if self.skeleton_manager and self.ik_manager:
-            logging.info(f"AutomataDesigner.__init__ (END): Linking SkeletonManager (id:{id(self.skeleton_manager)}) to IKManager (id:{id(self.ik_manager)}).")
+            logging.info(
+                f"AutomataDesigner.__init__ (END): Linking SkeletonManager (id:{id(self.skeleton_manager)}) to IKManager (id:{id(self.ik_manager)})."
+            )
             self.ik_manager.set_skeleton_manager(self.skeleton_manager)
             ik_sm_ref = self.ik_manager.skeleton_manager_ref
-            logging.info(f"AutomataDesigner.__init__ (END): IKManager's skeleton_manager_ref is now id:{id(ik_sm_ref) if ik_sm_ref else 'None'}. Type: {type(ik_sm_ref)}")
+            logging.info(
+                f"AutomataDesigner.__init__ (END): IKManager's skeleton_manager_ref is now id:{id(ik_sm_ref) if ik_sm_ref else 'None'}. Type: {type(ik_sm_ref)}"
+            )
             if ik_sm_ref is None:
-                 logging.error("AutomataDesigner.__init__ (END): CRITICAL - IKManager.skeleton_manager_ref is None immediately after setting!")
+                logging.error(
+                    "AutomataDesigner.__init__ (END): CRITICAL - IKManager.skeleton_manager_ref is None immediately after setting!"
+                )
             elif ik_sm_ref != self.skeleton_manager:
-                 logging.error(f"AutomataDesigner.__init__ (END): CRITICAL - IKManager.skeleton_manager_ref (id:{id(ik_sm_ref)}) MISMATCHES self.skeleton_manager (id:{id(self.skeleton_manager)})!")
+                logging.error(
+                    f"AutomataDesigner.__init__ (END): CRITICAL - IKManager.skeleton_manager_ref (id:{id(ik_sm_ref)}) MISMATCHES self.skeleton_manager (id:{id(self.skeleton_manager)})!"
+                )
         else:
-            logging.error("AutomataDesigner.__init__ (END): Critical error - SkeletonManager or IKManager not initialized before linking.")
+            logging.error(
+                "AutomataDesigner.__init__ (END): Critical error - SkeletonManager or IKManager not initialized before linking."
+            )
 
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
 
-# --- UI Initialization ---
+    # --- UI Initialization ---
 
     def _init_ui(self):
         """Sets up the main user interface layout and widgets."""
@@ -182,7 +187,9 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.addTab(self.editor_tab, "Mechanism Design")
 
         # --- Tab 3: Options ---
-        self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
+        self.options_tab = OptionsTab(
+            initial_anim_duration=self.ik_manager.animation_duration
+        )
         self.tab_widget.addTab(self.options_tab, "Options")
 
         # --- Connect Signals from LandingTab ---
@@ -200,7 +207,9 @@ class AutomataDesigner(QMainWindow):
         # --- Connect Signals from EditorTab ---
         self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation)
         self.editor_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)
-        self.editor_tab.request_reset_simulation.connect(self.ik_manager.reset_animation_state)
+        self.editor_tab.request_reset_simulation.connect(
+            self.ik_manager.reset_animation_state
+        )
         self.editor_tab.request_generate_mechanism.connect(
             self.handle_generate_mechanism_request
         )
@@ -224,13 +233,19 @@ class AutomataDesigner(QMainWindow):
         )
         self.options_tab.setting_changed.connect(self._handle_option_change)
         # Connect advanced processing visibility toggle
-        if hasattr(self.options_tab, 'advancedProcessingVisibilityChanged') and hasattr(self.image_proc_tab, '_toggle_detailed_processing_visibility'):
-            self.options_tab.advancedProcessingVisibilityChanged.connect(self.image_proc_tab._toggle_detailed_processing_visibility)
+        if hasattr(self.options_tab, "advancedProcessingVisibilityChanged") and hasattr(
+            self.image_proc_tab, "_toggle_detailed_processing_visibility"
+        ):
+            self.options_tab.advancedProcessingVisibilityChanged.connect(
+                self.image_proc_tab._toggle_detailed_processing_visibility
+            )
         # Connect unit changed signal (assuming OptionsTab will have it)
-        if hasattr(self.options_tab, 'unitChanged'):
+        if hasattr(self.options_tab, "unitChanged"):
             self.options_tab.unitChanged.connect(self._handle_unit_changed)
         else:
-            logging.warning("MainWindow: OptionsTab does not have unitChanged signal. Unit selection may not work.")
+            logging.warning(
+                "MainWindow: OptionsTab does not have unitChanged signal. Unit selection may not work."
+            )
 
         # Connect menu actions using ActionManager
         self.action_manager.connect_action("load_parts", self.load_parts_dialog)
@@ -238,31 +253,51 @@ class AutomataDesigner(QMainWindow):
         self.action_manager.connect_action("exit", self.close)
         self.action_manager.connect_action(
             "zoom_in",
-            lambda: self.editor_tab.editor_view.zoom_in() # Call on EditorTab's view
-            if self.tab_widget.currentWidget() == self.editor_tab
-            else None, # Add a default None if no active tab matches known views
+            lambda: (
+                self.editor_tab.editor_view.zoom_in()  # Call on EditorTab's view
+                if self.tab_widget.currentWidget() == self.editor_tab
+                else None
+            ),  # Add a default None if no active tab matches known views
         )
         self.action_manager.connect_action(
             "zoom_out",
-            lambda: self.editor_tab.editor_view.zoom_out() # Call on EditorTab's view
-            if self.tab_widget.currentWidget() == self.editor_tab
-            else None, # Add a default None
+            lambda: (
+                self.editor_tab.editor_view.zoom_out()  # Call on EditorTab's view
+                if self.tab_widget.currentWidget() == self.editor_tab
+                else None
+            ),  # Add a default None
         )
         self.action_manager.connect_action(
             "zoom_fit",
-            lambda: self.editor_tab.editor_view.zoom_to_fit() # Call on EditorTab's view
-            if self.tab_widget.currentWidget() == self.editor_tab
-            else None, # Add a default None
+            lambda: (
+                self.editor_tab.editor_view.zoom_to_fit()  # Call on EditorTab's view
+                if self.tab_widget.currentWidget() == self.editor_tab
+                else None
+            ),  # Add a default None
         )
         self.action_manager.connect_action(
-            "reset_view", lambda: self.editor_tab.editor_view.reset_view() # Call on EditorTab's view
-            if self.tab_widget.currentWidget() == self.editor_tab else None
+            "reset_view",
+            lambda: (
+                self.editor_tab.editor_view.reset_view()  # Call on EditorTab's view
+                if self.tab_widget.currentWidget() == self.editor_tab
+                else None
+            ),
         )
-        self.action_manager.connect_action("undo", lambda: self.editor_tab.editor_view.undo() # Call on EditorTab's view
-            if self.tab_widget.currentWidget() == self.editor_tab else None
+        self.action_manager.connect_action(
+            "undo",
+            lambda: (
+                self.editor_tab.editor_view.undo()  # Call on EditorTab's view
+                if self.tab_widget.currentWidget() == self.editor_tab
+                else None
+            ),
         )
-        self.action_manager.connect_action("redo", lambda: self.editor_tab.editor_view.redo() # Call on EditorTab's view
-            if self.tab_widget.currentWidget() == self.editor_tab else None
+        self.action_manager.connect_action(
+            "redo",
+            lambda: (
+                self.editor_tab.editor_view.redo()  # Call on EditorTab's view
+                if self.tab_widget.currentWidget() == self.editor_tab
+                else None
+            ),
         )
         self.action_manager.connect_action("about", self.show_about_dialog)
 
@@ -313,25 +348,36 @@ class AutomataDesigner(QMainWindow):
         if hasattr(current_tab, "tab_name"):
             self.statusBar().showMessage(f"{current_tab.tab_name} tab active")
         else:
-            self.statusBar().showMessage(f"Tab {index+1} active")
+            self.statusBar().showMessage(f"Tab {index + 1} active")
 
         # If EditorTab is selected, ensure its view is updated if parts are loaded
         if current_tab == self.editor_tab:
-            if hasattr(self.editor_tab, "editor_view") and self.editor_tab.editor_view is not None:
+            if (
+                hasattr(self.editor_tab, "editor_view")
+                and self.editor_tab.editor_view is not None
+            ):
                 self.editor_tab.editor_view.zoom_to_fit()
 
     # --- New Slots for ImageProcessingTab Signals ---
     @pyqtSlot(dict, str)
-    def handle_parts_generated_from_tab(self, annotation_results: dict, final_bpe_char_dir_str: str):
+    def handle_parts_generated_from_tab(
+        self, annotation_results: dict, final_bpe_char_dir_str: str
+    ):
         """Handles the parts_generated signal from ImageProcessingTab."""
-        logging.info(f"MainWindow: Received parts_generated. Annotation results output_dir: {annotation_results.get('output_dir')}, Final BPE dir: {final_bpe_char_dir_str}")
+        logging.info(
+            f"MainWindow: Received parts_generated. Annotation results output_dir: {annotation_results.get('output_dir')}, Final BPE dir: {final_bpe_char_dir_str}"
+        )
 
         parts_info_json_path = Path(final_bpe_char_dir_str) / "parts_info.json"
-        source_char_cfg_path_str = annotation_results.get('char_cfg_path')
+        source_char_cfg_path_str = annotation_results.get("char_cfg_path")
 
         if not source_char_cfg_path_str:
-            logging.error("handle_parts_generated_from_tab: 'char_cfg_path' not found in annotation_results.")
-            QMessageBox.critical(self, "Error", "char_cfg.yaml path not found in annotation data.")
+            logging.error(
+                "handle_parts_generated_from_tab: 'char_cfg_path' not found in annotation_results."
+            )
+            QMessageBox.critical(
+                self, "Error", "char_cfg.yaml path not found in annotation data."
+            )
             return
 
         source_char_cfg_path = Path(source_char_cfg_path_str)
@@ -340,13 +386,16 @@ class AutomataDesigner(QMainWindow):
         if source_char_cfg_path.exists():
             try:
                 import shutil
+
                 shutil.copy2(source_char_cfg_path, dest_char_cfg_path)
-                logging.info(f"Copied {source_char_cfg_path} to {dest_char_cfg_path} for ProjectDataManager.")
+                logging.info(
+                    f"Copied {source_char_cfg_path} to {dest_char_cfg_path} for ProjectDataManager."
+                )
 
                 # texture.png is no longer copied as it's not used as an atlas.
                 # Individual part PNGs/SVGs are expected in final_bpe_char_dir_str.
 
-                source_mask_path_str = annotation_results.get('mask_path')
+                source_mask_path_str = annotation_results.get("mask_path")
                 if source_mask_path_str:
                     source_mask_path = Path(source_mask_path_str)
                     dest_mask_path = Path(final_bpe_char_dir_str) / "mask.png"
@@ -354,28 +403,52 @@ class AutomataDesigner(QMainWindow):
                         shutil.copy2(source_mask_path, dest_mask_path)
                         logging.info(f"Copied {source_mask_path} to {dest_mask_path}.")
                     else:
-                        logging.warning(f"Source mask.png not found at {source_mask_path}, cannot copy.")
+                        logging.warning(
+                            f"Source mask.png not found at {source_mask_path}, cannot copy."
+                        )
                 else:
-                    logging.warning("'mask_path' not in annotation_results, cannot copy mask.png.")
+                    logging.warning(
+                        "'mask_path' not in annotation_results, cannot copy mask.png."
+                    )
 
             except Exception as e:
-                logging.error(f"Failed to copy files to BPE output dir: {e}", exc_info=True)
-                QMessageBox.warning(self, "File Copy Error", f"Could not copy necessary files for project loading: {e}")
+                logging.error(
+                    f"Failed to copy files to BPE output dir: {e}", exc_info=True
+                )
+                QMessageBox.warning(
+                    self,
+                    "File Copy Error",
+                    f"Could not copy necessary files for project loading: {e}",
+                )
         else:
-            logging.warning(f"Source char_cfg.yaml not found at {source_char_cfg_path}, cannot copy to BPE output dir. ProjectDataManager might fail to load skeleton.")
+            logging.warning(
+                f"Source char_cfg.yaml not found at {source_char_cfg_path}, cannot copy to BPE output dir. ProjectDataManager might fail to load skeleton."
+            )
 
         if not parts_info_json_path.exists():
-             logging.error(f"CRITICAL ERROR IN MAINWINDOW: parts_info.json path derived as {parts_info_json_path} but file does not exist.")
-             QMessageBox.critical(self, "Project Load Error", f"Internal error: Could not locate parts_info.json at {parts_info_json_path}.")
-             return
+            logging.error(
+                f"CRITICAL ERROR IN MAINWINDOW: parts_info.json path derived as {parts_info_json_path} but file does not exist."
+            )
+            QMessageBox.critical(
+                self,
+                "Project Load Error",
+                f"Internal error: Could not locate parts_info.json at {parts_info_json_path}.",
+            )
+            return
 
-        logging.info(f"Attempting to load project data from parts_info.json: {parts_info_json_path}")
-        success = self.project_data_manager.load_project_from_file(str(parts_info_json_path))
+        logging.info(
+            f"Attempting to load project data from parts_info.json: {parts_info_json_path}"
+        )
+        success = self.project_data_manager.load_project_from_file(
+            str(parts_info_json_path)
+        )
 
         if success:
             self.statusBar().showMessage("Part data loaded successfully.", 3000)
             self.current_temp_char_dir = Path(final_bpe_char_dir_str)
-            logging.info(f"MainWindow: Project loaded. Updated current_temp_char_dir to BPE output: {self.current_temp_char_dir}")
+            logging.info(
+                f"MainWindow: Project loaded. Updated current_temp_char_dir to BPE output: {self.current_temp_char_dir}"
+            )
 
         else:
             self.statusBar().showMessage("Failed to load part data. Check logs.", 5000)
@@ -383,7 +456,9 @@ class AutomataDesigner(QMainWindow):
     @pyqtSlot(dict)
     def handle_skeleton_updated_from_tab(self, skeleton_data: dict):
         """Handles the skeleton_updated signal from ImageProcessingTab."""
-        logging.info("MainWindow: Received skeleton_updated signal from tab. Forwarding to SkeletonManager.")
+        logging.info(
+            "MainWindow: Received skeleton_updated signal from tab. Forwarding to SkeletonManager."
+        )
         # self.skeleton_data = skeleton_data # OLD: MainWindow should not hold its own copy like this
         # self._initialize_new_ik_skeleton_definitions()  # Re-initialize IK system with new skeleton # OLD: This will be triggered by SkeletonManager's update
         # # Notify editor tab if it needs to update its view based on the new skeleton
@@ -395,17 +470,25 @@ class AutomataDesigner(QMainWindow):
         # NEW: Pass the raw skeleton data from the tab to the SkeletonManager
         # Assuming the data from ImageProcessingTab is in 'animated_drawings' format (char_cfg.yaml like)
         if self.skeleton_manager:
-            self.skeleton_manager.load_skeleton_from_dict(skeleton_data, source_format='animated_drawings')
+            self.skeleton_manager.load_skeleton_from_dict(
+                skeleton_data, source_format="animated_drawings"
+            )
         else:
-            logging.error("MainWindow: SkeletonManager not available to handle skeleton update.")
-            QMessageBox.warning(self, "Error", "SkeletonManager not initialized. Cannot process skeleton.")
+            logging.error(
+                "MainWindow: SkeletonManager not available to handle skeleton update."
+            )
+            QMessageBox.warning(
+                self,
+                "Error",
+                "SkeletonManager not initialized. Cannot process skeleton.",
+            )
 
     @pyqtSlot(str)
     def _handle_landing_image_selected(self, image_path: str):
         """Handles image selection from the landing tab."""
         logging.info(f"MainWindow: Landing tab selected image: {image_path}")
 
-        if hasattr(self, 'image_proc_tab') and self.image_proc_tab is not None:
+        if hasattr(self, "image_proc_tab") and self.image_proc_tab is not None:
             # Load the image in the image processing tab
             loaded_successfully = self.image_proc_tab._load_image_from_path(image_path)
 
@@ -414,18 +497,37 @@ class AutomataDesigner(QMainWindow):
                 for i in range(self.tab_widget.count()):
                     if self.tab_widget.widget(i) == self.image_proc_tab:
                         self.tab_widget.setCurrentIndex(i)
-                        logging.info(f"MainWindow: Switched to Image Processing Tab and loaded {Path(image_path).name}")
-                        self.statusBar().showMessage(f"Loaded: {Path(image_path).name}", 3000)
+                        logging.info(
+                            f"MainWindow: Switched to Image Processing Tab and loaded {Path(image_path).name}"
+                        )
+                        self.statusBar().showMessage(
+                            f"Loaded: {Path(image_path).name}", 3000
+                        )
                         # Ensure detailed processing group is hidden on this specific transition
-                        if hasattr(self.image_proc_tab, '_toggle_detailed_processing_visibility'):
-                            self.image_proc_tab._toggle_detailed_processing_visibility(False)
+                        if hasattr(
+                            self.image_proc_tab,
+                            "_toggle_detailed_processing_visibility",
+                        ):
+                            self.image_proc_tab._toggle_detailed_processing_visibility(
+                                False
+                            )
                         break
             else:
-                logging.error(f"MainWindow: Failed to load image {image_path} in ImageProcessingTab.")
-                QMessageBox.warning(self, "Image Load Error", f"Could not load the selected image: {Path(image_path).name}")
+                logging.error(
+                    f"MainWindow: Failed to load image {image_path} in ImageProcessingTab."
+                )
+                QMessageBox.warning(
+                    self,
+                    "Image Load Error",
+                    f"Could not load the selected image: {Path(image_path).name}",
+                )
         else:
-            logging.error("MainWindow: image_proc_tab is not available or not initialized.")
-            QMessageBox.critical(self, "Error", "Image Processing Tab is not available.")
+            logging.error(
+                "MainWindow: image_proc_tab is not available or not initialized."
+            )
+            QMessageBox.critical(
+                self, "Error", "Image Processing Tab is not available."
+            )
 
     @pyqtSlot()
     def switch_to_editor_tab(self):
@@ -452,18 +554,24 @@ class AutomataDesigner(QMainWindow):
             self.main_toolbar.setVisible(visible)
             logging.info(f"Main toolbar visibility set to: {visible}")
         else:
-            logging.warning("_toggle_toolbar_visibility called but main_toolbar is None.")
+            logging.warning(
+                "_toggle_toolbar_visibility called but main_toolbar is None."
+            )
 
     def _toggle_part_properties_visibility(self, visible: bool):
         """Toggles the visibility of the part properties panel in the EditorTab."""
-        if hasattr(self, 'editor_tab') and self.editor_tab:
-            if hasattr(self.editor_tab, 'toggle_part_properties_panel_visibility'):
+        if hasattr(self, "editor_tab") and self.editor_tab:
+            if hasattr(self.editor_tab, "toggle_part_properties_panel_visibility"):
                 self.editor_tab.toggle_part_properties_panel_visibility(visible)
                 logging.info(f"Part properties panel visibility set to: {visible}")
             else:
-                logging.warning("EditorTab does not have 'toggle_part_properties_panel_visibility' method.")
+                logging.warning(
+                    "EditorTab does not have 'toggle_part_properties_panel_visibility' method."
+                )
         else:
-            logging.warning("_toggle_part_properties_visibility called but editor_tab is not available.")
+            logging.warning(
+                "_toggle_part_properties_visibility called but editor_tab is not available."
+            )
 
     # --- Project Data Handling ---
     def load_parts_dialog(self):
@@ -471,7 +579,11 @@ class AutomataDesigner(QMainWindow):
         # TODO: Use QFileDialog.getOpenFileName
         # For now, let's assume a fixed path for testing or use previous logic
         # We should ideally get project_dir from a settings/config or last used
-        start_dir = str(self.project_data_manager.project_dir) if self.project_data_manager.project_dir else os.path.expanduser("~")
+        start_dir = (
+            str(self.project_data_manager.project_dir)
+            if self.project_data_manager.project_dir
+            else os.path.expanduser("~")
+        )
 
         filepath, _ = QFileDialog.getOpenFileName(
             self,
@@ -493,13 +605,19 @@ class AutomataDesigner(QMainWindow):
         For now, it delegates to ProjectDataManager.
         """
         if filepath:
-            logging.info(f"MainWindow.load_parts called with path: {filepath}. Delegating to ProjectDataManager.")
+            logging.info(
+                f"MainWindow.load_parts called with path: {filepath}. Delegating to ProjectDataManager."
+            )
             return self.project_data_manager.load_project_from_file(filepath)
         else:
             # This case should ideally not be hit if dialog is used.
             # If called without filepath, it implies an issue or needs a default.
-            logging.warning("MainWindow.load_parts called without filepath. Consider using load_parts_dialog.")
-            self._show_status_message("Error: No file path provided for loading parts.", error=True)
+            logging.warning(
+                "MainWindow.load_parts called without filepath. Consider using load_parts_dialog."
+            )
+            self._show_status_message(
+                "Error: No file path provided for loading parts.", error=True
+            )
             return False
 
     # REFACTORED: The old content of load_parts is now largely in ProjectDataManager.
@@ -511,32 +629,40 @@ class AutomataDesigner(QMainWindow):
         self,
         success: bool,
         project_directory_path: str,
-        parts_info: Dict[str, PartInfo] # from ProjectDataManager
+        parts_info: Dict[str, PartInfo],  # from ProjectDataManager
     ):
         """Handles the project_data_loaded signal from ProjectDataManager."""
         if success:
             logging.info(
                 f"MainWindow: Project data loaded successfully from {project_directory_path}"
             )
-            self.project_dir = Path(project_directory_path) # Update project_dir in MainWindow, ensure it's Path
+            self.project_dir = Path(
+                project_directory_path
+            )  # Update project_dir in MainWindow, ensure it's Path
 
             # Pass PartInfo data to EditorTab. It no longer needs texture_atlas_pixmap.
             self.editor_tab.set_parts_data(parts_info)
 
             # Update other tabs/managers as needed
-            if hasattr(self.ik_manager, 'set_project_parts_data'):
+            if hasattr(self.ik_manager, "set_project_parts_data"):
                 self.ik_manager.set_project_parts_data(parts_info)
 
-            current_skeleton_data_raw = self.project_data_manager.raw_skeleton_data # This is List[Dict]
+            current_skeleton_data_raw = (
+                self.project_data_manager.raw_skeleton_data
+            )  # This is List[Dict]
             if current_skeleton_data_raw:
                 # SkeletonManager loads from raw, then emits standardized data
-                self.skeleton_manager.load_skeleton_from_project_data(current_skeleton_data_raw, parts_info)
+                self.skeleton_manager.load_skeleton_from_project_data(
+                    current_skeleton_data_raw, parts_info
+                )
                 # The actual caching in EditorTab happens when skeleton_manager.skeleton_updated is emitted
                 # and handled by _on_skeleton_manager_updated, which then calls editor_tab.cache_initial_skeleton.
             else:
-                self.skeleton_manager.clear_data() # Will emit skeleton_updated(None)
-                if hasattr(self.editor_tab, 'cache_initial_skeleton'):
-                    self.editor_tab.cache_initial_skeleton(None) # Ensure cache is cleared if no skeleton
+                self.skeleton_manager.clear_data()  # Will emit skeleton_updated(None)
+                if hasattr(self.editor_tab, "cache_initial_skeleton"):
+                    self.editor_tab.cache_initial_skeleton(
+                        None
+                    )  # Ensure cache is cleared if no skeleton
 
             self.image_proc_tab.on_parts_loaded_in_editor(True)
 
@@ -544,17 +670,25 @@ class AutomataDesigner(QMainWindow):
             self.action_manager.update_actions_for_project_state(True)
 
             if parts_info:
-                logging.info(f"MainWindow: Project and parts data ({len(parts_info)} parts) loaded. Switching to editor tab if needed.")
+                logging.info(
+                    f"MainWindow: Project and parts data ({len(parts_info)} parts) loaded. Switching to editor tab if needed."
+                )
                 if self.tab_widget.currentWidget() != self.editor_tab:
                     self.switch_to_editor_tab()
             else:
-                logging.info("MainWindow: Project loaded, but no specific parts data found in parts_info dict.")
+                logging.info(
+                    "MainWindow: Project loaded, but no specific parts data found in parts_info dict."
+                )
 
         else:
-            logging.error(f"MainWindow: Project loading failed from {project_directory_path}")
+            logging.error(
+                f"MainWindow: Project loading failed from {project_directory_path}"
+            )
             self._clear_ui_for_failed_load()
             QMessageBox.critical(
-                self, "Load Project Error", f"Failed to load project from {project_directory_path}."
+                self,
+                "Load Project Error",
+                f"Failed to load project from {project_directory_path}.",
             )
             self.statusBar().showMessage("Project loading failed.")
             self.action_manager.update_actions_for_project_state(False)
@@ -562,48 +696,54 @@ class AutomataDesigner(QMainWindow):
     def _clear_ui_for_failed_load(self):
         """Helper to clear relevant UI parts when project loading fails after an attempt."""
         # This is similar to clear_project_data's UI impact but more targeted for a failed load.
-        if hasattr(self, 'editor_tab') and self.editor_tab:
-            self.editor_tab.clear_editor_content() # EditorTab now clears its own scene
+        if hasattr(self, "editor_tab") and self.editor_tab:
+            self.editor_tab.clear_editor_content()  # EditorTab now clears its own scene
 
         # self.image_proc_tab.clear_display() # Assuming ImageProcessingTab has a method to clear its display
-        if hasattr(self.image_proc_tab, 'clear_display_and_data'): # More robust check
+        if hasattr(self.image_proc_tab, "clear_display_and_data"):  # More robust check
             self.image_proc_tab.clear_display_and_data()
-
 
         self.skeleton_manager.clear_data()
         self.ik_manager.clear_ik_data()
         logging.info("UI cleared due to failed project load.")
 
-
     @pyqtSlot()
     def _handle_project_data_cleared(self):
         """Handles the project_data_cleared signal from ProjectDataManager."""
         logging.info("MainWindow: Handling project data cleared signal.")
-        self.editor_tab.clear_editor_content() # This will also clear EditorTab's _initial_skeleton_data_cache
-        self.skeleton_manager.clear_data() # This will emit skeleton_updated with None
+        self.editor_tab.clear_editor_content()  # This will also clear EditorTab's _initial_skeleton_data_cache
+        self.skeleton_manager.clear_data()  # This will emit skeleton_updated with None
         if self.ik_manager:
-            self.ik_manager.reset_all_ik_systems_and_data() # Use the new method name
+            self.ik_manager.reset_all_ik_systems_and_data()  # Use the new method name
         self.action_manager.update_actions_for_project_state(False)
         self.statusBar().showMessage("Project data cleared.")
         # Any other UI elements that need to be reset when project is cleared
 
     def save_project_dialog(self):
         """Opens a file dialog to save the current project via ProjectDataManager."""
-        if hasattr(self.project_data_manager, 'save_project_dialog'):
+        if hasattr(self.project_data_manager, "save_project_dialog"):
             self.project_data_manager.save_project_dialog()
         else:
-            logging.error("ProjectDataManager does not have save_project_dialog method.")
-            QMessageBox.critical(self, "Error", "Save project functionality is not available.")
+            logging.error(
+                "ProjectDataManager does not have save_project_dialog method."
+            )
+            QMessageBox.critical(
+                self, "Error", "Save project functionality is not available."
+            )
 
     def load_project_dialog(self):
         """Opens a file dialog to load a project via ProjectDataManager."""
         # Note: This is different from load_parts_dialog.
         # This should be connected to the "Open Project" action.
-        if hasattr(self.project_data_manager, 'load_project_dialog'):
+        if hasattr(self.project_data_manager, "load_project_dialog"):
             self.project_data_manager.load_project_dialog()
         else:
-            logging.error("ProjectDataManager does not have load_project_dialog method.")
-            QMessageBox.critical(self, "Error", "Load project functionality is not available.")
+            logging.error(
+                "ProjectDataManager does not have load_project_dialog method."
+            )
+            QMessageBox.critical(
+                self, "Error", "Load project functionality is not available."
+            )
 
     # --- Slots for EditorTab Signals (Implement these) ---
     @pyqtSlot(str, dict)
@@ -613,30 +753,39 @@ class AutomataDesigner(QMainWindow):
         )
         target_part_name = params.get("target_part_name")
         if not target_part_name:
-            QMessageBox.warning(self, "Mechanism Error", "No target part specified for mechanism generation.")
+            QMessageBox.warning(
+                self,
+                "Mechanism Error",
+                "No target part specified for mechanism generation.",
+            )
             return
 
         current_parts_data = self.project_data_manager.get_current_parts_data()
         if not current_parts_data or target_part_name not in current_parts_data:
-            QMessageBox.warning(self, "Mechanism Error", f"Target part '{target_part_name}' not found in project data.")
+            QMessageBox.warning(
+                self,
+                "Mechanism Error",
+                f"Target part '{target_part_name}' not found in project data.",
+            )
             return
 
         target_part_info = current_parts_data[target_part_name]
 
         # TODO: Get editor scene center or relevant reference point
         # For now, using a default QPointF(0,0) or center of target part bounding box
-        editor_scene_ref_point = QPointF(target_part_info.x, target_part_info.y) # Simplistic
+        editor_scene_ref_point = QPointF(
+            target_part_info.x, target_part_info.y
+        )  # Simplistic
         if self.editor_tab and self.editor_tab.editor_view:
             scene_rect = self.editor_tab.editor_view.sceneRect()
             editor_scene_ref_point = scene_rect.center()
 
-
         self.mechanism_manager.generate_mechanism(
             mechanism_type=mechanism_type,
-            params=params, # These params include selected points like cam_center from EditorTab
+            params=params,  # These params include selected points like cam_center from EditorTab
             target_part_info=target_part_info,
             all_parts_info=current_parts_data,
-            editor_scene_center=editor_scene_ref_point
+            editor_scene_center=editor_scene_ref_point,
         )
 
         self.statusBar().showMessage(
@@ -661,35 +810,43 @@ class AutomataDesigner(QMainWindow):
         logging.info("MainWindow: Resetting all animation paths and poses.")
 
         # Delegate clearing of motion path data from PartInfo objects to ProjectDataManager
-        if hasattr(self.project_data_manager, 'clear_all_motion_paths'):
+        if hasattr(self.project_data_manager, "clear_all_motion_paths"):
             self.project_data_manager.clear_all_motion_paths()
         else:
-            logging.warning("ProjectDataManager does not have clear_all_motion_paths method.")
+            logging.warning(
+                "ProjectDataManager does not have clear_all_motion_paths method."
+            )
             # Fallback to old direct manipulation if method doesn't exist (for safety during refactor)
             current_parts_data = self.project_data_manager.get_current_parts_data()
             if current_parts_data:
                 for part_info in current_parts_data.values():
-                    if hasattr(part_info, 'motion_path_data'):
+                    if hasattr(part_info, "motion_path_data"):
                         part_info.motion_path_data = None
-                    if hasattr(part_info, 'motion_path'):
+                    if hasattr(part_info, "motion_path"):
                         part_info.motion_path = []
             else:
                 logging.warning("Cannot clear motion path data: No parts data loaded.")
 
         # Instruct EditorTab to clear its visual motion paths
-        if self.editor_tab and hasattr(self.editor_tab, 'clear_all_visual_motion_paths'):
+        if self.editor_tab and hasattr(
+            self.editor_tab, "clear_all_visual_motion_paths"
+        ):
             self.editor_tab.clear_all_visual_motion_paths()
         else:
-            logging.warning("EditorTab or its clear_all_visual_motion_paths method not found.")
+            logging.warning(
+                "EditorTab or its clear_all_visual_motion_paths method not found."
+            )
 
         # Reset character pose to initial skeleton definition via IKManager
         self.ik_manager.reset_animation_state()  # This should reset poses to initial
 
         # Update EditorTab's view and button states
         if self.editor_tab:
-            if hasattr(self.editor_tab, 'editor_view') and hasattr(self.editor_tab.editor_view, 'update_view'):
+            if hasattr(self.editor_tab, "editor_view") and hasattr(
+                self.editor_tab.editor_view, "update_view"
+            ):
                 self.editor_tab.editor_view.update_view()
-            if hasattr(self.editor_tab, '_update_button_states'):
+            if hasattr(self.editor_tab, "_update_button_states"):
                 self.editor_tab._update_button_states()
 
         self.statusBar().showMessage("All animation paths and character poses reset.")
@@ -699,68 +856,128 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
         # Connect SkeletonManager signals
-        self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
+        self.skeleton_manager.skeleton_updated.connect(
+            self._on_skeleton_manager_updated
+        )
 
         # Connect IKManager signals
-        self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
-        if hasattr(self, 'editor_tab') and self.editor_tab and hasattr(self.ik_manager, 'animation_state_changed'):
-             self.ik_manager.animation_state_changed.connect(self.editor_tab.on_simulation_state_changed)
+        self.ik_manager.character_visuals_updated.connect(
+            self._handle_ik_visuals_update
+        )
+        if (
+            hasattr(self, "editor_tab")
+            and self.editor_tab
+            and hasattr(self.ik_manager, "animation_state_changed")
+        ):
+            self.ik_manager.animation_state_changed.connect(
+                self.editor_tab.on_simulation_state_changed
+            )
 
         # OptionsTab signals
-        if hasattr(self, 'options_tab') and self.options_tab:
+        if hasattr(self, "options_tab") and self.options_tab:
             self.options_tab.themeChanged.connect(self._apply_theme)
             # Connect animation duration change from OptionsTab to IKManager
-            self.options_tab.animationDurationChanged.connect(self.ik_manager.set_animation_duration)
+            self.options_tab.animationDurationChanged.connect(
+                self.ik_manager.set_animation_duration
+            )
             # Initialize OptionsTab with current animation duration from IKManager
-            self.options_tab.set_animation_duration_input(self.ik_manager.animation_duration / 1000.0)
+            self.options_tab.set_animation_duration_input(
+                self.ik_manager.animation_duration / 1000.0
+            )
             # Connect advanced processing visibility toggle
-            if hasattr(self.options_tab, 'advancedProcessingVisibilityChanged') and hasattr(self.image_proc_tab, '_toggle_detailed_processing_visibility'):
-                self.options_tab.advancedProcessingVisibilityChanged.connect(self.image_proc_tab._toggle_detailed_processing_visibility)
+            if hasattr(
+                self.options_tab, "advancedProcessingVisibilityChanged"
+            ) and hasattr(
+                self.image_proc_tab, "_toggle_detailed_processing_visibility"
+            ):
+                self.options_tab.advancedProcessingVisibilityChanged.connect(
+                    self.image_proc_tab._toggle_detailed_processing_visibility
+                )
             # Connect unit changed signal (assuming OptionsTab will have it)
-            if hasattr(self.options_tab, 'unitChanged'):
+            if hasattr(self.options_tab, "unitChanged"):
                 self.options_tab.unitChanged.connect(self._handle_unit_changed)
             else:
-                logging.warning("MainWindow: OptionsTab does not have unitChanged signal. Unit selection may not work.")
+                logging.warning(
+                    "MainWindow: OptionsTab does not have unitChanged signal. Unit selection may not work."
+                )
 
         # EditorTab signals
-        if hasattr(self, 'editor_tab') and self.editor_tab:
-            self.editor_tab.request_generate_mechanism.connect(self.handle_generate_mechanism_request)
+        if hasattr(self, "editor_tab") and self.editor_tab:
+            self.editor_tab.request_generate_mechanism.connect(
+                self.handle_generate_mechanism_request
+            )
 
             # More robust connections to IKManager, checking method existence
-            if hasattr(self.ik_manager, 'start_animation'):
-                self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation)
-            if hasattr(self.ik_manager, 'stop_animation'):
-                self.editor_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)
-            if hasattr(self.ik_manager, 'reset_animation_state'): # Ensure this method name is correct in IKManager
-                self.editor_tab.request_reset_simulation.connect(self.ik_manager.reset_animation_state)
+            if hasattr(self.ik_manager, "start_animation"):
+                self.editor_tab.request_play_simulation.connect(
+                    self.ik_manager.start_animation
+                )
+            if hasattr(self.ik_manager, "stop_animation"):
+                self.editor_tab.request_stop_simulation.connect(
+                    self.ik_manager.stop_animation
+                )
+            if hasattr(
+                self.ik_manager, "reset_animation_state"
+            ):  # Ensure this method name is correct in IKManager
+                self.editor_tab.request_reset_simulation.connect(
+                    self.ik_manager.reset_animation_state
+                )
 
             # If save_character_alignment_impl is the final destination for the signal from EditorTab
-            if hasattr(self, 'save_character_alignment_impl'):
-                 self.editor_tab.request_save_alignment.connect(self.save_character_alignment_impl)
+            if hasattr(self, "save_character_alignment_impl"):
+                self.editor_tab.request_save_alignment.connect(
+                    self.save_character_alignment_impl
+                )
 
             # If generate_blueprint_impl is the final destination
-            if hasattr(self, 'generate_blueprint_impl'):
-                self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
+            if hasattr(self, "generate_blueprint_impl"):
+                self.editor_tab.request_generate_blueprint.connect(
+                    self.generate_blueprint_impl
+                )
 
             # Connect the new request_reset_all_animations signal
-            if hasattr(self.editor_tab, 'request_reset_all_animations') and hasattr(self, '_reset_all_animations_button_clicked'):
-                self.editor_tab.request_reset_all_animations.connect(self._reset_all_animations_button_clicked)
+            if hasattr(self.editor_tab, "request_reset_all_animations") and hasattr(
+                self, "_reset_all_animations_button_clicked"
+            ):
+                self.editor_tab.request_reset_all_animations.connect(
+                    self._reset_all_animations_button_clicked
+                )
 
             # Connect EditorTab.motion_path_updated to MainWindow handler
-            if hasattr(self.editor_tab, 'motion_path_updated') and hasattr(self, '_handle_part_motion_path_update_from_editor_tab'):
-                if not self._is_signal_connected(self.editor_tab.motion_path_updated, self._handle_part_motion_path_update_from_editor_tab):
-                    self.editor_tab.motion_path_updated.connect(self._handle_part_motion_path_update_from_editor_tab)
+            if hasattr(self.editor_tab, "motion_path_updated") and hasattr(
+                self, "_handle_part_motion_path_update_from_editor_tab"
+            ):
+                if not self._is_signal_connected(
+                    self.editor_tab.motion_path_updated,
+                    self._handle_part_motion_path_update_from_editor_tab,
+                ):
+                    self.editor_tab.motion_path_updated.connect(
+                        self._handle_part_motion_path_update_from_editor_tab
+                    )
 
         # MechanismManager connections
-        if hasattr(self, 'mechanism_manager') and hasattr(self.mechanism_manager, 'mechanism_visuals_ready'):
+        if hasattr(self, "mechanism_manager") and hasattr(
+            self.mechanism_manager, "mechanism_visuals_ready"
+        ):
             # The slot self.editor_tab.handle_mechanism_visuals will be created in EditorTab
-            if hasattr(self, 'editor_tab') and hasattr(self.editor_tab, 'handle_mechanism_visuals'):
-                if not self._is_signal_connected(self.mechanism_manager.mechanism_visuals_ready, self.editor_tab.handle_mechanism_visuals):
-                    self.mechanism_manager.mechanism_visuals_ready.connect(self.editor_tab.handle_mechanism_visuals)
+            if hasattr(self, "editor_tab") and hasattr(
+                self.editor_tab, "handle_mechanism_visuals"
+            ):
+                if not self._is_signal_connected(
+                    self.mechanism_manager.mechanism_visuals_ready,
+                    self.editor_tab.handle_mechanism_visuals,
+                ):
+                    self.mechanism_manager.mechanism_visuals_ready.connect(
+                        self.editor_tab.handle_mechanism_visuals
+                    )
             else:
-                logging.warning("EditorTab or handle_mechanism_visuals slot not found for MechanismManager signal.")
+                logging.warning(
+                    "EditorTab or handle_mechanism_visuals slot not found for MechanismManager signal."
+                )
         else:
-            logging.warning("MechanismManager or its mechanism_visuals_ready signal not found.")
+            logging.warning(
+                "MechanismManager or its mechanism_visuals_ready signal not found."
+            )
 
     def _connect_manager_signals(self):
         """Connect signals from various managers to MainWindow slots or other manager slots."""
@@ -768,53 +985,113 @@ class AutomataDesigner(QMainWindow):
 
         # ProjectDataManager signals
         if self.project_data_manager:
-            try: self.project_data_manager.project_data_loaded.disconnect(self._handle_project_data_loaded)
-            except TypeError: pass
-            self.project_data_manager.project_data_loaded.connect(self._handle_project_data_loaded)
+            try:
+                self.project_data_manager.project_data_loaded.disconnect(
+                    self._handle_project_data_loaded
+                )
+            except TypeError:
+                pass
+            self.project_data_manager.project_data_loaded.connect(
+                self._handle_project_data_loaded
+            )
 
-            try: self.project_data_manager.project_data_cleared.disconnect(self._handle_project_data_cleared)
-            except TypeError: pass
-            self.project_data_manager.project_data_cleared.connect(self._handle_project_data_cleared)
+            try:
+                self.project_data_manager.project_data_cleared.disconnect(
+                    self._handle_project_data_cleared
+                )
+            except TypeError:
+                pass
+            self.project_data_manager.project_data_cleared.connect(
+                self._handle_project_data_cleared
+            )
 
-            try: self.project_data_manager.error_occurred.disconnect(self._handle_project_manager_error)
-            except TypeError: pass
-            self.project_data_manager.error_occurred.connect(self._handle_project_manager_error)
+            try:
+                self.project_data_manager.error_occurred.disconnect(
+                    self._handle_project_manager_error
+                )
+            except TypeError:
+                pass
+            self.project_data_manager.error_occurred.connect(
+                self._handle_project_manager_error
+            )
 
         # SkeletonManager signals
         if self.skeleton_manager:
             # Connect to a slot in MainWindow that might update UI or pass to other relevant managers
-            try: self.skeleton_manager.skeleton_updated.disconnect(self._on_skeleton_manager_updated)
-            except TypeError: pass
-            self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
+            try:
+                self.skeleton_manager.skeleton_updated.disconnect(
+                    self._on_skeleton_manager_updated
+                )
+            except TypeError:
+                pass
+            self.skeleton_manager.skeleton_updated.connect(
+                self._on_skeleton_manager_updated
+            )
 
             # If IKManager needs direct skeleton updates from SkeletonManager
             if self.ik_manager:
-                try: self.skeleton_manager.skeleton_updated.disconnect(self.ik_manager.on_skeleton_data_updated_from_manager)
-                except TypeError: pass # Allow it to fail if not connected
-                self.skeleton_manager.skeleton_updated.connect(self.ik_manager.on_skeleton_data_updated_from_manager)
-                logging.info("MainWindow: Connected SkeletonManager.skeleton_updated to IKManager.on_skeleton_data_updated_from_manager")
+                try:
+                    self.skeleton_manager.skeleton_updated.disconnect(
+                        self.ik_manager.on_skeleton_data_updated_from_manager
+                    )
+                except TypeError:
+                    pass  # Allow it to fail if not connected
+                self.skeleton_manager.skeleton_updated.connect(
+                    self.ik_manager.on_skeleton_data_updated_from_manager
+                )
+                logging.info(
+                    "MainWindow: Connected SkeletonManager.skeleton_updated to IKManager.on_skeleton_data_updated_from_manager"
+                )
 
         # IKManager signals
         if self.ik_manager:
             # Connect IK visuals update to a handler in MainWindow (or directly to EditorTab if appropriate)
-            try: self.ik_manager.character_visuals_updated.disconnect(self._handle_ik_visuals_update)
-            except TypeError: pass
-            self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
-            logging.info("MainWindow: Connected IKManager.character_visuals_updated to self._handle_ik_visuals_update")
+            try:
+                self.ik_manager.character_visuals_updated.disconnect(
+                    self._handle_ik_visuals_update
+                )
+            except TypeError:
+                pass
+            self.ik_manager.character_visuals_updated.connect(
+                self._handle_ik_visuals_update
+            )
+            logging.info(
+                "MainWindow: Connected IKManager.character_visuals_updated to self._handle_ik_visuals_update"
+            )
 
             # Connect IK animation state to EditorTab's handler
-            if hasattr(self, 'editor_tab') and self.editor_tab and hasattr(self.ik_manager, 'animation_state_changed'):
-                try: self.ik_manager.animation_state_changed.disconnect(self.editor_tab.on_simulation_state_changed)
-                except TypeError: pass
-                self.ik_manager.animation_state_changed.connect(self.editor_tab.on_simulation_state_changed)
-                logging.info("MainWindow: Connected IKManager.animation_state_changed to EditorTab.on_simulation_state_changed")
+            if (
+                hasattr(self, "editor_tab")
+                and self.editor_tab
+                and hasattr(self.ik_manager, "animation_state_changed")
+            ):
+                try:
+                    self.ik_manager.animation_state_changed.disconnect(
+                        self.editor_tab.on_simulation_state_changed
+                    )
+                except TypeError:
+                    pass
+                self.ik_manager.animation_state_changed.connect(
+                    self.editor_tab.on_simulation_state_changed
+                )
+                logging.info(
+                    "MainWindow: Connected IKManager.animation_state_changed to EditorTab.on_simulation_state_changed"
+                )
 
             # NEW: Connect skeleton_pose_updated from IKManager to a new handler in MainWindow
-            if hasattr(self.ik_manager, 'skeleton_pose_updated'):
-                try: self.ik_manager.skeleton_pose_updated.disconnect(self._handle_skeleton_pose_updated_from_ik)
-                except TypeError: pass
-                self.ik_manager.skeleton_pose_updated.connect(self._handle_skeleton_pose_updated_from_ik)
-                logging.info("MainWindow: Connected IKManager.skeleton_pose_updated to self._handle_skeleton_pose_updated_from_ik")
+            if hasattr(self.ik_manager, "skeleton_pose_updated"):
+                try:
+                    self.ik_manager.skeleton_pose_updated.disconnect(
+                        self._handle_skeleton_pose_updated_from_ik
+                    )
+                except TypeError:
+                    pass
+                self.ik_manager.skeleton_pose_updated.connect(
+                    self._handle_skeleton_pose_updated_from_ik
+                )
+                logging.info(
+                    "MainWindow: Connected IKManager.skeleton_pose_updated to self._handle_skeleton_pose_updated_from_ik"
+                )
 
         # ... any other manager signal connections ...
 
@@ -831,26 +1108,34 @@ class AutomataDesigner(QMainWindow):
             # A common pattern is to disconnect all first, then connect, to avoid duplicates.
             # However, for this refactoring, we focus on making the connections.
             # In a real scenario, one might track connections or use a more robust check.
-            return False # Placeholder, assume not connected to allow connection
+            return False  # Placeholder, assume not connected to allow connection
         except Exception:
             return False
 
     @pyqtSlot(dict)
-    def _on_skeleton_manager_updated(self, standardized_skeleton_data_dict: Optional[dict]):
+    def _on_skeleton_manager_updated(
+        self, standardized_skeleton_data_dict: Optional[dict]
+    ):
         """Slot called when SkeletonManager has new processed skeleton data (dictionary format)."""
-        logging.info("MainWindow: SkeletonManager updated. Notifying tabs. IKManager will handle its own re-initialization if needed.")
+        logging.info(
+            "MainWindow: SkeletonManager updated. Notifying tabs. IKManager will handle its own re-initialization if needed."
+        )
 
         # Cache the initial skeleton data in EditorTab
-        if hasattr(self.editor_tab, 'cache_initial_skeleton'):
+        if hasattr(self.editor_tab, "cache_initial_skeleton"):
             self.editor_tab.cache_initial_skeleton(standardized_skeleton_data_dict)
         else:
-            logging.warning("MainWindow: EditorTab does not have cache_initial_skeleton method.")
+            logging.warning(
+                "MainWindow: EditorTab does not have cache_initial_skeleton method."
+            )
 
         # Notify tabs that might need the direct standardized skeleton data for display
-        if hasattr(self.image_proc_tab, 'on_skeleton_updated_externally'):
-            self.image_proc_tab.on_skeleton_updated_externally(standardized_skeleton_data_dict)
+        if hasattr(self.image_proc_tab, "on_skeleton_updated_externally"):
+            self.image_proc_tab.on_skeleton_updated_externally(
+                standardized_skeleton_data_dict
+            )
 
-        if hasattr(self.editor_tab, 'on_skeleton_updated'):
+        if hasattr(self.editor_tab, "on_skeleton_updated"):
             self.editor_tab.on_skeleton_updated(standardized_skeleton_data_dict)
 
         # Update status bar
@@ -858,9 +1143,11 @@ class AutomataDesigner(QMainWindow):
 
     # MODIFIED: Method now accepts the skeleton data dictionary
     def update_status_bar_with_skeleton_info(self, skeleton_data_dict: Optional[dict]):
-        if skeleton_data_dict and skeleton_data_dict.get('joints'):
-            num_joints = len(skeleton_data_dict.get('joints', {}))
-            self.statusBar().showMessage(f"Skeleton loaded/updated: {num_joints} joints.", 3000)
+        if skeleton_data_dict and skeleton_data_dict.get("joints"):
+            num_joints = len(skeleton_data_dict.get("joints", {}))
+            self.statusBar().showMessage(
+                f"Skeleton loaded/updated: {num_joints} joints.", 3000
+            )
         else:
             self.statusBar().showMessage(f"Skeleton cleared or not loaded.", 3000)
 
@@ -868,14 +1155,14 @@ class AutomataDesigner(QMainWindow):
     @pyqtSlot(dict)
     def _handle_ik_visuals_update(self, part_transforms: Dict[str, Dict[str, Any]]):
         """Handles updates to part visuals from the IKManager.
-           Transforms part-centric data to joint-centric for EditorView.
+        Transforms part-centric data to joint-centric for EditorView.
         """
         # The EditorTab.handle_ik_update method is now responsible for processing
         # these part_transforms and updating its view.
         if self.editor_tab:
             self.editor_tab.handle_ik_update(part_transforms)
         # else: # This case is already handled by the check at the beginning of the method
-            # logging.warning("MainWindow: EditorTab not available to handle IK visuals update.")
+        # logging.warning("MainWindow: EditorTab not available to handle IK visuals update.")
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""
@@ -884,31 +1171,40 @@ class AutomataDesigner(QMainWindow):
         # though most are directly connected to their respective handlers.
         # This slot can be used for logging or for settings that don't have direct handlers.
         if setting_name == "theme":
-            self._apply_theme(str(value)) # Already connected, but shows example
+            self._apply_theme(str(value))  # Already connected, but shows example
         elif setting_name == "animation_duration":
-            self.ik_manager.set_animation_duration(int(float(value) * 1000)) # Convert seconds to ms
+            self.ik_manager.set_animation_duration(
+                int(float(value) * 1000)
+            )  # Convert seconds to ms
         elif setting_name == "toolbar_visibility":
             self._toggle_toolbar_visibility(bool(value))
         elif setting_name == "part_properties_visibility":
             self._toggle_part_properties_visibility(bool(value))
-        elif setting_name == "unit_system": # Assuming this will be the setting_name from OptionsTab
+        elif (
+            setting_name == "unit_system"
+        ):  # Assuming this will be the setting_name from OptionsTab
             self._handle_unit_changed(str(value))
         elif setting_name == "debug_mode":
             # Assuming ImageProcessingTab has a method to set debug mode
-            if hasattr(self.image_proc_tab, 'set_debug_mode'):
+            if hasattr(self.image_proc_tab, "set_debug_mode"):
                 self.image_proc_tab.set_debug_mode(bool(value))
             else:
-                logging.warning("ImageProcessingTab does not have set_debug_mode method.")
+                logging.warning(
+                    "ImageProcessingTab does not have set_debug_mode method."
+                )
         else:
             logging.warning(f"Unhandled option change: {setting_name}")
 
     def show_about_dialog(self):
         """Displays the 'About' dialog."""
-        QMessageBox.about(self, "About Automata Designer",
-                        "<p><b>Automata Designer</b></p>"
-                        "<p>Version 0.1.0</p>"
-                        "<p>Copyright &copy; 2024 Alan Synn</p>"
-                        "<p>This application helps design and simulate automata mechanisms.</p>")
+        QMessageBox.about(
+            self,
+            "About Automata Designer",
+            "<p><b>Automata Designer</b></p>"
+            "<p>Version 0.1.0</p>"
+            "<p>Copyright &copy; 2024 Alan Synn</p>"
+            "<p>This application helps design and simulate automata mechanisms.</p>",
+        )
 
     def show_about_qt_dialog(self):
         """Displays the 'About Qt' dialog."""
@@ -919,57 +1215,81 @@ class AutomataDesigner(QMainWindow):
         """Handles the unit system change from OptionsTab."""
         logging.info(f"MainWindow: Unit system changed to: {unit}")
         # Pass the new unit to EditorView
-        if hasattr(self.editor_tab, 'editor_view') and hasattr(self.editor_tab.editor_view, 'set_display_unit'):
+        if hasattr(self.editor_tab, "editor_view") and hasattr(
+            self.editor_tab.editor_view, "set_display_unit"
+        ):
             self.editor_tab.editor_view.set_display_unit(unit)
         else:
-            logging.warning("MainWindow: EditorView or its set_display_unit method not found.")
+            logging.warning(
+                "MainWindow: EditorView or its set_display_unit method not found."
+            )
 
         # Pass the new unit to ImageProcessingView (via ImageProcessingTab)
-        if hasattr(self.image_proc_tab, 'image_proc_view') and hasattr(self.image_proc_tab.image_proc_view, 'set_display_unit'):
+        if hasattr(self.image_proc_tab, "image_proc_view") and hasattr(
+            self.image_proc_tab.image_proc_view, "set_display_unit"
+        ):
             self.image_proc_tab.image_proc_view.set_display_unit(unit)
         else:
-            logging.warning("MainWindow: ImageProcessingView or its set_display_unit method not found.")
+            logging.warning(
+                "MainWindow: ImageProcessingView or its set_display_unit method not found."
+            )
 
         self.statusBar().showMessage(f"Display unit set to {unit}", 3000)
 
     def _handle_project_manager_error(self, error_message: str):
         """Handles error signals from the ProjectDataManager."""
         logging.error(f"ProjectDataManager error: {error_message}")
-        QMessageBox.critical(self, "Project Error", f"An error occurred: {error_message}")
+        QMessageBox.critical(
+            self, "Project Error", f"An error occurred: {error_message}"
+        )
 
     def _load_project_into_editor_tab(self, project_file_model: ProjectFileModel):
         """Loads parts and skeleton data into the EditorTab's view."""
-        logging.debug(f"MainWindow:_load_project_into_editor_tab - Attempting to load project: {project_file_model.project_name if project_file_model else 'None'}")
+        logging.debug(
+            f"MainWindow:_load_project_into_editor_tab - Attempting to load project: {project_file_model.project_name if project_file_model else 'None'}"
+        )
         if not self.editor_tab:
             logging.error("EditorTab not initialized. Cannot load project data.")
             return
 
         if not project_file_model or not project_file_model.character:
-            logging.error("Invalid project_file_model or character data provided to _load_project_into_editor_tab.")
-            self.editor_tab.clear_editor_content() # Clear tab if data is bad
+            logging.error(
+                "Invalid project_file_model or character data provided to _load_project_into_editor_tab."
+            )
+            self.editor_tab.clear_editor_content()  # Clear tab if data is bad
             return
 
         parts_data = project_file_model.character.parts
-        skeleton_data_pydantic_list = project_file_model.character.skeleton_joints # This is List[PydanticSkeletonJointModel]
+        skeleton_data_pydantic_list = (
+            project_file_model.character.skeleton_joints
+        )  # This is List[PydanticSkeletonJointModel]
         character_name = project_file_model.character.name
-        hierarchy_dict = project_file_model.character.hierarchy_dict # This should be {parent_std_id: [child_std_id, ...]}
+        hierarchy_dict = (
+            project_file_model.character.hierarchy_dict
+        )  # This should be {parent_std_id: [child_std_id, ...]}
 
         # Convert Pydantic SkeletonJointModel list to the List[Dict[str, Any]] expected by visualize_skeleton
         skeleton_for_view = []
         if skeleton_data_pydantic_list:
             for pydantic_joint in skeleton_data_pydantic_list:
                 joint_dict = {
-                    'id': pydantic_joint.id, # Standardized ID
-                    'name': pydantic_joint.name, # Original name/label from source
-                    'position': QPointF(pydantic_joint.position[0], pydantic_joint.position[1]),
-                    'parent': pydantic_joint.parent_id, # Standardized parent ID
-                    'color': pydantic_joint.color,
-                    'label': pydantic_joint.label # Original name from char_cfg for this joint
+                    "id": pydantic_joint.id,  # Standardized ID
+                    "name": pydantic_joint.name,  # Original name/label from source
+                    "position": QPointF(
+                        pydantic_joint.position[0], pydantic_joint.position[1]
+                    ),
+                    "parent": pydantic_joint.parent_id,  # Standardized parent ID
+                    "color": pydantic_joint.color,
+                    "label": pydantic_joint.label,  # Original name from char_cfg for this joint
                 }
                 skeleton_for_view.append(joint_dict)
 
-        logging.debug(f"MainWindow:_load_project_into_editor_tab - Prepared skeleton_for_view (count: {len(skeleton_for_view)}): {skeleton_for_view}")
-        logging.debug(f"MainWindow:_load_project_into_editor_tab - Prepared hierarchy_dict (keys: {list(hierarchy_dict.keys()) if hierarchy_dict else 'None'}): {hierarchy_dict}")
+        logging.debug(
+            f"MainWindow:_load_project_into_editor_tab - Prepared skeleton_for_view (count: {len(skeleton_for_view)}): {skeleton_for_view}"
+        )
+        logging.debug(
+            f"MainWindow:_load_project_into_editor_tab - Prepared hierarchy_dict (keys: {list(hierarchy_dict.keys()) if hierarchy_dict else 'None'}): {hierarchy_dict}"
+        )
 
         # Clear previous content and load new parts
         self.editor_tab.clear_editor_content()
@@ -977,37 +1297,59 @@ class AutomataDesigner(QMainWindow):
 
         # Call visualize_skeleton on the EditorTab's EditorView instance
         if self.editor_tab.editor_view and skeleton_for_view:
-            logging.debug(f"MainWindow: Calling editor_view.visualize_skeleton with {len(skeleton_for_view)} joints.")
+            logging.debug(
+                f"MainWindow: Calling editor_view.visualize_skeleton with {len(skeleton_for_view)} joints."
+            )
             self.editor_tab.editor_view.visualize_skeleton(skeleton_for_view)
         elif self.editor_tab.editor_view:
-            logging.debug("MainWindow: No skeleton data in project, clearing skeleton visualization.")
-            self.editor_tab.editor_view.visualize_skeleton([]) # Clear if no skeleton
+            logging.debug(
+                "MainWindow: No skeleton data in project, clearing skeleton visualization."
+            )
+            self.editor_tab.editor_view.visualize_skeleton([])  # Clear if no skeleton
 
         # Ensure the view is updated and potentially fits content
-        self.editor_tab.editor_view.scene().update() # Update scene
+        self.editor_tab.editor_view.scene().update()  # Update scene
         # Consider calling fit_view or reset_view if appropriate after loading
         # self.editor_tab.editor_view.zoom_to_fit() # Example
 
-        logging.info(f"MainWindow: Finished _load_project_into_editor_tab for {character_name}")
+        logging.info(
+            f"MainWindow: Finished _load_project_into_editor_tab for {character_name}"
+        )
 
     @pyqtSlot(str, QPainterPath)
-    def _handle_part_motion_path_update_from_editor_tab(self, part_name: str, motion_qpath: QPainterPath):
+    def _handle_part_motion_path_update_from_editor_tab(
+        self, part_name: str, motion_qpath: QPainterPath
+    ):
         """Handles the motion_path_updated signal from EditorTab and passes it to IKManager."""
         if not self.ik_manager:
-            logging.warning("MainWindow: IKManager not available to handle motion path update.")
+            logging.warning(
+                "MainWindow: IKManager not available to handle motion path update."
+            )
             return
-        if hasattr(self.ik_manager, 'update_part_motion_path'):
+        if hasattr(self.ik_manager, "update_part_motion_path"):
             self.ik_manager.update_part_motion_path(part_name, motion_qpath)
-            logging.info(f"MainWindow: Relayed motion path update for '{part_name}' to IKManager.")
+            logging.info(
+                f"MainWindow: Relayed motion path update for '{part_name}' to IKManager."
+            )
         else:
-            logging.warning("MainWindow: IKManager does not have 'update_part_motion_path' method.")
+            logging.warning(
+                "MainWindow: IKManager does not have 'update_part_motion_path' method."
+            )
 
     @pyqtSlot(dict)
-    def _handle_skeleton_pose_updated_from_ik(self, animated_pose_data_dict: Dict[str, Tuple[float, float]]):
+    def _handle_skeleton_pose_updated_from_ik(
+        self, animated_pose_data_dict: Dict[str, Tuple[float, float]]
+    ):
         """Handles the raw animated skeleton pose update from IKManager."""
-        logging.debug(f"MainWindow:_handle_skeleton_pose_updated_from_ik - Received animated_pose_data_dict (count: {len(animated_pose_data_dict)}): {animated_pose_data_dict if len(animated_pose_data_dict) < 5 else str(list(animated_pose_data_dict.items())[:5]) + '...'}")
+        logging.debug(
+            f"MainWindow:_handle_skeleton_pose_updated_from_ik - Received animated_pose_data_dict (count: {len(animated_pose_data_dict)}): {animated_pose_data_dict if len(animated_pose_data_dict) < 5 else str(list(animated_pose_data_dict.items())[:5]) + '...'}"
+        )
         if self.editor_tab and self.editor_tab.editor_view:
             # Pass the raw animated data directly
-            self.editor_tab.editor_view.update_skeleton_animation(animated_pose_data_dict)
+            self.editor_tab.editor_view.update_skeleton_animation(
+                animated_pose_data_dict
+            )
         else:
-            logging.warning("MainWindow: Cannot relay skeleton pose update, EditorTab or EditorView not available.")
+            logging.warning(
+                "MainWindow: Cannot relay skeleton pose update, EditorTab or EditorView not available."
+            )

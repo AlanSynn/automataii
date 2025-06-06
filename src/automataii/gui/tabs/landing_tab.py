@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QSizePolicy,
     QFileDialog,
-    QMessageBox
+    QMessageBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPalette, QCursor
@@ -56,9 +56,10 @@ class ExampleImageWidget(QFrame):
         pixmap = QPixmap(self.image_path)
         if not pixmap.isNull():
             scaled_pixmap = pixmap.scaled(
-                180, 180,
+                180,
+                180,
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                Qt.TransformationMode.SmoothTransformation,
             )
             self.image_label.setPixmap(scaled_pixmap)
         else:
@@ -77,7 +78,8 @@ class ExampleImageWidget(QFrame):
         layout.addWidget(self.name_label)
 
     def _apply_normal_style(self):
-        self.setStyleSheet(f"""
+        self.setStyleSheet(
+            f"""
             ExampleImageWidget {{
                 background-color: white;
                 border: 2px solid {self.STEEL_BLUE};
@@ -86,10 +88,12 @@ class ExampleImageWidget(QFrame):
             QLabel {{
                 color: #333333;
             }}
-        """)
+        """
+        )
 
     def _apply_hover_style(self):
-        self.setStyleSheet(f"""
+        self.setStyleSheet(
+            f"""
             ExampleImageWidget {{
                 background-color: {self.SUNGLOW}20;
                 border: 3px solid {self.BITTERSWEET};
@@ -98,7 +102,8 @@ class ExampleImageWidget(QFrame):
             QLabel {{
                 color: #333333;
             }}
-        """)
+        """
+        )
 
     def enterEvent(self, event):
         self._apply_hover_style()
@@ -148,46 +153,55 @@ class LandingTab(QWidget):
 
         title_label = QLabel("Welcome to Automataii")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet(f"""
+        title_label.setStyleSheet(
+            f"""
             color: {self.STEEL_BLUE};
             font-family: 'Comic Sans MS', 'Papyrus', cursive, fantasy;
             font-size: 64px;
             font-weight: bold;
             margin-bottom: 5px;
-        """)
+        """
+        )
 
         # Description Label
-        description_text = "Create 2D character animations and generate mechanical automata designs."
+        description_text = (
+            "Create 2D character animations and generate mechanical automata designs."
+        )
         description_label = QLabel(description_text)
         description_font = QFont()
-        description_font.setPointSize(14) # Slightly smaller than subtitle
-        description_font.setBold(True) # Make bold
+        description_font.setPointSize(14)  # Slightly smaller than subtitle
+        description_font.setBold(True)  # Make bold
         description_label.setFont(description_font)
         description_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        description_label.setStyleSheet("""
+        description_label.setStyleSheet(
+            """
             color: black;
             margin-top: 2px;
             margin-bottom: 15px;
-        """)
+        """
+        )
         description_label.setWordWrap(True)
 
         # Subtitle
-        subtitle_label = QLabel("\"Select an example character to get started, or load your own image\"")
+        subtitle_label = QLabel(
+            '"Select an example character to get started, or load your own image"'
+        )
         subtitle_font = QFont()
-        subtitle_font.setPointSize(16) # Adjusted font size
-        subtitle_font.setItalic(True) # Make italic
-        subtitle_font.setBold(True) # Make bold
+        subtitle_font.setPointSize(16)  # Adjusted font size
+        subtitle_font.setItalic(True)  # Make italic
+        subtitle_font.setBold(True)  # Make bold
         subtitle_label.setFont(subtitle_font)
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle_label.setStyleSheet(f"""
+        subtitle_label.setStyleSheet(
+            f"""
             color: black;
             margin-top: 10px;
             margin-bottom: 20px;
-        """)
-
+        """
+        )
 
         header_layout.addWidget(title_label)
-        header_layout.addWidget(description_label) # Added description label
+        header_layout.addWidget(description_label)  # Added description label
         header_layout.addWidget(subtitle_label)
         # header_layout.setSpacing(20) # Spacing will be handled by margins now
         main_layout.addLayout(header_layout)
@@ -219,15 +233,21 @@ class LandingTab(QWidget):
         # Scroll area for example images
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameStyle(QFrame.Shape.Box) # Changed from NoFrame to Box for border
-        self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter) # Center content if smaller than viewport
-        self.scroll_area.setStyleSheet("""
+        self.scroll_area.setFrameStyle(
+            QFrame.Shape.Box
+        )  # Changed from NoFrame to Box for border
+        self.scroll_area.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )  # Center content if smaller than viewport
+        self.scroll_area.setStyleSheet(
+            """
             QScrollArea {
                 background-color: white;
                 border: 1px solid black;
                 border-radius: 10px;
             }
-        """)
+        """
+        )
 
         # Container widget for grid layout
         self.scroll_content = QWidget()
@@ -237,14 +257,15 @@ class LandingTab(QWidget):
         # To help center items if they don't fill the whole area
         self.grid_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-
         self.scroll_area.setWidget(self.scroll_content)
         main_layout.addWidget(self.scroll_area)
 
         # Status label
         self.status_label = QLabel("Loading example images...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet(f"color: {self.STEEL_BLUE}; font-style: italic;")
+        self.status_label.setStyleSheet(
+            f"color: {self.STEEL_BLUE}; font-style: italic;"
+        )
         main_layout.addWidget(self.status_label)
 
     def _load_example_images(self):
@@ -262,7 +283,7 @@ class LandingTab(QWidget):
 
         # Find all image files
         image_paths = []
-        supported_formats = ['*.png', '*.jpg', '*.jpeg', '*.gif']
+        supported_formats = ["*.png", "*.jpg", "*.jpeg", "*.gif"]
 
         for example_dir in self.example_dirs:
             if example_dir.exists():
@@ -319,7 +340,7 @@ class LandingTab(QWidget):
             self,
             "Select Character Image",
             str(Path.home()),
-            "Image Files (*.png *.jpg *.jpeg *.gif);;All Files (*)"
+            "Image Files (*.png *.jpg *.jpeg *.gif);;All Files (*)",
         )
 
         if file_path:
@@ -327,16 +348,21 @@ class LandingTab(QWidget):
             self.image_selected.emit(file_path)
 
             # Switch to image processing tab and load the image
-            if hasattr(self.main_window, 'image_proc_tab'):
+            if hasattr(self.main_window, "image_proc_tab"):
                 self.main_window.image_proc_tab._load_image_from_path(file_path)
 
                 # Switch to the image processing tab
                 for i in range(self.main_window.tab_widget.count()):
-                    if self.main_window.tab_widget.widget(i) == self.main_window.image_proc_tab:
+                    if (
+                        self.main_window.tab_widget.widget(i)
+                        == self.main_window.image_proc_tab
+                    ):
                         self.main_window.tab_widget.setCurrentIndex(i)
                         break
 
-            self.main_window.statusBar().showMessage(f"Loaded: {Path(file_path).name}", 3000)
+            self.main_window.statusBar().showMessage(
+                f"Loaded: {Path(file_path).name}", 3000
+            )
 
     def refresh(self):
         """Refresh the example images display."""
