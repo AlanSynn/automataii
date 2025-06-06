@@ -103,13 +103,13 @@ class MechanismPreviewWidget(QGraphicsView):
     ):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
-        self.setFixedSize(200, 150)  # Fixed size for preview
+        self.setFixedSize(350, 300)  # Much larger size for better visibility
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
-        self.setBackgroundBrush(QColor("#e0e0e0"))  # Light gray background for preview
+        self.setBackgroundBrush(QColor("#f8f8f8"))  # Light background
         self._render_preview()  # Render after background is set and scene is ready
 
     def _draw_user_motion_path(self, bounds: QRectF) -> None:
@@ -122,12 +122,12 @@ class MechanismPreviewWidget(QGraphicsView):
         if path_bounds.width() == 0 or path_bounds.height() == 0:
             return
 
-        # Scale the path to fit within 70% of the preview bounds, preserving aspect ratio
+        # Scale the path to fit within 80% of the preview bounds, preserving aspect ratio
         target_rect = bounds.adjusted(
-            bounds.width() * 0.15,
-            bounds.height() * 0.15,
-            -bounds.width() * 0.15,
-            -bounds.height() * 0.15,
+            bounds.width() * 0.1,
+            bounds.height() * 0.1,
+            -bounds.width() * 0.1,
+            -bounds.height() * 0.1,
         )
 
         scale_x = target_rect.width() / path_bounds.width()
@@ -153,7 +153,7 @@ class MechanismPreviewWidget(QGraphicsView):
         transformed_path = transform.map(user_path_local)
 
         path_item = QGraphicsPathItem(transformed_path)
-        pen = QPen(SUNGLOW, 2.0, Qt.PenStyle.SolidLine)  # Use SUNGLOW, solid, thicker
+        pen = QPen(BITTERSWEET, 4.0, Qt.PenStyle.DashLine)  # Thicker, red dashed line for visibility
         path_item.setPen(pen)
         path_item.setZValue(10)  # Draw on top of the mechanism
         self.scene.addItem(path_item)
@@ -222,9 +222,9 @@ class MechanismPreviewWidget(QGraphicsView):
 
     def _draw_cam_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
         # Generic schematic cam preview
-        preview_scale = min(bounds.width(), bounds.height()) / 100.0
-        base_radius = 30 * preview_scale
-        eccentric_radius = 15 * preview_scale
+        preview_scale = min(bounds.width(), bounds.height()) / 150.0  # Larger scale
+        base_radius = 50 * preview_scale
+        eccentric_radius = 30 * preview_scale
         angle_offset_rad = _np_deg2rad(45)  # Fixed angle for schematic
 
         # Use the adjusted bounds for drawing
@@ -312,97 +312,182 @@ class MechanismPreviewWidget(QGraphicsView):
         self.scene.addItem(follower_front)
 
     def _draw_gear_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
-        # Generic schematic gear preview
+        # Two meshing gears preview
         center_x = bounds.center().x()
         center_y = bounds.center().y()
-        preview_scale = min(bounds.width(), bounds.height()) / 100.0
+        preview_scale = min(bounds.width(), bounds.height()) / 150.0  # Larger scale
 
-        radius = 35 * preview_scale
-        num_teeth = 12  # Fixed number of teeth for schematic
-        tooth_height = 8 * preview_scale
+        # First gear (larger)
+        radius1 = 45 * preview_scale
+        num_teeth1 = 18
+        tooth_height1 = 10 * preview_scale
+        
+        # Second gear (smaller)
+        radius2 = 30 * preview_scale
+        num_teeth2 = 12
+        tooth_height2 = 8 * preview_scale
+        
+        # Position gears to mesh
+        gear1_x = center_x - radius1 * 0.8
+        gear1_y = center_y
+        gear2_x = gear1_x + radius1 + radius2 + (tooth_height1 + tooth_height2) * 0.5
+        gear2_y = center_y
 
-        outer_radius = radius + tooth_height / 2
-        inner_radius = radius - tooth_height / 2
+        # Draw first gear
+        outer_radius1 = radius1 + tooth_height1 / 2
+        inner_radius1 = radius1 - tooth_height1 / 2
 
         # Back body
-        gear_back = QGraphicsEllipseItem(0, 0, outer_radius * 2, outer_radius * 2)
-        gear_back.setPos(center_x - outer_radius + dox, center_y - outer_radius + doy)
-        gear_back.setBrush(ULTRA_VIOLET)  # Use ULTRA_VIOLET
-        gear_back.setPen(QPen(Qt.PenStyle.NoPen))
-        self.scene.addItem(gear_back)
+        gear1_back = QGraphicsEllipseItem(0, 0, outer_radius1 * 2, outer_radius1 * 2)
+        gear1_back.setPos(gear1_x - outer_radius1 + dox, gear1_y - outer_radius1 + doy)
+        gear1_back.setBrush(ULTRA_VIOLET)
+        gear1_back.setPen(QPen(Qt.PenStyle.NoPen))
+        self.scene.addItem(gear1_back)
 
         # Front body
-        gear_front = QGraphicsEllipseItem(0, 0, outer_radius * 2, outer_radius * 2)
-        gear_front.setPos(center_x - outer_radius, center_y - outer_radius)
-        gear_front.setBrush(STEEL_BLUE)  # Use STEEL_BLUE
-        gear_front.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(gear_front)
+        gear1_front = QGraphicsEllipseItem(0, 0, outer_radius1 * 2, outer_radius1 * 2)
+        gear1_front.setPos(gear1_x - outer_radius1, gear1_y - outer_radius1)
+        gear1_front.setBrush(STEEL_BLUE)
+        gear1_front.setPen(QPen(Qt.GlobalColor.black, 1))
+        self.scene.addItem(gear1_front)
 
-        center_hole_rad = inner_radius * 0.4
-        center_hole = QGraphicsEllipseItem(
-            0, 0, center_hole_rad * 2, center_hole_rad * 2
+        # Center hole for first gear
+        center_hole_rad1 = inner_radius1 * 0.4
+        center_hole1 = QGraphicsEllipseItem(
+            0, 0, center_hole_rad1 * 2, center_hole_rad1 * 2
         )
-        center_hole.setPos(center_x - center_hole_rad, center_y - center_hole_rad)
-        center_hole.setBrush(QColor("white"))  # Keep white for hole
-        center_hole.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(center_hole)
+        center_hole1.setPos(gear1_x - center_hole_rad1, gear1_y - center_hole_rad1)
+        center_hole1.setBrush(QColor("white"))
+        center_hole1.setPen(QPen(Qt.GlobalColor.black, 1))
+        self.scene.addItem(center_hole1)
 
-        angle_step = 360.0 / num_teeth
-        for i in range(num_teeth):
-            angle = _np_deg2rad(i * angle_step)
-            tooth_angle_width = _np_deg2rad(angle_step / 2 * 0.6)
+        # Draw teeth for first gear
+        angle_step1 = 360.0 / num_teeth1
+        for i in range(num_teeth1):
+            angle = _np_deg2rad(i * angle_step1)
+            tooth_angle_width = _np_deg2rad(angle_step1 / 2 * 0.6)
 
             coords = [
                 (
-                    inner_radius * _cos(angle - tooth_angle_width / 2),
-                    inner_radius * _sin(angle - tooth_angle_width / 2),
+                    inner_radius1 * _cos(angle - tooth_angle_width / 2),
+                    inner_radius1 * _sin(angle - tooth_angle_width / 2),
                 ),
                 (
-                    outer_radius * _cos(angle - tooth_angle_width / 3),
-                    outer_radius * _sin(angle - tooth_angle_width / 3),
+                    outer_radius1 * _cos(angle - tooth_angle_width / 3),
+                    outer_radius1 * _sin(angle - tooth_angle_width / 3),
                 ),
                 (
-                    outer_radius * _cos(angle + tooth_angle_width / 3),
-                    outer_radius * _sin(angle + tooth_angle_width / 3),
+                    outer_radius1 * _cos(angle + tooth_angle_width / 3),
+                    outer_radius1 * _sin(angle + tooth_angle_width / 3),
                 ),
                 (
-                    inner_radius * _cos(angle + tooth_angle_width / 2),
-                    inner_radius * _sin(angle + tooth_angle_width / 2),
+                    inner_radius1 * _cos(angle + tooth_angle_width / 2),
+                    inner_radius1 * _sin(angle + tooth_angle_width / 2),
                 ),
             ]
 
             tooth_poly_back = QPolygonF()
             for x, y in coords:
-                tooth_poly_back.append(QPointF(center_x + x + dox, center_y + y + doy))
+                tooth_poly_back.append(QPointF(gear1_x + x + dox, gear1_y + y + doy))
             self.scene.addPolygon(
                 tooth_poly_back,
                 QPen(Qt.PenStyle.NoPen),
                 QBrush(QColor(YELLOW_GREEN).darker(130)),
-            )  # Darker YELLOW_GREEN
+            )
 
             tooth_poly_front = QPolygonF()
             for x, y in coords:
-                tooth_poly_front.append(QPointF(center_x + x, center_y + y))
+                tooth_poly_front.append(QPointF(gear1_x + x, gear1_y + y))
             self.scene.addPolygon(
                 tooth_poly_front, QPen(Qt.GlobalColor.black, 0.5), QBrush(YELLOW_GREEN)
-            )  # Use YELLOW_GREEN
+            )
+
+        # Draw second gear
+        outer_radius2 = radius2 + tooth_height2 / 2
+        inner_radius2 = radius2 - tooth_height2 / 2
+
+        # Back body
+        gear2_back = QGraphicsEllipseItem(0, 0, outer_radius2 * 2, outer_radius2 * 2)
+        gear2_back.setPos(gear2_x - outer_radius2 + dox, gear2_y - outer_radius2 + doy)
+        gear2_back.setBrush(QColor(BITTERSWEET).darker(130))
+        gear2_back.setPen(QPen(Qt.PenStyle.NoPen))
+        self.scene.addItem(gear2_back)
+
+        # Front body
+        gear2_front = QGraphicsEllipseItem(0, 0, outer_radius2 * 2, outer_radius2 * 2)
+        gear2_front.setPos(gear2_x - outer_radius2, gear2_y - outer_radius2)
+        gear2_front.setBrush(BITTERSWEET)
+        gear2_front.setPen(QPen(Qt.GlobalColor.black, 1))
+        self.scene.addItem(gear2_front)
+
+        # Center hole for second gear
+        center_hole_rad2 = inner_radius2 * 0.4
+        center_hole2 = QGraphicsEllipseItem(
+            0, 0, center_hole_rad2 * 2, center_hole_rad2 * 2
+        )
+        center_hole2.setPos(gear2_x - center_hole_rad2, gear2_y - center_hole_rad2)
+        center_hole2.setBrush(QColor("white"))
+        center_hole2.setPen(QPen(Qt.GlobalColor.black, 1))
+        self.scene.addItem(center_hole2)
+
+        # Draw teeth for second gear with phase offset for meshing
+        angle_step2 = 360.0 / num_teeth2
+        phase_offset = angle_step2 / 2  # Offset for meshing
+        for i in range(num_teeth2):
+            angle = _np_deg2rad(i * angle_step2 + phase_offset)
+            tooth_angle_width = _np_deg2rad(angle_step2 / 2 * 0.6)
+
+            coords = [
+                (
+                    inner_radius2 * _cos(angle - tooth_angle_width / 2),
+                    inner_radius2 * _sin(angle - tooth_angle_width / 2),
+                ),
+                (
+                    outer_radius2 * _cos(angle - tooth_angle_width / 3),
+                    outer_radius2 * _sin(angle - tooth_angle_width / 3),
+                ),
+                (
+                    outer_radius2 * _cos(angle + tooth_angle_width / 3),
+                    outer_radius2 * _sin(angle + tooth_angle_width / 3),
+                ),
+                (
+                    inner_radius2 * _cos(angle + tooth_angle_width / 2),
+                    inner_radius2 * _sin(angle + tooth_angle_width / 2),
+                ),
+            ]
+
+            tooth_poly_back = QPolygonF()
+            for x, y in coords:
+                tooth_poly_back.append(QPointF(gear2_x + x + dox, gear2_y + y + doy))
+            self.scene.addPolygon(
+                tooth_poly_back,
+                QPen(Qt.PenStyle.NoPen),
+                QBrush(QColor(SUNGLOW).darker(130)),
+            )
+
+            tooth_poly_front = QPolygonF()
+            for x, y in coords:
+                tooth_poly_front.append(QPointF(gear2_x + x, gear2_y + y))
+            self.scene.addPolygon(
+                tooth_poly_front, QPen(Qt.GlobalColor.black, 0.5), QBrush(SUNGLOW)
+            )
 
     def _draw_linkage_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
         # Generic schematic 4-bar linkage preview
         preview_scale = (
-            min(bounds.width(), bounds.height()) / 150.0
-        )  # Base size for linkage
-        thickness = 8 * preview_scale  # Scale thickness too
+            min(bounds.width(), bounds.height()) / 200.0
+        )  # Larger scale for linkage
+        thickness = 12 * preview_scale  # Thicker links for visibility
 
         # Define points relative to bounds center, then scale
         center_x = bounds.center().x()
         center_y = bounds.center().y()
 
-        # Normalized points (example four-bar)
-        p0_norm = QPointF(-50, -20)  # Fixed ground pivot 1
-        p1_norm = QPointF(-30, 30)  # Crank pivot
-        p2_norm = QPointF(40, 40)  # Coupler end / Rocker pivot
-        p3_norm = QPointF(50, -10)  # Fixed ground pivot 2
+        # Normalized points for a better looking four-bar
+        p0_norm = QPointF(-60, 20)   # Fixed ground pivot 1
+        p1_norm = QPointF(-40, -30)  # Crank pivot
+        p2_norm = QPointF(30, -40)   # Coupler end / Rocker pivot
+        p3_norm = QPointF(60, 15)    # Fixed ground pivot 2
 
         # Scale points
         p0 = QPointF(
@@ -422,6 +507,20 @@ class MechanismPreviewWidget(QGraphicsView):
             center_y + p3_norm.y() * preview_scale,
         )
 
+        # Draw ground line first
+        ground_y = max(p0.y(), p3.y()) + 20 * preview_scale
+        ground_line = QLineF(
+            bounds.left() + 20, ground_y,
+            bounds.right() - 20, ground_y
+        )
+        ground_path = QPainterPath()
+        ground_path.moveTo(ground_line.p1())
+        ground_path.lineTo(ground_line.p2())
+        ground_item = QGraphicsPathItem(ground_path)
+        ground_pen = QPen(QColor("#888888"), 2, Qt.PenStyle.DashLine)
+        ground_item.setPen(ground_pen)
+        self.scene.addItem(ground_item)
+
         # Draw links (back then front)
         link_color_front = STEEL_BLUE
         link_color_back = ULTRA_VIOLET
@@ -433,7 +532,7 @@ class MechanismPreviewWidget(QGraphicsView):
             (p0, p1, "crank"),
             (p1, p2, "coupler"),
             (p2, p3, "rocker"),
-            (p3, p0, "ground"),  # Ground link often conceptual
+            # Skip ground link as we drew the ground line
         ]
 
         for start_pt, end_pt, _ in links:
@@ -525,34 +624,58 @@ class PreviewContainer(QWidget):
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
 
-        # Title/Name
+        # Title/Name with better styling
         name = self.mechanism_data.get("name", "Unnamed Mechanism")
-        title_label = QLabel(f"<b>{name}</b>")
+        title_label = QLabel(name)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 5px;
+            }
+        """)
         layout.addWidget(title_label)
 
-        # Preview Widget
+        # Preview Widget with rounded corners
         self.preview_widget = MechanismPreviewWidget(self.mechanism_data, self)
-        self.preview_widget.setStyleSheet("border: 2px solid transparent;")
+        self.preview_widget.setStyleSheet("""
+            QGraphicsView {
+                border: 3px solid transparent;
+                border-radius: 8px;
+                background-color: #ffffff;
+            }
+        """)
         layout.addWidget(self.preview_widget, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Score (if available) - REMOVED as per request
-        # score = self.mechanism_data.get("overall_score")
-        # if score is not None:
-        #     score_label = QLabel(f"Score: {score:.2f}")
-        #     score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        #     layout.addWidget(score_label)
-
-        # Select Button
-        select_button = QPushButton("Select")
+        # Select Button with better styling
+        select_button = QPushButton("Select This")
+        select_button.setFixedSize(120, 35)
+        select_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #21618c;
+            }
+        """)
         select_button.clicked.connect(self._emit_selected)
         layout.addWidget(select_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(layout)
-        self.setMinimumWidth(220)  # Ensure enough space for contents
+        self.setMinimumWidth(370)  # Ensure enough space for larger preview
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )  # Fixed height based on content
@@ -572,15 +695,35 @@ class PreviewContainer(QWidget):
         """Update visual style to show selection."""
         self._is_selected = selected
         if selected:
-            self.preview_widget.setStyleSheet("border: 2px solid blue;")
+            self.preview_widget.setStyleSheet("""
+                QGraphicsView {
+                    border: 3px solid #3498db;
+                    border-radius: 8px;
+                    background-color: #ffffff;
+                    box-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
+                }
+            """)
+            self.setStyleSheet("""
+                PreviewContainer {
+                    background-color: #f0f8ff;
+                    border-radius: 10px;
+                }
+            """)
         else:
-            self.preview_widget.setStyleSheet("border: 2px solid transparent;")
+            self.preview_widget.setStyleSheet("""
+                QGraphicsView {
+                    border: 3px solid transparent;
+                    border-radius: 8px;
+                    background-color: #ffffff;
+                }
+            """)
+            self.setStyleSheet("")
 
     def _emit_selected(self) -> None:
         self.selected.emit(self.mechanism_data)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(220, 280)  # Adjust based on typical content height
+        return QSize(370, 400)  # Adjust based on larger preview
 
     def sizeHint(self) -> QSize:
         return self.minimumSizeHint()
@@ -604,8 +747,8 @@ class MechanismRecommendationDialog(QDialog):
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Mechanism Recommendations")
-        self.setMinimumSize(700, 400)
+        self.setWindowTitle("Choose a Mechanism")
+        self.setMinimumSize(1200, 600)  # Much larger dialog
         self.selected_mechanism_data: Optional[Dict[str, Any]] = None
 
         self.user_motion_path_original = (
@@ -619,13 +762,36 @@ class MechanismRecommendationDialog(QDialog):
         self.generated_paths_data = self._load_generated_paths(generated_paths_filepath)
 
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # Add instruction label
+        # Add instruction label with better styling
         instruction_label = QLabel(
-            "Click on a mechanism to preview it. Select one to continue."
+            "Choose the mechanism that best matches your desired motion"
         )
         instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        instruction_label.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                color: #333333;
+                padding: 10px;
+            }
+        """)
         main_layout.addWidget(instruction_label)
+        
+        # Add subtitle
+        subtitle_label = QLabel(
+            "The red dashed line shows your drawn path. Click on a mechanism to select it."
+        )
+        subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                color: #666666;
+                padding-bottom: 20px;
+            }
+        """)
+        main_layout.addWidget(subtitle_label)
 
         self.previews_layout = QHBoxLayout()
         self.previews_layout.setSpacing(10)
@@ -669,13 +835,61 @@ class MechanismRecommendationDialog(QDialog):
 
         main_layout.addLayout(self.previews_layout)
 
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
-        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
-        main_layout.addWidget(self.button_box)
+        # Custom button area with smaller, styled buttons
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(20)
+        
+        self.ok_button = QPushButton("OK")
+        self.ok_button.setFixedSize(80, 30)
+        self.ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        self.ok_button.clicked.connect(self.accept)
+        self.ok_button.setEnabled(False)
+        
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setFixedSize(80, 30)
+        self.cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+            QPushButton:pressed {
+                background-color: #ba1a0d;
+            }
+        """)
+        self.cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(self.ok_button)
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addStretch()
+        
+        main_layout.addSpacing(20)
+        main_layout.addLayout(button_layout)
+        main_layout.addSpacing(10)
 
         self.setLayout(main_layout)
 
@@ -776,7 +990,7 @@ class MechanismRecommendationDialog(QDialog):
 
     def _on_select(self, mechanism_data: Dict[str, Any]) -> None:
         self.selected_mechanism_data = mechanism_data
-        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
+        self.ok_button.setEnabled(True)
         # Update visual selection for all containers
         for container in self.preview_containers:
             container._set_selected_style(container.mechanism_data == mechanism_data)
