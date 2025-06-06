@@ -23,6 +23,13 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox
 )
 
+# Color palette
+BITTERSWEET = QColor("#ff595e")
+SUNGLOW = QColor("#ffca3a")
+YELLOW_GREEN = QColor("#8ac926")
+STEEL_BLUE = QColor("#1982c4")
+ULTRA_VIOLET = QColor("#6a4c93")
+
 # from automataii.utils.qt_helpers import create_round_rect_path # Not used in this version
 
 DEFAULT_NUM_SAMPLES_FOR_PATH = 100 # Default number of points to sample from QPainterPath
@@ -112,9 +119,9 @@ class MechanismPreviewWidget(QGraphicsView):
         transformed_path = transform.map(user_path_local)
 
         path_item = QGraphicsPathItem(transformed_path)
-        pen = QPen(QColor(100, 200, 100, 180), 1.5, Qt.PenStyle.DashLine) # Light green dashed line
+        pen = QPen(SUNGLOW, 2.0, Qt.PenStyle.SolidLine) # Use SUNGLOW, solid, thicker
         path_item.setPen(pen)
-        path_item.setZValue(-1) # Draw behind the mechanism
+        path_item.setZValue(10) # Draw on top of the mechanism
         self.scene.addItem(path_item)
 
     def _render_preview(self) -> None:
@@ -186,28 +193,28 @@ class MechanismPreviewWidget(QGraphicsView):
         # Back
         cam_back = QGraphicsEllipseItem(0,0, eccentric_radius*2, eccentric_radius*2)
         cam_back.setPos(eff_ecc_center_x - eccentric_radius + dox, eff_ecc_center_y - eccentric_radius + doy)
-        cam_back.setBrush(QColor("darkslateblue"))
+        cam_back.setBrush(ULTRA_VIOLET) # Use ULTRA_VIOLET
         cam_back.setPen(QPen(Qt.PenStyle.NoPen))
         self.scene.addItem(cam_back)
 
         shaft_back_rad = base_radius*0.25
         shaft_back = QGraphicsEllipseItem(0,0, shaft_back_rad*2, shaft_back_rad*2)
         shaft_back.setPos(cam_center_x - shaft_back_rad + dox, cam_center_y - shaft_back_rad + doy)
-        shaft_back.setBrush(QColor("dimgray"))
+        shaft_back.setBrush(QColor(ULTRA_VIOLET).darker(130)) # Darker ULTRA_VIOLET
         shaft_back.setPen(QPen(Qt.PenStyle.NoPen))
         self.scene.addItem(shaft_back)
 
         # Front
         cam_front = QGraphicsEllipseItem(0,0, eccentric_radius*2, eccentric_radius*2)
         cam_front.setPos(eff_ecc_center_x - eccentric_radius, eff_ecc_center_y - eccentric_radius)
-        cam_front.setBrush(QColor("mediumpurple"))
+        cam_front.setBrush(STEEL_BLUE) # Use STEEL_BLUE
         cam_front.setPen(QPen(Qt.GlobalColor.black, 1))
         self.scene.addItem(cam_front)
 
         shaft_front_rad = base_radius*0.25
         shaft_front = QGraphicsEllipseItem(0,0, shaft_front_rad*2, shaft_front_rad*2)
         shaft_front.setPos(cam_center_x - shaft_front_rad, cam_center_y - shaft_front_rad)
-        shaft_front.setBrush(QColor("lightgray"))
+        shaft_front.setBrush(QColor(STEEL_BLUE).lighter(130)) # Lighter STEEL_BLUE
         shaft_front.setPen(QPen(Qt.GlobalColor.black, 1))
         self.scene.addItem(shaft_front)
 
@@ -225,12 +232,12 @@ class MechanismPreviewWidget(QGraphicsView):
         follower_y_contact = cam_center_y + base_radius * 0.5 # Example positioning
 
         follower_back = QGraphicsRectItem(follower_x + dox, follower_y_contact + doy, follower_width, follower_height)
-        follower_back.setBrush(QColor("dimgray"))
+        follower_back.setBrush(QColor(BITTERSWEET).darker(130)) # Darker BITTERSWEET
         follower_back.setPen(QPen(Qt.PenStyle.NoPen))
         self.scene.addItem(follower_back)
 
         follower_front = QGraphicsRectItem(follower_x, follower_y_contact, follower_width, follower_height)
-        follower_front.setBrush(QColor("lightsteelblue"))
+        follower_front.setBrush(BITTERSWEET) # Use BITTERSWEET
         follower_front.setPen(QPen(Qt.GlobalColor.black, 1))
         self.scene.addItem(follower_front)
 
@@ -251,21 +258,21 @@ class MechanismPreviewWidget(QGraphicsView):
         # Back body
         gear_back = QGraphicsEllipseItem(0,0, outer_radius*2, outer_radius*2)
         gear_back.setPos(center_x - outer_radius + dox, center_y - outer_radius + doy)
-        gear_back.setBrush(QColor("darkgray"))
+        gear_back.setBrush(ULTRA_VIOLET) # Use ULTRA_VIOLET
         gear_back.setPen(QPen(Qt.PenStyle.NoPen))
         self.scene.addItem(gear_back)
 
         # Front body
         gear_front = QGraphicsEllipseItem(0,0, outer_radius*2, outer_radius*2)
         gear_front.setPos(center_x - outer_radius, center_y - outer_radius)
-        gear_front.setBrush(QColor("lightgray"))
+        gear_front.setBrush(STEEL_BLUE) # Use STEEL_BLUE
         gear_front.setPen(QPen(Qt.GlobalColor.black, 1))
         self.scene.addItem(gear_front)
 
         center_hole_rad = inner_radius*0.4
         center_hole = QGraphicsEllipseItem(0,0, center_hole_rad*2, center_hole_rad*2)
         center_hole.setPos(center_x - center_hole_rad, center_y - center_hole_rad)
-        center_hole.setBrush(QColor("white"))
+        center_hole.setBrush(QColor("white")) # Keep white for hole
         center_hole.setPen(QPen(Qt.GlobalColor.black, 1))
         self.scene.addItem(center_hole)
 
@@ -283,11 +290,11 @@ class MechanismPreviewWidget(QGraphicsView):
 
             tooth_poly_back = QPolygonF()
             for x, y in coords: tooth_poly_back.append(QPointF(center_x + x + dox, center_y + y + doy))
-            self.scene.addPolygon(tooth_poly_back, QPen(Qt.PenStyle.NoPen), QBrush(QColor("dimgray")))
+            self.scene.addPolygon(tooth_poly_back, QPen(Qt.PenStyle.NoPen), QBrush(QColor(YELLOW_GREEN).darker(130))) # Darker YELLOW_GREEN
 
             tooth_poly_front = QPolygonF()
             for x, y in coords: tooth_poly_front.append(QPointF(center_x + x, center_y + y))
-            self.scene.addPolygon(tooth_poly_front, QPen(Qt.GlobalColor.black, 0.5), QBrush(QColor("silver")))
+            self.scene.addPolygon(tooth_poly_front, QPen(Qt.GlobalColor.black, 0.5), QBrush(YELLOW_GREEN)) # Use YELLOW_GREEN
 
     def _draw_linkage_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
         # Generic schematic 4-bar linkage preview
@@ -311,10 +318,10 @@ class MechanismPreviewWidget(QGraphicsView):
         p3 = QPointF(center_x + p3_norm.x() * preview_scale, center_y + p3_norm.y() * preview_scale)
 
         # Draw links (back then front)
-        link_color_front = QColor("cornflowerblue")
-        link_color_back = QColor("darkblue")
-        pivot_color_front = QColor("lightgray")
-        pivot_color_back = QColor("dimgray")
+        link_color_front = STEEL_BLUE
+        link_color_back = ULTRA_VIOLET
+        pivot_color_front = SUNGLOW
+        pivot_color_back = QColor(SUNGLOW).darker(150) # Darker SUNGLOW
         pivot_radius = thickness * 0.7 # Scale pivot radius with thickness
 
         links = [
@@ -376,10 +383,12 @@ MECHANISM_TYPE_USER_DISPLAY_CAM = "Cam Profile"
 class PreviewContainer(QWidget):
     """Container for a single preview and its title/select button."""
     selected = Signal(dict) # Emits the mechanism data when selected
+    clicked = Signal(dict) # Emits the mechanism data when clicked for preview
 
     def __init__(self, mechanism_data: Dict[str, Any], parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
+        self._is_selected = False
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -395,14 +404,15 @@ class PreviewContainer(QWidget):
 
         # Preview Widget
         self.preview_widget = MechanismPreviewWidget(self.mechanism_data, self)
+        self.preview_widget.setStyleSheet("border: 2px solid transparent;")
         layout.addWidget(self.preview_widget, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Score (if available)
-        score = self.mechanism_data.get("overall_score")
-        if score is not None:
-            score_label = QLabel(f"Score: {score:.2f}")
-            score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(score_label)
+        # Score (if available) - REMOVED as per request
+        # score = self.mechanism_data.get("overall_score")
+        # if score is not None:
+        #     score_label = QLabel(f"Score: {score:.2f}")
+        #     score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        #     layout.addWidget(score_label)
 
         # Select Button
         select_button = QPushButton("Select")
@@ -412,6 +422,25 @@ class PreviewContainer(QWidget):
         self.setLayout(layout)
         self.setMinimumWidth(220) # Ensure enough space for contents
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed) # Fixed height based on content
+
+        # Make the container clickable
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        """Handle mouse press to emit clicked signal."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.mechanism_data)
+            # Update visual selection
+            self._set_selected_style(True)
+        super().mousePressEvent(event)
+
+    def _set_selected_style(self, selected: bool):
+        """Update visual style to show selection."""
+        self._is_selected = selected
+        if selected:
+            self.preview_widget.setStyleSheet("border: 2px solid blue;")
+        else:
+            self.preview_widget.setStyleSheet("border: 2px solid transparent;")
 
     def _emit_selected(self) -> None:
         self.selected.emit(self.mechanism_data)
@@ -428,6 +457,7 @@ class PreviewContainer(QWidget):
 
 class MechanismRecommendationDialog(QDialog):
     mechanism_selected = Signal(dict) # Emitted when a mechanism is chosen
+    mechanism_preview_selected = Signal(dict) # Emitted when a mechanism is clicked for preview
 
     def __init__(self, user_motion_path: QPainterPath, generated_paths_filepath: str, num_samples_user_path: int = DEFAULT_NUM_SAMPLES_FOR_PATH, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -442,11 +472,18 @@ class MechanismRecommendationDialog(QDialog):
         self.generated_paths_data = self._load_generated_paths(generated_paths_filepath)
 
         main_layout = QVBoxLayout(self)
+
+        # Add instruction label
+        instruction_label = QLabel("Click on a mechanism to preview it. Select one to continue.")
+        instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(instruction_label)
+
         self.previews_layout = QHBoxLayout()
         self.previews_layout.setSpacing(10)
         self.previews_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         recommendations = self._get_best_recommendations()
+        self.preview_containers = []
 
         if recommendations:
             for rec_data in recommendations:
@@ -457,12 +494,15 @@ class MechanismRecommendationDialog(QDialog):
 
                     container = PreviewContainer(rec_data_with_user_path, self)
                     container.selected.connect(self._on_select)
+                    container.clicked.connect(self._on_preview_click)  # Add preview click handler
                     self.previews_layout.addWidget(container)
+                    self.preview_containers.append(container)
                 else:
-                    placeholder_label = QLabel("Invalid Recommendation Data")
+                    placeholder_label = QLabel("No mechanism found")
                     placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                     placeholder_label.setFrameShape(QLabel.FrameShape.Box)
                     placeholder_label.setFixedSize(220, 280)
+                    placeholder_label.setStyleSheet("background-color: #f0f0f0;")
                     self.previews_layout.addWidget(placeholder_label)
             self.previews_layout.addStretch()
         else:
@@ -511,27 +551,21 @@ class MechanismRecommendationDialog(QDialog):
     def _get_best_recommendations(self) -> List[Optional[Dict[str, Any]]]:
         """
         Compares the user's motion path with generated paths using Hausdorff distance
-        and returns the best match for each defined mechanism type.
+        and returns the top 2-3 matches across all mechanism types.
         """
         if self.user_motion_path_np is None or not self.generated_paths_data:
             print("User motion path is not processed or no generated paths loaded.")
             return []
 
-        best_recommendations_map = {
-            MECHANISM_TYPE_USER_DISPLAY_3_BAR: {"best_score": float('inf'), "data": None},
-            MECHANISM_TYPE_USER_DISPLAY_4_BAR: {"best_score": float('inf'), "data": None},
-            MECHANISM_TYPE_USER_DISPLAY_CAM:   {"best_score": float('inf'), "data": None}
-        }
+        # Collect all mechanisms with their scores
+        all_recommendations = []
 
         # Mapping from JSON type strings to our user-facing display type constants.
-        # This needs to be accurate based on the strings in your JSON file.
         type_mapping = {
-            # Example: If your JSON has a specific type for 3-bar mechanisms:
-            # "3-bar Output": MECHANISM_TYPE_USER_DISPLAY_3_BAR,
-            "4-bar Coupler": MECHANISM_TYPE_USER_DISPLAY_4_BAR, # Actual type from JSON
-            # Example: If your JSON has a specific type for cam mechanisms:
-            # "Cam Profile": MECHANISM_TYPE_USER_DISPLAY_CAM,
-            # Add other mappings if necessary for different mechanism variations.
+            "4-bar Coupler": MECHANISM_TYPE_USER_DISPLAY_4_BAR,
+            "3-bar Output": MECHANISM_TYPE_USER_DISPLAY_3_BAR,
+            "Cam Profile": MECHANISM_TYPE_USER_DISPLAY_CAM,
+            # Add other mappings as needed
         }
 
         for gen_path_data in self.generated_paths_data:
@@ -543,44 +577,44 @@ class MechanismRecommendationDialog(QDialog):
 
             distance = calculate_hausdorff_distance(self.user_motion_path_np, gen_path_np)
 
-            target_mech_type = type_mapping.get(json_type_str)
+            target_mech_type = type_mapping.get(json_type_str, json_type_str)  # Default to json_type_str if not mapped
 
-            if target_mech_type and distance < best_recommendations_map[target_mech_type]["best_score"]:
-                best_recommendations_map[target_mech_type]["best_score"] = distance
+            # Prepare data for PreviewContainer
+            preview_data = {
+                "name": gen_path_data.get("name", json_type_str),
+                "type": target_mech_type,
+                "original_json_type": json_type_str,
+                "overall_score": distance,
+                "parameters": gen_path_data.get("parameters"),
+                "path_coordinates_np": gen_path_np,
+                "path_coordinates": gen_path_data.get("path_coordinates"),  # Keep original coordinates
+            }
+            all_recommendations.append(preview_data)
 
-                # Prepare data for PreviewContainer
-                # The 'name' could be derived or use json_type_str or a more descriptive field from JSON
-                # 'type' should be the user-friendly display type
-                # 'overall_score' is our Hausdorff distance (lower is better)
-                preview_data = {
-                    "name": gen_path_data.get("name", json_type_str), # Use a 'name' field if available in JSON
-                    "type": target_mech_type, # Use the consistent type
-                    "original_json_type": json_type_str, # Keep original type for reference if needed
-                    "overall_score": distance, # This is the Hausdorff distance
-                    "parameters": gen_path_data.get("parameters"),
-                    "path_coordinates_np": gen_path_np, # The mechanism's own path
-                    # "user_motion_path_local" will be added in __init__ before passing to PreviewContainer
-                }
-                best_recommendations_map[target_mech_type]["data"] = preview_data
+        # Sort by score (lower is better) and take top 3
+        all_recommendations.sort(key=lambda x: x["overall_score"])
+        top_recommendations = all_recommendations[:3]
 
-        # Collect valid recommendations
-        final_recommendations = []
-        # Iterate through the user display types to ensure order and check if recommendations were found
-        for mech_display_type in [MECHANISM_TYPE_USER_DISPLAY_3_BAR, MECHANISM_TYPE_USER_DISPLAY_4_BAR, MECHANISM_TYPE_USER_DISPLAY_CAM]:
-            if best_recommendations_map[mech_display_type]["data"] is not None:
-                final_recommendations.append(best_recommendations_map[mech_display_type]["data"])
-            else:
-                # Optionally, add a placeholder if no recommendation found for a type
-                print(f"No suitable recommendation found for type: {mech_display_type}")
-                # final_recommendations.append(None) # Or a placeholder dict like:
-                # final_recommendations.append({"name": f"No {mech_display_type} found", "type": mech_display_type, "overall_score": float('inf')})
+        # Ensure we have at least 2-3 slots (can be empty)
+        while len(top_recommendations) < 3:
+            top_recommendations.append(None)
 
-        return final_recommendations
+        return top_recommendations
 
     def _on_select(self, mechanism_data: Dict[str, Any]) -> None:
         self.selected_mechanism_data = mechanism_data
         self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
-        # Optionally provide visual feedback on the selected PreviewContainer
+        # Update visual selection for all containers
+        for container in self.preview_containers:
+            container._set_selected_style(container.mechanism_data == mechanism_data)
+
+    def _on_preview_click(self, mechanism_data: Dict[str, Any]) -> None:
+        """Handle preview click to show mechanism in main view."""
+        # Update visual selection for all containers
+        for container in self.preview_containers:
+            container._set_selected_style(container.mechanism_data == mechanism_data)
+        # Emit the preview signal
+        self.mechanism_preview_selected.emit(mechanism_data)
 
     @staticmethod
     def get_recommendation(
@@ -596,6 +630,7 @@ class MechanismRecommendationDialog(QDialog):
 if __name__ == "__main__":
     import sys
     import logging
+    from PyQt6.QtWidgets import QApplication # Import QApplication
     logging.basicConfig(level=logging.DEBUG)
 
     app = QApplication(sys.argv)

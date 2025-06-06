@@ -132,7 +132,6 @@ class LandingTab(QWidget):
         self.main_window = main_window
         self.example_dirs = [
             Path(__file__).parent.parent.parent.parent.parent / "src" / "examples",
-            Path(__file__).parent.parent.parent.parent.parent / "examples",
         ]
         self.image_widgets: List[ExampleImageWidget] = []
         self._init_ui()
