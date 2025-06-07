@@ -14,7 +14,7 @@ def get_world_rotation(item):
     return math.degrees(angle_rad)
 
 
-def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
+def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0, bend_directions=None):
     """Solve inverse kinematics using Cyclic Coordinate Descent algorithm with FABRIK-style constraints.
 
     Args:
@@ -23,6 +23,7 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
         target_pos (QPointF): The target position in scene coordinates.
         iterations (int): Maximum number of iterations.
         tolerance (float): Position error tolerance to stop early.
+        bend_directions (dict): Optional dictionary mapping joint names to preferred bend directions (+1 or -1).
     """
     if not chain:
         logging.warning("IK solver called with empty chain.")
@@ -63,7 +64,7 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
         return
 
     # Use FABRIK solver which better maintains bone lengths
-    _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations, tolerance)
+    _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations, tolerance, bend_directions)
     return
 
     # Original CCD implementation below (kept for reference but not used)
@@ -112,10 +113,15 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
             # but the primary goal is to rotate EndEffector (chain[1]) around its joint with Base.
             # The current CCD loop structure rotates chain[j] around its *own* anchor.
             # Let's adjust to directly rotate chain[1] if chain[0] is fixed.
-            if chain[0].is_fixed:
-                # Directly attempt to rotate chain[1] (the end effector)
-                # This is a simplification for 2-link fixed-base chains.
+            if chain[0].is_fixed or chain[0].is_joint_locked:
+                # Directly attempt to rotate chain[1] (the end effector) if not also locked
+                # This is a simplification for 2-link fixed/locked-base chains.
                 item_to_rotate = chain[1]
+                if item_to_rotate.is_joint_locked:
+                    logging.debug(
+                        f"  IK 2-Link Special: Cannot rotate '{item_to_rotate.part_info.name}' - joint is locked"
+                    )
+                    continue
                 logging.debug(
                     f"  IK 2-Link Special: Handling '{item_to_rotate.part_info.name}'"
                 )
@@ -223,10 +229,15 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
             # The 'IK 2-Link Special' log appears, then seems to iterate.
             # This suggests the 2-link logic is hit *instead* of the j-loop for chain[0] if chain[0] is fixed.
 
-            if chain[0].is_fixed and len(chain) == 2:  # Explicit 2-link fixed base
+            if (chain[0].is_fixed or chain[0].is_joint_locked) and len(chain) == 2:  # Explicit 2-link fixed/locked base
                 item_to_rotate = chain[1]  # This is the actual end effector
+                if item_to_rotate.is_joint_locked:
+                    logging.debug(
+                        f"  IK CCD: Cannot apply 2-Link Special Logic - {item_to_rotate.part_info.name} is locked"
+                    )
+                    continue
                 logging.debug(
-                    f"  IK CCD: Applying 2-Link Special Logic for {item_to_rotate.part_info.name} parented to fixed {chain[0].part_info.name}"
+                    f"  IK CCD: Applying 2-Link Special Logic for {item_to_rotate.part_info.name} parented to {'fixed' if chain[0].is_fixed else 'locked'} {chain[0].part_info.name}"
                 )
 
                 pivot_scene_pos = item_to_rotate.mapToScene(
@@ -337,15 +348,15 @@ def solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0):
         for j in range(start_index_j, -1, -1):
             current_item_to_rotate = chain[j]
 
-            # If the current item is fixed (e.g., torso), skip its rotation.
-            if current_item_to_rotate.is_fixed:
+            # If the current item is fixed (e.g., torso) or has a locked joint, skip its rotation.
+            if current_item_to_rotate.is_fixed or current_item_to_rotate.is_joint_locked:
                 logging.debug(
-                    f"IK Solver: Skipping rotation for fixed item: {current_item_to_rotate.part_info.name} at index {j}"
+                    f"IK Solver: Skipping rotation for {'fixed' if current_item_to_rotate.is_fixed else 'locked'} item: {current_item_to_rotate.part_info.name} at index {j}"
                 )
-                # If this fixed item is the base of the chain (j==0),
+                # If this fixed/locked item is the base of the chain (j==0),
                 # no further items in this chain should be rotated by this IK pass from this point up.
                 # However, CCD works from end-effector up to this point.
-                # So, if chain[0] is fixed, it simply won't be rotated, which is correct.
+                # So, if chain[0] is fixed/locked, it simply won't be rotated, which is correct.
                 continue
 
             logging.debug(
@@ -501,8 +512,8 @@ def _stretch_chain_to_target(chain, bone_lengths, base_pos, target_pos):
             prev_item.setRotation(math.degrees(angle_rad))
 
 
-def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1.0):
-    """Solves IK using FABRIK (Forward And Backward Reaching Inverse Kinematics) with angle preservation."""
+def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1.0, bend_directions=None):
+    """Solves IK using FABRIK (Forward And Backward Reaching Inverse Kinematics) with angle preservation and bend hints."""
     if len(chain) < 2:
         return
 
@@ -531,6 +542,39 @@ def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1
             initial_angles.append(item._initial_ik_angle)
         else:
             initial_angles.append(item._initial_ik_angle)
+            
+    # Calculate bend hints based on bend directions
+    bend_hints = {}
+    if bend_directions:
+        for i in range(1, len(chain) - 1):  # Only middle joints
+            item = chain[i]
+            joint_name = item.part_info.name
+            
+            # Find bend direction for this joint
+            bend_dir = None
+            for key, direction in bend_directions.items():
+                if key in joint_name or joint_name in key:
+                    bend_dir = direction
+                    break
+                    
+            if bend_dir is not None:
+                # Calculate bend hint position
+                prev_pos = chain[i-1].mapToScene(chain[i-1].anchor_offset)
+                curr_pos = item.mapToScene(item.anchor_offset)
+                next_pos = chain[i+1].mapToScene(chain[i+1].anchor_offset)
+                
+                # Vector from previous to next joint
+                vec = next_pos - prev_pos
+                # Perpendicular vector (90 degree rotation)
+                perp = QPointF(-vec.y() * bend_dir, vec.x() * bend_dir)
+                perp_length = math.sqrt(perp.x()**2 + perp.y()**2)
+                
+                if perp_length > 0.1:
+                    # Normalize and scale
+                    bone_length = bone_lengths[i-1]
+                    perp = perp * (bone_length * 0.3 / perp_length)
+                    bend_hints[i] = curr_pos + perp
+                    logging.debug(f"Bend hint for {joint_name} (index {i}): {bend_hints[i]}, direction: {bend_dir}")
 
     # Get current joint positions
     joint_positions = []
@@ -549,15 +593,41 @@ def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1
             next_pos = joint_positions[i + 1]
             bone_length = bone_lengths[i]
 
-            direction = current_pos - next_pos
-            distance = QLineF(current_pos, next_pos).length()
+            # Check if this joint has a bend hint
+            if i in bend_hints and i > 0:  # Middle joint with bend hint
+                # Use blend between direct line and bend hint
+                direction = current_pos - next_pos
+                distance = QLineF(current_pos, next_pos).length()
+                
+                if distance < 0.1:
+                    direction = QPointF(bone_length, 0)
+                    distance = bone_length
+                    
+                # Direct position
+                direct_pos = next_pos + (direction / distance) * bone_length
+                
+                # Position influenced by bend hint
+                hint_dir = bend_hints[i] - next_pos
+                hint_dist = QLineF(bend_hints[i], next_pos).length()
+                
+                if hint_dist > 0.1:
+                    hint_pos = next_pos + (hint_dir / hint_dist) * bone_length
+                    # Blend between direct and hint positions
+                    blend_factor = 0.4  # How much to follow the bend hint
+                    joint_positions[i] = direct_pos * (1 - blend_factor) + hint_pos * blend_factor
+                else:
+                    joint_positions[i] = direct_pos
+            else:
+                # Standard FABRIK update
+                direction = current_pos - next_pos
+                distance = QLineF(current_pos, next_pos).length()
 
-            if distance < 0.1:
-                direction = QPointF(bone_length, 0)
-                distance = bone_length
+                if distance < 0.1:
+                    direction = QPointF(bone_length, 0)
+                    distance = bone_length
 
-            direction_normalized = direction / distance
-            joint_positions[i] = next_pos + direction_normalized * bone_length
+                direction_normalized = direction / distance
+                joint_positions[i] = next_pos + direction_normalized * bone_length
 
         # Backward pass: start from base and work towards end effector
         joint_positions[0] = QPointF(base_pos)  # Fix base position
@@ -567,15 +637,40 @@ def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1
             current_pos = joint_positions[i]
             bone_length = bone_lengths[i - 1]
 
-            direction = current_pos - prev_pos
-            distance = QLineF(prev_pos, current_pos).length()
+            # Check for bend hint
+            if i in bend_hints and i < len(chain) - 1:  # Middle joint with bend hint
+                direction = current_pos - prev_pos
+                distance = QLineF(prev_pos, current_pos).length()
+                
+                if distance < 0.1:
+                    direction = QPointF(bone_length, 0)
+                    distance = bone_length
+                    
+                # Direct position
+                direct_pos = prev_pos + (direction / distance) * bone_length
+                
+                # Position influenced by bend hint
+                hint_dir = bend_hints[i] - prev_pos
+                hint_dist = QLineF(bend_hints[i], prev_pos).length()
+                
+                if hint_dist > 0.1:
+                    hint_pos = prev_pos + (hint_dir / hint_dist) * bone_length
+                    # Blend
+                    blend_factor = 0.4
+                    joint_positions[i] = direct_pos * (1 - blend_factor) + hint_pos * blend_factor
+                else:
+                    joint_positions[i] = direct_pos
+            else:
+                # Standard FABRIK update
+                direction = current_pos - prev_pos
+                distance = QLineF(prev_pos, current_pos).length()
 
-            if distance < 0.1:
-                direction = QPointF(bone_length, 0)
-                distance = bone_length
+                if distance < 0.1:
+                    direction = QPointF(bone_length, 0)
+                    distance = bone_length
 
-            direction_normalized = direction / distance
-            joint_positions[i] = prev_pos + direction_normalized * bone_length
+                direction_normalized = direction / distance
+                joint_positions[i] = prev_pos + direction_normalized * bone_length
 
         # Check convergence
         end_pos = joint_positions[-1]

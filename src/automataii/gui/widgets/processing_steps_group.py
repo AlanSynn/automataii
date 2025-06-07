@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton
+from PyQt6.QtWidgets import QGroupBox, QVBoxLayout, QPushButton, QHBoxLayout, QWidget
 from PyQt6.QtCore import pyqtSignal
 
 
@@ -10,6 +10,8 @@ class ProcessingStepsGroup(QGroupBox):
     editSkeletonClicked = pyqtSignal()
     saveSkeletonClicked = pyqtSignal()
     generatePartsClicked = pyqtSignal()
+    extendSkeletonClicked = pyqtSignal()
+    lockJointsClicked = pyqtSignal()
 
     def __init__(self, title: str = "Detailed Processing Steps", parent=None):
         super().__init__(title, parent)
@@ -34,6 +36,28 @@ class ProcessingStepsGroup(QGroupBox):
         self.create_parts_btn = QPushButton("Generate Body Parts")
         self.create_parts_btn.clicked.connect(self.generatePartsClicked.emit)
         layout.addWidget(self.create_parts_btn)
+        
+        # Add separator line
+        separator = QWidget()
+        separator.setFixedHeight(1)
+        separator.setStyleSheet("background-color: #d0d7de;")
+        layout.addWidget(separator)
+        
+        # Add skeleton manipulation buttons in a horizontal layout
+        skeleton_tools_layout = QHBoxLayout()
+        skeleton_tools_layout.setSpacing(5)
+        
+        self.extend_skeleton_btn = QPushButton("Extend Skeleton 10%")
+        self.extend_skeleton_btn.setToolTip("Increase all skeleton bone lengths by 10%")
+        self.extend_skeleton_btn.clicked.connect(self.extendSkeletonClicked.emit)
+        skeleton_tools_layout.addWidget(self.extend_skeleton_btn)
+        
+        self.lock_joints_btn = QPushButton("Lock/Unlock Joints")
+        self.lock_joints_btn.setToolTip("Select joints to lock/unlock for IK solving")
+        self.lock_joints_btn.clicked.connect(self.lockJointsClicked.emit)
+        skeleton_tools_layout.addWidget(self.lock_joints_btn)
+        
+        layout.addLayout(skeleton_tools_layout)
 
         # Initially, this group might be hidden
         # self.setVisible(False) # Visibility will be controlled by ImageProcessingTab
@@ -44,16 +68,19 @@ class ProcessingStepsGroup(QGroupBox):
         edit_enabled: bool,
         save_enabled: bool,
         generate_enabled: bool,
+        skeleton_tools_enabled: bool = False,
     ):
         """Allows external control over the enabled state of the buttons."""
         self.process_image_btn.setEnabled(process_enabled)
         self.edit_skeleton_btn.setEnabled(edit_enabled)
         self.save_skeleton_btn.setEnabled(save_enabled)
         self.create_parts_btn.setEnabled(generate_enabled)
+        self.extend_skeleton_btn.setEnabled(skeleton_tools_enabled)
+        self.lock_joints_btn.setEnabled(skeleton_tools_enabled)
 
 
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtWidgets import QApplication, QWidget
     import sys
 
     app = QApplication(sys.argv)
@@ -67,6 +94,8 @@ if __name__ == "__main__":
     steps_group.editSkeletonClicked.connect(lambda: print("Edit Skeleton Clicked"))
     steps_group.saveSkeletonClicked.connect(lambda: print("Save Skeleton Clicked"))
     steps_group.generatePartsClicked.connect(lambda: print("Generate Parts Clicked"))
+    steps_group.extendSkeletonClicked.connect(lambda: print("Extend Skeleton Clicked"))
+    steps_group.lockJointsClicked.connect(lambda: print("Lock/Unlock Joints Clicked"))
 
     # Example of setting enabled states
     steps_group.set_buttons_enabled_state(True, False, False, False)

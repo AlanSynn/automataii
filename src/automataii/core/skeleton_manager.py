@@ -328,6 +328,7 @@ class SkeletonManager(QObject):
                 parent_id=None,  # Will be resolved later
                 label=joint_name,  # Original name is same as standardized name here
                 source_data=joint_info_raw.copy(),
+                is_locked=False,  # Default to unlocked
             )
             std_skeleton.joints[joint_id] = std_joint
             temp_joint_name_to_id[joint_name] = joint_id
@@ -507,6 +508,141 @@ class SkeletonManager(QObject):
                 descriptive_limb_name
             )
         return None
+
+    def extend_skeleton_lengths(self, scale_factor: float = 1.1) -> bool:
+        """Extends all skeleton bone lengths by the given scale factor.
+        
+        Args:
+            scale_factor: The factor to scale bone lengths by (default 1.1 for 10% increase)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._standardized_skeleton_model:
+            logging.warning("No skeleton model loaded to extend")
+            return False
+            
+        try:
+            logging.info(f"Extending skeleton lengths by factor {scale_factor}")
+            
+            # Store the root positions as they should not move
+            root_positions = {}
+            for root_id in self._standardized_skeleton_model.root_joint_ids:
+                if root_id in self._standardized_skeleton_model.joints:
+                    root_positions[root_id] = self._standardized_skeleton_model.joints[root_id].position
+            
+            # Process each joint starting from roots
+            processed_joints = set()
+            
+            def scale_joint_recursive(joint_id: str, parent_pos: Optional[Tuple[float, float]] = None):
+                if joint_id in processed_joints:
+                    return
+                    
+                processed_joints.add(joint_id)
+                joint = self._standardized_skeleton_model.joints.get(joint_id)
+                if not joint:
+                    return
+                    
+                # If this is not a root joint and has a parent position, scale its position
+                if parent_pos is not None and joint.parent_id:
+                    # Calculate the vector from parent to this joint
+                    dx = joint.position[0] - parent_pos[0]
+                    dy = joint.position[1] - parent_pos[1]
+                    
+                    # Scale the vector
+                    new_dx = dx * scale_factor
+                    new_dy = dy * scale_factor
+                    
+                    # Set new position
+                    new_pos = (parent_pos[0] + new_dx, parent_pos[1] + new_dy)
+                    joint.position = new_pos
+                    
+                    # Update limb length if it exists
+                    parent_joint = self._standardized_skeleton_model.joints.get(joint.parent_id)
+                    if parent_joint and self._standardized_skeleton_model.limb_lengths:
+                        limb_key = f"{parent_joint.name}_to_{joint.name}"
+                        if limb_key in self._standardized_skeleton_model.limb_lengths:
+                            self._standardized_skeleton_model.limb_lengths[limb_key] *= scale_factor
+                
+                # Process children
+                current_pos = joint.position
+                child_ids = self._standardized_skeleton_model.hierarchy.get(joint_id, [])
+                for child_id in child_ids:
+                    scale_joint_recursive(child_id, current_pos)
+            
+            # Start scaling from each root
+            for root_id in self._standardized_skeleton_model.root_joint_ids:
+                if root_id in self._standardized_skeleton_model.joints:
+                    scale_joint_recursive(root_id)
+            
+            # Scale all limb lengths that haven't been updated yet
+            if self._standardized_skeleton_model.limb_lengths:
+                for limb_name in list(self._standardized_skeleton_model.limb_lengths.keys()):
+                    # This ensures any pre-calculated lengths are also scaled
+                    self._standardized_skeleton_model.limb_lengths[limb_name] *= scale_factor
+            
+            # Emit update signal
+            self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
+            logging.info(f"Successfully extended skeleton lengths by {scale_factor}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error extending skeleton lengths: {e}", exc_info=True)
+            return False
+
+    def lock_joint(self, joint_id_or_name: str, locked: bool = True) -> bool:
+        """Locks or unlocks a specific joint for IK solving.
+        
+        Args:
+            joint_id_or_name: The ID or name of the joint to lock/unlock
+            locked: True to lock, False to unlock
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._standardized_skeleton_model:
+            logging.warning("No skeleton model loaded")
+            return False
+            
+        joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(joint_id_or_name)
+        if not joint:
+            logging.warning(f"Joint '{joint_id_or_name}' not found")
+            return False
+            
+        joint.is_locked = locked
+        logging.info(f"Joint '{joint.name}' (ID: {joint.id}) {'locked' if locked else 'unlocked'}")
+        
+        # Emit update signal
+        self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
+        return True
+    
+    def get_locked_joints(self) -> List[str]:
+        """Returns a list of joint IDs that are currently locked."""
+        if not self._standardized_skeleton_model:
+            return []
+            
+        return [
+            joint_id 
+            for joint_id, joint in self._standardized_skeleton_model.joints.items()
+            if joint.is_locked
+        ]
+    
+    def unlock_all_joints(self) -> bool:
+        """Unlocks all joints in the skeleton.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._standardized_skeleton_model:
+            logging.warning("No skeleton model loaded")
+            return False
+            
+        for joint in self._standardized_skeleton_model.joints.values():
+            joint.is_locked = False
+            
+        logging.info("All joints unlocked")
+        self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
+        return True
 
 
 if __name__ == "__main__":

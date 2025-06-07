@@ -23,6 +23,10 @@ class StandardizedJointModel(BaseModel):
         None,
         description="Original unprocessed data for this joint from the source file for debugging or format-specific needs.",
     )
+    is_locked: bool = Field(
+        False,
+        description="Whether this joint is locked/fixed and should not be moved during IK solving.",
+    )
     # Children will be derived and stored in the main skeleton model's hierarchy for clarity
 
 

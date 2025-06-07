@@ -84,6 +84,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.selection_highlight_item: Optional[QGraphicsRectItem] = None
 
         self._is_fixed: bool = part_info.fixed
+        self._is_joint_locked: bool = False  # Whether the associated joint is locked for IK
         self.z_value = (
             part_info.z_value if part_info.z_value is not None else Z_PART_DEFAULT
         )
@@ -284,7 +285,17 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
     def set_fixed(self, fixed: bool):
         self._is_fixed = fixed
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not fixed)
+    
+    @property
+    def is_joint_locked(self) -> bool:
+        """Returns True if the joint associated with this part is locked for IK solving."""
+        return self._is_joint_locked
+    
+    def set_joint_locked(self, locked: bool):
+        """Sets whether the joint associated with this part is locked for IK solving."""
+        self._is_joint_locked = locked
+        # Note: We might want to disable movement for locked joints, but that's handled separately
+        # from the is_fixed property. For now, just store the state.
 
     def set_motion_path(self, path: Optional[QPainterPath]):
         self.motion_path = path

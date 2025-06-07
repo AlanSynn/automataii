@@ -714,27 +714,39 @@ class IKManager(QObject):
             ) * (p2_pos.x() - p0_pos.x())
 
             if abs(signed_area) < 1e-6:  # Collinear or very close to it
-                # Default to a common bend direction (e.g., 1 for elbows, -1 for knees if that's the convention)
-                # For now, let's default to 1, assuming this means "outward" or "forward" bend.
-                # This might need adjustment based on character's typical pose.
-                self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
+                # Default based on joint type and side
+                if "right" in middle_joint_abstract_name:
+                    # Right limbs typically bend clockwise (negative)
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1
+                else:
+                    # Left limbs typically bend counter-clockwise (positive)
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
                 logging.info(
-                    f"IKManager: Joints for '{middle_joint_abstract_name}' are collinear. Defaulting bend_direction to 1."
+                    f"IKManager: Joints for '{middle_joint_abstract_name}' are collinear. "
+                    f"Defaulting bend_direction to {self.sim_joint_bend_directions[middle_joint_abstract_name]}."
                 )
             elif signed_area > 0:  # P1 is to the "left" (CCW turn from P0P2 to P0P1)
-                # Invert the bend direction for arms to match desired behavior
-                if "elbow" in middle_joint_abstract_name:
-                    self.sim_joint_bend_directions[
-                        middle_joint_abstract_name
-                    ] = -1  # Inverted for arms
+                # For natural arm bending, we REVERSE the geometric direction
+                # Positive signed area geometrically, but we want opposite bend for natural motion
+                # Arms: left arm with positive area should bend CW (inward)
+                if "left" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Reverse
+                elif "right" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Keep
+                elif "knee" in middle_joint_abstract_name:
+                    # Knees typically bend opposite to their geometric direction
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Reverse
                 else:
                     self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
             else:  # signed_area < 0, P1 is to the "right" (CW turn)
-                # Invert the bend direction for arms to match desired behavior
-                if "elbow" in middle_joint_abstract_name:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = (
-                        1  # Inverted for arms
-                    )
+                # Negative signed area geometrically
+                if "left" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Keep
+                elif "right" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Reverse
+                elif "knee" in middle_joint_abstract_name:
+                    # Knees typically bend opposite to their geometric direction
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Reverse
                 else:
                     self.sim_joint_bend_directions[middle_joint_abstract_name] = -1
 
@@ -1287,11 +1299,12 @@ class IKManager(QObject):
             if not target_pos:
                 continue
 
-            # Apply IK to the chain
+            # Apply IK to the chain with bend directions
             logging.debug(
                 f"IKManager: Applying IK for {effector_joint} chain with {len(chain)} parts, target: {target_pos}"
             )
-            solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0)
+            # Pass the bend directions to the IK solver
+            solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0, bend_directions=self.sim_joint_bend_directions)
 
     def _update_character_part_visuals_from_ik(self) -> None:
         """Updates character part visuals using proper IK chains for arms and legs.

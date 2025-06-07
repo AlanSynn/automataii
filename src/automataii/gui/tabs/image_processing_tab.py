@@ -231,6 +231,8 @@ class ImageProcessingTab(QWidget):
         self.processing_steps_group.generatePartsClicked.connect(
             self.create_parts_from_skeleton
         )
+        self.processing_steps_group.extendSkeletonClicked.connect(self.extend_skeleton)
+        self.processing_steps_group.lockJointsClicked.connect(self.show_lock_joints_dialog)
 
         self.next_stage_btn.clicked.connect(self.next_stage)
 
@@ -831,6 +833,7 @@ class ImageProcessingTab(QWidget):
             edit_enabled=has_skeleton,
             save_enabled=has_skeleton,
             generate_enabled=(has_skeleton and has_image),
+            skeleton_tools_enabled=has_skeleton,  # Enable skeleton tools when skeleton is loaded
         )
 
         # next_stage_btn enabled if parts_info.json has been generated (or parts loaded in main_window)
@@ -894,3 +897,129 @@ class ImageProcessingTab(QWidget):
         """Slot to control the visibility of the detailed processing steps group."""
         self.processing_steps_group.setVisible(visible)
         logging.info(f"Detailed processing steps visibility set to: {visible}")
+    
+    def extend_skeleton(self):
+        """Extends the skeleton lengths by 10%."""
+        if not self.main_window or not self.main_window.skeleton_manager:
+            QMessageBox.warning(
+                self,
+                "Extend Skeleton",
+                "No skeleton manager available."
+            )
+            return
+            
+        if not self.main_window.skeleton_manager.standardized_model:
+            QMessageBox.warning(
+                self,
+                "Extend Skeleton",
+                "No skeleton loaded. Please process an image or load a skeleton first."
+            )
+            return
+            
+        # Confirm action with user
+        reply = QMessageBox.question(
+            self,
+            "Extend Skeleton",
+            "This will increase all skeleton bone lengths by 10%. This action cannot be undone. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.main_window.skeleton_manager.extend_skeleton_lengths(1.1):
+                # Update the view with the modified skeleton
+                if self.skeleton_data and self.image_proc_view:
+                    # Get the updated skeleton data
+                    updated_skeleton = self.main_window.skeleton_manager.standardized_model.model_dump()
+                    self.skeleton_data = updated_skeleton
+                    self.image_proc_view.load_skeleton(updated_skeleton)
+                    
+                QMessageBox.information(
+                    self,
+                    "Extend Skeleton",
+                    "Skeleton lengths extended by 10% successfully."
+                )
+                self.main_window.statusBar().showMessage("Skeleton extended by 10%", 3000)
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Extend Skeleton",
+                    "Failed to extend skeleton lengths."
+                )
+    
+    def show_lock_joints_dialog(self):
+        """Shows a dialog for locking/unlocking specific joints."""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QListWidget, QListWidgetItem, QDialogButtonBox, QLabel
+        from PyQt6.QtCore import Qt
+        
+        if not self.main_window or not self.main_window.skeleton_manager:
+            QMessageBox.warning(
+                self,
+                "Lock/Unlock Joints",
+                "No skeleton manager available."
+            )
+            return
+            
+        if not self.main_window.skeleton_manager.standardized_model:
+            QMessageBox.warning(
+                self,
+                "Lock/Unlock Joints",
+                "No skeleton loaded. Please process an image or load a skeleton first."
+            )
+            return
+            
+        # Create dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Lock/Unlock Joints")
+        dialog.setModal(True)
+        dialog.resize(300, 400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Add instructions
+        label = QLabel("Check joints to lock them during IK solving:")
+        layout.addWidget(label)
+        
+        # Create list widget with checkable items
+        list_widget = QListWidget()
+        
+        # Get current locked joints
+        locked_joints = self.main_window.skeleton_manager.get_locked_joints()
+        
+        # Add all joints to the list
+        skeleton_model = self.main_window.skeleton_manager.standardized_model
+        for joint_id, joint in skeleton_model.joints.items():
+            item = QListWidgetItem(f"{joint.name} ({joint_id})")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if joint.is_locked else Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, joint_id)  # Store joint ID
+            list_widget.addItem(item)
+        
+        layout.addWidget(list_widget)
+        
+        # Add buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        layout.addWidget(button_box)
+        
+        def accept_changes():
+            # Update joint lock states
+            for i in range(list_widget.count()):
+                item = list_widget.item(i)
+                joint_id = item.data(Qt.ItemDataRole.UserRole)
+                is_locked = item.checkState() == Qt.CheckState.Checked
+                self.main_window.skeleton_manager.lock_joint(joint_id, is_locked)
+            
+            # Update the view if needed
+            if self.skeleton_data and self.image_proc_view:
+                updated_skeleton = self.main_window.skeleton_manager.standardized_model.model_dump()
+                self.skeleton_data = updated_skeleton
+                self.image_proc_view.load_skeleton(updated_skeleton)
+                
+            dialog.accept()
+        
+        button_box.accepted.connect(accept_changes)
+        button_box.rejected.connect(dialog.reject)
+        
+        dialog.exec()

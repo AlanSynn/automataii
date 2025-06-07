@@ -103,7 +103,7 @@ class MechanismPreviewWidget(QGraphicsView):
     ):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
-        self.setFixedSize(350, 300)  # Much larger size for better visibility
+        self.setFixedSize(350, 300)  # Original container size
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -153,7 +153,7 @@ class MechanismPreviewWidget(QGraphicsView):
         transformed_path = transform.map(user_path_local)
 
         path_item = QGraphicsPathItem(transformed_path)
-        pen = QPen(BITTERSWEET, 4.0, Qt.PenStyle.DashLine)  # Thicker, red dashed line for visibility
+        pen = QPen(BITTERSWEET, 3.0, Qt.PenStyle.DashLine)  # Appropriately sized for container
         path_item.setPen(pen)
         path_item.setZValue(10)  # Draw on top of the mechanism
         self.scene.addItem(path_item)
@@ -222,9 +222,9 @@ class MechanismPreviewWidget(QGraphicsView):
 
     def _draw_cam_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
         # Generic schematic cam preview
-        preview_scale = min(bounds.width(), bounds.height()) / 150.0  # Larger scale
-        base_radius = 50 * preview_scale
-        eccentric_radius = 30 * preview_scale
+        preview_scale = min(bounds.width(), bounds.height()) / 280.0  # Optimized scale for cam
+        base_radius = 80 * preview_scale  # Larger base for better visibility
+        eccentric_radius = 60 * preview_scale  # Larger eccentric
         angle_offset_rad = _np_deg2rad(45)  # Fixed angle for schematic
 
         # Use the adjusted bounds for drawing
@@ -290,12 +290,12 @@ class MechanismPreviewWidget(QGraphicsView):
         follower_y_contact = eff_ecc_center_y + eccentric_radius + 2  # ensure contact
 
         # Make follower schematic and relative to cam size
-        follower_width = base_radius * 0.5
-        follower_height = base_radius * 0.7
+        follower_width = base_radius * 0.4
+        follower_height = base_radius * 0.6
         follower_x = cam_center_x - follower_width / 2
         # Adjust follower_y_contact if needed based on new base_radius relationship
         # For a generic preview, this should be fine, or tie it to cam_center_y more directly
-        follower_y_contact = cam_center_y + base_radius * 0.5  # Example positioning
+        follower_y_contact = cam_center_y + base_radius * 0.4  # Example positioning
 
         follower_back = QGraphicsRectItem(
             follower_x + dox, follower_y_contact + doy, follower_width, follower_height
@@ -315,17 +315,17 @@ class MechanismPreviewWidget(QGraphicsView):
         # Two meshing gears preview
         center_x = bounds.center().x()
         center_y = bounds.center().y()
-        preview_scale = min(bounds.width(), bounds.height()) / 150.0  # Larger scale
+        preview_scale = min(bounds.width(), bounds.height()) / 220.0  # Optimized scale for gears
 
         # First gear (larger)
-        radius1 = 45 * preview_scale
+        radius1 = 60 * preview_scale  # Larger for better visibility
         num_teeth1 = 18
-        tooth_height1 = 10 * preview_scale
+        tooth_height1 = 15 * preview_scale
         
         # Second gear (smaller)
-        radius2 = 30 * preview_scale
+        radius2 = 40 * preview_scale  # Larger for better visibility
         num_teeth2 = 12
-        tooth_height2 = 8 * preview_scale
+        tooth_height2 = 12 * preview_scale
         
         # Position gears to mesh
         gear1_x = center_x - radius1 * 0.8
@@ -475,19 +475,19 @@ class MechanismPreviewWidget(QGraphicsView):
     def _draw_linkage_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
         # Generic schematic 4-bar linkage preview
         preview_scale = (
-            min(bounds.width(), bounds.height()) / 200.0
-        )  # Larger scale for linkage
-        thickness = 12 * preview_scale  # Thicker links for visibility
+            min(bounds.width(), bounds.height()) / 280.0
+        )  # Optimized scale for linkage
+        thickness = 20 * preview_scale  # Thicker links for better visibility
 
         # Define points relative to bounds center, then scale
         center_x = bounds.center().x()
         center_y = bounds.center().y()
 
         # Normalized points for a better looking four-bar
-        p0_norm = QPointF(-60, 20)   # Fixed ground pivot 1
-        p1_norm = QPointF(-40, -30)  # Crank pivot
-        p2_norm = QPointF(30, -40)   # Coupler end / Rocker pivot
-        p3_norm = QPointF(60, 15)    # Fixed ground pivot 2
+        p0_norm = QPointF(-80, 30)   # Fixed ground pivot 1
+        p1_norm = QPointF(-60, -40)  # Crank pivot
+        p2_norm = QPointF(40, -50)   # Coupler end / Rocker pivot
+        p3_norm = QPointF(80, 25)    # Fixed ground pivot 2
 
         # Scale points
         p0 = QPointF(
@@ -526,7 +526,7 @@ class MechanismPreviewWidget(QGraphicsView):
         link_color_back = ULTRA_VIOLET
         pivot_color_front = SUNGLOW
         pivot_color_back = QColor(SUNGLOW).darker(150)  # Darker SUNGLOW
-        pivot_radius = thickness * 0.7  # Scale pivot radius with thickness
+        pivot_radius = thickness * 0.8  # Slightly larger pivots for visibility
 
         links = [
             (p0, p1, "crank"),
@@ -629,11 +629,16 @@ class PreviewContainer(QWidget):
 
         # Title/Name with better styling
         name = self.mechanism_data.get("name", "Unnamed Mechanism")
-        title_label = QLabel(name)
+        # Extract just the mechanism type from name
+        if ":" in name:
+            mech_type = name.split(":")[0].strip()
+        else:
+            mech_type = name
+        title_label = QLabel(mech_type)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_label.setStyleSheet("""
             QLabel {
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: bold;
                 color: #2c3e50;
                 padding: 5px;
@@ -651,6 +656,31 @@ class PreviewContainer(QWidget):
             }
         """)
         layout.addWidget(self.preview_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Match percentage label
+        score = self.mechanism_data.get("overall_score", 0)
+        # Convert score to match percentage (lower score = better match)
+        # Use exponential decay for better representation of similarity
+        # Score range is typically 0-200 for Hausdorff distance
+        if score == 0:
+            match_percentage = 100.0
+        else:
+            # Exponential decay: e^(-score/50) gives good range
+            # Score of 50 = ~37% match, Score of 100 = ~14% match
+            import math
+            match_percentage = max(0, min(100, math.exp(-score / 50) * 100))
+        
+        match_label = QLabel(f"Match: {match_percentage:.0f}%")
+        match_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        match_label.setStyleSheet("""
+            QLabel {
+                font-size: 20px;
+                font-weight: bold;
+                color: #27ae60;
+                padding: 10px;
+            }
+        """)
+        layout.addWidget(match_label)
 
         # Select Button with better styling
         select_button = QPushButton("Select This")
@@ -675,7 +705,7 @@ class PreviewContainer(QWidget):
         layout.addWidget(select_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(layout)
-        self.setMinimumWidth(370)  # Ensure enough space for larger preview
+        self.setMinimumWidth(370)  # Original width
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )  # Fixed height based on content
@@ -723,7 +753,7 @@ class PreviewContainer(QWidget):
         self.selected.emit(self.mechanism_data)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(370, 400)  # Adjust based on larger preview
+        return QSize(370, 400)  # Original size
 
     def sizeHint(self) -> QSize:
         return self.minimumSizeHint()
@@ -748,7 +778,7 @@ class MechanismRecommendationDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Choose a Mechanism")
-        self.setMinimumSize(1200, 600)  # Much larger dialog
+        self.setMinimumSize(1200, 600)  # Original dialog size
         self.selected_mechanism_data: Optional[Dict[str, Any]] = None
 
         self.user_motion_path_original = (
@@ -932,23 +962,24 @@ class MechanismRecommendationDialog(QDialog):
     def _get_best_recommendations(self) -> List[Optional[Dict[str, Any]]]:
         """
         Compares the user's motion path with generated paths using Hausdorff distance
-        and returns the top 2-3 matches across all mechanism types.
+        and returns the top 2-3 matches, ensuring diversity across mechanism types.
         """
         if self.user_motion_path_np is None or not self.generated_paths_data:
             print("User motion path is not processed or no generated paths loaded.")
             return []
-
-        # Collect all mechanisms with their scores
-        all_recommendations = []
 
         # Mapping from JSON type strings to our user-facing display type constants.
         type_mapping = {
             "4-bar Coupler": MECHANISM_TYPE_USER_DISPLAY_4_BAR,
             "3-bar Output": MECHANISM_TYPE_USER_DISPLAY_3_BAR,
             "Cam Profile": MECHANISM_TYPE_USER_DISPLAY_CAM,
+            "Gear Train": "Gears (Simple Pair)",  # Add gear train mapping
             # Add other mappings as needed
         }
 
+        # Group mechanisms by type
+        mechanisms_by_type = {}
+        
         for gen_path_data in self.generated_paths_data:
             gen_path_np = gen_path_data.get("path_coordinates_np")
             json_type_str = gen_path_data.get("type")
@@ -976,13 +1007,46 @@ class MechanismRecommendationDialog(QDialog):
                     "path_coordinates"
                 ),  # Keep original coordinates
             }
-            all_recommendations.append(preview_data)
+            
+            # Group by mechanism type
+            if target_mech_type not in mechanisms_by_type:
+                mechanisms_by_type[target_mech_type] = []
+            mechanisms_by_type[target_mech_type].append(preview_data)
 
-        # Sort by score (lower is better) and take top 3
-        all_recommendations.sort(key=lambda x: x["overall_score"])
-        top_recommendations = all_recommendations[:3]
+        # Get the best mechanism of each type
+        best_per_type = []
+        for mech_type, mechanisms in mechanisms_by_type.items():
+            # Sort mechanisms of this type by score
+            mechanisms.sort(key=lambda x: x["overall_score"])
+            # Take the best one
+            if mechanisms:
+                best_per_type.append(mechanisms[0])
+        
+        # Sort all best mechanisms by score
+        best_per_type.sort(key=lambda x: x["overall_score"])
+        
+        # Take top 3, ensuring diversity
+        top_recommendations = best_per_type[:3]
 
-        # Ensure we have at least 2-3 slots (can be empty)
+        # If we have fewer than 3 types, fill with next best from any type
+        if len(top_recommendations) < 3:
+            # Collect all mechanisms not already selected
+            all_remaining = []
+            selected_names = {r["name"] for r in top_recommendations}
+            
+            for mechanisms in mechanisms_by_type.values():
+                for m in mechanisms:
+                    if m["name"] not in selected_names:
+                        all_remaining.append(m)
+            
+            # Sort remaining by score and add to recommendations
+            all_remaining.sort(key=lambda x: x["overall_score"])
+            for m in all_remaining:
+                if len(top_recommendations) >= 3:
+                    break
+                top_recommendations.append(m)
+
+        # Ensure we have at least 3 slots (can be empty)
         while len(top_recommendations) < 3:
             top_recommendations.append(None)
 

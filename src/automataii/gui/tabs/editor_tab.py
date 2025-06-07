@@ -725,17 +725,20 @@ class EditorTab(QWidget):
         self._update_button_states()
 
     def _play_simulation_clicked(self):
+        # Always emit the signal so IK manager knows we're playing
         self.request_play_simulation.emit()
-        self.play_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.reset_sim_btn.setEnabled(False)  # Can't reset while playing
-
+        
+        # Handle button states locally for mechanism simulation
         if self.mechanism_visual_items:  # Only start if a mechanism is loaded
+            self.play_btn.setEnabled(False)
+            self.stop_btn.setEnabled(True)
+            self.reset_sim_btn.setEnabled(False)  # Can't reset while playing
             self.is_mechanism_simulating = True
             self.mechanism_simulation_timer.start(30)  # Approx 33 FPS
             logging.info("Mechanism simulation started.")
 
     def _stop_simulation_clicked(self):
+        logging.info("Stop button clicked")
         self.request_stop_simulation.emit()
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
@@ -745,6 +748,8 @@ class EditorTab(QWidget):
             self.is_mechanism_simulating = False
             self.mechanism_simulation_timer.stop()
             logging.info("Mechanism simulation stopped.")
+        else:
+            logging.info("Mechanism simulation was not running")
 
     def _reset_simulation_clicked(self):
         self.request_reset_simulation.emit()
@@ -1186,6 +1191,12 @@ class EditorTab(QWidget):
                         logging.info(
                             f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})"
                         )
+                    
+                    # Check if joint is locked and update the part item
+                    is_locked = joint_data.get("is_locked", False)
+                    item.set_joint_locked(is_locked)
+                    if is_locked:
+                        logging.info(f"EditorTab: Joint '{std_joint_id}' for part '{part_name}' is locked")
                 else:
                     # Log if we couldn't find the anchor joint
                     logging.warning(
@@ -1303,13 +1314,23 @@ class EditorTab(QWidget):
             can_stop = False
             can_reset = bool(self.current_editor_items)
 
-        if self.play_btn:
-            self.play_btn.setEnabled(can_play and not is_playing)
-            self.play_btn.setChecked(is_playing)  # Reflects if it's actively playing
-        if self.stop_btn:
-            self.stop_btn.setEnabled(can_stop and is_playing)
-        if self.reset_sim_btn:
-            self.reset_sim_btn.setEnabled(can_reset and not is_playing)
+        # If mechanism is simulating, override button states appropriately
+        if self.is_mechanism_simulating:
+            if self.play_btn:
+                self.play_btn.setEnabled(False)
+                self.play_btn.setChecked(True)
+            if self.stop_btn:
+                self.stop_btn.setEnabled(True)
+            if self.reset_sim_btn:
+                self.reset_sim_btn.setEnabled(False)
+        else:
+            if self.play_btn:
+                self.play_btn.setEnabled(can_play and not is_playing)
+                self.play_btn.setChecked(is_playing)  # Reflects if it's actively playing
+            if self.stop_btn:
+                self.stop_btn.setEnabled(can_stop and is_playing)
+            if self.reset_sim_btn:
+                self.reset_sim_btn.setEnabled(can_reset and not is_playing)
 
         # Update other UI elements if necessary
         self._update_mechanism_controls_based_on_simulation(is_playing)
@@ -1371,6 +1392,19 @@ class EditorTab(QWidget):
                                 "label": joint_model_dict.get("label"),
                             }
                         )
+                        
+                        # Update joint lock status for any parts that have this joint as anchor
+                        is_locked = joint_model_dict.get("is_locked", False)
+                        joint_name = joint_model_dict.get("name")
+                        
+                        # Find parts that use this joint
+                        for part_name, part_item in self.current_editor_items.items():
+                            if part_item.anchor_joint_id == joint_name or part_item.anchor_joint_id == joint_id:
+                                part_item.set_joint_locked(is_locked)
+                                if is_locked:
+                                    logging.debug(f"EditorTab: Updated part '{part_name}' - joint locked")
+                                else:
+                                    logging.debug(f"EditorTab: Updated part '{part_name}' - joint unlocked")
 
                 logging.debug(
                     f"EditorTab: Visualizing skeleton with {len(skeleton_for_view)} joints and hierarchy keys: {list(hierarchy.keys())}"
@@ -2672,6 +2706,17 @@ class EditorTab(QWidget):
             for item in mech_info["items"]:
                 if item.scene() == self.editor_scene:
                     self.editor_scene.removeItem(item)
+
+            # Clear the motion path from the associated part
+            if "target_part" in mech_info:
+                target_part_name = mech_info["target_part"]
+                if target_part_name in self.current_editor_items:
+                    char_part_item = self.current_editor_items[target_part_name]
+                    char_part_item.set_motion_path(None)
+                    logging.info(f"Cleared motion path from part '{target_part_name}'")
+                    
+                    # Update motion path visuals in the view
+                    self.editor_view.update_motion_path_visuals()
 
             # Remove from mechanisms dict
             del self.mechanisms[self.active_mechanism_id]
