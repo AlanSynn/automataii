@@ -39,6 +39,7 @@ from ..core.models_pydantic import (
 from .tabs.landing_tab import LandingTab
 from .tabs.image_processing_tab import ImageProcessingTab
 from .tabs.editor_tab import EditorTab
+from .tabs.mechanism_generation_tab import MechanismGenerationTab
 from .tabs.options_tab import OptionsTab
 
 # Import ActionManager for centralized action management
@@ -184,9 +185,13 @@ class AutomataDesigner(QMainWindow):
 
         # --- Tab 2: Editor & Simulation ---
         self.editor_tab = EditorTab(self)
-        self.tab_widget.addTab(self.editor_tab, "Mechanism Design")
+        self.tab_widget.addTab(self.editor_tab, "Path Drawing")
 
-        # --- Tab 3: Options ---
+        # --- Tab 3: Mechanism Generation ---
+        self.mechanism_generation_tab = MechanismGenerationTab(self)
+        self.tab_widget.addTab(self.mechanism_generation_tab, "Mechanism Generation")
+
+        # --- Tab 4: Options ---
         self.options_tab = OptionsTab(
             initial_anim_duration=self.ik_manager.animation_duration
         )
@@ -210,13 +215,24 @@ class AutomataDesigner(QMainWindow):
         self.editor_tab.request_reset_simulation.connect(
             self.ik_manager.reset_animation_state
         )
-        self.editor_tab.request_generate_mechanism.connect(
-            self.handle_generate_mechanism_request
-        )
-        self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
         self.editor_tab.request_save_alignment.connect(
             self.save_character_alignment_impl
         )
+        self.editor_tab.paths_ready_for_mechanism.connect(
+            self._handle_paths_ready_for_mechanism
+        )
+        
+        # --- Connect Signals from MechanismGenerationTab ---
+        self.mechanism_generation_tab.request_generate_mechanism.connect(
+            self.handle_generate_mechanism_request
+        )
+        self.mechanism_generation_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
+        self.mechanism_generation_tab.request_play_simulation.connect(self.ik_manager.start_animation)
+        self.mechanism_generation_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)
+        self.mechanism_generation_tab.request_reset_simulation.connect(
+            self.ik_manager.reset_animation_state
+        )
+        
         # --- Connect Signals from OptionsTab ---
         self.options_tab.animationDurationChanged.connect(
             self.ik_manager.set_animation_duration
@@ -542,6 +558,34 @@ class AutomataDesigner(QMainWindow):
             self.tab_widget.setCurrentIndex(editor_idx)
         else:
             logging.warning("Could not find EditorTab to switch to.")
+    
+    @pyqtSlot()
+    def switch_to_mechanism_generation_tab(self):
+        """Switches the main tab widget to the Mechanism Generation Tab."""
+        mech_idx = -1
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.widget(i) == self.mechanism_generation_tab:
+                mech_idx = i
+                break
+        if mech_idx != -1:
+            logging.info("Switching to Mechanism Generation tab by request.")
+            self.tab_widget.setCurrentIndex(mech_idx)
+        else:
+            logging.warning("Could not find MechanismGenerationTab to switch to.")
+    
+    @pyqtSlot(dict, dict)
+    def _handle_paths_ready_for_mechanism(self, parts_dict: Dict, paths_dict: Dict):
+        """Handle paths ready signal from editor tab and send to mechanism generation tab."""
+        logging.info(f"MainWindow: Received {len(parts_dict)} parts and {len(paths_dict)} paths for mechanism generation")
+        
+        # Get skeleton data if available
+        skeleton_data = None
+        if hasattr(self, 'skeleton_manager') and self.skeleton_manager:
+            skeleton_data = self.skeleton_manager.get_standardized_skeleton_dict()
+        
+        # Send data to mechanism generation tab
+        if hasattr(self, 'mechanism_generation_tab') and self.mechanism_generation_tab:
+            self.mechanism_generation_tab.receive_character_and_paths(parts_dict, paths_dict, skeleton_data)
 
     # --- Styling and Themes ---
     def _apply_theme(self, theme_name: str):
@@ -780,7 +824,7 @@ class AutomataDesigner(QMainWindow):
             scene_rect = self.editor_tab.editor_view.sceneRect()
             editor_scene_ref_point = scene_rect.center()
 
-        self.mechanism_manager.generate_mechanism(
+        mechanism_data = self.mechanism_manager.generate_mechanism(
             mechanism_type=mechanism_type,
             params=params,  # These params include selected points like cam_center from EditorTab
             target_part_info=target_part_info,
@@ -791,6 +835,10 @@ class AutomataDesigner(QMainWindow):
         self.statusBar().showMessage(
             f"Mechanism generation initiated for {target_part_name}: {mechanism_type}"
         )
+        
+        # Notify mechanism generation tab about the new mechanism
+        if mechanism_data and hasattr(self, 'mechanism_generation_tab') and self.mechanism_generation_tab:
+            self.mechanism_generation_tab.on_mechanism_generated(mechanism_data)
 
     @pyqtSlot()
     def generate_blueprint_impl(self):
@@ -871,6 +919,16 @@ class AutomataDesigner(QMainWindow):
         ):
             self.ik_manager.animation_state_changed.connect(
                 self.editor_tab.on_simulation_state_changed
+            )
+        
+        # Connect IK manager to mechanism generation tab
+        if (
+            hasattr(self, "mechanism_generation_tab")
+            and self.mechanism_generation_tab
+            and hasattr(self.ik_manager, "animation_state_changed")
+        ):
+            self.ik_manager.animation_state_changed.connect(
+                self.mechanism_generation_tab.on_simulation_state_changed
             )
 
         # OptionsTab signals
