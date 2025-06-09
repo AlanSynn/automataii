@@ -1,0 +1,250 @@
+Automataii Test Report
+============================================================
+Generated: 2025-06-08 21:53:24
+Duration: 18.96 seconds
+
+
+Test: Basic Functionality Tests
+File: test_basic_functionality.py
+Result: PASSED
+----------------------------------------
+🧪 Testing Automataii Basic Functionality
+
+1. Testing core imports...
+   ✅ Core imports successful
+
+2. Testing model creation...
+   ✅ Created StandardizedJointModel: Test Joint
+   ✅ Created StandardizedSkeletonModel with 1 joints
+   ✅ Available mechanism types: ['fourbar', 'gear', 'cam', 'linkage', 'crank_slider', 'custom']
+
+3. Testing configuration...
+   ✅ App config loaded
+   - App name: Automata Designer
+   - Debug mode: False
+   - Session dir: /var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii_gdssb73i
+   - Session dir exists: True
+
+4. Testing file operations...
+   ✅ Session temp directory: /var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/cb1614a4-b796-4349-8654-39cf03bd7007
+   ✅ App temp directory: /var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii
+   - Session temp dir exists: True
+   - App temp dir exists: True
+
+5. Testing mechanism generation...
+   ✅ Created Linkage: Linkage
+   ✅ Created Gear: Gear
+
+6. Testing animation components...
+   ❌ Animation components error: No module named 'automataii.processing.animation.skeleton_animator'
+
+7. Testing GUI component imports...
+   ✅ PyQt6 available
+   ⚠️  GUI components warning: No module named 'automataii.gui.widgets.canvas'
+   (This may be normal if running without display)
+
+8. Testing data validation...
+   ✅ Validation passed for test configuration
+
+9. Testing export format availability...
+   ✅ JSON export available
+   ✅ XML export available
+   ✅ SVG export available
+
+==================================================
+🎯 Basic functionality test completed!
+==================================================
+/Users/alansynn/micromamba/envs/animated_drawings/lib/python3.8/site-packages/mmcv/__init__.py:20: UserWarning: On January 1, 2023, MMCV will release v2.0.0, in which it will remove components related to the training process and add a data transformation module. In addition, it will rename the package names mmcv to mmcv-lite and mmcv-full to mmcv. See https://github.com/open-mmlab/mmcv/blob/master/docs/en/compatibility.md for more details.
+  warnings.warn(
+
+============================================================
+
+Test: UI Component Tests
+File: test_ui_components.py
+Result: PASSED
+----------------------------------------
+🧪 Testing Automataii UI Components
+
+1. Testing PyQt6 setup...
+   ✅ PyQt6 imports successful
+   ✅ QApplication created
+
+2. Testing graphics items...
+   ❌ Graphics items error: cannot import name 'PartGraphicsItem' from 'automataii.gui.graphics_items.part_item' (/Users/alansynn/Workspace/src/Research/automataii/src/automataii/gui/graphics_items/part_item.py)
+
+3. Testing main window components...
+   ✅ Main window class imported
+   ℹ️  Skipping window creation to avoid display
+
+4. Testing tab components...
+   ✅ LandingTab imported
+   ✅ ImageProcessingTab imported
+   ✅ EditorTabCoordinator imported
+   ❌ Tab components error: No module named 'automataii.gui.tabs.designer'
+
+5. Testing dialog components...
+   ❌ Dialog components error: cannot import name 'RecommendationDialog' from 'automataii.gui.dialogs.recommendation' (/Users/alansynn/Workspace/src/Research/automataii/src/automataii/gui/dialogs/recommendation/__init__.py)
+
+6. Testing view components...
+   ❌ View components error: cannot import name 'ImageView' from 'automataii.gui.views.image_view' (/Users/alansynn/Workspace/src/Research/automataii/src/automataii/gui/views/image_view.py)
+
+7. Testing service components...
+   ✅ Service components imported successfully
+   ✅ Created AnimationService
+   ✅ Created PathDrawingService
+
+8. Testing styling components...
+   ❌ Styling components error: cannot import name 'apply_theme' from 'automataii.utils.styling' (/Users/alansynn/Workspace/src/Research/automataii/src/automataii/utils/styling.py)
+
+9. Testing event handling...
+   ✅ Signal/slot mechanism working
+
+10. Testing scene management...
+   ✅ Created scene with 2 items
+
+==================================================
+🎯 UI component testing completed!
+==================================================
+/Users/alansynn/micromamba/envs/animated_drawings/lib/python3.8/site-packages/mmcv/__init__.py:20: UserWarning: On January 1, 2023, MMCV will release v2.0.0, in which it will remove components related to the training process and add a data transformation module. In addition, it will rename the package names mmcv to mmcv-lite and mmcv-full to mmcv. See https://github.com/open-mmlab/mmcv/blob/master/docs/en/compatibility.md for more details.
+  warnings.warn(
+INFO:root:EventBus initialized
+INFO:root:AnimationService initialized with 30 FPS
+INFO:root:PathDrawingService initialized
+test_ui_components.py:171: DeprecationWarning: sipPyTypeDict() is deprecated, the extension module should use sipPyTypeDictRef() instead
+  emitter = TestEmitter()
+
+============================================================
+
+Test: Automata Base Module Tests
+File: automataii/modules/automata_base/quick_test.py
+Result: PASSED
+----------------------------------------
+🧪 Testing Base Configuration...
+✅ Created base configuration: Test Box Base
+   Type: box_enclosed
+   Dimensions: 200 x 150 x 100 mm
+   Material: plywood
+   Mounting points: 1
+   Validation: ✅ Passed
+
+🧪 Testing Scaling...
+✅ Scaled configuration by 1.5x
+   New dimensions: 300.0 x 225.0 x 150.0 mm
+
+🧪 Testing Serialization...
+✅ Converted to dictionary with 18 fields
+
+📊 Configuration Summary:
+   Volume: 3.00 liters
+   Surface area: 1300.00 cm²
+   Bounding box diagonal: 269.3 mm
+
+============================================================
+
+Test: Test: test_joint_connections
+File: automataii/test_joint_connections.py
+Result: FAILED
+----------------------------------------
+Traceback (most recent call last):
+  File "automataii/test_joint_connections.py", line 12, in <module>
+    from automataii.processing.animation.joint_connection_system import (
+ModuleNotFoundError: No module named 'automataii'
+
+============================================================
+
+Test: Test: test_refactoring
+File: automataii/core/skeleton/test_refactoring.py
+Result: FAILED
+----------------------------------------
+Traceback (most recent call last):
+  File "automataii/core/skeleton/test_refactoring.py", line 6, in <module>
+    from ..skeleton import SkeletonManager
+ImportError: attempted relative import with no known parent package
+
+============================================================
+
+Test: Test: test_imports
+File: automataii/processing/animation/parts_extraction/test_imports.py
+Result: PASSED
+----------------------------------------
+✗ Import error: attempted relative import with no known parent package
+
+============================================================
+
+Test: Test: test_dialog
+File: automataii/gui/dialogs/recommendation/test_dialog.py
+Result: FAILED
+----------------------------------------
+Traceback (most recent call last):
+  File "automataii/gui/dialogs/recommendation/test_dialog.py", line 9, in <module>
+    from dialog import MechanismRecommendationDialog
+  File "/Users/alansynn/Workspace/src/Research/automataii/src/automataii/gui/dialogs/recommendation/dialog.py", line 16, in <module>
+    from .constants import (
+ImportError: attempted relative import with no known parent package
+
+============================================================
+
+Test: Test: test_all
+File: automataii/modules/automata_base/test_all.py
+Result: FAILED
+----------------------------------------
+🧪 Automata Base System - Comprehensive Test Suite
+============================================================
+
+📋 Running Unit Tests...
+
+🖼️  Running GUI Tests...
+/Users/alansynn/micromamba/envs/animated_drawings/bin/python: can't open file 'automataii/modules/automata_base/tests/run_gui_tests.py': [Errno 2] No such file or directory
+
+
+🔗 Running Integration Tests...
+
+============================================================
+📊 TEST SUMMARY
+============================================================
+❌ Unit Tests: 2 tests
+   - 2 errors
+
+Total: 2 tests in 0.05s
+
+❌ 1 test suite(s) failed
+
+📝 Test results saved to test_results.json
+EE
+======================================================================
+ERROR: test_generators (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_generators
+Traceback (most recent call last):
+  File "/Users/alansynn/micromamba/envs/animated_drawings/lib/python3.8/unittest/loader.py", line 154, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_generators'
+
+
+======================================================================
+ERROR: test_integration (unittest.loader._FailedTest)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_integration
+Traceback (most recent call last):
+  File "/Users/alansynn/micromamba/envs/animated_drawings/lib/python3.8/unittest/loader.py", line 154, in loadTestsFromName
+    module = __import__(module_name)
+ModuleNotFoundError: No module named 'tests.test_integration'
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.000s
+
+FAILED (errors=2)
+
+============================================================
+
+Test: Test: test_dashboard
+File: automataii/modules/automata_base/test_dashboard.py
+Result: FAILED
+----------------------------------------
+Traceback (most recent call last):
+  File "automataii/modules/automata_base/test_dashboard.py", line 28, in <module>
+    from PyQt6.QtCharts import QChart, QChartView, QPieSeries, QBarSeries, QBarSet, QValueAxis, QBarCategoryAxis
+ModuleNotFoundError: No module named 'PyQt6.QtCharts'
+
+============================================================

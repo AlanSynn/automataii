@@ -39,3 +39,5 @@ Z_SKELETON_OVERLAY = (
 )
 Z_SELECTION_MARKER = 50  # For mechanism point markers like pivot A, D etc.
 Z_TOOLTIP = 100  # Tooltips should be on top
+
+Z_SELECTION_RECT = 1000

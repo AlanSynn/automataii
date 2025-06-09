@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "macanism"
+version = "0.2.0" # Incrementing version for 3D changes
+authors = [
+  { name="Alan Synn", email="alan@alansynn.com" },
+  # Add original author if applicable and known
+]
+description = "A Python library for analyzing 2D and 3D mechanisms (linkages, cams, gears)."
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License", # Assuming MIT, update if different
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha", # Given the recent 3D extension
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.20",
+    "scipy>=1.7",
+    "matplotlib>=3.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "flake8",
+    # Add other dev tools like black, isort, mypy if desired
+]
+
+[project.urls]
+"Homepage" = "https://github.com/alansynn/macanism" # Placeholder URL
+"Bug Tracker" = "https://github.com/alansynn/macanism/issues" # Placeholder URL
+
+# If using setuptools specific configurations, they can go here under [tool.setuptools]
+# For example, finding packages automatically:
+[tool.setuptools.packages.find]
+where = ["."]  # Root directory contains the 'mechanism' package
+include = ["mechanism*"] # Include the main package and sub-packages
+exclude = ["examples*", "tests*"] # Exclude examples and tests from installed package
+
+# If using uv, relevant configurations might go under [tool.uv]
+# e.g., [tool.uv.sources] if using custom indexes

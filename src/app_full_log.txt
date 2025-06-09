@@ -1,0 +1,117 @@
+/Users/alansynn/micromamba/envs/animated_drawings/lib/python3.8/site-packages/mmcv/__init__.py:20: UserWarning: On January 1, 2023, MMCV will release v2.0.0, in which it will remove components related to the training process and add a data transformation module. In addition, it will rename the package names mmcv to mmcv-lite and mmcv-full to mmcv. See https://github.com/open-mmlab/mmcv/blob/master/docs/en/compatibility.md for more details.
+  warnings.warn(
+WARNING: [root] Could not set High DPI attributes (Qt version might be too old or attributes moved).
+INFO: [root] Creating main window...
+INFO: [root] Initializing AutomataDesigner... Debug mode: False
+INFO: [root] ProjectDataManager initialized.
+INFO: [root] SkeletonManager initialized with modular components.
+INFO: [root] IKCoordinator initialized
+INFO: [root] IKService initialized
+INFO: [root] IKServiceAdapter initialized
+INFO: [root] MechanismManager initialized.
+INFO: [root] Loaded 3 example images
+INFO: [root] BaseImageView initialized with DPI: 72.0, default unit: cm
+INFO: [root] PathDrawingService initialized
+INFO: [root] AnimationService initialized with 30 FPS
+INFO: [root] EditorController initialized
+INFO: [root] GridDrawer: Display unit set to cm
+INFO: [root] EditorView initialized with DPI: 72.0, unit: cm
+qt.qpa.fonts: Populating font family aliases took 592 ms. Replace uses of missing font family "Sans-serif" with one that exists to avoid this cost. 
+INFO: [root] EditorTabCoordinator initialized
+INFO: [root] GridDrawer: Display unit set to cm
+INFO: [root] EditorView initialized with DPI: 72.0, unit: cm
+INFO: [root] Placeholder: _load_custom_fonts() called.
+INFO: [root] Linking SkeletonManager to IKManager.
+INFO: [root] AutomataDesigner initialized.
+INFO: [root] Application started.
+INFO: [root] Example image selected: /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png
+INFO: [root] MainWindow: Landing tab selected image: /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png
+INFO: [root] Loading image: /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png
+INFO: [root] Image loaded successfully (776x812)
+INFO: [root] Image item location from canvas: 0.0, 0.0
+INFO: [root] Image item location from scene: 0.0, 0.0
+INFO: [root] No bounding_box.yaml found near /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png
+INFO: [root] Inferred character directory: /Users/alansynn/Workspace/src/Research/automataii/src/examples
+INFO: [automataii.processing.vision.annotations] Processing /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png, outputting to temporary directory: /var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut
+/Users/alansynn/micromamba/envs/animated_drawings/lib/python3.8/site-packages/mmdet/datasets/utils.py:66: UserWarning: "ImageToTensor" pipeline is replaced by "DefaultFormatBundle" for batch inference. It is recommended to manually replace it in the test data pipeline in your config file.
+  warnings.warn(
+INFO: [root] Detected 1 humanoids in image. Using detection with highest score 0.9991074204444885.
+INFO: [automataii.processing.vision.annotations] Annotation generation complete for /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png. Output at /var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut
+INFO: [root] Image processing successful. Results: {'output_dir': '/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut', 'char_cfg_path': '/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/char_cfg.yaml', 'texture_path': '/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/texture.png', 'mask_path': '/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/mask.png', 'joint_overlay_path': '/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/joint_overlay.png', 'bounding_box_path': '/private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/bounding_box.yaml'}
+INFO: [root] Skeleton loaded from /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/char_cfg.yaml
+INFO: [root] Skeleton data loaded from service: True
+INFO: [root] SkeletonManager: load_skeleton called with keys: ['bbox_origin_b', 'bbox_origin_r', 'bbox_origin_x', 'bbox_origin_y', 'height', 'resize_scale', 'skeleton', 'width']
+INFO: [root] Visualizing skeleton with 16 joints and associated bones.
+INFO: [root] SkeletonManager: Skeleton data processed and visualized. Interactive editing is disabled.
+INFO: [root] view_manager.load_skeleton returned: True
+INFO: [root] MainWindow: Received skeleton_updated signal from tab. Forwarding to SkeletonManager.
+INFO: [root] SkeletonManager: Clearing all skeleton data.
+INFO: [root] MainWindow: SkeletonManager updated. Notifying tabs. IKManager will handle its own re-initialization if needed.
+INFO: [root] Received external skeleton update
+INFO: [root] SkeletonManager: load_skeleton called with None. Clearing skeleton.
+ERROR: [root] No skeleton data available for IK initialization
+INFO: [root] SkeletonManager: Loading skeleton from dict. Format: animated_drawings
+INFO: [root] SkeletonManager: Skeleton data processed successfully.
+INFO: [root] MainWindow: SkeletonManager updated. Notifying tabs. IKManager will handle its own re-initialization if needed.
+INFO: [root] PartListWidget: No parts to load
+INFO: [root] SkeletonItem: skeleton_data type: <class 'dict'>
+INFO: [root] SkeletonItem: skeleton_data has 16 joints
+INFO: [root] SkeletonItem: first joint: root_0 -> {'id': 'root_0', 'name': 'root', 'position': (339.0, 381.0), 'parent_id': None, 'label': 'root', 'source_data': {'loc': [339, 381], 'loc_original': [379, 431], 'name': 'root', 'parent': None}, 'is_locked': False}
+INFO: [root] SkeletonItem: Processing 16 joints
+INFO: [root] IKState cleared
+INFO: [root] JointConfigurationManager cleared
+INFO: [root] LimbConfigurationManager cleared
+INFO: [root] IK coordinator cleared
+INFO: [root] Created standard humanoid limb configurations
+INFO: [root] Created two_bone solver
+INFO: [root] IK solver initialized successfully
+INFO: [root] IK system initialized from skeleton
+INFO: [root] EditorController: Loaded skeleton data
+INFO: [root] Received external skeleton update
+INFO: [root] PartListWidget: No parts to load
+INFO: [root] SkeletonItem: skeleton_data type: <class 'dict'>
+INFO: [root] SkeletonItem: skeleton_data has 16 joints
+INFO: [root] SkeletonItem: first joint: root_0 -> {'id': 'root_0', 'name': 'root', 'position': (339.0, 381.0), 'parent_id': None, 'label': 'root', 'source_data': {'loc': [339, 381], 'loc_original': [379, 431], 'name': 'root', 'parent': None}, 'is_locked': False}
+INFO: [root] SkeletonItem: Processing 16 joints
+INFO: [root] IKState cleared
+INFO: [root] JointConfigurationManager cleared
+INFO: [root] LimbConfigurationManager cleared
+INFO: [root] IK coordinator cleared
+INFO: [root] Created standard humanoid limb configurations
+INFO: [root] Created two_bone solver
+INFO: [root] IK solver initialized successfully
+INFO: [root] IK system initialized from skeleton
+INFO: [root] EditorController: Loaded skeleton data
+INFO: [root] IKState cleared
+INFO: [root] JointConfigurationManager cleared
+INFO: [root] LimbConfigurationManager cleared
+INFO: [root] IK coordinator cleared
+INFO: [root] Created standard humanoid limb configurations
+INFO: [root] Created two_bone solver
+INFO: [root] IK solver initialized successfully
+INFO: [root] IK system initialized from skeleton
+INFO: [automataii.gui.tabs.mechanism_generation.mechanism_generation_tab] Setting skeleton data
+INFO: [root] Loading image: /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/texture.png
+INFO: [root] Image loaded successfully (736x762)
+INFO: [root] Image item location from canvas: 0.0, 0.0
+INFO: [root] Image item location from scene: 0.0, 0.0
+INFO: [root] No bounding_box.yaml found near /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/texture.png
+INFO: [root] SkeletonManager: load_skeleton called with keys: ['joints', 'root_joint_ids', 'hierarchy', 'limb_lengths', 'joint_map', 'source_format', 'metadata']
+ERROR: [root] Skeleton data format error: 'skeleton' key not found or not a list. Got: <class 'NoneType'>
+INFO: [root] Auto-generating parts after skeleton load
+INFO: [root] create_parts_from_skeleton called. has_skeleton=True, has_annotation_results=True
+INFO: [root] Creating parts using BodyPartsExtractor. Input char_dir: /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut
+INFO: [root] SUCCESS: parts_info.json found at /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/bpe_output/parts_info.json
+INFO: [root] MainWindow: Received parts_generated. Annotation results output_dir: /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut, Final BPE dir: /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/bpe_output
+INFO: [root] Copied /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/char_cfg.yaml to /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/bpe_output/char_cfg.yaml for ProjectDataManager.
+INFO: [root] Copied /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/mask.png to /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/bpe_output/mask.png.
+INFO: [root] Attempting to load project data from parts_info.json: /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/bpe_output/parts_info.json
+INFO: [root] ProjectDataManager: Attempting to load project from: /private/var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut/bpe_output/parts_info.json
+INFO: [root] ProjectDataManager: Clearing project data.
+INFO: [root] MainWindow: Handling project data cleared signal.
+INFO: [root] PathDrawingService: Cleared all paths
+INFO: [root] PartListWidget: No parts to load
+Traceback (most recent call last):
+  File "/Users/alansynn/Workspace/src/Research/automataii/src/automataii/gui/tabs/editor/editor_tab_coordinator.py", line 271, in on_simulation_state_changed
+    if state == "playing":
+RecursionError: maximum recursion depth exceeded in comparison

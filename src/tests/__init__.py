@@ -1,0 +1,1 @@
+"""Test suite for Automataii automata base system."""
