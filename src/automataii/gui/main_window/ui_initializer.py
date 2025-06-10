@@ -40,11 +40,11 @@ class UIInitializer:
         """Create and add all application tabs."""
         # Tab 0: Landing Page
         self.main_window.landing_tab = LandingTab(self.main_window)
-        self.main_window.tab_widget.addTab(self.main_window.landing_tab, "Welcome")
+        self.main_window.tab_widget.addTab(self.main_window.landing_tab, "1 Welcome")
 
         # Tab 1: Image Processing
         self.main_window.image_proc_tab = ImageProcessingTab(self.main_window)
-        self.main_window.tab_widget.addTab(self.main_window.image_proc_tab, "Character Selection")
+        self.main_window.tab_widget.addTab(self.main_window.image_proc_tab, "2 Character Selection")
 
         # Tab 2: Editor & Simulation
         self.main_window.editor_tab = EditorTabCoordinator(
@@ -53,17 +53,17 @@ class UIInitializer:
             self.main_window.skeleton_manager,
             self.main_window
         )
-        self.main_window.tab_widget.addTab(self.main_window.editor_tab, "Path Drawing")
+        self.main_window.tab_widget.addTab(self.main_window.editor_tab, "3 Path Drawing")
 
         # Tab 3: Mechanism Generation
         self.main_window.mechanism_generation_tab = MechanismGenerationTab(self.main_window)
-        self.main_window.tab_widget.addTab(self.main_window.mechanism_generation_tab, "Mechanism Generation")
+        self.main_window.tab_widget.addTab(self.main_window.mechanism_generation_tab, "4 Mechanism Generation")
 
         # Tab 4: Options
         self.main_window.options_tab = OptionsTab(
             initial_anim_duration=self.main_window.ik_manager.animation_duration
         )
-        self.main_window.tab_widget.addTab(self.main_window.options_tab, "Options")
+        self.main_window.tab_widget.addTab(self.main_window.options_tab, "5 Options")
 
     def _load_custom_fonts(self):
         """Loads custom application fonts.

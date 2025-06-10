@@ -44,8 +44,13 @@ class SimulationHandler(QObject):
         Returns:
             True if started successfully
         """
+        # Prevent multiple simultaneous play calls
+        if self._state.simulation_state.value == "playing":
+            print("SimulationHandler: Already playing, ignoring play request")
+            return True
+            
         if not self._state.can_animate():
-            logging.warning("SimulationHandler: Cannot animate in current state")
+            print("SimulationHandler: Cannot animate in current state")
             return False
 
         # Get motion paths
@@ -58,19 +63,38 @@ class SimulationHandler(QObject):
                 initial_positions[part_name] = part_state.position
 
         if not paths:
-            logging.warning("SimulationHandler: No motion paths to animate")
+            print("SimulationHandler: No motion paths to animate")
             return False
+
+        print(f"SimulationHandler: Starting animation with {len(paths)} paths")
+        print(f"SimulationHandler: IK manager type: {type(self._ik_manager)}")
+
+        # Update motion paths in IK system FIRST
+        try:
+            self._ik_manager.update_motion_paths(paths)
+            print("SimulationHandler: Motion paths sent to IK system")
+        except Exception as e:
+            print(f"SimulationHandler: Error updating motion paths in IK: {e}")
 
         # Generate frames and start animation
         if self._animation_service.generate_frames_from_paths(paths, initial_positions):
-            # Start IK manager animation
-            self._ik_manager.start_animation()
+            print("SimulationHandler: Frames generated successfully")
+            
+            # Start IK manager animation (IKCoordinator via IKServiceAdapter)
+            try:
+                self._ik_manager.start_animation()
+                print("SimulationHandler: IK animation started")
+            except Exception as e:
+                print(f"SimulationHandler: Error starting IK animation: {e}")
 
             # Start animation service
             if self._animation_service.play():
-                logging.info("SimulationHandler: Simulation started")
+                print("SimulationHandler: Animation service playing")
                 return True
+            else:
+                print("SimulationHandler: Animation service failed to play")
 
+        print("SimulationHandler: Failed to generate frames")
         return False
 
     def pause(self) -> None:
@@ -178,3 +202,18 @@ class SimulationHandler(QObject):
             'progress': self._state.simulation_progress
         }
         self.frame_updated.emit(frame_data)
+        
+        # Also trigger visual update through IK system if available
+        if hasattr(self._ik_manager, 'character_visuals_updated'):
+            # Convert frame data to part transforms format expected by IK system
+            part_transforms = {}
+            for part_name in frame.positions:
+                if part_name in self._state.parts:
+                    part_state = self._state.parts[part_name]
+                    part_transforms[part_name] = {
+                        'position': frame.positions.get(part_name, part_state.position),
+                        'rotation': frame.rotations.get(part_name, 0.0),
+                        'anchor_joint_id': part_state.anchor_joint_id
+                    }
+            # Emit the visual update signal
+            self._ik_manager.character_visuals_updated.emit(part_transforms)

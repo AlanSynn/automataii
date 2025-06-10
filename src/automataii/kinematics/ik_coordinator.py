@@ -40,6 +40,9 @@ class IKCoordinator(QObject):
         # Solvers
         self._solvers: Dict[SolverType, Any] = {}
         
+        # Joint name mapping (skeleton names -> IK names)
+        self._joint_name_mapping: Dict[str, str] = {}
+        
         # Connect signals
         self._setup_connections()
         
@@ -71,17 +74,25 @@ class IKCoordinator(QObject):
             joints = skeleton_data.get('joints', {})
             hierarchy = skeleton_data.get('hierarchy', {})
             
-            # Add joints to configuration
-            for joint_name, joint_info in joints.items():
+            # Create joint name mapping from skeleton names to IK names
+            self._joint_name_mapping = self._create_joint_name_mapping(joints)
+            
+            # Add joints to configuration with mapped names
+            for joint_id, joint_info in joints.items():
                 position = joint_info.get('position', QPointF(0, 0))
                 angle = joint_info.get('angle', 0.0)
+                joint_name = joint_info.get('name', joint_id)
                 
-                # Add to state
-                self._state.add_joint(joint_name, position, angle)
+                # Map to IK joint name
+                ik_joint_name = self._joint_name_mapping.get(joint_name, joint_name)
+                
+                # Add to state with IK name
+                self._state.add_joint(ik_joint_name, position, angle)
             
             # Set up standard humanoid limbs if applicable
             if self._detect_humanoid_skeleton(joints):
-                self._limb_config.create_standard_humanoid_limbs()
+                # Don't use prefix since we've already mapped names
+                self._limb_config.create_standard_humanoid_limbs(joint_prefix="")
                 
                 # Add limbs to state
                 for limb_name, limb_config in self._limb_config.get_all_limbs().items():
@@ -109,6 +120,28 @@ class IKCoordinator(QObject):
             self.error_occurred.emit(error_msg)
             return False
     
+    def _create_joint_name_mapping(self, joints: Dict[str, Any]) -> Dict[str, str]:
+        """Create mapping from skeleton joint names to IK joint names.
+        
+        Maps names like 'left_shoulder_0' to 'left_shoulder'
+        """
+        mapping = {}
+        
+        for joint_id, joint_info in joints.items():
+            joint_name = joint_info.get('name', joint_id)
+            
+            # Extract base name by removing trailing numbers and underscore
+            base_name = joint_name
+            if '_' in joint_name:
+                parts = joint_name.split('_')
+                if parts[-1].isdigit():
+                    base_name = '_'.join(parts[:-1])
+            
+            # Map to expected IK name
+            mapping[joint_name] = base_name
+            
+        return mapping
+    
     def _detect_humanoid_skeleton(self, joints: Dict[str, Any]) -> bool:
         """Detect if skeleton is humanoid based on joint names."""
         # Look for common humanoid joint patterns
@@ -118,7 +151,12 @@ class IKCoordinator(QObject):
             'spine', 'neck', 'head'
         ]
         
-        joint_names_lower = [name.lower() for name in joints.keys()]
+        # Check joint names from the actual data
+        joint_names_lower = []
+        for joint_info in joints.values():
+            if isinstance(joint_info, dict):
+                name = joint_info.get('name', '')
+                joint_names_lower.append(name.lower())
         
         matches = sum(1 for joint in humanoid_joints 
                      if any(joint in name for name in joint_names_lower))
@@ -161,8 +199,12 @@ class IKCoordinator(QObject):
         for i, joint_name in enumerate(limb_config.joints):
             joint_state = self._state.get_joint(joint_name)
             if not joint_state:
-                logging.error(f"Joint '{joint_name}' not found in state")
-                return None
+                # Try with j_ prefix for backward compatibility
+                if not joint_name.startswith('j_'):
+                    joint_state = self._state.get_joint(f'j_{joint_name}')
+                if not joint_state:
+                    logging.error(f"Joint '{joint_name}' not found in state")
+                    return None
             
             # Map to solver's expected names
             if i == 0:

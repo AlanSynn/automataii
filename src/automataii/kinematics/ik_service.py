@@ -58,8 +58,8 @@ class IKService(QObject):
         self._skeleton_manager = skeleton_manager
         
         # Connect to skeleton updates
-        if hasattr(skeleton_manager, 'skeleton_data_updated'):
-            skeleton_manager.skeleton_data_updated.connect(self._on_skeleton_updated)
+        if hasattr(skeleton_manager, 'skeleton_updated'):
+            skeleton_manager.skeleton_updated.connect(self._on_skeleton_updated)
     
     def set_part_items(self, part_items: Dict[str, 'CharacterPartItem']):
         """Set character part items for visual updates."""
@@ -209,11 +209,39 @@ class IKService(QObject):
     
     def _update_character_visuals(self, solution_data: Dict[str, Any]):
         """Update character part visuals based on IK solution."""
-        # This would update part transforms based on joint positions
-        # Implementation depends on how parts are connected to joints
+        limb_name = solution_data.get('limb')
+        solution = solution_data.get('solution')
         
-        transforms = {}
-        # ... transform calculation logic ...
+        if not limb_name or not solution:
+            return
+            
+        # Get part name from limb name
+        part_name = self._ik_to_part_mapping.get(limb_name)
+        if not part_name:
+            # Try to find part based on limb name
+            for pname, lname in self._ik_to_part_mapping.items():
+                if lname == limb_name:
+                    part_name = pname
+                    break
         
-        if transforms:
+        if not part_name:
+            logging.warning(f"No part mapping found for limb '{limb_name}'")
+            return
+            
+        # Get end effector position from solution
+        end_effector_pos = None
+        if hasattr(solution, 'joint_positions') and solution.joint_positions:
+            end_effector_pos = solution.joint_positions.get('end')
+            
+        if end_effector_pos:
+            transforms = {
+                part_name: {
+                    'position': end_effector_pos,
+                    'anchor_joint_id': f'{limb_name}_end',
+                    'rotation': 0.0  # TODO: Calculate rotation from solution
+                }
+            }
+            
+            # Emit the transform update
             self.character_updated.emit(transforms)
+            logging.debug(f"IKService: Updated visuals for part '{part_name}' at {end_effector_pos}")

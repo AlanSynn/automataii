@@ -66,10 +66,10 @@ class EditorControlPanel(QWidget):
         
         # Add components
         content_layout.addWidget(self._create_part_section())
-        content_layout.addWidget(self._properties_panel)
+        # Hide properties panel as requested
+        # content_layout.addWidget(self._properties_panel)
         content_layout.addWidget(self._path_controls)
         content_layout.addWidget(self._animation_controls)
-        content_layout.addWidget(self._create_alignment_section())
         content_layout.addStretch()
         
         scroll.setWidget(content)
@@ -77,22 +77,11 @@ class EditorControlPanel(QWidget):
     
     def _create_part_section(self) -> QGroupBox:
         """Create part selection section."""
-        group = QGroupBox("Parts")
+        group = QGroupBox("1 Parts")
         layout = QVBoxLayout(group)
         layout.addWidget(self._part_list)
         return group
     
-    def _create_alignment_section(self) -> QGroupBox:
-        """Create character alignment section."""
-        group = QGroupBox("Character Alignment")
-        layout = QVBoxLayout(group)
-        
-        save_btn = QPushButton("Save Current Alignment")
-        save_btn.setToolTip("Save the current character position as default")
-        save_btn.clicked.connect(self.save_alignment_requested.emit)
-        
-        layout.addWidget(save_btn)
-        return group
     
     def _connect_signals(self):
         """Connect internal signals."""
@@ -169,6 +158,30 @@ class EditorControlPanel(QWidget):
         """Update UI based on selection."""
         selected = self._state.selected_part_name
         
+        # Update part list selection to keep it in sync
+        if selected:
+            # Temporarily disconnect to avoid recursive signals
+            self._part_list.part_selected.disconnect(self._on_part_selected)
+            self._part_list.part_deselected.disconnect(self._on_part_deselected)
+            
+            # Update part list selection
+            if not self._part_list.select_part(selected):
+                logging.warning(f"Control panel: Failed to select part '{selected}' in part list")
+            
+            # Reconnect signals
+            self._part_list.part_selected.connect(self._on_part_selected)
+            self._part_list.part_deselected.connect(self._on_part_deselected)
+        else:
+            # Clear selection
+            self._part_list.part_selected.disconnect(self._on_part_selected)
+            self._part_list.part_deselected.disconnect(self._on_part_deselected)
+            
+            self._part_list.clear_selection()
+            
+            self._part_list.part_selected.connect(self._on_part_selected)
+            self._part_list.part_deselected.connect(self._on_part_deselected)
+        
+        # Update other UI components
         if selected and selected in self._state.parts:
             part_state = self._state.parts[selected]
             self._properties_panel.load_part(selected, part_state.__dict__)
@@ -176,10 +189,17 @@ class EditorControlPanel(QWidget):
         else:
             self._properties_panel.clear_part()
             self._path_controls.set_selected_part(None)
+            
+        # Update view selection if we have access to it
+        if hasattr(self.parent(), '_view') and hasattr(self.parent()._view, 'update_part_selection'):
+            self.parent()._view.update_part_selection(selected)
+        else:
+            logging.debug(f"EditorView: update_part_selection method not available")
     
     def _update_path_ui(self):
         """Update path-related UI."""
         has_any_path = bool(self._state.get_parts_with_paths())
+        logging.info(f"ControlPanel: _update_path_ui called, has_any_path: {has_any_path}, parts_with_paths: {len(self._state.get_parts_with_paths())}")
         self._animation_controls.set_has_paths(has_any_path)
     
     def update_state(self, state):

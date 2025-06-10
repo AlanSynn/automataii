@@ -103,7 +103,7 @@ class MechanismPreviewWidget(QGraphicsView):
     ):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
-        self.setFixedSize(350, 300)  # Original container size
+        self.setFixedSize(500, 450)  # Original container size
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -321,12 +321,12 @@ class MechanismPreviewWidget(QGraphicsView):
         radius1 = 60 * preview_scale  # Larger for better visibility
         num_teeth1 = 18
         tooth_height1 = 15 * preview_scale
-        
+
         # Second gear (smaller)
         radius2 = 40 * preview_scale  # Larger for better visibility
         num_teeth2 = 12
         tooth_height2 = 12 * preview_scale
-        
+
         # Position gears to mesh
         gear1_x = center_x - radius1 * 0.8
         gear1_y = center_y
@@ -669,7 +669,7 @@ class PreviewContainer(QWidget):
             # Score of 50 = ~37% match, Score of 100 = ~14% match
             import math
             match_percentage = max(0, min(100, math.exp(-score / 50) * 100))
-        
+
         match_label = QLabel(f"Match: {match_percentage:.0f}%")
         match_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         match_label.setStyleSheet("""
@@ -705,7 +705,7 @@ class PreviewContainer(QWidget):
         layout.addWidget(select_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(layout)
-        self.setMinimumWidth(370)  # Original width
+        self.setMinimumWidth(520)  # Original width
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )  # Fixed height based on content
@@ -753,7 +753,7 @@ class PreviewContainer(QWidget):
         self.selected.emit(self.mechanism_data)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(370, 400)  # Original size
+        return QSize(520, 550)  # Original size
 
     def sizeHint(self) -> QSize:
         return self.minimumSizeHint()
@@ -778,7 +778,7 @@ class MechanismRecommendationDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Choose a Mechanism")
-        self.setMinimumSize(1200, 600)  # Original dialog size
+        self.setMinimumSize(1600, 700)  # Original dialog size
         self.selected_mechanism_data: Optional[Dict[str, Any]] = None
 
         self.user_motion_path_original = (
@@ -808,7 +808,7 @@ class MechanismRecommendationDialog(QDialog):
             }
         """)
         main_layout.addWidget(instruction_label)
-        
+
         # Add subtitle
         subtitle_label = QLabel(
             "The red dashed line shows your drawn path. Click on a mechanism to select it."
@@ -868,7 +868,7 @@ class MechanismRecommendationDialog(QDialog):
         # Custom button area with smaller, styled buttons
         button_layout = QHBoxLayout()
         button_layout.setSpacing(20)
-        
+
         self.ok_button = QPushButton("OK")
         self.ok_button.setFixedSize(80, 30)
         self.ok_button.setStyleSheet("""
@@ -892,7 +892,7 @@ class MechanismRecommendationDialog(QDialog):
         """)
         self.ok_button.clicked.connect(self.accept)
         self.ok_button.setEnabled(False)
-        
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setFixedSize(80, 30)
         self.cancel_button.setStyleSheet("""
@@ -911,12 +911,12 @@ class MechanismRecommendationDialog(QDialog):
             }
         """)
         self.cancel_button.clicked.connect(self.reject)
-        
+
         button_layout.addStretch()
         button_layout.addWidget(self.ok_button)
         button_layout.addWidget(self.cancel_button)
         button_layout.addStretch()
-        
+
         main_layout.addSpacing(20)
         main_layout.addLayout(button_layout)
         main_layout.addSpacing(10)
@@ -979,7 +979,7 @@ class MechanismRecommendationDialog(QDialog):
 
         # Group mechanisms by type
         mechanisms_by_type = {}
-        
+
         for gen_path_data in self.generated_paths_data:
             gen_path_np = gen_path_data.get("path_coordinates_np")
             json_type_str = gen_path_data.get("type")
@@ -1007,7 +1007,7 @@ class MechanismRecommendationDialog(QDialog):
                     "path_coordinates"
                 ),  # Keep original coordinates
             }
-            
+
             # Group by mechanism type
             if target_mech_type not in mechanisms_by_type:
                 mechanisms_by_type[target_mech_type] = []
@@ -1021,10 +1021,10 @@ class MechanismRecommendationDialog(QDialog):
             # Take the best one
             if mechanisms:
                 best_per_type.append(mechanisms[0])
-        
+
         # Sort all best mechanisms by score
         best_per_type.sort(key=lambda x: x["overall_score"])
-        
+
         # Take top 3, ensuring diversity
         top_recommendations = best_per_type[:3]
 
@@ -1033,12 +1033,12 @@ class MechanismRecommendationDialog(QDialog):
             # Collect all mechanisms not already selected
             all_remaining = []
             selected_names = {r["name"] for r in top_recommendations}
-            
+
             for mechanisms in mechanisms_by_type.values():
                 for m in mechanisms:
                     if m["name"] not in selected_names:
                         all_remaining.append(m)
-            
+
             # Sort remaining by score and add to recommendations
             all_remaining.sort(key=lambda x: x["overall_score"])
             for m in all_remaining:

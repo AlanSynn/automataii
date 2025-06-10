@@ -26,7 +26,7 @@ class AnimationControlsWidget(QGroupBox):
     goto_mechanism_generation = pyqtSignal()
     
     def __init__(self, parent=None):
-        super().__init__("Animation", parent)
+        super().__init__("3 Animation", parent)
         
         self._is_playing = False
         self._has_paths = False

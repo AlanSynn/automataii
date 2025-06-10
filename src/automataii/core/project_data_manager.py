@@ -344,6 +344,37 @@ class ProjectDataManager(QObject):
     def get_all_parts(self) -> Dict[str, PartInfo]:
         return self.parts
 
+    def get_motion_paths(self) -> Dict[str, Any]:
+        """Get motion paths data.
+        
+        Returns:
+            Dictionary of motion paths by part name
+        """
+        motion_paths = {}
+        if self._parts:
+            for part_name, part_info in self._parts.items():
+                if (hasattr(part_info, "motion_path_data") and 
+                    part_info.motion_path_data is not None):
+                    motion_paths[part_name] = part_info.motion_path_data
+        return motion_paths
+
+    def set_motion_paths(self, motion_paths: Dict[str, Any]) -> None:
+        """Set motion paths data.
+        
+        Args:
+            motion_paths: Dictionary of motion paths by part name
+        """
+        if not self._parts:
+            logging.warning("ProjectDataManager: No parts loaded to set motion paths")
+            return
+            
+        for part_name, motion_path in motion_paths.items():
+            if part_name in self._parts:
+                self._parts[part_name].motion_path_data = motion_path
+                logging.debug(f"ProjectDataManager: Set motion path for '{part_name}'")
+            else:
+                logging.warning(f"ProjectDataManager: Part '{part_name}' not found when setting motion path")
+
     def clear_all_motion_paths(self) -> None:
         if not self._parts:
             logging.info(

@@ -22,7 +22,7 @@ class PathControlsWidget(QGroupBox):
     drawing_mode_changed = pyqtSignal(bool)  # is_drawing
     
     def __init__(self, parent=None):
-        super().__init__("Motion Path", parent)
+        super().__init__("2 Motion Path", parent)
         
         self._is_drawing_mode = False
         self._selected_part: Optional[str] = None

@@ -236,3 +236,16 @@ class ViewManager(QWidget):
     def load_character_parts(self, parts_info: dict, skeleton_to_part_map: dict, effective_offset: tuple):
         """Load character parts into the view."""
         self.view.load_character_parts(parts_info, skeleton_to_part_map, effective_offset)
+
+    def get_part_manager(self):
+        return self._part_manager
+
+    def set_skeleton_visibility(self, visible: bool):
+        """Sets the visibility of the skeleton."""
+        if self._skeleton_manager:
+            self._skeleton_manager.set_skeleton_visualization_visibility(visible)
+
+    def clear_scene(self, clear_image=False):
+        """Clears the scene of all items, optionally keeping the image."""
+        if self.view:
+            self.view.clear_scene(clear_image)

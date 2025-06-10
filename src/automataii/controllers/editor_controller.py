@@ -301,25 +301,25 @@ class EditorController(QObject):
     # === Skeleton Management ===
 
     def load_skeleton(self, skeleton_data: Dict[str, Any]) -> bool:
-        """Load skeleton data.
+        """Load skeleton data into the editor."""
+        # Prevents recursion by not reloading if data is the same
+        if (
+            self._state.has_skeleton
+            and self._skeleton_manager.get_skeleton_as_dict() == skeleton_data
+        ):
+            self.skeleton_updated.emit(skeleton_data)
+            return True
 
-        Args:
-            skeleton_data: Skeleton data dictionary
-
-        Returns:
-            True if loaded successfully
-        """
-        if not skeleton_data:
+        if not self._skeleton_manager.load_skeleton_from_dict(skeleton_data):
+            self.skeleton_updated.emit({})  # Emit empty on failure
             return False
 
         self._state.has_skeleton = True
-        self._emit_state_change()
-        self.skeleton_updated.emit(skeleton_data)
+        # skeleton_data from skeleton_manager is emitted
+        standardized_skeleton = self._skeleton_manager.get_skeleton_as_dict()
+        self.skeleton_updated.emit(standardized_skeleton)
+        logging.info(f"EditorController: Loaded skeleton data")
 
-        # Update IK manager
-        self._ik_manager.update_skeleton_data(skeleton_data)
-
-        logging.info("EditorController: Loaded skeleton data")
         return True
 
     # === State Management ===

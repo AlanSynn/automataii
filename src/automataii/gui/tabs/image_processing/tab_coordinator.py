@@ -7,6 +7,7 @@ import logging
 from typing import Optional, Dict
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QMessageBox
+from PyQt6.QtCore import QTimer
 
 from ....core.models.mechanism import PartInfo
 from PyQt6.QtCore import pyqtSignal
@@ -15,6 +16,7 @@ from .state_manager import ImageProcessingState
 from .control_panels import ImageProcessingControlPanel
 from .view_manager import ViewManager
 from .services import ImageService, ProcessingService, SkeletonService, PartsService
+from automataii.gui.views.image.skeleton_visualizer import SkeletonVisualizer
 
 
 class ImageProcessingTab(QWidget):
@@ -48,6 +50,9 @@ class ImageProcessingTab(QWidget):
 
         self.view_manager = ViewManager(self)
         logging.info("ImageProcessingTab: View manager initialized")
+
+        # Pass the scene to the visualizer
+        self.skeleton_visualizer = SkeletonVisualizer(self.view_manager.scene)
 
         # For backwards compatibility
         self.image_proc_view = self.view_manager.view
@@ -85,7 +90,7 @@ class ImageProcessingTab(QWidget):
 
         # View options signals
         self.control_panel.show_skeleton_checkbox.toggled.connect(
-            self.view_manager.show_skeleton_visuals
+            self.skeleton_visualizer.set_visibility
         )
         self.control_panel.show_parts_checkbox.toggled.connect(
             self._toggle_parts_visibility
@@ -200,7 +205,8 @@ class ImageProcessingTab(QWidget):
 
                     # Ensure skeleton is visible if checkbox is checked
                     if self.control_panel.show_skeleton_checkbox.isChecked():
-                        self.view_manager.show_skeleton_visuals(True)
+                        self.skeleton_visualizer.load_skeleton(raw_skeleton_data)
+                        self.skeleton_visualizer.set_visibility(True)
 
                     # Auto-generate parts after skeleton is loaded
                     logging.info("Auto-generating parts after skeleton load")
@@ -319,13 +325,11 @@ class ImageProcessingTab(QWidget):
             self._update_button_states()
 
             # Trigger parts visibility update after a small delay to ensure they're loaded
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(500, self._ensure_parts_visible)
 
             # Show parts immediately if checkbox is checked
             if self.control_panel.show_parts_checkbox.isChecked():
                 # Wait for parts to be loaded by the signal handler
-                from PyQt6.QtCore import QTimer
                 QTimer.singleShot(100, lambda: self._toggle_parts_visibility(True))
 
     # --- Navigation Methods ---
@@ -402,26 +406,20 @@ class ImageProcessingTab(QWidget):
         logging.info(f"Parts loaded in editor: {loaded}")
         self._update_button_states()
 
-    def on_skeleton_updated_externally(self, skeleton_data: Optional[dict]):
-        """Handle skeleton update from external source."""
-        logging.info("Received external skeleton update")
-        self.state.skeleton_data = skeleton_data
-
-        # Update view if texture is loaded
-        texture_loaded = (
-            self.view_manager.view
-            and self.view_manager.view.image_item
-            and not self.view_manager.view.image_item.pixmap().isNull()
-        )
-
-        if texture_loaded and skeleton_data:
-            self.view_manager.load_skeleton(skeleton_data)
-            self.control_panel.show_skeleton_checkbox.setChecked(True)
-        elif not skeleton_data:
-            self.view_manager.load_skeleton(None)
-            self.control_panel.show_skeleton_checkbox.setChecked(False)
-
-        self._update_button_states()
+    def on_skeleton_updated_externally(self, skeleton_data_dict: Optional[dict]):
+        """
+        Slot to be called when skeleton data is updated from another source,
+        like the ProjectDataManager after a project load.
+        """
+        # logging.info("Received external skeleton update")
+        if skeleton_data_dict:
+            # The new visualizer now takes the standardized dict directly
+            self.skeleton_visualizer.load_skeleton(skeleton_data_dict)
+            self.skeleton_visualizer.set_visibility(
+                self.control_panel.show_skeleton_checkbox.isChecked()
+            )
+        else:
+            self.skeleton_visualizer.clear()
 
     # --- Helper Methods ---
 

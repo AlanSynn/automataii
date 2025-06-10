@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 # Import the new standardized models
 from .models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
+from .skeleton.format_converter import SkeletonFormatConverter
 
 # Define a structure for standardized joint info if needed, or use Dicts for now
 # For example:
@@ -25,9 +26,8 @@ from .models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
 
 class SkeletonManager(QObject):
     """
-    Manages skeleton data, including loading, processing, and providing access.
-    Handles conversion from different formats (e.g., Animated Drawings) to a standard format.
-    Internally uses StandardizedSkeletonModel.
+    Manages skeleton data by acting as a high-level interface.
+    Delegates all format detection and conversion to SkeletonFormatConverter.
     """
 
     skeleton_updated = pyqtSignal(
@@ -38,11 +38,9 @@ class SkeletonManager(QObject):
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        self._raw_input_skeleton_data: Optional[Dict[str, Any]] = (
-            None  # Store the original input dict if needed for reprocessing
-        )
+        self._raw_input_skeleton_data: Optional[Dict[str, Any]] = None
         self._standardized_skeleton_model: Optional[StandardizedSkeletonModel] = None
-        logging.info("SkeletonManager initialized with new standardized models.")
+        logging.info("SkeletonManager initialized, will use SkeletonFormatConverter for processing.")
 
     @property
     def raw_input_data(self) -> Optional[Dict[str, Any]]:
@@ -82,79 +80,28 @@ class SkeletonManager(QObject):
         self, data: Optional[Dict[str, Any]], source_format: str = "auto"
     ) -> bool:
         """
-        Loads skeleton data from a dictionary, converting it to StandardizedSkeletonModel.
-
-        Args:
-            data: The dictionary containing skeleton data.
-            source_format: 'auto', 'animated_drawings', or 'standard'.
-                           If 'auto', tries to detect format.
-        Returns:
-            True if loading and processing were successful, False otherwise.
+        Loads skeleton data from a dictionary by delegating to SkeletonFormatConverter.
         """
         self.clear_data()  # Start fresh
         if not data or not isinstance(data, dict):
-            logging.warning(
-                "SkeletonManager: No data provided or data is not a dictionary."
-            )
-            # self.skeleton_updated.emit({}) # Emitted by clear_data
+            logging.warning("SkeletonManager: No data provided or data is not a dictionary.")
             return False
 
-        self._raw_input_skeleton_data = data  # Store the input
-        logging.info(
-            f"SkeletonManager: Loading skeleton from dict. Source format hint: {source_format}"
-        )
+        self._raw_input_skeleton_data = data
+        logging.info(f"SkeletonManager: Delegating skeleton processing to SkeletonFormatConverter. Source format hint: {source_format}")
 
-        processed_model: Optional[StandardizedSkeletonModel] = None
-        detected_format = source_format
-
-        if source_format == "animated_drawings" or (
-            source_format == "auto" and self._is_animated_drawings_format(data)
-        ):
-            logging.info(
-                "SkeletonManager: Detected Animated Drawings format based on hint or content."
-            )
-            detected_format = "animated_drawings"
-            processed_model = self._process_animated_drawings_format(data)
-        elif source_format == "standard" or (
-            source_format == "auto" and self._is_already_standardized_format(data)
-        ):
-            logging.info(
-                "SkeletonManager: Detected Standardized format based on hint or content."
-            )
-            detected_format = "standard"
-            processed_model = self._process_already_standardized_format(data)
-        else:  # Fallback or if auto-detection failed and no clear format
-            logging.warning(
-                f"SkeletonManager: Unknown source format '{source_format}'. Attempting to process as Animated Drawings, then as Standard."
-            )
-            # Try Animated Drawings first as it's more common for raw input
-            processed_model = self._process_animated_drawings_format(data)
-            if processed_model:
-                detected_format = "animated_drawings"
-            else:  # If AD processing failed, try standard
-                logging.info(
-                    "SkeletonManager: Animated Drawings processing failed, trying as Standardized format."
-                )
-                processed_model = self._process_already_standardized_format(data)
-                if processed_model:
-                    detected_format = "standard"
+        processed_model = SkeletonFormatConverter.convert_from_dict(data, source_format)
 
         if processed_model:
             self._standardized_skeleton_model = processed_model
-            self._standardized_skeleton_model.source_format = detected_format
             logging.info(
-                f"SkeletonManager: Skeleton data processed successfully as {detected_format}."
+                f"SkeletonManager: Skeleton data processed successfully by converter as {processed_model.source_format}."
             )
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
             return True
         else:
-            logging.error(
-                "SkeletonManager: Failed to process skeleton data into any known format."
-            )
-            self.clear_data()  # clear_data emits its own signals
-            self.error_occurred.emit(
-                "Failed to process skeleton data (unknown format or invalid content)."
-            )
+            logging.error("SkeletonManager: SkeletonFormatConverter failed to process skeleton data.")
+            self.error_occurred.emit("Failed to process skeleton data (unknown format or invalid content).")
             return False
 
     def load_skeleton_from_project_data(
@@ -163,42 +110,29 @@ class SkeletonManager(QObject):
         parts_data: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
-        Loads skeleton data from a raw list of joint dictionaries (e.g., from ProjectDataManager's
-        parsed PydanticCharacterDataModel.skeleton_joints) and converts to StandardizedSkeletonModel.
-
-        Args:
-            raw_skeleton_list: A list of dictionaries, where each dictionary defines a joint.
-                               Expected to be in a format similar to Animated Drawings' 'skeleton' list
-                               or PydanticSkeletonJointModel.model_dump() output.
-            parts_data: Optional dictionary of PartInfo objects/data. Currently used for context like limb lengths.
-
-        Returns:
-            True if loading and processing were successful, False otherwise.
+        Loads skeleton data from a raw list by delegating to SkeletonFormatConverter.
         """
-        logging.info(
-            f"SkeletonManager: Attempting to load skeleton from project data list (joint count: {len(raw_skeleton_list) if raw_skeleton_list else 0})."
-        )
+        logging.info(f"SkeletonManager: Delegating project skeleton processing to SkeletonFormatConverter (joint count: {len(raw_skeleton_list) if raw_skeleton_list else 0}).")
+
         if not raw_skeleton_list:
-            logging.info(
-                "SkeletonManager: No raw skeleton list provided from project data. Clearing existing skeleton data."
-            )
+            logging.info("SkeletonManager: No raw skeleton list provided from project data. Clearing existing skeleton data.")
             self.clear_data()
-            # self.skeleton_updated.emit({}) # Emitted by clear_data
-            return True  # Successfully cleared/processed empty list
+            return True
 
-        # The _process_animated_drawings_format expects a dict like: {"skeleton": [...]}
-        # It can also derive some limb lengths from parts_data if available.
-        wrapper_dict = {"skeleton": raw_skeleton_list}
-        if parts_data:
-            wrapper_dict["parts_data_for_limb_lengths"] = (
-                parts_data  # Pass for potential use
+        processed_model = SkeletonFormatConverter.convert_from_project_data(raw_skeleton_list, parts_data)
+
+        if processed_model:
+            self._standardized_skeleton_model = processed_model
+            logging.info(
+                f"SkeletonManager: Project skeleton data processed successfully by converter as {processed_model.source_format}."
             )
-
-        # This data typically comes from a parsed parts_info.json or char_cfg.yaml,
-        # so it's likely 'animated_drawings' or a structure very close to it.
-        return self.load_skeleton_from_dict(
-            wrapper_dict, source_format="animated_drawings"
-        )
+            self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
+            return True
+        else:
+            logging.error("SkeletonManager: SkeletonFormatConverter failed to process project skeleton data.")
+            self.clear_data() # Ensure clean state on failure
+            self.error_occurred.emit("Failed to process project skeleton data.")
+            return False
 
     def clear_data(self):
         """Clears all internal skeleton data and emits relevant signals."""
@@ -509,137 +443,147 @@ class SkeletonManager(QObject):
             )
         return None
 
+    def get_skeleton_as_dict(self) -> Dict[str, Any]:
+        """Get the current skeleton as a dictionary."""
+        if not self._standardized_skeleton_model:
+            return {}
+        return self._standardized_skeleton_model.model_dump()
+
+    def get_current_skeleton_data(self) -> Dict[str, Any]:
+        """Get the current skeleton data (alias for get_skeleton_as_dict)."""
+        return self.get_skeleton_as_dict()
+
     def extend_skeleton_lengths(self, scale_factor: float = 1.1) -> bool:
         """Extends all skeleton bone lengths by the given scale factor.
-        
+
         Args:
             scale_factor: The factor to scale bone lengths by (default 1.1 for 10% increase)
-            
+
         Returns:
             True if successful, False otherwise
         """
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded to extend")
             return False
-            
+
         try:
             logging.info(f"Extending skeleton lengths by factor {scale_factor}")
-            
+
             # Store the root positions as they should not move
             root_positions = {}
             for root_id in self._standardized_skeleton_model.root_joint_ids:
                 if root_id in self._standardized_skeleton_model.joints:
                     root_positions[root_id] = self._standardized_skeleton_model.joints[root_id].position
-            
+
             # Process each joint starting from roots
             processed_joints = set()
-            
+
             def scale_joint_recursive(joint_id: str, parent_pos: Optional[Tuple[float, float]] = None):
                 if joint_id in processed_joints:
                     return
-                    
+
                 processed_joints.add(joint_id)
                 joint = self._standardized_skeleton_model.joints.get(joint_id)
                 if not joint:
                     return
-                    
+
                 # If this is not a root joint and has a parent position, scale its position
                 if parent_pos is not None and joint.parent_id:
                     # Calculate the vector from parent to this joint
                     dx = joint.position[0] - parent_pos[0]
                     dy = joint.position[1] - parent_pos[1]
-                    
+
                     # Scale the vector
                     new_dx = dx * scale_factor
                     new_dy = dy * scale_factor
-                    
+
                     # Set new position
                     new_pos = (parent_pos[0] + new_dx, parent_pos[1] + new_dy)
                     joint.position = new_pos
-                    
+
                     # Update limb length if it exists
                     parent_joint = self._standardized_skeleton_model.joints.get(joint.parent_id)
                     if parent_joint and self._standardized_skeleton_model.limb_lengths:
                         limb_key = f"{parent_joint.name}_to_{joint.name}"
                         if limb_key in self._standardized_skeleton_model.limb_lengths:
                             self._standardized_skeleton_model.limb_lengths[limb_key] *= scale_factor
-                
+
                 # Process children
                 current_pos = joint.position
                 child_ids = self._standardized_skeleton_model.hierarchy.get(joint_id, [])
                 for child_id in child_ids:
                     scale_joint_recursive(child_id, current_pos)
-            
+
             # Start scaling from each root
             for root_id in self._standardized_skeleton_model.root_joint_ids:
                 if root_id in self._standardized_skeleton_model.joints:
                     scale_joint_recursive(root_id)
-            
+
             # Scale all limb lengths that haven't been updated yet
             if self._standardized_skeleton_model.limb_lengths:
                 for limb_name in list(self._standardized_skeleton_model.limb_lengths.keys()):
                     # This ensures any pre-calculated lengths are also scaled
                     self._standardized_skeleton_model.limb_lengths[limb_name] *= scale_factor
-            
+
             # Emit update signal
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
             logging.info(f"Successfully extended skeleton lengths by {scale_factor}")
             return True
-            
+
         except Exception as e:
             logging.error(f"Error extending skeleton lengths: {e}", exc_info=True)
             return False
 
     def lock_joint(self, joint_id_or_name: str, locked: bool = True) -> bool:
         """Locks or unlocks a specific joint for IK solving.
-        
+
         Args:
             joint_id_or_name: The ID or name of the joint to lock/unlock
             locked: True to lock, False to unlock
-            
+
         Returns:
             True if successful, False otherwise
         """
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded")
             return False
-            
+
         joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(joint_id_or_name)
         if not joint:
             logging.warning(f"Joint '{joint_id_or_name}' not found")
             return False
-            
+
         joint.is_locked = locked
         logging.info(f"Joint '{joint.name}' (ID: {joint.id}) {'locked' if locked else 'unlocked'}")
-        
+
         # Emit update signal
         self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return True
-    
+
     def get_locked_joints(self) -> List[str]:
         """Returns a list of joint IDs that are currently locked."""
         if not self._standardized_skeleton_model:
             return []
-            
+
         return [
-            joint_id 
+            joint_id
             for joint_id, joint in self._standardized_skeleton_model.joints.items()
             if joint.is_locked
         ]
-    
+
     def unlock_all_joints(self) -> bool:
         """Unlocks all joints in the skeleton.
-        
+
         Returns:
             True if successful, False otherwise
         """
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded")
             return False
-            
+
         for joint in self._standardized_skeleton_model.joints.values():
             joint.is_locked = False
-            
+
         logging.info("All joints unlocked")
         self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return True

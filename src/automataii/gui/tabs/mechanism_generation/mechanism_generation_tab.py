@@ -12,7 +12,7 @@ from PyQt6.QtGui import QPainterPath, QColor
 
 from .state_manager import StateManager
 from .control_panels import (
-    PartSelectionPanel, MechanismTypePanel, 
+    PartSelectionPanel, 
     SimulationControlPanel, MechanismListPanel
 )
 from .visualization import MechanismVisualizationWidget
@@ -49,7 +49,6 @@ class MechanismGenerationTab(QWidget):
         
         # UI components will be created in _init_ui
         self._part_panel: Optional[PartSelectionPanel] = None
-        self._mechanism_panel: Optional[MechanismTypePanel] = None
         self._simulation_panel: Optional[SimulationControlPanel] = None
         self._mechanism_list_panel: Optional[MechanismListPanel] = None
         self._visualization: Optional[MechanismVisualizationWidget] = None
@@ -108,18 +107,11 @@ class MechanismGenerationTab(QWidget):
         panel_layout.addWidget(self._part_panel)
         
         # Mechanism Generation
-        mech_group = QGroupBox("Mechanism Generation")
+        mech_group = QGroupBox("2 Mechanism Generation")
         mech_layout = QVBoxLayout(mech_group)
         
-        self._mechanism_panel = MechanismTypePanel()
-        mech_layout.addWidget(self._mechanism_panel)
-        
-        # Generate and Recommend buttons
-        self._generate_btn = QPushButton("Generate Mechanism")
-        self._generate_btn.setToolTip("Generate mechanism for the selected part's motion")
-        mech_layout.addWidget(self._generate_btn)
-        
-        self._recommend_btn = QPushButton("🤖 Recommend Mechanism")
+        # Only Recommend button
+        self._recommend_btn = QPushButton("Recommend Mechanism")
         self._recommend_btn.setToolTip("Get AI recommendation for the best mechanism type")
         self._recommend_btn.setEnabled(False)
         mech_layout.addWidget(self._recommend_btn)
@@ -131,7 +123,7 @@ class MechanismGenerationTab(QWidget):
         panel_layout.addWidget(self._simulation_panel)
         
         # Edit Mode Controls
-        edit_group = QGroupBox("Mechanism Editing")
+        edit_group = QGroupBox("3 Mechanism Editing")
         edit_layout = QVBoxLayout(edit_group)
         
         self._edit_mode_btn = QPushButton("Enable Edit Mode")
@@ -159,12 +151,12 @@ class MechanismGenerationTab(QWidget):
         
         panel_layout.addWidget(edit_group)
         
-        # Generated Mechanisms
+        # Generated Mechanisms (will be shown with number via MechanismListPanel)
         self._mechanism_list_panel = MechanismListPanel()
         panel_layout.addWidget(self._mechanism_list_panel)
         
         # Export
-        export_group = QGroupBox("Export")
+        export_group = QGroupBox("7 Export")
         export_layout = QVBoxLayout(export_group)
         self._blueprint_btn = QPushButton("Generate Blueprint (SVG)")
         self._blueprint_btn.setToolTip("Generate an SVG blueprint of all parts for fabrication")
@@ -185,28 +177,7 @@ class MechanismGenerationTab(QWidget):
         # Part selection
         self._part_panel.part_selected.connect(self._state_manager.set_selected_part)
         
-        # Mechanism type and point selection
-        self._mechanism_panel.mechanism_type_changed.connect(self._on_mechanism_type_changed)
-        self._mechanism_panel.select_cam_center.connect(
-            lambda: self._start_point_selection("cam_center")
-        )
-        self._mechanism_panel.select_pivot_a_3bar.connect(
-            lambda: self._start_point_selection("pivot_a_3bar")
-        )
-        self._mechanism_panel.select_pivot_a_4bar.connect(
-            lambda: self._start_point_selection("pivot_a_4bar")
-        )
-        self._mechanism_panel.select_pivot_d_4bar.connect(
-            lambda: self._start_point_selection("pivot_d_4bar")
-        )
-        
-        # Visualization point selection
-        self._visualization.cam_center_selected.connect(self._handle_cam_center_selected)
-        self._visualization.pivot_a_selected.connect(self._handle_pivot_a_selected)
-        self._visualization.pivot_d_selected.connect(self._handle_pivot_d_selected)
-        
         # Generation
-        self._generate_btn.clicked.connect(self._generate_mechanism)
         self._recommend_btn.clicked.connect(self._recommend_mechanism)
         self._generation_service.generation_completed.connect(self._on_mechanism_generated)
         self._generation_service.generation_failed.connect(self._on_generation_failed)
@@ -236,7 +207,6 @@ class MechanismGenerationTab(QWidget):
         has_part_with_path = self._state_manager.has_selected_part_with_path()
         has_mechanisms = self._state_manager.has_mechanisms()
         
-        self._generate_btn.setEnabled(has_part_with_path)
         self._recommend_btn.setEnabled(has_part_with_path)
         self._blueprint_btn.setEnabled(has_mechanisms)
         

@@ -2,7 +2,7 @@
 
 import logging
 import math
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from PyQt6.QtCore import Qt, QEvent, QPointF, QRectF
 from PyQt6.QtGui import QPainter
 
@@ -11,7 +11,7 @@ from .zoom_handler import ZoomHandler
 from .grid_renderer import GridRenderer
 from .debug_renderer import DebugRenderer
 from .image_manager import ImageManager
-from .skeleton_manager import SkeletonManager
+from automataii.core.skeleton.manager import SkeletonManager
 from .part_manager import PartManager
 from .guide_renderer import GuideRenderer
 from .event_handler import EventHandler
@@ -41,8 +41,12 @@ class ImageProcessingView(BaseImageView):
         self.guide_renderer = GuideRenderer(self)
         self.event_handler = EventHandler(self)
 
-        # Legacy compatibility - expose some commonly accessed attributes
-        self._setup_legacy_attributes()
+        # For legacy compatibility, we create a skeleton manager instance here
+        # but it's now managed by the ViewManager and TabCoordinator
+        from .skeleton_visualizer import SkeletonVisualizer
+        self.skeleton_manager = SkeletonVisualizer(self.scene())
+
+        # self._setup_legacy_attributes()
 
     def _setup_legacy_attributes(self):
         """Setup attributes for backward compatibility."""
@@ -152,18 +156,10 @@ class ImageProcessingView(BaseImageView):
     def load_image(self, image_path: str) -> bool:
         """Loads and displays an image, clearing previous non-skeleton items."""
         # Clear previous items
-        self._clear_skeleton()
-        self._clear_debug_items()
-
-        success = self.image_manager.load_image(image_path)
-
-        if success:
-            self._clear_joint_labels()
-            self._clear_char_cfg_marker()
-            self.clear_character_parts()
-            self.reset_view()
-
-        return success
+        self._clear_parts()
+        self.skeleton_manager.clear()
+        self.image_manager.load_image(image_path)
+        return True
 
     def load_skeleton(self, skeleton_data_dict: Optional[dict]) -> bool:
         """Loads skeleton data and visualizes it."""
@@ -247,9 +243,14 @@ class ImageProcessingView(BaseImageView):
 
     # --- Private helper methods for backward compatibility ---
 
+    def _clear_parts(self):
+        """Clears all parts and skeleton visuals from the view."""
+        self.part_manager.clear_character_parts()
+        self.skeleton_manager.clear()
+
     def _clear_skeleton(self):
-        """Clears skeleton-related items from the scene."""
-        self.skeleton_manager.clear_skeleton()
+        """Clears the skeleton from the view."""
+        self.skeleton_manager.clear()
 
     def _clear_debug_items(self):
         """Removes debug-related graphics items from the scene."""
@@ -295,3 +296,11 @@ class ImageProcessingView(BaseImageView):
         """Loads bounding box data from a YAML file."""
         # This is now handled internally by image_manager
         pass
+
+    def _init_managers(self):
+        """Initialize managers for various functionalities."""
+        self.image_manager = ImageManager(self.scene(), self.view)
+
+    def set_parts(self, parts_info: Dict[str, Any]):
+        """Sets the parts data for the view."""
+        # ... existing code ...

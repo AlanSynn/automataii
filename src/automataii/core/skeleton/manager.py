@@ -28,15 +28,15 @@ class SkeletonManager(QObject):
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        
+
         # Internal state
         self._raw_input_skeleton_data: Optional[Dict[str, Any]] = None
         self._standardized_skeleton_model: Optional[StandardizedSkeletonModel] = None
-        
+
         # Component managers
         self._joint_manager = JointManager()
         self._hierarchy_manager = HierarchyManager()
-        
+
         logging.info("SkeletonManager initialized with modular components.")
 
     # ========== Properties ==========
@@ -69,39 +69,44 @@ class SkeletonManager(QObject):
     # ========== Loading Methods ==========
 
     def load_skeleton_from_dict(
-        self, data: Optional[Dict[str, Any]], source_format: str = "auto"
+        self, skeleton_data: dict, source_format: str = "animated_drawings"
     ) -> bool:
-        """
-        Loads skeleton data from a dictionary.
-        
-        Args:
-            data: The dictionary containing skeleton data
-            source_format: 'auto', 'animated_drawings', or 'standard'
-            
-        Returns:
-            True if loading was successful, False otherwise
-        """
-        self.clear_data()
-        
-        if not data:
-            logging.warning("SkeletonManager: No data provided.")
-            return False
-            
-        self._raw_input_skeleton_data = data
-        logging.info(f"SkeletonManager: Loading skeleton from dict. Format: {source_format}")
-        
-        # Use format converter to process the data
-        processed_model = SkeletonFormatConverter.convert_from_dict(data, source_format)
-        
-        if processed_model:
-            self._set_skeleton_model(processed_model)
-            logging.info(f"SkeletonManager: Skeleton data processed successfully.")
-            self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
-            return True
-        else:
-            logging.error("SkeletonManager: Failed to process skeleton data.")
+        """Loads skeleton data from a dictionary."""
+        if not skeleton_data:
+            # If skeleton data is empty, check if the model is already None.
+            # If so, do nothing to prevent recursion.
+            if self._standardized_skeleton_model is None:
+                return False
+
+            logging.info("load_skeleton_from_dict called with empty data. Clearing.")
             self.clear_data()
-            self.error_occurred.emit("Failed to process skeleton data.")
+            return False
+
+        # self.clear_data() # This was causing recursion
+        self._raw_input_skeleton_data = skeleton_data
+
+        try:
+            processed_model = SkeletonFormatConverter.convert_from_dict(
+                skeleton_data, source_format
+            )
+
+            if processed_model:
+                self._standardized_skeleton_model = processed_model
+                self.skeleton_updated.emit(self.get_skeleton_as_dict())
+                logging.info(
+                    f"SkeletonManager: Successfully loaded and standardized skeleton from dict. "
+                    f"Joints: {len(self._standardized_skeleton_model.joints)}"
+                )
+                return True
+            else:
+                logging.error("SkeletonManager: Failed to process skeleton data from dict.")
+                self.clear_data()
+                self.error_occurred.emit("Failed to process skeleton data.")
+                return False
+        except Exception as e:
+            logging.error(f"SkeletonManager: Error processing skeleton data: {e}", exc_info=True)
+            self.clear_data()
+            self.error_occurred.emit(f"Error processing skeleton data: {e}")
             return False
 
     def load_skeleton_from_project_data(
@@ -111,25 +116,24 @@ class SkeletonManager(QObject):
     ) -> bool:
         """
         Loads skeleton data from a project data list.
-        
+
         Args:
             raw_skeleton_list: List of joint dictionaries
             parts_data: Optional parts data for context
-            
+
         Returns:
             True if loading was successful, False otherwise
         """
         logging.info(f"SkeletonManager: Loading from project data (joints: {len(raw_skeleton_list) if raw_skeleton_list else 0})")
-        
-        if not raw_skeleton_list:
-            self.clear_data()
-            return True
-            
+
+        logging.info(f"SkeletonManager: Raw skeleton list: {raw_skeleton_list}")
+        logging.info(f"SkeletonManager: Parts data: {parts_data}")
+
         # Use format converter
         processed_model = SkeletonFormatConverter.convert_from_project_data(
             raw_skeleton_list, parts_data
         )
-        
+
         if processed_model:
             self._set_skeleton_model(processed_model)
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
@@ -142,10 +146,10 @@ class SkeletonManager(QObject):
     def load_skeleton_from_file(self, file_path: Path) -> bool:
         """
         Load skeleton from a JSON file.
-        
+
         Args:
             file_path: Path to the skeleton JSON file
-            
+
         Returns:
             True if loading was successful, False otherwise
         """
@@ -163,17 +167,17 @@ class SkeletonManager(QObject):
     def save_skeleton_to_file(self, file_path: Path) -> bool:
         """
         Save the current skeleton to a JSON file.
-        
+
         Args:
             file_path: Path where to save the skeleton
-            
+
         Returns:
             True if saving was successful, False otherwise
         """
         if not self._standardized_skeleton_model:
             self.error_occurred.emit("No skeleton data to save.")
             return False
-            
+
         success = SkeletonSerializer.save_to_file(self._standardized_skeleton_model, file_path)
         if not success:
             self.error_occurred.emit(f"Failed to save skeleton to {file_path}")
@@ -234,11 +238,11 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded to extend")
             return False
-            
+
         success = SkeletonOperations.extend_skeleton_lengths(
             self._standardized_skeleton_model, scale_factor
         )
-        
+
         if success:
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return success
@@ -248,11 +252,11 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded")
             return False
-            
+
         success = SkeletonOperations.lock_joint(
             self._standardized_skeleton_model, joint_id_or_name, locked
         )
-        
+
         if success:
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return success
@@ -262,9 +266,9 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded")
             return False
-            
+
         success = SkeletonOperations.unlock_all_joints(self._standardized_skeleton_model)
-        
+
         if success:
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return success
@@ -273,11 +277,11 @@ class SkeletonManager(QObject):
         """Translate the entire skeleton."""
         if not self._standardized_skeleton_model:
             return False
-            
+
         success = SkeletonOperations.translate_skeleton(
             self._standardized_skeleton_model, dx, dy
         )
-        
+
         if success:
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return success
@@ -288,11 +292,11 @@ class SkeletonManager(QObject):
         """Rotate the skeleton."""
         if not self._standardized_skeleton_model:
             return False
-            
+
         success = SkeletonOperations.rotate_skeleton(
             self._standardized_skeleton_model, angle_degrees, center
         )
-        
+
         if success:
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return success
@@ -300,12 +304,15 @@ class SkeletonManager(QObject):
     # ========== Utility Methods ==========
 
     def clear_data(self):
-        """Clear all skeleton data."""
-        logging.info("SkeletonManager: Clearing all skeleton data.")
+        """
+        Clears all skeleton data and emits a signal.
+        """
         self._raw_input_skeleton_data = None
         self._standardized_skeleton_model = None
         self._joint_manager.skeleton_model = None
         self._hierarchy_manager.skeleton_model = None
+
+        # Emit a signal that the data has been cleared
         self.skeleton_data_cleared.emit()
         self.skeleton_updated.emit({})
 
@@ -314,6 +321,10 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             return {}
         return SkeletonSerializer.to_dict(self._standardized_skeleton_model)
+
+    def get_current_skeleton_data(self) -> Dict[str, Any]:
+        """Get the current skeleton data (alias for get_skeleton_as_dict)."""
+        return self.get_skeleton_as_dict()
 
     def get_skeleton_as_json(self, indent: int = 2) -> str:
         """Get the current skeleton as JSON string."""

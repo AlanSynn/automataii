@@ -91,7 +91,10 @@ class TabManager(QObject):
                                 view.zoom_to_fit()
                                 logging.info("TabManager: Called zoom_to_fit after tab switch")
                         
-                        QTimer.singleShot(100, delayed_zoom)  # Small delay to let UI update
+                        # Try multiple times with increasing delays to ensure proper sizing
+                        QTimer.singleShot(100, delayed_zoom)  # First attempt
+                        QTimer.singleShot(300, delayed_zoom)  # Second attempt
+                        QTimer.singleShot(500, delayed_zoom)  # Third attempt
                         
                         logging.info(
                             f"TabManager: Switched to Image Processing Tab and loaded {Path(image_path).name}"

@@ -19,7 +19,7 @@ class PartSelectionPanel(QGroupBox):
     part_selected = pyqtSignal(str)  # part_name
 
     def __init__(self, parent=None):
-        super().__init__("Part Selection", parent)
+        super().__init__("1 Part Selection", parent)
         self._init_ui()
 
     def _init_ui(self):
@@ -209,7 +209,7 @@ class SimulationControlPanel(QGroupBox):
     reset_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
-        super().__init__("Simulation Controls", parent)
+        super().__init__("5 Simulation Controls", parent)
         self._init_ui()
 
     def _init_ui(self):
@@ -249,7 +249,7 @@ class MechanismListPanel(QGroupBox):
     delete_requested = pyqtSignal(int)
 
     def __init__(self, parent=None):
-        super().__init__("Generated Mechanisms", parent)
+        super().__init__("6 Generated Mechanisms", parent)
         self._init_ui()
 
     def _init_ui(self):

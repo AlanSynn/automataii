@@ -168,8 +168,7 @@ class AnimationService(QObject):
                     rotations[part_name] = 0.0
                 else:
                     # Sample path at normalized time
-                    percent = t * 100.0
-                    point = path.pointAtPercent(percent)
+                    point = path.pointAtPercent(t)
                     positions[part_name] = point
                     
                     # Calculate rotation from path tangent
@@ -185,7 +184,7 @@ class AnimationService(QObject):
             self._frames.append(frame)
         
         self._current_frame = 0
-        logging.info(f"AnimationService: Generated {len(self._frames)} frames from paths")
+        print(f"AnimationService: Generated {len(self._frames)} frames from paths")
         return True
     
     def play(self) -> bool:
@@ -312,6 +311,7 @@ class AnimationService(QObject):
         
         # Get current frame
         frame = self._frames[self._current_frame]
+        # Frame playing - removed debug print to reduce noise
         
         # Apply joint connections if manager is available and enabled
         if self._joint_connection_manager and self._joint_connection_manager.enabled:

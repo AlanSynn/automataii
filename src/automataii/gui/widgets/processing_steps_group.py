@@ -13,7 +13,7 @@ class ProcessingStepsGroup(QGroupBox):
     extendSkeletonClicked = pyqtSignal()
     lockJointsClicked = pyqtSignal()
 
-    def __init__(self, title: str = "Detailed Processing Steps", parent=None):
+    def __init__(self, title: str = "4 Detailed Processing Steps", parent=None):
         super().__init__(title, parent)
         self._init_ui()
 

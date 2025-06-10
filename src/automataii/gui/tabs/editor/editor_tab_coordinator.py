@@ -1,10 +1,12 @@
 """Coordinator for the refactored editor tab."""
 
+import json
 import logging
 from typing import Optional, Dict, Any
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout
 from PyQt6.QtCore import pyqtSignal, QPointF
+from PyQt6.QtGui import QPainterPath
 
 from .state import EditorState
 from .handlers import (
@@ -35,6 +37,7 @@ class EditorTabCoordinator(QWidget):
     request_play_simulation = pyqtSignal()
     request_stop_simulation = pyqtSignal()
     request_reset_simulation = pyqtSignal()
+    motion_path_updated = pyqtSignal(str, QPainterPath)  # part_name, QPainterPath
 
     def __init__(
         self,
@@ -47,6 +50,11 @@ class EditorTabCoordinator(QWidget):
 
         # State
         self._state = EditorState()
+
+        # Store managers
+        self._ik_manager = ik_manager
+        self._project_manager = project_manager
+        self._skeleton_manager = skeleton_manager
 
         # Services
         self._path_service = PathDrawingService()
@@ -114,6 +122,7 @@ class EditorTabCoordinator(QWidget):
 
         # View signals
         self._view.part_item_clicked.connect(lambda item: self._selection_handler.select_part(item.part_name))
+        self._view.freehandPathCompleted.connect(self._handle_freehand_path_completed)
         # TODO: Add proper point_clicked signal handling
 
         # Control panel signals
@@ -154,6 +163,13 @@ class EditorTabCoordinator(QWidget):
                 # Create visual representation
                 self._create_part_visual(part_name, part_info)
                 logging.info(f"Created visual for part: {part_name}")
+
+            # Try to load skeleton data if available
+            if hasattr(self, '_skeleton_manager') and self._skeleton_manager:
+                skeleton_data = self._skeleton_manager.raw_input_data
+                if skeleton_data:
+                    self.load_skeleton(skeleton_data)
+                    logging.info("EditorTabCoordinator: Loaded skeleton data with parts")
 
     def load_skeleton(self, skeleton_data: Dict[str, Any]) -> None:
         """Load skeleton data."""
@@ -296,6 +312,39 @@ class EditorTabCoordinator(QWidget):
 
         logging.info(f"Cleared motion path for part: {selected_part.name}")
 
+    def _handle_freehand_path_completed(self, path_points):
+        """Handle freehand path completion from EditorView."""
+        from PyQt6.QtGui import QPainterPath
+        from PyQt6.QtCore import QPointF
+
+        selected_part = self._state.selected_part_name
+        if not selected_part:
+            logging.warning("EditorTabCoordinator: freehandPathCompleted but no part selected")
+            return
+
+        logging.info(f"EditorTabCoordinator: freehandPathCompleted for '{selected_part}' with {len(path_points)} points")
+
+        # Convert points to QPainterPath
+        motion_qpath = QPainterPath()
+        if path_points:
+            motion_qpath.moveTo(path_points[0])
+            for point in path_points[1:]:
+                motion_qpath.lineTo(point)
+
+        # Update EditorState
+        if selected_part in self._state.parts:
+            part_state = self._state.parts[selected_part]
+            part_state.motion_path = motion_qpath
+            part_state.has_motion_path = True
+            logging.info(f"EditorTabCoordinator: Updated EditorState for '{selected_part}' with motion path")
+
+        # Emit signal for MainWindow
+        self.motion_path_updated.emit(selected_part, motion_qpath)
+
+        # Update UI - both path UI and selection UI to refresh the path status
+        self._control_panel._update_path_ui()
+        self._control_panel._update_selection_ui()
+
     def _handle_view_click(self, point) -> None:
         """Handle click in view based on current mode."""
         if self._state.is_drawing_path:
@@ -311,16 +360,59 @@ class EditorTabCoordinator(QWidget):
 
     def _on_parts_updated(self, parts_info) -> None:
         """Handle parts update from controller."""
-        # Update view with new parts info
-        pass
+        # Update EditorState with parts info
+        from .state.editor_state import PartState
 
-    def _on_skeleton_updated(self, skeleton_data) -> None:
-        """Handle skeleton update from controller."""
-        self._view.visualize_skeleton(skeleton_data.get('joints', []),
-                                     skeleton_data.get('hierarchy', {}))
+        # Clear existing parts
+        self._state.clear_parts()
+
+        # Add parts to state
+        for part_name, part_info in parts_info.items():
+            # Get position from part info or default
+            position = QPointF(0, 0)
+            if hasattr(part_info, 'x') and hasattr(part_info, 'y'):
+                position = QPointF(part_info.x, part_info.y)
+
+            # Create PartState
+            part_state = PartState(
+                name=part_name,
+                position=position,
+                z_value=getattr(part_info, 'z_value', 0.0),
+                is_fixed=getattr(part_info, 'fixed', False),
+                has_motion_path=getattr(part_info, 'motion_path_data', None) is not None,
+                motion_path=getattr(part_info, 'motion_path_data', None),
+                anchor_joint_id=getattr(part_info, 'anchor_joint_id', None)
+            )
+
+            self._state.add_part(part_state)
+
+        logging.info(f"EditorTabCoordinator: Updated state with {len(parts_info)} parts")
+
+        # Check for existing motion paths in project data and update EditorState
+        self._load_existing_motion_paths()
+
+        # Force update path UI after parts are loaded
+        self._control_panel._update_path_ui()
+
+    def _on_skeleton_updated(self, skeleton_data: Optional[Dict[str, Any]]) -> None:
+        """Handle skeleton data updates from the controller."""
+        if skeleton_data:
+            joints = skeleton_data.get("joints", [])
+            hierarchy = skeleton_data.get("hierarchy", {})
+
+            # Update the view with the skeleton
+            self._view.visualize_skeleton(joints, hierarchy)
+        else:
+            # Skeleton is being cleared.
+            # Stop any ongoing simulation that depends on it to prevent errors.
+            if self._simulation_handler.is_playing():
+                self._simulation_handler.stop()
+
+            # Clear skeleton from view if data is None
+            self._view.visualize_skeleton([], {})
 
     def _prepare_mechanism_generation(self) -> None:
-        """Prepare data for mechanism generation."""
+        """Prepare data for mechanism generation tab."""
         parts_dict = {}
         paths_dict = self._controller.get_all_paths()
 
@@ -351,8 +443,43 @@ class EditorTabCoordinator(QWidget):
 
     def handle_ik_update(self, part_transforms: Dict[str, Any]) -> None:
         """Handle IK update (compatibility method)."""
-        # TODO: Implement IK visual updates
-        pass
+        # Convert part transforms to joint data format for the simulation controller
+        joint_data = {}
+
+        for part_name, transform_data in part_transforms.items():
+            if not isinstance(transform_data, dict):
+                continue
+
+            # Get anchor joint ID from transform data or from state
+            anchor_joint_id = transform_data.get('anchor_joint_id')
+            if not anchor_joint_id and part_name in self._state.parts:
+                anchor_joint_id = self._state.parts[part_name].anchor_joint_id
+
+            if not anchor_joint_id:
+                logging.warning(f"No anchor joint ID for part '{part_name}'")
+                continue
+
+            # Create joint data entry
+            position = transform_data.get('position')
+            if isinstance(position, QPointF):
+                scene_position = position
+            elif isinstance(position, (list, tuple)) and len(position) >= 2:
+                scene_position = QPointF(position[0], position[1])
+            else:
+                logging.warning(f"Invalid position data for part '{part_name}'")
+                continue
+
+            joint_data[anchor_joint_id] = {
+                'scene_position': scene_position,
+                'world_rotation_degrees': transform_data.get('rotation', 0.0)
+            }
+
+        # Pass to view's simulation controller
+        if hasattr(self._view, 'simulation_controller'):
+            self._view.simulation_controller.update_visuals_from_animation_data(joint_data)
+            logging.debug(f"EditorTabCoordinator: Updated visuals for {len(joint_data)} joints")
+        else:
+            logging.warning("EditorTabCoordinator: View has no simulation controller")
 
     def clear_all_visual_motion_paths(self) -> None:
         """Clear all visual motion paths (compatibility method)."""
@@ -370,10 +497,77 @@ class EditorTabCoordinator(QWidget):
 
     def on_simulation_state_changed(self, state: str) -> None:
         """Handle simulation state changes (compatibility method)."""
-        # Update UI based on simulation state
-        if state == "playing":
-            self._simulation_handler.start()
-        elif state == "stopped":
-            self._simulation_handler.stop()
-        elif state == "paused":
-            self._simulation_handler.pause()
+        # This method is called from IKManager's animation_state_changed signal
+        # We should only update UI state, NOT trigger more simulation actions
+        from .state import SimulationState
+
+        # Add a guard to prevent recursive calls
+        if hasattr(self, '_processing_state_change') and self._processing_state_change:
+            return
+
+        current_state = self._state.simulation_state.value
+        if current_state == state:
+            # Already in this state, ignore to prevent recursion
+            return
+
+        # Set guard flag
+        self._processing_state_change = True
+
+        try:
+            print(f"EditorTabCoordinator: IK state changed from '{current_state}' to '{state}' - updating UI only")
+
+            # Update simulation state in EditorState
+            if state == "playing":
+                self._state.simulation_state = SimulationState.PLAYING
+            elif state == "stopped":
+                self._state.simulation_state = SimulationState.STOPPED
+            elif state == "paused":
+                self._state.simulation_state = SimulationState.PAUSED
+
+            # Only update UI, don't trigger any simulation actions
+            if hasattr(self, '_control_panel'):
+                if state == "playing":
+                    self._control_panel._on_simulation_started()
+                elif state == "stopped":
+                    self._control_panel._on_simulation_stopped()
+
+        finally:
+            # Always clear the guard flag
+            self._processing_state_change = False
+
+    def on_motion_path_updated(self, part_name: str, motion_path) -> None:
+        """Handle motion path updates from external sources (e.g., MainWindow)."""
+        logging.info(f"EditorTabCoordinator: Motion path updated for '{part_name}'")
+
+        # Update the EditorState with the motion path
+        if part_name in self._state.parts:
+            part_state = self._state.parts[part_name]
+            part_state.motion_path = motion_path
+            part_state.has_motion_path = True
+            logging.info(f"EditorTabCoordinator: Updated EditorState for '{part_name}' with motion path")
+
+            # Trigger UI update
+            self._control_panel._update_path_ui()
+        else:
+            logging.warning(f"EditorTabCoordinator: Part '{part_name}' not found in EditorState")
+
+    def _load_existing_motion_paths(self) -> None:
+        """Load existing motion paths from project data manager into EditorState."""
+        if not self._project_manager:
+            return
+
+        # Get motion paths from project data manager
+        try:
+            motion_paths = self._project_manager.get_motion_paths()
+            if motion_paths:
+                logging.info(f"EditorTabCoordinator: Found {len(motion_paths)} existing motion paths")
+                for part_name, motion_path in motion_paths.items():
+                    if part_name in self._state.parts and motion_path:
+                        part_state = self._state.parts[part_name]
+                        part_state.motion_path = motion_path
+                        part_state.has_motion_path = True
+                        logging.info(f"EditorTabCoordinator: Loaded existing motion path for '{part_name}'")
+            else:
+                logging.info("EditorTabCoordinator: No existing motion paths found in project data")
+        except Exception as e:
+            logging.warning(f"EditorTabCoordinator: Error loading existing motion paths: {e}")

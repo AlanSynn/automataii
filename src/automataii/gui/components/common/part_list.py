@@ -69,7 +69,7 @@ class PartListWidget(QListWidget):
                 border-bottom: 1px solid #f0f0f0;
             }
             QListWidget::item:selected {
-                background-color: #0969da;
+                background-color: #fd7e14;
                 color: white;
             }
             QListWidget::item:hover {

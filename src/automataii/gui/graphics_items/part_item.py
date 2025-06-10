@@ -321,7 +321,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
             logging.debug(f"CharacterPartItem '{self.name()}': No motion path data.")
 
     def _setup_selection_highlight(self):
-        pen = QPen(QColor(0, 120, 215, 200), 1.5)
+        pen = QPen(QColor(253, 126, 20, 255), 3.0)  # Orange color, thicker border
         pen.setCosmetic(True)
         self.selection_highlight_item = QGraphicsRectItem()
         self.selection_highlight_item.setPen(pen)

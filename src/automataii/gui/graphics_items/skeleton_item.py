@@ -90,6 +90,15 @@ class SkeletonGraphicsItem(QGraphicsItem):
             return
 
         for joint_info in skeleton_data:
+            # Handle case where joint_info might be a string instead of dict
+            if isinstance(joint_info, str):
+                logging.warning(f"SkeletonItem:load_skeleton_data - Skipping invalid joint_info (string): {joint_info}")
+                continue
+            
+            if not isinstance(joint_info, dict):
+                logging.warning(f"SkeletonItem:load_skeleton_data - Skipping non-dict joint_info: {joint_info}")
+                continue
+                
             joint_id = joint_info.get("id")
             pos_data = joint_info.get("position")
 

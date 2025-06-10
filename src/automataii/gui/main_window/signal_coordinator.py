@@ -174,13 +174,8 @@ class SignalCoordinator:
                 self.main_window.animation_coordinator.handle_ik_visuals_update
             )
             
-            if hasattr(self.main_window.ik_manager, "animation_state_changed"):
-                self.main_window.ik_manager.animation_state_changed.connect(
-                    self.main_window.editor_tab.on_simulation_state_changed
-                )
-                self.main_window.ik_manager.animation_state_changed.connect(
-                    self.main_window.mechanism_generation_tab.on_simulation_state_changed
-                )
+            # Note: IKManager animation_state_changed connections are now handled in main_window.py
+            # to avoid duplicate connections that cause infinite loops
             
             if hasattr(self.main_window.ik_manager, "skeleton_pose_updated"):
                 self.main_window.ik_manager.skeleton_pose_updated.connect(

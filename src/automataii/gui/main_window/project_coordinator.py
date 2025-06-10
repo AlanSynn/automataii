@@ -153,25 +153,25 @@ class ProjectCoordinator(QObject):
     def handle_skeleton_updated_from_tab(self, skeleton_data: dict):
         """Handles the skeleton_updated signal from ImageProcessingTab."""
         logging.info(
-            "MainWindow: Received skeleton_updated signal from tab. Forwarding to SkeletonManager."
+            "MainWindow: Received skeleton_updated signal from tab. Forwarding to SkeletonManager - THIS IS DISABLED TO PREVENT RECURSION"
         )
 
-        if self.main_window.skeleton_manager:
-            self.main_window.skeleton_manager.load_skeleton_from_dict(
-                skeleton_data, source_format="animated_drawings"
-            )
-            # Send skeleton to mechanism generation tab
-            if hasattr(self.main_window, "mechanism_generation_tab") and hasattr(self.main_window.mechanism_generation_tab, "set_skeleton_data"):
-                self.main_window.mechanism_generation_tab.set_skeleton_data(skeleton_data)
-        else:
-            logging.error(
-                "MainWindow: SkeletonManager not available to handle skeleton update."
-            )
-            QMessageBox.warning(
-                self.main_window,
-                "Error",
-                "SkeletonManager not initialized. Cannot process skeleton.",
-            )
+        # if self.main_window.skeleton_manager:
+        #     self.main_window.skeleton_manager.load_skeleton_from_dict(
+        #         skeleton_data, source_format="animated_drawings"
+        #     )
+        #     # Send skeleton to mechanism generation tab
+        #     if hasattr(self.main_window, "mechanism_generation_tab") and hasattr(self.main_window.mechanism_generation_tab, "set_skeleton_data"):
+        #         self.main_window.mechanism_generation_tab.set_skeleton_data(skeleton_data)
+        # else:
+        #     logging.error(
+        #         "MainWindow: SkeletonManager not available to handle skeleton update."
+        #     )
+        #     QMessageBox.warning(
+        #         self.main_window,
+        #         "Error",
+        #         "SkeletonManager not initialized. Cannot process skeleton.",
+        #     )
 
     @pyqtSlot(bool, str, object)
     def handle_project_data_loaded(
@@ -210,6 +210,10 @@ class ProjectCoordinator(QObject):
                 self.main_window.skeleton_manager.load_skeleton_from_project_data(
                     current_skeleton_data_raw, parts_info
                 )
+                # Get the standardized skeleton data for the editor tab
+                standardized_skeleton = self.main_window.skeleton_manager.get_skeleton_as_dict()
+                if standardized_skeleton and hasattr(self.main_window.editor_tab, "cache_initial_skeleton"):
+                    self.main_window.editor_tab.cache_initial_skeleton(standardized_skeleton)
                 # Send skeleton to mechanism generation tab
                 if hasattr(self.main_window, "mechanism_generation_tab") and hasattr(self.main_window.mechanism_generation_tab, "set_skeleton_data"):
                     self.main_window.mechanism_generation_tab.set_skeleton_data(current_skeleton_data_raw)

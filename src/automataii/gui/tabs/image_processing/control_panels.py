@@ -44,7 +44,7 @@ class ImageProcessingControlPanel(QWidget):
         layout.setSpacing(10)
         
         # Input Group
-        input_group = QGroupBox("Input Drawing")
+        input_group = QGroupBox("1 Input Drawing")
         input_layout = QVBoxLayout(input_group)
         input_layout.setSpacing(10)
         input_layout.addWidget(self.load_image_btn)
@@ -52,7 +52,7 @@ class ImageProcessingControlPanel(QWidget):
         layout.addWidget(input_group)
         
         # Output Group
-        self.output_group = QGroupBox("Next")
+        self.output_group = QGroupBox("2 Next")
         output_layout = QVBoxLayout(self.output_group)
         output_layout.setSpacing(10)
         output_layout.addWidget(self.next_stage_btn)
@@ -63,7 +63,7 @@ class ImageProcessingControlPanel(QWidget):
         layout.addWidget(self.processing_steps_group)
         
         # View Options Group
-        self.view_options_group = QGroupBox("View Options")
+        self.view_options_group = QGroupBox("3 View Options")
         view_options_layout = QVBoxLayout(self.view_options_group)
         view_options_layout.setSpacing(10)
         view_options_layout.addWidget(self.show_skeleton_checkbox)
