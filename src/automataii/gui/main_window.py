@@ -39,6 +39,7 @@ from ..core.models_pydantic import (
 from .tabs.landing_tab import LandingTab
 from .tabs.image_processing_tab import ImageProcessingTab
 from .tabs.editor_tab import EditorTab
+from .tabs.mechanism_design_tab import MechanismDesignTab
 from .tabs.options_tab import OptionsTab
 
 # Import ActionManager for centralized action management
@@ -184,9 +185,13 @@ class AutomataDesigner(QMainWindow):
 
         # --- Tab 2: Editor & Simulation ---
         self.editor_tab = EditorTab(self)
-        self.tab_widget.addTab(self.editor_tab, "Mechanism Design")
+        self.tab_widget.addTab(self.editor_tab, "Path Editor")
 
-        # --- Tab 3: Options ---
+        # --- Tab 3: Mechanism Design ---
+        self.mechanism_design_tab = MechanismDesignTab(self)
+        self.tab_widget.addTab(self.mechanism_design_tab, "Mechanism Design")
+
+        # --- Tab 4: Options ---
         self.options_tab = OptionsTab(
             initial_anim_duration=self.ik_manager.animation_duration
         )
@@ -210,13 +215,20 @@ class AutomataDesigner(QMainWindow):
         self.editor_tab.request_reset_simulation.connect(
             self.ik_manager.reset_animation_state
         )
-        self.editor_tab.request_generate_mechanism.connect(
-            self.handle_generate_mechanism_request
-        )
         self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
         self.editor_tab.request_save_alignment.connect(
             self.save_character_alignment_impl
         )
+        # Connect path data sharing between editor and mechanism design tabs
+        self.editor_tab.path_data_changed.connect(
+            self.mechanism_design_tab.set_path_data_from_editor
+        )
+
+        # --- Connect Signals from MechanismDesignTab ---
+        self.mechanism_design_tab.request_generate_mechanism.connect(
+            self.handle_generate_mechanism_request
+        )
+        self.mechanism_design_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
         # --- Connect Signals from OptionsTab ---
         self.options_tab.animationDurationChanged.connect(
             self.ik_manager.set_animation_duration
@@ -642,6 +654,9 @@ class AutomataDesigner(QMainWindow):
 
             # Pass PartInfo data to EditorTab. It no longer needs texture_atlas_pixmap.
             self.editor_tab.set_parts_data(parts_info)
+            
+            # Pass PartInfo data to MechanismDesignTab as well
+            self.mechanism_design_tab.set_parts_data(parts_info)
 
             # Update other tabs/managers as needed
             if hasattr(self.ik_manager, "set_project_parts_data"):
@@ -712,6 +727,7 @@ class AutomataDesigner(QMainWindow):
         """Handles the project_data_cleared signal from ProjectDataManager."""
         logging.info("MainWindow: Handling project data cleared signal.")
         self.editor_tab.clear_editor_content()  # This will also clear EditorTab's _initial_skeleton_data_cache
+        self.mechanism_design_tab.clear_mechanism_data()  # Clear mechanism design tab
         self.skeleton_manager.clear_data()  # This will emit skeleton_updated with None
         if self.ik_manager:
             self.ik_manager.reset_all_ik_systems_and_data()  # Use the new method name
@@ -903,9 +919,6 @@ class AutomataDesigner(QMainWindow):
 
         # EditorTab signals
         if hasattr(self, "editor_tab") and self.editor_tab:
-            self.editor_tab.request_generate_mechanism.connect(
-                self.handle_generate_mechanism_request
-            )
 
             # More robust connections to IKManager, checking method existence
             if hasattr(self.ik_manager, "start_animation"):
@@ -955,29 +968,29 @@ class AutomataDesigner(QMainWindow):
                         self._handle_part_motion_path_update_from_editor_tab
                     )
 
-        # MechanismManager connections
-        if hasattr(self, "mechanism_manager") and hasattr(
-            self.mechanism_manager, "mechanism_visuals_ready"
-        ):
-            # The slot self.editor_tab.handle_mechanism_visuals will be created in EditorTab
-            if hasattr(self, "editor_tab") and hasattr(
-                self.editor_tab, "handle_mechanism_visuals"
-            ):
-                if not self._is_signal_connected(
-                    self.mechanism_manager.mechanism_visuals_ready,
-                    self.editor_tab.handle_mechanism_visuals,
-                ):
-                    self.mechanism_manager.mechanism_visuals_ready.connect(
-                        self.editor_tab.handle_mechanism_visuals
-                    )
-            else:
-                logging.warning(
-                    "EditorTab or handle_mechanism_visuals slot not found for MechanismManager signal."
-                )
-        else:
-            logging.warning(
-                "MechanismManager or its mechanism_visuals_ready signal not found."
-            )
+        # MechanismManager connections - temporarily disabled for debugging
+        # if hasattr(self, "mechanism_manager") and hasattr(
+        #     self.mechanism_manager, "mechanism_visuals_ready"
+        # ):
+        #     # Connect to MechanismDesignTab instead of EditorTab
+        #     if hasattr(self, "mechanism_design_tab") and hasattr(
+        #         self.mechanism_design_tab, "handle_mechanism_visuals"
+        #     ):
+        #         if not self._is_signal_connected(
+        #             self.mechanism_manager.mechanism_visuals_ready,
+        #             self.mechanism_design_tab.handle_mechanism_visuals,
+        #         ):
+        #             self.mechanism_manager.mechanism_visuals_ready.connect(
+        #                 self.mechanism_design_tab.handle_mechanism_visuals
+        #             )
+        #     else:
+        #         logging.warning(
+        #             "MechanismDesignTab or handle_mechanism_visuals slot not found for MechanismManager signal."
+        #         )
+        # else:
+        #     logging.warning(
+        #         "MechanismManager or its mechanism_visuals_ready signal not found."
+        #     )
 
     def _connect_manager_signals(self):
         """Connect signals from various managers to MainWindow slots or other manager slots."""
