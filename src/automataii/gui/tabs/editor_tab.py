@@ -236,27 +236,19 @@ class EditorTab(QWidget):
         motion_path_layout.addWidget(self.motion_path_status_label)
 
         motion_path_buttons_layout = QHBoxLayout()
-        motion_path_buttons_layout.setSpacing(6)  # Spacing between buttons
+        motion_path_buttons_layout.setSpacing(8)  # Spacing between buttons
 
-        # Button styles to match the total width of generation mechanism button
-        # Total width should be similar to "Generate Mechanisms →" button
-        self.define_motion_path_btn = QPushButton("Start Drawing")
-        self.define_motion_path_btn.setCheckable(True)
-        self.define_motion_path_btn.setToolTip(
-            "Toggle mode to draw a motion path for the selected part."
-        )
-        self.define_motion_path_btn.setEnabled(False)
-        self.define_motion_path_btn.setStyleSheet("""
+        # Compact button styles for motion path buttons
+        motion_path_button_style = """
             QPushButton {
                 background-color: #a7c7e7;
                 border: 1px solid #96b6d6;
-                border-radius: 7px;
-                padding: 10px 18px;
+                border-radius: 6px;
+                padding: 8px 14px;
                 font-weight: bold;
                 color: #ffffff;
-                min-height: 30px;
-                min-width: 140px;
-                font-size: 12pt;
+                min-height: 28px;
+                font-size: 11pt;
             }
             QPushButton:hover {
                 background-color: #96b6d6;
@@ -266,17 +258,29 @@ class EditorTab(QWidget):
                 background-color: #85a5c5;
                 border-color: #7494b4;
             }
-            QPushButton:checked {
-                background-color: #5c85d6;
-                border-color: #4b74c5;
-                color: white;
-            }
             QPushButton:disabled {
                 background-color: #e0e6ed;
                 color: #a0aab5;
                 border-color: #dbe4f0;
             }
-        """)
+        """
+        
+        motion_path_button_checked_style = motion_path_button_style + """
+            QPushButton:checked {
+                background-color: #5c85d6;
+                border-color: #4b74c5;
+                color: white;
+            }
+        """
+        
+        self.define_motion_path_btn = QPushButton("Start Drawing")
+        self.define_motion_path_btn.setCheckable(True)
+        self.define_motion_path_btn.setToolTip(
+            "Toggle mode to draw a motion path for the selected part."
+        )
+        self.define_motion_path_btn.setEnabled(False)
+        self.define_motion_path_btn.setStyleSheet(motion_path_button_checked_style)
+        self.define_motion_path_btn.setMinimumWidth(110)
         motion_path_buttons_layout.addWidget(self.define_motion_path_btn)
 
         self.clear_motion_path_btn = QPushButton("Clear")
@@ -284,32 +288,8 @@ class EditorTab(QWidget):
             "Clear the motion path for the selected part."
         )
         self.clear_motion_path_btn.setEnabled(False)
-        self.clear_motion_path_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #a7c7e7;
-                border: 1px solid #96b6d6;
-                border-radius: 7px;
-                padding: 10px 18px;
-                font-weight: bold;
-                color: #ffffff;
-                min-height: 30px;
-                min-width: 80px;
-                font-size: 12pt;
-            }
-            QPushButton:hover {
-                background-color: #96b6d6;
-                border-color: #85a5c5;
-            }
-            QPushButton:pressed {
-                background-color: #85a5c5;
-                border-color: #7494b4;
-            }
-            QPushButton:disabled {
-                background-color: #e0e6ed;
-                color: #a0aab5;
-                border-color: #dbe4f0;
-            }
-        """)
+        self.clear_motion_path_btn.setStyleSheet(motion_path_button_style)
+        self.clear_motion_path_btn.setMinimumWidth(65)
         motion_path_buttons_layout.addWidget(self.clear_motion_path_btn)
         motion_path_layout.addLayout(motion_path_buttons_layout)
 
@@ -354,7 +334,7 @@ class EditorTab(QWidget):
         # TODO: Add slider here if needed in future. For now, skipping.
 
         anim_button_layout = QHBoxLayout()
-        anim_button_layout.setSpacing(4)  # Reduce spacing for more compact layout
+        anim_button_layout.setSpacing(12)  # More spacing between compact buttons
         style = self.style()
 
         # Compact styling for animation buttons
@@ -362,14 +342,13 @@ class EditorTab(QWidget):
             QPushButton {
                 background-color: #a7c7e7;
                 border: 1px solid #96b6d6;
-                border-radius: 4px;
-                padding: 4px 8px;
+                border-radius: 5px;
+                padding: 6px 12px;
                 font-weight: bold;
                 color: #ffffff;
-                min-height: 18px;
-                min-width: 45px;
-                max-width: 50px;
-                font-size: 9pt;
+                min-height: 24px;
+                min-width: 55px;
+                font-size: 10pt;
             }
             QPushButton:hover {
                 background-color: #96b6d6;
@@ -414,39 +393,80 @@ class EditorTab(QWidget):
         anim_button_layout.addWidget(self.reset_sim_btn)
         animation_layout.addLayout(anim_button_layout)
 
-        self.generate_mechanisms_btn = QPushButton("Generate Mechanisms →")
-        self.generate_mechanisms_btn.setToolTip(
-            "Generate mechanisms from the defined motion paths"
-        )
-        self.generate_mechanisms_btn.setEnabled(False)
-        self.generate_mechanisms_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #5c85d6;
-                border: 1px solid #4b74c5;
-                border-radius: 7px;
-                padding: 12px 24px;
+        panel_layout.addWidget(animation_group)
+
+        # 4. View Controls Group
+        view_controls_group = QGroupBox("4 View Controls")
+        view_controls_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e3e9f0;
+                border-radius: 9px;
+                padding: 18px;
+                margin-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                margin-left: 15px;
+                font-size: 12pt;
                 font-weight: bold;
-                color: white;
-                min-height: 32px;
-                font-size: 13pt;
-            }
-            QPushButton:hover {
-                background-color: #4b74c5;
-                border-color: #3a63b4;
-            }
-            QPushButton:pressed {
-                background-color: #3a63b4;
-                border-color: #2952a3;
-            }
-            QPushButton:disabled {
-                background-color: #e0e6ed;
-                color: #a0aab5;
-                border-color: #dbe4f0;
+                color: #5c85d6;
+                background-color: #ffffff;
             }
         """)
-        animation_layout.addWidget(self.generate_mechanisms_btn)
+        view_controls_layout = QVBoxLayout(view_controls_group)
 
-        panel_layout.addWidget(animation_group)
+        # Zoom controls
+        zoom_controls_layout = QHBoxLayout()
+        zoom_controls_layout.setSpacing(6)
+
+        zoom_button_style = """
+            QPushButton {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                color: #495057;
+                min-height: 22px;
+                min-width: 30px;
+                font-size: 10pt;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+                border-color: #adb5bd;
+            }
+            QPushButton:pressed {
+                background-color: #dee2e6;
+                border-color: #6c757d;
+            }
+        """
+
+        self.zoom_in_btn = QPushButton("+")
+        self.zoom_in_btn.setToolTip("Zoom In")
+        self.zoom_in_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_in_btn)
+
+        self.zoom_out_btn = QPushButton("−")
+        self.zoom_out_btn.setToolTip("Zoom Out")
+        self.zoom_out_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_out_btn)
+
+        self.zoom_fit_btn = QPushButton("⌖")
+        self.zoom_fit_btn.setToolTip("Zoom to Fit")
+        self.zoom_fit_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_fit_btn)
+
+        self.zoom_reset_btn = QPushButton("1:1")
+        self.zoom_reset_btn.setToolTip("Reset Zoom (100%)")
+        self.zoom_reset_btn.setStyleSheet(zoom_button_style)
+        self.zoom_reset_btn.setMinimumWidth(35)
+        zoom_controls_layout.addWidget(self.zoom_reset_btn)
+
+        view_controls_layout.addLayout(zoom_controls_layout)
+        panel_layout.addWidget(view_controls_group)
 
         panel_layout.addStretch(1)
 
@@ -467,7 +487,12 @@ class EditorTab(QWidget):
         self.play_btn.clicked.connect(self._play_simulation_clicked)
         self.stop_btn.clicked.connect(self._stop_simulation_clicked)
         self.reset_sim_btn.clicked.connect(self._reset_simulation_clicked)
-        self.generate_mechanisms_btn.clicked.connect(self._generate_mechanism_clicked)
+        
+        # Connect zoom controls
+        self.zoom_in_btn.clicked.connect(lambda: self.editor_view.zoom(1))
+        self.zoom_out_btn.clicked.connect(lambda: self.editor_view.zoom(-1))
+        self.zoom_fit_btn.clicked.connect(self.editor_view.zoom_to_fit)
+        self.zoom_reset_btn.clicked.connect(self.editor_view.reset_view)
 
     def _handle_part_selection_change(
         self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]
@@ -646,21 +671,6 @@ class EditorTab(QWidget):
 
         self.editor_scene.update()
 
-    def _generate_mechanism_clicked(self):
-        # This was previously blueprint_btn
-        logging.debug("Generate Mechanism button clicked")
-
-        # Collect all path data and emit it
-        self._emit_path_data()
-
-        # Switch to mechanism design tab
-        if hasattr(self.main_window, 'tab_widget') and hasattr(self.main_window, 'mechanism_design_tab'):
-            for i in range(self.main_window.tab_widget.count()):
-                if self.main_window.tab_widget.widget(i) == self.main_window.mechanism_design_tab:
-                    self.main_window.tab_widget.setCurrentIndex(i)
-                    break
-
-        self.request_generate_blueprint.emit()
 
     def _handle_zoom_change(self, zoom_text: str):
         # This functionality is removed from the UI, but we keep the method
@@ -723,7 +733,6 @@ class EditorTab(QWidget):
             has_any_path and self.current_simulation_state == "playing"
         )
         self.reset_sim_btn.setEnabled(has_any_path)
-        self.generate_mechanisms_btn.setEnabled(has_any_path)
 
         # Update animation status label
         if has_any_path:
@@ -1223,53 +1232,52 @@ class EditorTab(QWidget):
     def _handle_freehand_path_completed(self, path_points: List[QPointF]):
         """
         Handles the completion of a freehand drawing path from the view.
+        The view is responsible for creating the final spline path. This method
+        retrieves that path and updates the data models.
         """
         if not self.selected_part_name:
             logging.warning("_handle_freehand_path_completed: No part selected.")
-            # Do not toggle button here, mode is explicit
             return
 
         part_name = self.selected_part_name
-        current_parts_info = self.main_window.project_data_manager.parts
 
-        if not current_parts_info or part_name not in current_parts_info:
-            logging.warning(
-                f"_handle_freehand_path_completed: Part {part_name} not in PDM.parts."
-            )
-            return
+        # Retrieve the final spline path created by the EditorView
+        final_path_item = self.editor_view.final_paths_map.get(part_name)
 
-        motion_qpath = QPainterPath()
-        if path_points:
-            motion_qpath.moveTo(path_points[0])
-            for point in path_points[1:]:
-                motion_qpath.lineTo(point)
+        if not final_path_item:
+            logging.error(f"Could not find final spline path for {part_name} in EditorView's final_paths_map.")
+            # As a fallback, create a linear path from the raw points. This should not happen in normal operation.
+            motion_qpath = QPainterPath()
+            if path_points:
+                motion_qpath.moveTo(path_points[0])
+                for point in path_points[1:]:
+                    motion_qpath.lineTo(point)
         else:
-            logging.info(
-                f"Received empty path points for {part_name}. Clearing existing path."
-            )
+            motion_qpath = final_path_item.path()
+            logging.info(f"Retrieved final spline path for '{part_name}' from EditorView.")
 
-        current_parts_info[part_name].motion_path = motion_qpath
-        logging.debug(f"EditorTab: Updated motion_path in PDM.parts for '{part_name}'.")
+        # Update the PartInfo model in the ProjectDataManager
+        current_parts_info = self.main_window.project_data_manager.parts
+        if part_name in current_parts_info:
+            current_parts_info[part_name].motion_path = motion_qpath
+            logging.debug(f"EditorTab: Updated motion_path in ProjectDataManager for '{part_name}'.")
+        else:
+            logging.warning(f"_handle_freehand_path_completed: Part '{part_name}' not found in ProjectDataManager.")
 
+        # Update the CharacterPartItem in the scene
         if part_name in self.current_editor_items:
             char_part_item = self.current_editor_items[part_name]
             char_part_item.set_motion_path(motion_qpath)
         else:
-            logging.warning(
-                f"_handle_freehand_path_completed: Item {part_name} not in editor_items."
-            )
+            logging.warning(f"_handle_freehand_path_completed: Item '{part_name}' not in current_editor_items.")
 
+        # Emit signals to notify other parts of the application
         self.motion_path_updated.emit(part_name, motion_qpath)
-
-        # Emit updated path data to other tabs
         self._emit_path_data()
 
-        self.main_window.statusBar().showMessage(
-            f"Completed motion path for part: {part_name} with {len(path_points)} points"
-        )
-        # DO NOT toggle button here: self.define_motion_path_btn.setChecked(False)
-        self._update_button_states()  # Update clear button state, etc.
-        logging.info(f"Completed motion path for part: {part_name} with {len(path_points)} points")
+        self.main_window.statusBar().showMessage(f"Motion path completed for part: {part_name}")
+        self._update_button_states()
+        logging.info(f"Completed and stored spline motion path for part: {part_name}")
 
     # Slot for drawing_cancelled signal from EditorView
     def _handle_drawing_cancelled(self):

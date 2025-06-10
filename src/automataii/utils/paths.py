@@ -8,6 +8,19 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def get_project_root() -> Path:
+    """Get the project root directory"""
+    # Start from this file and go up to find the project root
+    current_path = Path(__file__).parent
+    while current_path.parent != current_path:
+        if (current_path / "src" / "automataii").exists():
+            return current_path
+        current_path = current_path.parent
+    
+    # Fallback: return the automataii package directory
+    return Path(__file__).parent.parent
+
+
 def get_app_temp_dir() -> Path:
     """
     Returns the base temporary directory for the Automataii application.

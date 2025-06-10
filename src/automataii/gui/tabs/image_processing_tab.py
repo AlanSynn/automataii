@@ -89,26 +89,81 @@ class ImageProcessingTab(QWidget):
         input_layout.addWidget(self.capture_image_btn)
         panel_layout.addWidget(input_group)
 
-        # Output Group
-        output_group = QGroupBox("Next")
-        output_layout = QVBoxLayout(output_group)
-        output_layout.setSpacing(10)
-        self.next_stage_btn = QPushButton("Proceed to Editor")
-        output_layout.addWidget(self.next_stage_btn)
-        panel_layout.addWidget(output_group)
-
         # Processing Group
         panel_layout.addWidget(self.processing_steps_group)
 
-        # View Options Group
-        view_options_group = QGroupBox("View Options")
-        view_options_layout = QVBoxLayout(view_options_group)
-        view_options_layout.setSpacing(10)
-        self.show_skeleton_checkbox = QCheckBox("Show Skeleton")
-        self.show_parts_checkbox = QCheckBox("Show Body Parts")
-        view_options_layout.addWidget(self.show_skeleton_checkbox)
-        view_options_layout.addWidget(self.show_parts_checkbox)
-        panel_layout.addWidget(view_options_group)
+        # View Controls Group
+        view_controls_group = QGroupBox("View Controls")
+        view_controls_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e3e9f0;
+                border-radius: 9px;
+                padding: 18px;
+                margin-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                margin-left: 15px;
+                font-size: 12pt;
+                font-weight: bold;
+                color: #5c85d6;
+                background-color: #ffffff;
+            }
+        """)
+        view_controls_layout = QVBoxLayout(view_controls_group)
+
+        # Zoom controls
+        zoom_controls_layout = QHBoxLayout()
+        zoom_controls_layout.setSpacing(6)
+
+        zoom_button_style = """
+            QPushButton {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                color: #495057;
+                min-height: 22px;
+                min-width: 30px;
+                font-size: 10pt;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+                border-color: #adb5bd;
+            }
+            QPushButton:pressed {
+                background-color: #dee2e6;
+                border-color: #6c757d;
+            }
+        """
+
+        self.zoom_in_btn = QPushButton("+")
+        self.zoom_in_btn.setToolTip("Zoom In")
+        self.zoom_in_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_in_btn)
+
+        self.zoom_out_btn = QPushButton("−")
+        self.zoom_out_btn.setToolTip("Zoom Out")
+        self.zoom_out_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_out_btn)
+
+        self.zoom_fit_btn = QPushButton("⌖")
+        self.zoom_fit_btn.setToolTip("Zoom to Fit")
+        self.zoom_fit_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_fit_btn)
+
+        self.zoom_reset_btn = QPushButton("1:1")
+        self.zoom_reset_btn.setToolTip("Reset Zoom (100%)")
+        self.zoom_reset_btn.setStyleSheet(zoom_button_style)
+        self.zoom_reset_btn.setMinimumWidth(35)
+        zoom_controls_layout.addWidget(self.zoom_reset_btn)
+
+        view_controls_layout.addLayout(zoom_controls_layout)
+        panel_layout.addWidget(view_controls_group)
 
         panel_layout.addStretch()
 
@@ -234,57 +289,14 @@ class ImageProcessingTab(QWidget):
         self.processing_steps_group.extendSkeletonClicked.connect(self.extend_skeleton)
         self.processing_steps_group.lockJointsClicked.connect(self.show_lock_joints_dialog)
 
-        self.next_stage_btn.clicked.connect(self.next_stage)
-
         self.image_zoom_combo.currentTextChanged.connect(self._handle_image_zoom_change)
         self.image_fit_btn.clicked.connect(self._handle_image_zoom_change_fit)
 
-        self.show_skeleton_checkbox.toggled.connect(
-            self._toggle_skeleton_visibility_in_view
-        )
-        self.show_parts_checkbox.toggled.connect(self._toggle_parts_visibility_in_view)
-
-    def _toggle_skeleton_visibility_in_view(self, checked: bool):
-        if self.image_proc_view:
-            self.image_proc_view.show_skeleton_visuals(checked)
-
-    def _toggle_parts_visibility_in_view(self, checked: bool):
-        if not self.image_proc_view:
-            return
-
-        if checked:
-            if (
-                self.main_window
-                and self.main_window.project_data_manager
-                and self.main_window.project_data_manager.parts
-            ):
-                parts_info = self.main_window.project_data_manager.parts
-                effective_offset = (
-                    self.main_window.project_data_manager.effective_bounding_box_offset
-                )
-                # skeleton_to_part_map can be an empty dict if not immediately relevant for ImageProcessingView display
-                self.image_proc_view.load_character_parts(
-                    parts_info, {}, effective_offset
-                )
-                self.image_proc_view.show_part_visuals(True)
-            else:
-                logging.warning(
-                    "ImageProcessingTab: Cannot show parts, ProjectDataManager has no parts loaded."
-                )
-                self.show_parts_checkbox.setChecked(
-                    False
-                )  # Uncheck if data is not available
-                QMessageBox.information(
-                    self,
-                    "View Parts",
-                    "No part data has been loaded into the project yet. Please process an image first.",
-                )
-        else:
-            self.image_proc_view.show_part_visuals(False)
-            # Optionally, clear them if they are re-added every time show is true.
-            # Since load_character_parts now clears, this might not be strictly necessary here,
-            # but explicit show/hide is cleaner if parts persist.
-            # For now, just hiding is fine as load_character_parts handles clearing.
+        # Connect zoom controls
+        self.zoom_in_btn.clicked.connect(lambda: self.image_proc_view.zoom(1))
+        self.zoom_out_btn.clicked.connect(lambda: self.image_proc_view.zoom(-1))
+        self.zoom_fit_btn.clicked.connect(self.image_proc_view.zoom_to_fit)
+        self.zoom_reset_btn.clicked.connect(self.image_proc_view.reset_view)
 
     # --- Image Processing Actions ---
     def load_input_image(self):
@@ -505,7 +517,6 @@ class ImageProcessingTab(QWidget):
                     ):  # Load the cropped texture
                         # And the skeleton for visualization
                         self.image_proc_view.load_skeleton(self.skeleton_data)
-                        self.show_skeleton_checkbox.setChecked(True)
                 else:
                     QMessageBox.critical(
                         self,
@@ -758,33 +769,8 @@ class ImageProcessingTab(QWidget):
             if progress_dialog.isVisible():
                 progress_dialog.close()
 
-    def next_stage(self):
-        # Before switching, ensure parts have been processed and loaded by ProjectDataManager
-        # The source of truth for parts being ready for the editor is the ProjectDataManager
-        if (
-            not self.main_window
-            or not self.main_window.project_data_manager
-            or not self.main_window.project_data_manager.parts
-        ):
-            QMessageBox.information(
-                self,
-                "Next Stage",
-                "Please process image and generate parts, then ensure they are loaded into the project first.",
-            )
-            return
-
-        # If skeleton data is also ready, it's good, but parts are essential for the editor tab's primary content.
-        # Ensure parts_generated signal was emitted with the correct data (including parts_info_path)
-        # The actual data loading into ProjectDataManager will be handled by MainWindow
-        # when it receives the parts_generated signal.
-
-        # We just need to request the tab switch.
-        # The parts_generated signal (emitted from create_parts_from_skeleton)
-        # should have already provided MainWindow with the necessary paths.
-        self.request_editor_tab_switch.emit()
-        logging.info("Requested switch to Editor Tab.")
-
     def _handle_image_zoom_change(self, zoom_text: str):
+        """Handle zoom change from the combo box."""
         try:
             if zoom_text.lower() == "fit":
                 self.image_proc_view.zoom_to_fit()
@@ -836,13 +822,6 @@ class ImageProcessingTab(QWidget):
             skeleton_tools_enabled=has_skeleton,  # Enable skeleton tools when skeleton is loaded
         )
 
-        # next_stage_btn enabled if parts_info.json has been generated (or parts loaded in main_window)
-        parts_are_actually_loaded = (
-            self.main_window.project_data_manager.parts is not None
-            and len(self.main_window.project_data_manager.parts) > 0
-        )
-        self.next_stage_btn.setEnabled(parts_are_actually_loaded)
-
     def on_parts_loaded_in_editor(self, loaded: bool):
         """
         Slot to be called when parts are loaded/cleared in the editor.
@@ -885,19 +864,17 @@ class ImageProcessingTab(QWidget):
 
         if texture_loaded and self.skeleton_data:
             self.image_proc_view.load_skeleton(self.skeleton_data)
-            self.show_skeleton_checkbox.setChecked(True)
         elif not self.skeleton_data:
             # self.image_proc_view.clear_skeleton_visuals() # load_skeleton with None/empty should handle this
             if self.image_proc_view:
                 self.image_proc_view.load_skeleton(None)  # Explicitly clear with None
-            self.show_skeleton_checkbox.setChecked(False)
         self.update_button_states()
 
     def _toggle_detailed_processing_visibility(self, visible: bool):
         """Slot to control the visibility of the detailed processing steps group."""
         self.processing_steps_group.setVisible(visible)
         logging.info(f"Detailed processing steps visibility set to: {visible}")
-    
+
     def extend_skeleton(self):
         """Extends the skeleton lengths by 10%."""
         if not self.main_window or not self.main_window.skeleton_manager:
@@ -907,7 +884,7 @@ class ImageProcessingTab(QWidget):
                 "No skeleton manager available."
             )
             return
-            
+
         if not self.main_window.skeleton_manager.standardized_model:
             QMessageBox.warning(
                 self,
@@ -915,7 +892,7 @@ class ImageProcessingTab(QWidget):
                 "No skeleton loaded. Please process an image or load a skeleton first."
             )
             return
-            
+
         # Confirm action with user
         reply = QMessageBox.question(
             self,
@@ -924,7 +901,7 @@ class ImageProcessingTab(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
             if self.main_window.skeleton_manager.extend_skeleton_lengths(1.1):
                 # Update the view with the modified skeleton
@@ -933,7 +910,7 @@ class ImageProcessingTab(QWidget):
                     updated_skeleton = self.main_window.skeleton_manager.standardized_model.model_dump()
                     self.skeleton_data = updated_skeleton
                     self.image_proc_view.load_skeleton(updated_skeleton)
-                    
+
                 QMessageBox.information(
                     self,
                     "Extend Skeleton",
@@ -946,12 +923,12 @@ class ImageProcessingTab(QWidget):
                     "Extend Skeleton",
                     "Failed to extend skeleton lengths."
                 )
-    
+
     def show_lock_joints_dialog(self):
         """Shows a dialog for locking/unlocking specific joints."""
         from PyQt6.QtWidgets import QDialog, QVBoxLayout, QListWidget, QListWidgetItem, QDialogButtonBox, QLabel
         from PyQt6.QtCore import Qt
-        
+
         if not self.main_window or not self.main_window.skeleton_manager:
             QMessageBox.warning(
                 self,
@@ -959,7 +936,7 @@ class ImageProcessingTab(QWidget):
                 "No skeleton manager available."
             )
             return
-            
+
         if not self.main_window.skeleton_manager.standardized_model:
             QMessageBox.warning(
                 self,
@@ -967,25 +944,25 @@ class ImageProcessingTab(QWidget):
                 "No skeleton loaded. Please process an image or load a skeleton first."
             )
             return
-            
+
         # Create dialog
         dialog = QDialog(self)
         dialog.setWindowTitle("Lock/Unlock Joints")
         dialog.setModal(True)
         dialog.resize(300, 400)
-        
+
         layout = QVBoxLayout(dialog)
-        
+
         # Add instructions
         label = QLabel("Check joints to lock them during IK solving:")
         layout.addWidget(label)
-        
+
         # Create list widget with checkable items
         list_widget = QListWidget()
-        
+
         # Get current locked joints
         locked_joints = self.main_window.skeleton_manager.get_locked_joints()
-        
+
         # Add all joints to the list
         skeleton_model = self.main_window.skeleton_manager.standardized_model
         for joint_id, joint in skeleton_model.joints.items():
@@ -994,15 +971,15 @@ class ImageProcessingTab(QWidget):
             item.setCheckState(Qt.CheckState.Checked if joint.is_locked else Qt.CheckState.Unchecked)
             item.setData(Qt.ItemDataRole.UserRole, joint_id)  # Store joint ID
             list_widget.addItem(item)
-        
+
         layout.addWidget(list_widget)
-        
+
         # Add buttons
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         layout.addWidget(button_box)
-        
+
         def accept_changes():
             # Update joint lock states
             for i in range(list_widget.count()):
@@ -1010,16 +987,16 @@ class ImageProcessingTab(QWidget):
                 joint_id = item.data(Qt.ItemDataRole.UserRole)
                 is_locked = item.checkState() == Qt.CheckState.Checked
                 self.main_window.skeleton_manager.lock_joint(joint_id, is_locked)
-            
+
             # Update the view if needed
             if self.skeleton_data and self.image_proc_view:
                 updated_skeleton = self.main_window.skeleton_manager.standardized_model.model_dump()
                 self.skeleton_data = updated_skeleton
                 self.image_proc_view.load_skeleton(updated_skeleton)
-                
+
             dialog.accept()
-        
+
         button_box.accepted.connect(accept_changes)
         button_box.rejected.connect(dialog.reject)
-        
+
         dialog.exec()

@@ -355,6 +355,13 @@ class CharacterPartItem(QGraphicsPixmapItem):
         else:
             if self.selection_highlight_item:
                 self.selection_highlight_item.setVisible(False)
+    
+    def _update_selection_highlight_position(self):
+        """Update the selection highlight to match the current position and rotation of the part."""
+        if self.selection_highlight_item and self.selection_highlight_item.isVisible():
+            self.selection_highlight_item.setPos(self.scenePos())
+            self.selection_highlight_item.setRotation(self.rotation())
+            self.selection_highlight_item.setScale(self.scale())
 
     def boundingRect(self) -> QRectF:
         if self.part_pixmap and not self.part_pixmap.isNull():
@@ -505,6 +512,9 @@ class CharacterPartItem(QGraphicsPixmapItem):
         # This simplifies to: item.pos() = scene_anchor_pos - self.anchor_offset
         new_pos = scene_anchor_pos - self.anchor_offset
         self.setPos(new_pos)
+        
+        # Update selection highlight position if it's visible
+        self._update_selection_highlight_position()
 
         # Debug logging for torso alignment issues
         if self.name() == "torso":
@@ -513,3 +523,8 @@ class CharacterPartItem(QGraphicsPixmapItem):
                 f"scene_anchor_pos={scene_anchor_pos}, anchor_offset={self.anchor_offset}, "
                 f"resulting pos={new_pos}"
             )
+    
+    def setRotation(self, angle: float):
+        """Override setRotation to also update the selection highlight."""
+        super().setRotation(angle)
+        self._update_selection_highlight_position()

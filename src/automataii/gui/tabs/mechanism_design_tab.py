@@ -1,6 +1,8 @@
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 import math
+import uuid
+import numpy as np
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -18,14 +20,26 @@ from PyQt6.QtWidgets import (
     QDialog,
     QGraphicsView,
     QGraphicsItem,
+    QCheckBox,
+    QScrollArea,
+    QStackedWidget,
+    QGraphicsEllipseItem,
 )
-from PyQt6.QtCore import pyqtSignal, QPointF, Qt, QTimer
+from PyQt6.QtCore import pyqtSignal, QPointF, Qt, QTimer, QRectF
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QPainterPath, QPen, QColor, QBrush, QTransform
 
 from ..views.editor_view import EditorView
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem, QGraphicsView, QGraphicsItem, QDialog
+from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem
 from automataii.core.models import PartInfo
+from automataii.kinematics.mechanism import (
+    MechanismType,
+    MechanismCandidate,
+    MechanismTemplate,
+    MechanismParameter,
+)
+from automataii.kinematics.motion_database import MotionDatabase
+from automataii.kinematics.mechanism_simulator import MechanismSimulator
 from ..graphics_items.part_item import CharacterPartItem
 
 from ..dialogs.recommendation_dialog import (
@@ -37,18 +51,33 @@ from ..dialogs.recommendation_dialog import (
 
 
 class MechanismDesignTab(QWidget):
-    """Tab-specific mechanism design and generation functionality"""
+    """Tab for mechanism design matching user-drawn paths from editor tab.
+
+    Key features:
+    - Receives motion paths from editor tab
+    - Recommends mechanisms (3-bar, 4-bar, cam) that can reproduce the paths
+    - Parts follow mechanism-generated paths (reverse of editor tab)
+    - Interactive parametric design with drag-and-drop manipulation
+    - Individual mechanism layer enable/disable
+    """
 
     # Signals for mechanism-related operations
     request_generate_mechanism = pyqtSignal(str, dict)  # mechanism_type, params
     request_generate_blueprint = pyqtSignal()
     mechanism_selection_changed = pyqtSignal(str)  # mechanism_type
     mechanism_path_generated = pyqtSignal(str, QPainterPath)  # part_name, generated_path
+    mechanism_parameters_changed = pyqtSignal(str, dict)  # mechanism_id, params
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
         self.debug_mode = getattr(main_window, "debug_mode", False)
+
+        # Core components from the paper plan
+        self.motion_database = MotionDatabase("motion_database.h5")
+        self.mechanism_simulator = MechanismSimulator()
+        self.candidates: List[MechanismCandidate] = []
+        self.selected_mechanism: Optional[MechanismCandidate] = None
 
         # Path data from editor tab
         self.path_data: Dict[str, QPainterPath] = {}
@@ -59,9 +88,12 @@ class MechanismDesignTab(QWidget):
         # Mechanism generation state
         self.current_mechanism_type: Optional[str] = None
         self.mechanism_params: Dict[str, Any] = {}
-        self.mechanism_layers: Dict[str, Any] = {}  # Store mechanism layers
+        self.mechanism_layers: Dict[str, Any] = {}  # Store mechanism layers with enable/disable state
         self.path_visual_items: Dict[str, QGraphicsPathItem] = {}  # Store path visuals
-        self.mechanism_paths: Dict[str, QPainterPath] = {}
+        self.mechanism_paths: Dict[str, QPainterPath] = {}  # Generated mechanism paths
+        self.mechanism_instances: Dict[str, Any] = {}  # Store actual mechanism objects
+        self.mechanism_enabled_state: Dict[str, bool] = {}  # Track which mechanisms are enabled
+        self.interactive_handles: Dict[str, List[QGraphicsItem]] = {}  # Drag handles for params
 
         # Graphics scene for mechanism preview
         self.mechanism_scene = QGraphicsScene(self)
@@ -69,6 +101,8 @@ class MechanismDesignTab(QWidget):
 
         # Edit mode state
         self.edit_mode = False
+        self.parametric_edit_mode = False  # For interactive parameter adjustment
+        self.selected_mechanism_id: Optional[str] = None
 
         # Animation state
         self.animation_timer = QTimer(self)
@@ -90,12 +124,10 @@ class MechanismDesignTab(QWidget):
         self.animate_btn: Optional[QPushButton] = None
         self.stop_animate_btn: Optional[QPushButton] = None
 
-        # Mechanism parameters widgets
-        self.cam_center_x_spin: Optional[QDoubleSpinBox] = None
-        self.cam_center_y_spin: Optional[QDoubleSpinBox] = None
-        self.cam_radius_spin: Optional[QDoubleSpinBox] = None
-        self.linkage_length_spin: Optional[QDoubleSpinBox] = None
-        self.gear_ratio_spin: Optional[QDoubleSpinBox] = None
+        # Mechanism parameters widgets (removed - will use interactive handles instead)
+        self.enable_mechanisms_checkbox: Optional[QCheckBox] = None
+        self.apply_params_btn: Optional[QPushButton] = None
+        self.parametric_edit_btn: Optional[QPushButton] = None
 
         self._setup_ui()
         self._connect_signals()
@@ -105,7 +137,6 @@ class MechanismDesignTab(QWidget):
         main_layout = QHBoxLayout(self)
 
         # Left Control Panel (similar to EditorTab)
-        from PyQt6.QtWidgets import QScrollArea, QSizePolicy
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFixedWidth(300)
@@ -173,9 +204,20 @@ class MechanismDesignTab(QWidget):
                 background-color: #f8f9fa;
                 border: 1px solid #dee2e6;
             }
+            QListWidget::item:disabled {
+                color: #a0aab5;
+                background-color: #f0f0f0;
+            }
         """
         )
         layers_layout.addWidget(self.mechanism_layers_list)
+
+        # Add checkbox for enabling/disabling mechanisms
+        self.enable_mechanisms_checkbox = QCheckBox("Enable Selected Mechanism")
+        self.enable_mechanisms_checkbox.setEnabled(False)
+        self.enable_mechanisms_checkbox.setToolTip("Toggle to enable/disable the selected mechanism layer")
+        layers_layout.addWidget(self.enable_mechanisms_checkbox)
+
         panel_layout.addWidget(layers_group)
 
         # 2. Mechanism Generation Group
@@ -231,8 +273,8 @@ class MechanismDesignTab(QWidget):
 
         panel_layout.addWidget(generation_group)
 
-        # 3. Mechanism Parameters Group
-        self.mechanism_params_group = QGroupBox("3 Mechanism Parameters")
+        # 3. Parametric Design Group
+        self.mechanism_params_group = QGroupBox("3 Parametric Design")
         self.mechanism_params_group.setStyleSheet("""
             QGroupBox {
                 background-color: #ffffff;
@@ -252,7 +294,54 @@ class MechanismDesignTab(QWidget):
                 background-color: #ffffff;
             }
         """)
-        self._setup_mechanism_params()
+        params_layout = QVBoxLayout(self.mechanism_params_group)
+
+        # Info label
+        param_info_label = QLabel("Select a mechanism layer to adjust parameters")
+        param_info_label.setWordWrap(True)
+        param_info_label.setStyleSheet("""
+            padding: 10px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            color: #495057;
+        """)
+        params_layout.addWidget(param_info_label)
+
+        # Parametric edit button
+        self.parametric_edit_btn = QPushButton("Start Parametric Editing")
+        self.parametric_edit_btn.setCheckable(True)
+        self.parametric_edit_btn.setEnabled(False)
+        self.parametric_edit_btn.setToolTip("Enable interactive parameter adjustment by dragging")
+        self.parametric_edit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                border: 1px solid #138496;
+                border-radius: 7px;
+                padding: 10px 18px;
+                font-weight: bold;
+                color: white;
+                min-height: 30px;
+                font-size: 12pt;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+            QPushButton:pressed {
+                background-color: #117a8b;
+            }
+            QPushButton:checked {
+                background-color: #117a8b;
+                border-color: #0c5460;
+            }
+            QPushButton:disabled {
+                background-color: #e0e6ed;
+                color: #a0aab5;
+                border-color: #dbe4f0;
+            }
+        """)
+        params_layout.addWidget(self.parametric_edit_btn)
+
         panel_layout.addWidget(self.mechanism_params_group)
 
         # 4. Animation Group
@@ -278,10 +367,11 @@ class MechanismDesignTab(QWidget):
         """)
         animation_layout = QVBoxLayout(animation_group)
 
-        # Edit mode
-        self.start_edit_btn = QPushButton("Start Editing")
+        # Part attachment mode
+        self.start_edit_btn = QPushButton("Attach Parts to Mechanism")
         self.start_edit_btn.setCheckable(True)
         self.start_edit_btn.setEnabled(False)
+        self.start_edit_btn.setToolTip("Enable mode to attach parts to mechanism points")
         animation_layout.addWidget(self.start_edit_btn)
 
         # Animation controls
@@ -300,6 +390,80 @@ class MechanismDesignTab(QWidget):
         animation_layout.addWidget(self.blueprint_btn)
 
         panel_layout.addWidget(animation_group)
+
+        # 5. View Controls Group
+        view_controls_group = QGroupBox("5 View Controls")
+        view_controls_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e3e9f0;
+                border-radius: 9px;
+                padding: 18px;
+                margin-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                margin-left: 15px;
+                font-size: 12pt;
+                font-weight: bold;
+                color: #5c85d6;
+                background-color: #ffffff;
+            }
+        """)
+        view_controls_layout = QVBoxLayout(view_controls_group)
+
+        # Zoom controls
+        zoom_controls_layout = QHBoxLayout()
+        zoom_controls_layout.setSpacing(6)
+
+        zoom_button_style = """
+            QPushButton {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                color: #495057;
+                min-height: 22px;
+                min-width: 30px;
+                font-size: 10pt;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+                border-color: #adb5bd;
+            }
+            QPushButton:pressed {
+                background-color: #dee2e6;
+                border-color: #6c757d;
+            }
+        """
+
+        self.zoom_in_btn = QPushButton("+")
+        self.zoom_in_btn.setToolTip("Zoom In")
+        self.zoom_in_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_in_btn)
+
+        self.zoom_out_btn = QPushButton("−")
+        self.zoom_out_btn.setToolTip("Zoom Out")
+        self.zoom_out_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_out_btn)
+
+        self.zoom_fit_btn = QPushButton("⌖")
+        self.zoom_fit_btn.setToolTip("Zoom to Fit")
+        self.zoom_fit_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.zoom_fit_btn)
+
+        self.zoom_reset_btn = QPushButton("1:1")
+        self.zoom_reset_btn.setToolTip("Reset Zoom (100%)")
+        self.zoom_reset_btn.setStyleSheet(zoom_button_style)
+        self.zoom_reset_btn.setMinimumWidth(35)
+        zoom_controls_layout.addWidget(self.zoom_reset_btn)
+
+        view_controls_layout.addLayout(zoom_controls_layout)
+        panel_layout.addWidget(view_controls_group)
+
         panel_layout.addStretch(1)
 
         control_panel.setMinimumWidth(280)
@@ -308,39 +472,6 @@ class MechanismDesignTab(QWidget):
 
         # Right side - Editor view (same as EditorTab)
         main_layout.addWidget(self.mechanism_view, 1)
-
-    def _setup_mechanism_params(self):
-        """Setup mechanism parameters UI"""
-        params_layout = QFormLayout(self.mechanism_params_group)
-
-        # Cam parameters
-        self.cam_center_x_spin = QDoubleSpinBox()
-        self.cam_center_x_spin.setRange(-1000, 1000)
-        self.cam_center_x_spin.setValue(0)
-        params_layout.addRow("Cam Center X:", self.cam_center_x_spin)
-
-        self.cam_center_y_spin = QDoubleSpinBox()
-        self.cam_center_y_spin.setRange(-1000, 1000)
-        self.cam_center_y_spin.setValue(0)
-        params_layout.addRow("Cam Center Y:", self.cam_center_y_spin)
-
-        self.cam_radius_spin = QDoubleSpinBox()
-        self.cam_radius_spin.setRange(10, 500)
-        self.cam_radius_spin.setValue(50)
-        params_layout.addRow("Cam Radius:", self.cam_radius_spin)
-
-        # Linkage parameters
-        self.linkage_length_spin = QDoubleSpinBox()
-        self.linkage_length_spin.setRange(10, 500)
-        self.linkage_length_spin.setValue(100)
-        params_layout.addRow("Linkage Length:", self.linkage_length_spin)
-
-        # Gear parameters
-        self.gear_ratio_spin = QDoubleSpinBox()
-        self.gear_ratio_spin.setRange(0.1, 10.0)
-        self.gear_ratio_spin.setValue(1.0)
-        self.gear_ratio_spin.setSingleStep(0.1)
-        params_layout.addRow("Gear Ratio:", self.gear_ratio_spin)
 
     def _connect_signals(self):
         """Connect signals"""
@@ -353,16 +484,14 @@ class MechanismDesignTab(QWidget):
         self.animate_btn.clicked.connect(self._on_start_animation)
         self.stop_animate_btn.clicked.connect(self._on_stop_animation)
         self.mechanism_layers_list.itemSelectionChanged.connect(self._on_layer_selection_changed)
-
-        # Parameter changes
-        self.cam_center_x_spin.valueChanged.connect(self._on_params_changed)
-        self.cam_center_y_spin.valueChanged.connect(self._on_params_changed)
-        self.cam_radius_spin.valueChanged.connect(self._on_params_changed)
-        self.linkage_length_spin.valueChanged.connect(self._on_params_changed)
-        self.gear_ratio_spin.valueChanged.connect(self._on_params_changed)
-
-        # Connect internal signals
-        self.mechanism_path_generated.connect(self.handle_mechanism_path_generated)
+        self.enable_mechanisms_checkbox.stateChanged.connect(self._on_mechanism_enable_toggled)
+        self.parametric_edit_btn.toggled.connect(self._on_parametric_edit_toggled)
+        
+        # Connect zoom controls
+        self.zoom_in_btn.clicked.connect(lambda: self.mechanism_view.zoom(1))
+        self.zoom_out_btn.clicked.connect(lambda: self.mechanism_view.zoom(-1))
+        self.zoom_fit_btn.clicked.connect(self.mechanism_view.zoom_to_fit)
+        self.zoom_reset_btn.clicked.connect(self.mechanism_view.reset_view)
 
     @pyqtSlot(str)
     def _on_mechanism_type_changed(self, mechanism_type: str):
@@ -376,22 +505,7 @@ class MechanismDesignTab(QWidget):
         if not self.current_mechanism_type:
             return
 
-        # Enable/disable parameter widgets based on mechanism type
-        is_cam = "Cam" in self.current_mechanism_type
-        is_linkage = "Bar" in self.current_mechanism_type or "Linkage" in self.current_mechanism_type
-        is_gear = "Gear" in self.current_mechanism_type
-
-        if self.cam_center_x_spin is not None:
-            self.cam_center_x_spin.setVisible(is_cam)
-        if self.cam_center_y_spin is not None:
-            self.cam_center_y_spin.setVisible(is_cam)
-        if self.cam_radius_spin is not None:
-            self.cam_radius_spin.setVisible(is_cam)
-        if self.linkage_length_spin is not None:
-            self.linkage_length_spin.setVisible(is_linkage)
-        if self.gear_ratio_spin is not None:
-            self.gear_ratio_spin.setVisible(is_gear)
-
+        # Update UI elements based on mechanism type
         self._check_generation_requirements()
 
     @pyqtSlot(str)
@@ -413,23 +527,57 @@ class MechanismDesignTab(QWidget):
         self.generate_mechanism_btn.setEnabled(can_generate)
         self.recommendation_btn.setEnabled(bool(self.path_data))  # Enable if any paths exist
 
-    @pyqtSlot()
-    def _on_params_changed(self):
-        """Parameters changed"""
-        self._update_mechanism_params()
+    @pyqtSlot(bool)
+    def _on_parametric_edit_toggled(self, checked: bool):
+        """Toggle parametric edit mode"""
+        self.parametric_edit_mode = checked
 
-    def _update_mechanism_params(self):
-        """Collect current parameter values"""
-        self.mechanism_params = {
-            "target_part_name": self.selected_part_name,
-            "cam_center": QPointF(
-                self.cam_center_x_spin.value(),
-                self.cam_center_y_spin.value()
-            ),
-            "cam_radius": self.cam_radius_spin.value(),
-            "linkage_length": self.linkage_length_spin.value(),
-            "gear_ratio": self.gear_ratio_spin.value(),
-        }
+        if checked:
+            self.parametric_edit_btn.setText("Stop Parametric Editing")
+            # Enable drag handles for selected mechanism
+            if self.selected_mechanism_id and self.selected_mechanism_id in self.interactive_handles:
+                for handle in self.interactive_handles[self.selected_mechanism_id]:
+                    handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                    handle.setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            self.parametric_edit_btn.setText("Start Parametric Editing")
+            # Disable all drag handles
+            for handles in self.interactive_handles.values():
+                for handle in handles:
+                    handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+                    handle.setCursor(Qt.CursorShape.ArrowCursor)
+
+    @pyqtSlot(int)
+    def _on_mechanism_enable_toggled(self, state: int):
+        """Toggle mechanism layer enable/disable"""
+        if not self.selected_mechanism_id:
+            return
+
+        is_enabled = state == Qt.CheckState.Checked.value
+        self.mechanism_enabled_state[self.selected_mechanism_id] = is_enabled
+
+        # Update visual appearance
+        if self.selected_mechanism_id in self.mechanism_layers:
+            layer_data = self.mechanism_layers[self.selected_mechanism_id]
+            visual_items = layer_data.get("visual_items", [])
+
+            for item in visual_items:
+                if item and item.scene():
+                    # Make disabled items semi-transparent
+                    item.setOpacity(1.0 if is_enabled else 0.3)
+
+            # Update list item appearance
+            for i in range(self.mechanism_layers_list.count()):
+                item = self.mechanism_layers_list.item(i)
+                if item.data(Qt.ItemDataRole.UserRole) == self.selected_mechanism_id:
+                    # Update item to show enabled/disabled state
+                    font = item.font()
+                    font.setItalic(not is_enabled)
+                    item.setFont(font)
+                    item.setForeground(QBrush(QColor(0, 0, 0) if is_enabled else QColor(160, 170, 181)))
+                    break
+
+        logging.info(f"Mechanism {self.selected_mechanism_id} {'enabled' if is_enabled else 'disabled'}")
 
     @pyqtSlot()
     def _on_generate_mechanism(self):
@@ -437,8 +585,6 @@ class MechanismDesignTab(QWidget):
         if not self.selected_part_name or not self.current_mechanism_type:
             QMessageBox.warning(self, "Warning", "Please select a part and mechanism type.")
             return
-
-        self._update_mechanism_params()
 
         # Convert display name to internal type
         mechanism_type_mapping = {
@@ -453,18 +599,34 @@ class MechanismDesignTab(QWidget):
 
         logging.info(f"Generating mechanism: {internal_type} for part {self.selected_part_name}")
 
-        # Add mechanism layer to the list
+        # Generate unique ID for this mechanism
+        mechanism_id = str(uuid.uuid4())[:8]
         layer_name = f"{self.current_mechanism_type} - {self.selected_part_name}"
+
+        # Initialize mechanism parameters based on type
+        initial_params = self._get_initial_mechanism_params(internal_type)
+
         layer_data = {
+            "id": mechanism_id,
             "type": internal_type,
             "part_name": self.selected_part_name,
-            "params": self.mechanism_params.copy(),
-            "visual_items": []  # Will be populated when mechanism is generated
+            "params": initial_params,
+            "visual_items": [],  # Will be populated when mechanism is generated
+            "generated_path": None  # Will store the path this mechanism generates
         }
         self._add_mechanism_layer(layer_name, layer_data)
 
-        # Emit request to generate the actual mechanism
-        self.request_generate_mechanism.emit(internal_type, self.mechanism_params)
+        # Enable by default
+        self.mechanism_enabled_state[mechanism_id] = True
+
+        # Create interactive handles for parametric design
+        self._create_interactive_handles_for_mechanism(mechanism_id, internal_type, initial_params)
+
+        # Generate mechanism visualization immediately (since we don't have a complex mechanism manager)
+        self._generate_mechanism_visuals_directly(mechanism_id, internal_type, initial_params)
+
+        # Emit request to generate the actual mechanism (for any external processing)
+        self.request_generate_mechanism.emit(internal_type, initial_params)
         if self.blueprint_btn is not None:
             self.blueprint_btn.setEnabled(True)
 
@@ -489,43 +651,35 @@ class MechanismDesignTab(QWidget):
                 self.parts_selection_combo.addItems(list(self.path_data.keys()))
 
     def set_parts_data(self, parts_data: Dict[str, PartInfo]):
-        """
-        Set parts data, create CharacterPartItem instances, and add them to the scene.
-        Synchronized with the EditorTab.
-        """
-        logging.info(f"MechanismDesignTab: Setting parts data for {list(parts_data.keys())}")
-
-        # Clear existing items from the scene and the dictionary
-        for item in self.current_editor_items.values():
-            if item.scene() == self.mechanism_scene:
-                self.mechanism_scene.removeItem(item)
-        self.current_editor_items.clear()
-
+        """Set parts data (synchronized with editor tab)"""
         self.parts_data = parts_data.copy() if parts_data else {}
 
-        if not self.parts_data:
-            logging.warning("MechanismDesignTab: Received empty parts data.")
-            # self.mechanism_view.zoom_to_fit() # This is called later
-            return
+        # Create CharacterPartItems for visualization
+        self.current_editor_items.clear()
 
-        # Create and add new items
-        for part_name, part_info in self.parts_data.items():
-            if part_info.image_path:
-                item = CharacterPartItem(part_info, self.debug_mode)
-                self.mechanism_scene.addItem(item)
-                self.current_editor_items[part_name] = item
-                logging.debug(f"Added CharacterPartItem for '{part_name}' to mechanism scene.")
-            else:
-                logging.warning(f"Part '{part_name}' has no pixmap, cannot create item.")
+        if parts_data:
+            project_dir = None
+            if (
+                self.main_window
+                and hasattr(self.main_window, "project_data_manager")
+                and self.main_window.project_data_manager.project_dir
+            ):
+                project_dir = self.main_window.project_data_manager.project_dir
 
-        # Update the parts selection dropdown
-        if self.parts_selection_combo is not None:
-            part_names = list(self.parts_data.keys())
+            for part_name, p_info in parts_data.items():
+                if project_dir:
+                    item = CharacterPartItem(
+                        part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
+                    )
+                    self.mechanism_scene.addItem(item)
+                    self.current_editor_items[part_name] = item
+
+            part_names = list(parts_data.keys())
             self.parts_selection_combo.clear()
             self.parts_selection_combo.addItems(part_names)
-
-        logging.info(f"MechanismDesignTab: Loaded {len(self.current_editor_items)} part items.")
-        self.mechanism_view.zoom_to_fit()
+            
+            # Auto-fit view when parts are loaded
+            self.mechanism_view.zoom_to_fit()
 
     def clear_mechanism_data(self):
         """Clear mechanism data"""
@@ -535,8 +689,8 @@ class MechanismDesignTab(QWidget):
         self.mechanism_params.clear()
         self.mechanism_layers.clear()
         self.path_visual_items.clear()
-        self.current_editor_items.clear()
-        self.mechanism_paths.clear()
+        self.mechanism_enabled_state.clear()
+        self.interactive_handles.clear()
 
         if self.parts_selection_combo is not None:
             self.parts_selection_combo.clear()
@@ -560,35 +714,39 @@ class MechanismDesignTab(QWidget):
         if not mechanism_graphics_data:
             return
 
-        # Clear previous mechanism visuals
-        self.mechanism_scene.clear()
+        logging.info(f"MechanismDesignTab: Received mechanism graphics data: {mechanism_graphics_data.keys()}")
 
-        # Add mechanism graphics to preview
-        for item_data in mechanism_graphics_data.get("graphics_items", []):
-            # Process mechanism graphics items
-            # This would depend on the structure of mechanism_graphics_data
-            pass
+        # Add mechanism graphics to preview (don't clear everything, just add the mechanism)
+        mechanism_id = mechanism_graphics_data.get("mechanism_id")
+        mechanism_type = mechanism_graphics_data.get("mechanism_type")
+
+        if mechanism_id and mechanism_id in self.mechanism_layers:
+            # Update the layer data with visual items
+            layer_data = self.mechanism_layers[mechanism_id]
+            visual_items = []
+
+            # Create visual representation based on mechanism type
+            if mechanism_type == "4_bar_linkage":
+                visual_items.extend(self._create_4bar_linkage_visuals(mechanism_graphics_data))
+            elif mechanism_type == "3_bar_linkage":
+                visual_items.extend(self._create_3bar_linkage_visuals(mechanism_graphics_data))
+            elif mechanism_type == "cam":
+                visual_items.extend(self._create_cam_visuals(mechanism_graphics_data))
+            else:
+                # Generic mechanism visualization
+                visual_items.extend(self._create_generic_mechanism_visuals(mechanism_graphics_data))
+
+            # Store visual items in layer data
+            layer_data["visual_items"] = visual_items
+
+            # Add all visual items to scene
+            for item in visual_items:
+                self.mechanism_scene.addItem(item)
+
+            logging.info(f"MechanismDesignTab: Added {len(visual_items)} visual items for mechanism {mechanism_id}")
 
         # Update view
         self.mechanism_view.zoom_to_fit()
-
-    @pyqtSlot(str, QPainterPath)
-    def handle_mechanism_path_generated(self, part_name: str, path: QPainterPath):
-        """Receives the generated mechanism path and displays it."""
-        logging.info(f"Received generated mechanism path for part '{part_name}'.")
-        self.mechanism_paths[part_name] = path
-
-        # Visualize the path
-        path_item = QGraphicsPathItem(path)
-        pen = QPen(QColor(255, 0, 255), 2.5, Qt.PenStyle.DashLine) # Magenta dashed line for generated path
-        pen.setCosmetic(True)
-        path_item.setPen(pen)
-        path_item.setZValue(5) # Draw above other paths
-        self.mechanism_scene.addItem(path_item)
-
-        # Enable animation now that we have a path
-        if self.animate_btn:
-            self.animate_btn.setEnabled(True)
 
     def get_selected_part_name(self) -> Optional[str]:
         """Return selected part name"""
@@ -626,12 +784,10 @@ class MechanismDesignTab(QWidget):
         if self.path_visual_items:
             self.mechanism_view.zoom_to_fit()
             logging.info(f"MechanismDesignTab: Successfully displayed {len(self.path_visual_items)} path visuals")
-
-    @pyqtSlot(dict)
-    def on_recommendations_ready(self, recommendations: dict):
-        """Handle received recommendations by showing the dialog."""
-        # This will be called when MechanismManager emits the signal
-        # ... existing code ...
+        else:
+            # Even if no paths, ensure view is properly fitted when parts are loaded
+            if self.current_editor_items:
+                self.mechanism_view.zoom_to_fit()
 
     @pyqtSlot()
     def _on_get_recommendations(self):
@@ -656,14 +812,13 @@ class MechanismDesignTab(QWidget):
 
         # Show recommendation dialog with generated paths file
         import os
-        from pathlib import Path
-
-        # Get the project root by navigating up from the current file's location
-        # This is more robust than assuming a fixed structure.
-        project_root = Path(__file__).resolve().parents[4]
+        from automataii.utils.paths import get_project_root
 
         # Get the path to the generated mechanism paths JSON file
-        generated_paths_file = project_root / "src" / "automataii" / "kinematics" / "generated_mechanism_paths.json"
+        generated_paths_file = os.path.join(
+            get_project_root(),
+            "src", "automataii", "kinematics", "generated_mechanism_paths.json"
+        )
 
         if not os.path.exists(generated_paths_file):
             QMessageBox.warning(self, "Warning", "Generated mechanism paths file not found.")
@@ -678,56 +833,114 @@ class MechanismDesignTab(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             selected_mechanism = dialog.selected_mechanism_data
             if selected_mechanism:
-                # Update mechanism type combo based on the selected mechanism
-                mechanism_type = selected_mechanism.get("type", "")
+                self._select_candidate(selected_mechanism)
 
-                # Map from mechanism types to combo box display names
-                type_mapping = {
-                    MECHANISM_TYPE_USER_DISPLAY_4_BAR: MECHANISM_TYPE_USER_DISPLAY_4_BAR,
-                    MECHANISM_TYPE_USER_DISPLAY_3_BAR: MECHANISM_TYPE_USER_DISPLAY_3_BAR,
-                    MECHANISM_TYPE_USER_DISPLAY_CAM: MECHANISM_TYPE_USER_DISPLAY_CAM,
-                    "Cam & Follower": MECHANISM_TYPE_USER_DISPLAY_CAM,
-                    "4-Bar Linkage": MECHANISM_TYPE_USER_DISPLAY_4_BAR,
-                    "3-Bar Linkage": MECHANISM_TYPE_USER_DISPLAY_3_BAR,
-                    "Gears (Simple Pair)": "Gear System",
-                    "gears": "Gear System",
-                    "linkage": MECHANISM_TYPE_USER_DISPLAY_4_BAR,
-                }
+    def _qpainterpath_to_numpy(self, path: QPainterPath) -> "np.ndarray":
+        """Converts a QPainterPath to a numpy array of points."""
+        points = []
+        for i in range(path.elementCount()):
+            element = path.elementAt(i)
+            points.append([element.x, element.y])
+        return np.array(points)
 
-                display_name = type_mapping.get(mechanism_type, mechanism_type)
-                index = self.mechanism_type_combo.findText(display_name)
-                if index >= 0:
-                    self.mechanism_type_combo.setCurrentIndex(index)
+    def _display_candidates(self):
+        """Displays the recommended mechanism candidates in the UI."""
+        # This would typically populate a list widget where users can select a candidate.
+        # For now, we'll just log them and auto-select the best one.
+        logging.info(f"Found {len(self.candidates)} candidates.")
+        for i, candidate in enumerate(self.candidates):
+            logging.info(
+                f"  {i+1}: {candidate.mechanism_type.value} "
+                f"(Score: {candidate.similarity_score:.3f})"
+            )
 
-                # Apply recommended parameters from selected_mechanism
-                params = selected_mechanism.get("parameters", {})
-                if params:
-                    # TODO: Apply parameters based on mechanism type
-                    logging.info(f"Selected mechanism: {display_name} with parameters: {params}")
-                else:
-                    logging.info(f"Selected mechanism: {display_name}")
+        # For demonstration, let's automatically select the top candidate
+        if self.candidates:
+            self._select_candidate(self.candidates[0])
+
+    def _select_candidate(self, candidate: MechanismCandidate):
+        """Handles the selection of a mechanism candidate."""
+        self.selected_mechanism = candidate
+        logging.info(f"Selected candidate: {candidate.mechanism_type.value}")
+
+        # Update the UI to reflect the selected mechanism's type and parameters
+        # For example, update the mechanism type combo box
+        display_name = {
+            MechanismType.FOUR_BAR: MECHANISM_TYPE_USER_DISPLAY_4_BAR,
+            MechanismType.THREE_BAR: MECHANISM_TYPE_USER_DISPLAY_3_BAR,
+            MechanismType.CAM: MECHANISM_TYPE_USER_DISPLAY_CAM,
+        }.get(candidate.mechanism_type, "Custom Linkage")
+
+        index = self.mechanism_type_combo.findText(display_name)
+        if index >= 0:
+            self.mechanism_type_combo.setCurrentIndex(index)
+
+        # Now, generate the mechanism visuals based on this candidate
+        self._generate_mechanism_from_candidate(candidate)
+
+    def _generate_mechanism_from_candidate(self, candidate: MechanismCandidate):
+        """Generates a mechanism layer and visuals from a selected candidate."""
+        mechanism_id = str(uuid.uuid4())[:8]
+        layer_name = f"{candidate.mechanism_type.value} - {self.selected_part_name}"
+
+        # The parameters are already in the candidate
+        params = candidate.parameters
+
+        layer_data = {
+            "id": mechanism_id,
+            "type": candidate.mechanism_type.value,
+            "part_name": self.selected_part_name,
+            "params": params,
+            "visual_items": [],
+            "generated_path": None,
+        }
+        self._add_mechanism_layer(layer_name, layer_data)
+        self.mechanism_enabled_state[mechanism_id] = True
+
+        # Create visuals and interactive handles
+        self._generate_mechanism_visuals_directly(
+            mechanism_id, candidate.mechanism_type.value, params
+        )
+        self._create_interactive_handles_for_mechanism(
+            mechanism_id, candidate.mechanism_type.value, params
+        )
+        if self.blueprint_btn is not None:
+            self.blueprint_btn.setEnabled(True)
 
     @pyqtSlot(bool)
     def _on_edit_mode_toggled(self, checked: bool):
-        """Toggle edit mode for drag and drop mechanism editing"""
+        """Toggle part attachment mode"""
         self.edit_mode = checked
 
         if checked:
-            self.start_edit_btn.setText("Stop Editing")
-            self.mechanism_view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-            # Enable interactive editing
-            for item in self.mechanism_scene.items():
-                if hasattr(item, 'setFlag'):
-                    item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-                    item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            self.start_edit_btn.setText("Stop Attaching Parts")
+            # Show attachment points on mechanisms
+            self._show_attachment_points()
         else:
-            self.start_edit_btn.setText("Start Editing")
-            self.mechanism_view.setDragMode(QGraphicsView.DragMode.NoDrag)
-            # Disable interactive editing
-            for item in self.mechanism_scene.items():
-                if hasattr(item, 'setFlag'):
-                    item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-                    item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            self.start_edit_btn.setText("Attach Parts to Mechanism")
+            # Hide attachment points
+            self._hide_attachment_points()
+
+    def _show_attachment_points(self):
+        """Show available attachment points on mechanisms"""
+        # For each enabled mechanism, show points where parts can attach
+        for mechanism_id, is_enabled in self.mechanism_enabled_state.items():
+            if is_enabled and mechanism_id in self.mechanism_layers:
+                layer_data = self.mechanism_layers[mechanism_id]
+                mechanism_type = layer_data.get("type")
+
+                # Create visual indicators for attachment points
+                if mechanism_type == "4_bar_linkage":
+                    # Show coupler point, rocker endpoint, etc.
+                    pass
+                elif mechanism_type == "cam":
+                    # Show follower attachment point
+                    pass
+
+    def _hide_attachment_points(self):
+        """Hide attachment point indicators"""
+        # Remove attachment point visuals
+        pass
 
     @pyqtSlot()
     def _on_start_animation(self):
@@ -737,19 +950,19 @@ class MechanismDesignTab(QWidget):
 
         # Store original positions for all mechanism items
         self.animating_mechanisms.clear()
-        for layer_name, layer_data in self.mechanism_layers.items():
+        for mechanism_id, layer_data in self.mechanism_layers.items():
             visual_items = layer_data.get("visual_items", [])
             if visual_items:
-                self.animating_mechanisms[layer_name] = {
+                self.animating_mechanisms[mechanism_id] = {
                     "type": layer_data.get("type"),
-                    "items": visual_items,
                     "params": layer_data.get("params", {}),
+                    "items": visual_items,
                     "original_transforms": {}
                 }
                 # Store original transforms
                 for item in visual_items:
                     if item and item.scene():
-                        self.animating_mechanisms[layer_name]["original_transforms"][item] = item.transform()
+                        self.animating_mechanisms[mechanism_id]["original_transforms"][item] = item.transform()
 
         # Start animation timer
         self.animation_time = 0.0
@@ -766,7 +979,7 @@ class MechanismDesignTab(QWidget):
         self.animation_timer.stop()
 
         # Restore original positions
-        for layer_name, anim_data in self.animating_mechanisms.items():
+        for mechanism_id, anim_data in self.animating_mechanisms.items():
             for item, original_transform in anim_data["original_transforms"].items():
                 if item and item.scene():
                     item.setTransform(original_transform)
@@ -780,12 +993,17 @@ class MechanismDesignTab(QWidget):
         """Handle mechanism layer selection change"""
         selected_items = self.mechanism_layers_list.selectedItems()
         if selected_items:
-            layer_name = selected_items[0].text()
-            logging.info(f"Selected mechanism layer: {layer_name}")
+            mechanism_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            self.selected_mechanism_id = mechanism_id
+            logging.info(f"Selected mechanism layer: {mechanism_id}")
+
+            # Update enable checkbox state
+            if self.enable_mechanisms_checkbox and mechanism_id in self.mechanism_enabled_state:
+                self.enable_mechanisms_checkbox.setChecked(self.mechanism_enabled_state[mechanism_id])
 
             # Highlight selected layer in preview
-            if layer_name in self.mechanism_layers:
-                layer_data = self.mechanism_layers[layer_name]
+            if mechanism_id in self.mechanism_layers:
+                layer_data = self.mechanism_layers[mechanism_id]
 
                 # Reset all items to normal appearance
                 for item in self.mechanism_scene.items():
@@ -806,147 +1024,466 @@ class MechanismDesignTab(QWidget):
                         item.setPen(pen)
                         item.setOpacity(1.0)
 
+                # Show/hide interactive handles
+                for mech_id, handles in self.interactive_handles.items():
+                    for handle in handles:
+                        handle.setVisible(mech_id == mechanism_id)
+        else:
+            self.selected_mechanism_id = None
+
     def _add_mechanism_layer(self, layer_name: str, layer_data: Any):
         """Add a mechanism layer to the layers list"""
-        self.mechanism_layers[layer_name] = layer_data
+        mechanism_id = layer_data["id"]
+        self.mechanism_layers[mechanism_id] = layer_data
 
         # Add to list widget
         item = QListWidgetItem(layer_name)
+        item.setData(Qt.ItemDataRole.UserRole, mechanism_id)  # Store ID for reference
         self.mechanism_layers_list.addItem(item)
 
-        # Enable edit and animation controls
+        # Enable controls
         if self.start_edit_btn is not None:
             self.start_edit_btn.setEnabled(True)
         if self.animate_btn is not None:
             self.animate_btn.setEnabled(True)
+        if self.enable_mechanisms_checkbox is not None:
+            self.enable_mechanisms_checkbox.setEnabled(True)
+        if self.parametric_edit_btn is not None:
+            self.parametric_edit_btn.setEnabled(True)
 
     @pyqtSlot(dict)
     def _on_mechanism_preview_selected(self, mechanism_data: dict):
         """Handle mechanism preview selection from recommendation dialog"""
         logging.info(f"Mechanism preview selected: {mechanism_data.get('type', 'Unknown')}")
         # Could update a preview or show additional info here
-        # Display the selected mechanism preview
-        # TODO: Implement mechanism preview visualization based on mechanism_data
-        # For now, just show the path if available
-        path_coords = mechanism_data.get("path_coordinates")
-        if path_coords:
-            # Convert coordinates to QPainterPath
-            preview_path = QPainterPath()
-            for i, (x, y) in enumerate(path_coords):
-                if i == 0:
-                    preview_path.moveTo(x, y)
-                else:
-                    preview_path.lineTo(x, y)
-
-            # Create path item
-            path_item = QGraphicsPathItem(preview_path)
-            pen = QPen(QColor(0, 100, 200), 2.0)
-            pen.setCosmetic(True)
-            path_item.setPen(pen)
-
-            self.mechanism_scene.addItem(path_item)
-            self.mechanism_view.zoom_to_fit()
-
-        # Update UI to show mechanism type
-        mechanism_type = mechanism_data.get("type", "")
-        type_mapping = {
-            "Cam & Follower": MECHANISM_TYPE_USER_DISPLAY_CAM,
-            "4-Bar Linkage": MECHANISM_TYPE_USER_DISPLAY_4_BAR,
-            "3-Bar Linkage": MECHANISM_TYPE_USER_DISPLAY_3_BAR,
-            "Gears (Simple Pair)": "Gear System",
-        }
-        display_name = type_mapping.get(mechanism_type, mechanism_type)
-
-        # Update status or info label if available
-        # TODO: self.mechanism_preview_group is not initialized.
-        # self.mechanism_preview_group.setTitle(f"Mechanism Preview - {display_name}")
 
     def _update_animation(self):
-        """Update animation frame"""
+        """Update animation frame - mechanisms drive part motion"""
         # Increment animation time
-        dt = 0.033  # Corresponds to ~30 FPS timer
-        self.animation_time += dt * self.animation_speed
+        self.animation_time += 0.033 * self.animation_speed  # 33ms * speed
 
-        # Animate each mechanism layer's components
-        for layer_name, anim_data in self.animating_mechanisms.items():
-            mech_type = anim_data.get("type", "")
+        # For each enabled mechanism, calculate its output motion
+        for mechanism_id, is_enabled in self.mechanism_enabled_state.items():
+            if not is_enabled:
+                continue
 
-            # --- Animate mechanism components (gears, links) ---
-            if mech_type == "cam":
-                # Simple rotation animation for cam
-                for item in anim_data["items"]:
-                    if item and item.scene():
-                        center = item.boundingRect().center()
-                        transform = QTransform()
-                        transform.translate(center.x(), center.y())
-                        transform.rotate(self.animation_time * 180 / 3.14159)
-                        transform.translate(-center.x(), -center.y())
-                        item.setTransform(transform)
+            if mechanism_id not in self.mechanism_layers:
+                continue
 
-            elif mech_type in ["4_bar_linkage", "3_bar_linkage"]:
-                # Simple oscillation for linkages
-                angle = self.animation_time
-                amplitude = 30  # degrees
-                rotation = amplitude * math.sin(angle)
+            layer_data = self.mechanism_layers[mechanism_id]
+            mech_type = layer_data.get("type")
+            params = layer_data.get("params", {})
+            attached_part = layer_data.get("part_name")
 
-                for item in anim_data["items"]:
-                    if item and item.scene():
-                        center = item.boundingRect().center()
-                        transform = QTransform()
-                        transform.translate(center.x(), center.y())
-                        transform.rotate(rotation)
-                        transform.translate(-center.x(), -center.y())
-                        item.setTransform(transform)
+            # Calculate mechanism output position
+            output_pos = self._calculate_mechanism_output(mech_type, params, self.animation_time)
 
-            elif mech_type == "gear":
-                # Counter-rotating gears
-                for i, item in enumerate(anim_data["items"]):
-                    if item and item.scene():
-                        center = item.boundingRect().center()
-                        direction = 1 if i % 2 == 0 else -1
-                        transform = QTransform()
-                        transform.translate(center.x(), center.y())
-                        transform.rotate(direction * self.animation_time * 180 / 3.14159)
-                        transform.translate(-center.x(), -center.y())
-                        item.setTransform(transform)
+            # Move attached part to follow mechanism
+            if attached_part and attached_part in self.current_editor_items:
+                part_item = self.current_editor_items[attached_part]
+                if output_pos:
+                    # Part follows mechanism's output point
+                    part_item.set_scene_position_from_anchor(output_pos)
 
-            # --- Animate the target character part along the generated path ---
-            params = anim_data.get("params", {})
-            target_part_name = params.get("target_part_name")
-
-            if target_part_name:
-                part_item = self.current_editor_items.get(target_part_name)
-                # Use the path from the editor tab for animation
-                mechanism_path = self.path_data.get(target_part_name)
-
-                if part_item and mechanism_path and not mechanism_path.isEmpty():
-                    # Animate the part along its generated path
-                    # Loop animation every 5 seconds
-                    percent = (self.animation_time / 5.0) % 1.0
-
-                    # Get point at percent
-                    pos = mechanism_path.pointAtPercent(percent)
-
-                    # Calculate angle manually as angleAtPercent is not available in PyQt6
-                    next_percent = (percent + 0.001) % 1.0
-                    p1 = pos
-                    p2 = mechanism_path.pointAtPercent(next_percent)
-
-                    dx = p2.x() - p1.x()
-                    dy = p2.y() - p1.y()
-
-                    angle_rad = math.atan2(dy, dx)
-                    angle_deg = math.degrees(angle_rad)
-
-                    # Set position, compensating for the item's own center
-                    # This assumes the pixmap's center should follow the path
-                    item_center = part_item.boundingRect().center()
-                    part_item.setPos(pos - item_center)
-
-                    # Set rotation
-                    # The angle from atan2 is counter-clockwise, which matches setRotation's default.
-                    part_item.setRotation(angle_deg)
-
+            # Update mechanism visuals
+            self._update_mechanism_visuals(mechanism_id, self.animation_time)
 
         # Update scene
         self.mechanism_scene.update()
+
+    def _calculate_mechanism_output(self, mech_type: str, params: dict, time: float) -> Optional[QPointF]:
+        """Calculate the output position of a mechanism at given time"""
+        if mech_type == "cam":
+            center = params.get("center", QPointF(0, 0))
+            base_radius = params.get("base_radius", 50)
+            rise = params.get("rise", 30)
+
+            # Simple cam profile - can be made more sophisticated
+            angle = time
+            radius = base_radius + rise * (1 + math.sin(angle)) / 2
+
+            # Follower position (assuming vertical follower)
+            return QPointF(center.x(), center.y() - radius)
+
+        elif mech_type == "4_bar_linkage":
+            # Calculate coupler point position using 4-bar kinematics
+            # This is simplified - real implementation would use proper kinematic equations
+            crank_angle = time
+            crank_length = params.get("crank_length", 80)
+            coupler_length = params.get("coupler_length", 150)
+
+            # Simplified calculation
+            crank_end = QPointF(
+                crank_length * math.cos(crank_angle),
+                crank_length * math.sin(crank_angle)
+            )
+
+            # Coupler midpoint (simplified)
+            return QPointF(
+                crank_end.x() + coupler_length * 0.5 * math.cos(crank_angle + math.pi/4),
+                crank_end.y() + coupler_length * 0.5 * math.sin(crank_angle + math.pi/4)
+            )
+
+        return None
+
+    def _update_mechanism_visuals(self, mechanism_id: str, time: float):
+        """Update visual representation of mechanism during animation"""
+        # Update mechanism linkages, cam rotation, etc.
+        pass
+
+    def _create_interactive_handles_for_mechanism(self, mechanism_id: str, mechanism_type: str, params: dict):
+        """Create draggable handles for parametric design"""
+        if mechanism_id in self.interactive_handles:
+            # Remove existing handles
+            for handle in self.interactive_handles[mechanism_id]:
+                if handle.scene():
+                    self.mechanism_scene.removeItem(handle)
+            self.interactive_handles[mechanism_id].clear()
+
+        handles = []
+
+        if mechanism_type == "4_bar_linkage":
+            # Create handles for ground pivots and link endpoints
+            # These will be circles that can be dragged to adjust parameters
+            p0 = params.get("ground_pivot_1", QPointF(0, 0))
+            p3 = params.get("ground_pivot_2", QPointF(200, 0))
+
+            # Ground pivot handles
+            handle_p0 = self._create_drag_handle(p0, "ground_pivot_1", mechanism_id)
+            handle_p3 = self._create_drag_handle(p3, "ground_pivot_2", mechanism_id)
+            handles.extend([handle_p0, handle_p3])
+
+            # Link length handles (shown as adjustable endpoints)
+            # These will update when dragged
+
+        elif mechanism_type == "3_bar_linkage":
+            # Similar handles for 3-bar
+            pass
+
+        elif mechanism_type == "cam":
+            # Handle for cam center and radius
+            center = params.get("center", QPointF(0, 0))
+            radius = params.get("base_radius", 50)
+
+            # Center handle
+            handle_center = self._create_drag_handle(center, "center", mechanism_id)
+            handles.append(handle_center)
+
+            # Radius handle (on perimeter)
+            radius_pos = QPointF(center.x() + radius, center.y())
+            handle_radius = self._create_drag_handle(radius_pos, "radius", mechanism_id)
+            handles.append(handle_radius)
+
+        self.interactive_handles[mechanism_id] = handles
+
+    def _create_drag_handle(self, position: QPointF, param_name: str, mechanism_id: str) -> QGraphicsEllipseItem:
+        """Create a draggable handle for parameter adjustment"""
+        handle = QGraphicsEllipseItem(-8, -8, 16, 16)
+        handle.setPos(position)
+        handle.setBrush(QBrush(QColor(23, 162, 184)))  # Teal color
+        handle.setPen(QPen(QColor(255, 255, 255), 2))
+        handle.setZValue(100)  # Above other items
+        handle.setCursor(Qt.CursorShape.OpenHandCursor)
+
+        # Store metadata
+        handle.setData(0, mechanism_id)
+        handle.setData(1, param_name)
+
+        # Make draggable when in parametric edit mode
+        handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, self.parametric_edit_mode)
+        handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
+
+        # Connect position change to parameter update
+        if hasattr(handle, 'itemChange'):
+            # Override itemChange to handle parameter updates
+            original_itemChange = handle.itemChange
+            def handle_itemChange(change, value):
+                if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+                    self._update_mechanism_from_handle_position(mechanism_id, param_name, handle.pos())
+                return original_itemChange(change, value)
+            handle.itemChange = handle_itemChange
+
+        self.mechanism_scene.addItem(handle)
+        return handle
+
+    def _get_initial_mechanism_params(self, mechanism_type: str) -> dict:
+        """Get initial parameters for a mechanism type"""
+        if mechanism_type == "4_bar_linkage":
+            return {
+                "ground_pivot_1": QPointF(-100, 0),
+                "ground_pivot_2": QPointF(100, 0),
+                "crank_length": 80.0,
+                "coupler_length": 150.0,
+                "rocker_length": 100.0
+            }
+        elif mechanism_type == "3_bar_linkage":
+            return {
+                "ground_pivot": QPointF(0, 0),
+                "link1_length": 100.0,
+                "link2_length": 120.0
+            }
+        elif mechanism_type == "cam":
+            return {
+                "center": QPointF(0, 0),
+                "base_radius": 50.0,
+                "rise": 30.0,
+                "dwell_angle": 90.0,
+                "profile_type": "cycloidal"
+            }
+        else:
+            return {}
+
+    def _create_4bar_linkage_visuals(self, mechanism_data: dict) -> List[QGraphicsItem]:
+        """Create visual representation of 4-bar linkage"""
+        visual_items = []
+        params = mechanism_data.get("params", {})
+
+        # Get pivot points and link parameters
+        p0 = params.get("ground_pivot_1", QPointF(-100, 0))
+        p3 = params.get("ground_pivot_2", QPointF(100, 0))
+        crank_length = params.get("crank_length", 80.0)
+        coupler_length = params.get("coupler_length", 150.0)
+        rocker_length = params.get("rocker_length", 100.0)
+
+        # Calculate current positions (simplified - for static display)
+        angle = 0.0  # Can be parameterized later for animation
+        p1 = QPointF(p0.x() + crank_length * math.cos(angle),
+                    p0.y() + crank_length * math.sin(angle))
+
+        # Simplified calculation for p2 (coupler point)
+        p2 = QPointF(p1.x() + coupler_length * math.cos(angle + math.pi/4),
+                    p1.y() + coupler_length * math.sin(angle + math.pi/4))
+
+        # Create links as lines
+        crank_line = QGraphicsPathItem()
+        crank_path = QPainterPath()
+        crank_path.moveTo(p0)
+        crank_path.lineTo(p1)
+        crank_line.setPath(crank_path)
+        crank_line.setPen(QPen(QColor(0, 100, 200), 4))
+        visual_items.append(crank_line)
+
+        coupler_line = QGraphicsPathItem()
+        coupler_path = QPainterPath()
+        coupler_path.moveTo(p1)
+        coupler_path.lineTo(p2)
+        coupler_line.setPath(coupler_path)
+        coupler_line.setPen(QPen(QColor(200, 100, 0), 4))
+        visual_items.append(coupler_line)
+
+        rocker_line = QGraphicsPathItem()
+        rocker_path = QPainterPath()
+        rocker_path.moveTo(p2)
+        rocker_path.lineTo(p3)
+        rocker_line.setPath(rocker_path)
+        rocker_line.setPen(QPen(QColor(100, 200, 0), 4))
+        visual_items.append(rocker_line)
+
+        # Create pivot points
+        for point in [p0, p1, p2, p3]:
+            pivot = QGraphicsEllipseItem(-5, -5, 10, 10)
+            pivot.setPos(point)
+            pivot.setBrush(QBrush(QColor(255, 0, 0)))
+            pivot.setPen(QPen(QColor(0, 0, 0), 2))
+            visual_items.append(pivot)
+
+        return visual_items
+
+    def _create_3bar_linkage_visuals(self, mechanism_data: dict) -> List[QGraphicsItem]:
+        """Create visual representation of 3-bar linkage"""
+        visual_items = []
+        params = mechanism_data.get("params", {})
+
+        # Get parameters
+        ground_pivot = params.get("ground_pivot", QPointF(0, 0))
+        link1_length = params.get("link1_length", 100.0)
+        link2_length = params.get("link2_length", 120.0)
+
+        # Calculate positions (simplified)
+        angle1 = 0.0
+        angle2 = math.pi/3
+
+        p1 = QPointF(ground_pivot.x() + link1_length * math.cos(angle1),
+                    ground_pivot.y() + link1_length * math.sin(angle1))
+        p2 = QPointF(p1.x() + link2_length * math.cos(angle2),
+                    p1.y() + link2_length * math.sin(angle2))
+
+        # Create links
+        link1_line = QGraphicsPathItem()
+        link1_path = QPainterPath()
+        link1_path.moveTo(ground_pivot)
+        link1_path.lineTo(p1)
+        link1_line.setPath(link1_path)
+        link1_line.setPen(QPen(QColor(0, 150, 200), 4))
+        visual_items.append(link1_line)
+
+        link2_line = QGraphicsPathItem()
+        link2_path = QPainterPath()
+        link2_path.moveTo(p1)
+        link2_path.lineTo(p2)
+        link2_line.setPath(link2_path)
+        link2_line.setPen(QPen(QColor(200, 150, 0), 4))
+        visual_items.append(link2_line)
+
+        # Create pivots
+        for point in [ground_pivot, p1, p2]:
+            pivot = QGraphicsEllipseItem(-5, -5, 10, 10)
+            pivot.setPos(point)
+            pivot.setBrush(QBrush(QColor(255, 0, 0)))
+            pivot.setPen(QPen(QColor(0, 0, 0), 2))
+            visual_items.append(pivot)
+
+        return visual_items
+
+    def _create_cam_visuals(self, mechanism_data: dict) -> List[QGraphicsItem]:
+        """Create visual representation of cam mechanism"""
+        visual_items = []
+        params = mechanism_data.get("params", {})
+
+        # Get parameters
+        center = params.get("center", QPointF(0, 0))
+        base_radius = params.get("base_radius", 50.0)
+        rise = params.get("rise", 30.0)
+
+        # Create cam body (simplified circular cam)
+        cam_body = QGraphicsEllipseItem(-base_radius, -base_radius,
+                                       base_radius * 2, base_radius * 2)
+        cam_body.setPos(center)
+        cam_body.setBrush(QBrush(QColor(100, 100, 200, 150)))
+        cam_body.setPen(QPen(QColor(0, 0, 150), 3))
+        visual_items.append(cam_body)
+
+        # Create follower
+        follower_pos = QPointF(center.x(), center.y() - base_radius - rise/2)
+        follower = QGraphicsEllipseItem(-10, -20, 20, 40)
+        follower.setPos(follower_pos)
+        follower.setBrush(QBrush(QColor(200, 100, 100)))
+        follower.setPen(QPen(QColor(150, 0, 0), 2))
+        visual_items.append(follower)
+
+        # Create center point
+        center_point = QGraphicsEllipseItem(-3, -3, 6, 6)
+        center_point.setPos(center)
+        center_point.setBrush(QBrush(QColor(0, 0, 0)))
+        visual_items.append(center_point)
+
+        return visual_items
+
+    def _create_generic_mechanism_visuals(self, mechanism_data: dict) -> List[QGraphicsItem]:
+        """Create generic visual representation for unknown mechanism types"""
+        visual_items = []
+
+        # Create a simple placeholder box
+        placeholder = QGraphicsEllipseItem(-25, -25, 50, 50)
+        placeholder.setBrush(QBrush(QColor(150, 150, 150, 100)))
+        placeholder.setPen(QPen(QColor(100, 100, 100), 2))
+        visual_items.append(placeholder)
+
+        return visual_items
+
+    def _generate_mechanism_visuals_directly(self, mechanism_id: str, mechanism_type: str, params: dict):
+        """Generate mechanism visuals directly without external mechanism manager"""
+
+        # Scale parameters to fit the view appropriately
+        scene_rect = self.mechanism_view.sceneRect()
+        if scene_rect.isEmpty():
+            scene_rect = QRectF(-200, -200, 400, 400)
+
+        # Scale factor to fit mechanism in scene
+        scale_factor = min(scene_rect.width(), scene_rect.height()) / 400.0
+
+        # Scale parameters
+        scaled_params = self._scale_mechanism_params(params, scale_factor)
+
+        # Create mechanism graphics data
+        mechanism_graphics_data = {
+            "mechanism_id": mechanism_id,
+            "mechanism_type": mechanism_type,
+            "params": scaled_params,
+            "scale_factor": scale_factor
+        }
+
+        # Handle the visuals directly
+        self.handle_mechanism_visuals(mechanism_graphics_data)
+
+        logging.info(f"MechanismDesignTab: Generated visuals for {mechanism_type} mechanism {mechanism_id}")
+
+    def _scale_mechanism_params(self, params: dict, scale_factor: float) -> dict:
+        """Scale mechanism parameters to fit appropriately in the scene"""
+        scaled_params = {}
+
+        for key, value in params.items():
+            if key.endswith("_length") or key.endswith("_radius"):
+                # Scale length and radius parameters
+                scaled_params[key] = value * scale_factor
+            elif isinstance(value, QPointF):
+                # Scale point coordinates
+                scaled_params[key] = QPointF(value.x() * scale_factor, value.y() * scale_factor)
+            else:
+                # Keep other parameters as-is
+                scaled_params[key] = value
+
+        return scaled_params
+
+    def _update_mechanism_from_handle_position(self, mechanism_id: str, param_name: str, new_position: QPointF):
+        """Update mechanism parameters when a handle is moved"""
+        if mechanism_id not in self.mechanism_layers:
+            return
+
+        layer_data = self.mechanism_layers[mechanism_id]
+        params = layer_data.get("params", {})
+        mechanism_type = layer_data.get("type")
+
+        # Update the parameter based on the handle's new position
+        if param_name in ["ground_pivot_1", "ground_pivot_2", "center", "ground_pivot"]:
+            params[param_name] = new_position
+        elif param_name == "radius":
+            # For radius handles, calculate distance from center
+            center = params.get("center", QPointF(0, 0))
+            radius = math.sqrt((new_position.x() - center.x())**2 + (new_position.y() - center.y())**2)
+            params["base_radius"] = radius
+
+        # Regenerate the mechanism visuals with updated parameters
+        self._regenerate_mechanism_visuals(mechanism_id, mechanism_type, params)
+
+        # Emit parameter change signal
+        self.mechanism_parameters_changed.emit(mechanism_id, params)
+
+    def _regenerate_mechanism_visuals(self, mechanism_id: str, mechanism_type: str, params: dict):
+        """Regenerate mechanism visuals after parameter changes"""
+        if mechanism_id not in self.mechanism_layers:
+            return
+
+        layer_data = self.mechanism_layers[mechanism_id]
+
+        # Remove old visual items
+        old_items = layer_data.get("visual_items", [])
+        for item in old_items:
+            if item and item.scene():
+                self.mechanism_scene.removeItem(item)
+
+        # Generate new visuals
+        self._generate_mechanism_visuals_directly(mechanism_id, mechanism_type, params)
+
+        # Update interactive handles to new positions
+        self._update_interactive_handles_positions(mechanism_id, mechanism_type, params)
+
+    def _update_interactive_handles_positions(self, mechanism_id: str, mechanism_type: str, params: dict):
+        """Update positions of interactive handles after parameter changes"""
+        if mechanism_id not in self.interactive_handles:
+            return
+
+        handles = self.interactive_handles[mechanism_id]
+
+        for handle in handles:
+            param_name = handle.data(1)
+
+            if param_name in params:
+                value = params[param_name]
+                if isinstance(value, QPointF):
+                    handle.setPos(value)
+                elif param_name == "radius" and "center" in params and "base_radius" in params:
+                    # Position radius handle on perimeter
+                    center = params["center"]
+                    radius = params["base_radius"]
+                    handle.setPos(QPointF(center.x() + radius, center.y()))
