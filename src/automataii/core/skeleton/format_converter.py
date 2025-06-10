@@ -146,6 +146,16 @@ class SkeletonFormatConverter:
                 )
                 return None
 
+        # Mapping from Animated Drawings names to our internal standardized names
+        # This is crucial for IK and other systems to find the correct joints.
+        AD_TO_STD_NAME_MAP = {
+            "left_hand": "left_wrist",
+            "right_hand": "right_wrist",
+            "left_foot": "left_ankle",
+            "right_foot": "right_ankle",
+            # Add other mappings as needed, e.g., 'head' -> 'neck_tip'
+        }
+
         std_skeleton = StandardizedSkeletonModel(source_format="animated_drawings")
         temp_joint_name_to_id: Dict[str, str] = {}
         temp_id_to_parent_name: Dict[str, Optional[str]] = {}
@@ -157,30 +167,36 @@ class SkeletonFormatConverter:
                 )
                 continue
 
-            joint_name = joint_info_raw.get("name")
+            original_name = joint_info_raw.get("name")
             parent_name = joint_info_raw.get("parent")
             coords = joint_info_raw.get("coordinates") or joint_info_raw.get("loc")
 
             if coords is None and "position" in joint_info_raw:
                 coords = joint_info_raw["position"]
 
-            if not joint_name and "id" in joint_info_raw:
-                joint_name = joint_info_raw["id"]
+            # Use 'id' from Pydantic model dump if 'name' is missing or for robustness
+            if not original_name and "id" in joint_info_raw:
+                original_name = joint_info_raw["id"]
 
-            if not joint_name or coords is None:
+            if not original_name or coords is None:
                 logging.warning(
                     f"Skipping AD joint with missing name or coordinates: {joint_info_raw}"
                 )
                 continue
 
-            unique_id_base = joint_name.replace(" ", "_").replace(".", "_")
-            joint_id = f"{unique_id_base}_{i}"
-            while joint_id in std_skeleton.joints:
-                joint_id += "_dup"
+            # Use the standardized name for the ID if a mapping exists, otherwise use original.
+            # This ID is the primary key for the joint.
+            standardized_name = AD_TO_STD_NAME_MAP.get(original_name, original_name)
+            joint_id = standardized_name
+
+            # Handle potential duplicate IDs, though this should be rare with this new scheme
+            if joint_id in std_skeleton.joints:
+                 logging.warning(f"Duplicate joint ID '{joint_id}' detected. Appending index.")
+                 joint_id = f"{joint_id}_{i}"
 
             if not isinstance(coords, list) or len(coords) != 2:
                 logging.warning(
-                    f"Skipping AD joint '{joint_name}' due to invalid coordinates: {coords}"
+                    f"Skipping AD joint '{original_name}' due to invalid coordinates: {coords}"
                 )
                 continue
 
@@ -188,21 +204,22 @@ class SkeletonFormatConverter:
                 position_tuple = (float(coords[0]), float(coords[1]))
             except (ValueError, TypeError):
                 logging.warning(
-                    f"Skipping AD joint '{joint_name}' due to non-numeric coordinates: {coords}"
+                    f"Skipping AD joint '{original_name}' due to non-numeric coordinates: {coords}"
                 )
                 continue
 
             std_joint = StandardizedJointModel(
                 id=joint_id,
-                name=joint_name,
+                name=original_name, # Keep the original name for display/reference
                 position=position_tuple,
                 parent_id=None,
-                label=joint_name,
+                label=original_name, # Label for GUI can also be original
                 source_data=joint_info_raw.copy(),
                 is_locked=False,
             )
             std_skeleton.joints[joint_id] = std_joint
-            temp_joint_name_to_id[joint_name] = joint_id
+            # Use original name for mapping since parent references use it
+            temp_joint_name_to_id[original_name] = joint_id
             temp_id_to_parent_name[joint_id] = (
                 parent_name
                 if parent_name and str(parent_name).lower() != "none"
@@ -210,7 +227,7 @@ class SkeletonFormatConverter:
             )
 
             if std_skeleton.joint_map is not None:
-                std_skeleton.joint_map[joint_name] = joint_id
+                std_skeleton.joint_map[original_name] = joint_id
 
         # Second pass: Resolve parent_ids and build hierarchy
         for joint_id, joint_model in std_skeleton.joints.items():
@@ -309,23 +326,21 @@ class SkeletonFormatConverter:
         parts_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[StandardizedSkeletonModel]:
         """
-        Converts skeleton data from a raw list of joint dictionaries.
-
-        Args:
-            raw_skeleton_list: A list of dictionaries, where each dictionary defines a joint
-            parts_data: Optional dictionary of PartInfo objects/data
-
-        Returns:
-            StandardizedSkeletonModel instance or None if conversion failed
+        Processes a raw list of joints (often from project files) by wrapping
+        it into a dictionary and delegating to the main Animated Drawings processor.
+        This eliminates code duplication.
         """
         if not raw_skeleton_list:
-            return StandardizedSkeletonModel()  # Return empty model
+            logging.warning("convert_from_project_data received an empty or None list.")
+            return None
 
-        # The _process_animated_drawings_format expects a dict like: {"skeleton": [...]}
-        wrapper_dict = {"skeleton": raw_skeleton_list}
+        # Create a dictionary that mimics the Animated Drawings format
+        # to reuse the centralized processing logic.
+        data_dict = {"skeleton": raw_skeleton_list}
+
+        # Pass along parts_data if it exists, as it might be used for calculations.
         if parts_data:
-            wrapper_dict["parts_data_for_limb_lengths"] = parts_data
+            data_dict["parts_data_for_limb_lengths"] = parts_data
 
-        return SkeletonFormatConverter.convert_from_dict(
-            wrapper_dict, source_format="animated_drawings"
-        )
+        # Delegate to the single, authoritative processing method.
+        return SkeletonFormatConverter._process_animated_drawings_format(data_dict)

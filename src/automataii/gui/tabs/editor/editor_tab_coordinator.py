@@ -66,7 +66,8 @@ class EditorTabCoordinator(QWidget):
             self._animation_service,
             ik_manager,
             project_manager,
-            skeleton_manager
+            skeleton_manager,
+            visual_updater=self.update_part_visuals
         )
 
         # Handlers
@@ -571,3 +572,26 @@ class EditorTabCoordinator(QWidget):
                 logging.info("EditorTabCoordinator: No existing motion paths found in project data")
         except Exception as e:
             logging.warning(f"EditorTabCoordinator: Error loading existing motion paths: {e}")
+
+    def update_part_visuals(self, part_transforms: Dict[str, Any]):
+        """Update the visual representation of parts based on IK results."""
+        if not hasattr(self, 'editor_items'):
+            return
+
+        for part_name, transform in part_transforms.items():
+            part_item = self.editor_items.get(part_name)
+            if not part_item:
+                logging.warning(f"EditorTabCoordinator: Part item '{part_name}' not found for visual update.")
+                continue
+
+            position = transform.get('position')
+            rotation = transform.get('rotation')
+
+            if position:
+                part_item.setPos(position)
+
+            if rotation is not None:
+                # Assuming rotation is in degrees
+                part_item.setRotation(rotation)
+
+            logging.debug(f"Updated part '{part_name}' visuals. Pos: {position}, Rot: {rotation}")

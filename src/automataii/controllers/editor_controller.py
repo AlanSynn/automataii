@@ -43,7 +43,8 @@ class EditorController(QObject):
         animation_service: AnimationService,
         ik_manager: IKManagerInterface,
         project_manager: ProjectManagerInterface,
-        skeleton_manager: SkeletonManagerInterface
+        skeleton_manager: SkeletonManagerInterface,
+        visual_updater: callable
     ):
         super().__init__()
 
@@ -53,6 +54,7 @@ class EditorController(QObject):
         self._ik_manager = ik_manager
         self._project_manager = project_manager
         self._skeleton_manager = skeleton_manager
+        self._visual_updater = visual_updater
 
         # State
         self._state = EditorState()
@@ -74,6 +76,10 @@ class EditorController(QObject):
         # Animation service signals
         self._animation_service.state_changed.connect(self._on_animation_state_changed)
         self._animation_service.frame_updated.connect(self._on_animation_frame_updated)
+
+        # IK Manager Signals
+        if hasattr(self._ik_manager, 'character_visuals_updated'):
+            self._ik_manager.character_visuals_updated.connect(self._visual_updater)
 
     # === Part Management ===
 
@@ -291,35 +297,41 @@ class EditorController(QObject):
         self._ik_manager.set_animation_duration(duration_ms)
 
     def seek_animation(self, progress: float) -> None:
-        """Seek to animation position.
+        """Seek animation to a specific progress point.
 
         Args:
             progress: Progress value (0.0 to 1.0)
         """
-        self._animation_service.seek_to_progress(progress)
+        self._animation_service.seek(progress)
 
     # === Skeleton Management ===
 
-    def load_skeleton(self, skeleton_data: Dict[str, Any]) -> bool:
-        """Load skeleton data into the editor."""
-        # Prevents recursion by not reloading if data is the same
-        if (
-            self._state.has_skeleton
-            and self._skeleton_manager.get_skeleton_as_dict() == skeleton_data
-        ):
-            self.skeleton_updated.emit(skeleton_data)
+    def load_skeleton(self, skeleton_data: List[Dict[str, Any]]) -> bool:
+        """Load skeleton data into the editor from a project data list.
+
+        Args:
+            skeleton_data: List of skeleton joint dictionaries
+
+        Returns:
+            True if loaded successfully
+        """
+        if not skeleton_data:
+            self._state.has_skeleton = False
+            self._emit_state_change()
+            # It's not an error, just nothing to load.
+            # The manager will handle clearing if necessary.
             return True
 
-        if not self._skeleton_manager.load_skeleton_from_dict(skeleton_data):
-            self.skeleton_updated.emit({})  # Emit empty on failure
+        if not self._skeleton_manager.load_skeleton_from_project_data(skeleton_data):
+            logging.error("EditorController: Failed to load skeleton via SkeletonManager")
+            self._state.has_skeleton = False
+            self._emit_state_change()
             return False
 
         self._state.has_skeleton = True
-        # skeleton_data from skeleton_manager is emitted
-        standardized_skeleton = self._skeleton_manager.get_skeleton_as_dict()
-        self.skeleton_updated.emit(standardized_skeleton)
-        logging.info(f"EditorController: Loaded skeleton data")
-
+        # The skeleton_manager will emit the 'skeleton_updated' signal with standardized data.
+        # The controller does not need to emit it again with the raw data.
+        self._emit_state_change()
         return True
 
     # === State Management ===
