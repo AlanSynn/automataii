@@ -642,13 +642,13 @@ class EditorView(QGraphicsView):
                     component_key = None
                     if (
                         self.parent_window
-                        and hasattr(self.parent_window, "sim_selected_component_key")
-                        and self.parent_window.sim_selected_component_key
+                        and hasattr(self.parent_window, "selected_part_name")
+                        and self.parent_window.selected_part_name
                     ):
-                        component_key = self.parent_window.sim_selected_component_key
+                        component_key = self.parent_window.selected_part_name
                     elif (
                         self.current_target_item_for_path
-                    ):  # Fallback if sim_selected_component_key is not primary
+                    ):  # Fallback if selected_part_name is not available
                         component_key = self.current_target_item_for_path.part_info.name
 
                     if component_key:
@@ -933,15 +933,29 @@ class EditorView(QGraphicsView):
         if self.current_mode == "define_motion_path":
             return  # Already in this mode
 
-        if target_item is None and not self.parent_window.sim_selected_component_key:
-            # This case would be an issue: no CharacterPartItem and no sim_selected_component_key means no context for the path.
-            # However, AutomataDesigner._toggle_define_motion_path_mode checks for sim_selected_component_key
-            # before calling this, so this state should ideally not be reached if called from there.
+        if target_item is None and not getattr(self.parent_window, 'selected_part_name', None):
+            # This case would be an issue: no CharacterPartItem and no selected part means no context for the path.
             logging.warning(
-                "EditorView: start_define_motion_path called with no target_item and no sim_selected_component_key."
+                "EditorView: start_define_motion_path called with no target_item and no selected part."
             )
             # Optionally, prevent entering mode or show a message.
             # For now, allow proceeding, as AutomataDesigner might handle it or log separately.
+
+        # Clear any existing path for this component before starting new drawing
+        if target_item and target_item.part_info and target_item.part_info.name:
+            component_key = target_item.part_info.name
+            if component_key in self.final_paths_map:
+                old_path_item = self.final_paths_map.pop(component_key)
+                if old_path_item and old_path_item.scene():
+                    self.scene().removeItem(old_path_item)
+                    logging.debug(f"Cleared existing green path for {component_key} before starting new drawing")
+        elif hasattr(self.parent_window, 'selected_part_name') and self.parent_window.selected_part_name:
+            component_key = self.parent_window.selected_part_name
+            if component_key in self.final_paths_map:
+                old_path_item = self.final_paths_map.pop(component_key)
+                if old_path_item and old_path_item.scene():
+                    self.scene().removeItem(old_path_item)
+                    logging.debug(f"Cleared existing green path for {component_key} before starting new drawing")
 
         self.current_target_item_for_path = target_item  # Can be None
         self.current_freehand_path = QPainterPath()

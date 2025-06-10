@@ -66,6 +66,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.part_info = part_info
         self.project_dir = project_dir  # Store project_dir for texture loading
         self.debug_mode = debug_mode  # ADDED: Store debug_mode
+        self.is_active = False  # For special highlighting
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -285,21 +286,26 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
     def set_fixed(self, fixed: bool):
         self._is_fixed = fixed
-    
+
     @property
     def is_joint_locked(self) -> bool:
         """Returns True if the joint associated with this part is locked for IK solving."""
         return self._is_joint_locked
-    
+
     def set_joint_locked(self, locked: bool):
-        """Sets whether the joint associated with this part is locked for IK solving."""
+        """Set the IK lock state of the joint associated with this part."""
         self._is_joint_locked = locked
-        # Note: We might want to disable movement for locked joints, but that's handled separately
-        # from the is_fixed property. For now, just store the state.
+        logging.debug(f"Part '{self.name()}' joint lock state set to: {locked}")
+
+    def set_active(self, active: bool):
+        """Set the visual 'active' state for custom highlighting (e.g., orange tint)."""
+        if self.is_active != active:
+            self.is_active = active
+            self.update()  # Trigger a repaint
 
     def set_motion_path(self, path: Optional[QPainterPath]):
         self.motion_path = path
-        self.update_motion_path_visual()
+        # self.update_motion_path_visual() # View now handles this
 
     def update_motion_path_visual(self):
         # EditorView is now responsible for drawing the final motion paths.
@@ -370,7 +376,24 @@ class CharacterPartItem(QGraphicsPixmapItem):
         option: QStyleOptionGraphicsItem,
         widget: Optional[QWidget] = None,
     ):
-        super().paint(painter, option, widget)
+        # We don't want the default Qt selection rectangle to be drawn,
+        # so we clear the QStyle.State_Selected flag before calling super().paint()
+        # if option.state & QStyle.State_Selected:
+        #     option.state &= ~QStyle.State_Selected
+        painter.save()
+
+        if self.part_pixmap:
+            # Draw the actual part pixmap
+            painter.drawPixmap(
+                self.boundingRect(), self.part_pixmap, QRectF(self.part_pixmap.rect())
+            )
+
+        if self.is_active:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 165, 0, 100))  # Semi-transparent orange
+            painter.drawRect(self.boundingRect())
+
+        painter.restore()
 
         if self.debug_mode:
             painter.save()

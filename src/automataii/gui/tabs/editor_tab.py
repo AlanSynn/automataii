@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QDialog,
     QGraphicsPathItem,
+    QLabel,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QTimer, QRectF
 from PyQt6.QtCore import pyqtSlot
@@ -76,42 +77,27 @@ class EditorTab(QWidget):
 
         # --- UI Elements owned by this tab ---
         self.parts_list: Optional[QListWidget] = None
-        self.part_properties_group: Optional[QGroupBox] = None
-        self.z_value_spin: Optional[QDoubleSpinBox] = None
-        self.fixed_part_check: Optional[QCheckBox] = None
-
         self.define_motion_path_btn: Optional[QPushButton] = None
         self.clear_motion_path_btn: Optional[QPushButton] = None
+        self.motion_path_status_label: Optional[QLabel] = None
+        self.motion_path_info_label: Optional[QLabel] = None
+        self.animation_status_label: Optional[QLabel] = None
+        self.generate_mechanisms_btn: Optional[QPushButton] = None
 
         self.play_btn: Optional[QPushButton] = None
         self.stop_btn: Optional[QPushButton] = None
-        self.reset_sim_btn: Optional[QPushButton] = (
-            None  # This is the general simulation reset
-        )
-        self.reset_all_animations_btn: Optional[QPushButton] = (
-            None  # This is for paths/poses
-        )
-
-        self.toggle_anchors_btn: Optional[QCheckBox] = None
-
-        self.blueprint_btn: Optional[QPushButton] = None
-        self.save_alignment_btn: Optional[QPushButton] = None
-
-        self.zoom_combo: Optional[QComboBox] = None
-        self.fit_btn: Optional[QPushButton] = None
+        self.reset_sim_btn: Optional[QPushButton] = None
 
         # Data specific to this tab
         self.selected_part_name: Optional[str] = None
         self.current_parts_info: Dict[str, PartInfo] = {}
         self.current_editor_items: Dict[str, CharacterPartItem] = {}
 
-
         # Store for defined joints within this tab
         self.joints: List[Dict] = []  # List of joint data dictionaries
 
         # Cache for initial skeleton data, to be set by MainWindow
         self._initial_skeleton_data_cache: Optional[Dict] = None
-
 
         self.current_simulation_state: str = "stopped"  # For logging IK updates
         self.ik_log_counter: Dict[str, int] = {}  # To limit logs per part/state
@@ -145,370 +131,483 @@ class EditorTab(QWidget):
         # Left Control Panel
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(280)
+        scroll_area.setFixedWidth(300)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         control_panel = QWidget()
-        # control_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred) #This can cause issues
         panel_layout = QVBoxLayout(control_panel)
         panel_layout.setContentsMargins(10, 10, 10, 10)
-        panel_layout.setSpacing(12)
+        panel_layout.setSpacing(15)
 
-        # Parts List Group
-        parts_group = QGroupBox("Character Parts")
+        # 1. Parts List Group
+        parts_group = QGroupBox("1 Parts")
+        parts_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e3e9f0;
+                border-radius: 9px;
+                padding: 18px;
+                margin-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                margin-left: 15px;
+                font-size: 12pt;
+                font-weight: bold;
+                color: #5c85d6;
+                background-color: #ffffff;
+            }
+        """)
         parts_layout = QVBoxLayout(parts_group)
         self.parts_list = QListWidget()
         self.parts_list.setToolTip("List of loaded character parts")
-        self.parts_list.setMinimumHeight(100)
+        self.parts_list.setMinimumHeight(180)  # Increased height
+        self.parts_list.setStyleSheet(
+            """
+            QListWidget {
+                background-color: white;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+                padding: 4px;
+                font-size: 13px;
+            }
+            QListWidget::item {
+                padding: 8px 12px;
+                margin: 2px;
+                border-radius: 4px;
+                border: 1px solid transparent;
+            }
+            QListWidget::item:selected {
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                    stop: 0 #0078D7, stop: 1 #005a9e);
+                color: white;
+                border: 1px solid #004578;
+            }
+            QListWidget::item:selected:!active {
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                    stop: 0 #0078D7, stop: 1 #005a9e);
+                color: white;
+                border: 1px solid #004578;
+            }
+            QListWidget::item:hover {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+            }
+        """
+        )
         parts_layout.addWidget(self.parts_list)
         panel_layout.addWidget(parts_group)
 
-        # Selected Part Properties Group
-        self.part_properties_group = QGroupBox("Selected Part Properties")
-        part_props_layout = QFormLayout(
-            self.part_properties_group
-        )  # Changed from self.main_window.part_props
-        part_props_layout.setSpacing(8)
-        self.z_value_spin = QDoubleSpinBox()
-        self.z_value_spin.setRange(-100, 100)
-        self.z_value_spin.setSingleStep(0.1)
-        self.z_value_spin.setToolTip("Adjust Z-depth (layering)")
-        self.z_value_spin.setEnabled(False)
-        self.fixed_part_check = QCheckBox("Fixed in Place")
-        self.fixed_part_check.setToolTip(
-            "If checked, this part will not move during simulation (unless it is the root of a chain being driven by IK)."
-        )
-        self.fixed_part_check.setEnabled(False)
-        part_props_layout.addRow("Z-Value:", self.z_value_spin)
-        part_props_layout.addRow(self.fixed_part_check)
-        self.part_properties_group.setEnabled(False)
-        self.part_properties_group.setVisible(
-            False
-        )  # Visibility controlled by OptionsTab signal now
-        panel_layout.addWidget(self.part_properties_group)
-
-        # Motion Path Definition Group
-        motion_path_group = QGroupBox("Motion Path")
+        # 2. Motion Path Definition Group
+        motion_path_group = QGroupBox("2 Motion Path")
+        motion_path_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e3e9f0;
+                border-radius: 9px;
+                padding: 18px;
+                margin-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                margin-left: 15px;
+                font-size: 12pt;
+                font-weight: bold;
+                color: #5c85d6;
+                background-color: #ffffff;
+            }
+        """)
         motion_path_layout = QVBoxLayout(motion_path_group)
-        self.define_motion_path_btn = QPushButton("Draw Motion Path")
+
+        self.motion_path_status_label = QLabel("Select a part")
+        self.motion_path_status_label.setStyleSheet("""
+            font-weight: bold;
+            font-size: 14px;
+            color: #495057;
+            padding: 8px;
+            text-align: center;
+        """)
+        self.motion_path_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        motion_path_layout.addWidget(self.motion_path_status_label)
+
+        motion_path_buttons_layout = QHBoxLayout()
+        motion_path_buttons_layout.setSpacing(6)  # Spacing between buttons
+
+        # Button styles to match the total width of generation mechanism button
+        # Total width should be similar to "Generate Mechanisms →" button
+        self.define_motion_path_btn = QPushButton("Start Drawing")
         self.define_motion_path_btn.setCheckable(True)
         self.define_motion_path_btn.setToolTip(
             "Toggle mode to draw a motion path for the selected part."
         )
         self.define_motion_path_btn.setEnabled(False)
-        motion_path_layout.addWidget(self.define_motion_path_btn)
-        self.clear_motion_path_btn = QPushButton("Clear Motion Path")
+        self.define_motion_path_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #a7c7e7;
+                border: 1px solid #96b6d6;
+                border-radius: 7px;
+                padding: 10px 18px;
+                font-weight: bold;
+                color: #ffffff;
+                min-height: 30px;
+                min-width: 140px;
+                font-size: 12pt;
+            }
+            QPushButton:hover {
+                background-color: #96b6d6;
+                border-color: #85a5c5;
+            }
+            QPushButton:pressed {
+                background-color: #85a5c5;
+                border-color: #7494b4;
+            }
+            QPushButton:checked {
+                background-color: #5c85d6;
+                border-color: #4b74c5;
+                color: white;
+            }
+            QPushButton:disabled {
+                background-color: #e0e6ed;
+                color: #a0aab5;
+                border-color: #dbe4f0;
+            }
+        """)
+        motion_path_buttons_layout.addWidget(self.define_motion_path_btn)
+
+        self.clear_motion_path_btn = QPushButton("Clear")
         self.clear_motion_path_btn.setToolTip(
             "Clear the motion path for the selected part."
         )
         self.clear_motion_path_btn.setEnabled(False)
-        motion_path_layout.addWidget(self.clear_motion_path_btn)
-        panel_layout.addWidget(motion_path_group)
-
-        # Motion & Simulation Group
-        motion_sim_group = QGroupBox("Motion & Simulation")
-        motion_sim_layout = QFormLayout(motion_sim_group)
-        motion_sim_layout.setSpacing(10)
-        sim_button_layout = QHBoxLayout()
-        sim_button_layout.setSpacing(6)
-        style = self.style()  # Use self.style()
-        self.play_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), ""
-        )
-        self.play_btn.setToolTip("Play Simulation")
-        self.stop_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), ""
-        )
-        self.stop_btn.setToolTip("Stop Simulation")
-        self.stop_btn.setEnabled(False)
-        # self.reset_sim_btn below is the one for the general simulation reset.
-        # The one in Animation Controls group is specific to Animation Paths/Poses.
-        self.reset_sim_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), ""
-        )
-        self.reset_sim_btn.setToolTip("Restart Simulation from initial state")
-        self.reset_sim_btn.setEnabled(False)
-        sim_button_layout.addWidget(self.play_btn)
-        sim_button_layout.addWidget(self.stop_btn)
-        sim_button_layout.addWidget(self.reset_sim_btn)
-        motion_sim_layout.addRow(sim_button_layout)
-        panel_layout.addWidget(motion_sim_group)
-
-
-        # Export Group
-        export_group = QGroupBox("Export")
-        export_layout = QVBoxLayout(export_group)
-        self.blueprint_btn = QPushButton("Generate Blueprint (SVG)")
-        self.blueprint_btn.setToolTip(
-            "Generate an SVG blueprint of all parts for fabrication"
-        )
-        export_layout.addWidget(self.blueprint_btn)
-        panel_layout.addWidget(export_group)
-
-        # Character Alignment Group
-        alignment_group = QGroupBox("Character Alignment")
-        alignment_layout = QVBoxLayout(alignment_group)
-        self.save_alignment_btn = QPushButton("Save Current Alignment")
-        self.save_alignment_btn.setToolTip(
-            "Save the current character position as the default alignment for this character."
-        )
-        self.save_alignment_btn.setEnabled(False)
-        alignment_layout.addWidget(self.save_alignment_btn)
-        panel_layout.addWidget(alignment_group)
-
-        # Animation Controls Group (for motion paths / IK pose reset)
-
-        panel_layout.addStretch()
-        control_panel.adjustSize()  # Adjust size before setting to scroll area
-        scroll_area.setWidget(control_panel)
-
-        # Right View Area (EditorView is owned by MainWindow)
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(5, 5, 5, 5)
-        right_layout.setSpacing(5)
-
-        # Zoom Toolbar (for EditorView)
-        zoom_toolbar = QWidget()
-        zoom_layout = QHBoxLayout(zoom_toolbar)
-        zoom_layout.setContentsMargins(10, 8, 10, 8)
-        zoom_layout.setSpacing(8)
-        zoom_layout.addStretch()
-
-        self.zoom_combo = QComboBox()
-        self.zoom_combo.setEditable(True)
-        self.zoom_combo.setFixedSize(70, 28)
-        self.zoom_combo.setStyleSheet(
-            """
-            QComboBox {
-                border: 1px solid #d0d7de;
-                border-radius: 6px;
-                padding: 4px 8px;
-                background-color: white;
-                font-size: 12px;
-            }
-            QComboBox:hover {
-                border-color: #586069;
-            }
-        """
-        )
-        zoom_levels = ["50%", "75%", "90%", "100%", "125%", "150%", "200%"]
-        self.zoom_combo.addItems(zoom_levels)
-        self.zoom_combo.setCurrentText("100%")
-        self.zoom_combo.setToolTip("Zoom level for editor view")
-
-        self.fit_btn = QPushButton("Fit")
-        self.fit_btn.setFixedSize(45, 28)
-        self.fit_btn.setStyleSheet(
-            """
+        self.clear_motion_path_btn.setStyleSheet("""
             QPushButton {
-                border: 1px solid #d0d7de;
-                border-radius: 4px;
-                padding: 4px 4px;
-                background-color: white;
-                font-size: 13px;
-                color: #24292f;
+                background-color: #a7c7e7;
+                border: 1px solid #96b6d6;
+                border-radius: 7px;
+                padding: 10px 18px;
+                font-weight: bold;
+                color: #ffffff;
+                min-height: 30px;
+                min-width: 80px;
+                font-size: 12pt;
             }
             QPushButton:hover {
-                background-color: #f6f8fa;
-                border-color: #586069;
+                background-color: #96b6d6;
+                border-color: #85a5c5;
             }
             QPushButton:pressed {
-                background-color: #e9ecef;
+                background-color: #85a5c5;
+                border-color: #7494b4;
+            }
+            QPushButton:disabled {
+                background-color: #e0e6ed;
+                color: #a0aab5;
+                border-color: #dbe4f0;
+            }
+        """)
+        motion_path_buttons_layout.addWidget(self.clear_motion_path_btn)
+        motion_path_layout.addLayout(motion_path_buttons_layout)
+
+        self.motion_path_info_label = QLabel(
+            "Click points in the view to draw path. Click 'Stop Drawing' when done."
+        )
+        self.motion_path_info_label.setWordWrap(True)
+        self.motion_path_info_label.setStyleSheet(
+            "background-color: #E6F7FF; border: 1px solid #BCE0FF; padding: 5px; border-radius: 3px;"
+        )
+        self.motion_path_info_label.setVisible(False)
+        motion_path_layout.addWidget(self.motion_path_info_label)
+
+        panel_layout.addWidget(motion_path_group)
+
+        # 3. Animation Group
+        animation_group = QGroupBox("3 Animation")
+        animation_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #ffffff;
+                border: 1px solid #e3e9f0;
+                border-radius: 9px;
+                padding: 18px;
+                margin-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 10px;
+                margin-left: 15px;
+                font-size: 12pt;
+                font-weight: bold;
+                color: #5c85d6;
+                background-color: #ffffff;
+            }
+        """)
+        animation_layout = QVBoxLayout(animation_group)
+
+        self.animation_status_label = QLabel("No motion paths defined")
+        animation_layout.addWidget(self.animation_status_label)
+
+        # TODO: Add slider here if needed in future. For now, skipping.
+
+        anim_button_layout = QHBoxLayout()
+        anim_button_layout.setSpacing(4)  # Reduce spacing for more compact layout
+        style = self.style()
+
+        # Compact styling for animation buttons
+        animation_button_style = """
+            QPushButton {
+                background-color: #a7c7e7;
+                border: 1px solid #96b6d6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-weight: bold;
+                color: #ffffff;
+                min-height: 18px;
+                min-width: 45px;
+                max-width: 50px;
+                font-size: 9pt;
+            }
+            QPushButton:hover {
+                background-color: #96b6d6;
+                border-color: #85a5c5;
+            }
+            QPushButton:pressed {
+                background-color: #85a5c5;
+                border-color: #7494b4;
+            }
+            QPushButton:disabled {
+                background-color: #e0e6ed;
+                color: #a0aab5;
+                border-color: #dbe4f0;
             }
         """
+
+        # Play button
+        self.play_btn = QPushButton(
+            style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), " Play"
         )
-        self.fit_btn.setToolTip("Zoom to fit all items in editor view")
+        self.play_btn.setToolTip("Play Animation")
+        self.play_btn.setStyleSheet(animation_button_style)
 
-        zoom_layout.addWidget(self.zoom_combo)
-        zoom_layout.addWidget(self.fit_btn)
+        # Stop button
+        self.stop_btn = QPushButton(
+            style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), " Stop"
+        )
+        self.stop_btn.setToolTip("Stop Animation")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.setStyleSheet(animation_button_style)
 
-        right_layout.addWidget(self.editor_view, 1)
+        # Reset button
+        self.reset_sim_btn = QPushButton(
+            style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), " Reset"
+        )
+        self.reset_sim_btn.setToolTip("Reset Animation")
+        self.reset_sim_btn.setEnabled(False)
+        self.reset_sim_btn.setStyleSheet(animation_button_style)
 
-        zoom_toolbar.setParent(right_panel)  # Attach to right_panel for positioning
-        zoom_toolbar.setStyleSheet(
-            """
-            QWidget {
-                background-color: rgba(248, 249, 250, 0.9);
-                border: 1px solid rgba(208, 215, 222, 0.8);
-                border-radius: 1px;
+        anim_button_layout.addWidget(self.play_btn)
+        anim_button_layout.addWidget(self.stop_btn)
+        anim_button_layout.addWidget(self.reset_sim_btn)
+        animation_layout.addLayout(anim_button_layout)
+
+        self.generate_mechanisms_btn = QPushButton("Generate Mechanisms →")
+        self.generate_mechanisms_btn.setToolTip(
+            "Generate mechanisms from the defined motion paths"
+        )
+        self.generate_mechanisms_btn.setEnabled(False)
+        self.generate_mechanisms_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5c85d6;
+                border: 1px solid #4b74c5;
+                border-radius: 7px;
+                padding: 12px 24px;
+                font-weight: bold;
+                color: white;
+                min-height: 32px;
+                font-size: 13pt;
             }
-        """
-        )
-        zoom_toolbar.show()
+            QPushButton:hover {
+                background-color: #4b74c5;
+                border-color: #3a63b4;
+            }
+            QPushButton:pressed {
+                background-color: #3a63b4;
+                border-color: #2952a3;
+            }
+            QPushButton:disabled {
+                background-color: #e0e6ed;
+                color: #a0aab5;
+                border-color: #dbe4f0;
+            }
+        """)
+        animation_layout.addWidget(self.generate_mechanisms_btn)
 
-        def position_editor_zoom_toolbar():
-            if not right_panel.isVisible() or not zoom_toolbar.isVisible():
-                return
-            toolbar_width = zoom_toolbar.sizeHint().width()
-            toolbar_height = zoom_toolbar.sizeHint().height()
-            x = right_panel.width() - toolbar_width - 10
-            y = right_panel.height() - toolbar_height - 10
-            zoom_toolbar.setGeometry(x, y, toolbar_width, toolbar_height)
+        panel_layout.addWidget(animation_group)
 
-        original_show_event = right_panel.showEvent
+        panel_layout.addStretch(1)
 
-        def new_show_event(event):
-            original_show_event(event)
-            QApplication.instance().processEvents()
-            position_editor_zoom_toolbar()
+        control_panel.setMinimumWidth(280)
 
-        right_panel.showEvent = new_show_event
-
-        original_resize_event = right_panel.resizeEvent
-
-        def new_resize_event(event):
-            original_resize_event(event)
-            position_editor_zoom_toolbar()
-
-        right_panel.resizeEvent = new_resize_event
-        if right_panel.isVisible():  # Initial position if already visible
-            QApplication.instance().processEvents()
-            position_editor_zoom_toolbar()
-
+        scroll_area.setWidget(control_panel)
         layout.addWidget(scroll_area)
-        layout.addWidget(right_panel, 1)
-        self.setLayout(layout)
+        layout.addWidget(self.editor_view, 1)
 
-        # Connect signals to internal methods or emit signals
+        # Connect signals
         self.parts_list.currentItemChanged.connect(self._handle_part_selection_change)
-        self.parts_list.itemClicked.connect(
-            self._handle_part_list_click
-        )  # Assuming this method will be added
-        self.z_value_spin.valueChanged.connect(self._update_selected_part_z)
-        self.fixed_part_check.stateChanged.connect(self._update_selected_part_fixed)
-
         self.define_motion_path_btn.toggled.connect(
             self._toggle_define_motion_path_mode
         )
         self.clear_motion_path_btn.clicked.connect(
             self._clear_selected_item_motion_path
         )
-
         self.play_btn.clicked.connect(self._play_simulation_clicked)
         self.stop_btn.clicked.connect(self._stop_simulation_clicked)
-        self.reset_sim_btn.clicked.connect(
-            self._reset_simulation_clicked
-        )  # General sim reset
+        self.reset_sim_btn.clicked.connect(self._reset_simulation_clicked)
+        self.generate_mechanisms_btn.clicked.connect(self._generate_mechanism_clicked)
 
-        self.blueprint_btn.clicked.connect(self.request_generate_blueprint.emit)
-        self.save_alignment_btn.clicked.connect(self.request_save_alignment.emit)
-
-        self.zoom_combo.currentTextChanged.connect(self._handle_zoom_change)
-        self.fit_btn.clicked.connect(self._handle_zoom_change_fit)
-
-        self._update_button_states()  # Initial button states
-
-    # --- Method Stubs/Implementations ---
     def _handle_part_selection_change(
         self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]
     ):
         """Handles selection changes from the parts_list QListWidget."""
+        logging.debug(f"EditorTab: Part selection changed. Current item: {current}")
         if current:
-            part_name = current.data(
-                Qt.ItemDataRole.UserRole
-            )  # Get part name from item data
-            if part_name and part_name in self.current_editor_items:
-                self.selected_part_name = part_name
-                # Highlight in scene (EditorView handles visual selection based on QGraphicsScene selection model)
-                # Ensure the scene's selection model is updated if list widget drives selection
-                item_to_select = self.current_editor_items[part_name]
-                self.editor_scene.clearSelection()  # Clear previous scene selection
-                item_to_select.setSelected(True)  # Select the item in the scene
+            part_name = current.data(Qt.ItemDataRole.UserRole)  # Get part name from item data
+            logging.debug(f"EditorTab: Part name from UserRole: {part_name}")
+            logging.debug(f"EditorTab: Available parts: {list(self.current_editor_items.keys())}")
 
-                logging.debug(f"EditorTab: Part '{part_name}' selected via list.")
+            if part_name:
+                self.selected_part_name = part_name
+
+                # If the part exists in editor items, highlight it in the scene
+                if part_name in self.current_editor_items:
+                    item_to_select = self.current_editor_items[part_name]
+                    self.editor_scene.clearSelection()  # Clear previous scene selection
+                    item_to_select.setSelected(True)  # Select the item in the scene
+                    logging.info(f"EditorTab: Part '{part_name}' selected and highlighted in scene.")
+                else:
+                    self.editor_scene.clearSelection()
+                    logging.debug(f"EditorTab: Part '{part_name}' selected but not yet loaded in scene.")
             else:
                 self.selected_part_name = None
                 self.editor_scene.clearSelection()
+                logging.warning(f"EditorTab: No part name found in UserRole data")
         else:
             self.selected_part_name = None
             self.editor_scene.clearSelection()
+            logging.debug("EditorTab: No part selected")
 
         self.update_part_properties_panel(self.selected_part_name)
         self._update_button_states()
+
+        if self.selected_part_name:
+            self.motion_path_status_label.setText(self.selected_part_name)
+        else:
+            self.motion_path_status_label.setText("Select a part")
+
+        # Update part list styles whenever selection changes
+        self._update_part_list_styles()
 
     def _handle_part_list_click(self, item: QListWidgetItem):
         # Currently, currentItemChanged handles selection. This could be for other interactions.
         logging.info(f"Part list item clicked: {item.text()}")
 
-    def _update_selected_part_z(self, z_value: float):
-        if (
-            self.selected_part_name
-            and self.selected_part_name in self.current_editor_items
-        ):
-            part_item = self.current_editor_items[self.selected_part_name]
-            part_item.setZValue(z_value)
-            # Update stored PartInfo
-            if self.selected_part_name in self.current_parts_info:
-                self.current_parts_info[self.selected_part_name].z_value = z_value
-            # self.main_window.editor_scene.update() # Scene is local now
-            self.editor_scene.update()  # Ensure scene redraws
-            logging.info(f"Set Z-value for {self.selected_part_name} to {z_value}")
-
-    def _update_selected_part_fixed(self, state_int: int):
-        is_fixed = bool(state_int == Qt.CheckState.Checked.value)
-        if (
-            self.selected_part_name
-            and self.selected_part_name in self.current_editor_items
-        ):
-            part_item = self.current_editor_items[self.selected_part_name]
-            part_item.set_fixed(is_fixed)
-            # Update stored PartInfo
-            if self.selected_part_name in self.current_parts_info:
-                self.current_parts_info[self.selected_part_name].fixed = is_fixed
-            logging.info(f"Set fixed state for {self.selected_part_name} to {is_fixed}")
-
     def _toggle_define_motion_path_mode(self, checked: bool):
-        if not self.selected_part_name:
-            self.define_motion_path_btn.setChecked(
-                False
-            )  # Ensure button is off if no selection
-            self.editor_view.set_mode("select")  # Ensure view is in select mode
-            return
-
-        selected_part_item = self.current_editor_items.get(self.selected_part_name)
-        if not selected_part_item:
-            self.define_motion_path_btn.setChecked(False)
+        """Handle the 'Start/Stop Drawing' button toggle."""
+        part_name = self.selected_part_name
+        if not part_name or not checked:
             self.editor_view.set_mode("select")
-            logging.warning(
-                f"EditorTab: Selected part '{self.selected_part_name}' not found for motion path."
-            )
+            self.define_motion_path_btn.setText("Start Drawing")
+            self.define_motion_path_btn.setStyleSheet("")
+            self.motion_path_info_label.setVisible(False)
+            if checked:
+                self.define_motion_path_btn.setChecked(False)
             return
 
-        if checked:
-            # Entering mode
-            self.editor_view.start_define_motion_path(selected_part_item)
-            self.main_window.statusBar().showMessage(
-                f"Draw motion path for {self.selected_part_name}. Click & drag. Esc or toggle button to exit."
-            )
-        else:
-            # Exiting mode
-            self.editor_view.finish_motion_path_drawing()
-            self.main_window.statusBar().showMessage("Draw motion path mode ended.")
+        logging.debug(f"Toggling drawing mode for part: {part_name}")
+        # Set the drawing mode and start motion path definition
+        self.editor_view.set_mode("define_motion_path")
+        # Find the target part item for path drawing
+        if part_name in self.current_editor_items:
+            target_item = self.current_editor_items[part_name]
+            self.editor_view.start_define_motion_path(target_item)
+
+        self.define_motion_path_btn.setText("Stop Drawing")
+        self.define_motion_path_btn.setStyleSheet("background-color: #0078D7; color: white;")
+        self.motion_path_info_label.setVisible(True)
+
+        # Uncheck button if drawing is completed/cancelled from the view
+        # This is handled by connecting the view's signals to this button's slot/lambda
 
     def _clear_selected_item_motion_path(self):
-        if (
-            self.selected_part_name
-            and self.selected_part_name in self.current_editor_items
-        ):
+        if not self.selected_part_name:
+            logging.warning("No part selected for motion path clearing")
+            return
+
+        logging.info(f"Clearing motion path for selected part: {self.selected_part_name}")
+
+        # Clear motion path from CharacterPartItem if it exists
+        if self.selected_part_name in self.current_editor_items:
             part_item = self.current_editor_items[self.selected_part_name]
-            if part_item.motion_path_item:
-                self.editor_scene.removeItem(part_item.motion_path_item)
+
+            # Clear motion path data
+            part_item.motion_path = None
+
+            # Clear motion path visual if it exists
+            if hasattr(part_item, 'motion_path_item') and part_item.motion_path_item:
+                if part_item.motion_path_item.scene():
+                    self.editor_scene.removeItem(part_item.motion_path_item)
                 part_item.motion_path_item = None
+
+            # Clear motion path points if they exist
+            if hasattr(part_item, 'motion_path_points'):
                 part_item.motion_path_points = []
-                # Also clear from self.current_parts_info if stored there
-                if self.selected_part_name in self.current_parts_info:
-                    self.current_parts_info[self.selected_part_name].motion_path = []
-                logging.info(f"Cleared motion path for {self.selected_part_name}")
-                self.main_window.statusBar().showMessage(
-                    f"Motion path cleared for {self.selected_part_name}"
-                )
-            else:
-                self.main_window.statusBar().showMessage(
-                    f"No motion path to clear for {self.selected_part_name}"
-                )
+
+        # Clear from current_parts_info (ProjectDataManager data)
+        if self.selected_part_name in self.current_parts_info:
+            self.current_parts_info[self.selected_part_name].motion_path = None
+
+        # Clear visual path from EditorView's final paths map (green paths)
+        if hasattr(self.editor_view, 'final_paths_map') and self.selected_part_name in self.editor_view.final_paths_map:
+            path_item = self.editor_view.final_paths_map.pop(self.selected_part_name)
+            if path_item and path_item.scene():
+                self.editor_scene.removeItem(path_item)
+                logging.info(f"Removed green path visual for {self.selected_part_name}")
+
+        # Also try to clear using EditorView's method if it exists
+        if hasattr(self.editor_view, 'clear_visual_path_for_component'):
+            self.editor_view.clear_visual_path_for_component(self.selected_part_name)
+
+        # Clear from main window's project data manager if it exists
+        if hasattr(self.main_window, 'project_data_manager'):
+            current_parts = self.main_window.project_data_manager.get_current_parts_data()
+            if current_parts and self.selected_part_name in current_parts:
+                current_parts[self.selected_part_name].motion_path = None
+
+        # Emit signal to notify other components that path was cleared
+        if hasattr(self, 'motion_path_updated'):
+            from PyQt6.QtGui import QPainterPath
+            empty_path = QPainterPath()
+            self.motion_path_updated.emit(self.selected_part_name, empty_path)
+
+        logging.info(f"Motion path cleared for {self.selected_part_name}")
+        self.main_window.statusBar().showMessage(
+            f"Motion path cleared for {self.selected_part_name}"
+        )
+
+        # Update UI states
         self._update_button_states()
+        self._update_part_list_styles()
+
+        # Force scene update to ensure visuals are refreshed
+        self.editor_scene.update()
+        self.editor_view.viewport().update()
+
+        # Emit updated path data to other tabs
+        self._emit_path_data()
 
     def _play_simulation_clicked(self):
         # Always emit the signal so IK manager knows we're playing
@@ -548,11 +647,24 @@ class EditorTab(QWidget):
         self.editor_scene.update()
 
     def _generate_mechanism_clicked(self):
-        """Placeholder for removed mechanism generation functionality."""
-        logging.info("Mechanism generation has been removed from the editor tab.")
-        return
+        # This was previously blueprint_btn
+        logging.debug("Generate Mechanism button clicked")
+
+        # Collect all path data and emit it
+        self._emit_path_data()
+
+        # Switch to mechanism design tab
+        if hasattr(self.main_window, 'tab_widget') and hasattr(self.main_window, 'mechanism_design_tab'):
+            for i in range(self.main_window.tab_widget.count()):
+                if self.main_window.tab_widget.widget(i) == self.main_window.mechanism_design_tab:
+                    self.main_window.tab_widget.setCurrentIndex(i)
+                    break
+
+        self.request_generate_blueprint.emit()
 
     def _handle_zoom_change(self, zoom_text: str):
+        # This functionality is removed from the UI, but we keep the method
+        # in case it's called from somewhere else (e.g., main window menu).
         try:
             if zoom_text.lower() == "fit":
                 self.editor_view.zoom_to_fit()
@@ -569,97 +681,104 @@ class EditorTab(QWidget):
             self.zoom_combo.blockSignals(False)
 
     def _handle_zoom_change_fit(self):
+        # This functionality is removed from the UI
         self.editor_view.zoom_to_fit()
-        # _update_zoom_combo_from_view will be called by editor_view's signal
 
     def _update_zoom_combo_from_view(self, scale_factor: float):
-        self.zoom_combo.blockSignals(True)
-        self.zoom_combo.setCurrentText(f"{int(scale_factor * 100)}%")
-        self.zoom_combo.blockSignals(False)
+        # This functionality is removed from the UI
+        pass
 
-    def populate_parts_list(self):
+    def populate_parts_list(self, part_names: List[str]):
+        """Populate the parts list widget with given names."""
         self.parts_list.clear()
-        if not self.current_parts_info:
-            self.update_part_properties_panel(None)
-            self._update_button_states()
-            self.parts_loaded.emit(False)
-            return
-
-        # Define the desired parts, their system names, and display order
-        ORDERED_DISPLAY_PARTS = [
-            ("head", "Head"),
-            ("left_arm_lower", "Left Arm"),
-            ("right_arm_lower", "Right Arm"),
-            ("left_leg_lower", "Left Leg"),
-            ("right_leg_lower", "Right Leg"),
-        ]
-
-        parts_added_to_list_count = 0
-        for system_name, display_name in ORDERED_DISPLAY_PARTS:
-            if system_name in self.current_parts_info:
-                item = QListWidgetItem(
-                    display_name
-                )  # Use display name for the list item text
-                item.setData(
-                    Qt.ItemDataRole.UserRole, system_name
-                )  # Store the actual system name
-                self.parts_list.addItem(item)
-                parts_added_to_list_count += 1
-
-        logging.info(
-            f"Populated parts list with {parts_added_to_list_count} items based on defined mapping."
-        )
-
-        self.update_part_properties_panel(None)  # Clear properties panel initially
+        for part_name in part_names:
+            item = QListWidgetItem(part_name)
+            item.setData(Qt.ItemDataRole.UserRole, part_name)  # Store part name in UserRole
+            self.parts_list.addItem(item)
         self._update_button_states()
-        self.parts_loaded.emit(parts_added_to_list_count > 0)
+        self._update_part_list_styles()
+        self._update_active_part_visuals()
 
     def update_part_properties_panel(self, part_name: Optional[str]):
-        if part_name and part_name in self.current_parts_info:
-            part_info = self.current_parts_info[part_name]
-            self.z_value_spin.setValue(part_info.z_value)
-            self.fixed_part_check.setChecked(part_info.fixed)
-            self.part_properties_group.setEnabled(True)
-            self.z_value_spin.setEnabled(True)
-            self.fixed_part_check.setEnabled(True)
-        else:
-            self.part_properties_group.setEnabled(False)
-            self.z_value_spin.setEnabled(False)
-            self.fixed_part_check.setEnabled(False)
-            self.z_value_spin.setValue(0)  # Reset
-            self.fixed_part_check.setChecked(False)  # Reset
+        # This panel is now removed. This function can be kept as a no-op for now.
+        pass
 
     def _update_button_states(self):
-        has_parts = (
-            self.parts_list.count() > 0 if self.parts_list else False
-        )  # Add check for self.parts_list
-        has_selection = self.selected_part_name is not None
-        is_sim_playing = (
-            self.stop_btn.isEnabled() if self.stop_btn else False
-        )  # Add check for self.stop_btn
+        """Update the enabled/disabled state of all buttons based on current state."""
+        selected = self.selected_part_name is not None
+        has_any_path = self._has_any_motion_path()
+        selected_part_has_path = selected and self._has_motion_path(self.selected_part_name)
 
-        if self.define_motion_path_btn:
-            self.define_motion_path_btn.setEnabled(has_selection and not is_sim_playing)
-        if self.clear_motion_path_btn:
-            self.clear_motion_path_btn.setEnabled(
-                has_selection
-                and not is_sim_playing
-                and self._get_selected_part_has_motion_path()
-            )
+        logging.debug(f"EditorTab: Updating button states - selected: {selected}, selected_part: {self.selected_part_name}, has_path: {selected_part_has_path}")
 
-        if self.play_btn:
-            self.play_btn.setEnabled(has_parts and not is_sim_playing)
-        # stop_btn state handled by play/stop clicks
-        if self.reset_sim_btn:
-            self.reset_sim_btn.setEnabled(
-                has_parts and not is_sim_playing
-            )  # General sim reset
+        # Motion Path section
+        self.define_motion_path_btn.setEnabled(selected)
+        self.clear_motion_path_btn.setEnabled(selected_part_has_path)
 
+        logging.debug(f"EditorTab: Start Drawing button enabled: {selected}, Clear button enabled: {selected_part_has_path}")
 
-        if self.blueprint_btn:
-            self.blueprint_btn.setEnabled(has_parts)
-        if self.save_alignment_btn:
-            self.save_alignment_btn.setEnabled(has_parts)
+        # Animation section
+        self.play_btn.setEnabled(has_any_path)
+        self.stop_btn.setEnabled(
+            has_any_path and self.current_simulation_state == "playing"
+        )
+        self.reset_sim_btn.setEnabled(has_any_path)
+        self.generate_mechanisms_btn.setEnabled(has_any_path)
+
+        # Update animation status label
+        if has_any_path:
+            path_count = self._get_path_count()
+            self.animation_status_label.setText(f"{path_count} motion path(s) defined")
+        else:
+            self.animation_status_label.setText("No motion paths defined")
+
+        # Update part list styles to show orange background for parts with paths
+        self._update_part_list_styles()
+
+    def _has_any_motion_path(self) -> bool:
+        """Check if any part has a motion path defined."""
+        for part_item in self.current_editor_items.values():
+            if hasattr(part_item, 'motion_path') and part_item.motion_path and not part_item.motion_path.isEmpty():
+                return True
+        return False
+
+    def _has_motion_path(self, part_name: str) -> bool:
+        """Check if a specific part has a motion path defined."""
+        if not part_name:
+            return False
+
+        # Check in EditorView's final paths map first (green paths)
+        if hasattr(self.editor_view, 'final_paths_map') and part_name in self.editor_view.final_paths_map:
+            path_item = self.editor_view.final_paths_map[part_name]
+            if path_item and path_item.scene():
+                return True
+
+        # Check in current_editor_items
+        if part_name in self.current_editor_items:
+            part_item = self.current_editor_items[part_name]
+            if hasattr(part_item, 'motion_path') and part_item.motion_path and not part_item.motion_path.isEmpty():
+                return True
+
+        # Also check in current_parts_info (project data)
+        if part_name in self.current_parts_info:
+            part_info = self.current_parts_info[part_name]
+            if hasattr(part_info, 'motion_path') and part_info.motion_path:
+                if hasattr(part_info.motion_path, 'isEmpty'):
+                    return not part_info.motion_path.isEmpty()
+                elif isinstance(part_info.motion_path, list):
+                    return len(part_info.motion_path) > 0
+                else:
+                    return part_info.motion_path is not None
+
+        return False
+
+    def _get_path_count(self) -> int:
+        """Get the total number of motion paths defined."""
+        count = 0
+        for part_item in self.current_editor_items.values():
+            if hasattr(part_item, 'motion_path') and part_item.motion_path and not part_item.motion_path.isEmpty():
+                count += 1
+        return count
 
     def _get_selected_part_has_motion_path(self) -> bool:
         if (
@@ -670,9 +789,42 @@ class EditorTab(QWidget):
             return bool(part_item.motion_path and not part_item.motion_path.isEmpty())
         return False
 
-    # --- Slots for MainWindow signals / Data update methods ---
+    def _update_part_list_styles(self):
+        """Update item backgrounds to show which parts have paths."""
+        # Create sophisticated brushes for parts with and without paths
+        orange_brush = QBrush(QColor(255, 165, 0, 100))  # Semi-transparent orange background
+        transparent_brush = QBrush(QColor(Qt.GlobalColor.transparent))
+
+        for i in range(self.parts_list.count()):
+            item = self.parts_list.item(i)
+            # Get the actual part name from UserRole data (stored in populate_parts_list)
+            part_name = item.data(Qt.ItemDataRole.UserRole)
+            if not part_name:  # Fallback if UserRole data not set
+                part_name = item.text().replace(" ●", "")  # Remove indicator if present
+
+            has_path = self._has_motion_path(part_name)
+
+            if has_path:
+                # Set orange background for parts with paths
+                item.setBackground(orange_brush)
+                # Add visual indicator
+                if not item.text().endswith(" ●"):
+                    item.setText(f"{part_name} ●")  # Add bullet point to indicate path
+            else:
+                # Reset to transparent background
+                item.setBackground(transparent_brush)
+                # Remove indicator if it exists
+                if item.text().endswith(" ●"):
+                    item.setText(part_name)
+
+    def _update_active_part_visuals(self):
+        """Update the visual state of CharacterPartItems in the scene."""
+        for name, item in self.current_editor_items.items():
+            has_path = self._has_motion_path(name)
+            item.set_active(has_path)
+
     def set_parts_data(self, parts_info: Dict[str, PartInfo]):
-        """Sets parts data for the editor, creating CharacterPartItem instances."""
+        """Receives parts data and populates the editor."""
         self.clear_editor_content()  # Clear previous content first
 
         self.current_parts_info = parts_info if parts_info else {}
@@ -681,7 +833,7 @@ class EditorTab(QWidget):
         if not self.current_parts_info:
             logging.info("EditorTab: No parts data to set.")
             self.parts_loaded.emit(False)
-            self.populate_parts_list()  # Update list (will be empty)
+            self.populate_parts_list(list(self.current_parts_info.keys()))
             self._update_button_states()
             return
 
@@ -703,7 +855,7 @@ class EditorTab(QWidget):
                 "Project directory is missing. Cannot load part textures.",
             )
             self.parts_loaded.emit(False)
-            self.populate_parts_list()
+            self.populate_parts_list(list(self.current_parts_info.keys()))
             self._update_button_states()
             return
 
@@ -759,7 +911,7 @@ class EditorTab(QWidget):
                         logging.info(
                             f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})"
                         )
-                    
+
                     # Check if joint is locked and update the part item
                     is_locked = joint_data.get("is_locked", False)
                     item.set_joint_locked(is_locked)
@@ -775,13 +927,18 @@ class EditorTab(QWidget):
 
         self.current_editor_items = created_editor_items
 
-        self.parts_loaded.emit(True)
-        self.populate_parts_list()
+        self.populate_parts_list(list(self.current_parts_info.keys()))
         self._update_button_states()
         self.editor_view.reset_view()  # Set view to 100% zoom and center
         logging.info(
             f"EditorTab: Added {len(self.current_editor_items)} items to the scene and reset view to 100%."
         )
+
+        self.parts_loaded.emit(True)
+        logging.info(f"Loaded {len(self.current_parts_info)} parts into the editor.")
+
+        # Emit path data in case any parts have existing paths
+        self._emit_path_data()
 
     def clear_editor_content(self):
         """Clears all parts and joints from the editor scene."""
@@ -807,9 +964,8 @@ class EditorTab(QWidget):
         # self.visual_joint_items.clear()
         self.joints.clear()  # Clear the joint data list
 
-
         self.selected_part_name = None
-        self.populate_parts_list()  # Update list (will be empty)
+        self.populate_parts_list([])  # Update list (will be empty)
         self.update_part_properties_panel(None)
         self._update_button_states()
         self.editor_view.reset_temp_visuals()  # Clear any temporary drawing items in view
@@ -891,7 +1047,7 @@ class EditorTab(QWidget):
         self.current_simulation_state = state_string  # Update current state
         self.ik_log_counter.clear()  # Reset log counter when simulation state changes
 
-
+    @pyqtSlot(dict)
     def on_skeleton_updated(self, skeleton_data: Optional[Dict]):
         """Called by MainWindow when the skeleton is updated.
         This method is for *displaying* the skeleton.
@@ -941,11 +1097,11 @@ class EditorTab(QWidget):
                                 "label": joint_model_dict.get("label"),
                             }
                         )
-                        
+
                         # Update joint lock status for any parts that have this joint as anchor
                         is_locked = joint_model_dict.get("is_locked", False)
                         joint_name = joint_model_dict.get("name")
-                        
+
                         # Find parts that use this joint
                         for part_name, part_item in self.current_editor_items.items():
                             if part_item.anchor_joint_id == joint_name or part_item.anchor_joint_id == joint_id:
@@ -997,6 +1153,11 @@ class EditorTab(QWidget):
                 self.editor_view, "set_joint_map"
             ):  # Check if method exists
                 self.editor_view.set_joint_map(None)  # Clear map in view as well
+
+        # Refresh visuals in case this is a reload
+        self._update_part_list_styles()
+        self._update_active_part_visuals()
+        self._update_button_states()
 
     def _position_parts_at_anchor_joints(self):
         """Positions parts at their anchor joint locations based on skeleton data."""
@@ -1060,6 +1221,9 @@ class EditorTab(QWidget):
     # Slot for freehandPathCompleted signal from EditorView
     @pyqtSlot(list)  # Changed to match signal: list of QPointF
     def _handle_freehand_path_completed(self, path_points: List[QPointF]):
+        """
+        Handles the completion of a freehand drawing path from the view.
+        """
         if not self.selected_part_name:
             logging.warning("_handle_freehand_path_completed: No part selected.")
             # Do not toggle button here, mode is explicit
@@ -1097,20 +1261,24 @@ class EditorTab(QWidget):
 
         self.motion_path_updated.emit(part_name, motion_qpath)
 
+        # Emit updated path data to other tabs
+        self._emit_path_data()
+
         self.main_window.statusBar().showMessage(
-            f"Motion path updated for {part_name}. Draw again or toggle mode off."
+            f"Completed motion path for part: {part_name} with {len(path_points)} points"
         )
         # DO NOT toggle button here: self.define_motion_path_btn.setChecked(False)
         self._update_button_states()  # Update clear button state, etc.
-        logging.info(
-            f"Freehand motion path completed for {part_name} with {len(path_points)} points."
-        )
+        logging.info(f"Completed motion path for part: {part_name} with {len(path_points)} points")
 
     # Slot for drawing_cancelled signal from EditorView
     def _handle_drawing_cancelled(self):
-        self.main_window.statusBar().showMessage("Path definition cancelled.")
-        # Add any other cleanup if a specific point selection was cancelled
-        logging.info("Drawing action cancelled by EditorView.")
+        """Handles cancellation of drawing mode from the view."""
+        logging.debug("Drawing mode cancelled from view.")
+        self.define_motion_path_btn.setChecked(False)
+        self.define_motion_path_btn.setText("Start Drawing")
+        self.define_motion_path_btn.setStyleSheet("")
+        self.motion_path_info_label.setVisible(False)
 
     # --- Public slots for view actions (for MainWindow connection) ---
     @pyqtSlot()
@@ -1145,88 +1313,33 @@ class EditorTab(QWidget):
 
     @pyqtSlot(bool)
     def toggle_part_properties_panel_visibility(self, visible: bool):
-        """Shows or hides the part properties panel."""
-        if self.part_properties_group:
-            self.part_properties_group.setVisible(visible)
-            logging.debug(f"Part properties panel visibility set to: {visible}")
+        # This panel is removed, so this slot is now a no-op.
+        pass
 
-    @pyqtSlot(list)
-
-    @pyqtSlot(dict)
     def handle_joint_defined(self, joint_data: dict):
         """Handles the joint_defined signal from EditorView.
         Stores the joint data and potentially updates UI or triggers further processing.
         """
-        logging.info(f"EditorTab: Received joint_defined signal: {joint_data}")
-        # Expected joint_data: { 'parent_item_name': str, 'child_item_name': str, 'parent_pos': QPointF, 'child_pos': QPointF, 'parent_item': CharacterPartItem, 'child_item': CharacterPartItem }
-
-        # Basic storage for now. In future, might create actual Joint objects or send to a manager.
+        logging.info(f"EditorTab: Joint defined: {joint_data}")
+        # joint_data is a dict from the view as per its signal
         self.joints.append(joint_data)
-
-        # TODO: Add visual representation of the joint in the scene if needed.
-        # For example, draw a line or a specific marker between parent_pos and child_pos.
-        # Ensure any visual items are added to self.editor_scene and potentially tracked.
-
         self.main_window.statusBar().showMessage(
-            f"Joint defined between {joint_data.get('parent_item_name', 'N/A')} and {joint_data.get('child_item_name', 'N/A')}",
-            3000,
+            f"Joint defined between {joint_data['part1_name']} and {joint_data['part2_name']}"
         )
-        # Potentially update button states or other UI elements based on new joint
         self._update_button_states()
-
-    def clear_all_visual_motion_paths(self):
-        """Clears all visual motion path items from the scene and from CharacterPartItems."""
-        if not self.current_editor_items:
-            logging.info("EditorTab: No editor items to clear motion paths from.")
-            return
-
-        cleared_count = 0
-        for item_name, item_widget in self.current_editor_items.items():
-            path_cleared_on_item = False
-            if (
-                hasattr(item_widget, "motion_path_item")
-                and item_widget.motion_path_item
-            ):
-                if item_widget.motion_path_item.scene() == self.editor_scene:
-                    self.editor_scene.removeItem(item_widget.motion_path_item)
-                item_widget.motion_path_item = None
-                path_cleared_on_item = True
-
-            if (
-                hasattr(item_widget, "motion_path_points")
-                and item_widget.motion_path_points
-            ):
-                item_widget.motion_path_points = []
-                path_cleared_on_item = True
-
-            if path_cleared_on_item:
-                cleared_count += 1
-                # Ensure the item repaints if its path was removed
-                item_widget.update()
-
-        if cleared_count > 0:
-            logging.info(
-                f"EditorTab: Cleared visual motion paths for {cleared_count} items."
-            )
-            self.editor_view.update()  # Update the entire view to ensure all changes are reflected
-        else:
-            logging.info("EditorTab: No visual motion paths found to clear.")
 
     def handle_ik_update(self, ik_results: Dict[str, Dict[str, Any]]):
         """Receives IK results and updates the EditorView."""
         logging.debug(
             f"[IK_ENTRY_TRACE] EditorTab.handle_ik_update entered. Current state: {self.current_simulation_state}. IK Results count: {len(ik_results)}"
-        )  # New entry log
+        )
         if not self.editor_view:
             logging.warning("EditorTab: EditorView not available to handle IK update.")
             return
 
-        # logging.debug(f"EditorTab: Received IK update: {ik_results}")
         if not ik_results:
-            # logging.debug("EditorTab: IK results are empty, nothing to update in view.")
             return
 
-        # Corrected: ik_results is the joint_centric_data
         if ik_results:
             self.editor_view.update_visuals_from_animation_data(ik_results)
         else:
@@ -1234,31 +1347,21 @@ class EditorTab(QWidget):
                 "EditorTab.handle_ik_update: No valid joint-centric data generated from ik_results to update visuals."
             )
 
-        self.editor_view.scene().update()  # update_visuals_from_animation_data should handle scene update
+        self.editor_view.scene().update()
 
-    # New handlers for signals from EditorView
     def _handle_part_item_clicked_from_view(self, clicked_item: CharacterPartItem):
         """Handles a CharacterPartItem being clicked in the EditorView."""
         part_name = clicked_item.name()
-        self.selected_part_name = part_name
         logging.debug(f"EditorTab: Part '{part_name}' clicked in view. Selected.")
 
         # Update the QListWidget selection to match the view
         for i in range(self.parts_list.count()):
             list_item = self.parts_list.item(i)
-            if list_item.data(Qt.ItemDataRole.UserRole) == part_name:
+            if list_item.text() == part_name:
                 self.parts_list.setCurrentItem(
                     list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect
                 )
                 break
-
-        # Ensure the item is also selected in the scene (QGraphicsView might do this, but be explicit)
-        # View already emits this *after* super().mousePressEvent, so selection should be set.
-        # clicked_item.setSelected(True) # This might be redundant
-
-        self.update_part_properties_panel(self.selected_part_name)
-        self._update_button_states()
-        self._update_gizmo_visibility()
 
     def _handle_part_item_double_clicked_from_view(
         self, double_clicked_item: CharacterPartItem
@@ -1266,7 +1369,6 @@ class EditorTab(QWidget):
         """Handles a CharacterPartItem being double-clicked in the EditorView."""
         part_name = double_clicked_item.name()
         logging.debug(f"EditorTab: Part '{part_name}' double-clicked in view.")
-        # Add logic for double-click action, e.g., open a detailed properties dialog
         QMessageBox.information(
             self, "Part Double-Clicked", f"Part '{part_name}' was double-clicked."
         )
@@ -1284,104 +1386,47 @@ class EditorTab(QWidget):
         Solves the forward kinematics for a four-bar linkage for a given input angle of L1.
         P0 and P3 are fixed pivots. L1 is the crank, L2 the coupler, L3 the rocker.
         Lengths are assumed to be already scaled for display.
-
-        Args:
-            P0: Position of the first fixed pivot (where L1 and L4 connect).
-            P3: Position of the second fixed pivot (where L3 and L4 connect).
-            L1: Length of the crank.
-            L2: Length of the coupler.
-            L3: Length of the rocker.
-            input_angle_L1_rad: Input angle of L1 (crank) in radians, relative to the positive x-axis.
-
-        Returns:
-            A tuple (P1, P2, l1_angle_rad, l2_angle_rad, l3_angle_rad) if a solution exists,
-            otherwise None. Angles are global (relative to positive x-axis).
-            P1 is the pivot between L1 and L2.
-            P2 is the pivot between L2 and L3.
         """
-        # Calculate P1 based on P0, L1, and input_angle_L1_rad
         P1 = QPointF(
             P0.x() + L1 * math.cos(input_angle_L1_rad),
             P0.y() + L1 * math.sin(input_angle_L1_rad),
         )
 
-        # Now, find P2. P2 is at the intersection of two circles:
-        # Circle 1: center P1, radius L2
-        # Circle 2: center P3, radius L3
         d_sq = (P3.x() - P1.x()) ** 2 + (P3.y() - P1.y()) ** 2
         d = math.sqrt(d_sq)
 
-        # Check if solution is possible
         if d > L2 + L3 or d < abs(L2 - L3):
-            logging.warning(
-                f"4-Bar Kinematics: No solution. d={d}, L2+L3={L2 + L3}, |L2-L3|={abs(L2 - L3)}"
-            )
             return None
-        if d == 0 and L2 != L3:  # P1 and P3 coincide, but L2 != L3
-            logging.warning(
-                f"4-Bar Kinematics: No solution. P1 and P3 coincide, L2!=L3"
-            )
+        if d == 0 and L2 != L3:
             return None
-        if (
-            d == 0 and L2 == L3
-        ):  # P1, P3 coincide, L2=L3. Infinite solutions for P2. Ambiguous.
-            # This case could be handled by choosing P2 to make L2 continue in L1's direction or other rule.
-            # For now, let's treat it as ambiguous / non-deterministic for a single pose.
-            logging.warning(f"4-Bar Kinematics: Ambiguous. P1,P3 coincide and L2=L3.")
-            # For a default pose, let P2 be along the line of L1.
-            # Angle of L2 = input_angle_L1_rad
-            # P2 = QPointF(P1.x() + L2 * math.cos(input_angle_L1_rad), P1.y() + L2 * math.sin(input_angle_L1_rad))
-            # But this might not satisfy the L3 constraint unless L3 is also 0.
-            return None  # Or a more sophisticated handling
 
-        # Using law of cosines to find angles in triangle P1-P2-P3
-        # Angle at P1 in triangle P1P3P2 (angle between P1P3 and P1P2)
         val_for_acos_gamma1 = (d_sq + L2**2 - L3**2) / (2 * d * L2)
-        if not (
-            -1 <= val_for_acos_gamma1 <= 1
-        ):  # Check due to potential floating point issues
-            logging.warning(
-                f"4-Bar Kinematics: val_for_acos_gamma1 out of range: {val_for_acos_gamma1}. d={d}, L2={L2}, L3={L3}"
-            )
+        if not (-1 <= val_for_acos_gamma1 <= 1):
             return None
         gamma1 = math.acos(val_for_acos_gamma1)
-
-        # Angle of line P1P3 relative to positive x-axis
         phi_P1P3 = math.atan2(P3.y() - P1.y(), P3.x() - P1.x())
 
-        # Angle of L2 (P1P2) - two solutions for P2: (phi_P1P3 - gamma1) or (phi_P1P3 + gamma1)
-        # Try both solutions and pick the one that gives a valid configuration
         solutions = []
-
-        for sign in [-1, 1]:  # Try both elbow configurations
+        for sign in [-1, 1]:
             l2_angle_rad = phi_P1P3 + sign * gamma1
             P2_test = QPointF(
                 P1.x() + L2 * math.cos(l2_angle_rad),
                 P1.y() + L2 * math.sin(l2_angle_rad),
             )
-
-            # Verify the solution
             dist_P2_P3 = math.sqrt(
                 (P2_test.x() - P3.x()) ** 2 + (P2_test.y() - P3.y()) ** 2
             )
-            if abs(dist_P2_P3 - L3) < 0.001:  # Small tolerance for floating point
+            if abs(dist_P2_P3 - L3) < 0.001:
                 solutions.append((P2_test, l2_angle_rad))
 
         if not solutions:
-            logging.warning("No valid P2 configuration found")
             return None
 
-        # Choose the first valid solution
         P2, l2_angle_rad = solutions[0]
-
-        # Calculate angle of L3 (P3P2)
         l3_angle_rad = math.atan2(P2.y() - P3.y(), P2.x() - P3.x())
-
-        # Actual angle of L1 is input_angle_L1_rad
         l1_angle_rad = input_angle_L1_rad
 
         return P1, P2, l1_angle_rad, l2_angle_rad, l3_angle_rad
-
 
     def _clear_preview_paths(self):
         """Clear any preview path visualizations."""
@@ -1391,3 +1436,29 @@ class EditorTab(QWidget):
                     self.editor_scene.removeItem(item)
             self._preview_path_items.clear()
 
+    def _collect_path_data(self) -> Dict[str, QPainterPath]:
+        """Collect all motion paths from parts."""
+        path_data = {}
+
+        # First check in current_parts_info (project data)
+        if self.current_parts_info:
+            for part_name, part_info in self.current_parts_info.items():
+                if hasattr(part_info, 'motion_path') and part_info.motion_path:
+                    if isinstance(part_info.motion_path, QPainterPath) and not part_info.motion_path.isEmpty():
+                        path_data[part_name] = part_info.motion_path
+
+        # Also check in current_editor_items as backup
+        for part_name, part_item in self.current_editor_items.items():
+            if part_name not in path_data:  # Don't override if already found
+                if hasattr(part_item, 'motion_path') and part_item.motion_path:
+                    if isinstance(part_item.motion_path, QPainterPath) and not part_item.motion_path.isEmpty():
+                        path_data[part_name] = part_item.motion_path
+
+        logging.debug(f"EditorTab: Collected {len(path_data)} motion paths: {list(path_data.keys())}")
+        return path_data
+
+    def _emit_path_data(self):
+        """Emit current path data to other tabs."""
+        path_data = self._collect_path_data()
+        self.path_data_changed.emit(path_data)
+        logging.info(f"EditorTab: Emitted path data for {len(path_data)} parts")
