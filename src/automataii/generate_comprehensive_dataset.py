@@ -25,17 +25,17 @@ def normalize_path(path_coords: List[List[float]], target_bounds: Tuple[float, f
     ranges = max_vals - min_vals
     ranges[ranges == 0] = 1
     max_range = np.max(ranges)
-    
+
     # Normalize keeping aspect ratio
     normalized = (coords_array - center) / (max_range / 2)
-    
+
     # Store normalization parameters for reconstruction
     norm_params = {
         "center": center.tolist(),
         "scale": max_range / 2,
         "original_bounds": [min_vals.tolist(), max_vals.tolist()]
     }
-    
+
     return normalized.tolist(), norm_params
 
 # --- KINEMATIC SIMULATORS ---
@@ -49,21 +49,21 @@ def simulate_4bar_motion(l1, l2, l3, l4, p_x, p_y, num_steps=180):
     """Simulates a 4-bar linkage, returning data needed for animation and dataset."""
     sim_data = []
     last_sol = [np.pi/2, np.pi/2]
-    
+
     # Ground pivots
     p1 = np.array([0, 0])           # Fixed ground pivot 1
     p2 = np.array([l1, 0])          # Fixed ground pivot 2
-    
+
     for theta2 in np.linspace(0, 2*np.pi, num_steps):
         sol, _, ier, _ = fsolve(solve_4bar_closure, last_sol, args=(l1, l2, l3, l4, theta2), full_output=True)
         if ier == 1:
             last_sol = sol
             theta3, theta4 = sol
-            
+
             # Calculate moving joint positions
             p3 = p1 + np.array([l2*np.cos(theta2), l2*np.sin(theta2)])  # Moving joint connected to p1
             p4 = p2 + np.array([l4*np.cos(theta4), l4*np.sin(theta4)])  # Moving joint connected to p2
-            
+
             # Calculate coupler point position relative to the coupler link (p3-p4)
             coupler_vec = p4 - p3
             coupler_length = np.linalg.norm(coupler_vec)
@@ -73,9 +73,9 @@ def simulate_4bar_motion(l1, l2, l3, l4, p_x, p_y, num_steps=180):
                 p_coupler = p3 + p_x * coupler_unit + p_y * coupler_normal
             else:
                 p_coupler = p3
-                
+
             sim_data.append({
-                'p1': p1, 'p2': p2, 'p3': p3, 'p4': p4, 
+                'p1': p1, 'p2': p2, 'p3': p3, 'p4': p4,
                 'p_coupler': p_coupler,
                 'theta2': theta2, 'theta3': theta3, 'theta4': theta4
             })
@@ -162,29 +162,29 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
         if mech_type == '4-bar':
             sim_data = simulate_4bar_motion(**params)
             path = np.array([f['p_coupler'] for f in sim_data])
-            
+
             # Get complete mechanism geometry
             first_frame = sim_data[0]
             p1, p2 = first_frame['p1'], first_frame['p2']
             p3, p4 = first_frame['p3'], first_frame['p4']
-            
+
             # Normalize path and get parameters
             normalized_path, norm_params = normalize_path(path.tolist())
-            
+
             # Calculate all mechanism points for bounding box
             all_points = np.vstack([path, np.array([p1, p2, p3, p4])])
             mech_center = np.mean(all_points, axis=0)
             mech_extent = np.max(np.abs(all_points - mech_center))
-            
+
             # Calculate coupler path in the same coordinate system
             coupler_path = [f['p_coupler'] for f in sim_data]
-            
+
             # Calculate coupler point at initial position for reference
             initial_coupler = sim_data[0]['p_coupler']
-            
+
             dataset_entry = {
-                "type": "4-bar Coupler", 
-                "name": f"4-bar {config['name']}", 
+                "type": "4-bar Coupler",
+                "name": f"4-bar {config['name']}",
                 "parameters": {
                     **params,
                     "coupler_point": {"x": params['p_x'], "y": params['p_y']}  # Explicit coupler point
@@ -194,7 +194,7 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
                 "key_points": {
                     "ground_pivot_1": p1.tolist(),
                     "ground_pivot_2": p2.tolist(),
-                    "initial_moving_joint_1": p3.tolist(), 
+                    "initial_moving_joint_1": p3.tolist(),
                     "initial_moving_joint_2": p4.tolist(),
                     "coupler_point_offset": {"x": params['p_x'], "y": params['p_y']},
                     "initial_coupler_position": initial_coupler.tolist()  # Where coupler starts
@@ -278,22 +278,22 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
         elif mech_type == 'cam-follower':
             sim_data = simulate_cam_motion(**params)
             path = np.array([[0, f['follower_y']] for f in sim_data])
-            
+
             # Normalize path and get parameters
             normalized_path, norm_params = normalize_path(path.tolist())
-            
+
             # Calculate cam mechanism geometry
             base_radius = params['base_radius']
             eccentricity = params['eccentricity']
             cam_center = np.array([eccentricity, 0])
-            
+
             # Calculate bounding box including cam profile
             follower_ys = [f['follower_y'] for f in sim_data]
             min_y, max_y = min(follower_ys), max(follower_ys)
-            
+
             dataset_entry = {
-                "type": "Cam Follower", 
-                "name": f"Cam {config['name']}", 
+                "type": "Cam Follower",
+                "name": f"Cam {config['name']}",
                 "parameters": params,
                 "path_coordinates": normalized_path,
                 "path_normalization": norm_params,
@@ -357,20 +357,20 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
             sim_data = simulate_gear_motion(**params)
             r1, r2 = params['r1'], params['r2']
             path = np.array([[r1*np.cos(f['t1']), r1*np.sin(f['t1'])] for f in sim_data]) # Path on driver gear
-            
+
             # Normalize path and get parameters
             normalized_path, norm_params = normalize_path(path.tolist())
-            
+
             # Calculate gear mechanism geometry
             gear1_center = np.array([-r1, 0])  # Left gear center
             gear2_center = np.array([r2, 0])   # Right gear center
-            
+
             # Initial position on gear 1 circumference
             initial_gear_point = gear1_center + np.array([r1, 0])
-            
+
             dataset_entry = {
-                "type": "Gear Contact", 
-                "name": f"Gear {config['name']}", 
+                "type": "Gear Contact",
+                "name": f"Gear {config['name']}",
                 "parameters": params,
                 "path_coordinates": normalized_path,
                 "path_normalization": norm_params,
