@@ -369,6 +369,23 @@ class AutomataDesigner(QMainWindow):
                 and self.editor_tab.editor_view is not None
             ):
                 self.editor_tab.editor_view.zoom_to_fit()
+        
+        # If MechanismDesignTab is selected, ensure it has the necessary data
+        elif current_tab == self.mechanism_design_tab:
+            # Ensure mechanism design tab has parts data
+            current_parts_data = self.project_data_manager.get_current_parts_data()
+            if current_parts_data and not self.mechanism_design_tab.parts_data:
+                self.mechanism_design_tab.set_parts_data(current_parts_data)
+                logging.info("MechanismDesignTab: Synchronized parts data on tab switch")
+            
+            # Ensure mechanism design tab has skeleton data
+            if (hasattr(self.skeleton_manager, 'get_current_skeleton_data') and 
+                (not hasattr(self.mechanism_design_tab, '_initial_skeleton_data_cache') or 
+                 not self.mechanism_design_tab._initial_skeleton_data_cache)):
+                current_skeleton = self.skeleton_manager.get_current_skeleton_data()
+                if current_skeleton:
+                    self.mechanism_design_tab.cache_initial_skeleton(current_skeleton)
+                    logging.info("MechanismDesignTab: Synchronized skeleton data on tab switch")
 
     # --- New Slots for ImageProcessingTab Signals ---
     @pyqtSlot(dict, str)
@@ -713,6 +730,10 @@ class AutomataDesigner(QMainWindow):
         # This is similar to clear_project_data's UI impact but more targeted for a failed load.
         if hasattr(self, "editor_tab") and self.editor_tab:
             self.editor_tab.clear_editor_content()  # EditorTab now clears its own scene
+
+        # Clear mechanism design tab as well
+        if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+            self.mechanism_design_tab.clear_mechanism_data()
 
         # self.image_proc_tab.clear_display() # Assuming ImageProcessingTab has a method to clear its display
         if hasattr(self.image_proc_tab, "clear_display_and_data"):  # More robust check
@@ -1140,6 +1161,14 @@ class AutomataDesigner(QMainWindow):
         else:
             logging.warning(
                 "MainWindow: EditorTab does not have cache_initial_skeleton method."
+            )
+
+        # Cache the initial skeleton data in MechanismDesignTab as well
+        if hasattr(self.mechanism_design_tab, "cache_initial_skeleton"):
+            self.mechanism_design_tab.cache_initial_skeleton(standardized_skeleton_data_dict)
+        else:
+            logging.warning(
+                "MainWindow: MechanismDesignTab does not have cache_initial_skeleton method."
             )
 
         # Notify tabs that might need the direct standardized skeleton data for display

@@ -626,6 +626,12 @@ class SkeletonManager(QObject):
             for joint_id, joint in self._standardized_skeleton_model.joints.items()
             if joint.is_locked
         ]
+
+    def get_current_skeleton_data(self) -> Optional[Dict[str, Any]]:
+        """Returns the current skeleton data as a dictionary, or None if no skeleton is loaded."""
+        if not self._standardized_skeleton_model:
+            return None
+        return self._standardized_skeleton_model.model_dump()
     
     def unlock_all_joints(self) -> bool:
         """Unlocks all joints in the skeleton.
