@@ -117,7 +117,7 @@ def calculate_hausdorff_distance(
 
 def align_and_compare_paths(
     path1_points: np.ndarray, path2_points: np.ndarray, rotation_steps: int = 72
-) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray]]:
+) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray], Optional[Dict]]:
     """
     Aligns two paths (translation, scale, rotation) and finds the best match.
 
@@ -126,6 +126,7 @@ def align_and_compare_paths(
         - The minimum Hausdorff distance after alignment.
         - The first path, normalized (centered and scaled).
         - The second path, transformed to best align with the first.
+        - A dictionary with the transformation parameters ('center', 'scale', 'rotation').
     """
     if (
         path1_points is None
@@ -133,7 +134,7 @@ def align_and_compare_paths(
         or path2_points is None
         or path2_points.shape[0] < 2
     ):
-        return float("inf"), None, None
+        return float("inf"), None, None, None
 
     # 1. Center both paths to origin
     center1 = np.mean(path1_points, axis=0)
@@ -155,6 +156,7 @@ def align_and_compare_paths(
     # 3. Find the optimal rotation for path2 to match path1
     min_distance = float("inf")
     best_rotated_path2 = None
+    best_angle = 0
     angles = np.linspace(0, 2 * np.pi, rotation_steps, endpoint=False)
 
     for angle in angles:
@@ -167,8 +169,15 @@ def align_and_compare_paths(
         if distance < min_distance:
             min_distance = distance
             best_rotated_path2 = path2_rotated
+            best_angle = angle
 
-    return min_distance, path1_scaled, best_rotated_path2
+    transform_params = {
+        "center": center2.tolist(),
+        "scale": max_val2,
+        "rotation": best_angle,
+    }
+
+    return min_distance, path1_scaled, best_rotated_path2, transform_params
 
 
 class MechanismPreviewWidget(QGraphicsView):
@@ -227,6 +236,9 @@ class MechanismPreviewWidget(QGraphicsView):
         transform.translate(draw_area.center().x(), draw_area.center().y())
         transform.scale(scale, -scale)  # Negative y-scale to flip Qt's coordinate system
 
+        # Draw the mechanism structure first so it's in the background
+        self._draw_mechanism_structure(transform)
+
         # Draw user path (red, dashed)
         user_item = QGraphicsPathItem(transform.map(user_path))
         user_pen = QPen(BITTERSWEET, 8.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
@@ -238,6 +250,194 @@ class MechanismPreviewWidget(QGraphicsView):
         mech_pen = QPen(STEEL_BLUE, 8.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         mech_item.setPen(mech_pen)
         self.scene.addItem(mech_item)
+
+    def _draw_mechanism_structure(self, transform: QTransform) -> None:
+        """Draws the mechanism structure (e.g., links and pivots) for a single frame."""
+        mech_type = self.mechanism_data.get("original_json_type")
+        params = self.mechanism_data.get("parameters")
+        key_points = self.mechanism_data.get("key_points")
+        transform_params = self.mechanism_data.get("transform_params")
+        vis_params = self.mechanism_data.get("visualization_params")
+
+        if not all([mech_type, params, transform_params, vis_params]):
+            return
+
+        # Use visualization-specific center/scale, but rotation from alignment
+        center = np.array(vis_params["center"])
+        scale = vis_params["scale"]
+        angle = transform_params["rotation"]
+
+        if np.isclose(scale, 0):
+            return
+
+        rotation_matrix = np.array(
+            [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
+        )
+
+        def to_screen_coords(p_orig: np.ndarray) -> QPointF:
+            # Normalize using the full mechanism's bounding box parameters
+            p_norm = ((p_orig - center) / scale) @ rotation_matrix.T
+            p_qpoint_norm = QPointF(p_norm[0], p_norm[1])
+            # The 'transform' object already handles scaling to view and centering, so we pass the normalized point to it
+            return transform.map(p_qpoint_norm)
+
+        if mech_type == "4-bar Coupler" and key_points:
+            self._draw_4_bar_structure(params, key_points, to_screen_coords)
+        elif mech_type == "Cam Follower":
+            self._draw_cam_follower_structure(params, to_screen_coords)
+        elif mech_type == "Gear Contact":
+            self._draw_gear_contact_structure(params, to_screen_coords)
+
+    def _draw_4_bar_structure(
+        self, params: Dict, key_points: Dict, to_screen_coords: callable
+    ) -> None:
+        """Draws the structure of a 4-bar linkage for the initial position."""
+        l2, l3, l4 = params.get("l2"), params.get("l3"), params.get("l4")
+        p1_coords = key_points.get("ground_pivot_1")
+        p2_coords = key_points.get("ground_pivot_2")
+
+        if not all([l2, l3, l4, p1_coords, p2_coords]):
+            return
+
+        # Define pivots in their original coordinate system
+        p1 = np.array(p1_coords, dtype=float)
+        p2 = np.array(p2_coords, dtype=float)
+
+        # Calculate initial position of moving pivots (assuming input angle is 0)
+        theta2 = 0
+        p3 = p1 + np.array([l2 * np.cos(theta2), l2 * np.sin(theta2)])
+
+        # Solve for the fourth pivot using intersection of two circles
+        d_sq = np.sum((p2 - p3) ** 2)
+        d = np.sqrt(d_sq)
+
+        if d > (l3 + l4) or d < abs(l3 - l4):  # No solution
+            return
+
+        a = (l3**2 - l4**2 + d_sq) / (2 * d)
+        h = np.sqrt(max(0, l3**2 - a**2))
+
+        p3_p2_unit = (p2 - p3) / d
+        midpoint = p3 + a * p3_p2_unit
+
+        # There are two solutions, we pick one for visualization
+        p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
+
+        # Transform all points to screen coordinates
+        p1_t = to_screen_coords(p1)
+        p2_t = to_screen_coords(p2)
+        p3_t = to_screen_coords(p3)
+        p4_t = to_screen_coords(p4)
+
+        # Draw links
+        link_pen = QPen(
+            QColor("#34495e"), 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap
+        )
+        self.scene.addLine(QLineF(p1_t, p3_t), link_pen)
+        self.scene.addLine(QLineF(p3_t, p4_t), link_pen)
+        self.scene.addLine(QLineF(p4_t, p2_t), link_pen)
+        self.scene.addLine(QLineF(p2_t, p1_t), link_pen)
+
+        # Draw pivots
+        pivot_brush = QBrush(QColor("#3498db"))
+        pivot_pen = QPen(QColor("#ffffff"), 1.5)
+        for p in [p1_t, p2_t, p3_t, p4_t]:
+            self.scene.addEllipse(p.x() - 6, p.y() - 6, 12, 12, pivot_pen, pivot_brush)
+
+    def _draw_cam_follower_structure(
+        self, params: Dict, to_screen_coords: callable
+    ) -> None:
+        """Draws a cam and follower mechanism."""
+        base_radius = params.get("base_radius")
+        eccentricity = params.get("eccentricity")
+        if not all([base_radius, eccentricity is not None]):
+            return
+
+        # Cam is a circle with center offset by eccentricity. Assume rotation center is origin.
+        cam_center_orig = np.array([eccentricity, 0])
+
+        # Draw cam profile by transforming a set of points on its circumference
+        cam_path = QPainterPath()
+        num_points = 100
+        for i in range(num_points + 1):
+            theta = 2 * np.pi * i / num_points
+            p_orig = cam_center_orig + base_radius * np.array(
+                [np.cos(theta), np.sin(theta)]
+            )
+            p_screen = to_screen_coords(p_orig)
+            if i == 0:
+                cam_path.moveTo(p_screen)
+            else:
+                cam_path.lineTo(p_screen)
+
+        cam_pen = QPen(QColor("#34495e"), 6, Qt.PenStyle.SolidLine)
+        self.scene.addPath(cam_path, cam_pen)
+
+        # Draw center of rotation and cam center
+        rot_center_screen = to_screen_coords(np.array([0, 0]))
+        cam_center_screen = to_screen_coords(cam_center_orig)
+        pivot_brush = QBrush(QColor("#3498db"))
+        pivot_pen = QPen(QColor("#ffffff"), 1.5)
+        self.scene.addEllipse(
+            rot_center_screen.x() - 6,
+            rot_center_screen.y() - 6,
+            12,
+            12,
+            pivot_pen,
+            pivot_brush,
+        )
+        self.scene.addEllipse(
+            cam_center_screen.x() - 5,
+            cam_center_screen.y() - 5,
+            10,
+            10,
+            QPen(QColor("#e74c3c")),
+            QBrush(QColor("#e74c3c")),
+        )
+
+    def _draw_gear_contact_structure(
+        self, params: Dict, to_screen_coords: callable
+    ) -> None:
+        """Draws a simple gear train."""
+        r1 = params.get("r1")
+        r2 = params.get("r2")
+        if not all([r1, r2]):
+            return
+
+        # Assume gear 1 at origin, gear 2 next to it
+        c1_orig = np.array([0, 0])
+        c2_orig = np.array([r1 + r2, 0])
+
+        def draw_gear(center_orig, radius):
+            gear_path = QPainterPath()
+            num_points = 100
+            for i in range(num_points + 1):
+                theta = 2 * np.pi * i / num_points
+                p_orig = center_orig + radius * np.array(
+                    [np.cos(theta), np.sin(theta)]
+                )
+                p_screen = to_screen_coords(p_orig)
+                if i == 0:
+                    gear_path.moveTo(p_screen)
+                else:
+                    gear_path.lineTo(p_screen)
+            gear_pen = QPen(QColor("#34495e"), 6, Qt.PenStyle.SolidLine)
+            self.scene.addPath(gear_path, gear_pen)
+
+            center_screen = to_screen_coords(center_orig)
+            pivot_brush = QBrush(QColor("#3498db"))
+            pivot_pen = QPen(QColor("#ffffff"), 1.5)
+            self.scene.addEllipse(
+                center_screen.x() - 6,
+                center_screen.y() - 6,
+                12,
+                12,
+                pivot_pen,
+                pivot_brush,
+            )
+
+        draw_gear(c1_orig, r1)
+        draw_gear(c2_orig, r2)
 
     def _render_preview(self) -> None:
         self.scene.clear()
@@ -253,6 +453,13 @@ class MechanismPreviewWidget(QGraphicsView):
         # Draw ONLY path comparison - no mechanism structures
         self._draw_path_comparison(view_rect_adjusted_f)
 
+    def _setup_scene_and_transform(self) -> QRectF:
+        """Clears and sets up the scene, returns the drawing area."""
+        self.scene.clear()
+        margin = 5
+        view_rect_f = QRectF(self.rect())
+        self.scene.setSceneRect(view_rect_f)
+        return view_rect_f.adjusted(margin, margin, -margin, -margin)
 
 
 class PreviewContainer(QWidget):
@@ -582,7 +789,17 @@ class MechanismRecommendationDialog(QDialog):
                 raw_data = json.load(f)
 
             for item in raw_data:
-                path_coords = item.get("path_coordinates")
+                path_coords = None
+                mech_type = item.get("type")
+
+                # For 4-bar, use the detailed coupler path which matches the scale of the key_points
+                if mech_type == "4-bar Coupler":
+                    path_coords = item.get("key_points", {}).get("coupler_point_path")
+
+                # Fallback to top-level path coordinates for other types or if coupler path is missing
+                if not path_coords:
+                    path_coords = item.get("path_coordinates")
+
                 if (
                     path_coords
                     and isinstance(path_coords, list)
@@ -645,9 +862,12 @@ class MechanismRecommendationDialog(QDialog):
             total_comparisons += 1
 
             # Align paths and calculate distance
-            distance, user_path_aligned, gen_path_aligned = align_and_compare_paths(
-                self.user_motion_path_np, gen_path_np
-            )
+            (
+                distance,
+                user_path_aligned,
+                gen_path_aligned,
+                transform_params,
+            ) = align_and_compare_paths(self.user_motion_path_np, gen_path_np)
 
             if user_path_aligned is None or gen_path_aligned is None:
                 continue
@@ -672,7 +892,24 @@ class MechanismRecommendationDialog(QDialog):
                 "key_points": gen_path_data.get("key_points", {}),
                 "user_path_aligned_np": user_path_aligned,
                 "mech_path_aligned_np": gen_path_aligned,
+                "transform_params": transform_params,
             }
+
+            # Add visualization parameters based on the full mechanism geometry
+            all_mech_points = self._get_mechanism_points_orig(preview_data)
+            if all_mech_points is not None:
+                vis_center = np.mean(all_mech_points, axis=0)
+                vis_scale = np.max(np.abs(all_mech_points - vis_center))
+                preview_data["visualization_params"] = {
+                    "center": vis_center.tolist(),
+                    "scale": vis_scale if not np.isclose(vis_scale, 0) else 1.0,
+                }
+            else:
+                # Fallback to path-based transform if full geometry isn't available
+                preview_data["visualization_params"] = {
+                    "center": transform_params["center"],
+                    "scale": transform_params["scale"],
+                }
 
             # Group by display type and keep only the best (lowest distance)
             if display_type not in mechanisms_by_type:
@@ -733,6 +970,53 @@ class MechanismRecommendationDialog(QDialog):
         if result == QDialog.DialogCode.Accepted:
             return dialog.selected_mechanism_data
         return None
+
+    def _get_mechanism_points_orig(
+        self, mechanism_data: Dict[str, Any]
+    ) -> Optional[np.ndarray]:
+        """Gathers all points of the mechanism (structure and path) in original coordinates."""
+        params = mechanism_data.get("parameters")
+        path_points = mechanism_data.get("path_coordinates_np")
+
+        if path_points is None or params is None:
+            return None
+
+        all_points = [path_points]
+        mech_type = mechanism_data.get("original_json_type")
+        key_points = mechanism_data.get("key_points")
+
+        if mech_type == "4-bar Coupler" and key_points:
+            p1_coords = key_points.get("ground_pivot_1")
+            p2_coords = key_points.get("ground_pivot_2")
+            if p1_coords and p2_coords:
+                all_points.append(np.array([p1_coords, p2_coords]))
+
+        elif mech_type == "Cam Follower":
+            base_radius = params.get("base_radius")
+            eccentricity = params.get("eccentricity")
+            if base_radius is not None and eccentricity is not None:
+                cam_center_orig = np.array([eccentricity, 0])
+                thetas = np.linspace(0, 2 * np.pi, 20)
+                cam_points = cam_center_orig + base_radius * np.array(
+                    [np.cos(thetas), np.sin(thetas)]
+                ).T
+                all_points.append(cam_points)
+                all_points.append(np.array([[0, 0]]))  # rotation center
+
+        elif mech_type == "Gear Contact":
+            r1, r2 = params.get("r1"), params.get("r2")
+            if r1 and r2:
+                c1_orig = np.array([0, 0])
+                c2_orig = np.array([r1 + r2, 0])
+                thetas = np.linspace(0, 2 * np.pi, 20)
+                g1_points = c1_orig + r1 * np.array([np.cos(thetas), np.sin(thetas)]).T
+                g2_points = c2_orig + r2 * np.array(
+                    [np.cos(thetas), np.sin(thetas)]
+                ).T
+                all_points.append(g1_points)
+                all_points.append(g2_points)
+
+        return np.vstack(all_points)
 
 
 if __name__ == "__main__":
