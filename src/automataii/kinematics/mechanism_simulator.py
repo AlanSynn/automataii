@@ -4,6 +4,34 @@ from automataii.kinematics.mechanism import MechanismType, MotionCurve
 from typing import Tuple
 
 
+# --- Kinematic Solvers ---
+def solve_4bar_closure(x: np.ndarray, l1: float, l2: float, l3: float, l4: float, theta2: float) -> Tuple[float, float]:
+    """Solve the 4-bar linkage closure equations."""
+    theta3, theta4 = x
+    eq1 = l2 * np.cos(theta2) + l3 * np.cos(theta3) - l4 * np.cos(theta4) - l1
+    eq2 = l2 * np.sin(theta2) + l3 * np.sin(theta3) - l4 * np.sin(theta4)
+    return (eq1, eq2)
+
+
+def get_4bar_input_angle_range(l1: float, l2: float, l3: float, l4: float) -> Tuple[float, float]:
+    """Get the valid input angle range for a 4-bar linkage based on Grashof condition."""
+    links = sorted([l1, l2, l3, l4])
+    s, p, q, l = links
+    # Grashof condition
+    if (s + l) > (p + q):
+        # It's a triple-rocker, calculate the limited range if possible.
+        # This is a simplified check; real triple-rocker analysis is more complex.
+        return (np.pi/3, 2*np.pi/3)  # Placeholder range
+    # If the shortest link is the driver, it's a crank.
+    if l2 == s:
+        return (0, 2 * np.pi)
+    # If the shortest link is the frame, it's a double-crank (drag-link).
+    if l1 == s:
+        return (0, 2 * np.pi)
+    # Otherwise, it's a rocker-crank, where l2 is not the full crank.
+    return (np.pi/4, 3*np.pi/4)  # Placeholder range
+
+
 class MechanismSimulator:
     """Simulates mechanism motion to generate motion curves."""
 

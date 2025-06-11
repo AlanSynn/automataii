@@ -258,6 +258,7 @@ class MechanismPreviewWidget(QGraphicsView):
         key_points = self.mechanism_data.get("key_points")
         transform_params = self.mechanism_data.get("transform_params")
         vis_params = self.mechanism_data.get("visualization_params")
+        path_norm = self.mechanism_data.get("path_normalization", {})
 
         if not all([mech_type, params, transform_params, vis_params]):
             return
@@ -329,20 +330,36 @@ class MechanismPreviewWidget(QGraphicsView):
         p3_t = to_screen_coords(p3)
         p4_t = to_screen_coords(p4)
 
-        # Draw links
-        link_pen = QPen(
-            QColor("#34495e"), 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap
-        )
-        self.scene.addLine(QLineF(p1_t, p3_t), link_pen)
-        self.scene.addLine(QLineF(p3_t, p4_t), link_pen)
-        self.scene.addLine(QLineF(p4_t, p2_t), link_pen)
-        self.scene.addLine(QLineF(p2_t, p1_t), link_pen)
+        # Draw links with colorful style
+        link_colors = [QColor("#e74c3c"), QColor("#3498db"), QColor("#2ecc71"), QColor("#9b59b6")]
+        links = [
+            QLineF(p1_t, p3_t),  # Link 1 - red
+            QLineF(p3_t, p4_t),  # Link 2 - blue  
+            QLineF(p4_t, p2_t),  # Link 3 - green
+            QLineF(p2_t, p1_t)   # Link 4 (ground) - purple
+        ]
+        
+        for i, (line, color) in enumerate(zip(links, link_colors)):
+            link_pen = QPen(color, 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+            self.scene.addLine(line, link_pen)
 
-        # Draw pivots
-        pivot_brush = QBrush(QColor("#3498db"))
-        pivot_pen = QPen(QColor("#ffffff"), 1.5)
-        for p in [p1_t, p2_t, p3_t, p4_t]:
-            self.scene.addEllipse(p.x() - 6, p.y() - 6, 12, 12, pivot_pen, pivot_brush)
+        # Draw pivots with colorful style
+        pivot_colors = [QColor("#f39c12"), QColor("#f39c12"), QColor("#e74c3c"), QColor("#3498db")]
+        pivot_positions = [p1_t, p2_t, p3_t, p4_t]
+        
+        for pos, color in zip(pivot_positions, pivot_colors):
+            # Outer circle
+            self.scene.addEllipse(
+                pos.x() - 8, pos.y() - 8, 16, 16,
+                QPen(color.darker(150), 2),
+                QBrush(color)
+            )
+            # Inner highlight
+            self.scene.addEllipse(
+                pos.x() - 4, pos.y() - 4, 8, 8,
+                QPen(Qt.PenStyle.NoPen),
+                QBrush(color.lighter(150))
+            )
 
     def _draw_cam_follower_structure(
         self, params: Dict, to_screen_coords: callable
@@ -370,29 +387,42 @@ class MechanismPreviewWidget(QGraphicsView):
             else:
                 cam_path.lineTo(p_screen)
 
-        cam_pen = QPen(QColor("#34495e"), 6, Qt.PenStyle.SolidLine)
-        self.scene.addPath(cam_path, cam_pen)
+        cam_pen = QPen(QColor("#e74c3c"), 6, Qt.PenStyle.SolidLine)
+        cam_fill = QBrush(QColor("#e74c3c").lighter(160))
+        self.scene.addPath(cam_path, cam_pen, cam_fill)
 
-        # Draw center of rotation and cam center
+        # Draw center of rotation and cam center with colorful style
         rot_center_screen = to_screen_coords(np.array([0, 0]))
         cam_center_screen = to_screen_coords(cam_center_orig)
-        pivot_brush = QBrush(QColor("#3498db"))
-        pivot_pen = QPen(QColor("#ffffff"), 1.5)
+        
+        # Rotation center - orange
+        rot_color = QColor("#f39c12")
         self.scene.addEllipse(
-            rot_center_screen.x() - 6,
-            rot_center_screen.y() - 6,
-            12,
-            12,
-            pivot_pen,
-            pivot_brush,
+            rot_center_screen.x() - 8,
+            rot_center_screen.y() - 8,
+            16,
+            16,
+            QPen(rot_color.darker(150), 2),
+            QBrush(rot_color),
         )
         self.scene.addEllipse(
-            cam_center_screen.x() - 5,
-            cam_center_screen.y() - 5,
-            10,
-            10,
-            QPen(QColor("#e74c3c")),
-            QBrush(QColor("#e74c3c")),
+            rot_center_screen.x() - 4,
+            rot_center_screen.y() - 4,
+            8,
+            8,
+            QPen(Qt.PenStyle.NoPen),
+            QBrush(rot_color.lighter(150)),
+        )
+        
+        # Cam center - blue
+        cam_center_color = QColor("#3498db")
+        self.scene.addEllipse(
+            cam_center_screen.x() - 6,
+            cam_center_screen.y() - 6,
+            12,
+            12,
+            QPen(cam_center_color.darker(150), 2),
+            QBrush(cam_center_color),
         )
 
     def _draw_gear_contact_structure(
@@ -408,7 +438,7 @@ class MechanismPreviewWidget(QGraphicsView):
         c1_orig = np.array([0, 0])
         c2_orig = np.array([r1 + r2, 0])
 
-        def draw_gear(center_orig, radius):
+        def draw_gear(center_orig, radius, color, pivot_color):
             gear_path = QPainterPath()
             num_points = 100
             for i in range(num_points + 1):
@@ -421,23 +451,32 @@ class MechanismPreviewWidget(QGraphicsView):
                     gear_path.moveTo(p_screen)
                 else:
                     gear_path.lineTo(p_screen)
-            gear_pen = QPen(QColor("#34495e"), 6, Qt.PenStyle.SolidLine)
-            self.scene.addPath(gear_path, gear_pen)
+            gear_pen = QPen(color, 6, Qt.PenStyle.SolidLine)
+            gear_fill = QBrush(color.lighter(170))
+            self.scene.addPath(gear_path, gear_pen, gear_fill)
 
             center_screen = to_screen_coords(center_orig)
-            pivot_brush = QBrush(QColor("#3498db"))
-            pivot_pen = QPen(QColor("#ffffff"), 1.5)
+            # Center pivot with colorful style
             self.scene.addEllipse(
-                center_screen.x() - 6,
-                center_screen.y() - 6,
-                12,
-                12,
-                pivot_pen,
-                pivot_brush,
+                center_screen.x() - 8,
+                center_screen.y() - 8,
+                16,
+                16,
+                QPen(pivot_color.darker(150), 2),
+                QBrush(pivot_color),
+            )
+            self.scene.addEllipse(
+                center_screen.x() - 4,
+                center_screen.y() - 4,
+                8,
+                8,
+                QPen(Qt.PenStyle.NoPen),
+                QBrush(pivot_color.lighter(150)),
             )
 
-        draw_gear(c1_orig, r1)
-        draw_gear(c2_orig, r2)
+        # Draw gears with different colors
+        draw_gear(c1_orig, r1, QColor("#3498db"), QColor("#f39c12"))
+        draw_gear(c2_orig, r2, QColor("#2ecc71"), QColor("#e74c3c"))
 
     def _render_preview(self) -> None:
         self.scene.clear()
@@ -792,11 +831,17 @@ class MechanismRecommendationDialog(QDialog):
                 path_coords = None
                 mech_type = item.get("type")
 
-                # For 4-bar, use the detailed coupler path which matches the scale of the key_points
+                # For 4-bar, use the full simulation coupler path if available, otherwise normalized path
                 if mech_type == "4-bar Coupler":
-                    path_coords = item.get("key_points", {}).get("coupler_point_path")
+                    # Try to get the full simulation path first (from new dataset structure)
+                    full_sim_data = item.get("full_simulation_data", {})
+                    if "coupler_path" in full_sim_data:
+                        path_coords = full_sim_data["coupler_path"]
+                    else:
+                        # Fallback to old structure
+                        path_coords = item.get("key_points", {}).get("coupler_point_path")
 
-                # Fallback to top-level path coordinates for other types or if coupler path is missing
+                # Use normalized path coordinates for all types if full path not available
                 if not path_coords:
                     path_coords = item.get("path_coordinates")
 
@@ -890,26 +935,33 @@ class MechanismRecommendationDialog(QDialog):
                 "path_coordinates_np": gen_path_np,
                 "path_coordinates": gen_path_data.get("path_coordinates"),
                 "key_points": gen_path_data.get("key_points", {}),
+                "path_normalization": gen_path_data.get("path_normalization", {}),
+                "full_simulation_data": gen_path_data.get("full_simulation_data", {}),
                 "user_path_aligned_np": user_path_aligned,
                 "mech_path_aligned_np": gen_path_aligned,
                 "transform_params": transform_params,
             }
 
-            # Add visualization parameters based on the full mechanism geometry
-            all_mech_points = self._get_mechanism_points_orig(preview_data)
-            if all_mech_points is not None:
-                vis_center = np.mean(all_mech_points, axis=0)
-                vis_scale = np.max(np.abs(all_mech_points - vis_center))
-                preview_data["visualization_params"] = {
-                    "center": vis_center.tolist(),
-                    "scale": vis_scale if not np.isclose(vis_scale, 0) else 1.0,
-                }
+            # Use visualization parameters from dataset if available, otherwise calculate from geometry
+            dataset_vis_params = gen_path_data.get("visualization_params")
+            if dataset_vis_params:
+                preview_data["visualization_params"] = dataset_vis_params
             else:
-                # Fallback to path-based transform if full geometry isn't available
-                preview_data["visualization_params"] = {
-                    "center": transform_params["center"],
-                    "scale": transform_params["scale"],
-                }
+                # Fallback: calculate from mechanism geometry
+                all_mech_points = self._get_mechanism_points_orig(preview_data)
+                if all_mech_points is not None:
+                    vis_center = np.mean(all_mech_points, axis=0)
+                    vis_scale = np.max(np.abs(all_mech_points - vis_center))
+                    preview_data["visualization_params"] = {
+                        "center": vis_center.tolist(),
+                        "scale": vis_scale if not np.isclose(vis_scale, 0) else 1.0,
+                    }
+                else:
+                    # Final fallback to path-based transform
+                    preview_data["visualization_params"] = {
+                        "center": transform_params["center"],
+                        "scale": transform_params["scale"],
+                    }
 
             # Group by display type and keep only the best (lowest distance)
             if display_type not in mechanisms_by_type:
@@ -986,28 +1038,58 @@ class MechanismRecommendationDialog(QDialog):
         key_points = mechanism_data.get("key_points")
 
         if mech_type == "4-bar Coupler" and key_points:
+            # Use the new key_points structure with more detailed information
             p1_coords = key_points.get("ground_pivot_1")
             p2_coords = key_points.get("ground_pivot_2")
-            if p1_coords and p2_coords:
-                all_points.append(np.array([p1_coords, p2_coords]))
+            p3_coords = key_points.get("initial_moving_joint_1")
+            p4_coords = key_points.get("initial_moving_joint_2")
+            
+            # Include all available pivot points
+            pivot_points = []
+            for coords in [p1_coords, p2_coords, p3_coords, p4_coords]:
+                if coords:
+                    pivot_points.append(coords)
+            
+            if pivot_points:
+                all_points.append(np.array(pivot_points))
 
         elif mech_type == "Cam Follower":
             base_radius = params.get("base_radius")
             eccentricity = params.get("eccentricity")
             if base_radius is not None and eccentricity is not None:
-                cam_center_orig = np.array([eccentricity, 0])
+                # Use key_points if available for more accurate positioning
+                if key_points:
+                    cam_center_coords = key_points.get("cam_center")
+                    rotation_center_coords = key_points.get("rotation_center")
+                    if cam_center_coords:
+                        cam_center_orig = np.array(cam_center_coords)
+                    else:
+                        cam_center_orig = np.array([eccentricity, 0])
+                    if rotation_center_coords:
+                        all_points.append(np.array([rotation_center_coords]))
+                else:
+                    cam_center_orig = np.array([eccentricity, 0])
+                    all_points.append(np.array([[0, 0]]))  # rotation center
+                    
                 thetas = np.linspace(0, 2 * np.pi, 20)
                 cam_points = cam_center_orig + base_radius * np.array(
                     [np.cos(thetas), np.sin(thetas)]
                 ).T
                 all_points.append(cam_points)
-                all_points.append(np.array([[0, 0]]))  # rotation center
 
         elif mech_type == "Gear Contact":
             r1, r2 = params.get("r1"), params.get("r2")
             if r1 and r2:
-                c1_orig = np.array([0, 0])
-                c2_orig = np.array([r1 + r2, 0])
+                # Use key_points if available for more accurate positioning
+                if key_points:
+                    gear1_center = key_points.get("gear1_center", [0, 0])
+                    gear2_center = key_points.get("gear2_center", [r1 + r2, 0])
+                else:
+                    gear1_center = [0, 0]
+                    gear2_center = [r1 + r2, 0]
+                    
+                c1_orig = np.array(gear1_center)
+                c2_orig = np.array(gear2_center)
                 thetas = np.linspace(0, 2 * np.pi, 20)
                 g1_points = c1_orig + r1 * np.array([np.cos(thetas), np.sin(thetas)]).T
                 g2_points = c2_orig + r2 * np.array(

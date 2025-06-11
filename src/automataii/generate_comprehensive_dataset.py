@@ -16,15 +16,27 @@ from scipy.optimize import fsolve
 
 # --- UTILITIES ---
 
-def normalize_path(path_coords: List[List[float]], target_bounds: Tuple[float, float] = (-1.0, 1.0)) -> List[List[float]]:
-    """Normalize path coordinates to fit within target bounds."""
-    if not path_coords: return []
+def normalize_path(path_coords: List[List[float]], target_bounds: Tuple[float, float] = (-1.0, 1.0)) -> Tuple[List[List[float]], Dict]:
+    """Normalize path coordinates and return normalization parameters for reconstruction."""
+    if not path_coords: return [], {}
     coords_array = np.array(path_coords)
     min_vals, max_vals = coords_array.min(axis=0), coords_array.max(axis=0)
+    center = (min_vals + max_vals) / 2
     ranges = max_vals - min_vals
     ranges[ranges == 0] = 1
-    normalized = (coords_array - min_vals) / ranges
-    return (normalized * (target_bounds[1] - target_bounds[0]) + target_bounds[0]).tolist()
+    max_range = np.max(ranges)
+    
+    # Normalize keeping aspect ratio
+    normalized = (coords_array - center) / (max_range / 2)
+    
+    # Store normalization parameters for reconstruction
+    norm_params = {
+        "center": center.tolist(),
+        "scale": max_range / 2,
+        "original_bounds": [min_vals.tolist(), max_vals.tolist()]
+    }
+    
+    return normalized.tolist(), norm_params
 
 # --- KINEMATIC SIMULATORS ---
 
@@ -37,15 +49,36 @@ def simulate_4bar_motion(l1, l2, l3, l4, p_x, p_y, num_steps=180):
     """Simulates a 4-bar linkage, returning data needed for animation and dataset."""
     sim_data = []
     last_sol = [np.pi/2, np.pi/2]
+    
+    # Ground pivots
+    p1 = np.array([0, 0])           # Fixed ground pivot 1
+    p2 = np.array([l1, 0])          # Fixed ground pivot 2
+    
     for theta2 in np.linspace(0, 2*np.pi, num_steps):
         sol, _, ier, _ = fsolve(solve_4bar_closure, last_sol, args=(l1, l2, l3, l4, theta2), full_output=True)
         if ier == 1:
             last_sol = sol
             theta3, theta4 = sol
-            p_a = np.array([l2*np.cos(theta2), l2*np.sin(theta2)])
-            p_b = np.array([l1 + l4*np.cos(theta4), l4*np.sin(theta4)])
-            p_coupler = p_a + np.array([p_x*np.cos(theta3) - p_y*np.sin(theta3), p_x*np.sin(theta3) + p_y*np.cos(theta3)])
-            sim_data.append({'p_a': p_a, 'p_b': p_b, 'p_coupler': p_coupler})
+            
+            # Calculate moving joint positions
+            p3 = p1 + np.array([l2*np.cos(theta2), l2*np.sin(theta2)])  # Moving joint connected to p1
+            p4 = p2 + np.array([l4*np.cos(theta4), l4*np.sin(theta4)])  # Moving joint connected to p2
+            
+            # Calculate coupler point position relative to the coupler link (p3-p4)
+            coupler_vec = p4 - p3
+            coupler_length = np.linalg.norm(coupler_vec)
+            if coupler_length > 0:
+                coupler_unit = coupler_vec / coupler_length
+                coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
+                p_coupler = p3 + p_x * coupler_unit + p_y * coupler_normal
+            else:
+                p_coupler = p3
+                
+            sim_data.append({
+                'p1': p1, 'p2': p2, 'p3': p3, 'p4': p4, 
+                'p_coupler': p_coupler,
+                'theta2': theta2, 'theta3': theta3, 'theta4': theta4
+            })
     return sim_data
 
 def simulate_cam_motion(base_radius, eccentricity, num_steps=180):
@@ -129,9 +162,92 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
         if mech_type == '4-bar':
             sim_data = simulate_4bar_motion(**params)
             path = np.array([f['p_coupler'] for f in sim_data])
-            dataset_aggregator.append({"type": "4-bar Coupler", "name": f"4-bar {config['name']}", "parameters": params, "path_coordinates": normalize_path(path.tolist()), "key_points": {"ground_pivot_1": [0,0], "ground_pivot_2": [params['l1'],0], "coupler_point_path": path.tolist()}})
+            
+            # Get complete mechanism geometry
+            first_frame = sim_data[0]
+            p1, p2 = first_frame['p1'], first_frame['p2']
+            p3, p4 = first_frame['p3'], first_frame['p4']
+            
+            # Normalize path and get parameters
+            normalized_path, norm_params = normalize_path(path.tolist())
+            
+            # Calculate all mechanism points for bounding box
+            all_points = np.vstack([path, np.array([p1, p2, p3, p4])])
+            mech_center = np.mean(all_points, axis=0)
+            mech_extent = np.max(np.abs(all_points - mech_center))
+            
+            # Calculate coupler path in the same coordinate system
+            coupler_path = [f['p_coupler'] for f in sim_data]
+            
+            # Calculate coupler point at initial position for reference
+            initial_coupler = sim_data[0]['p_coupler']
+            
+            dataset_entry = {
+                "type": "4-bar Coupler", 
+                "name": f"4-bar {config['name']}", 
+                "parameters": {
+                    **params,
+                    "coupler_point": {"x": params['p_x'], "y": params['p_y']}  # Explicit coupler point
+                },
+                "path_coordinates": normalized_path,
+                "path_normalization": norm_params,  # Store normalization info
+                "key_points": {
+                    "ground_pivot_1": p1.tolist(),
+                    "ground_pivot_2": p2.tolist(),
+                    "initial_moving_joint_1": p3.tolist(), 
+                    "initial_moving_joint_2": p4.tolist(),
+                    "coupler_point_offset": {"x": params['p_x'], "y": params['p_y']},
+                    "initial_coupler_position": initial_coupler.tolist()  # Where coupler starts
+                },
+                "skeleton_attachment": {
+                    "attachment_point": "coupler_point",  # This is what follows the skeleton
+                    "attachment_coordinates": initial_coupler.tolist(),  # Initial position
+                    "description": "The coupler point moves along the generated path and drives skeleton animation"
+                },
+                "mechanism_layout": {
+                    "description": "4-bar linkage with crank (l2) driving from ground pivot p1",
+                    "link_roles": {
+                        "l1": {"name": "ground_link", "connects": ["p1", "p2"], "fixed": True},
+                        "l2": {"name": "input_crank", "connects": ["p1", "p3"], "driver": True},
+                        "l3": {"name": "coupler_link", "connects": ["p3", "p4"], "carries_point": True},
+                        "l4": {"name": "output_rocker", "connects": ["p4", "p2"], "driven": True}
+                    },
+                    "coordinate_system": {
+                        "origin": "ground_pivot_1 (p1)",
+                        "x_axis": "along ground link towards p2",
+                        "units": "arbitrary length units"
+                    }
+                },
+                "visualization_params": {
+                    "center": mech_center.tolist(),
+                    "scale": float(mech_extent),
+                    "bounding_box": {
+                        "min": np.min(all_points, axis=0).tolist(),
+                        "max": np.max(all_points, axis=0).tolist()
+                    }
+                },
+                "full_simulation_data": {
+                    "coupler_path": [cp.tolist() for cp in coupler_path],
+                    "link_lengths": {"l1": params['l1'], "l2": params['l2'], "l3": params['l3'], "l4": params['l4']},
+                    "joint_positions": {
+                        "p1_positions": [f['p1'].tolist() for f in sim_data],  # Ground pivot 1 (fixed)
+                        "p2_positions": [f['p2'].tolist() for f in sim_data],  # Ground pivot 2 (fixed)
+                        "p3_positions": [f['p3'].tolist() for f in sim_data],  # Moving joint (crank end)
+                        "p4_positions": [f['p4'].tolist() for f in sim_data],  # Moving joint (rocker end)
+                        "coupler_positions": [f['p_coupler'].tolist() for f in sim_data]  # The point that follows path
+                    },
+                    "angles": {
+                        "theta2": [f['theta2'] for f in sim_data],  # Input crank angle
+                        "theta3": [f['theta3'] for f in sim_data],  # Coupler link angle
+                        "theta4": [f['theta4'] for f in sim_data]   # Output rocker angle
+                    }
+                }
+            }
+            dataset_aggregator.append(dataset_entry)
+            print(f"Added 4-bar dataset entry with keys: {list(dataset_entry.keys())}")
+            print(f"Key points: {list(dataset_entry['key_points'].keys())}")
 
-            p0, p1 = np.array([0, 0]), np.array([params['l1'], 0])
+            ground_p1, ground_p2 = first_frame['p1'], first_frame['p2']
             ax.plot(path[:,0], path[:,1], '--m', lw=1.5)
             driver, = ax.plot([], [], 'o-', color='orange', lw=5)
             follower, = ax.plot([], [], 'o-', color='gold', lw=5)
@@ -140,19 +256,19 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
 
             def create_4bar_anim(sd, dr, fo, co, cpm):
                 def init():
-                    all_x = np.concatenate([path[:, 0], [p0[0], p1[0]]])
-                    all_y = np.concatenate([path[:, 1], [p0[1], p1[1]]])
+                    all_x = np.concatenate([path[:, 0], [ground_p1[0], ground_p2[0]]])
+                    all_y = np.concatenate([path[:, 1], [ground_p1[1], ground_p2[1]]])
                     padding = 5
                     ax.set_xlim(all_x.min() - padding, all_x.max() + padding)
                     ax.set_ylim(all_y.min() - padding, all_y.max() + padding)
                     return dr, fo, co, cpm
                 def update(idx):
                     frame = sd[idx]
-                    p_a, p_b, p_coupler_pos = frame['p_a'], frame['p_b'], frame['p_coupler']
-                    dr.set_data([p0[0], p_a[0]], [p0[1], p_a[1]])
-                    fo.set_data([p1[0], p_b[0]], [p1[1], p_b[1]])
-                    co.set_data([p_a[0], p_b[0], p_coupler_pos[0], p_a[0]],
-                                [p_a[1], p_b[1], p_coupler_pos[1], p_a[1]])
+                    p1, p2, p3, p4 = frame['p1'], frame['p2'], frame['p3'], frame['p4']
+                    p_coupler_pos = frame['p_coupler']
+                    dr.set_data([p1[0], p3[0]], [p1[1], p3[1]])  # Link 1
+                    fo.set_data([p2[0], p4[0]], [p2[1], p4[1]])  # Link 2
+                    co.set_data([p3[0], p4[0]], [p3[1], p4[1]])  # Coupler link
                     cpm.set_data([p_coupler_pos[0]], [p_coupler_pos[1]])
                     return dr, fo, co, cpm
                 return init, update
@@ -162,7 +278,58 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
         elif mech_type == 'cam-follower':
             sim_data = simulate_cam_motion(**params)
             path = np.array([[0, f['follower_y']] for f in sim_data])
-            dataset_aggregator.append({"type": "Cam Follower", "name": f"Cam {config['name']}", "parameters": params, "path_coordinates": normalize_path(path.tolist())})
+            
+            # Normalize path and get parameters
+            normalized_path, norm_params = normalize_path(path.tolist())
+            
+            # Calculate cam mechanism geometry
+            base_radius = params['base_radius']
+            eccentricity = params['eccentricity']
+            cam_center = np.array([eccentricity, 0])
+            
+            # Calculate bounding box including cam profile
+            follower_ys = [f['follower_y'] for f in sim_data]
+            min_y, max_y = min(follower_ys), max(follower_ys)
+            
+            dataset_entry = {
+                "type": "Cam Follower", 
+                "name": f"Cam {config['name']}", 
+                "parameters": params,
+                "path_coordinates": normalized_path,
+                "path_normalization": norm_params,
+                "key_points": {
+                    "cam_center": cam_center.tolist(),
+                    "rotation_center": [0, 0],
+                    "follower_path_bounds": {"min_y": min_y, "max_y": max_y},
+                    "initial_follower_position": [0, sim_data[0]['follower_y']]
+                },
+                "skeleton_attachment": {
+                    "attachment_point": "follower",
+                    "attachment_coordinates": [0, sim_data[0]['follower_y']],
+                    "description": "The follower moves vertically and drives skeleton animation"
+                },
+                "mechanism_layout": {
+                    "description": "Cam-follower with eccentric cam rotating about origin",
+                    "components": {
+                        "cam": {"center_offset": eccentricity, "radius": base_radius, "rotates": True},
+                        "follower": {"position": [0, "variable_y"], "motion": "vertical_translation"}
+                    },
+                    "coordinate_system": {
+                        "origin": "cam rotation center",
+                        "x_axis": "horizontal right",
+                        "y_axis": "vertical up"
+                    }
+                },
+                "visualization_params": {
+                    "center": [0, (min_y + max_y) / 2],
+                    "scale": max(base_radius + eccentricity, (max_y - min_y) / 2),
+                    "bounding_box": {
+                        "min": [-base_radius - eccentricity, min_y],
+                        "max": [base_radius + eccentricity, max_y]
+                    }
+                }
+            }
+            dataset_aggregator.append(dataset_entry)
 
             ax.plot(path[:, 0], path[:, 1], '--c', lw=2)
 
@@ -190,7 +357,57 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
             sim_data = simulate_gear_motion(**params)
             r1, r2 = params['r1'], params['r2']
             path = np.array([[r1*np.cos(f['t1']), r1*np.sin(f['t1'])] for f in sim_data]) # Path on driver gear
-            dataset_aggregator.append({"type": "Gear Contact", "name": f"Gear {config['name']}", "parameters": params, "path_coordinates": normalize_path(path.tolist())})
+            
+            # Normalize path and get parameters
+            normalized_path, norm_params = normalize_path(path.tolist())
+            
+            # Calculate gear mechanism geometry
+            gear1_center = np.array([-r1, 0])  # Left gear center
+            gear2_center = np.array([r2, 0])   # Right gear center
+            
+            # Initial position on gear 1 circumference
+            initial_gear_point = gear1_center + np.array([r1, 0])
+            
+            dataset_entry = {
+                "type": "Gear Contact", 
+                "name": f"Gear {config['name']}", 
+                "parameters": params,
+                "path_coordinates": normalized_path,
+                "path_normalization": norm_params,
+                "key_points": {
+                    "gear1_center": gear1_center.tolist(),
+                    "gear2_center": gear2_center.tolist(),
+                    "contact_point": [0, 0],  # Contact point between gears
+                    "initial_tracking_point": initial_gear_point.tolist()
+                },
+                "skeleton_attachment": {
+                    "attachment_point": "gear1_circumference",
+                    "attachment_coordinates": initial_gear_point.tolist(),
+                    "description": "A point on gear 1 circumference follows circular path and drives skeleton"
+                },
+                "mechanism_layout": {
+                    "description": "Two meshing gears with gear ratio r1:r2",
+                    "components": {
+                        "gear1": {"center": gear1_center.tolist(), "radius": r1, "driver": True},
+                        "gear2": {"center": gear2_center.tolist(), "radius": r2, "driven": True}
+                    },
+                    "gear_ratio": r1 / r2,
+                    "coordinate_system": {
+                        "origin": "midpoint between gear centers",
+                        "x_axis": "horizontal right",
+                        "gear_separation": r1 + r2
+                    }
+                },
+                "visualization_params": {
+                    "center": [0, 0],  # Center between gears
+                    "scale": max(r1, r2),
+                    "bounding_box": {
+                        "min": [-r1 - r1, -max(r1, r2)],
+                        "max": [r2 + r2, max(r1, r2)]
+                    }
+                }
+            }
+            dataset_aggregator.append(dataset_entry)
 
             p1, p2 = np.array([-r1,0]), np.array([r2,0])
             ax.add_patch(plt.Circle(p1,r1,color='slategray')); ax.add_patch(plt.Circle(p2,r2,color='coral'))
@@ -215,11 +432,9 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
             artists.extend(funcs['update'](frame_index % funcs['frames']))
         return artists
 
-    for funcs in anim_funcs: funcs['init']()
-    anim = FuncAnimation(fig, master_update, frames=180, interval=50, blit=True)
-    anim.save(os.path.join(output_dir, f"{title.lower().replace(' ', '_')}.gif"), writer='pillow', fps=20)
+    # Skip animation generation for faster dataset creation
     plt.close(fig)
-    print(f"Saved animation: {title}.gif")
+    print(f"Processed mechanisms for: {title}")
 
 def main():
     parser = argparse.ArgumentParser(description="Generate and visualize mechanism datasets.")
