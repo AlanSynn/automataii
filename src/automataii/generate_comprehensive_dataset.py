@@ -1,389 +1,258 @@
 #!/usr/bin/env python3
 """
-Generate a comprehensive synthetic mechanism path dataset.
-Since the macanism library has some issues, we'll generate mathematically-defined paths
-that represent typical mechanism behaviors.
+Generate and visualize a comprehensive synthetic mechanism dataset.
+This script creates animations for 4-bar linkages, cam-followers, and gear trains,
+and also generates a single JSON dataset file with their path data.
 """
 
+import os
 import json
 import numpy as np
-import os
+import argparse
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 from typing import List, Dict, Any, Tuple
-from automataii.kinematics.mechanism_simulator import MechanismSimulator
-from automataii.kinematics.mechanism import MechanismType
+from scipy.optimize import fsolve
 
+# --- UTILITIES ---
 
-def normalize_path(path_coords: List[Tuple[float, float]],
-                  target_bounds: Tuple[float, float] = (-1.0, 1.0)) -> List[List[float]]:
+def normalize_path(path_coords: List[List[float]], target_bounds: Tuple[float, float] = (-1.0, 1.0)) -> List[List[float]]:
     """Normalize path coordinates to fit within target bounds."""
-    if not path_coords:
-        return []
-
+    if not path_coords: return []
     coords_array = np.array(path_coords)
-
-    # Find current bounds
-    min_vals = coords_array.min(axis=0)
-    max_vals = coords_array.max(axis=0)
+    min_vals, max_vals = coords_array.min(axis=0), coords_array.max(axis=0)
     ranges = max_vals - min_vals
-
-    # Avoid division by zero
     ranges[ranges == 0] = 1
-
-    # Normalize to [0, 1] then scale to target bounds
     normalized = (coords_array - min_vals) / ranges
-    scaled = normalized * (target_bounds[1] - target_bounds[0]) + target_bounds[0]
+    return (normalized * (target_bounds[1] - target_bounds[0]) + target_bounds[0]).tolist()
 
-    return scaled.tolist()
+# --- KINEMATIC SIMULATORS ---
 
+def solve_4bar_closure(x, l1, l2, l3, l4, theta2):
+    theta3, theta4 = x
+    return (l2*np.cos(theta2) + l3*np.cos(theta3) - l4*np.cos(theta4) - l1,
+            l2*np.sin(theta2) + l3*np.sin(theta3) - l4*np.sin(theta4))
 
-def generate_fourbar_coupler_curves() -> List[Dict[str, Any]]:
-    """Generate various 4-bar linkage coupler curves using a simulator."""
-    mechanisms = []
-    simulator = MechanismSimulator()
+def simulate_4bar_motion(l1, l2, l3, l4, p_x, p_y, num_steps=180):
+    """Simulates a 4-bar linkage, returning data needed for animation and dataset."""
+    sim_data = []
+    last_sol = [np.pi/2, np.pi/2]
+    for theta2 in np.linspace(0, 2*np.pi, num_steps):
+        sol, _, ier, _ = fsolve(solve_4bar_closure, last_sol, args=(l1, l2, l3, l4, theta2), full_output=True)
+        if ier == 1:
+            last_sol = sol
+            theta3, theta4 = sol
+            p_a = np.array([l2*np.cos(theta2), l2*np.sin(theta2)])
+            p_b = np.array([l1 + l4*np.cos(theta4), l4*np.sin(theta4)])
+            p_coupler = p_a + np.array([p_x*np.cos(theta3) - p_y*np.sin(theta3), p_x*np.sin(theta3) + p_y*np.cos(theta3)])
+            sim_data.append({'p_a': p_a, 'p_b': p_b, 'p_coupler': p_coupler})
+    return sim_data
 
-    # Define a range of parameters to sample from
-    # [l1, l2, l3, l4, p_x, p_y, theta0, omega]
-    param_configs = [
-        # Grashof crank-rocker
-        {"name": "Crank-Rocker 1", "params": [2.0, 1.0, 2.5, 2.0, 1.5, 0.5, 0, 1]},
-        {"name": "Crank-Rocker 2", "params": [3.0, 1.2, 3.2, 2.5, -1.0, 1.0, 0, 1]},
-        # Grashof double-rocker
-        {"name": "Double-Rocker 1", "params": [3.0, 2.0, 1.5, 2.8, 0.8, -0.8, 0, 1]},
-        # Non-Grashof triple-rocker
-        {"name": "Triple-Rocker 1", "params": [2.5, 1.5, 2.0, 3.0, 1.0, 1.0, 0, 1]},
-    ]
+def simulate_cam_motion(base_radius, eccentricity, num_steps=180):
+    """Simulates a cam-follower, returning data for animation."""
+    sim_data = []
+    cam_offset = np.array([eccentricity, 0])
+    for theta in np.linspace(0, 2*np.pi, num_steps):
+        rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+        rotated_center = rot @ cam_offset
+        follower_y = rotated_center[1] + base_radius
+        sim_data.append({'cam_center': rotated_center, 'follower_y': follower_y})
+    return sim_data
 
-    for config in param_configs:
-        try:
-            motion_curve = simulator.simulate_mechanism(MechanismType.FOUR_BAR, np.array(config["params"]))
-            if motion_curve.points.shape[0] > 10:
-                path_coords = motion_curve.points.tolist()
+def simulate_gear_motion(r1, r2, num_steps=180):
+    """Simulates a gear train, returning data for animation."""
+    sim_data = []
+    for theta1 in np.linspace(0, 2*np.pi, num_steps):
+        sim_data.append({'t1': theta1, 't2': -theta1 * (r1 / r2)})
+    return sim_data
 
-                # Extract key points for visualization
-                l1, l2, _, l4, _, _, _, _ = config["params"]
-                key_points = {
-                    "ground_pivot_1": [0, 0],
-                    "ground_pivot_2": [l1, 0],
-                    "coupler_point_path": path_coords,
-                }
+# --- CONFIGURATION GENERATORS ---
 
-                mechanisms.append({
-                    "type": "4-bar Coupler",
-                    "name": f"4-bar {config['name']}",
-                    "parameters": dict(zip(["l1", "l2", "l3", "l4", "p_x", "p_y", "theta0", "omega"], config["params"])),
-                    "path_coordinates": normalize_path(path_coords),
-                    "key_points": key_points,
-                    "component_shapes": [
-                        {"type": "line", "start": [0,0], "end": [l2,0], "name": "crank"},
-                        {"type": "line", "start": [l1,0], "end": [l1+l4,0], "name": "rocker"},
-                    ]
-                })
-        except Exception as e:
-            print(f"Failed to generate {config['name']}: {e}")
+def generate_crank_rocker_configs(num_configs: int, max_dim: float = 100.0) -> List[Dict[str, Any]]:
+    """Generates a list of diverse, valid Crank-Rocker configurations."""
+    configs = []
+    attempts = 0
+    while len(configs) < num_configs and attempts < 500:
+        attempts += 1
+        # Generate link lengths based on the assumed space
+        l1 = np.random.uniform(0.3 * max_dim, 0.7 * max_dim)  # Ground link
+        l2 = np.random.uniform(0.1 * max_dim, 0.25 * max_dim) # Crank
+        l3 = np.random.uniform(0.5 * max_dim, 1.2 * max_dim)  # Coupler
+        l4 = np.random.uniform(0.5 * max_dim, 1.2 * max_dim)  # Follower
 
-    return mechanisms
+        # Ensure Grashof Crank-Rocker conditions are met
+        links = {'l1': l1, 'l2': l2, 'l3': l3, 'l4': l4}
+        s_link_name = min(links, key=links.get)
 
+        # Condition 1: Crank (l2) must be the shortest link
+        if s_link_name != 'l2':
+            continue
 
-def generate_crankslider_paths() -> List[Dict[str, Any]]:
-    """Generate crank-slider mechanism paths."""
-    mechanisms = []
-    t = np.linspace(0, 2 * np.pi, 100)
+        # Condition 2: Grashof condition (s + l <= p + q)
+        s, l = links[s_link_name], max(links.values())
+        p_q_sum = sum(links.values()) - s - l
+        if s + l > p_q_sum:
+            continue
 
-    # Various crank-slider configurations
-    configs = [
-        # Standard inline
-        {"name": "Inline Zero Offset", "r": 1.0, "l": 3.0, "offset": 0.0},
-        {"name": "Inline Short Rod", "r": 1.5, "l": 2.0, "offset": 0.0},
-        {"name": "Inline Long Rod", "r": 1.0, "l": 5.0, "offset": 0.0},
-        # Offset configurations
-        {"name": "Offset Positive Small", "r": 1.0, "l": 3.0, "offset": 0.5},
-        {"name": "Offset Positive Large", "r": 1.0, "l": 3.0, "offset": 1.0},
-        {"name": "Offset Negative Small", "r": 1.0, "l": 3.0, "offset": -0.5},
-        {"name": "Offset Negative Large", "r": 1.0, "l": 3.0, "offset": -1.0},
-        # Quick-return mechanisms
-        {"name": "Quick Return 1", "r": 2.0, "l": 3.0, "offset": 1.5},
-        {"name": "Quick Return 2", "r": 1.5, "l": 2.5, "offset": 1.0},
-        # Different stroke lengths
-        {"name": "Short Stroke", "r": 0.5, "l": 4.0, "offset": 0.0},
-        {"name": "Medium Stroke", "r": 1.5, "l": 3.0, "offset": 0.0},
-        {"name": "Long Stroke", "r": 2.5, "l": 3.0, "offset": 0.0},
-    ]
+        # Generate a coupler point for an interesting path
+        p_x = np.random.uniform(l3 * 0.2, l3 * 0.8)
+        p_y = np.random.uniform(-l3 * 0.5, l3 * 0.5)
 
-    for cfg in configs:
-        r = cfg["r"]  # crank radius
-        l = cfg["l"]  # connecting rod length
-        e = cfg["offset"]  # offset
-
-        # Calculate slider position
-        x_slider = []
-        y_slider = []
-
-        for angle in t:
-            # Crank position
-            x_crank = r * np.cos(angle)
-            y_crank = r * np.sin(angle)
-
-            # Solve for slider position
-            # For offset slider: (x - x_crank)² + (e - y_crank)² = l²
-            # Solving for x: x = x_crank ± sqrt(l² - (e - y_crank)²)
-            discriminant = l**2 - (e - y_crank)**2
-
-            if discriminant >= 0:
-                x = x_crank + np.sqrt(discriminant)  # Take the forward solution
-                x_slider.append(float(x))
-                y_slider.append(float(e))
-
-        if len(x_slider) > 10:
-            path_coords = [[x_slider[i], y_slider[i]] for i in range(len(x_slider))]
-            mechanisms.append({
-                "type": "3-bar Output",
-                "name": f"Crank-Slider {cfg['name']}",
-                "parameters": {
-                    "crank_length": r,
-                    "rod_length": l,
-                    "offset": e
-                },
-                "path_coordinates": normalize_path(path_coords)
-            })
-
-    return mechanisms
-
-
-def generate_cam_profiles() -> List[Dict[str, Any]]:
-    """Generate various cam profile shapes."""
-    mechanisms = []
-
-    # Base parameters
-    angles = np.linspace(0, 2 * np.pi, 200)
-
-    cam_profiles = [
-        # Simple dwell-rise-dwell-fall
-        {
-            "name": "Simple DRDF",
-            "base_radius": 4.0,
-            "lift": 2.0,
-            "profile": lambda a, rb, h: np.where(
-                a < np.pi/2, rb,
-                np.where(a < np.pi, rb + h * np.sin((a - np.pi/2) * 2),
-                np.where(a < 3*np.pi/2, rb + h,
-                rb + h * (1 + np.cos((a - 3*np.pi/2) * 2)) / 2)))
-        },
-        # Harmonic motion
-        {
-            "name": "Harmonic Rise-Fall",
-            "base_radius": 5.0,
-            "lift": 3.0,
-            "profile": lambda a, rb, h: rb + h * (1 - np.cos(a)) / 2
-        },
-        # Cycloidal motion
-        {
-            "name": "Cycloidal",
-            "base_radius": 4.5,
-            "lift": 2.5,
-            "profile": lambda a, rb, h: rb + h * (a / (2 * np.pi) - np.sin(a) / (2 * np.pi))
-        },
-        # Modified sine
-        {
-            "name": "Modified Sine",
-            "base_radius": 5.0,
-            "lift": 2.0,
-            "profile": lambda a, rb, h: rb + h * (np.sin(a)**2)
-        },
-        # Double dwell
-        {
-            "name": "Double Dwell",
-            "base_radius": 4.0,
-            "lift": 3.0,
-            "profile": lambda a, rb, h: np.where(
-                a < np.pi/3, rb + h * np.sin(3 * a / 2),
-                np.where(a < 2*np.pi/3, rb + h,
-                np.where(a < np.pi, rb + h * np.cos(3 * (a - 2*np.pi/3) / 2),
-                np.where(a < 4*np.pi/3, rb,
-                np.where(a < 5*np.pi/3, rb + h/2 * np.sin(3 * (a - 4*np.pi/3) / 2),
-                rb + h/2)))))
-        },
-        # Asymmetric profile
-        {
-            "name": "Asymmetric Fast Rise",
-            "base_radius": 4.5,
-            "lift": 2.5,
-            "profile": lambda a, rb, h: np.where(
-                a < np.pi/4, rb + h * np.sin(2 * a)**2,
-                np.where(a < 3*np.pi/2, rb + h,
-                rb + h * np.cos((a - 3*np.pi/2) * 4/3)**2))
-        },
-        # Constant velocity
-        {
-            "name": "Constant Velocity",
-            "base_radius": 5.0,
-            "lift": 2.0,
-            "profile": lambda a, rb, h: np.where(
-                a < np.pi/2, rb + h * a / (np.pi/2),
-                np.where(a < np.pi, rb + h,
-                np.where(a < 3*np.pi/2, rb + h * (3*np.pi/2 - a) / (np.pi/2),
-                rb)))
-        },
-        # Parabolic motion
-        {
-            "name": "Parabolic",
-            "base_radius": 4.0,
-            "lift": 2.5,
-            "profile": lambda a, rb, h: rb + h * (4 * a * (2*np.pi - a) / (4 * np.pi**2))
-        }
-    ]
-
-    for cam in cam_profiles:
-        rb = cam["base_radius"]
-        h = cam["lift"]
-        r = cam["profile"](angles, rb, h)
-
-        # Convert to Cartesian coordinates
-        x = r * np.cos(angles)
-        y = r * np.sin(angles)
-
-        path_coords = [[float(x[i]), float(y[i])] for i in range(len(angles))]
-
-        mechanisms.append({
-            "type": "Cam Profile",
-            "name": f"Cam {cam['name']}",
-            "parameters": {
-                "base_radius": rb,
-                "lift": h,
-                "motion_type": cam["name"].lower().replace(" ", "_")
-            },
-            "path_coordinates": normalize_path(path_coords)
+        configs.append({
+            'type': '4-bar',
+            'name': f'Crank-Rocker #{len(configs) + 1}',
+            'params': {'l1': l1, 'l2': l2, 'l3': l3, 'l4': l4, 'p_x': p_x, 'p_y': p_y}
         })
 
-    return mechanisms
+    print(f"Generated {len(configs)} diverse Crank-Rocker configurations.")
+    return configs
 
+# --- VISUALIZATION & DATASET GENERATION ---
 
-def generate_gear_contact_paths() -> List[Dict[str, Any]]:
-    """Generate gear contact point paths."""
-    mechanisms = []
-    t = np.linspace(0, 2 * np.pi, 100)
+def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: str, dataset_aggregator: List):
+    """Generates an animation and dataset entries for a list of mechanism configs."""
+    num_mechs = len(configs)
+    if not num_mechs: return
 
-    gear_configs = [
-        # Standard gear pairs
-        {"name": "1:2 Ratio", "r1": 1.0, "r2": 2.0},
-        {"name": "1:3 Ratio", "r1": 1.0, "r2": 3.0},
-        {"name": "1:4 Ratio", "r1": 1.0, "r2": 4.0},
-        {"name": "2:3 Ratio", "r1": 2.0, "r2": 3.0},
-        {"name": "3:5 Ratio", "r1": 3.0, "r2": 5.0},
-        # Reverse ratios
-        {"name": "2:1 Ratio", "r1": 2.0, "r2": 1.0},
-        {"name": "3:1 Ratio", "r1": 3.0, "r2": 1.0},
-        {"name": "4:1 Ratio", "r1": 4.0, "r2": 1.0},
-    ]
+    fig, axes = plt.subplots(1, num_mechs, figsize=(num_mechs * 6, 6))
+    axes = np.array(axes).flatten()
+    fig.suptitle(title, fontsize=16)
 
-    for cfg in gear_configs:
-        r1 = cfg["r1"]  # radius of gear 1
-        r2 = cfg["r2"]  # radius of gear 2
-        center_distance = r1 + r2
+    anim_funcs = []
+    for i, config in enumerate(configs):
+        ax = axes[i]
+        ax.set_aspect('equal', adjustable='box')
+        ax.grid(True)
+        ax.set_title(config['name'], fontsize=10)
+        params, mech_type = config['params'], config['type']
 
-        # Contact point moves along the line of centers
-        # For external gears, contact point traces a straight line
-        x_contact = []
-        y_contact = []
+        if mech_type == '4-bar':
+            sim_data = simulate_4bar_motion(**params)
+            path = np.array([f['p_coupler'] for f in sim_data])
+            dataset_aggregator.append({"type": "4-bar Coupler", "name": f"4-bar {config['name']}", "parameters": params, "path_coordinates": normalize_path(path.tolist()), "key_points": {"ground_pivot_1": [0,0], "ground_pivot_2": [params['l1'],0], "coupler_point_path": path.tolist()}})
 
-        for angle in t:
-            # Simplified model: contact point oscillates along line of centers
-            # In reality, it follows the line of action at pressure angle
-            contact_ratio = r1 / (r1 + r2)
-            x = center_distance * contact_ratio + 0.1 * np.sin(angle * (r2/r1))
-            y = 0.1 * np.cos(angle * (r2/r1))
+            p0, p1 = np.array([0, 0]), np.array([params['l1'], 0])
+            ax.plot(path[:,0], path[:,1], '--m', lw=1.5)
+            driver, = ax.plot([], [], 'o-', color='orange', lw=5)
+            follower, = ax.plot([], [], 'o-', color='gold', lw=5)
+            coupler, = ax.plot([], [], 'o-', color='green', lw=3)
+            coupler_point_marker, = ax.plot([], [], 'o', color='red', markersize=8)
 
-            x_contact.append(float(x))
-            y_contact.append(float(y))
+            def create_4bar_anim(sd, dr, fo, co, cpm):
+                def init():
+                    all_x = np.concatenate([path[:, 0], [p0[0], p1[0]]])
+                    all_y = np.concatenate([path[:, 1], [p0[1], p1[1]]])
+                    padding = 5
+                    ax.set_xlim(all_x.min() - padding, all_x.max() + padding)
+                    ax.set_ylim(all_y.min() - padding, all_y.max() + padding)
+                    return dr, fo, co, cpm
+                def update(idx):
+                    frame = sd[idx]
+                    p_a, p_b, p_coupler_pos = frame['p_a'], frame['p_b'], frame['p_coupler']
+                    dr.set_data([p0[0], p_a[0]], [p0[1], p_a[1]])
+                    fo.set_data([p1[0], p_b[0]], [p1[1], p_b[1]])
+                    co.set_data([p_a[0], p_b[0], p_coupler_pos[0], p_a[0]],
+                                [p_a[1], p_b[1], p_coupler_pos[1], p_a[1]])
+                    cpm.set_data([p_coupler_pos[0]], [p_coupler_pos[1]])
+                    return dr, fo, co, cpm
+                return init, update
+            init, update = create_4bar_anim(sim_data, driver, follower, coupler, coupler_point_marker)
+            anim_funcs.append({'init': init, 'update': update, 'frames': len(sim_data)})
 
-        path_coords = [[x_contact[i], y_contact[i]] for i in range(len(x_contact))]
+        elif mech_type == 'cam-follower':
+            sim_data = simulate_cam_motion(**params)
+            path = np.array([[0, f['follower_y']] for f in sim_data])
+            dataset_aggregator.append({"type": "Cam Follower", "name": f"Cam {config['name']}", "parameters": params, "path_coordinates": normalize_path(path.tolist())})
 
-        mechanisms.append({
-            "type": "Gear Contact",
-            "name": f"Gear {cfg['name']}",
-            "parameters": {
-                "gear1_radius": r1,
-                "gear2_radius": r2,
-                "gear_ratio": r2/r1,
-                "center_distance": center_distance
-            },
-            "path_coordinates": normalize_path(path_coords)
-        })
+            ax.plot(path[:, 0], path[:, 1], '--c', lw=2)
 
-    return mechanisms
+            r = params['base_radius']
+            profile = ax.fill([], [], 'deepskyblue')[0]
+            follower = ax.fill([], [], 'seagreen')[0]
 
+            def create_cam_anim(sd, prof, foll):
+                def init():
+                    ys = [f['follower_y'] for f in sd]
+                    ax.set_xlim(-r-5, r+5); ax.set_ylim(min(ys)-5, max(ys)+5)
+                    return prof, foll
+                def update(idx):
+                    frame = sd[idx]
+                    angles = np.linspace(0,2*np.pi,100)
+                    prof.set_xy(np.c_[frame['cam_center'][0]+r*np.cos(angles), frame['cam_center'][1]+r*np.sin(angles)])
+                    y, w, h = frame['follower_y'], r, r/2
+                    foll.set_xy([(-w/2,y),(w/2,y),(w/2,y+h),(-w/2,y+h)])
+                    return prof, foll
+                return init, update
+            init, update = create_cam_anim(sim_data, profile, follower)
+            anim_funcs.append({'init': init, 'update': update, 'frames': len(sim_data)})
+
+        elif mech_type == 'gear-train':
+            sim_data = simulate_gear_motion(**params)
+            r1, r2 = params['r1'], params['r2']
+            path = np.array([[r1*np.cos(f['t1']), r1*np.sin(f['t1'])] for f in sim_data]) # Path on driver gear
+            dataset_aggregator.append({"type": "Gear Contact", "name": f"Gear {config['name']}", "parameters": params, "path_coordinates": normalize_path(path.tolist())})
+
+            p1, p2 = np.array([-r1,0]), np.array([r2,0])
+            ax.add_patch(plt.Circle(p1,r1,color='slategray')); ax.add_patch(plt.Circle(p2,r2,color='coral'))
+            line1, = ax.plot([],[],'w-'); line2, = ax.plot([],[],'w-')
+
+            def create_gear_anim(sd, l1, l2):
+                def init():
+                    ax.set_xlim(-r1-r2-1,r1+r2+1); ax.set_ylim(-max(r1,r2)-1, max(r1,r2)+1)
+                    return l1, l2
+                def update(idx):
+                    frame = sd[idx]
+                    l1.set_data([p1[0], p1[0]+r1*np.cos(frame['t1'])],[p1[1], p1[1]+r1*np.sin(frame['t1'])])
+                    l2.set_data([p2[0], p2[0]+r2*np.cos(frame['t2'])],[p2[1], p2[1]+r2*np.sin(frame['t2'])])
+                    return l1, l2
+                return init, update
+            init, update = create_gear_anim(sim_data, line1, line2)
+            anim_funcs.append({'init': init, 'update': update, 'frames': len(sim_data)})
+
+    def master_update(frame_index):
+        artists = []
+        for funcs in anim_funcs:
+            artists.extend(funcs['update'](frame_index % funcs['frames']))
+        return artists
+
+    for funcs in anim_funcs: funcs['init']()
+    anim = FuncAnimation(fig, master_update, frames=180, interval=50, blit=True)
+    anim.save(os.path.join(output_dir, f"{title.lower().replace(' ', '_')}.gif"), writer='pillow', fps=20)
+    plt.close(fig)
+    print(f"Saved animation: {title}.gif")
 
 def main():
-    """Generate comprehensive synthetic dataset."""
-    print("\n=== Comprehensive Mechanism Path Dataset Generator ===\n")
+    parser = argparse.ArgumentParser(description="Generate and visualize mechanism datasets.")
+    base_dir = os.path.join(os.path.dirname(__file__), "..", "..", "generated_mechanisms")
+    parser.add_argument("--output_dir", type=str, default=os.path.join(base_dir, "animations"))
+    args = parser.parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
 
-    all_mechanisms = []
+    print("\n=== Mechanism Animation and Dataset Generator ===\n")
+    all_mechanisms_data = []
 
-    # Generate all mechanism types
-    print("Generating 4-bar coupler curves...")
-    fourbar_mechs = generate_fourbar_coupler_curves()
-    all_mechanisms.extend(fourbar_mechs)
-    print(f"  Generated {len(fourbar_mechs)} 4-bar mechanisms")
+    # --- Configurations ---
+    crank_rocker_configs = generate_crank_rocker_configs(4) # Generate 4 diverse configs
 
-    print("\nGenerating crank-slider paths...")
-    crankslider_mechs = generate_crankslider_paths()
-    all_mechanisms.extend(crankslider_mechs)
-    print(f"  Generated {len(crankslider_mechs)} crank-slider mechanisms")
+    cam_configs = [{'type': 'cam-follower', 'name': 'Eccentric Cam', 'params': {'base_radius': 25.0, 'eccentricity': 10.0}}]
+    gear_configs = [{'type': 'gear-train', 'name': 'Simple Gear Train', 'params': {'r1': 30, 'r2': 50}}]
 
-    print("\nGenerating cam profiles...")
-    cam_mechs = generate_cam_profiles()
-    all_mechanisms.extend(cam_mechs)
-    print(f"  Generated {len(cam_mechs)} cam mechanisms")
+    # --- Generation ---
+    if crank_rocker_configs:
+        process_mechanisms(crank_rocker_configs, "4-Bar Crank-Rocker Linkages", args.output_dir, all_mechanisms_data)
+    if cam_configs:
+        process_mechanisms(cam_configs, "Cam-Follower Mechanisms", args.output_dir, all_mechanisms_data)
+    if gear_configs:
+        process_mechanisms(gear_configs, "Planar Gear Trains", args.output_dir, all_mechanisms_data)
 
-    print("\nGenerating gear contact paths...")
-    gear_mechs = generate_gear_contact_paths()
-    all_mechanisms.extend(gear_mechs)
-    print(f"  Generated {len(gear_mechs)} gear mechanisms")
+    # --- Save Dataset ---
+    dataset_path = os.path.join(os.path.dirname(__file__), "..", "kinematics", "generated_mechanism_paths.json")
+    os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
+    print(f"\nSaving dataset with {len(all_mechanisms_data)} mechanisms to: {dataset_path}")
+    with open(dataset_path, 'w') as f:
+        json.dump(all_mechanisms_data, f, indent=2)
 
-    # Output path
-    output_path = os.path.join(
-        os.path.dirname(__file__),
-        "kinematics",
-        "generated_mechanism_paths.json"
-    )
-
-    # Load existing data
-    existing_data = []
-    if os.path.exists(output_path):
-        try:
-            with open(output_path, 'r') as f:
-                existing_data = json.load(f)
-            print(f"\nLoaded {len(existing_data)} existing mechanisms")
-        except Exception as e:
-            print(f"\nCould not load existing data: {e}")
-
-    # Merge datasets (avoid duplicates)
-    existing_names = {m.get("name", "") for m in existing_data}
-    new_mechanisms = [m for m in all_mechanisms if m.get("name", "") not in existing_names]
-
-    combined_data = existing_data + new_mechanisms
-
-    # Save
-    print(f"\nSaving dataset...")
-    with open(output_path, 'w') as f:
-        json.dump(combined_data, f, indent=2)
-
-    print(f"\n=== Summary ===")
-    print(f"Total mechanisms: {len(combined_data)}")
-    print(f"New mechanisms added: {len(new_mechanisms)}")
-    print(f"Saved to: {output_path}")
-
-    # Type distribution
-    type_counts = {}
-    for mech in combined_data:
-        mech_type = mech.get("type", "Unknown")
-        type_counts[mech_type] = type_counts.get(mech_type, 0) + 1
-
-    print("\nMechanism type distribution:")
-    for mech_type, count in sorted(type_counts.items()):
-        print(f"  {mech_type}: {count}")
-
-    print("\n✓ Dataset generation complete!")
-
+    print("\n✓ Generation complete!")
 
 if __name__ == "__main__":
     main()

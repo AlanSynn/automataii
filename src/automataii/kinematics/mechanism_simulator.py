@@ -1,5 +1,7 @@
 import numpy as np
+from scipy.optimize import fsolve
 from automataii.kinematics.mechanism import MechanismType, MotionCurve
+from typing import Tuple
 
 
 class MechanismSimulator:
@@ -65,7 +67,7 @@ class MechanismSimulator:
 
     def _simulate_4bar(self, params: np.ndarray, t: np.ndarray) -> np.ndarray:
         """
-        Simulates a four-bar linkage using Freudenstein's equation.
+        Simulates a four-bar linkage using a numerical solver.
         Parameters: [l1, l2, l3, l4, p_x, p_y, theta0, omega]
         l1: ground link, l2: driver, l3: coupler, l4: follower
         (p_x, p_y): coupler point coordinates relative to the coupler link's frame.
@@ -74,41 +76,49 @@ class MechanismSimulator:
             raise ValueError("4-bar simulation requires 8 parameters.")
         l1, l2, l3, l4, p_x, p_y, theta0, omega = params
 
+        # Determine the valid angular range for the input crank
+        min_angle, max_angle = get_4bar_input_angle_range(l1, l2, l3, l4)
+
+        if max_angle == min_angle:
+            return np.array([]) # Unmovable mechanism
+
+        # Create the simulation angles array based on whether it's a crank or rocker
+        if (max_angle - min_angle) >= (2 * np.pi * 0.99):  # Crank
+            thetas = np.linspace(0, 2 * np.pi, self.time_steps)
+        else:  # Rocker
+            half_steps = self.time_steps // 2
+            forward = np.linspace(min_angle, max_angle, half_steps)
+            backward = np.linspace(max_angle, min_angle, self.time_steps - half_steps)
+            thetas = np.concatenate([forward, backward])
+
         points = []
-        for theta2 in t * omega + theta0:
-            # Freudenstein's equation for theta4
-            k1 = l1 / l2
-            k2 = l1 / l4
-            k3 = (l1**2 + l2**2 - l3**2 + l4**2) / (2 * l2 * l4)
+        # Initial guess for the angles [theta3, theta4]
+        theta3_guess, theta4_guess = np.pi / 2, np.pi / 2
 
-            a = k3 - k1 * np.cos(theta2) - np.cos(theta2)
-            b = -2 * np.sin(theta2)
-            c = k3 - (k1 + 1) * np.cos(theta2)
+        for theta2 in thetas * omega + theta0:
+            # Solve for theta3 and theta4
+            solution, infodict, ier, mesg = fsolve(
+                solve_4bar_closure,
+                [theta3_guess, theta4_guess],
+                args=(l1, l2, l3, l4, theta2),
+                full_output=True,
+            )
 
-            # Solve for theta4
-            discriminant = b**2 - 4 * a * c
-            if discriminant < 0:
-                continue  # No real solution, invalid configuration
+            if ier == 1:  # Solution found
+                theta3, theta4 = solution
 
-            # Two possible solutions for theta4, choose one consistently
-            tan_theta4_half_1 = (-b + np.sqrt(discriminant)) / (2 * a)
-            theta4 = 2 * np.arctan(tan_theta4_half_1)
+                # Update guess for next iteration to ensure continuity
+                theta3_guess, theta4_guess = theta3, theta4
 
-            # Calculate theta3
-            x_a = l2 * np.cos(theta2)
-            y_a = l2 * np.sin(theta2)
-            x_b = l1 + l4 * np.cos(theta4)
-            y_b = l4 * np.sin(theta4)
-
-            delta_x = x_b - x_a
-            delta_y = y_b - y_a
-            theta3 = np.arctan2(delta_y, delta_x)
-
-            # Calculate coupler point position
-            x_p = x_a + p_x * np.cos(theta3) - p_y * np.sin(theta3)
-            y_p = y_a + p_x * np.sin(theta3) + p_y * np.cos(theta3)
-
-            points.append([x_p, y_p])
+                # Calculate coupler point position
+                x_a = l2 * np.cos(theta2)
+                y_a = l2 * np.sin(theta2)
+                x_p = x_a + p_x * np.cos(theta3) - p_y * np.sin(theta3)
+                y_p = y_a + p_x * np.sin(theta3) + p_y * np.cos(theta3)
+                points.append([x_p, y_p])
+            else:
+                # If solver fails, skip this point
+                continue
 
         return np.array(points)
 
@@ -121,11 +131,17 @@ class MechanismSimulator:
             raise ValueError("Cam simulation requires 3 parameters.")
         base_radius, rise, offset = params[:3]
 
-        angle = t
-        radius = base_radius + rise * (1 + np.sin(angle)) / 2
-
         # Assuming a simple translating follower along the y-axis
+        # The follower displacement is determined by the cam's radius at a given angle.
+        # This simulation assumes the parameters define the follower displacement directly,
+        # which is what generate_comprehensive_dataset will now provide.
+
+        angle = t
+        # The "radius" here is actually the follower displacement.
+        # The "rise" parameter scales the motion, and "base_radius" is the initial offset.
+        displacement = base_radius + rise * (1 + np.sin(angle)) / 2
+
         points = np.zeros((len(t), 2))
-        points[:, 1] = radius + offset
+        points[:, 1] = displacement + offset
 
         return points

@@ -264,7 +264,7 @@ class EditorTab(QWidget):
                 border-color: #dbe4f0;
             }
         """
-        
+
         motion_path_button_checked_style = motion_path_button_style + """
             QPushButton:checked {
                 background-color: #5c85d6;
@@ -272,7 +272,7 @@ class EditorTab(QWidget):
                 color: white;
             }
         """
-        
+
         self.define_motion_path_btn = QPushButton("Start Drawing")
         self.define_motion_path_btn.setCheckable(True)
         self.define_motion_path_btn.setToolTip(
@@ -487,7 +487,7 @@ class EditorTab(QWidget):
         self.play_btn.clicked.connect(self._play_simulation_clicked)
         self.stop_btn.clicked.connect(self._stop_simulation_clicked)
         self.reset_sim_btn.clicked.connect(self._reset_simulation_clicked)
-        
+
         # Connect zoom controls
         self.zoom_in_btn.clicked.connect(lambda: self.editor_view.zoom(1))
         self.zoom_out_btn.clicked.connect(lambda: self.editor_view.zoom(-1))

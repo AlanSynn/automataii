@@ -4,7 +4,7 @@ import numpy as np  # Add numpy import
 from scipy.spatial.distance import directed_hausdorff  # Add scipy import
 import json  # Add json import
 
-from PyQt6.QtCore import Qt, pyqtSignal as Signal, QSize, QPointF, QLineF, QRectF
+from PyQt6.QtCore import Qt, pyqtSignal as Signal, QSize, QSizeF, QPointF, QLineF, QRectF
 from PyQt6.QtGui import (
     QPixmap,
     QPainter,
@@ -14,6 +14,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPolygonF,
     QTransform,
+    QFont,
 )
 from PyQt6.QtWidgets import (
     QDialog,
@@ -38,6 +39,11 @@ SUNGLOW = QColor("#ffca3a")
 YELLOW_GREEN = QColor("#8ac926")
 STEEL_BLUE = QColor("#1982c4")
 ULTRA_VIOLET = QColor("#6a4c93")
+
+# Mechanism type constants for display
+MECHANISM_TYPE_USER_DISPLAY_4_BAR = "4-Bar Linkage"
+MECHANISM_TYPE_USER_DISPLAY_3_BAR = "3-Bar Linkage"
+MECHANISM_TYPE_USER_DISPLAY_CAM = "Cam & Follower"
 
 # from automataii.utils.qt_helpers import create_round_rect_path # Not used in this version
 
@@ -89,10 +95,24 @@ def calculate_hausdorff_distance(
     ):
         return float("inf")
 
-    # For a more robust measure, consider the maximum of the two directed distances
-    dist_1_to_2 = directed_hausdorff(path1_points, path2_points)[0]
-    dist_2_to_1 = directed_hausdorff(path2_points, path1_points)[0]
-    return max(dist_1_to_2, dist_2_to_1)
+    try:
+        # Ensure both paths have 2D coordinates
+        if len(path1_points.shape) != 2 or path1_points.shape[1] != 2:
+            print(f"Warning: path1 has invalid shape {path1_points.shape}")
+            return float("inf")
+        if len(path2_points.shape) != 2 or path2_points.shape[1] != 2:
+            print(f"Warning: path2 has invalid shape {path2_points.shape}")
+            return float("inf")
+
+        # Calculate bidirectional Hausdorff distance
+        dist_1_to_2 = directed_hausdorff(path1_points, path2_points)[0]
+        dist_2_to_1 = directed_hausdorff(path2_points, path1_points)[0]
+        distance = max(dist_1_to_2, dist_2_to_1)
+
+        return distance
+    except Exception as e:
+        print(f"Error calculating Hausdorff distance: {e}")
+        return float("inf")
 
 
 class MechanismPreviewWidget(QGraphicsView):
@@ -103,509 +123,165 @@ class MechanismPreviewWidget(QGraphicsView):
     ):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
-        self.setFixedSize(350, 300)  # Original container size
+        self.setFixedSize(500, 400)  # Larger size for better path visibility
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
-        self.setBackgroundBrush(QColor("#f8f8f8"))  # Light background
+        self.setBackgroundBrush(QColor("#ffffff"))  # White background
         self._render_preview()  # Render after background is set and scene is ready
 
-    def _draw_user_motion_path(self, bounds: QRectF) -> None:
-        """Draws the user's motion path, scaled and centered within the given bounds."""
+    def _draw_path_comparison(self, bounds: QRectF) -> None:
+        """Draws ONLY the path comparison - no other graphics."""
+        print(f"Debug: bounds = {bounds.width()}x{bounds.height()}")  # Debug size
+
+        # Get paths
         user_path_local = self.mechanism_data.get("user_motion_path_local")
-        if not isinstance(user_path_local, QPainterPath) or user_path_local.isEmpty():
-            return
+        mech_path_coords = self.mechanism_data.get("path_coordinates")
 
-        path_bounds = user_path_local.boundingRect()
-        if path_bounds.width() == 0 or path_bounds.height() == 0:
-            return
+        print(f"Debug: user_path exists = {user_path_local is not None}")
+        print(f"Debug: user_path type = {type(user_path_local)}")
+        if user_path_local:
+            print(f"Debug: user_path isEmpty = {user_path_local.isEmpty()}")
+            print(f"Debug: user_path elementCount = {user_path_local.elementCount()}")
 
-        # Scale the path to fit within 80% of the preview bounds, preserving aspect ratio
-        target_rect = bounds.adjusted(
-            bounds.width() * 0.1,
-            bounds.height() * 0.1,
-            -bounds.width() * 0.1,
-            -bounds.height() * 0.1,
-        )
+        print(f"Debug: mech_path_coords = {len(mech_path_coords) if mech_path_coords else 0}")
+        print(f"Debug: mechanism_data keys = {list(self.mechanism_data.keys())}")
 
-        scale_x = target_rect.width() / path_bounds.width()
-        scale_y = target_rect.height() / path_bounds.height()
-        scale = min(scale_x, scale_y)
+        # Create mechanism path
+        mech_path = None
+        if mech_path_coords and len(mech_path_coords) > 1:
+            mech_path = QPainterPath()
+            for i, coord in enumerate(mech_path_coords):
+                pt = QPointF(coord[0], coord[1])
+                if i == 0:
+                    mech_path.moveTo(pt)
+                else:
+                    mech_path.lineTo(pt)
+            print(f"Debug: mech_path created with {len(mech_path_coords)} points")
+            print(f"Debug: mech_path bounds = {mech_path.boundingRect()}")
+            print(f"Debug: first 3 coords = {mech_path_coords[:3]}")
+        else:
+            print(f"Debug: No mechanism path created - coords: {mech_path_coords is not None}")
 
-        transform = QTransform()
-        # 1. Translate path's top-left to origin
-        transform.translate(-path_bounds.left(), -path_bounds.top())
-        # 2. Scale
-        transform.scale(scale, scale)
-        # 3. Translate scaled path to be centered in target_rect
-        scaled_path_bounds = transform.mapRect(path_bounds)
-        transform.translate(
-            target_rect.left()
-            - scaled_path_bounds.left()
-            + (target_rect.width() - scaled_path_bounds.width()) / 2,
-            target_rect.top()
-            - scaled_path_bounds.top()
-            + (target_rect.height() - scaled_path_bounds.height()) / 2,
-        )
+        # Define the drawing area within widget bounds
+        draw_area = bounds.adjusted(20, 20, -20, -20)  # Leave space for labels
+        center = draw_area.center()
 
-        transformed_path = transform.map(user_path_local)
+        print(f"Debug: draw_area = {draw_area}")
+        print(f"Debug: center = {center}")
 
-        path_item = QGraphicsPathItem(transformed_path)
-        pen = QPen(BITTERSWEET, 3.0, Qt.PenStyle.DashLine)  # Appropriately sized for container
-        path_item.setPen(pen)
-        path_item.setZValue(10)  # Draw on top of the mechanism
-        self.scene.addItem(path_item)
+        # ALWAYS draw something to verify the system works
+
+        # 1. FORCE DRAW USER PATH if it exists
+        if user_path_local and isinstance(user_path_local, QPainterPath) and not user_path_local.isEmpty():
+            user_bounds = user_path_local.boundingRect()
+
+            # Handle single-point paths
+            if user_bounds.width() == 0 and user_bounds.height() == 0:
+                point_item = QGraphicsEllipseItem(-5, -5, 10, 10)
+                point_item.setPos(draw_area.center())
+                point_item.setPen(QPen(BITTERSWEET, 2))
+                point_item.setBrush(BITTERSWEET)
+                self.scene.addItem(point_item)
+            else:
+                # Scale and center the path correctly
+                target_size = QSizeF(draw_area.width() * 0.8, draw_area.height() * 0.8)
+                path_to_draw = QPainterPath(user_path_local)
+
+                # 1. Move path's top-left to origin (0,0)
+                transform = QTransform().translate(-user_bounds.left(), -user_bounds.top())
+
+                # 2. Calculate scale factor
+                scale_x = target_size.width() / user_bounds.width() if user_bounds.width() > 0 else float('inf')
+                scale_y = target_size.height() / user_bounds.height() if user_bounds.height() > 0 else float('inf')
+                scale = min(scale_x, scale_y)
+                transform.scale(scale, scale)
+
+                # 3. Apply transform and find new center
+                path_to_draw = transform.map(path_to_draw)
+                new_bounds = path_to_draw.boundingRect()
+
+                # 4. Move scaled path to the center of the drawing area
+                final_transform = QTransform().translate(
+                    draw_area.center().x() - new_bounds.center().x(),
+                    draw_area.center().y() - new_bounds.center().y()
+                )
+                path_to_draw = final_transform.map(path_to_draw)
+
+                user_item = QGraphicsPathItem(path_to_draw)
+                user_pen = QPen(BITTERSWEET, 8.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
+                user_item.setPen(user_pen)
+                self.scene.addItem(user_item)
+        else:
+            print(f"Debug: No valid user path - drawing placeholder")
+            # Draw placeholder text
+            text_item = self.scene.addText("No User Path", QFont("Arial", 14))
+            text_item.setDefaultTextColor(QColor("#666666"))
+            text_item.setPos(center.x() - 50, center.y() - 20)
+
+        # 2. FORCE DRAW MECHANISM PATH if it exists
+        if mech_path and not mech_path.isEmpty():
+            mech_bounds = mech_path.boundingRect()
+
+            # Handle single-point paths
+            if mech_bounds.width() == 0 and mech_bounds.height() == 0:
+                point_item = QGraphicsEllipseItem(-5, -5, 10, 10)
+                point_item.setPos(draw_area.center())
+                point_item.setPen(QPen(STEEL_BLUE, 2))
+                point_item.setBrush(STEEL_BLUE)
+                self.scene.addItem(point_item)
+            else:
+                # Scale and center the path correctly
+                target_size = QSizeF(draw_area.width() * 0.8, draw_area.height() * 0.8)
+                path_to_draw = QPainterPath(mech_path)
+
+                # 1. Move path's top-left to origin (0,0)
+                transform = QTransform().translate(-mech_bounds.left(), -mech_bounds.top())
+
+                # 2. Calculate scale factor
+                scale_x = target_size.width() / mech_bounds.width() if mech_bounds.width() > 0 else float('inf')
+                scale_y = target_size.height() / mech_bounds.height() if mech_bounds.height() > 0 else float('inf')
+                scale = min(scale_x, scale_y)
+                transform.scale(scale, scale)
+
+                # 3. Apply transform and find new center
+                path_to_draw = transform.map(path_to_draw)
+                new_bounds = path_to_draw.boundingRect()
+
+                # 4. Move scaled path to the center of the drawing area
+                final_transform = QTransform().translate(
+                    draw_area.center().x() - new_bounds.center().x(),
+                    draw_area.center().y() - new_bounds.center().y()
+                )
+                path_to_draw = final_transform.map(path_to_draw)
+
+                mech_item = QGraphicsPathItem(path_to_draw)
+                mech_pen = QPen(STEEL_BLUE, 8.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+                mech_item.setPen(mech_pen)
+                self.scene.addItem(mech_item)
+        else:
+            print(f"Debug: No valid mechanism path - drawing placeholder")
+            # Draw placeholder for mechanism path
+            placeholder_text = self.scene.addText("No Mechanism Path", QFont("Arial", 12))
+            placeholder_text.setDefaultTextColor(QColor("#ff4500"))
+            placeholder_text.setPos(center.x() - 60, center.y() + 30)
 
     def _render_preview(self) -> None:
         self.scene.clear()
-        # Add a small margin for content within the view bounds
+        # Use the ENTIRE widget area with minimal margin
         margin = 5
-        # Use self.viewport().rect() for accurate available drawing area after scrollbars etc.
-        # However, since scrollbars are off, self.rect() is fine.
         view_rect_int = self.rect()
-        view_rect_f = QRectF(view_rect_int)  # Convert QRect to QRectF
+        view_rect_f = QRectF(view_rect_int)
         view_rect_adjusted_f = view_rect_f.adjusted(margin, margin, -margin, -margin)
 
-        # Set sceneRect to the viewable area to help with item positioning if items are added at (0,0)
-        self.scene.setSceneRect(view_rect_f)  # Use QRectF here
+        # Set sceneRect to the viewable area
+        self.scene.setSceneRect(view_rect_f)
 
-        # Common drawing parameters
-        dark_offset_x = 1.5
-        dark_offset_y = 1.5
+        # Draw ONLY path comparison - no mechanism structures
+        self._draw_path_comparison(view_rect_adjusted_f)
 
-        if not self.mechanism_data or not self.mechanism_data.get("type"):
-            text_item = self.scene.addText("No Preview")
-            text_item.setDefaultTextColor(Qt.GlobalColor.black)
-            # Center text in the view_rect (area inside margin)
-            text_item.setPos(
-                view_rect_adjusted_f.center() - text_item.boundingRect().center()
-            )
-            return
-
-        preview_type = self.mechanism_data.get("type")
-        # Default to "Cam & Follower" if type is "cam" for consistency with generation
-        if preview_type == "cam":
-            preview_type = "Cam & Follower"
-
-        if preview_type == "Cam & Follower":
-            self._draw_cam_preview(dark_offset_x, dark_offset_y, view_rect_adjusted_f)
-        elif (
-            preview_type == "4-Bar Linkage"
-            or preview_type == "3-Bar Linkage"
-            or preview_type == "linkage"
-        ):  # Handle generic "linkage" too
-            self._draw_linkage_preview(
-                dark_offset_x, dark_offset_y, view_rect_adjusted_f
-            )
-        elif (
-            preview_type == "Gears (Simple Pair)" or preview_type == "gears"
-        ):  # Handle generic "gears" too
-            self._draw_gear_preview(dark_offset_x, dark_offset_y, view_rect_adjusted_f)
-        else:
-            text_item = self.scene.addText(
-                f'Preview for "{preview_type}"\nnot implemented.'
-            )
-            text_item.setDefaultTextColor(Qt.GlobalColor.black)
-            text_item.setPos(
-                view_rect_adjusted_f.center() - text_item.boundingRect().center()
-            )
-
-        # Draw user's motion path if available, after specific mechanism
-        self._draw_user_motion_path(view_rect_adjusted_f)
-
-        # Fit view to scene contents, respecting the view_rect
-        # self.fitInView(self.scene.itemsBoundingRect(), Qt.KeepAspectRatio)
-        # Ensure the entire sceneRect is visible
-        self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
-    def _draw_cam_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
-        # Generic schematic cam preview
-        preview_scale = min(bounds.width(), bounds.height()) / 280.0  # Optimized scale for cam
-        base_radius = 80 * preview_scale  # Larger base for better visibility
-        eccentric_radius = 60 * preview_scale  # Larger eccentric
-        angle_offset_rad = _np_deg2rad(45)  # Fixed angle for schematic
-
-        # Use the adjusted bounds for drawing
-        cam_center_x = bounds.center().x()
-        cam_center_y = (
-            bounds.center().y() - base_radius * 0.2
-        )  # Shift up a bit to make space for follower
-
-        ecc_offset_x = (
-            (base_radius - eccentric_radius) * 0.7 * _cos(angle_offset_rad)
-        )  # further scale down offset
-        ecc_offset_y = (base_radius - eccentric_radius) * 0.7 * _sin(angle_offset_rad)
-
-        eff_ecc_center_x = cam_center_x + ecc_offset_x
-        eff_ecc_center_y = cam_center_y + ecc_offset_y
-
-        # Back
-        cam_back = QGraphicsEllipseItem(
-            0, 0, eccentric_radius * 2, eccentric_radius * 2
-        )
-        cam_back.setPos(
-            eff_ecc_center_x - eccentric_radius + dox,
-            eff_ecc_center_y - eccentric_radius + doy,
-        )
-        cam_back.setBrush(ULTRA_VIOLET)  # Use ULTRA_VIOLET
-        cam_back.setPen(QPen(Qt.PenStyle.NoPen))
-        self.scene.addItem(cam_back)
-
-        shaft_back_rad = base_radius * 0.25
-        shaft_back = QGraphicsEllipseItem(0, 0, shaft_back_rad * 2, shaft_back_rad * 2)
-        shaft_back.setPos(
-            cam_center_x - shaft_back_rad + dox, cam_center_y - shaft_back_rad + doy
-        )
-        shaft_back.setBrush(QColor(ULTRA_VIOLET).darker(130))  # Darker ULTRA_VIOLET
-        shaft_back.setPen(QPen(Qt.PenStyle.NoPen))
-        self.scene.addItem(shaft_back)
-
-        # Front
-        cam_front = QGraphicsEllipseItem(
-            0, 0, eccentric_radius * 2, eccentric_radius * 2
-        )
-        cam_front.setPos(
-            eff_ecc_center_x - eccentric_radius, eff_ecc_center_y - eccentric_radius
-        )
-        cam_front.setBrush(STEEL_BLUE)  # Use STEEL_BLUE
-        cam_front.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(cam_front)
-
-        shaft_front_rad = base_radius * 0.25
-        shaft_front = QGraphicsEllipseItem(
-            0, 0, shaft_front_rad * 2, shaft_front_rad * 2
-        )
-        shaft_front.setPos(
-            cam_center_x - shaft_front_rad, cam_center_y - shaft_front_rad
-        )
-        shaft_front.setBrush(QColor(STEEL_BLUE).lighter(130))  # Lighter STEEL_BLUE
-        shaft_front.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(shaft_front)
-
-        follower_width = base_radius * 0.4
-        follower_height = base_radius * 0.8
-        follower_x = cam_center_x - follower_width / 2
-        follower_y_contact = eff_ecc_center_y + eccentric_radius + 2  # ensure contact
-
-        # Make follower schematic and relative to cam size
-        follower_width = base_radius * 0.4
-        follower_height = base_radius * 0.6
-        follower_x = cam_center_x - follower_width / 2
-        # Adjust follower_y_contact if needed based on new base_radius relationship
-        # For a generic preview, this should be fine, or tie it to cam_center_y more directly
-        follower_y_contact = cam_center_y + base_radius * 0.4  # Example positioning
-
-        follower_back = QGraphicsRectItem(
-            follower_x + dox, follower_y_contact + doy, follower_width, follower_height
-        )
-        follower_back.setBrush(QColor(BITTERSWEET).darker(130))  # Darker BITTERSWEET
-        follower_back.setPen(QPen(Qt.PenStyle.NoPen))
-        self.scene.addItem(follower_back)
-
-        follower_front = QGraphicsRectItem(
-            follower_x, follower_y_contact, follower_width, follower_height
-        )
-        follower_front.setBrush(BITTERSWEET)  # Use BITTERSWEET
-        follower_front.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(follower_front)
-
-    def _draw_gear_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
-        # Two meshing gears preview
-        center_x = bounds.center().x()
-        center_y = bounds.center().y()
-        preview_scale = min(bounds.width(), bounds.height()) / 220.0  # Optimized scale for gears
-
-        # First gear (larger)
-        radius1 = 60 * preview_scale  # Larger for better visibility
-        num_teeth1 = 18
-        tooth_height1 = 15 * preview_scale
-        
-        # Second gear (smaller)
-        radius2 = 40 * preview_scale  # Larger for better visibility
-        num_teeth2 = 12
-        tooth_height2 = 12 * preview_scale
-        
-        # Position gears to mesh
-        gear1_x = center_x - radius1 * 0.8
-        gear1_y = center_y
-        gear2_x = gear1_x + radius1 + radius2 + (tooth_height1 + tooth_height2) * 0.5
-        gear2_y = center_y
-
-        # Draw first gear
-        outer_radius1 = radius1 + tooth_height1 / 2
-        inner_radius1 = radius1 - tooth_height1 / 2
-
-        # Back body
-        gear1_back = QGraphicsEllipseItem(0, 0, outer_radius1 * 2, outer_radius1 * 2)
-        gear1_back.setPos(gear1_x - outer_radius1 + dox, gear1_y - outer_radius1 + doy)
-        gear1_back.setBrush(ULTRA_VIOLET)
-        gear1_back.setPen(QPen(Qt.PenStyle.NoPen))
-        self.scene.addItem(gear1_back)
-
-        # Front body
-        gear1_front = QGraphicsEllipseItem(0, 0, outer_radius1 * 2, outer_radius1 * 2)
-        gear1_front.setPos(gear1_x - outer_radius1, gear1_y - outer_radius1)
-        gear1_front.setBrush(STEEL_BLUE)
-        gear1_front.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(gear1_front)
-
-        # Center hole for first gear
-        center_hole_rad1 = inner_radius1 * 0.4
-        center_hole1 = QGraphicsEllipseItem(
-            0, 0, center_hole_rad1 * 2, center_hole_rad1 * 2
-        )
-        center_hole1.setPos(gear1_x - center_hole_rad1, gear1_y - center_hole_rad1)
-        center_hole1.setBrush(QColor("white"))
-        center_hole1.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(center_hole1)
-
-        # Draw teeth for first gear
-        angle_step1 = 360.0 / num_teeth1
-        for i in range(num_teeth1):
-            angle = _np_deg2rad(i * angle_step1)
-            tooth_angle_width = _np_deg2rad(angle_step1 / 2 * 0.6)
-
-            coords = [
-                (
-                    inner_radius1 * _cos(angle - tooth_angle_width / 2),
-                    inner_radius1 * _sin(angle - tooth_angle_width / 2),
-                ),
-                (
-                    outer_radius1 * _cos(angle - tooth_angle_width / 3),
-                    outer_radius1 * _sin(angle - tooth_angle_width / 3),
-                ),
-                (
-                    outer_radius1 * _cos(angle + tooth_angle_width / 3),
-                    outer_radius1 * _sin(angle + tooth_angle_width / 3),
-                ),
-                (
-                    inner_radius1 * _cos(angle + tooth_angle_width / 2),
-                    inner_radius1 * _sin(angle + tooth_angle_width / 2),
-                ),
-            ]
-
-            tooth_poly_back = QPolygonF()
-            for x, y in coords:
-                tooth_poly_back.append(QPointF(gear1_x + x + dox, gear1_y + y + doy))
-            self.scene.addPolygon(
-                tooth_poly_back,
-                QPen(Qt.PenStyle.NoPen),
-                QBrush(QColor(YELLOW_GREEN).darker(130)),
-            )
-
-            tooth_poly_front = QPolygonF()
-            for x, y in coords:
-                tooth_poly_front.append(QPointF(gear1_x + x, gear1_y + y))
-            self.scene.addPolygon(
-                tooth_poly_front, QPen(Qt.GlobalColor.black, 0.5), QBrush(YELLOW_GREEN)
-            )
-
-        # Draw second gear
-        outer_radius2 = radius2 + tooth_height2 / 2
-        inner_radius2 = radius2 - tooth_height2 / 2
-
-        # Back body
-        gear2_back = QGraphicsEllipseItem(0, 0, outer_radius2 * 2, outer_radius2 * 2)
-        gear2_back.setPos(gear2_x - outer_radius2 + dox, gear2_y - outer_radius2 + doy)
-        gear2_back.setBrush(QColor(BITTERSWEET).darker(130))
-        gear2_back.setPen(QPen(Qt.PenStyle.NoPen))
-        self.scene.addItem(gear2_back)
-
-        # Front body
-        gear2_front = QGraphicsEllipseItem(0, 0, outer_radius2 * 2, outer_radius2 * 2)
-        gear2_front.setPos(gear2_x - outer_radius2, gear2_y - outer_radius2)
-        gear2_front.setBrush(BITTERSWEET)
-        gear2_front.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(gear2_front)
-
-        # Center hole for second gear
-        center_hole_rad2 = inner_radius2 * 0.4
-        center_hole2 = QGraphicsEllipseItem(
-            0, 0, center_hole_rad2 * 2, center_hole_rad2 * 2
-        )
-        center_hole2.setPos(gear2_x - center_hole_rad2, gear2_y - center_hole_rad2)
-        center_hole2.setBrush(QColor("white"))
-        center_hole2.setPen(QPen(Qt.GlobalColor.black, 1))
-        self.scene.addItem(center_hole2)
-
-        # Draw teeth for second gear with phase offset for meshing
-        angle_step2 = 360.0 / num_teeth2
-        phase_offset = angle_step2 / 2  # Offset for meshing
-        for i in range(num_teeth2):
-            angle = _np_deg2rad(i * angle_step2 + phase_offset)
-            tooth_angle_width = _np_deg2rad(angle_step2 / 2 * 0.6)
-
-            coords = [
-                (
-                    inner_radius2 * _cos(angle - tooth_angle_width / 2),
-                    inner_radius2 * _sin(angle - tooth_angle_width / 2),
-                ),
-                (
-                    outer_radius2 * _cos(angle - tooth_angle_width / 3),
-                    outer_radius2 * _sin(angle - tooth_angle_width / 3),
-                ),
-                (
-                    outer_radius2 * _cos(angle + tooth_angle_width / 3),
-                    outer_radius2 * _sin(angle + tooth_angle_width / 3),
-                ),
-                (
-                    inner_radius2 * _cos(angle + tooth_angle_width / 2),
-                    inner_radius2 * _sin(angle + tooth_angle_width / 2),
-                ),
-            ]
-
-            tooth_poly_back = QPolygonF()
-            for x, y in coords:
-                tooth_poly_back.append(QPointF(gear2_x + x + dox, gear2_y + y + doy))
-            self.scene.addPolygon(
-                tooth_poly_back,
-                QPen(Qt.PenStyle.NoPen),
-                QBrush(QColor(SUNGLOW).darker(130)),
-            )
-
-            tooth_poly_front = QPolygonF()
-            for x, y in coords:
-                tooth_poly_front.append(QPointF(gear2_x + x, gear2_y + y))
-            self.scene.addPolygon(
-                tooth_poly_front, QPen(Qt.GlobalColor.black, 0.5), QBrush(SUNGLOW)
-            )
-
-    def _draw_linkage_preview(self, dox: float, doy: float, bounds: QRectF) -> None:
-        # Generic schematic 4-bar linkage preview
-        preview_scale = (
-            min(bounds.width(), bounds.height()) / 280.0
-        )  # Optimized scale for linkage
-        thickness = 20 * preview_scale  # Thicker links for better visibility
-
-        # Define points relative to bounds center, then scale
-        center_x = bounds.center().x()
-        center_y = bounds.center().y()
-
-        # Normalized points for a better looking four-bar
-        p0_norm = QPointF(-80, 30)   # Fixed ground pivot 1
-        p1_norm = QPointF(-60, -40)  # Crank pivot
-        p2_norm = QPointF(40, -50)   # Coupler end / Rocker pivot
-        p3_norm = QPointF(80, 25)    # Fixed ground pivot 2
-
-        # Scale points
-        p0 = QPointF(
-            center_x + p0_norm.x() * preview_scale,
-            center_y + p0_norm.y() * preview_scale,
-        )
-        p1 = QPointF(
-            center_x + p1_norm.x() * preview_scale,
-            center_y + p1_norm.y() * preview_scale,
-        )
-        p2 = QPointF(
-            center_x + p2_norm.x() * preview_scale,
-            center_y + p2_norm.y() * preview_scale,
-        )
-        p3 = QPointF(
-            center_x + p3_norm.x() * preview_scale,
-            center_y + p3_norm.y() * preview_scale,
-        )
-
-        # Draw ground line first
-        ground_y = max(p0.y(), p3.y()) + 20 * preview_scale
-        ground_line = QLineF(
-            bounds.left() + 20, ground_y,
-            bounds.right() - 20, ground_y
-        )
-        ground_path = QPainterPath()
-        ground_path.moveTo(ground_line.p1())
-        ground_path.lineTo(ground_line.p2())
-        ground_item = QGraphicsPathItem(ground_path)
-        ground_pen = QPen(QColor("#888888"), 2, Qt.PenStyle.DashLine)
-        ground_item.setPen(ground_pen)
-        self.scene.addItem(ground_item)
-
-        # Draw links (back then front)
-        link_color_front = STEEL_BLUE
-        link_color_back = ULTRA_VIOLET
-        pivot_color_front = SUNGLOW
-        pivot_color_back = QColor(SUNGLOW).darker(150)  # Darker SUNGLOW
-        pivot_radius = thickness * 0.8  # Slightly larger pivots for visibility
-
-        links = [
-            (p0, p1, "crank"),
-            (p1, p2, "coupler"),
-            (p2, p3, "rocker"),
-            # Skip ground link as we drew the ground line
-        ]
-
-        for start_pt, end_pt, _ in links:
-            # Back link
-            path_back = QPainterPath()
-            path_back.moveTo(start_pt + QPointF(dox, doy))
-            path_back.lineTo(end_pt + QPointF(dox, doy))
-            link_back = QGraphicsPathItem(path_back)
-            pen_back = QPen(
-                link_color_back,
-                thickness,
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-                Qt.PenJoinStyle.RoundJoin,
-            )
-            link_back.setPen(pen_back)
-            self.scene.addItem(link_back)
-
-            # Front link
-            path_front = QPainterPath()
-            path_front.moveTo(start_pt)
-            path_front.lineTo(end_pt)
-            link_front = QGraphicsPathItem(path_front)
-            pen_front = QPen(
-                link_color_front,
-                thickness,
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-                Qt.PenJoinStyle.RoundJoin,
-            )
-            link_front.setPen(pen_front)
-            self.scene.addItem(link_front)
-
-        # Draw pivots (back then front)
-        pivot_points = [p0, p1, p2, p3]
-        for pt in pivot_points:
-            # Back pivot
-            pivot_item_back = QGraphicsEllipseItem(
-                pt.x() - pivot_radius + dox,
-                pt.y() - pivot_radius + doy,
-                pivot_radius * 2,
-                pivot_radius * 2,
-            )
-            pivot_item_back.setBrush(pivot_color_back)
-            pivot_item_back.setPen(QPen(Qt.PenStyle.NoPen))
-            self.scene.addItem(pivot_item_back)
-
-            # Front pivot
-            pivot_item_front = QGraphicsEllipseItem(
-                pt.x() - pivot_radius,
-                pt.y() - pivot_radius,
-                pivot_radius * 2,
-                pivot_radius * 2,
-            )
-            pivot_item_front.setBrush(pivot_color_front)
-            pivot_item_front.setPen(QPen(Qt.GlobalColor.black, 1))
-            self.scene.addItem(pivot_item_front)
-
-
-# Python's math functions for cos and sin
-from math import cos as _cos, sin as _sin, radians as _np_deg2rad
-
-# Define mechanism type constants for display and internal logic
-MECHANISM_TYPE_USER_DISPLAY_3_BAR = "3-Bar Linkage"
-MECHANISM_TYPE_USER_DISPLAY_4_BAR = "4-Bar Linkage"
-MECHANISM_TYPE_USER_DISPLAY_CAM = "Cam Profile"
-
-# Constants that might be used if JSON types are more specific or internal logic needs them
-# For now, we map directly from JSON types to user display types if simple,
-# or use these for more complex mapping logic if needed later.
-# MECHANISM_INTERNAL_TYPE_3_BAR = "3_BAR_INTERNAL_TYPE_KEY_FROM_JSON_IF_DIFFERENT"
-# MECHANISM_INTERNAL_TYPE_4_BAR_COUPLER = "4-bar Coupler" # Actual key from JSON
-# MECHANISM_INTERNAL_TYPE_CAM_PROFILE = "CAM_PROFILE_INTERNAL_TYPE_KEY_FROM_JSON_IF_DIFFERENT"
 
 
 class PreviewContainer(QWidget):
@@ -657,41 +333,44 @@ class PreviewContainer(QWidget):
         """)
         layout.addWidget(self.preview_widget, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Match percentage label
+        # Similarity percentage label
         score = self.mechanism_data.get("overall_score", 0)
-        # Convert score to match percentage (lower score = better match)
-        # Use exponential decay for better representation of similarity
-        # Score range is typically 0-200 for Hausdorff distance
-        if score == 0:
-            match_percentage = 100.0
-        else:
-            # Exponential decay: e^(-score/50) gives good range
-            # Score of 50 = ~37% match, Score of 100 = ~14% match
+        print(f"Debug PreviewContainer: overall_score = {score}")  # Debug
+
+        # Convert Hausdorff distance score to similarity percentage
+        if score is not None and score >= 0:
             import math
-            match_percentage = max(0, min(100, math.exp(-score / 50) * 100))
-        
-        match_label = QLabel(f"Match: {match_percentage:.0f}%")
+            # Use exponential decay: lower score = higher similarity
+            similarity_percentage = max(0, min(100, math.exp(-score / 50) * 100))
+        else:
+            similarity_percentage = 0
+
+        match_label = QLabel(f"Match: {similarity_percentage:.1f}%")
         match_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         match_label.setStyleSheet("""
             QLabel {
-                font-size: 20px;
+                font-size: 18px;
                 font-weight: bold;
-                color: #27ae60;
+                color: #1e8449;
                 padding: 10px;
+                background-color: #e8f6ef;
+                border-radius: 5px;
+                border: 1px solid #d1e7dd;
             }
         """)
         layout.addWidget(match_label)
 
         # Select Button with better styling
         select_button = QPushButton("Select This")
-        select_button.setFixedSize(120, 35)
+        select_button.setFixedSize(140, 40)
         select_button.setStyleSheet("""
             QPushButton {
                 background-color: #3498db;
                 color: white;
                 border: none;
-                border-radius: 4px;
-                font-size: 14px;
+                border-radius: 5px;
+                padding: 10px;
+                font-size: 15px;
                 font-weight: bold;
             }
             QPushButton:hover {
@@ -705,7 +384,7 @@ class PreviewContainer(QWidget):
         layout.addWidget(select_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(layout)
-        self.setMinimumWidth(370)  # Original width
+        self.setMinimumWidth(520)  # Width to match new preview widget size
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )  # Fixed height based on content
@@ -753,7 +432,7 @@ class PreviewContainer(QWidget):
         self.selected.emit(self.mechanism_data)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(370, 400)  # Original size
+        return QSize(520, 550)  # Increased height to accommodate larger preview widget
 
     def sizeHint(self) -> QSize:
         return self.minimumSizeHint()
@@ -778,7 +457,7 @@ class MechanismRecommendationDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Choose a Mechanism")
-        self.setMinimumSize(1200, 600)  # Original dialog size
+        self.setMinimumSize(1400, 800)  # Increased dialog size for better visibility
         self.selected_mechanism_data: Optional[Dict[str, Any]] = None
 
         self.user_motion_path_original = (
@@ -790,6 +469,7 @@ class MechanismRecommendationDialog(QDialog):
 
         self.generated_paths_filepath = generated_paths_filepath
         self.generated_paths_data = self._load_generated_paths(generated_paths_filepath)
+        print(f"Debug: Loaded {len(self.generated_paths_data)} mechanism paths from JSON")
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -808,10 +488,10 @@ class MechanismRecommendationDialog(QDialog):
             }
         """)
         main_layout.addWidget(instruction_label)
-        
+
         # Add subtitle
         subtitle_label = QLabel(
-            "The red dashed line shows your drawn path. Click on a mechanism to select it."
+            "The red dashed line shows your drawn path. The blue line is the mechanism's path. Click on a mechanism to select it."
         )
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle_label.setStyleSheet("""
@@ -868,7 +548,7 @@ class MechanismRecommendationDialog(QDialog):
         # Custom button area with smaller, styled buttons
         button_layout = QHBoxLayout()
         button_layout.setSpacing(20)
-        
+
         self.ok_button = QPushButton("OK")
         self.ok_button.setFixedSize(80, 30)
         self.ok_button.setStyleSheet("""
@@ -892,7 +572,7 @@ class MechanismRecommendationDialog(QDialog):
         """)
         self.ok_button.clicked.connect(self.accept)
         self.ok_button.setEnabled(False)
-        
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setFixedSize(80, 30)
         self.cancel_button.setStyleSheet("""
@@ -911,12 +591,12 @@ class MechanismRecommendationDialog(QDialog):
             }
         """)
         self.cancel_button.clicked.connect(self.reject)
-        
+
         button_layout.addStretch()
         button_layout.addWidget(self.ok_button)
         button_layout.addWidget(self.cancel_button)
         button_layout.addStretch()
-        
+
         main_layout.addSpacing(20)
         main_layout.addLayout(button_layout)
         main_layout.addSpacing(10)
@@ -961,25 +641,29 @@ class MechanismRecommendationDialog(QDialog):
 
     def _get_best_recommendations(self) -> List[Optional[Dict[str, Any]]]:
         """
-        Compares the user's motion path with generated paths using Hausdorff distance
-        and returns the top 2-3 matches, ensuring diversity across mechanism types.
+        Finds the best mechanism from each type by comparing user path with JSON database.
         """
         if self.user_motion_path_np is None or not self.generated_paths_data:
-            print("User motion path is not processed or no generated paths loaded.")
+            print("Error: User motion path is not processed or no generated paths loaded.")
             return []
 
-        # Mapping from JSON type strings to our user-facing display type constants.
+        print(f"Debug: User path has {len(self.user_motion_path_np)} points")
+        print(f"Debug: Total mechanisms in database: {len(self.generated_paths_data)}")
+
+        # Mapping from JSON type strings to user-friendly display names
         type_mapping = {
-            "4-bar Coupler": MECHANISM_TYPE_USER_DISPLAY_4_BAR,
-            "3-bar Output": MECHANISM_TYPE_USER_DISPLAY_3_BAR,
-            "Cam Profile": MECHANISM_TYPE_USER_DISPLAY_CAM,
-            "Gear Train": "Gears (Simple Pair)",  # Add gear train mapping
-            # Add other mappings as needed
+            "4-bar Coupler": "4-Bar Linkage",
+            "3-bar Output": "3-Bar Linkage",
+            "Cam Profile": "Cam & Follower",
+            "Gear Train": "Gears (Simple Pair)",
+            "Gear Contact": "Gears (Simple Pair)",
+            "line": "Linear Motion"
         }
 
-        # Group mechanisms by type
+        # Group mechanisms by type and find best match for each
         mechanisms_by_type = {}
-        
+        total_comparisons = 0
+
         for gen_path_data in self.generated_paths_data:
             gen_path_np = gen_path_data.get("path_coordinates_np")
             json_type_str = gen_path_data.get("type")
@@ -987,70 +671,59 @@ class MechanismRecommendationDialog(QDialog):
             if gen_path_np is None or json_type_str is None:
                 continue
 
+            total_comparisons += 1
+
+            # Calculate Hausdorff distance (lower = more similar)
             distance = calculate_hausdorff_distance(
                 self.user_motion_path_np, gen_path_np
             )
 
-            target_mech_type = type_mapping.get(
-                json_type_str, json_type_str
-            )  # Default to json_type_str if not mapped
+            # Log some samples for debugging
+            if total_comparisons <= 5:
+                print(f"Debug sample {total_comparisons}: {json_type_str} - distance: {distance:.2f}")
 
-            # Prepare data for PreviewContainer
+            display_type = type_mapping.get(json_type_str, json_type_str)
+
+            # Create mechanism data for preview
             preview_data = {
-                "name": gen_path_data.get("name", json_type_str),
-                "type": target_mech_type,
+                "name": gen_path_data.get("name", f"{json_type_str} Mechanism"),
+                "type": display_type,
                 "original_json_type": json_type_str,
                 "overall_score": distance,
-                "parameters": gen_path_data.get("parameters"),
+                "parameters": gen_path_data.get("parameters", {}),
                 "path_coordinates_np": gen_path_np,
-                "path_coordinates": gen_path_data.get(
-                    "path_coordinates"
-                ),  # Keep original coordinates
+                "path_coordinates": gen_path_data.get("path_coordinates"),
+                "key_points": gen_path_data.get("key_points", {}),
             }
-            
-            # Group by mechanism type
-            if target_mech_type not in mechanisms_by_type:
-                mechanisms_by_type[target_mech_type] = []
-            mechanisms_by_type[target_mech_type].append(preview_data)
 
-        # Get the best mechanism of each type
-        best_per_type = []
-        for mech_type, mechanisms in mechanisms_by_type.items():
-            # Sort mechanisms of this type by score
-            mechanisms.sort(key=lambda x: x["overall_score"])
-            # Take the best one
-            if mechanisms:
-                best_per_type.append(mechanisms[0])
-        
-        # Sort all best mechanisms by score
-        best_per_type.sort(key=lambda x: x["overall_score"])
-        
-        # Take top 3, ensuring diversity
-        top_recommendations = best_per_type[:3]
+            # Group by display type and keep only the best (lowest distance)
+            if display_type not in mechanisms_by_type:
+                mechanisms_by_type[display_type] = preview_data
+            else:
+                if distance < mechanisms_by_type[display_type]["overall_score"]:
+                    mechanisms_by_type[display_type] = preview_data
 
-        # If we have fewer than 3 types, fill with next best from any type
-        if len(top_recommendations) < 3:
-            # Collect all mechanisms not already selected
-            all_remaining = []
-            selected_names = {r["name"] for r in top_recommendations}
-            
-            for mechanisms in mechanisms_by_type.values():
-                for m in mechanisms:
-                    if m["name"] not in selected_names:
-                        all_remaining.append(m)
-            
-            # Sort remaining by score and add to recommendations
-            all_remaining.sort(key=lambda x: x["overall_score"])
-            for m in all_remaining:
-                if len(top_recommendations) >= 3:
-                    break
-                top_recommendations.append(m)
+        print(f"Debug: Made {total_comparisons} path comparisons")
+        print(f"Debug: Found {len(mechanisms_by_type)} mechanism types: {list(mechanisms_by_type.keys())}")
 
-        # Ensure we have at least 3 slots (can be empty)
-        while len(top_recommendations) < 3:
-            top_recommendations.append(None)
+        # Get best from each type
+        best_mechanisms = list(mechanisms_by_type.values())
 
-        return top_recommendations
+        # Sort by similarity score (lower is better)
+        best_mechanisms.sort(key=lambda x: x["overall_score"])
+
+        # Take top 3 most similar
+        top_3 = best_mechanisms[:3]
+
+        # Debug output
+        for i, mech in enumerate(top_3):
+            print(f"Debug: Recommendation {i+1}: {mech['type']} - {mech['name']} (score: {mech['overall_score']:.2f})")
+
+        # Ensure we have exactly 3 slots
+        while len(top_3) < 3:
+            top_3.append(None)
+
+        return top_3
 
     def _on_select(self, mechanism_data: Dict[str, Any]) -> None:
         self.selected_mechanism_data = mechanism_data
