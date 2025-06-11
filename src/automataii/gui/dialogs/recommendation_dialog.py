@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np  # Add numpy import
 from scipy.spatial.distance import directed_hausdorff  # Add scipy import
@@ -115,6 +115,62 @@ def calculate_hausdorff_distance(
         return float("inf")
 
 
+def align_and_compare_paths(
+    path1_points: np.ndarray, path2_points: np.ndarray, rotation_steps: int = 72
+) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Aligns two paths (translation, scale, rotation) and finds the best match.
+
+    Returns:
+        A tuple containing:
+        - The minimum Hausdorff distance after alignment.
+        - The first path, normalized (centered and scaled).
+        - The second path, transformed to best align with the first.
+    """
+    if (
+        path1_points is None
+        or path1_points.shape[0] < 2
+        or path2_points is None
+        or path2_points.shape[0] < 2
+    ):
+        return float("inf"), None, None
+
+    # 1. Center both paths to origin
+    center1 = np.mean(path1_points, axis=0)
+    path1_centered = path1_points - center1
+    center2 = np.mean(path2_points, axis=0)
+    path2_centered = path2_points - center2
+
+    # 2. Normalize scale of both paths to fit in a [-1, 1] box
+    max_val1 = np.max(np.abs(path1_centered))
+    path1_scaled = (
+        path1_centered / max_val1 if not np.isclose(max_val1, 0) else path1_centered
+    )
+
+    max_val2 = np.max(np.abs(path2_centered))
+    path2_scaled = (
+        path2_centered / max_val2 if not np.isclose(max_val2, 0) else path2_centered
+    )
+
+    # 3. Find the optimal rotation for path2 to match path1
+    min_distance = float("inf")
+    best_rotated_path2 = None
+    angles = np.linspace(0, 2 * np.pi, rotation_steps, endpoint=False)
+
+    for angle in angles:
+        rotation_matrix = np.array(
+            [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
+        )
+        path2_rotated = path2_scaled @ rotation_matrix.T
+        distance = calculate_hausdorff_distance(path1_scaled, path2_rotated)
+
+        if distance < min_distance:
+            min_distance = distance
+            best_rotated_path2 = path2_rotated
+
+    return min_distance, path1_scaled, best_rotated_path2
+
+
 class MechanismPreviewWidget(QGraphicsView):
     """A widget to display a preview of a single mechanism."""
 
@@ -133,140 +189,55 @@ class MechanismPreviewWidget(QGraphicsView):
         self._render_preview()  # Render after background is set and scene is ready
 
     def _draw_path_comparison(self, bounds: QRectF) -> None:
-        """Draws ONLY the path comparison - no other graphics."""
-        print(f"Debug: bounds = {bounds.width()}x{bounds.height()}")  # Debug size
+        """Draws the aligned path comparison."""
+        user_path_points = self.mechanism_data.get("user_path_aligned_np")
+        mech_path_points = self.mechanism_data.get("mech_path_aligned_np")
 
-        # Get paths
-        user_path_local = self.mechanism_data.get("user_motion_path_local")
-        mech_path_coords = self.mechanism_data.get("path_coordinates")
-
-        print(f"Debug: user_path exists = {user_path_local is not None}")
-        print(f"Debug: user_path type = {type(user_path_local)}")
-        if user_path_local:
-            print(f"Debug: user_path isEmpty = {user_path_local.isEmpty()}")
-            print(f"Debug: user_path elementCount = {user_path_local.elementCount()}")
-
-        print(f"Debug: mech_path_coords = {len(mech_path_coords) if mech_path_coords else 0}")
-        print(f"Debug: mechanism_data keys = {list(self.mechanism_data.keys())}")
-
-        # Create mechanism path
-        mech_path = None
-        if mech_path_coords and len(mech_path_coords) > 1:
-            mech_path = QPainterPath()
-            for i, coord in enumerate(mech_path_coords):
-                pt = QPointF(coord[0], coord[1])
-                if i == 0:
-                    mech_path.moveTo(pt)
-                else:
-                    mech_path.lineTo(pt)
-            print(f"Debug: mech_path created with {len(mech_path_coords)} points")
-            print(f"Debug: mech_path bounds = {mech_path.boundingRect()}")
-            print(f"Debug: first 3 coords = {mech_path_coords[:3]}")
-        else:
-            print(f"Debug: No mechanism path created - coords: {mech_path_coords is not None}")
-
-        # Define the drawing area within widget bounds
-        draw_area = bounds.adjusted(20, 20, -20, -20)  # Leave space for labels
-        center = draw_area.center()
-
-        print(f"Debug: draw_area = {draw_area}")
-        print(f"Debug: center = {center}")
-
-        # ALWAYS draw something to verify the system works
-
-        # 1. FORCE DRAW USER PATH if it exists
-        if user_path_local and isinstance(user_path_local, QPainterPath) and not user_path_local.isEmpty():
-            user_bounds = user_path_local.boundingRect()
-
-            # Handle single-point paths
-            if user_bounds.width() == 0 and user_bounds.height() == 0:
-                point_item = QGraphicsEllipseItem(-5, -5, 10, 10)
-                point_item.setPos(draw_area.center())
-                point_item.setPen(QPen(BITTERSWEET, 2))
-                point_item.setBrush(BITTERSWEET)
-                self.scene.addItem(point_item)
-            else:
-                # Scale and center the path correctly
-                target_size = QSizeF(draw_area.width() * 0.8, draw_area.height() * 0.8)
-                path_to_draw = QPainterPath(user_path_local)
-
-                # 1. Move path's top-left to origin (0,0)
-                transform = QTransform().translate(-user_bounds.left(), -user_bounds.top())
-
-                # 2. Calculate scale factor
-                scale_x = target_size.width() / user_bounds.width() if user_bounds.width() > 0 else float('inf')
-                scale_y = target_size.height() / user_bounds.height() if user_bounds.height() > 0 else float('inf')
-                scale = min(scale_x, scale_y)
-                transform.scale(scale, scale)
-
-                # 3. Apply transform and find new center
-                path_to_draw = transform.map(path_to_draw)
-                new_bounds = path_to_draw.boundingRect()
-
-                # 4. Move scaled path to the center of the drawing area
-                final_transform = QTransform().translate(
-                    draw_area.center().x() - new_bounds.center().x(),
-                    draw_area.center().y() - new_bounds.center().y()
-                )
-                path_to_draw = final_transform.map(path_to_draw)
-
-                user_item = QGraphicsPathItem(path_to_draw)
-                user_pen = QPen(BITTERSWEET, 8.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
-                user_item.setPen(user_pen)
-                self.scene.addItem(user_item)
-        else:
-            print(f"Debug: No valid user path - drawing placeholder")
-            # Draw placeholder text
-            text_item = self.scene.addText("No User Path", QFont("Arial", 14))
+        if user_path_points is None or mech_path_points is None:
+            print("Debug: Aligned paths not found for preview.")
+            text_item = self.scene.addText(
+                "Path data not available", QFont("Arial", 14)
+            )
             text_item.setDefaultTextColor(QColor("#666666"))
-            text_item.setPos(center.x() - 50, center.y() - 20)
+            text_item.setPos(bounds.center().x() - 80, bounds.center().y() - 20)
+            return
 
-        # 2. FORCE DRAW MECHANISM PATH if it exists
-        if mech_path and not mech_path.isEmpty():
-            mech_bounds = mech_path.boundingRect()
+        def numpy_to_qpainterpath(points: np.ndarray) -> QPainterPath:
+            path = QPainterPath()
+            if points.shape[0] > 0:
+                path.moveTo(QPointF(points[0, 0], points[0, 1]))
+                for i in range(1, points.shape[0]):
+                    path.lineTo(QPointF(points[i, 0], points[i, 1]))
+            return path
 
-            # Handle single-point paths
-            if mech_bounds.width() == 0 and mech_bounds.height() == 0:
-                point_item = QGraphicsEllipseItem(-5, -5, 10, 10)
-                point_item.setPos(draw_area.center())
-                point_item.setPen(QPen(STEEL_BLUE, 2))
-                point_item.setBrush(STEEL_BLUE)
-                self.scene.addItem(point_item)
-            else:
-                # Scale and center the path correctly
-                target_size = QSizeF(draw_area.width() * 0.8, draw_area.height() * 0.8)
-                path_to_draw = QPainterPath(mech_path)
+        user_path = numpy_to_qpainterpath(user_path_points)
+        mech_path = numpy_to_qpainterpath(mech_path_points)
 
-                # 1. Move path's top-left to origin (0,0)
-                transform = QTransform().translate(-mech_bounds.left(), -mech_bounds.top())
+        # The paths are normalized. We just need to scale them to fit the widget.
+        draw_area = bounds.adjusted(20, 20, -20, -20)
 
-                # 2. Calculate scale factor
-                scale_x = target_size.width() / mech_bounds.width() if mech_bounds.width() > 0 else float('inf')
-                scale_y = target_size.height() / mech_bounds.height() if mech_bounds.height() > 0 else float('inf')
-                scale = min(scale_x, scale_y)
-                transform.scale(scale, scale)
+        # Map the normalized space [-1.1, 1.1] x [-1.1, 1.1] to the draw_area
+        source_rect_size = 2.2
+        scale_x = draw_area.width() / source_rect_size
+        scale_y = draw_area.height() / source_rect_size
+        scale = min(scale_x, scale_y) * 0.9  # Use 90% to leave a visual margin
 
-                # 3. Apply transform and find new center
-                path_to_draw = transform.map(path_to_draw)
-                new_bounds = path_to_draw.boundingRect()
+        # Create the transform: move to center, then scale (with Y-flip)
+        transform = QTransform()
+        transform.translate(draw_area.center().x(), draw_area.center().y())
+        transform.scale(scale, -scale)  # Negative y-scale to flip Qt's coordinate system
 
-                # 4. Move scaled path to the center of the drawing area
-                final_transform = QTransform().translate(
-                    draw_area.center().x() - new_bounds.center().x(),
-                    draw_area.center().y() - new_bounds.center().y()
-                )
-                path_to_draw = final_transform.map(path_to_draw)
+        # Draw user path (red, dashed)
+        user_item = QGraphicsPathItem(transform.map(user_path))
+        user_pen = QPen(BITTERSWEET, 8.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
+        user_item.setPen(user_pen)
+        self.scene.addItem(user_item)
 
-                mech_item = QGraphicsPathItem(path_to_draw)
-                mech_pen = QPen(STEEL_BLUE, 8.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-                mech_item.setPen(mech_pen)
-                self.scene.addItem(mech_item)
-        else:
-            print(f"Debug: No valid mechanism path - drawing placeholder")
-            # Draw placeholder for mechanism path
-            placeholder_text = self.scene.addText("No Mechanism Path", QFont("Arial", 12))
-            placeholder_text.setDefaultTextColor(QColor("#ff4500"))
-            placeholder_text.setPos(center.x() - 60, center.y() + 30)
+        # Draw mechanism path (blue, solid)
+        mech_item = QGraphicsPathItem(transform.map(mech_path))
+        mech_pen = QPen(STEEL_BLUE, 8.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        mech_item.setPen(mech_pen)
+        self.scene.addItem(mech_item)
 
     def _render_preview(self) -> None:
         self.scene.clear()
@@ -340,8 +311,8 @@ class PreviewContainer(QWidget):
         # Convert Hausdorff distance score to similarity percentage
         if score is not None and score >= 0:
             import math
-            # Use exponential decay: lower score = higher similarity
-            similarity_percentage = max(0, min(100, math.exp(-score / 50) * 100))
+            # Use exponential decay: lower score = higher similarity. Tuned for normalized scores.
+            similarity_percentage = max(0, min(100, math.exp(-score * 5) * 100))
         else:
             similarity_percentage = 0
 
@@ -673,14 +644,19 @@ class MechanismRecommendationDialog(QDialog):
 
             total_comparisons += 1
 
-            # Calculate Hausdorff distance (lower = more similar)
-            distance = calculate_hausdorff_distance(
+            # Align paths and calculate distance
+            distance, user_path_aligned, gen_path_aligned = align_and_compare_paths(
                 self.user_motion_path_np, gen_path_np
             )
 
+            if user_path_aligned is None or gen_path_aligned is None:
+                continue
+
             # Log some samples for debugging
             if total_comparisons <= 5:
-                print(f"Debug sample {total_comparisons}: {json_type_str} - distance: {distance:.2f}")
+                print(
+                    f"Debug sample {total_comparisons}: {json_type_str} - distance: {distance:.2f}"
+                )
 
             display_type = type_mapping.get(json_type_str, json_type_str)
 
@@ -694,6 +670,8 @@ class MechanismRecommendationDialog(QDialog):
                 "path_coordinates_np": gen_path_np,
                 "path_coordinates": gen_path_data.get("path_coordinates"),
                 "key_points": gen_path_data.get("key_points", {}),
+                "user_path_aligned_np": user_path_aligned,
+                "mech_path_aligned_np": gen_path_aligned,
             }
 
             # Group by display type and keep only the best (lowest distance)
