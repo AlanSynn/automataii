@@ -482,24 +482,16 @@ class MechanismDesignTab(QWidget):
                 continue
 
             joint_data = joints_dict[anchor_joint_id]
-            is_mechanism_controlled = self._is_part_mechanism_controlled(part_name)
 
-            # 1. UPDATE POSITION (like editor tab)
+            # 1. UPDATE POSITION (unconditionally)
             position_updated = False
-            if "scene_position" in joint_data:
-                scene_pos = joint_data["scene_position"]
-                if isinstance(scene_pos, (list, tuple)) and len(scene_pos) >= 2:
-                    scene_pos = QPointF(scene_pos[0], scene_pos[1])
-                    if not is_mechanism_controlled:  # Only update if not controlled by mechanism
-                        part_item.set_scene_position_from_anchor(scene_pos)
-                        position_updated = True
-            elif "position" in joint_data:
-                pos = joint_data["position"]
-                if isinstance(pos, (list, tuple)) and len(pos) >= 2:
-                    scene_pos = QPointF(pos[0], pos[1])
-                    if not is_mechanism_controlled:
-                        part_item.set_scene_position_from_anchor(scene_pos)
-                        position_updated = True
+            scene_pos_to_set = None
+
+            position_data = joint_data.get("scene_position") or joint_data.get("position")
+            if isinstance(position_data, (list, tuple)) and len(position_data) >= 2:
+                scene_pos_to_set = QPointF(position_data[0], position_data[1])
+                part_item.set_scene_position_from_anchor(scene_pos_to_set)
+                position_updated = True
 
             # 2. UPDATE ROTATION (CRITICAL: like editor tab)
             rotation_updated = False
@@ -510,7 +502,6 @@ class MechanismDesignTab(QWidget):
                 part_item.setRotation(rotation)
                 rotation_updated = True
             elif "angle" in joint_data:
-                # Convert radians to degrees if needed
                 angle = joint_data["angle"]
                 if isinstance(angle, (int, float)):
                     rotation_degrees = math.degrees(angle) if abs(angle) <= 2*math.pi else angle
@@ -522,34 +513,19 @@ class MechanismDesignTab(QWidget):
                     part_item.setRotation(rotation)
                     rotation_updated = True
             else:
-                # FALLBACK: Calculate bone angle from parent-child relationship (like editor tab)
+                # FALLBACK: Calculate bone angle from parent-child relationship
                 parent_joint_id = joint_data.get("parent_id") or joint_data.get("parent")
                 if parent_joint_id and parent_joint_id in joints_dict:
                     parent_data = joints_dict[parent_joint_id]
+                    parent_pos_data = parent_data.get("scene_position") or parent_data.get("position")
 
-                    # Get positions
-                    child_pos = None
-                    parent_pos = None
+                    if (scene_pos_to_set and parent_pos_data and
+                        isinstance(parent_pos_data, (list, tuple)) and len(parent_pos_data) >= 2):
 
-                    if "scene_position" in joint_data:
-                        child_pos = joint_data["scene_position"]
-                    elif "position" in joint_data:
-                        child_pos = joint_data["position"]
+                        dx = scene_pos_to_set.x() - parent_pos_data[0]
+                        dy = scene_pos_to_set.y() - parent_pos_data[1]
 
-                    if "scene_position" in parent_data:
-                        parent_pos = parent_data["scene_position"]
-                    elif "position" in parent_data:
-                        parent_pos = parent_data["position"]
-
-                    # Calculate bone angle
-                    if (child_pos and parent_pos and
-                        isinstance(child_pos, (list, tuple)) and len(child_pos) >= 2 and
-                        isinstance(parent_pos, (list, tuple)) and len(parent_pos) >= 2):
-
-                        dx = child_pos[0] - parent_pos[0]
-                        dy = child_pos[1] - parent_pos[1]
-
-                        if abs(dx) > 0.1 or abs(dy) > 0.1:  # Avoid division by zero
+                        if abs(dx) > 0.01 or abs(dy) > 0.01:
                             bone_angle_rad = math.atan2(dy, dx)
                             bone_angle_deg = math.degrees(bone_angle_rad)
                             part_item.setRotation(bone_angle_deg)
@@ -557,12 +533,12 @@ class MechanismDesignTab(QWidget):
 
             # 3. DEBUG LOGGING
             if (self.debug_mode and self.animation_timer.isActive() and
-                int(self.animation_time * 10) % 40 == 0):  # Log every 4 seconds
+                int(self.animation_time * 10) % 40 == 0):
                 if position_updated or rotation_updated:
                     current_rot = part_item.rotation()
                     current_pos = part_item.pos()
-                    logging.info(f"[DEBUG] Part '{part_name}': pos=({current_pos.x():.1f},{current_pos.y():.1f}), rot={current_rot:.1f}°, mech_controlled={is_mechanism_controlled}")
-                elif not is_mechanism_controlled:
+                    logging.info(f"[DEBUG] Part '{part_name}': pos=({current_pos.x():.1f},{current_pos.y():.1f}), rot={current_rot:.1f}° (Updated via _update_parts_from_skeleton)")
+                else:
                     logging.warning(f"[DEBUG] Part '{part_name}' - no position/rotation data in joint: {list(joint_data.keys())}")
 
     def _is_part_mechanism_controlled(self, part_name: str) -> bool:
@@ -1961,160 +1937,79 @@ class MechanismDesignTab(QWidget):
             return None
 
     def _update_animation(self):
-        """Update animation frame with direct character part movement."""
+        """
+        Update animation frame by calculating mechanism outputs and setting them as targets for the IK system.
+        The IK system is the single source of truth for skeleton and part animation.
+        """
         dt = 0.033 * self.animation_speed
         self.animation_time += dt
         if self.animation_time > 2 * math.pi:
             self.animation_time -= 2 * math.pi
 
-        # Track which parts are being animated by mechanisms
-        mechanism_outputs = {}
         active_joint_updates = {}
 
-        # Calculate all mechanism outputs first
+        # 1. Calculate all mechanism outputs and determine IK targets
         for mechanism_id, is_enabled in self.mechanism_enabled_state.items():
             if not is_enabled:
                 continue
 
             layer_data = self.mechanism_layers.get(mechanism_id)
-            if not layer_data:
+            if not layer_data or not layer_data.get("part_name"):
                 continue
 
             try:
                 output_pos = self._calculate_mechanism_output(
-                    layer_data["type"],
-                    layer_data["params"],
-                    self.animation_time,
-                    layer_data
+                    layer_data["type"], layer_data["params"], self.animation_time, layer_data
                 )
 
                 if output_pos:
-                    part_name = layer_data.get("part_name")
-                    if self.debug_mode:
-                        logging.info(f"[DEBUG] Mechanism output: part_name='{part_name}', pos=({output_pos.x():.1f}, {output_pos.y():.1f})")
-                        logging.info(f"[DEBUG] current_editor_items keys: {list(self.current_editor_items.keys()) if self.current_editor_items else 'None'}")
-                        logging.info(f"[DEBUG] parts_data keys: {list(self.parts_data.keys()) if self.parts_data else 'None'}")
+                    part_name = layer_data["part_name"]
 
-                    if part_name and part_name in self.current_editor_items:
-                        mechanism_outputs[part_name] = output_pos
+                    # Get the correct end effector joint for this part
+                    part_info = self.parts_data.get(part_name)
+                    if part_info and part_info.anchor_joint_id:
+                        target_joint_id = self._get_target_joint_for_mechanism_control(part_name, part_info.anchor_joint_id)
 
-                        # IK-DRIVEN ANIMATION: Set mechanism output as IK target
-                        part_info = self.parts_data.get(part_name)
+                        # Find the standardized joint ID for the IK system
+                        std_joint_id = self._get_standardized_joint_id(target_joint_id)
 
-                        if self.debug_mode:
-                            logging.info(f"[DEBUG] part_info for '{part_name}': exists={part_info is not None}, anchor_joint_id={getattr(part_info, 'anchor_joint_id', 'None') if part_info else 'N/A'}")
+                        if std_joint_id:
+                            # This is the target for the IK system
+                            active_joint_updates[std_joint_id] = output_pos
+                            if self.debug_mode:
+                                logging.info(f"[IK_TARGET] part='{part_name}' -> joint='{std_joint_id}' -> pos=({output_pos.x():.1f}, {output_pos.y():.1f})")
+                        else:
+                            logging.warning(f"Could not find standardized joint ID for '{target_joint_id}'")
 
-                        if part_info and part_info.anchor_joint_id:
-                            # CRITICAL FIX: Get the correct TARGET JOINT (end effector) for mechanism control
-                            target_joint_id = self._get_target_joint_for_mechanism_control(part_name, part_info.anchor_joint_id)
-
-                            if target_joint_id:
-                                # Find standardized joint ID for the target joint
-                                std_joint_id = None
-                                if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
-                                    joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
-                                    for orig_name, std_name in joint_map.items():
-                                        if orig_name == target_joint_id:
-                                            std_joint_id = std_name
-                                            break
-
-                                # Use standardized joint ID if found, otherwise use original
-                                final_joint_id = std_joint_id if std_joint_id else target_joint_id
-
-                                # Store for IK system to use as target
-                                active_joint_updates[final_joint_id] = output_pos
-
-                                if self.debug_mode:  # Always log when setting targets
-                                    logging.info(f"[DEBUG] Setting IK target for part '{part_name}' (anchor: '{part_info.anchor_joint_id}' -> target: '{target_joint_id}' -> std_id: '{final_joint_id}') at mechanism position: ({output_pos.x():.1f}, {output_pos.y():.1f})")
-                            else:
-                                if self.debug_mode:
-                                    logging.warning(f"[DEBUG] No target joint found for part '{part_name}' with anchor '{part_info.anchor_joint_id}'")
-                        elif self.debug_mode:
-                            logging.warning(f"[DEBUG] Cannot set IK target for '{part_name}': part_info={part_info is not None}, anchor_joint_id={getattr(part_info, 'anchor_joint_id', 'None') if part_info else 'N/A'}")
-                    elif self.debug_mode:
-                        logging.warning(f"[DEBUG] Part '{part_name}' not in current_editor_items or part_name is None")
-
-                    # Update the mechanism's own visuals
-                    try:
-                        self._update_mechanism_visuals_for_animation(mechanism_id, self.animation_time, layer_data)
-
-                        # DEBUG: Compare output positions if both functions succeed
-                        if self.debug_mode and hasattr(self, '_debug_data_consistency_check'):
-                            self._debug_data_consistency_check(mechanism_id, self.animation_time, layer_data, output_pos)
-
-                    except Exception as e:
-                        if self.debug_mode:
-                            logging.warning(f"[DEBUG] Failed to update mechanism visuals for {mechanism_id}: {e}")
-
-                    # Update mechanism path tracing
+                    # Update mechanism visuals and path trace
+                    self._update_mechanism_visuals_for_animation(mechanism_id, self.animation_time, layer_data)
                     self._update_mechanism_path_trace(mechanism_id, output_pos)
 
-                else:
-                    if self.debug_mode and self.animation_time < 0.1:  # Log once at start
-                        logging.warning(f"[DEBUG] No output position for mechanism {mechanism_id}")
-
             except Exception as e:
-                if self.debug_mode:
-                    logging.error(f"[DEBUG] Error calculating mechanism output for {mechanism_id}: {e}")
+                logging.error(f"Error calculating mechanism output for {mechanism_id}: {e}", exc_info=True)
 
-        # ENHANCED IK INTEGRATION: Set mechanism position targets for IK system
-        if self.debug_mode:
-            logging.info(f"[DEBUG] active_joint_updates count: {len(active_joint_updates)}, has ik_manager: {hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager is not None}")
+        # 2. Set targets in the IK system
+        if active_joint_updates and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+            ik_manager = self.main_window.ik_manager
+            for joint_id, target_pos in active_joint_updates.items():
+                # The IK manager will handle validation and smoothing
+                ik_manager.set_mechanism_position_target(joint_id, target_pos)
 
-        # CRITICAL FIX: DIRECTLY FORCE SKELETON AND PARTS TO FOLLOW MECHANISM
-        if active_joint_updates:
-            try:
-                # METHOD 1: Set mechanism targets in IK manager (if available)
-                if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-                    for joint_id, target_pos in active_joint_updates.items():
-                        if self.debug_mode:
-                            logging.info(f"[DEBUG] Setting mechanism target: joint_id='{joint_id}', pos=({target_pos.x():.1f}, {target_pos.y():.1f})")
-                        self.main_window.ik_manager.set_mechanism_position_target(joint_id, target_pos)
+        # NOTE: All part and skeleton visual updates are now handled by the signal/slot connection
+        # to on_skeleton_updated, which is called after the IK manager solves the pose.
+        # This simplifies the flow and makes IK the single source of truth.
 
-                # METHOD 2: DIRECTLY FORCE SKELETON UPDATE (BYPASS IK)
-                # Get current skeleton state and modify only mechanism-controlled joints
-                current_skeleton_data = self._get_current_skeleton_data_with_mechanism_override(active_joint_updates)
-
-                if current_skeleton_data:
-                    if self.debug_mode:
-                        logging.info(f"[DEBUG] FORCING complete skeleton update with mechanism overrides: {list(active_joint_updates.keys())}")
-
-                    # Send complete skeleton update directly to mechanism view
-                    if hasattr(self.mechanism_view, 'update_skeleton_animation'):
-                        self.mechanism_view.update_skeleton_animation(current_skeleton_data)
-
-                    # Also send to main window's skeleton handling
-                    if hasattr(self.main_window, '_handle_skeleton_pose_updated_from_ik'):
-                        self.main_window._handle_skeleton_pose_updated_from_ik(current_skeleton_data)
-
-                    # Force the on_skeleton_updated method in this tab too
-                    self.on_skeleton_updated({"joints": {joint_id: {"scene_position": list(pos)} for joint_id, pos in current_skeleton_data.items()}})
-
-                # METHOD 3: CRITICAL - IMMEDIATE PART UPDATES (like editor tab)
-                # Force parts to follow mechanism immediately WITHOUT interpolation
-                self._force_parts_to_mechanism_positions_immediately(mechanism_outputs)
-
-                # Also force skeleton alignment to parts
-                self._align_skeleton_to_parts_immediately(mechanism_outputs)
-
-                # METHOD 4: Direct part visual update like EditorView.update_visuals_from_animation_data
-                self._update_parts_from_mechanism_directly(mechanism_outputs)
-
-                if self.debug_mode:
-                    logging.info(f"[DEBUG] FORCED immediate part and skeleton update with {len(active_joint_updates)} mechanism positions")
-
-            except Exception as e:
-                if self.debug_mode:
-                    logging.warning(f"[DEBUG] Failed to force mechanism update: {e}")
-        elif self.debug_mode:
-            logging.warning(f"[DEBUG] No mechanism joint updates to apply")
-
-        # Debug logging for animation state
-        if self.debug_mode and int(self.animation_time * 10) % 20 == 0:  # Log every 2 seconds
-            logging.info(f"[DEBUG] Animation frame: time={self.animation_time:.2f}, mechanisms={len(mechanism_outputs)}, joints={len(active_joint_updates)}")
-            if mechanism_outputs:
-                for part_name, pos in mechanism_outputs.items():
-                    logging.info(f"[DEBUG]   Part '{part_name}' -> ({pos.x():.1f}, {pos.y():.1f})")
+    def _get_standardized_joint_id(self, abstract_joint_id: str) -> Optional[str]:
+        """Helper to find the standardized joint ID from an abstract name."""
+        if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+            joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+            for orig_name, std_name in joint_map.items():
+                if orig_name == abstract_joint_id:
+                    return std_name
+        # Fallback if not in map (e.g., might already be a std id)
+        if self._initial_skeleton_data_cache and abstract_joint_id in self._initial_skeleton_data_cache.get("joints", {}):
+            return abstract_joint_id
+        return None
 
     def _update_mechanism_visuals_for_animation(self, mechanism_id: str, time: float, layer_data: dict):
         """Update mechanism visual elements during animation using exact dataset positions."""
