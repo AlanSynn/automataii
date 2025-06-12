@@ -255,425 +255,203 @@ class MechanismPreviewWidget(QGraphicsView):
         """Draws the mechanism structure (e.g., links and pivots) for a single frame."""
         mech_type = self.mechanism_data.get("original_json_type")
         params = self.mechanism_data.get("parameters")
-        key_points = self.mechanism_data.get("key_points")
         full_sim_data = self.mechanism_data.get("full_simulation_data", {})
-        
-        if not all([mech_type, params]):
+
+        if not all([mech_type, params, full_sim_data]):
             return
 
-        # Use the full simulation data for accurate positioning that matches the displayed paths
+        # Central dispatcher for drawing mechanisms from simulation data
         if mech_type == "4-bar Coupler" and "joint_positions" in full_sim_data:
-            joint_positions = full_sim_data["joint_positions"]
-            frame_idx = 0  # Use first frame for static display
-            
-            if all(key in joint_positions for key in ["p1_positions", "p2_positions", "p3_positions", "p4_positions"]):
-                p1 = np.array(joint_positions["p1_positions"][frame_idx])
-                p2 = np.array(joint_positions["p2_positions"][frame_idx])
-                p3 = np.array(joint_positions["p3_positions"][frame_idx])
-                p4 = np.array(joint_positions["p4_positions"][frame_idx])
-                
-                # Create a direct transformation that matches the displayed paths exactly
-                user_path_aligned = self.mechanism_data.get("user_path_aligned_np")
-                mech_path_aligned = self.mechanism_data.get("mech_path_aligned_np")
-                
-                if user_path_aligned is not None and mech_path_aligned is not None:
-                    # Get the mechanism's coupler path from simulation data
-                    mech_coupler_path = None
-                    if "coupler_path" in full_sim_data:
-                        mech_coupler_path = np.array(full_sim_data["coupler_path"])
-                    elif "coupler_positions" in joint_positions:
-                        mech_coupler_path = np.array(joint_positions["coupler_positions"])
-                    
-                    if mech_coupler_path is not None:
-                        # Calculate transformation that maps mechanism space to aligned display space
-                        mech_center = np.mean(mech_coupler_path, axis=0)
-                        user_center = np.mean(user_path_aligned, axis=0)
-                        
-                        mech_bbox = np.max(mech_coupler_path, axis=0) - np.min(mech_coupler_path, axis=0)
-                        user_bbox = np.max(user_path_aligned, axis=0) - np.min(user_path_aligned, axis=0)
-                        
-                        # Calculate scale to match the aligned paths
-                        if np.any(mech_bbox == 0):
-                            scale_factor = 1.0
-                        else:
-                            mech_size = np.max(mech_bbox)
-                            user_size = np.max(user_bbox)
-                            scale_factor = user_size / mech_size if mech_size > 0 else 1.0
-                        
-                        def to_screen_coords(p_orig: np.ndarray) -> QPointF:
-                            # Transform to match the aligned paths exactly
-                            p_centered = p_orig - mech_center
-                            p_scaled = p_centered * scale_factor
-                            p_final = p_scaled + user_center
-                            # Apply the final transform to screen coordinates
-                            return transform.map(QPointF(p_final[0], p_final[1]))
-                        
-                        self._draw_4_bar_structure_from_sim(p1, p2, p3, p4, to_screen_coords)
-                        return
-        
-        # Fallback to original method if simulation data not available
-        transform_params = self.mechanism_data.get("transform_params")
-        vis_params = self.mechanism_data.get("visualization_params")
-        path_norm = self.mechanism_data.get("path_normalization", {})
+            self._draw_4_bar_from_sim(transform, full_sim_data, params)
+        elif mech_type in ["Cam-Follower", "Cam Follower"] and "cam_data" in full_sim_data:
+            self._draw_cam_follower_from_sim(transform, full_sim_data, params)
+        elif mech_type in ["Simple Gear", "Gear Contact"] and "gear_data" in full_sim_data:
+            self._draw_simple_gear_from_sim(transform, full_sim_data, params)
+        elif mech_type == "Planetary Gear" and "gear_positions" in full_sim_data:
+            self._draw_planetary_gear_from_sim(transform, full_sim_data, params)
 
-        if not all([transform_params, vis_params]):
+    def _get_transform_for_sim_data(self, full_sim_data: Dict, path_key: str) -> Optional[callable]:
+        """Helper to create a transformation function to align simulation data with the displayed path."""
+        mech_path = np.array(full_sim_data.get(path_key, []))
+        user_path_aligned = self.mechanism_data.get("user_path_aligned_np")
+
+        if mech_path.size == 0 or user_path_aligned is None:
+            return None
+
+        mech_center = np.mean(mech_path, axis=0)
+        user_center = np.mean(user_path_aligned, axis=0)
+
+        mech_bbox = np.max(mech_path, axis=0) - np.min(mech_path, axis=0)
+        user_bbox = np.max(user_path_aligned, axis=0) - np.min(user_path_aligned, axis=0)
+
+        mech_size = np.max(mech_bbox)
+        user_size = np.max(user_bbox)
+        scale_factor = user_size / mech_size if mech_size > 0 else 1.0
+
+        def to_screen_coords(p_orig: np.ndarray, transform: QTransform) -> QPointF:
+            p_centered = p_orig - mech_center
+            p_scaled = p_centered * scale_factor
+            p_final = p_scaled + user_center
+            return transform.map(QPointF(p_final[0], p_final[1]))
+
+        return to_screen_coords
+
+    def _draw_4_bar_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict) -> None:
+        """Draws the 4-bar linkage structure using exact simulation positions."""
+        joint_positions = full_sim_data["joint_positions"]
+        frame_idx = 0
+
+        p1 = np.array(joint_positions["p1_positions"][frame_idx])
+        p2 = np.array(joint_positions["p2_positions"][frame_idx])
+        p3 = np.array(joint_positions["p3_positions"][frame_idx])
+        p4 = np.array(joint_positions["p4_positions"][frame_idx])
+
+        to_screen_coords_func = self._get_transform_for_sim_data(full_sim_data, "coupler_path")
+        if not to_screen_coords_func:
             return
 
-        # Use transformation parameters from the alignment process for consistency
-        center = np.array(transform_params["center"])
-        scale = transform_params["scale"]
-        angle = transform_params["rotation"]
-
-        if np.isclose(scale, 0):
-            return
-
-        rotation_matrix = np.array(
-            [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
-        )
-
-        def to_screen_coords(p_orig: np.ndarray) -> QPointF:
-            # Apply the same transformation as align_and_compare_paths to the mechanism points
-            p_centered = p_orig - center
-            p_scaled = p_centered / scale
-            p_rotated = p_scaled @ rotation_matrix.T
-            p_qpoint_norm = QPointF(p_rotated[0], p_rotated[1])
-            # The 'transform' object handles scaling to view and centering
-            return transform.map(p_qpoint_norm)
-
-        if mech_type == "4-bar Coupler" and key_points:
-            self._draw_4_bar_structure(params, key_points, to_screen_coords)
-        elif mech_type in ["Cam Follower", "Cam-Follower"]:
-            self._draw_cam_follower_structure(params, key_points, to_screen_coords)
-        elif mech_type in ["Gear Contact", "Simple Gear"]:
-            self._draw_gear_contact_structure(params, key_points, to_screen_coords)
-        elif mech_type == "Planetary Gear":
-            self._draw_planetary_gear_structure(params, key_points, to_screen_coords)
+        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
+        self._draw_4_bar_structure_from_sim(p1, p2, p3, p4, to_screen_coords)
 
     def _draw_4_bar_structure_from_sim(
         self, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray, to_screen_coords: callable
     ) -> None:
         """Draws the 4-bar linkage structure using exact simulation positions with triangular coupler."""
-        # Get coupler point parameters from mechanism data
         params = self.mechanism_data.get("parameters", {})
-        coupler_point = params.get("coupler_point", {})
-        coupler_point_x = coupler_point.get("x", 0.0)
-        coupler_point_y = coupler_point.get("y", 0.0)
-        
-        # Calculate coupler point position (same as dataset generator)
+        coupler_point_x = params.get("p_x", 0.0)
+        coupler_point_y = params.get("p_y", 0.0)
+
         coupler_vec = p4 - p3
-        coupler_length = np.linalg.norm(coupler_vec)
-        if coupler_length > 0:
-            coupler_unit = coupler_vec / coupler_length
+        if np.linalg.norm(coupler_vec) > 0:
+            coupler_unit = coupler_vec / np.linalg.norm(coupler_vec)
             coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
             p_coupler = p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
         else:
             p_coupler = p3
 
-        # Transform all points to screen coordinates
-        p1_t = to_screen_coords(p1)
-        p2_t = to_screen_coords(p2)
-        p3_t = to_screen_coords(p3)
-        p4_t = to_screen_coords(p4)
-        p_coupler_t = to_screen_coords(p_coupler)
+        p1_t, p2_t, p3_t, p4_t, p_coupler_t = map(to_screen_coords, [p1, p2, p3, p4, p_coupler])
 
-        # Draw basic links (driver and follower)
-        driver_pen = QPen(QColor("#e74c3c"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        self.scene.addLine(QLineF(p1_t, p3_t), driver_pen)  # Driver link - red
-        
-        follower_pen = QPen(QColor("#f39c12"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        self.scene.addLine(QLineF(p2_t, p4_t), follower_pen)  # Follower link - orange
+        self.scene.addLine(QLineF(p1_t, p3_t), QPen(QColor("#e74c3c"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        self.scene.addLine(QLineF(p2_t, p4_t), QPen(QColor("#f39c12"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
 
-        # Check if coupler forms a triangle or is collinear (same as dataset generator)
         area = abs(p3[0]*(p4[1]-p_coupler[1]) + p4[0]*(p_coupler[1]-p3[1]) + p_coupler[0]*(p3[1]-p4[1])) / 2
-        
-        if area < 1e-3:  # Collinear - show as line
-            coupler_pen = QPen(QColor("#2ecc71"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-            self.scene.addLine(QLineF(p3_t, p4_t), coupler_pen)
-        else:  # Non-collinear - show as triangle
-            # Create triangular coupler plate (p3, p4, coupler_point)
-            triangle_points = [p3_t, p4_t, p_coupler_t]
-            triangle_polygon = QPolygonF(triangle_points)
-            
-            triangle_pen = QPen(QColor("#2ecc71"), 2, Qt.PenStyle.SolidLine)
-            triangle_brush = QBrush(QColor("#2ecc71").lighter(160))
-            triangle_path_item = self.scene.addPolygon(triangle_polygon, triangle_pen, triangle_brush)
-            triangle_path_item.setOpacity(0.7)
-
-        # Add coupler point marker (red dot)
-        coupler_pen = QPen(QColor("#ff0000"), 2)
-        coupler_brush = QBrush(QColor("#ff0000"))
-        self.scene.addEllipse(p_coupler_t.x() - 3, p_coupler_t.y() - 3, 6, 6, coupler_pen, coupler_brush)
-
-    def _draw_4_bar_structure(
-        self, params: Dict, key_points: Dict, to_screen_coords: callable
-    ) -> None:
-        """Draws the structure of a 4-bar linkage for the initial position."""
-        l2, l3, l4 = params.get("l2"), params.get("l3"), params.get("l4")
-        p1_coords = key_points.get("ground_pivot_1")
-        p2_coords = key_points.get("ground_pivot_2")
-
-        if not all([l2, l3, l4, p1_coords, p2_coords]):
-            return
-
-        # Define pivots in their original coordinate system
-        p1 = np.array(p1_coords, dtype=float)
-        p2 = np.array(p2_coords, dtype=float)
-
-        # Use pre-calculated initial positions from the dataset if available
-        p3_coords = key_points.get("initial_moving_joint_1")
-        p4_coords = key_points.get("initial_moving_joint_2")
-
-        if p3_coords and p4_coords:
-            p3 = np.array(p3_coords, dtype=float)
-            p4 = np.array(p4_coords, dtype=float)
+        if area < 1e-3:
+            self.scene.addLine(QLineF(p3_t, p4_t), QPen(QColor("#2ecc71"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         else:
-            # Fallback to calculation if points are not in dataset
-            theta2 = 0
-            p3 = p1 + np.array([l2 * np.cos(theta2), l2 * np.sin(theta2)])
-            d_sq = np.sum((p2 - p3) ** 2)
-            d = np.sqrt(d_sq)
-            if d > (l3 + l4) or d < abs(l3 - l4): return
-            a = (l3**2 - l4**2 + d_sq) / (2 * d)
-            h = np.sqrt(max(0, l3**2 - a**2))
-            p3_p2_unit = (p2 - p3) / d
-            midpoint = p3 + a * p3_p2_unit
-            p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
+            triangle_polygon = QPolygonF([p3_t, p4_t, p_coupler_t])
+            self.scene.addPolygon(triangle_polygon, QPen(QColor("#2ecc71"), 2), QBrush(QColor("#2ecc71").lighter(160)))
 
-        # Transform all points to screen coordinates
-        p1_t = to_screen_coords(p1)
-        p2_t = to_screen_coords(p2)
-        p3_t = to_screen_coords(p3)
-        p4_t = to_screen_coords(p4)
+        self.scene.addEllipse(p_coupler_t.x() - 3, p_coupler_t.y() - 3, 6, 6, QPen(QColor("#ff0000")), QBrush(QColor("#ff0000")))
 
-        # Draw links with colorful style
-        link_colors = [QColor("#e74c3c"), QColor("#3498db"), QColor("#2ecc71"), QColor("#9b59b6")]
-        links = [
-            QLineF(p1_t, p3_t),  # Link 1 - red
-            QLineF(p3_t, p4_t),  # Link 2 - blue
-            QLineF(p4_t, p2_t),  # Link 3 - green
-            QLineF(p2_t, p1_t)   # Link 4 (ground) - purple
-        ]
+    def _draw_cam_follower_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict):
+        """Draws a cam and follower from simulation data."""
+        cam_data = full_sim_data["cam_data"]
+        frame_idx = 0
 
-        for i, (line, color) in enumerate(zip(links, link_colors)):
-            link_pen = QPen(color, 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-            self.scene.addLine(line, link_pen)
-
-        # Draw pivots with colorful style
-        pivot_colors = [QColor("#f39c12"), QColor("#f39c12"), QColor("#e74c3c"), QColor("#3498db")]
-        pivot_positions = [p1_t, p2_t, p3_t, p4_t]
-
-        for pos, color in zip(pivot_positions, pivot_colors):
-            # Outer circle
-            self.scene.addEllipse(
-                pos.x() - 8, pos.y() - 8, 16, 16,
-                QPen(color.darker(150), 2),
-                QBrush(color)
-            )
-            # Inner highlight
-            self.scene.addEllipse(
-                pos.x() - 4, pos.y() - 4, 8, 8,
-                QPen(Qt.PenStyle.NoPen),
-                QBrush(color.lighter(150))
-            )
-
-    def _draw_cam_follower_structure(
-        self, params: Dict, key_points: Dict, to_screen_coords: callable
-    ) -> None:
-        """Draws a cam and follower mechanism."""
+        cam_center = np.array(cam_data["cam_centers"][frame_idx])
+        follower_y = cam_data["follower_y_positions"][frame_idx]
         base_radius = params.get("base_radius")
-        eccentricity = params.get("eccentricity")
-        if not all([base_radius, eccentricity is not None]):
+
+        to_screen_coords_func = self._get_transform_for_sim_data(
+            {"follower_path": [[0, y] for y in cam_data["follower_y_positions"]]}, "follower_path"
+        )
+        if not to_screen_coords_func:
             return
 
-        # Use key_points for accurate positioning if available
-        if key_points and "cam_center" in key_points:
-            cam_center_orig = np.array(key_points["cam_center"])
-        else:
-            # Cam is a circle with center offset by eccentricity. Assume rotation center is origin.
-            cam_center_orig = np.array([eccentricity, 0])
+        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
 
-        # Draw cam profile by transforming a set of points on its circumference
         cam_path = QPainterPath()
-        num_points = 100
-        for i in range(num_points + 1):
-            theta = 2 * np.pi * i / num_points
-            p_orig = cam_center_orig + base_radius * np.array(
-                [np.cos(theta), np.sin(theta)]
-            )
+        for i in range(101):
+            theta = 2 * np.pi * i / 100
+            p_orig = cam_center + base_radius * np.array([np.cos(theta), np.sin(theta)])
             p_screen = to_screen_coords(p_orig)
-            if i == 0:
-                cam_path.moveTo(p_screen)
-            else:
-                cam_path.lineTo(p_screen)
+            if i == 0: cam_path.moveTo(p_screen)
+            else: cam_path.lineTo(p_screen)
+        self.scene.addPath(cam_path, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
 
-        cam_pen = QPen(QColor("#e74c3c"), 6, Qt.PenStyle.SolidLine)
-        cam_fill = QBrush(QColor("#e74c3c").lighter(160))
-        self.scene.addPath(cam_path, cam_pen, cam_fill)
+        follower_pos_orig = np.array([0, follower_y])
+        w, h = 20, 10
+        tl = follower_pos_orig + np.array([-w/2, h/2]); tr = follower_pos_orig + np.array([w/2, h/2])
+        br = follower_pos_orig + np.array([w/2, -h/2]); bl = follower_pos_orig + np.array([-w/2, -h/2])
+        follower_poly = QPolygonF([to_screen_coords(p) for p in [tl, tr, br, bl]])
+        self.scene.addPolygon(follower_poly, QPen(QColor("#2ecc71"), 3), QBrush(QColor("#2ecc71").lighter(160)))
 
-        # Draw center of rotation and cam center with colorful style
-        rot_center_screen = to_screen_coords(np.array([0, 0]))
-        cam_center_screen = to_screen_coords(cam_center_orig)
+    def _draw_simple_gear_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict):
+        """Draws a simple gear train from simulation data."""
+        gear_data = full_sim_data["gear_data"]
+        frame_idx = 0
 
-        # Rotation center - orange
-        rot_color = QColor("#f39c12")
-        self.scene.addEllipse(
-            rot_center_screen.x() - 8,
-            rot_center_screen.y() - 8,
-            16,
-            16,
-            QPen(rot_color.darker(150), 2),
-            QBrush(rot_color),
-        )
-        self.scene.addEllipse(
-            rot_center_screen.x() - 4,
-            rot_center_screen.y() - 4,
-            8,
-            8,
-            QPen(Qt.PenStyle.NoPen),
-            QBrush(rot_color.lighter(150)),
-        )
+        g1_center = np.array(gear_data["gear1_centers"][frame_idx])
+        g2_center = np.array(gear_data["gear2_centers"][frame_idx])
+        theta1 = gear_data["gear1_angles"][frame_idx]
+        theta2 = gear_data["gear2_angles"][frame_idx]
+        r1, r2 = params.get("r1"), params.get("r2")
 
-        # Cam center - blue
-        cam_center_color = QColor("#3498db")
-        self.scene.addEllipse(
-            cam_center_screen.x() - 6,
-            cam_center_screen.y() - 6,
-            12,
-            12,
-            QPen(cam_center_color.darker(150), 2),
-            QBrush(cam_center_color),
-        )
-
-    def _draw_gear_contact_structure(
-        self, params: Dict, key_points: Dict, to_screen_coords: callable
-    ) -> None:
-        """Draws a simple gear train."""
-        r1 = params.get("r1")
-        r2 = params.get("r2")
-        if not all([r1, r2]):
+        to_screen_coords_func = self._get_transform_for_sim_data(gear_data, "tracking_points")
+        if not to_screen_coords_func:
             return
 
-        # Use key_points for accurate positioning if available
-        if key_points:
-            c1_orig = np.array(key_points.get("gear1_center", [-r1, 0]))
-            c2_orig = np.array(key_points.get("gear2_center", [r2, 0]))
-        else:
-            # Default positions from dataset generation
-            c1_orig = np.array([-r1, 0])
-            c2_orig = np.array([r2, 0])
+        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
 
-        def draw_gear(center_orig, radius, color, pivot_color):
-            gear_path = QPainterPath()
-            num_points = 100
-            for i in range(num_points + 1):
-                theta = 2 * np.pi * i / num_points
-                p_orig = center_orig + radius * np.array(
-                    [np.cos(theta), np.sin(theta)]
-                )
+        def draw_gear(center, radius, angle, color):
+            path = QPainterPath()
+            for i in range(101):
+                theta = 2 * np.pi * i / 100
+                p_orig = center + radius * np.array([np.cos(theta), np.sin(theta)])
                 p_screen = to_screen_coords(p_orig)
-                if i == 0:
-                    gear_path.moveTo(p_screen)
-                else:
-                    gear_path.lineTo(p_screen)
-            gear_pen = QPen(color, 6, Qt.PenStyle.SolidLine)
-            gear_fill = QBrush(color.lighter(170))
-            self.scene.addPath(gear_path, gear_pen, gear_fill)
+                if i == 0: path.moveTo(p_screen)
+                else: path.lineTo(p_screen)
+            self.scene.addPath(path, QPen(color, 4), QBrush(color.lighter(170)))
 
-            center_screen = to_screen_coords(center_orig)
-            # Center pivot with colorful style
-            self.scene.addEllipse(
-                center_screen.x() - 8,
-                center_screen.y() - 8,
-                16,
-                16,
-                QPen(pivot_color.darker(150), 2),
-                QBrush(pivot_color),
-            )
-            self.scene.addEllipse(
-                center_screen.x() - 4,
-                center_screen.y() - 4,
-                8,
-                8,
-                QPen(Qt.PenStyle.NoPen),
-                QBrush(pivot_color.lighter(150)),
-            )
+            p1 = to_screen_coords(center)
+            p2 = to_screen_coords(center + radius * np.array([np.cos(angle), np.sin(angle)]))
+            self.scene.addLine(QLineF(p1, p2), QPen(QColor("white"), 2))
 
-        # Draw gears with different colors
-        draw_gear(c1_orig, r1, QColor("#3498db"), QColor("#f39c12"))
-        draw_gear(c2_orig, r2, QColor("#2ecc71"), QColor("#e74c3c"))
+        draw_gear(g1_center, r1, theta1, QColor("#3498db"))
+        draw_gear(g2_center, r2, theta2, QColor("#2ecc71"))
 
-    def _draw_planetary_gear_structure(
-        self, params: Dict, key_points: Dict, to_scene_coords: callable
-    ) -> None:
-        """Draws a planetary gear system."""
-        r_sun = params.get("r_sun", 20)
-        r_planet = params.get("r_planet", 30)
-        arm_length = params.get("arm_length", 15)
-        
-        # Initial positions
-        sun_center_orig = np.array([0, 0])
-        planet_center_orig = np.array([r_sun + r_planet, 0])  # Initial planet position
-        tracking_point_orig = planet_center_orig + np.array([arm_length, 0])
-        
-        # Transform to scene coordinates
-        sun_center_scene = to_scene_coords(sun_center_orig)
-        planet_center_scene = to_scene_coords(planet_center_orig)
-        tracking_scene = to_scene_coords(tracking_point_orig)
-        
-        # Draw sun gear (stationary)
-        sun_color = QColor("#7f8c8d")  # Gray
-        self.scene.addEllipse(
-            sun_center_scene.x() - r_sun, sun_center_scene.y() - r_sun,
-            r_sun * 2, r_sun * 2,
-            QPen(sun_color, 4),
-            QBrush(sun_color.lighter(140))
-        )
-        
-        # Draw planet gear
-        planet_color = QColor("#e67e22")  # Orange
-        self.scene.addEllipse(
-            planet_center_scene.x() - r_planet, planet_center_scene.y() - r_planet,
-            r_planet * 2, r_planet * 2,
-            QPen(planet_color, 4),
-            QBrush(planet_color.lighter(150))
-        )
-        
-        # Draw arm from planet center to tracking point
-        arm_color = QColor("#f39c12")  # Gold
-        self.scene.addLine(
-            planet_center_scene.x(), planet_center_scene.y(),
-            tracking_scene.x(), tracking_scene.y(),
-            QPen(arm_color, 3)
-        )
-        
-        # Draw tracking point
-        tracking_color = QColor("#e74c3c")  # Red
-        self.scene.addEllipse(
-            tracking_scene.x() - 8, tracking_scene.y() - 8, 16, 16,
-            QPen(tracking_color.darker(150), 3),
-            QBrush(tracking_color)
-        )
-        
-        # Sun center marker
-        sun_center_color = QColor("#34495e")  # Dark gray
-        self.scene.addEllipse(
-            sun_center_scene.x() - 6, sun_center_scene.y() - 6, 12, 12,
-            QPen(sun_center_color, 2),
-            QBrush(sun_center_color)
-        )
+    def _draw_planetary_gear_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict):
+        """Draws a planetary gear system from simulation data."""
+        gear_pos = full_sim_data["gear_positions"]
+        frame_idx = 0
+
+        sun_center = np.array(gear_pos["sun_centers"][frame_idx])
+        planet_center = np.array(gear_pos["planet_centers"][frame_idx])
+        tracking_point = np.array(gear_pos["tracking_points"][frame_idx])
+        r_sun, r_planet = params.get("r_sun"), params.get("r_planet")
+
+        to_screen_coords_func = self._get_transform_for_sim_data(gear_pos, "tracking_points")
+        if not to_screen_coords_func:
+            return
+
+        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
+
+        def draw_gear(center, radius, color):
+            path = QPainterPath()
+            for i in range(101):
+                theta = 2 * np.pi * i / 100
+                p_orig = center + radius * np.array([np.cos(theta), np.sin(theta)])
+                p_screen = to_screen_coords(p_orig)
+                if i == 0: path.moveTo(p_screen)
+                else: path.lineTo(p_screen)
+            self.scene.addPath(path, QPen(color, 4), QBrush(color.lighter(150)))
+
+        draw_gear(sun_center, r_sun, QColor("#7f8c8d"))
+        draw_gear(planet_center, r_planet, QColor("#e67e22"))
+
+        p1 = to_screen_coords(planet_center)
+        p2 = to_screen_coords(tracking_point)
+        self.scene.addLine(QLineF(p1, p2), QPen(QColor("#f39c12"), 3))
+        self.scene.addEllipse(p2.x() - 5, p2.y() - 5, 10, 10, QPen(QColor("#e74c3c")), QBrush(QColor("#e74c3c")))
 
     def _render_preview(self) -> None:
         self.scene.clear()
-        # Use the ENTIRE widget area with minimal margin
         margin = 5
         view_rect_int = self.rect()
         view_rect_f = QRectF(view_rect_int)
         view_rect_adjusted_f = view_rect_f.adjusted(margin, margin, -margin, -margin)
 
-        # Set sceneRect to the viewable area
         self.scene.setSceneRect(view_rect_f)
-
-        # Draw ONLY path comparison - no mechanism structures
         self._draw_path_comparison(view_rect_adjusted_f)
 
     def _setup_scene_and_transform(self) -> QRectF:
@@ -688,8 +466,8 @@ class MechanismPreviewWidget(QGraphicsView):
 class PreviewContainer(QWidget):
     """Container for a single preview and its title/select button."""
 
-    selected = Signal(dict)  # Emits the mechanism data when selected
-    clicked = Signal(dict)  # Emits the mechanism data when clicked for preview
+    selected = Signal(dict)
+    clicked = Signal(dict)
 
     def __init__(
         self, mechanism_data: Dict[str, Any], parent: Optional[QWidget] = None
@@ -704,9 +482,7 @@ class PreviewContainer(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        # Title/Name with better styling
         name = self.mechanism_data.get("name", "Unnamed Mechanism")
-        # Extract just the mechanism type from name
         if ":" in name:
             mech_type = name.split(":")[0].strip()
         else:
@@ -723,7 +499,6 @@ class PreviewContainer(QWidget):
         """)
         layout.addWidget(title_label)
 
-        # Preview Widget with rounded corners
         self.preview_widget = MechanismPreviewWidget(self.mechanism_data, self)
         self.preview_widget.setStyleSheet("""
             QGraphicsView {
@@ -734,14 +509,11 @@ class PreviewContainer(QWidget):
         """)
         layout.addWidget(self.preview_widget, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Similarity percentage label
         score = self.mechanism_data.get("overall_score", 0)
-        print(f"Debug PreviewContainer: overall_score = {score}")  # Debug
+        print(f"Debug PreviewContainer: overall_score = {score}")
 
-        # Convert Hausdorff distance score to similarity percentage
         if score is not None and score >= 0:
             import math
-            # Use exponential decay: lower score = higher similarity. Tuned for normalized scores.
             similarity_percentage = max(0, min(100, math.exp(-score * 5) * 100))
         else:
             similarity_percentage = 0
@@ -761,7 +533,6 @@ class PreviewContainer(QWidget):
         """)
         layout.addWidget(match_label)
 
-        # Select Button with better styling
         select_button = QPushButton("Select This")
         select_button.setFixedSize(140, 40)
         select_button.setStyleSheet("""
@@ -785,19 +556,17 @@ class PreviewContainer(QWidget):
         layout.addWidget(select_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(layout)
-        self.setMinimumWidth(520)  # Width to match new preview widget size
+        self.setMinimumWidth(520)
         self.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
-        )  # Fixed height based on content
+        )
 
-        # Make the container clickable
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mousePressEvent(self, event):
         """Handle mouse press to emit clicked signal."""
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.mechanism_data)
-            # Update visual selection
             self._set_selected_style(True)
         super().mousePressEvent(event)
 
@@ -833,21 +602,15 @@ class PreviewContainer(QWidget):
         self.selected.emit(self.mechanism_data)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(520, 550)  # Increased height to accommodate larger preview widget
+        return QSize(520, 550)
 
     def sizeHint(self) -> QSize:
         return self.minimumSizeHint()
 
 
-# Wrapper for math functions to avoid numpy dependency if not strictly needed here
-# And to ensure degrees are converted to radians correctly for math.cos/sin.
-
-
 class MechanismRecommendationDialog(QDialog):
-    mechanism_selected = Signal(dict)  # Emitted when a mechanism is chosen
-    mechanism_preview_selected = Signal(
-        dict
-    )  # Emitted when a mechanism is clicked for preview
+    mechanism_selected = Signal(dict)
+    mechanism_preview_selected = Signal(dict)
 
     def __init__(
         self,
@@ -858,12 +621,10 @@ class MechanismRecommendationDialog(QDialog):
     ):
         super().__init__(parent)
         self.setWindowTitle("Choose a Mechanism")
-        self.setMinimumSize(1400, 800)  # Increased dialog size for better visibility
+        self.setMinimumSize(1400, 800)
         self.selected_mechanism_data: Optional[Dict[str, Any]] = None
 
-        self.user_motion_path_original = (
-            user_motion_path  # Keep original QPainterPath for preview
-        )
+        self.user_motion_path_original = user_motion_path
         self.user_motion_path_np = qpainterpath_to_numpy_array(
             user_motion_path, num_samples_user_path
         )
@@ -875,7 +636,6 @@ class MechanismRecommendationDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # Add instruction label with better styling
         instruction_label = QLabel(
             "Choose the mechanism that best matches your desired motion"
         )
@@ -890,7 +650,6 @@ class MechanismRecommendationDialog(QDialog):
         """)
         main_layout.addWidget(instruction_label)
 
-        # Add subtitle
         subtitle_label = QLabel(
             "The red dashed line shows your drawn path. The blue line is the mechanism's path. Click on a mechanism to select it."
         )
@@ -916,7 +675,6 @@ class MechanismRecommendationDialog(QDialog):
         if recommendations:
             for rec_data in recommendations:
                 if rec_data:
-                    # Add user_motion_path_local to each recommendation for preview
                     rec_data_with_user_path = rec_data.copy()
                     rec_data_with_user_path["user_motion_path_local"] = (
                         self.user_motion_path_original
@@ -924,9 +682,7 @@ class MechanismRecommendationDialog(QDialog):
 
                     container = PreviewContainer(rec_data_with_user_path, self)
                     container.selected.connect(self._on_select)
-                    container.clicked.connect(
-                        self._on_preview_click
-                    )  # Add preview click handler
+                    container.clicked.connect(self._on_preview_click)
                     self.previews_layout.addWidget(container)
                     self.preview_containers.append(container)
                 else:
@@ -945,7 +701,6 @@ class MechanismRecommendationDialog(QDialog):
 
         main_layout.addLayout(self.previews_layout)
 
-        # Custom button area with smaller, styled buttons
         button_layout = QHBoxLayout()
         button_layout.setSpacing(20)
 
@@ -1014,17 +769,28 @@ class MechanismRecommendationDialog(QDialog):
                 path_coords = None
                 mech_type = item.get("type")
 
-                # For 4-bar, use the full simulation coupler path if available, otherwise normalized path
                 if mech_type == "4-bar Coupler":
-                    # Try to get the full simulation path first (from new dataset structure)
                     full_sim_data = item.get("full_simulation_data", {})
                     if "coupler_path" in full_sim_data:
                         path_coords = full_sim_data["coupler_path"]
                     else:
-                        # Fallback to old structure
                         path_coords = item.get("key_points", {}).get("coupler_point_path")
 
-                # Use normalized path coordinates for all types if full path not available
+                elif mech_type == "Cam-Follower":
+                    full_sim_data = item.get("full_simulation_data", {})
+                    if "follower_path" in full_sim_data:
+                        path_coords = full_sim_data["follower_path"]
+
+                elif mech_type == "Simple Gear":
+                    full_sim_data = item.get("full_simulation_data", {})
+                    if "tracking_path" in full_sim_data:
+                        path_coords = full_sim_data["tracking_path"]
+
+                elif mech_type == "Planetary Gear":
+                    full_sim_data = item.get("full_simulation_data", {})
+                    if "tracking_path" in full_sim_data:
+                        path_coords = full_sim_data["tracking_path"]
+
                 if not path_coords:
                     path_coords = item.get("path_coordinates")
 
@@ -1033,7 +799,6 @@ class MechanismRecommendationDialog(QDialog):
                     and isinstance(path_coords, list)
                     and len(path_coords) > 0
                 ):
-                    # Ensure coordinates are suitable for numpy array (e.g., list of lists/tuples)
                     try:
                         item["path_coordinates_np"] = np.array(path_coords, dtype=float)
                         loaded_paths.append(item)
@@ -1041,7 +806,6 @@ class MechanismRecommendationDialog(QDialog):
                         print(
                             f"Warning: Could not convert path_coordinates to numpy array for item: {item.get('type', 'N/A')}. Error: {e}"
                         )
-                        # Optionally skip this item or handle error
                 else:
                     print(
                         f"Warning: Missing or invalid 'path_coordinates' for item: {item.get('type', 'N/A')}"
@@ -1066,20 +830,18 @@ class MechanismRecommendationDialog(QDialog):
         print(f"Debug: User path has {len(self.user_motion_path_np)} points")
         print(f"Debug: Total mechanisms in database: {len(self.generated_paths_data)}")
 
-        # Mapping from JSON type strings to user-friendly display names
         type_mapping = {
             "4-bar Coupler": "4-Bar Linkage",
             "3-bar Output": "3-Bar Linkage",
             "Cam Profile": "Cam & Follower",
-            "Cam-Follower": "Cam & Follower",  # Match dataset type
+            "Cam-Follower": "Cam & Follower",
             "Gear Train": "Gears (Simple Pair)",
             "Gear Contact": "Gears (Simple Pair)",
-            "Simple Gear": "Gears (Simple Pair)",  # Match dataset type
-            "Planetary Gear": "Planetary Gear",  # Match dataset type
+            "Simple Gear": "Gears (Simple Pair)",
+            "Planetary Gear": "Planetary Gear",
             "line": "Linear Motion"
         }
 
-        # Group mechanisms by type and find best match for each
         mechanisms_by_type = {}
         total_comparisons = 0
 
@@ -1092,7 +854,6 @@ class MechanismRecommendationDialog(QDialog):
 
             total_comparisons += 1
 
-            # Align paths and calculate distance
             (
                 distance,
                 user_path_aligned,
@@ -1103,7 +864,6 @@ class MechanismRecommendationDialog(QDialog):
             if user_path_aligned is None or gen_path_aligned is None:
                 continue
 
-            # Log some samples for debugging
             if total_comparisons <= 5:
                 print(
                     f"Debug sample {total_comparisons}: {json_type_str} - distance: {distance:.2f}"
@@ -1111,7 +871,6 @@ class MechanismRecommendationDialog(QDialog):
 
             display_type = type_mapping.get(json_type_str, json_type_str)
 
-            # Create mechanism data for preview
             preview_data = {
                 "name": gen_path_data.get("name", f"{json_type_str} Mechanism"),
                 "type": display_type,
@@ -1128,12 +887,10 @@ class MechanismRecommendationDialog(QDialog):
                 "transform_params": transform_params,
             }
 
-            # Use visualization parameters from dataset if available, otherwise calculate from geometry
             dataset_vis_params = gen_path_data.get("visualization_params")
             if dataset_vis_params:
                 preview_data["visualization_params"] = dataset_vis_params
             else:
-                # Fallback: calculate from mechanism geometry
                 all_mech_points = self._get_mechanism_points_orig(preview_data)
                 if all_mech_points is not None:
                     vis_center = np.mean(all_mech_points, axis=0)
@@ -1143,13 +900,11 @@ class MechanismRecommendationDialog(QDialog):
                         "scale": vis_scale if not np.isclose(vis_scale, 0) else 1.0,
                     }
                 else:
-                    # Final fallback to path-based transform
                     preview_data["visualization_params"] = {
                         "center": transform_params["center"],
                         "scale": transform_params["scale"],
                     }
 
-            # Group by display type and keep only the best (lowest distance)
             if display_type not in mechanisms_by_type:
                 mechanisms_by_type[display_type] = preview_data
             else:
@@ -1159,20 +914,13 @@ class MechanismRecommendationDialog(QDialog):
         print(f"Debug: Made {total_comparisons} path comparisons")
         print(f"Debug: Found {len(mechanisms_by_type)} mechanism types: {list(mechanisms_by_type.keys())}")
 
-        # Get best from each type
         best_mechanisms = list(mechanisms_by_type.values())
-
-        # Sort by similarity score (lower is better)
         best_mechanisms.sort(key=lambda x: x["overall_score"])
-
-        # Take top 3 most similar
         top_3 = best_mechanisms[:3]
 
-        # Debug output
         for i, mech in enumerate(top_3):
             print(f"Debug: Recommendation {i+1}: {mech['type']} - {mech['name']} (score: {mech['overall_score']:.2f})")
 
-        # Ensure we have exactly 3 slots
         while len(top_3) < 3:
             top_3.append(None)
 
@@ -1181,16 +929,13 @@ class MechanismRecommendationDialog(QDialog):
     def _on_select(self, mechanism_data: Dict[str, Any]) -> None:
         self.selected_mechanism_data = mechanism_data
         self.ok_button.setEnabled(True)
-        # Update visual selection for all containers
         for container in self.preview_containers:
             container._set_selected_style(container.mechanism_data == mechanism_data)
 
     def _on_preview_click(self, mechanism_data: Dict[str, Any]) -> None:
         """Handle preview click to show mechanism in main view."""
-        # Update visual selection for all containers
         for container in self.preview_containers:
             container._set_selected_style(container.mechanism_data == mechanism_data)
-        # Emit the preview signal
         self.mechanism_preview_selected.emit(mechanism_data)
 
     @staticmethod
@@ -1224,13 +969,11 @@ class MechanismRecommendationDialog(QDialog):
         key_points = mechanism_data.get("key_points")
 
         if mech_type == "4-bar Coupler" and key_points:
-            # Use the new key_points structure with more detailed information
             p1_coords = key_points.get("ground_pivot_1")
             p2_coords = key_points.get("ground_pivot_2")
             p3_coords = key_points.get("initial_moving_joint_1")
             p4_coords = key_points.get("initial_moving_joint_2")
 
-            # Include all available pivot points
             pivot_points = []
             for coords in [p1_coords, p2_coords, p3_coords, p4_coords]:
                 if coords:
@@ -1243,7 +986,6 @@ class MechanismRecommendationDialog(QDialog):
             base_radius = params.get("base_radius")
             eccentricity = params.get("eccentricity")
             if base_radius is not None and eccentricity is not None:
-                # Use key_points if available for more accurate positioning
                 if key_points:
                     cam_center_coords = key_points.get("cam_center")
                     rotation_center_coords = key_points.get("rotation_center")
@@ -1255,7 +997,7 @@ class MechanismRecommendationDialog(QDialog):
                         all_points.append(np.array([rotation_center_coords]))
                 else:
                     cam_center_orig = np.array([eccentricity, 0])
-                    all_points.append(np.array([[0, 0]]))  # rotation center
+                    all_points.append(np.array([[0, 0]]))
 
                 thetas = np.linspace(0, 2 * np.pi, 20)
                 cam_points = cam_center_orig + base_radius * np.array(
@@ -1266,7 +1008,6 @@ class MechanismRecommendationDialog(QDialog):
         elif mech_type == "Gear Contact":
             r1, r2 = params.get("r1"), params.get("r2")
             if r1 and r2:
-                # Use key_points if available for more accurate positioning
                 if key_points:
                     gear1_center = key_points.get("gear1_center", [0, 0])
                     gear2_center = key_points.get("gear2_center", [r1 + r2, 0])
@@ -1290,13 +1031,12 @@ class MechanismRecommendationDialog(QDialog):
 if __name__ == "__main__":
     import sys
     import logging
-    from PyQt6.QtWidgets import QApplication  # Import QApplication
+    from PyQt6.QtWidgets import QApplication
 
     logging.basicConfig(level=logging.DEBUG)
 
     app = QApplication(sys.argv)
 
-    # Example recommendations (replace with actual data from MechanismManager)
     dummy_path = QPainterPath()
     dummy_path.moveTo(10, 10)
     dummy_path.lineTo(50, 80)
@@ -1321,12 +1061,12 @@ if __name__ == "__main__":
             "overall_score": 0.91,
             "user_motion_path_local": dummy_path.translated(-5, 5),
         },
-        None,  # Test None placeholder
+        None,
         {
             "name": "Another Cam",
             "type": "cam",
             "overall_score": 0.60,
-        },  # Test with no path
+        },
     ]
     empty_recs = []
     error_recs = [None, None]
@@ -1338,7 +1078,7 @@ if __name__ == "__main__":
         ([example_recs_data[0]], "Single Cam Recommendation"),
         ([example_recs_data[1]], "Single Linkage Recommendation"),
     ]
-    current_test_index_ref = [0]  # Use a list to pass by reference
+    current_test_index_ref = [0]
 
     def run_test(recs, title):
         print(f"\n--- Running Test: {title} ---")
@@ -1349,22 +1089,19 @@ if __name__ == "__main__":
             print(f"Mechanism selected: {selected_mechanism.get('name')}")
         else:
             print("Dialog cancelled or no mechanism selected.")
-        run_next_test()  # Proceed to next test
+        run_next_test()
 
     def run_next_test():
         if current_test_index_ref[0] < len(tests):
             recs, title = tests[current_test_index_ref[0]]
             current_test_index_ref[0] += 1
-            # Schedule the test to run after the current event loop iteration
-            # to allow the previous dialog to close properly.
             from PyQt6.QtCore import QTimer
 
             QTimer.singleShot(100, lambda: run_test(recs, title))
         else:
             print("\n--- All tests completed ---")
-            app.quit()  # Exit application after tests
+            app.quit()
 
-    # Start the first test
     run_next_test()
 
     sys.exit(app.exec())

@@ -1779,7 +1779,7 @@ class MechanismDesignTab(QWidget):
                 follower_positions = cam_data["follower_y_positions"]
                 num_frames = len(follower_positions)
                 if num_frames > 0:
-                    frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                    frame_index = int((time / (2 * math.pi)) * (num_frames - 1)) % num_frames
                     follower_y = follower_positions[frame_index]
                     follower_pos_orig = np.array([0, follower_y])
 
