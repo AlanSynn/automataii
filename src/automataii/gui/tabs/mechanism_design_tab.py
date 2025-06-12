@@ -262,27 +262,29 @@ class MechanismDesignTab(QWidget):
         self.animation_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         animation_layout.addWidget(self.animation_status_label)
 
-        centering_layout = QHBoxLayout()
-        centering_layout.addStretch()
+        style = self.style()
+        anim_button_layout = QHBoxLayout()
+        anim_button_layout.setSpacing(12)
 
-        self.play_btn = QPushButton("Play")
-        self.stop_btn = QPushButton("Stop")
-        self.reset_btn = QPushButton("Reset")
-
-        # Set initial button states
+        self.play_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "")
+        self.play_btn.setToolTip("Play Animation")
         self.play_btn.setEnabled(False)
+
+        self.stop_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), "")
+        self.stop_btn.setToolTip("Stop Animation")
         self.stop_btn.setEnabled(False)
+
+        self.reset_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), "")
+        self.reset_btn.setToolTip("Reset Animation")
         self.reset_btn.setEnabled(False)
 
-        animation_controls_layout = QHBoxLayout()
-        animation_controls_layout.addWidget(self.play_btn)
-        animation_controls_layout.addWidget(self.stop_btn)
-        animation_controls_layout.addWidget(self.reset_btn)
+        anim_button_layout.addStretch()
+        anim_button_layout.addWidget(self.play_btn)
+        anim_button_layout.addWidget(self.stop_btn)
+        anim_button_layout.addWidget(self.reset_btn)
+        anim_button_layout.addStretch()
 
-        centering_layout.addLayout(animation_controls_layout)
-        centering_layout.addStretch()
-
-        animation_layout.addLayout(centering_layout)
+        animation_layout.addLayout(anim_button_layout)
         panel_layout.addWidget(animation_group)
 
         panel_layout.addStretch(1)

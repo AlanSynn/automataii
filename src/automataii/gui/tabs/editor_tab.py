@@ -244,11 +244,11 @@ class EditorTab(QWidget):
                 background-color: #a7c7e7;
                 border: 1px solid #96b6d6;
                 border-radius: 6px;
-                padding: 8px 14px;
+                padding: 5px 10px;
                 font-weight: bold;
                 color: #ffffff;
                 min-height: 28px;
-                font-size: 11pt;
+                font-size: 10pt;
             }
             QPushButton:hover {
                 background-color: #96b6d6;
@@ -280,17 +280,18 @@ class EditorTab(QWidget):
         )
         self.define_motion_path_btn.setEnabled(False)
         self.define_motion_path_btn.setStyleSheet(motion_path_button_checked_style)
-        self.define_motion_path_btn.setMinimumWidth(110)
-        motion_path_buttons_layout.addWidget(self.define_motion_path_btn)
 
         self.clear_motion_path_btn = QPushButton("Clear")
         self.clear_motion_path_btn.setToolTip(
             "Clear the motion path for the selected part."
         )
         self.clear_motion_path_btn.setEnabled(False)
-        self.clear_motion_path_btn.setStyleSheet(motion_path_button_style)
-        self.clear_motion_path_btn.setMinimumWidth(65)
+        self.clear_motion_path_btn.setStyleSheet(motion_path_button_style.replace("#a7c7e7", "#e7a7a7"))
+
+        motion_path_buttons_layout.addStretch()
+        motion_path_buttons_layout.addWidget(self.define_motion_path_btn)
         motion_path_buttons_layout.addWidget(self.clear_motion_path_btn)
+        motion_path_buttons_layout.addStretch()
         motion_path_layout.addLayout(motion_path_buttons_layout)
 
         self.motion_path_info_label = QLabel(
@@ -304,6 +305,7 @@ class EditorTab(QWidget):
         motion_path_layout.addWidget(self.motion_path_info_label)
 
         panel_layout.addWidget(motion_path_group)
+        panel_layout.setStretchFactor(motion_path_group, 0)
 
         # 3. Animation Group
         animation_group = QGroupBox("3 Animation")
@@ -367,14 +369,14 @@ class EditorTab(QWidget):
 
         # Play button
         self.play_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), " Play"
+            style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), ""
         )
         self.play_btn.setToolTip("Play Animation")
         self.play_btn.setStyleSheet(animation_button_style)
 
         # Stop button
         self.stop_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), " Stop"
+            style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), ""
         )
         self.stop_btn.setToolTip("Stop Animation")
         self.stop_btn.setEnabled(False)
@@ -382,15 +384,17 @@ class EditorTab(QWidget):
 
         # Reset button
         self.reset_sim_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), " Reset"
+            style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), ""
         )
         self.reset_sim_btn.setToolTip("Reset Animation")
         self.reset_sim_btn.setEnabled(False)
         self.reset_sim_btn.setStyleSheet(animation_button_style)
 
+        anim_button_layout.addStretch()
         anim_button_layout.addWidget(self.play_btn)
         anim_button_layout.addWidget(self.stop_btn)
         anim_button_layout.addWidget(self.reset_sim_btn)
+        anim_button_layout.addStretch()
         animation_layout.addLayout(anim_button_layout)
 
         panel_layout.addWidget(animation_group)
@@ -546,7 +550,6 @@ class EditorTab(QWidget):
         if not part_name or not checked:
             self.editor_view.set_mode("select")
             self.define_motion_path_btn.setText("Start Drawing")
-            self.define_motion_path_btn.setStyleSheet("")
             self.motion_path_info_label.setVisible(False)
             if checked:
                 self.define_motion_path_btn.setChecked(False)
@@ -561,7 +564,6 @@ class EditorTab(QWidget):
             self.editor_view.start_define_motion_path(target_item)
 
         self.define_motion_path_btn.setText("Stop Drawing")
-        self.define_motion_path_btn.setStyleSheet("background-color: #0078D7; color: white;")
         self.motion_path_info_label.setVisible(True)
 
         # Uncheck button if drawing is completed/cancelled from the view
