@@ -4,32 +4,38 @@ Pydantic models for data validation and structure, particularly for project file
 
 from typing import Optional, List, Dict, Any, Tuple
 
-from pydantic import BaseModel, Field, validator, RootModel
+from pydantic import BaseModel, Field, validator
 from PyQt6.QtCore import QPointF  # For type hinting, will be validated as tuple/list
 
 # --- Utility Types ---
 
 
-class QPointFModel(RootModel[Tuple[float, float]]):
+class QPointFModel(BaseModel):
     """Represents a QPointF as a tuple for serialization/validation."""
 
-    root: Tuple[float, float]
+    x: float
+    y: float
 
-    @validator("root", pre=True, allow_reuse=True)
-    def validate_qpointf_input(cls, v):
-        if isinstance(v, QPointF):
-            return (v.x(), v.y())
-        if isinstance(v, (list, tuple)) and len(v) == 2:
-            try:
-                return (float(v[0]), float(v[1]))
-            except (ValueError, TypeError):
-                raise ValueError("QPointFModel elements must be numbers")
-        raise ValueError(
-            "Invalid QPointFModel input: must be QPointF, or list/tuple of two numbers"
-        )
+    @validator("x", "y", pre=True, allow_reuse=True)
+    def validate_number(cls, v):
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            raise ValueError("Coordinate must be a number")
 
+    @classmethod
+    def from_qpointf(cls, point: QPointF):
+        return cls(x=point.x(), y=point.y())
+    
+    @classmethod
+    def from_tuple(cls, t: Tuple[float, float]):
+        return cls(x=t[0], y=t[1])
+    
+    def to_tuple(self) -> Tuple[float, float]:
+        return (self.x, self.y)
+    
     def to_qpointf(self) -> QPointF:
-        return QPointF(self.root[0], self.root[1])
+        return QPointF(self.x, self.y)
 
 
 class MotionPathDataModel(BaseModel):  # Placeholder for more complex motion path data

@@ -178,8 +178,8 @@ class PartInfo:
                 # Curve control points would require a more complex MotionPathDataModel structure.
                 if element.isMoveTo() or element.isLineTo():
                     points_for_pydantic.append(
-                        QPointFModel(root=(element.x, element.y))
-                    )  # type: ignore
+                        QPointFModel(x=element.x, y=element.y)
+                    )
             if points_for_pydantic:
                 motion_path_pydantic = MotionPathDataModel(
                     path_points=points_for_pydantic

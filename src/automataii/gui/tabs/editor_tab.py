@@ -243,12 +243,8 @@ class EditorTab(QWidget):
             QPushButton {
                 background-color: #a7c7e7;
                 border: 1px solid #96b6d6;
-                border-radius: 6px;
-                padding: 5px 10px;
                 font-weight: bold;
                 color: #ffffff;
-                min-height: 28px;
-                font-size: 10pt;
             }
             QPushButton:hover {
                 background-color: #96b6d6;

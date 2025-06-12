@@ -196,7 +196,7 @@ class MechanismDesignTab(QWidget):
         self.enable_mechanisms_checkbox.setToolTip("Toggle to enable/disable the selected mechanism layer")
         buttons_layout.addWidget(self.enable_mechanisms_checkbox)
 
-        self.delete_mechanism_btn = QPushButton("Delete Mechanism")
+        self.delete_mechanism_btn = QPushButton("Delete")
         self.delete_mechanism_btn.setEnabled(False)
         self.delete_mechanism_btn.setToolTip("Delete the selected mechanism")
         buttons_layout.addWidget(self.delete_mechanism_btn)
@@ -333,7 +333,8 @@ class MechanismDesignTab(QWidget):
         else:
             self.parts_data = {}
 
-        self.mechanism_scene.clear()
+        # Clear scene but preserve skeleton graphics item
+        self._clear_scene_preserve_skeleton()
         self.current_editor_items.clear()
 
         if self.parts_data:
@@ -341,7 +342,7 @@ class MechanismDesignTab(QWidget):
             for part_name, p_info in parts_data.items():
                 if project_dir:
                     item = CharacterPartItem(part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode)
-                    item.setZValue(5)  # Parts below mechanisms but above background
+                    item.setZValue(1)  # Parts above skeleton (Z=0) but below mechanisms
                     self.mechanism_scene.addItem(item)
                     self.current_editor_items[part_name] = item
             self._position_parts_at_anchor_joints()
@@ -372,25 +373,51 @@ class MechanismDesignTab(QWidget):
                     part_item.set_scene_position_from_anchor(scene_pos)
 
     def cache_initial_skeleton(self, skeleton_data_dict: Optional[Dict]):
-        """Cache the initial skeleton data dictionary"""
+        """Cache the initial skeleton data dictionary and ensure skeleton visualization is set up"""
         self._initial_skeleton_data_cache = skeleton_data_dict.copy() if skeleton_data_dict else None
         if self._initial_skeleton_data_cache:
             if self.mechanism_view and hasattr(self.mechanism_view, "set_joint_map"):
                 self.mechanism_view.set_joint_map(self._initial_skeleton_data_cache.get("joint_map"))
+
+            # CRITICAL: Ensure skeleton visualization is initialized with complete skeleton data
+            if self.debug_mode:
+                logging.info(f"[DEBUG] Setting up initial skeleton visualization with cached data (joints: {len(self._initial_skeleton_data_cache.get('joints', {}))}, hierarchy: {bool(self._initial_skeleton_data_cache.get('hierarchy'))})")
+            self._ensure_skeleton_visualization(self._initial_skeleton_data_cache)
+
             if self.current_editor_items:
                 self._position_parts_at_anchor_joints()
 
     def on_skeleton_updated(self, skeleton_data: Optional[Dict]):
-        """Handle skeleton updates from IK manager (like in editor tab)."""
-        if self.mechanism_view and skeleton_data:
-            # Check if we received raw animation data from IK manager
-            if skeleton_data and all(isinstance(v, tuple) and len(v) == 2 for v in skeleton_data.values()):
-                # Convert IK manager format Dict[str, Tuple[float, float]] to expected format
-                # Update skeleton visualization using the animation data directly
-                if hasattr(self.mechanism_view, 'update_skeleton_animation'):
-                    self.mechanism_view.update_skeleton_animation(skeleton_data)
+        """Handle skeleton updates from IK manager with improved error handling and mechanism integration."""
+        # Validate skeleton_data first
+        if not skeleton_data:
+            if self.debug_mode:
+                logging.warning("[DEBUG] Received empty skeleton_data in mechanism_design_tab")
+            return
 
-                # Transform to expected format for part updates
+        # Check if mechanism_view and its skeleton components exist
+        if not self.mechanism_view:
+            if self.debug_mode:
+                logging.warning("[DEBUG] mechanism_view not available")
+            return
+
+        # Validate skeleton data structure
+        is_valid_data = False
+        if isinstance(skeleton_data, dict):
+            if skeleton_data.get("joints") and len(skeleton_data["joints"]) > 0:
+                is_valid_data = True
+            elif all(isinstance(v, (tuple, list)) and len(v) == 2 for v in skeleton_data.values()):
+                is_valid_data = True
+
+        if not is_valid_data:
+            if self.debug_mode:
+                logging.warning(f"[DEBUG] Invalid skeleton_data structure: {type(skeleton_data)}, keys: {list(skeleton_data.keys()) if isinstance(skeleton_data, dict) else 'not dict'}")
+            return
+
+        try:
+            # Check if we received raw animation data from IK manager
+            if skeleton_data and all(isinstance(v, (tuple, list)) and len(v) == 2 for v in skeleton_data.values()):
+                # Convert IK manager format Dict[str, Tuple[float, float]] to expected format
                 transformed_data = {
                     "joints": {
                         joint_id: {
@@ -400,11 +427,18 @@ class MechanismDesignTab(QWidget):
                         for joint_id, pos in skeleton_data.items()
                     }
                 }
+
+                # CRITICAL FIX: Ensure skeleton is initialized before animation
+                self._ensure_skeleton_visualization(transformed_data)
+
+                # Now update skeleton animation using the transformed data
+                if hasattr(self.mechanism_view, 'update_skeleton_animation'):
+                    self.mechanism_view.update_skeleton_animation(skeleton_data)
+
                 skeleton_data = transformed_data
             else:
-                # Standard skeleton model format - use existing method
-                if hasattr(self.mechanism_view, 'update_visuals_from_animation_data'):
-                    self.mechanism_view.update_visuals_from_animation_data(skeleton_data)
+                # Standard skeleton model format - ensure skeleton visualization is set up
+                self._ensure_skeleton_visualization(skeleton_data)
 
             # Update part positions from skeleton during animation
             if self.animation_timer.isActive():
@@ -412,6 +446,11 @@ class MechanismDesignTab(QWidget):
             else:
                 # Even when not animating, update parts that aren't mechanism-controlled
                 self._update_parts_from_skeleton(skeleton_data)
+
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"[DEBUG] Error in on_skeleton_updated: {e}")
+            # Don't let skeleton errors crash the mechanism animation
 
     def _update_parts_from_skeleton(self, skeleton_data: Dict):
         """Update part positions based on skeleton joint movements (like in editor tab)."""
@@ -452,12 +491,296 @@ class MechanismDesignTab(QWidget):
                 return True
         return False
 
+    def _ensure_skeleton_visualization(self, skeleton_data: Dict):
+        """Ensure skeleton visualization is properly set up and updated."""
+        if not hasattr(self.mechanism_view, 'visualize_skeleton'):
+            if self.debug_mode:
+                logging.warning("[DEBUG] mechanism_view does not have visualize_skeleton method")
+            return
+
+        try:
+            # Check if skeleton graphics item exists and is valid
+            skeleton_item = getattr(self.mechanism_view, 'skeleton_graphics_item', None)
+            needs_initialization = False
+
+            if not skeleton_item:
+                needs_initialization = True
+                if self.debug_mode:
+                    logging.debug("[DEBUG] No skeleton graphics item - needs initialization")
+            else:
+                try:
+                    # Test if the skeleton item is still valid (not deleted by C++)
+                    _ = skeleton_item.boundingRect()
+                    # Check if skeleton has joint items for animation
+                    if not hasattr(skeleton_item, '_joint_items') or not skeleton_item._joint_items:
+                        needs_initialization = True
+                        if self.debug_mode:
+                            logging.debug("[DEBUG] Skeleton item has no joint items - needs initialization")
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        needs_initialization = True
+                        if self.debug_mode:
+                            logging.debug("[DEBUG] Skeleton graphics item was deleted - needs initialization")
+                    else:
+                        raise
+
+            if needs_initialization:
+                # Format skeleton data for visualize_skeleton like editor tab does
+                skeleton_for_view, hierarchy = self._format_skeleton_for_visualization(skeleton_data)
+                if skeleton_for_view:
+                    if self.debug_mode:
+                        logging.debug(f"[DEBUG] Calling visualize_skeleton with {len(skeleton_for_view)} joints")
+                    self.mechanism_view.visualize_skeleton(skeleton_for_view, hierarchy)
+                    
+                    # Ensure proper Z-order after creation
+                    if hasattr(self.mechanism_view, 'skeleton_graphics_item') and self.mechanism_view.skeleton_graphics_item:
+                        self.mechanism_view.skeleton_graphics_item.setZValue(0)
+                        if self.debug_mode:
+                            logging.debug("[DEBUG] Set skeleton graphics item Z-value to 0")
+                else:
+                    if self.debug_mode:
+                        logging.warning("[DEBUG] Cannot initialize skeleton - no valid joint data")
+            else:
+                # Skeleton exists, just update animation
+                if skeleton_item and hasattr(skeleton_item, 'set_animated_pose'):
+                    # Convert skeleton_data to the format expected by set_animated_pose
+                    pose_data = self._convert_skeleton_data_for_animation(skeleton_data)
+                    if pose_data:
+                        skeleton_item.set_animated_pose(pose_data)
+
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"[DEBUG] Error in _ensure_skeleton_visualization: {e}")
+
+    def _format_skeleton_for_visualization(self, skeleton_data: Dict):
+        """Format skeleton data for visualize_skeleton method like editor tab does."""
+        from PyQt6.QtCore import QPointF
+
+        skeleton_for_view = []
+        hierarchy: Dict[str, List[str]] = {}
+
+        if "joints" in skeleton_data:
+            joints_dict = skeleton_data["joints"]
+            for joint_id, joint_info in joints_dict.items():
+                # Handle different joint data formats
+                if isinstance(joint_info, dict):
+                    position = joint_info.get("position") or joint_info.get("scene_position", [0, 0])
+                    parent_id = joint_info.get("parent")
+                    joint_name = joint_info.get("name", joint_id)
+                elif isinstance(joint_info, (list, tuple)) and len(joint_info) >= 2:
+                    position = joint_info[:2]
+                    parent_id = None
+                    joint_name = joint_id
+                else:
+                    continue
+
+                # Convert position to QPointF
+                if isinstance(position, QPointF):
+                    pos_qpoint = position
+                elif isinstance(position, (list, tuple)) and len(position) >= 2:
+                    pos_qpoint = QPointF(float(position[0]), float(position[1]))
+                else:
+                    continue
+
+                joint_view_data = {
+                    "id": joint_id,
+                    "name": joint_name,
+                    "position": pos_qpoint,
+                    "parent": parent_id,
+                    "color": "blue",
+                    "label": joint_name
+                }
+                skeleton_for_view.append(joint_view_data)
+
+                # Build hierarchy
+                if parent_id:
+                    if parent_id not in hierarchy:
+                        hierarchy[parent_id] = []
+                    hierarchy[parent_id].append(joint_id)
+
+        # Also check hierarchy from skeleton_data
+        if "hierarchy" in skeleton_data:
+            hierarchy.update(skeleton_data["hierarchy"])
+
+        return skeleton_for_view, hierarchy
+
+    def _convert_skeleton_data_for_animation(self, skeleton_data: Dict):
+        """Convert skeleton data to format expected by set_animated_pose."""
+        pose_data = {}
+
+        if "joints" in skeleton_data:
+            joints_dict = skeleton_data["joints"]
+            for joint_id, joint_info in joints_dict.items():
+                if isinstance(joint_info, dict):
+                    position = joint_info.get("position") or joint_info.get("scene_position")
+                    if position and len(position) >= 2:
+                        pose_data[joint_id] = (float(position[0]), float(position[1]))
+                elif isinstance(joint_info, (list, tuple)) and len(joint_info) >= 2:
+                    pose_data[joint_id] = (float(joint_info[0]), float(joint_info[1]))
+
+        return pose_data
+
+    def _clear_scene_preserve_skeleton(self):
+        """Clear the scene but preserve the skeleton graphics item."""
+        if not self.mechanism_scene:
+            return
+
+        # Store skeleton item reference if it exists
+        skeleton_item = None
+        if self.mechanism_view and hasattr(self.mechanism_view, 'skeleton_graphics_item'):
+            skeleton_item = self.mechanism_view.skeleton_graphics_item
+
+        # Remove skeleton from scene temporarily to prevent deletion
+        if skeleton_item and skeleton_item.scene() == self.mechanism_scene:
+            self.mechanism_scene.removeItem(skeleton_item)
+
+        # Clear the scene (this will delete all other items)
+        self.mechanism_scene.clear()
+
+        # Re-add skeleton item if it was preserved
+        if skeleton_item:
+            try:
+                # Test if skeleton item is still valid
+                _ = skeleton_item.boundingRect()
+                self.mechanism_scene.addItem(skeleton_item)
+                # Set proper Z-order: skeleton at bottom (Z=0)
+                skeleton_item.setZValue(0)
+                if self.debug_mode:
+                    logging.info("[DEBUG] Preserved and re-added skeleton graphics item with Z=0")
+            except RuntimeError:
+                # Skeleton was already deleted, clear the reference
+                if hasattr(self.mechanism_view, 'skeleton_graphics_item'):
+                    self.mechanism_view.skeleton_graphics_item = None
+                if self.debug_mode:
+                    logging.warning("[DEBUG] Skeleton graphics item was already deleted")
+
+    def _recreate_skeleton_visualization(self, skeleton_data: Dict):
+        """Recreate skeleton visualization when the graphics item was deleted."""
+        # Use the new ensure method instead
+        self._ensure_skeleton_visualization(skeleton_data)
+
+    def _setup_mechanism_ik_integration(self):
+        """Setup integration between mechanism animation and IK system."""
+        if not hasattr(self.main_window, 'ik_manager') or not self.main_window.ik_manager:
+            if self.debug_mode:
+                logging.warning("[DEBUG] IK manager not available for integration")
+            return False
+
+        try:
+            # Set up parts data in IK manager
+            if self.parts_data:
+                if hasattr(self.main_window.ik_manager, 'set_project_parts_data'):
+                    self.main_window.ik_manager.set_project_parts_data(self.parts_data)
+
+            # Set skeleton data if available
+            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+                if hasattr(self.main_window.ik_manager, 'on_skeleton_data_updated_from_manager'):
+                    self.main_window.ik_manager.on_skeleton_data_updated_from_manager(self._initial_skeleton_data_cache)
+
+            # Register mechanism controllers for each active mechanism
+            for mech_id, layer_data in self.mechanism_layers.items():
+                if self.mechanism_enabled_state.get(mech_id, False):
+                    part_name = layer_data.get("part_name")
+                    if part_name and part_name in self.parts_data:
+                        part_info = self.parts_data[part_name]
+                        if part_info.anchor_joint_id:
+                            self._register_mechanism_controller(mech_id, layer_data, part_info.anchor_joint_id)
+
+            return True
+
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"[DEBUG] Failed to setup mechanism-IK integration: {e}")
+            return False
+
+    def _register_mechanism_controller(self, mech_id: str, layer_data: dict, joint_id: str):
+        """Register a mechanism as a controller for a specific joint with enhanced IK integration."""
+        try:
+            # Create a callback function that calculates mechanism output for the joint
+            def mechanism_joint_callback(time: float) -> Optional[QPointF]:
+                return self._calculate_mechanism_output(
+                    layer_data.get("type"),
+                    layer_data.get("params", {}),
+                    time,
+                    layer_data
+                )
+
+            # Method 1: Generate complete motion path for IK system
+            joint_motion_path = self._generate_joint_motion_path(layer_data, joint_id)
+            if joint_motion_path:
+                # Set motion path directly (most effective for IK)
+                if hasattr(self.main_window.ik_manager, 'set_joint_motion_path'):
+                    self.main_window.ik_manager.set_joint_motion_path(joint_id, joint_motion_path)
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] Set motion path for joint {joint_id} with mechanism {mech_id}")
+
+                # Set motion path for part name as well (alternative interface)
+                part_name = layer_data.get("part_name")
+                if part_name and hasattr(self.main_window.ik_manager, 'set_part_motion_path'):
+                    self.main_window.ik_manager.set_part_motion_path(part_name, joint_motion_path)
+
+            # Method 2: Register mechanism controller callback
+            if hasattr(self.main_window.ik_manager, 'register_mechanism_controller'):
+                self.main_window.ik_manager.register_mechanism_controller(
+                    joint_id, mech_id, mechanism_joint_callback
+                )
+                if self.debug_mode:
+                    logging.info(f"[DEBUG] Registered mechanism {mech_id} as controller for joint {joint_id}")
+
+            # Method 3: Enable IK for the affected body part
+            part_name = layer_data.get("part_name")
+            if part_name and hasattr(self.main_window.ik_manager, 'enable_ik_for_part'):
+                self.main_window.ik_manager.enable_ik_for_part(part_name, True)
+
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"[DEBUG] Failed to register mechanism controller for {joint_id}: {e}")
+
+    def _update_ik_with_mechanism_output(self, mechanism_outputs: Dict[str, QPointF]):
+        """Update IK system with current mechanism outputs for real-time animation."""
+        if not hasattr(self.main_window, 'ik_manager') or not self.main_window.ik_manager:
+            return
+
+        try:
+            # Update joint positions in IK system based on mechanism outputs
+            for part_name, output_pos in mechanism_outputs.items():
+                if part_name in self.parts_data:
+                    part_info = self.parts_data[part_name]
+                    if part_info.anchor_joint_id:
+                        # Use the new mechanism position target system
+                        self.main_window.ik_manager.set_mechanism_position_target(
+                            part_info.anchor_joint_id, output_pos
+                        )
+
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"[DEBUG] Failed to update IK with mechanism output: {e}")
+
     def clear_mechanism_data(self):
-        """Clear all mechanism-related data and reset the tab's state."""
+        """Clear all mechanism-related data and reset the tab's state with IK cleanup."""
+        # Stop animation and clear IK connections first
         if self.animation_timer.isActive():
             self.animation_timer.stop()
             self.animation_time = 0.0
 
+        # Clear IK system connections
+        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+            try:
+                # Stop any running animation
+                if hasattr(self.main_window.ik_manager, 'stop_animation'):
+                    self.main_window.ik_manager.stop_animation()
+
+                # Clear all mechanism position targets
+                self.main_window.ik_manager.clear_mechanism_position_targets()
+
+                if self.debug_mode:
+                    logging.info("[DEBUG] Cleared all mechanism position targets from IK system")
+
+            except Exception as e:
+                if self.debug_mode:
+                    logging.warning(f"[DEBUG] Failed to clear IK connections: {e}")
+
+        # Clear mechanism data
         self.path_data.clear()
         self.selected_part_name = None
         self.mechanism_layers.clear()
@@ -474,12 +797,14 @@ class MechanismDesignTab(QWidget):
         self.mechanism_trace_items.clear()
         self.mechanism_trace_points.clear()
 
+        # Clear UI elements
         if self.mechanism_layers_list:
             self.mechanism_layers_list.clear()
 
         if self.mechanism_scene:
-            self.mechanism_scene.clear()
+            self._clear_scene_preserve_skeleton()
 
+        # Reset UI state
         self.play_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         self.reset_btn.setEnabled(False)
@@ -491,6 +816,9 @@ class MechanismDesignTab(QWidget):
             self.animation_status_label.setText("No mechanisms defined")
 
         self.selected_mechanism_id = None
+
+        if self.debug_mode:
+            logging.info("[DEBUG] Cleared all mechanism data and IK connections")
 
     @pyqtSlot()
     def _on_get_recommendations(self):
@@ -1100,39 +1428,59 @@ class MechanismDesignTab(QWidget):
             return None
 
     def _update_animation(self):
-        """Update animation frame."""
+        """Update animation frame with direct character part movement."""
         dt = 0.033 * self.animation_speed
         self.animation_time += dt
-        if self.animation_time > 2 * math.pi: self.animation_time -= 2 * math.pi
+        if self.animation_time > 2 * math.pi:
+            self.animation_time -= 2 * math.pi
 
         # Track which parts are being animated by mechanisms
-        animated_parts = {}
+        mechanism_outputs = {}
+        active_joint_updates = {}
 
+        # Calculate all mechanism outputs first
         for mechanism_id, is_enabled in self.mechanism_enabled_state.items():
-            if not is_enabled: continue
+            if not is_enabled:
+                continue
+
             layer_data = self.mechanism_layers.get(mechanism_id)
-            if not layer_data: continue
+            if not layer_data:
+                continue
 
-            output_pos = self._calculate_mechanism_output(layer_data["type"], layer_data["params"], self.animation_time, layer_data)
+            try:
+                output_pos = self._calculate_mechanism_output(
+                    layer_data["type"],
+                    layer_data["params"],
+                    self.animation_time,
+                    layer_data
+                )
 
-            if output_pos:
-                part_name = layer_data.get("part_name")
-                if part_name in self.current_editor_items:
-                    animated_parts[part_name] = output_pos
+                if output_pos:
+                    part_name = layer_data.get("part_name")
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] Mechanism output: part_name='{part_name}', pos=({output_pos.x():.1f}, {output_pos.y():.1f})")
+                        logging.info(f"[DEBUG] current_editor_items keys: {list(self.current_editor_items.keys()) if self.current_editor_items else 'None'}")
+                        logging.info(f"[DEBUG] parts_data keys: {list(self.parts_data.keys()) if self.parts_data else 'None'}")
 
-                    # Update IK manager with real-time joint position
-                    if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+                    if part_name and part_name in self.current_editor_items:
+                        mechanism_outputs[part_name] = output_pos
+
+                        # IK-DRIVEN ANIMATION: Set mechanism output as IK target
                         part_info = self.parts_data.get(part_name)
+
+                        if self.debug_mode:
+                            logging.info(f"[DEBUG] part_info for '{part_name}': exists={part_info is not None}, anchor_joint_id={getattr(part_info, 'anchor_joint_id', 'None') if part_info else 'N/A'}")
+
                         if part_info and part_info.anchor_joint_id:
-                            try:
-                                # Set the joint position in real-time for precise skeleton animation
-                                if hasattr(self.main_window.ik_manager, 'update_joint_position'):
-                                    self.main_window.ik_manager.update_joint_position(
-                                        part_info.anchor_joint_id, output_pos
-                                    )
-                            except Exception as e:
-                                if self.debug_mode:
-                                    logging.warning(f"Failed to update IK joint position: {e}")
+                            # Store for IK system to use as target
+                            active_joint_updates[part_info.anchor_joint_id] = output_pos
+
+                            if self.debug_mode:  # Always log when setting targets
+                                logging.info(f"[DEBUG] Setting IK target for part '{part_name}' (joint_id: '{part_info.anchor_joint_id}') at mechanism position: ({output_pos.x():.1f}, {output_pos.y():.1f})")
+                        elif self.debug_mode:
+                            logging.warning(f"[DEBUG] Cannot set IK target for '{part_name}': part_info={part_info is not None}, anchor_joint_id={getattr(part_info, 'anchor_joint_id', 'None') if part_info else 'N/A'}")
+                    elif self.debug_mode:
+                        logging.warning(f"[DEBUG] Part '{part_name}' not in current_editor_items or part_name is None")
 
                     # Update the mechanism's own visuals
                     try:
@@ -1144,30 +1492,47 @@ class MechanismDesignTab(QWidget):
 
                     except Exception as e:
                         if self.debug_mode:
-                            logging.warning(f"Failed to update mechanism visuals: {e}")
-                else:
-                    if self.debug_mode and self.animation_time < 0.2:  # Log once at start
-                        available_parts = list(self.current_editor_items.keys())
-                        logging.warning(f"Part '{part_name}' not found. Available parts: {available_parts}")
+                            logging.warning(f"[DEBUG] Failed to update mechanism visuals for {mechanism_id}: {e}")
 
-        # Update mechanism path tracing after animation
-        for mechanism_id, layer_data in self.mechanism_layers.items():
-            if self.mechanism_enabled_state.get(mechanism_id, False):
-                output_pos = self._calculate_mechanism_output(
-                    layer_data["type"], layer_data["params"], self.animation_time, layer_data
-                )
-                if output_pos:
+                    # Update mechanism path tracing
                     self._update_mechanism_path_trace(mechanism_id, output_pos)
 
-        # Force IK update for any parts that are being animated by mechanisms
-        if animated_parts and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            try:
-                # Update the IK system with current mechanism-driven positions
-                if hasattr(self.main_window.ik_manager, 'update_mechanism_driven_parts'):
-                    self.main_window.ik_manager.update_mechanism_driven_parts(animated_parts)
+                else:
+                    if self.debug_mode and self.animation_time < 0.1:  # Log once at start
+                        logging.warning(f"[DEBUG] No output position for mechanism {mechanism_id}")
+
             except Exception as e:
                 if self.debug_mode:
-                    logging.warning(f"Failed to update mechanism-driven parts in IK: {e}")
+                    logging.error(f"[DEBUG] Error calculating mechanism output for {mechanism_id}: {e}")
+
+        # ENHANCED IK INTEGRATION: Set mechanism position targets for IK system
+        if self.debug_mode:
+            logging.info(f"[DEBUG] active_joint_updates count: {len(active_joint_updates)}, has ik_manager: {hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager is not None}")
+
+        if active_joint_updates and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+            try:
+                # Use the new mechanism position target system
+                for joint_id, target_pos in active_joint_updates.items():
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] Setting mechanism target: joint_id='{joint_id}', pos=({target_pos.x():.1f}, {target_pos.y():.1f})")
+                    self.main_window.ik_manager.set_mechanism_position_target(joint_id, target_pos)
+
+                # The IK manager will handle these targets during its animation step
+                if self.debug_mode:
+                    logging.info(f"[DEBUG] Successfully set {len(active_joint_updates)} mechanism position targets for IK system")
+
+            except Exception as e:
+                if self.debug_mode:
+                    logging.warning(f"[DEBUG] Failed to set mechanism position targets: {e}")
+        elif self.debug_mode:
+            logging.warning(f"[DEBUG] Not setting mechanism targets - active_joint_updates: {len(active_joint_updates)}, ik_manager exists: {hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager is not None}")
+
+        # Debug logging for animation state
+        if self.debug_mode and int(self.animation_time * 10) % 20 == 0:  # Log every 2 seconds
+            logging.info(f"[DEBUG] Animation frame: time={self.animation_time:.2f}, mechanisms={len(mechanism_outputs)}, joints={len(active_joint_updates)}")
+            if mechanism_outputs:
+                for part_name, pos in mechanism_outputs.items():
+                    logging.info(f"[DEBUG]   Part '{part_name}' -> ({pos.x():.1f}, {pos.y():.1f})")
 
     def _update_mechanism_visuals_for_animation(self, mechanism_id: str, time: float, layer_data: dict):
         """Update mechanism visual elements during animation using exact dataset positions."""
@@ -1797,98 +2162,115 @@ class MechanismDesignTab(QWidget):
 
     # Animation control methods
     def _on_start_animation(self):
-        """Start the animation timer and IK animation."""
+        """Start the animation timer and IK animation with enhanced mechanism-IK integration."""
         if self.mechanism_enabled_state:
-            # Set up IK system with parts data before starting animation
-            if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+            # CRITICAL: Ensure skeleton is properly initialized before starting animation
+            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+                if self.debug_mode:
+                    logging.info("[DEBUG] Ensuring skeleton visualization is ready before animation start")
+                self._ensure_skeleton_visualization(self._initial_skeleton_data_cache)
+            elif self.debug_mode:
+                logging.warning("[DEBUG] No initial skeleton data available for pre-animation setup")
+
+            # Setup comprehensive mechanism-IK integration
+            integration_success = self._setup_mechanism_ik_integration()
+
+            if integration_success:
                 try:
-                    # First, ensure IK manager has the necessary data
-                    if self.parts_data:
-                        # Convert parts_data to format expected by IK manager
-                        self.main_window.ik_manager.set_project_parts_data(self.parts_data)
-
-                    # Set skeleton data if available
-                    if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
-                        self.main_window.ik_manager.on_skeleton_data_updated_from_manager(self._initial_skeleton_data_cache)
-
-                    # Generate and set motion paths for mechanism-controlled parts
-                    for mech_id, layer_data in self.mechanism_layers.items():
-                        if self.mechanism_enabled_state.get(mech_id, False):
-                            part_name = layer_data.get("part_name")
-                            if part_name and part_name in self.current_editor_items:
-                                # Generate full motion path for this mechanism
-                                motion_path = self._generate_mechanism_motion_path(layer_data)
-
-                                # Set the part's motion path in the IK manager
-                                if motion_path and not motion_path.isEmpty():
-                                    self.main_window.ik_manager.update_part_motion_path(part_name, motion_path)
-
-                                    # Also try to set up IK for the anchor joint
-                                    part_info = self.parts_data.get(part_name)
-                                    if part_info and part_info.anchor_joint_id:
-                                        # Generate joint motion path that exactly matches mechanism output
-                                        joint_motion_path = self._generate_joint_motion_path(layer_data, part_info.anchor_joint_id)
-
-                                        # Try to set joint motion if method exists
-                                        if hasattr(self.main_window.ik_manager, 'set_joint_motion_path') and joint_motion_path:
-                                            self.main_window.ik_manager.set_joint_motion_path(
-                                                part_info.anchor_joint_id, joint_motion_path
-                                            )
-
-                                        # Set up real-time joint position updates during animation
-                                        if hasattr(self.main_window.ik_manager, 'register_mechanism_controller'):
-                                            # Register this mechanism as a controller for the joint
-                                            self.main_window.ik_manager.register_mechanism_controller(
-                                                part_info.anchor_joint_id, mech_id,
-                                                lambda t: self._calculate_mechanism_output(
-                                                    layer_data.get("type"), layer_data.get("params", {}),
-                                                    t, layer_data
-                                                )
-                                            )
-
                     # Start IK animation for skeleton integration
-                    self.main_window.ik_manager.start_animation()
+                    if hasattr(self.main_window.ik_manager, 'start_animation'):
+                        self.main_window.ik_manager.start_animation()
+
+                    if self.debug_mode:
+                        logging.info("[DEBUG] Started IK animation with mechanism integration")
+
                 except Exception as e:
-                    logging.warning(f"Failed to start IK animation: {e}")
+                    if self.debug_mode:
+                        logging.warning(f"[DEBUG] Failed to start IK animation: {e}")
                     # Continue with basic mechanism animation even if IK fails
+            else:
+                if self.debug_mode:
+                    logging.warning("[DEBUG] IK integration setup failed, running mechanism-only animation")
 
             # Start mechanism animation timer for visuals and path tracing
             self.animation_timer.start(33)  # ~30 FPS
 
             self.play_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
-            self.animation_status_label.setText("Animation running")
+            self.animation_status_label.setText("Animation running with IK integration" if integration_success else "Animation running (mechanism only)")
+
+            if self.debug_mode:
+                active_mechanisms = [mech_id for mech_id, enabled in self.mechanism_enabled_state.items() if enabled]
+                logging.info(f"[DEBUG] Started animation with {len(active_mechanisms)} active mechanisms: {active_mechanisms}")
+
         else:
             QMessageBox.warning(self, "Warning", "No mechanisms are enabled for animation.")
 
     def _on_stop_animation(self):
-        """Stop the animation timer and IK animation."""
+        """Stop the animation timer and IK animation with proper cleanup."""
         self.animation_timer.stop()
 
-        # Also stop IK animation for skeleton integration
+        # Stop IK animation for skeleton integration
         if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
             try:
-                self.main_window.ik_manager.stop_animation()
+                if hasattr(self.main_window.ik_manager, 'stop_animation'):
+                    self.main_window.ik_manager.stop_animation()
+
+                # Clear all mechanism position targets
+                self.main_window.ik_manager.clear_mechanism_position_targets()
+
+                if self.debug_mode:
+                    logging.info("[DEBUG] Stopped IK animation and cleared mechanism position targets")
+
             except Exception as e:
-                logging.warning(f"Failed to stop IK animation: {e}")
+                if self.debug_mode:
+                    logging.warning(f"[DEBUG] Failed to stop IK animation cleanly: {e}")
 
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.animation_status_label.setText("Animation stopped")
 
     def _on_reset_animation(self):
-        """Reset animation to start position."""
+        """Reset animation to start position with comprehensive IK reset."""
         self.animation_timer.stop()
         self.animation_time = 0
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
 
+        # Reset skeleton and IK system first
+        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+            try:
+                # Stop any running animation
+                if hasattr(self.main_window.ik_manager, 'stop_animation'):
+                    self.main_window.ik_manager.stop_animation()
+
+                # Clear all mechanism position targets
+                self.main_window.ik_manager.clear_mechanism_position_targets()
+
+                # Reset IK system to initial state
+                if hasattr(self.main_window.ik_manager, 'reset_all_ik_systems_and_data'):
+                    self.main_window.ik_manager.reset_all_ik_systems_and_data()
+                elif hasattr(self.main_window.ik_manager, 'reset_to_initial_pose'):
+                    self.main_window.ik_manager.reset_to_initial_pose()
+
+                if self.debug_mode:
+                    logging.info("[DEBUG] Reset IK system and cleared mechanism position targets")
+
+            except Exception as e:
+                if self.debug_mode:
+                    logging.warning(f"[DEBUG] Failed to reset IK system: {e}")
+
         # Reset parts to initial positions
         self._position_parts_at_anchor_joints()
 
-        # Reset mechanism visuals to initial state
+        # Reset mechanism visuals to initial state (time=0)
         for mechanism_id, layer_data in self.mechanism_layers.items():
-            self._update_mechanism_visuals_for_animation(mechanism_id, 0, layer_data)
+            try:
+                self._update_mechanism_visuals_for_animation(mechanism_id, 0, layer_data)
+            except Exception as e:
+                if self.debug_mode:
+                    logging.warning(f"[DEBUG] Failed to reset visuals for mechanism {mechanism_id}: {e}")
+
             # Clear mechanism traces
             if mechanism_id in self.mechanism_trace_points:
                 self.mechanism_trace_points[mechanism_id].clear()
@@ -1896,17 +2278,11 @@ class MechanismDesignTab(QWidget):
                 if mechanism_id in self.mechanism_trace_items:
                     self.mechanism_trace_items[mechanism_id].setPath(QPainterPath())
 
-        # Reset skeleton to initial state if available
-        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            try:
-                # Stop and reset IK animation
-                self.main_window.ik_manager.stop_animation()
-                self.main_window.ik_manager.reset_all_ik_systems_and_data()
-            except Exception as e:
-                if self.debug_mode:
-                    logging.warning(f"Failed to reset IK: {e}")
-
+        # Update status
         self.animation_status_label.setText("Animation reset")
+
+        if self.debug_mode:
+            logging.info("[DEBUG] Animation reset completed")
     def _on_layer_selection_changed(self):
         """Handle selection changes in the mechanism layers list."""
         selected_items = self.mechanism_layers_list.selectedItems()

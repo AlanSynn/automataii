@@ -1629,7 +1629,7 @@ class IKManager(QObject):
 
     def set_mechanism_position_target(self, joint_id: str, target_pos: QPointF):
         """Set a direct position target for a joint (used by mechanism animation).
-
+        
         Args:
             joint_id: Standardized joint ID or abstract joint name
             target_pos: Target position in scene coordinates
@@ -1639,7 +1639,7 @@ class IKManager(QObject):
         if not std_joint_id:
             logging.warning(f"IKManager: Cannot set mechanism target for unknown joint '{joint_id}'")
             return
-
+        
         self._mechanism_position_targets[std_joint_id] = target_pos
         self._mechanism_controlled_joints.add(std_joint_id)
         logging.debug(f"IKManager: Set mechanism target for joint '{std_joint_id}' at ({target_pos.x():.1f}, {target_pos.y():.1f})")
@@ -1652,7 +1652,7 @@ class IKManager(QObject):
 
     def clear_mechanism_position_target(self, joint_id: str):
         """Clear mechanism position target for a specific joint.
-
+        
         Args:
             joint_id: Standardized joint ID or abstract joint name
         """
@@ -1741,7 +1741,7 @@ class IKManager(QObject):
             # First check for mechanism position targets
             target_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name)
             target_pos_on_path = None
-
+            
             if target_std_id and target_std_id in self._mechanism_position_targets:
                 # Use mechanism position target directly
                 target_pos_on_path = self._mechanism_position_targets[target_std_id]
@@ -1767,189 +1767,189 @@ class IKManager(QObject):
                         )
                         continue
 
-                    middle_joint_abstract_name = effector_limb_config.get(
-                        "parentAnchor"
-                    )  # e.g., 'left_elbow'
-                    part_label_for_l2 = effector_limb_config.get(
-                        "label"
-                    )  # e.g., 'left_arm_lower' (visual part for bone l2)
+                        middle_joint_abstract_name = effector_limb_config.get(
+                            "parentAnchor"
+                        )  # e.g., 'left_elbow'
+                        part_label_for_l2 = effector_limb_config.get(
+                            "label"
+                        )  # e.g., 'left_arm_lower' (visual part for bone l2)
 
-                    if not middle_joint_abstract_name or not part_label_for_l2:
-                        logging.warning(
-                            f"IKM._run_ik_animation_step: Incomplete limb config for effector '{target_ik_joint_abstract_name}' (missing parentAnchor or label)."
-                        )
-                        continue
-
-                    # Now find the root joint and the label for l1 using the middle joint's config
-                    middle_limb_config = self.sim_limb_configs.get(
-                        middle_joint_abstract_name
-                    )
-                    if not middle_limb_config:
-                        logging.warning(
-                            f"IKM._run_ik_animation_step: No limb config for middle joint '{middle_joint_abstract_name}'."
-                        )
-                        continue
-
-                    root_joint_abstract_name = middle_limb_config.get(
-                        "parentAnchor"
-                    )  # e.g., 'left_shoulder'
-                    part_label_for_l1 = middle_limb_config.get(
-                        "label"
-                    )  # e.g., 'left_arm_upper' (visual part for bone l1)
-
-                    if not root_joint_abstract_name or not part_label_for_l1:
-                        logging.warning(
-                            f"IKM._run_ik_animation_step: Incomplete limb config for middle joint '{middle_joint_abstract_name}' (missing parentAnchor or label)."
-                        )
-                        continue
-
-                    # Get standardized IDs
-                    root_std_id = self._get_standardized_joint_id(
-                        root_joint_abstract_name
-                    )
-                    middle_std_id = self._get_standardized_joint_id(
-                        middle_joint_abstract_name
-                    )
-                    effector_std_id = self._get_standardized_joint_id(
-                        target_ik_joint_abstract_name
-                    )  # This is the target
-
-                    if not root_std_id or not middle_std_id or not effector_std_id:
-                        logging.warning(
-                            f"IKM._run_ik_animation_step: Could not get all std IDs for chain {root_joint_abstract_name} -> {middle_joint_abstract_name} -> {target_ik_joint_abstract_name}."
-                        )
-                        continue
-
-                    # Get current root position (p0 for the 2-bone IK solver)
-                    if (
-                        root_std_id not in self.sim_joints_config
-                        or "position" not in self.sim_joints_config[root_std_id]
-                    ):
-                        logging.warning(
-                            f"IKM._run_ik_animation_step: Root joint '{root_std_id}' (from abstract '{root_joint_abstract_name}') position not found in sim_joints_config."
-                        )
-                        continue
-                    current_root_pos_for_ik = self.sim_joints_config[root_std_id][
-                        "position"
-                    ]  # This is a QPointF
-
-                    # Get bone lengths
-                    length1 = self.sim_limb_lengths.get(part_label_for_l1)
-                    length2 = self.sim_limb_lengths.get(part_label_for_l2)
-
-                    if (
-                        length1 is None
-                        or length2 is None
-                        or length1 <= 0
-                        or length2 <= 0
-                    ):  # Check for positive lengths
-                        logging.warning(
-                            f"IKM._run_ik_animation_step: Invalid or missing lengths for chain: l1 (part '{part_label_for_l1}')={length1}, l2 (part '{part_label_for_l2}')={length2}."
-                        )
-                        continue
-
-                    logging.debug(
-                        f"IKM._run_ik_animation_step: Calling _solve_two_bone_ik for: "
-                        f"root_pos={current_root_pos_for_ik}, target_pos={target_pos_on_path}, "
-                        f"l1={length1}, l2={length2}, root_joint_std_id='{root_std_id}'"
-                    )
-
-                    # Call the solver
-                    # def _solve_two_bone_ik(self, root_pos: QPointF, target_pos: QPointF, length1: float, length2: float, root_joint_std_id: str)
-                    solved_points = self._solve_two_bone_ik(
-                        current_root_pos_for_ik,
-                        target_pos_on_path,
-                        length1,
-                        length2,
-                        root_std_id,
-                    )
-
-                    if solved_points:
-                        p1_new, p2_new = (
-                            solved_points  # p1_new is the new middle joint, p2_new is the new effector joint
-                        )
-                        # Update sim_joints_config with new positions
-                        if middle_std_id in self.sim_joints_config:
-                            self.sim_joints_config[middle_std_id]["position"] = (
-                                p1_new
-                            )
-                        else:
+                        if not middle_joint_abstract_name or not part_label_for_l2:
                             logging.warning(
-                                f"IKM._run_ik_animation_step: Middle joint std_id '{middle_std_id}' not found in sim_joints_config to update position."
+                                f"IKM._run_ik_animation_step: Incomplete limb config for effector '{target_ik_joint_abstract_name}' (missing parentAnchor or label)."
                             )
+                            continue
 
-                        if effector_std_id in self.sim_joints_config:
-                            self.sim_joints_config[effector_std_id]["position"] = (
-                                p2_new
-                            )
-                        else:
+                        # Now find the root joint and the label for l1 using the middle joint's config
+                        middle_limb_config = self.sim_limb_configs.get(
+                            middle_joint_abstract_name
+                        )
+                        if not middle_limb_config:
                             logging.warning(
-                                f"IKM._run_ik_animation_step: Effector joint std_id '{effector_std_id}' not found in sim_joints_config to update position."
+                                f"IKM._run_ik_animation_step: No limb config for middle joint '{middle_joint_abstract_name}'."
                             )
+                            continue
+
+                        root_joint_abstract_name = middle_limb_config.get(
+                            "parentAnchor"
+                        )  # e.g., 'left_shoulder'
+                        part_label_for_l1 = middle_limb_config.get(
+                            "label"
+                        )  # e.g., 'left_arm_upper' (visual part for bone l1)
+
+                        if not root_joint_abstract_name or not part_label_for_l1:
+                            logging.warning(
+                                f"IKM._run_ik_animation_step: Incomplete limb config for middle joint '{middle_joint_abstract_name}' (missing parentAnchor or label)."
+                            )
+                            continue
+
+                        # Get standardized IDs
+                        root_std_id = self._get_standardized_joint_id(
+                            root_joint_abstract_name
+                        )
+                        middle_std_id = self._get_standardized_joint_id(
+                            middle_joint_abstract_name
+                        )
+                        effector_std_id = self._get_standardized_joint_id(
+                            target_ik_joint_abstract_name
+                        )  # This is the target
+
+                        if not root_std_id or not middle_std_id or not effector_std_id:
+                            logging.warning(
+                                f"IKM._run_ik_animation_step: Could not get all std IDs for chain {root_joint_abstract_name} -> {middle_joint_abstract_name} -> {target_ik_joint_abstract_name}."
+                            )
+                            continue
+
+                        # Get current root position (p0 for the 2-bone IK solver)
+                        if (
+                            root_std_id not in self.sim_joints_config
+                            or "position" not in self.sim_joints_config[root_std_id]
+                        ):
+                            logging.warning(
+                                f"IKM._run_ik_animation_step: Root joint '{root_std_id}' (from abstract '{root_joint_abstract_name}') position not found in sim_joints_config."
+                            )
+                            continue
+                        current_root_pos_for_ik = self.sim_joints_config[root_std_id][
+                            "position"
+                        ]  # This is a QPointF
+
+                        # Get bone lengths
+                        length1 = self.sim_limb_lengths.get(part_label_for_l1)
+                        length2 = self.sim_limb_lengths.get(part_label_for_l2)
+
+                        if (
+                            length1 is None
+                            or length2 is None
+                            or length1 <= 0
+                            or length2 <= 0
+                        ):  # Check for positive lengths
+                            logging.warning(
+                                f"IKM._run_ik_animation_step: Invalid or missing lengths for chain: l1 (part '{part_label_for_l1}')={length1}, l2 (part '{part_label_for_l2}')={length2}."
+                            )
+                            continue
 
                         logging.debug(
-                            f"  IKM Solved and updated: Middle ('{middle_std_id}') -> {p1_new}, Effector ('{effector_std_id}') -> {p2_new}"
+                            f"IKM._run_ik_animation_step: Calling _solve_two_bone_ik for: "
+                            f"root_pos={current_root_pos_for_ik}, target_pos={target_pos_on_path}, "
+                            f"l1={length1}, l2={length2}, root_joint_std_id='{root_std_id}'"
                         )
-                    else:
-                        logging.warning(
-                            f"IKM._run_ik_animation_step: _solve_two_bone_ik returned None for chain rooted at '{root_std_id}' (abstract: '{root_joint_abstract_name}')."
+
+                        # Call the solver
+                        # def _solve_two_bone_ik(self, root_pos: QPointF, target_pos: QPointF, length1: float, length2: float, root_joint_std_id: str)
+                        solved_points = self._solve_two_bone_ik(
+                            current_root_pos_for_ik,
+                            target_pos_on_path,
+                            length1,
+                            length2,
+                            root_std_id,
                         )
-                else:  # Assume single point control / 1-bone IK
-                    # Find anchor for 1-bone IK
-                    limb_config = self.sim_limb_configs.get(
-                        target_ik_joint_abstract_name
-                    )
-                    anchor_joint_abstract_name = (
-                        limb_config.get("parentAnchor") if limb_config else None
-                    )
-                    if anchor_joint_abstract_name:
-                        # Correctly use the result of _solve_single_bone_ik
-                        solved_single_bone_data = self._solve_single_bone_ik(
-                            target_ik_joint_abstract_name,
-                            anchor_joint_abstract_name,
-                            np.array(
-                                [target_pos_on_path.x(), target_pos_on_path.y()]
-                            ),
-                        )
-                        if solved_single_bone_data:
-                            for (
-                                joint_std_id,
-                                data_updates,
-                            ) in solved_single_bone_data.items():
-                                if joint_std_id in self.sim_joints_config:
-                                    self.sim_joints_config[joint_std_id].update(
-                                        data_updates
-                                    )
-                                else:
-                                    # This case should ideally not happen if solver is initialized properly
-                                    self.sim_joints_config[joint_std_id] = (
-                                        data_updates
-                                    )
-                                logging.debug(
-                                    f"IKM._run_ik_animation_step: Updated sim_joints_config for '{joint_std_id}' from _solve_single_bone_ik."
-                                )
-                    else:
-                        # This case might mean the joint is a root or directly manipulated, not part of a limb chain here.
-                        # Or it's a component that doesn't move via IK but has a path (e.g. root itself moving along a path)
-                        # We might need to update its position directly if so.
-                        target_std_id = self._get_standardized_joint_id(
-                            target_ik_joint_abstract_name
-                        )
-                        if (
-                            target_std_id
-                            and target_std_id in self.sim_joints_config
-                        ):  # Check sim_joints_config now
-                            self.sim_joints_config[target_std_id]["position"] = (
-                                target_pos_on_path
+
+                        if solved_points:
+                            p1_new, p2_new = (
+                                solved_points  # p1_new is the new middle joint, p2_new is the new effector joint
                             )
-                            # Potentially update angle if it's a root or has a fixed orientation relative to path
+                            # Update sim_joints_config with new positions
+                            if middle_std_id in self.sim_joints_config:
+                                self.sim_joints_config[middle_std_id]["position"] = (
+                                    p1_new
+                                )
+                            else:
+                                logging.warning(
+                                    f"IKM._run_ik_animation_step: Middle joint std_id '{middle_std_id}' not found in sim_joints_config to update position."
+                                )
+
+                            if effector_std_id in self.sim_joints_config:
+                                self.sim_joints_config[effector_std_id]["position"] = (
+                                    p2_new
+                                )
+                            else:
+                                logging.warning(
+                                    f"IKM._run_ik_animation_step: Effector joint std_id '{effector_std_id}' not found in sim_joints_config to update position."
+                                )
+
                             logging.debug(
-                                f"IKM._run_ik_animation_step: Directly moved joint '{target_std_id}' (from abs '{target_ik_joint_abstract_name}') to path position {target_pos_on_path}."
+                                f"  IKM Solved and updated: Middle ('{middle_std_id}') -> {p1_new}, Effector ('{effector_std_id}') -> {p2_new}"
                             )
                         else:
                             logging.warning(
-                                f"IKManager._run_ik_animation_step: Could not apply single-point control for abstract joint '{target_ik_joint_abstract_name}'. STD ID '{target_std_id}' not found or not in sim_joints_config."
+                                f"IKM._run_ik_animation_step: _solve_two_bone_ik returned None for chain rooted at '{root_std_id}' (abstract: '{root_joint_abstract_name}')."
                             )
+                    else:  # Assume single point control / 1-bone IK
+                        # Find anchor for 1-bone IK
+                        limb_config = self.sim_limb_configs.get(
+                            target_ik_joint_abstract_name
+                        )
+                        anchor_joint_abstract_name = (
+                            limb_config.get("parentAnchor") if limb_config else None
+                        )
+                        if anchor_joint_abstract_name:
+                            # Correctly use the result of _solve_single_bone_ik
+                            solved_single_bone_data = self._solve_single_bone_ik(
+                                target_ik_joint_abstract_name,
+                                anchor_joint_abstract_name,
+                                np.array(
+                                    [target_pos_on_path.x(), target_pos_on_path.y()]
+                                ),
+                            )
+                            if solved_single_bone_data:
+                                for (
+                                    joint_std_id,
+                                    data_updates,
+                                ) in solved_single_bone_data.items():
+                                    if joint_std_id in self.sim_joints_config:
+                                        self.sim_joints_config[joint_std_id].update(
+                                            data_updates
+                                        )
+                                    else:
+                                        # This case should ideally not happen if solver is initialized properly
+                                        self.sim_joints_config[joint_std_id] = (
+                                            data_updates
+                                        )
+                                    logging.debug(
+                                        f"IKM._run_ik_animation_step: Updated sim_joints_config for '{joint_std_id}' from _solve_single_bone_ik."
+                                    )
+                        else:
+                            # This case might mean the joint is a root or directly manipulated, not part of a limb chain here.
+                            # Or it's a component that doesn't move via IK but has a path (e.g. root itself moving along a path)
+                            # We might need to update its position directly if so.
+                            target_std_id = self._get_standardized_joint_id(
+                                target_ik_joint_abstract_name
+                            )
+                            if (
+                                target_std_id
+                                and target_std_id in self.sim_joints_config
+                            ):  # Check sim_joints_config now
+                                self.sim_joints_config[target_std_id]["position"] = (
+                                    target_pos_on_path
+                                )
+                                # Potentially update angle if it's a root or has a fixed orientation relative to path
+                                logging.debug(
+                                    f"IKM._run_ik_animation_step: Directly moved joint '{target_std_id}' (from abs '{target_ik_joint_abstract_name}') to path position {target_pos_on_path}."
+                                )
+                            else:
+                                logging.warning(
+                                    f"IKManager._run_ik_animation_step: Could not apply single-point control for abstract joint '{target_ik_joint_abstract_name}'. STD ID '{target_std_id}' not found or not in sim_joints_config."
+                                )
             else:
                 logging.debug(
                     f"IKManager._run_ik_animation_step: No target_pos_on_path for component '{part_name_for_path}' at progress {self._current_animation_progress:.2f}."
