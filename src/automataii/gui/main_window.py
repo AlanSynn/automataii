@@ -114,6 +114,10 @@ class AutomataDesigner(QMainWindow):
         # IK Animation Timer (New)
 
         self.main_toolbar = None
+        self.shared_camera_state: Optional[Dict[str, Any]] = None
+
+        # Track previous tab index for camera state sharing
+        self._previous_tab_index = 0
 
         # Tracking active dialogs
         # self.active_camera_dialogs = [] # Moved to ImageProcessingTab
@@ -357,35 +361,62 @@ class AutomataDesigner(QMainWindow):
     # --- Tab Management ---
     def _on_tab_changed(self, index: int):
         current_tab = self.tab_widget.widget(index)
+        previous_tab = self.tab_widget.widget(self._previous_tab_index)
+
+        # --- Camera State Sharing ---
+        tabs_with_shared_view = [self.editor_tab, self.mechanism_design_tab]
+        camera_state_applied = False
+
+        # Save camera state if leaving a shared-view tab
+        if previous_tab in tabs_with_shared_view:
+            view = getattr(previous_tab, 'editor_view', None) or getattr(previous_tab, 'mechanism_view', None)
+            if view:
+                self.shared_camera_state = view.get_camera_state()
+                logging.info(f"Saved camera state from {previous_tab.__class__.__name__}")
+
+        # Apply camera state if entering a shared-view tab
+        if current_tab in tabs_with_shared_view and self.shared_camera_state:
+            view = getattr(current_tab, 'editor_view', None) or getattr(current_tab, 'mechanism_view', None)
+            if view:
+                view.set_camera_state(self.shared_camera_state)
+                logging.info(f"Applied camera state to {current_tab.__class__.__name__}")
+                camera_state_applied = True
+
+        # --- Tab-specific actions ---
         if hasattr(current_tab, "tab_name"):
             self.statusBar().showMessage(f"{current_tab.tab_name} tab active")
         else:
             self.statusBar().showMessage(f"Tab {index + 1} active")
 
-        # If EditorTab is selected, ensure its view is updated if parts are loaded
-        if current_tab == self.editor_tab:
-            if (
-                hasattr(self.editor_tab, "editor_view")
-                and self.editor_tab.editor_view is not None
-            ):
-                self.editor_tab.editor_view.zoom_to_fit()
-        
-        # If MechanismDesignTab is selected, ensure it has the necessary data
-        elif current_tab == self.mechanism_design_tab:
-            # Ensure mechanism design tab has parts data
+        # If camera state was not applied, then do the default action (e.g., zoom to fit)
+        if not camera_state_applied:
+            if hasattr(current_tab, 'editor_view') and current_tab.editor_view:
+                current_tab.editor_view.zoom_to_fit()
+            elif hasattr(current_tab, 'mechanism_view') and current_tab.mechanism_view:
+                current_tab.mechanism_view.zoom_to_fit()
+            elif hasattr(current_tab, 'image_proc_view'):
+                if hasattr(current_tab.image_proc_view, 'zoom_to_fit'):
+                    current_tab.image_proc_view.zoom_to_fit()
+                elif hasattr(current_tab.image_proc_view, 'fit_in_view'):
+                    current_tab.image_proc_view.fit_in_view()
+
+        # Data synchronization for mechanism tab
+        if current_tab == self.mechanism_design_tab:
             current_parts_data = self.project_data_manager.get_current_parts_data()
             if current_parts_data and not self.mechanism_design_tab.parts_data:
                 self.mechanism_design_tab.set_parts_data(current_parts_data)
                 logging.info("MechanismDesignTab: Synchronized parts data on tab switch")
-            
-            # Ensure mechanism design tab has skeleton data
-            if (hasattr(self.skeleton_manager, 'get_current_skeleton_data') and 
-                (not hasattr(self.mechanism_design_tab, '_initial_skeleton_data_cache') or 
+
+            if (hasattr(self.skeleton_manager, 'get_current_skeleton_data') and
+                (not hasattr(self.mechanism_design_tab, '_initial_skeleton_data_cache') or
                  not self.mechanism_design_tab._initial_skeleton_data_cache)):
                 current_skeleton = self.skeleton_manager.get_current_skeleton_data()
                 if current_skeleton:
                     self.mechanism_design_tab.cache_initial_skeleton(current_skeleton)
                     logging.info("MechanismDesignTab: Synchronized skeleton data on tab switch")
+
+        # Remember current index for next tab change
+        self._previous_tab_index = index
 
     # --- New Slots for ImageProcessingTab Signals ---
     @pyqtSlot(dict, str)
@@ -671,7 +702,7 @@ class AutomataDesigner(QMainWindow):
 
             # Pass PartInfo data to EditorTab. It no longer needs texture_atlas_pixmap.
             self.editor_tab.set_parts_data(parts_info)
-            
+
             # Pass PartInfo data to MechanismDesignTab as well
             self.mechanism_design_tab.set_parts_data(parts_info)
 

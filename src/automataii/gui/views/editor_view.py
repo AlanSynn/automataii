@@ -1532,3 +1532,39 @@ class EditorView(QGraphicsView):
             self._show_status_message(
                 f"No visual path to clear for {component_key}, ensuring data is cleared."
             )
+
+    def get_camera_state(self) -> Dict[str, Any]:
+        """Get current camera state including transform and center position.
+        
+        Returns:
+            Dict containing:
+                - transform: QTransform matrix
+                - center: QPointF of the view center
+                - zoom_level: int current zoom level
+        """
+        transform = self.transform()
+        center = self.mapToScene(self.viewport().rect().center())
+        
+        return {
+            'transform': transform,
+            'center': center,
+            'zoom_level': self._zoom_level
+        }
+    
+    def set_camera_state(self, state: Dict[str, Any]):
+        """Set camera state from a previously saved state.
+        
+        Args:
+            state: Dict containing transform, center, and zoom_level
+        """
+        if 'transform' in state:
+            self.setTransform(state['transform'])
+        
+        if 'center' in state:
+            self.centerOn(state['center'])
+        
+        if 'zoom_level' in state:
+            self._zoom_level = state['zoom_level']
+            # Emit zoom changed signal
+            current_scale = self.transform().m11()
+            self.zoom_changed.emit(current_scale)
