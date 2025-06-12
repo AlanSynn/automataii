@@ -5,25 +5,18 @@ from PyQt6.QtWidgets import (
     QGraphicsView,
     QGraphicsRectItem,
     QGraphicsEllipseItem,
-    QGraphicsTextItem,
     QGraphicsLineItem,
 )
 from PyQt6.QtGui import QPainter, QPixmap, QColor, QBrush, QPen
 from PyQt6.QtCore import Qt, QPointF, QLineF, QEvent, QRectF
-import math  # Added for math.sqrt and math.atan2 if needed, though QLineF handles length
-from typing import List, Optional, Dict, Tuple, Any
-import numpy as np
-import cv2  # Added for cv2.findContours etc.
+from typing import Optional, Dict, Any
 from PyQt6.QtWidgets import QApplication
 
 from ..core.models import PartInfo
-from ..utils.svg_utils import contour_to_svg_path
 from .graphics_items.part_item import CharacterPartItem  # UPDATED
+from .widgets.view_controls import HoverViewControls
 
 # from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED # Commented out
-from .graphics_items.anchor_item import (
-    AnchorItem,
-)  # UPDATED (if it was moved, otherwise adjust)
 
 
 # --- Helper Functions for Vector Math (can be static or outside class) ---
@@ -96,6 +89,9 @@ class ImageProcessingView(QGraphicsView):
         self.debug_mode = False
         self.debug_bb_item = None  # QGraphicsRectItem for bounding box
         self.char_cfg_origin_marker = None  # Marker for char_cfg origin
+        
+        # Initialize hover view controls
+        self._setup_hover_controls()
 
         # Perpendicular Cut Guides
         self.current_guide_lines = []  # To store QGraphicsLineItems for guides
@@ -288,7 +284,7 @@ class ImageProcessingView(QGraphicsView):
             pixmap_size = self.image_item.pixmap().size()
             scene_pos = self.image_item.scenePos()
             scene_rect = self.image_item.sceneBoundingRect()
-            debug_text += f"Image:\n"
+            debug_text += "Image:\n"
             debug_text += f"  Orig Size: {pixmap_size.width()}x{pixmap_size.height()}\n"
             debug_text += f"  Scene Pos: ({scene_pos.x():.1f}, {scene_pos.y():.1f})\n"
             debug_text += f"  Scene Rect: ({scene_rect.left():.1f}, {scene_rect.top():.1f}) W: {scene_rect.width():.1f} H: {scene_rect.height():.1f}\n"
@@ -299,7 +295,7 @@ class ImageProcessingView(QGraphicsView):
             bb = self.bounding_box
             bb_w = bb["right"] - bb["left"]
             bb_h = bb["bottom"] - bb["top"]
-            debug_text += f"Bounding Box (Loaded):\n"
+            debug_text += "Bounding Box (Loaded):\n"
             debug_text += (
                 f"  L: {bb['left']} R: {bb['right']} T: {bb['top']} B: {bb['bottom']}\n"
             )
@@ -313,7 +309,7 @@ class ImageProcessingView(QGraphicsView):
 
         # View information
         visible_scene_rect = self.mapToScene(view_rect).boundingRect()
-        debug_text += f"View:\n"
+        debug_text += "View:\n"
         debug_text += f"  Viewport Rect: {view_rect.width()}x{view_rect.height()}\n"
         debug_text += f"  Visible Scene Rect: ({visible_scene_rect.left():.1f}, {visible_scene_rect.top():.1f}) W: {visible_scene_rect.width():.1f} H: {visible_scene_rect.height():.1f}\n"
         # Draw text in the top-left corner of the viewport
@@ -1004,7 +1000,7 @@ class ImageProcessingView(QGraphicsView):
 
     def mousePressEvent(self, event: QEvent):
         # Check if the click is on a joint
-        item = self.itemAt(event.pos())
+        # item = self.itemAt(event.pos())  # Currently not used
         # if isinstance(item, SkeletonJoint): # Commented out
         #     self.dragged_joint_item = item
         #     self.drag_start_pos = event.scenePos()
@@ -1045,6 +1041,23 @@ class ImageProcessingView(QGraphicsView):
             return  # Consume event
 
         super().mouseMoveEvent(event)
+        
+        # Handle hover controls visibility
+        view_rect = self.rect()
+        corner_size = 150  # Size of the corner area to trigger controls
+        
+        corner_rect = view_rect.adjusted(
+            view_rect.width() - corner_size, 
+            view_rect.height() - corner_size,
+            0, 0
+        )
+        
+        if corner_rect.contains(event.pos()):
+            self.hover_controls.show_controls()
+            # Update zoom level display
+            current_scale = self.transform().m11()
+            zoom_percentage = current_scale * 100
+            self.hover_controls.set_zoom_level(zoom_percentage)
 
     def mouseReleaseEvent(self, event: QEvent):
         # if self.dragged_joint_item:
@@ -1125,3 +1138,55 @@ class ImageProcessingView(QGraphicsView):
             logging.debug(
                 f"No part found or mapped to move for joint '{joint_name}'. Searched for part: {part_name_to_move}"
             )
+    
+    def _setup_hover_controls(self):
+        """Setup hover view controls."""
+        self.hover_controls = HoverViewControls(self)
+        
+        # Connect signals
+        self.hover_controls.zoom_in_requested.connect(self.zoom_in)
+        self.hover_controls.zoom_out_requested.connect(self.zoom_out)
+        self.hover_controls.zoom_fit_requested.connect(self.zoom_to_fit)
+        self.hover_controls.zoom_reset_requested.connect(self.reset_view)
+        self.hover_controls.zoom_changed.connect(self._on_zoom_slider_changed)
+        
+        # Position controls in bottom-right corner
+        self._position_hover_controls()
+        
+        # Track mouse movement to show/hide controls
+        self.setMouseTracking(True)
+        
+    def _position_hover_controls(self):
+        """Position hover controls in bottom-right corner."""
+        if hasattr(self, 'hover_controls'):
+            view_rect = self.rect()
+            controls_rect = self.hover_controls.rect()
+            
+            x = view_rect.width() - controls_rect.width() - 20
+            y = view_rect.height() - controls_rect.height() - 20
+            
+            self.hover_controls.move(x, y)
+    
+    def _on_zoom_slider_changed(self, zoom_factor: float):
+        """Handle zoom slider change."""
+        # Reset transform and apply new scale
+        self.resetTransform()
+        self.scale(zoom_factor, zoom_factor)
+    
+    def resizeEvent(self, event):
+        """Handle resize events to reposition hover controls."""
+        super().resizeEvent(event)
+        self._position_hover_controls()
+        
+    
+    def zoom_in(self):
+        """Zoom in the view."""
+        self.scale(1.2, 1.2)
+        
+    def zoom_out(self):
+        """Zoom out the view."""
+        self.scale(0.8, 0.8)
+        
+    def reset_zoom(self):
+        """Reset zoom to 100%."""
+        self.resetTransform()

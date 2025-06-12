@@ -3,42 +3,31 @@ import math
 from PyQt6.QtWidgets import (
     QGraphicsView,
     QGraphicsEllipseItem,
-    QGraphicsLineItem,
     QGraphicsPathItem,
     QMenu,
-    QGraphicsItem,
-    QStyle,
     QApplication,
 )
 from PyQt6.QtGui import (
     QPainter,
     QPen,
     QColor,
-    QBrush,
     QPainterPath,
     QMouseEvent,
     QWheelEvent,
-    QTransform,
-    QCursor,
-    QAction,
-    QIcon,
-    QKeySequence,
 )
 from PyQt6.QtCore import (
     Qt,
     QPointF,
     QRectF,
     pyqtSignal,
-    QObject,
     QLineF,
     QEvent,
-    QTimer,
 )
 from typing import Optional, Dict, List, Any, Tuple
 
 from ..graphics_items.part_item import CharacterPartItem  # UPDATED
-from ..graphics_items.anchor_item import AnchorItem  # UPDATED
 from ..graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
+from ..widgets.view_controls import HoverViewControls
 
 # from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
 from ...config.z_indices import (
@@ -183,6 +172,9 @@ class EditorView(QGraphicsView):
 
         # Rounded corners and white background for the viewport
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
+        
+        # Initialize hover view controls
+        self._setup_hover_controls()
 
         # Unit and DPI settings
         self.display_unit = "cm"  # Default unit: 'cm', 'inch', or 'px'
@@ -500,7 +492,6 @@ class EditorView(QGraphicsView):
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press events based on the current mode."""
         scene_pos = self.mapToScene(event.pos())
-        item_at_click = self.itemAt(event.pos())  # Get item at view coordinates
 
         # --- Panning --- (Middle button or Alt+Left)
         if event.button() == Qt.MouseButton.MiddleButton or (
@@ -701,7 +692,7 @@ class EditorView(QGraphicsView):
         super().mouseReleaseEvent(event)  # Call base for other release events
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        """Handle mouse move events for panning and drawing."""
+        """Handle mouse move events for panning, drawing, and hover controls."""
         scene_pos = self.mapToScene(event.pos())
 
         if self._panning:
@@ -737,6 +728,23 @@ class EditorView(QGraphicsView):
             # might need to listen to scene selection changes and then monitor position of selected items.
             # This signal is tricky to implement robustly from EditorView without item cooperation.
             # Let's defer emitting part_item_moved from here unless a clear mechanism is found.
+            
+        # Handle hover controls visibility (merged from duplicate method)
+        view_rect = self.rect()
+        corner_size = 150  # Size of the corner area to trigger controls
+        
+        corner_rect = view_rect.adjusted(
+            view_rect.width() - corner_size, 
+            view_rect.height() - corner_size,
+            0, 0
+        )
+        
+        if corner_rect.contains(event.pos()):
+            self.hover_controls.show_controls()
+            # Update zoom level display
+            current_scale = self.transform().m11()
+            zoom_percentage = current_scale * 100
+            self.hover_controls.set_zoom_level(zoom_percentage)
 
     def keyPressEvent(self, event: QEvent):
         """Handle keyboard shortcuts."""
@@ -984,7 +992,7 @@ class EditorView(QGraphicsView):
                 if emit_signal:
                     self.freehandPathCompleted.emit(list(self._motion_path_points))
                     logging.debug(
-                        f"Emitted path from finish_motion_path_drawing due to mode toggle."
+                        "Emitted path from finish_motion_path_drawing due to mode toggle."
                     )
 
         self.current_target_item_for_path = None
@@ -1568,3 +1576,50 @@ class EditorView(QGraphicsView):
             # Emit zoom changed signal
             current_scale = self.transform().m11()
             self.zoom_changed.emit(current_scale)
+    
+    def _setup_hover_controls(self):
+        """Setup hover view controls."""
+        self.hover_controls = HoverViewControls(self)
+        
+        # Connect signals
+        self.hover_controls.zoom_in_requested.connect(lambda: self.zoom(1))
+        self.hover_controls.zoom_out_requested.connect(lambda: self.zoom(-1))
+        self.hover_controls.zoom_fit_requested.connect(self.zoom_to_fit)
+        self.hover_controls.zoom_reset_requested.connect(self.reset_view)
+        self.hover_controls.zoom_changed.connect(self._on_zoom_slider_changed)
+        
+        # Position controls in bottom-right corner
+        self._position_hover_controls()
+        
+        # Track mouse movement to show/hide controls
+        self.setMouseTracking(True)
+        
+    def _position_hover_controls(self):
+        """Position hover controls in bottom-right corner."""
+        if hasattr(self, 'hover_controls'):
+            view_rect = self.rect()
+            controls_rect = self.hover_controls.rect()
+            
+            x = view_rect.width() - controls_rect.width() - 20
+            y = view_rect.height() - controls_rect.height() - 20
+            
+            self.hover_controls.move(x, y)
+    
+    def _on_zoom_slider_changed(self, zoom_factor: float):
+        """Handle zoom slider change."""
+        # Reset transform and apply new scale
+        self.resetTransform()
+        self.scale(zoom_factor, zoom_factor)
+        
+        # Update zoom level for consistency
+        import math
+        self._zoom_level = int(math.log(zoom_factor) / math.log(self._zoom_factor_base))
+        
+        # Emit zoom changed signal
+        self.zoom_changed.emit(zoom_factor)
+    
+    def resizeEvent(self, event):
+        """Handle resize events to reposition hover controls."""
+        super().resizeEvent(event)
+        self._position_hover_controls()
+        

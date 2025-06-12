@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QDialog,
     QGraphicsItem,
-    QCheckBox,
     QScrollArea,
     QGraphicsEllipseItem,
     QGraphicsRectItem,
@@ -76,6 +75,7 @@ class MechanismDesignTab(QWidget):
         self.selected_part_name: Optional[str] = None
         self.parts_data: Dict[str, PartInfo] = {}  # Store parts data
         self.current_editor_items: Dict[str, CharacterPartItem] = {}
+        self.part_enabled_state: Dict[str, bool] = {}  # Track which parts are enabled for mechanism generation
 
         # Mechanism generation state
         self.current_mechanism_type: Optional[str] = None
@@ -127,10 +127,7 @@ class MechanismDesignTab(QWidget):
         self.play_btn: Optional[QPushButton] = None
         self.stop_btn: Optional[QPushButton] = None
         self.reset_btn: Optional[QPushButton] = None
-        self.animation_status_label: Optional[QLabel] = None
-        self.enable_mechanisms_checkbox: Optional[QCheckBox] = None
         self.parametric_edit_btn: Optional[QPushButton] = None
-        self.delete_mechanism_btn: Optional[QPushButton] = None
 
         self._setup_ui()
         self._connect_signals()
@@ -156,8 +153,8 @@ class MechanismDesignTab(QWidget):
         panel_layout.setContentsMargins(10, 10, 10, 10)
         panel_layout.setSpacing(15)
 
-        # 1. Mechanism Layers Group
-        layers_group = QGroupBox("1 Mechanism Layers")
+        # 1. Parts for Mechanism Generation
+        layers_group = QGroupBox("1 Parts for Mechanism Generation")
         layers_group.setStyleSheet("""
             QGroupBox {
                 background-color: #ffffff;
@@ -179,24 +176,30 @@ class MechanismDesignTab(QWidget):
         """)
         layers_layout = QVBoxLayout(layers_group)
         self.mechanism_layers_list = QListWidget()
-        self.mechanism_layers_list.setToolTip("List of generated mechanism layers")
+        self.mechanism_layers_list.setToolTip("Parts list - gray items have no motion paths")
         self.mechanism_layers_list.setMinimumHeight(180)
+        self.mechanism_layers_list.setStyleSheet("""
+            QListWidget {
+                background-color: white;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+                padding: 4px;
+                font-size: 13px;
+            }
+            QListWidget::item {
+                padding: 8px 12px;
+                margin: 2px;
+                border-radius: 4px;
+                border: 1px solid transparent;
+            }
+            QListWidget::item:selected {
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                    stop: 0 #0078D7, stop: 1 #005a9e);
+                color: white;
+                border: 1px solid #004578;
+            }
+        """)
         layers_layout.addWidget(self.mechanism_layers_list)
-
-        # Create a horizontal layout for the buttons
-        buttons_layout = QHBoxLayout()
-
-        self.enable_mechanisms_checkbox = QCheckBox("Enable")
-        self.enable_mechanisms_checkbox.setEnabled(False)
-        self.enable_mechanisms_checkbox.setToolTip("Toggle to enable/disable the selected mechanism layer")
-        buttons_layout.addWidget(self.enable_mechanisms_checkbox)
-
-        self.delete_mechanism_btn = QPushButton("Delete")
-        self.delete_mechanism_btn.setEnabled(False)
-        self.delete_mechanism_btn.setToolTip("Delete the selected mechanism")
-        buttons_layout.addWidget(self.delete_mechanism_btn)
-
-        layers_layout.addLayout(buttons_layout)
 
         panel_layout.addWidget(layers_group)
 
@@ -223,7 +226,7 @@ class MechanismDesignTab(QWidget):
         """)
         generation_layout = QVBoxLayout(generation_group)
 
-        self.recommendation_btn = QPushButton("Get Recommendations")
+        self.recommendation_btn = QPushButton("Get Mechanism")
         self.recommendation_btn.setEnabled(False)
         self.recommendation_btn.setToolTip("Get mechanism recommendations based on motion paths")
         generation_layout.addWidget(self.recommendation_btn)
@@ -252,10 +255,6 @@ class MechanismDesignTab(QWidget):
             }
         """)
         animation_layout = QVBoxLayout(animation_group)
-
-        self.animation_status_label = QLabel("No mechanisms defined")
-        self.animation_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        animation_layout.addWidget(self.animation_status_label)
 
         style = self.style()
         anim_button_layout = QHBoxLayout()
@@ -297,8 +296,7 @@ class MechanismDesignTab(QWidget):
         self.stop_btn.clicked.connect(self._on_stop_animation)
         self.reset_btn.clicked.connect(self._on_reset_animation)
         self.mechanism_layers_list.itemSelectionChanged.connect(self._on_layer_selection_changed)
-        self.enable_mechanisms_checkbox.stateChanged.connect(self._on_mechanism_enable_toggled)
-        self.delete_mechanism_btn.clicked.connect(self._on_delete_mechanism)
+        self.mechanism_layers_list.itemClicked.connect(self._on_layer_item_clicked)
 
     def _connect_to_ik_manager(self):
         """Connect to IK manager signals for skeleton animation."""
@@ -312,8 +310,33 @@ class MechanismDesignTab(QWidget):
     def set_path_data_from_editor(self, path_data: Dict[str, QPainterPath]):
         """Receive path data from editor tab"""
         self.path_data = path_data.copy()
-        self.recommendation_btn.setEnabled(bool(self.path_data))
+
+        # Initialize enabled state for new parts (default to enabled)
+        for part_name in self.path_data.keys():
+            if part_name not in self.part_enabled_state:
+                self.part_enabled_state[part_name] = True
+
+        # Remove enabled state for parts that no longer have paths
+        parts_to_remove = [name for name in self.part_enabled_state.keys() if name not in self.path_data]
+        for part_name in parts_to_remove:
+            del self.part_enabled_state[part_name]
+
+        # Update recommendation button state based on enabled parts
+        self._update_recommendation_button_state()
+
+        # Update tooltip with part information
+        if self.path_data:
+            part_names = ", ".join(list(self.path_data.keys())[:3])
+            if len(self.path_data) > 3:
+                part_names += f", ... ({len(self.path_data)} total)"
+            if self.recommendation_btn:
+                self.recommendation_btn.setToolTip(f"Parts with paths: {part_names}")
+        else:
+            if self.recommendation_btn:
+                self.recommendation_btn.setToolTip("No motion paths available")
+
         self._display_paths_in_preview()
+        self._update_mechanism_layers_list()
 
     def set_parts_data(self, parts_data: Dict[str, PartInfo]):
         """Set parts data (synchronized with editor tab)"""
@@ -338,10 +361,18 @@ class MechanismDesignTab(QWidget):
                 if project_dir:
                     item = CharacterPartItem(part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode)
                     item.setZValue(1)  # Parts above skeleton (Z=0) but below mechanisms
+
+                    # All parts display normally without any highlighting
+                    item.setOpacity(1.0)
+
                     self.mechanism_scene.addItem(item)
                     self.current_editor_items[part_name] = item
             self._position_parts_at_anchor_joints()
             self.mechanism_view.zoom_to_fit()
+
+        # Update mechanism layers list to show parts
+        self._update_mechanism_layers_list()
+
         logging.info(f"Mechanism tab loaded {len(self.current_editor_items)} parts.")
 
 
@@ -1305,11 +1336,6 @@ class MechanismDesignTab(QWidget):
         self.stop_btn.setEnabled(False)
         self.reset_btn.setEnabled(False)
         self.recommendation_btn.setEnabled(False)
-        self.enable_mechanisms_checkbox.setEnabled(False)
-        self.enable_mechanisms_checkbox.setChecked(False)
-
-        if self.animation_status_label:
-            self.animation_status_label.setText("No mechanisms defined")
 
         self.selected_mechanism_id = None
 
@@ -1319,12 +1345,50 @@ class MechanismDesignTab(QWidget):
     @pyqtSlot()
     def _on_get_recommendations(self):
         """Show mechanism recommendation dialog"""
-        if not self.path_data:
-            QMessageBox.warning(self, "Warning", "No motion paths available.")
+        # Get enabled parts with paths
+        enabled_parts_with_paths = {
+            name: path for name, path in self.path_data.items()
+            if self.part_enabled_state.get(name, True)
+        }
+
+        if not enabled_parts_with_paths:
+            QMessageBox.warning(self, "Warning", "No enabled parts with motion paths available.")
             return
 
-        # For simplicity, we use the first available path
-        target_part_name, target_path = next(iter(self.path_data.items()))
+        # Check if a part is selected from the list
+        selected_items = self.mechanism_layers_list.selectedItems()
+        target_part_name = None
+
+        if selected_items:
+            # Get the part name from UserRole data
+            selected_part = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            if selected_part and selected_part in enabled_parts_with_paths:
+                target_part_name = selected_part
+
+        # If no valid part selected or part is not enabled, show selection dialog
+        if not target_part_name:
+            if len(enabled_parts_with_paths) > 1:
+                from PyQt6.QtWidgets import QInputDialog
+                enabled_part_names = list(enabled_parts_with_paths.keys())
+                selected_part, ok = QInputDialog.getItem(
+                    self,
+                    "Select Part",
+                    "Select which enabled part to generate mechanism for:",
+                    enabled_part_names,
+                    0,  # default selection
+                    False  # not editable
+                )
+                if not ok:
+                    return
+                target_part_name = selected_part
+            elif len(enabled_parts_with_paths) == 1:
+                # Only one enabled part available, use it
+                target_part_name = next(iter(enabled_parts_with_paths.keys()))
+            else:
+                QMessageBox.warning(self, "Warning", "No enabled parts with motion paths available.")
+                return
+
+        target_path = enabled_parts_with_paths[target_part_name]
         self.selected_part_name = target_part_name
 
         import os
@@ -1336,6 +1400,7 @@ class MechanismDesignTab(QWidget):
             return
 
         dialog = MechanismRecommendationDialog(target_path, generated_paths_file, parent=self)
+        dialog.setWindowTitle(f"Mechanism Recommendations for {target_part_name}")
         # Connect the preview signal to handle mechanism previews
         dialog.mechanism_preview_selected.connect(self._on_mechanism_preview_selected)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -1455,15 +1520,11 @@ class MechanismDesignTab(QWidget):
             logging.info(f"Mechanism layout: {layout_desc}")
             logging.info(f"Coordinate system: origin={coord_system.get('origin', 'unknown')}")
 
-        # Update UI to show mechanism is ready
-        self.animation_status_label.setText(f"Mechanism ready: {layer_name}")
-
         # Select the newly added mechanism in the list
         for i in range(self.mechanism_layers_list.count()):
             item = self.mechanism_layers_list.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == mechanism_id:
                 self.mechanism_layers_list.setCurrentItem(item)
-                self.enable_mechanisms_checkbox.setChecked(True)
                 break
 
         logging.info(f"Added mechanism {mechanism_id} with type {internal_type}")
@@ -1572,7 +1633,6 @@ class MechanismDesignTab(QWidget):
         self.mechanism_layers_list.addItem(item)
         self.play_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
-        self.enable_mechanisms_checkbox.setEnabled(True)
 
         # Initialize path tracing for this mechanism
         self._init_mechanism_path_trace(mechanism_id)
@@ -2400,6 +2460,80 @@ class MechanismDesignTab(QWidget):
                 self.path_visual_items[part_name] = path_item
         self.mechanism_view.zoom_to_fit()
 
+    def _update_parts_visual_state(self):
+        """Update visual state of parts - now does nothing as we only use the list."""
+        pass
+
+    def _update_recommendation_button_state(self):
+        """Update the recommendation button state based on parts with motion paths."""
+        # Check if any parts have motion paths
+        has_parts_with_paths = bool(self.path_data)
+
+        if self.recommendation_btn:
+            self.recommendation_btn.setEnabled(has_parts_with_paths)
+
+    def _update_mechanism_layers_list(self):
+        """Update the mechanism layers list to show all parts with togglable mechanism states."""
+        if not self.mechanism_layers_list:
+            return
+
+        self.mechanism_layers_list.clear()
+
+        # Show all parts (like in editor tab)
+        if self.parts_data:
+            # Get all parts and sort alphabetically
+            all_parts = list(self.parts_data.keys())
+            all_parts.sort()
+
+            for part_name in all_parts:
+                has_path = part_name in self.path_data
+                has_mechanism = self._part_has_mechanism(part_name)
+                mechanism_enabled = self.mechanism_enabled_state.get(part_name, False)
+
+                # Create list item
+                item = QListWidgetItem(part_name)
+                item.setData(Qt.ItemDataRole.UserRole, part_name)  # Store part name
+
+                # Style based on part state
+                if has_path:
+                    if has_mechanism:
+                        if mechanism_enabled:
+                            # Part with enabled mechanism: dark sky blue
+                            item.setForeground(QBrush(QColor(0, 100, 150)))  # Dark blue text
+                            item.setBackground(QBrush(QColor(135, 206, 250)))  # Sky blue background
+                            item.setToolTip(f"{part_name} - Mechanism ENABLED (click to disable)")
+                        else:
+                            # Part with disabled mechanism: light sky blue
+                            item.setForeground(QBrush(QColor(70, 130, 180)))  # Medium blue text
+                            item.setBackground(QBrush(QColor(176, 224, 230)))  # Light sky blue background
+                            item.setToolTip(f"{part_name} - Mechanism DISABLED (click to enable)")
+                    else:
+                        # Part with path but no mechanism: normal appearance
+                        item.setForeground(QBrush(QColor(51, 51, 51)))  # Dark text
+                        item.setBackground(QBrush(QColor(Qt.GlobalColor.transparent)))  # Transparent background
+                        item.setToolTip(f"{part_name} - Has motion path (click to generate mechanism)")
+
+                    # Enable for parts with paths
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+                else:
+                    # Part without path: grayed out
+                    item.setForeground(QBrush(QColor(150, 150, 150)))  # Gray text
+                    item.setBackground(QBrush(QColor(240, 240, 240)))  # Light gray background
+                    item.setToolTip(f"{part_name} - No motion path")
+                    # Disable selection for parts without paths
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+
+                # Add to list
+                self.mechanism_layers_list.addItem(item)
+
+    def _part_has_mechanism(self, part_name: str) -> bool:
+        """Check if a part has any mechanism assigned to it."""
+        for layer_data in self.mechanism_layers.values():
+            if layer_data.get("part_name") == part_name:
+                return True
+        return False
+
     def _create_4bar_linkage_visuals(self, mechanism_data: dict) -> List[QGraphicsItem]:
         """Create visual representation of 4-bar linkage with triangular coupler (like dataset generator)."""
         to_scene_coords = self._get_scene_transform_function(mechanism_data)
@@ -2745,7 +2879,6 @@ class MechanismDesignTab(QWidget):
 
             self.play_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
-            self.animation_status_label.setText("Animation running with IK integration" if integration_success else "Animation running (mechanism only)")
 
             if self.debug_mode:
                 active_mechanisms = [mech_id for mech_id, enabled in self.mechanism_enabled_state.items() if enabled]
@@ -2776,7 +2909,6 @@ class MechanismDesignTab(QWidget):
 
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        self.animation_status_label.setText("Animation stopped")
 
     def _on_reset_animation(self):
         """Reset animation to start position with comprehensive IK reset."""
@@ -2826,9 +2958,6 @@ class MechanismDesignTab(QWidget):
                 if mechanism_id in self.mechanism_trace_items:
                     self.mechanism_trace_items[mechanism_id].setPath(QPainterPath())
 
-        # Update status
-        self.animation_status_label.setText("Animation reset")
-
         if self.debug_mode:
             logging.info("[DEBUG] Animation reset completed")
     def _on_layer_selection_changed(self):
@@ -2836,75 +2965,123 @@ class MechanismDesignTab(QWidget):
         selected_items = self.mechanism_layers_list.selectedItems()
         is_selection_valid = bool(selected_items)
 
-        self.enable_mechanisms_checkbox.setEnabled(is_selection_valid)
-        self.delete_mechanism_btn.setEnabled(is_selection_valid)
-
         if is_selection_valid:
-            mech_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
-            is_enabled = self.mechanism_enabled_state.get(mech_id, False)
-            self.enable_mechanisms_checkbox.setChecked(is_enabled)
+            part_name = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            logging.debug(f"Selected part: {part_name}")
         else:
-            self.enable_mechanisms_checkbox.setChecked(False)
+            logging.debug("No part selected")
 
-    def _on_mechanism_enable_toggled(self, state):
-        """Handle the enable/disable checkbox state change."""
-        selected_items = self.mechanism_layers_list.selectedItems()
-        if not selected_items:
+    def _on_layer_item_clicked(self, item):
+        """Handle clicking on a layer item to toggle mechanism state."""
+        part_name = item.data(Qt.ItemDataRole.UserRole)
+
+        # Only process clicks on parts with motion paths
+        if part_name not in self.path_data:
+            logging.debug(f"Part {part_name} has no motion path, ignoring click")
             return
 
-        mech_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        is_enabled = state == Qt.CheckState.Checked.value
-        self.mechanism_enabled_state[mech_id] = is_enabled
+        has_mechanism = self._part_has_mechanism(part_name)
 
-        # Show/hide visual items for the mechanism
-        layer_data = self.mechanism_layers.get(mech_id)
-        if layer_data and "visual_items" in layer_data:
-            for item in layer_data["visual_items"]:
-                item.setVisible(is_enabled)
+        if has_mechanism:
+            # Toggle mechanism enabled/disabled state
+            current_state = self.mechanism_enabled_state.get(part_name, False)
+            new_state = not current_state
+            self.mechanism_enabled_state[part_name] = new_state
 
-        logging.info(f"Mechanism {mech_id} {'enabled' if is_enabled else 'disabled'}")
+            # Update visual items visibility
+            self._toggle_mechanism_visuals(part_name, new_state)
 
-    def _on_delete_mechanism(self):
-        """Delete the selected mechanism."""
-        selected_items = self.mechanism_layers_list.selectedItems()
-        if not selected_items:
+            logging.info(f"Toggled mechanism for {part_name}: {'ENABLED' if new_state else 'DISABLED'}")
+        else:
+            # No mechanism yet - trigger mechanism generation
+            logging.info(f"Requesting mechanism generation for {part_name}")
+            self._request_mechanism_for_part(part_name)
+
+        # Update the list display
+        self._update_mechanism_layers_list()
+
+    def _toggle_mechanism_visuals(self, part_name: str, enabled: bool):
+        """Toggle visibility of mechanism visuals for a specific part."""
+        # Find mechanism(s) for this part
+        for mechanism_id, layer_data in self.mechanism_layers.items():
+            if layer_data.get("part_name") == part_name:
+                # Update visual items visibility
+                visual_items = layer_data.get("visual_items", [])
+                for item in visual_items:
+                    if hasattr(item, 'setVisible'):
+                        item.setVisible(enabled)
+
+                # Update trace item visibility if it exists
+                if mechanism_id in self.mechanism_trace_items:
+                    trace_item = self.mechanism_trace_items[mechanism_id]
+                    if hasattr(trace_item, 'setVisible'):
+                        trace_item.setVisible(enabled)
+
+                logging.debug(f"Set {len(visual_items)} visual items visibility to {enabled} for {part_name}")
+
+    def _request_mechanism_for_part(self, part_name: str):
+        """Request mechanism generation for a specific part (replaces existing if any)."""
+        # Check if part already has a mechanism and remove it first
+        existing_mechanism_id = None
+        for mechanism_id, layer_data in self.mechanism_layers.items():
+            if layer_data.get("part_name") == part_name:
+                existing_mechanism_id = mechanism_id
+                break
+
+        if existing_mechanism_id:
+            logging.info(f"Replacing existing mechanism for {part_name}")
+            self._remove_mechanism(existing_mechanism_id)
+
+        # Trigger recommendation generation for this specific part
+        # Use existing recommendation logic but focus on this part
+        logging.info(f"Generating new mechanism for {part_name}")
+        self._generate_mechanism_for_part(part_name)
+
+    def _remove_mechanism(self, mechanism_id: str):
+        """Remove a specific mechanism and its visuals."""
+        if mechanism_id not in self.mechanism_layers:
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Delete Mechanism",
-            "Are you sure you want to delete the selected mechanism?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
+        layer_data = self.mechanism_layers.pop(mechanism_id)
 
-        if reply == QMessageBox.StandardButton.Yes:
-            item = selected_items[0]
-            mech_id = item.data(Qt.ItemDataRole.UserRole)
+        # Remove visual items from scene
+        visual_items = layer_data.get("visual_items", [])
+        for item in visual_items:
+            if item.scene():
+                self.mechanism_scene.removeItem(item)
 
-            # Remove from data structures
-            if mech_id in self.mechanism_layers:
-                layer_data = self.mechanism_layers.pop(mech_id)
-                # Remove visual items from the scene
-                for visual_item in layer_data.get("visual_items", []):
-                    if visual_item.scene():
-                        self.mechanism_scene.removeItem(visual_item)
+        # Remove trace item
+        if mechanism_id in self.mechanism_trace_items:
+            trace_item = self.mechanism_trace_items.pop(mechanism_id)
+            if trace_item.scene():
+                self.mechanism_scene.removeItem(trace_item)
 
-            if mech_id in self.mechanism_enabled_state:
-                del self.mechanism_enabled_state[mech_id]
+        # Remove from trace points
+        if mechanism_id in self.mechanism_trace_points:
+            del self.mechanism_trace_points[mechanism_id]
 
-            if mech_id in self.mechanism_trace_items:
-                trace_item = self.mechanism_trace_items.pop(mech_id)
-                if trace_item.scene():
-                    self.mechanism_scene.removeItem(trace_item)
+        # Remove from enabled state (use part name as key)
+        part_name = layer_data.get("part_name")
+        if part_name and part_name in self.mechanism_enabled_state:
+            del self.mechanism_enabled_state[part_name]
 
-            if mech_id in self.mechanism_trace_points:
-                del self.mechanism_trace_points[mech_id]
+        logging.info(f"Removed mechanism {mechanism_id}")
 
-            # Remove from the list widget
-            self.mechanism_layers_list.takeItem(self.mechanism_layers_list.row(item))
+    def _generate_mechanism_for_part(self, part_name: str):
+        """Generate a mechanism for a specific part using the recommendation system."""
+        # Set this part as enabled for generation
+        self.part_enabled_state = {part_name: True}
 
-            logging.info(f"Deleted mechanism {mech_id}")
+        # Trigger the recommendation system
+        try:
+            self._on_get_recommendations()
+            # Set the new mechanism as enabled by default
+            self.mechanism_enabled_state[part_name] = True
+        except Exception as e:
+            logging.error(f"Failed to generate mechanism for {part_name}: {e}")
+            QMessageBox.warning(self, "Mechanism Generation Error",
+                              f"Failed to generate mechanism for {part_name}: {str(e)}")
+
 
     def _create_interactive_handles_for_mechanism(self, mechanism_id, mechanism_type, params):
         # TODO: Implement interactive parameter handles
@@ -3347,24 +3524,41 @@ class MechanismDesignTab(QWidget):
         parts_data_to_use = None
         if hasattr(self.main_window, 'project_data_manager') and self.main_window.project_data_manager:
             parts_data_to_use = self.main_window.project_data_manager.get_current_parts_data()
-        
+
         # Fallback to local parts data if project data manager doesn't have it
         if not parts_data_to_use and hasattr(self, 'parts_data') and self.parts_data:
             parts_data_to_use = self.parts_data
-            
+
+        # If we don't have parts data locally, try to get it from project manager
+        if not self.parts_data and parts_data_to_use:
+            self.set_parts_data(parts_data_to_use)
+
+        # Try to get path data from editor tab if we don't have it
+        if not self.path_data and hasattr(self.main_window, 'editor_tab'):
+            editor_tab = self.main_window.editor_tab
+            if hasattr(editor_tab, '_collect_path_data'):
+                current_path_data = editor_tab._collect_path_data()
+                if current_path_data:
+                    self.set_path_data_from_editor(current_path_data)
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] Mechanism Design Tab: Retrieved {len(current_path_data)} motion paths from editor tab")
+
         # Set the parts data in IKManager
         if parts_data_to_use and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
             if hasattr(self.main_window.ik_manager, 'set_project_parts_data'):
                 self.main_window.ik_manager.set_project_parts_data(parts_data_to_use)
                 if self.debug_mode:
                     logging.info(f"[DEBUG] Mechanism Design Tab: Re-set project parts data in IKManager on tab activation ({len(parts_data_to_use)} parts)")
-        
-        # Re-enable animation controls if we have mechanisms
-        if self.mechanism_layers and any(self.mechanism_enabled_state.values()):
+
+        # Update mechanism layers list to show current parts and path status
+        self._update_mechanism_layers_list()
+
+        # Re-enable animation controls if we have enabled mechanisms
+        has_enabled_mechanisms = any(self.mechanism_enabled_state.values()) if self.mechanism_enabled_state else False
+        if self.mechanism_layers and has_enabled_mechanisms:
             self.play_btn.setEnabled(True)
             self.reset_btn.setEnabled(True)
-            self.enable_mechanisms_checkbox.setEnabled(True)
-            
+
             if self.debug_mode:
                 logging.info("[DEBUG] Mechanism Design Tab activated - animation controls re-enabled")
 
@@ -3373,7 +3567,7 @@ class MechanismDesignTab(QWidget):
         # Stop animation if running
         if self.animation_timer.isActive():
             self._on_stop_animation()
-            
+
             if self.debug_mode:
                 logging.info("[DEBUG] Mechanism Design Tab deactivated - animation stopped")
 
