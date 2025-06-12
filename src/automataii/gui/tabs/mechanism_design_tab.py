@@ -1245,18 +1245,18 @@ class MechanismDesignTab(QWidget):
                             if len(visual_items) > outer_idx:
                                 outer_pivot = visual_items[outer_idx]
                                 if isinstance(outer_pivot, QGraphicsEllipseItem):
-                                    outer_pivot.setPos(pos.x() - 8, pos.y() - 8)
+                                    outer_pivot.setRect(pos.x() - 8, pos.y() - 8, 16, 16)
                             
                             if len(visual_items) > inner_idx:
                                 inner_pivot = visual_items[inner_idx]
                                 if isinstance(inner_pivot, QGraphicsEllipseItem):
-                                    inner_pivot.setPos(pos.x() - 4, pos.y() - 4)
+                                    inner_pivot.setRect(pos.x() - 4, pos.y() - 4, 8, 8)
 
                         # Update coupler marker (item 12)
                         if len(visual_items) > 12:
                             coupler_marker = visual_items[12]
                             if isinstance(coupler_marker, QGraphicsEllipseItem):
-                                coupler_marker.setPos(p_coupler_t.x() - 4, p_coupler_t.y() - 4)
+                                coupler_marker.setRect(p_coupler_t.x() - 4, p_coupler_t.y() - 4, 8, 8)
 
                         # LOG: Log successful visual update
                         if self.debug_mode:
@@ -1300,12 +1300,13 @@ class MechanismDesignTab(QWidget):
                     follower_scene = to_scene_coords(follower_pos_orig)
 
                     # Update cam visual (assuming first item is cam)
-                    if len(visual_items) >= 1 and hasattr(visual_items[0], 'setPos'):
-                        visual_items[0].setPos(cam_center_scene.x() - base_radius, cam_center_scene.y() - base_radius)
+                    if len(visual_items) >= 1 and isinstance(visual_items[0], QGraphicsEllipseItem):
+                        visual_items[0].setRect(cam_center_scene.x() - base_radius, cam_center_scene.y() - base_radius,
+                                               base_radius * 2, base_radius * 2)
 
                     # Update follower visual (assuming second item is follower)
-                    if len(visual_items) >= 2 and hasattr(visual_items[1], 'setPos'):
-                        visual_items[1].setPos(follower_scene.x() - 10, follower_scene.y() - 5)
+                    if len(visual_items) >= 2 and isinstance(visual_items[1], QGraphicsRectItem):
+                        visual_items[1].setRect(follower_scene.x() - 10, follower_scene.y() - 5, 20, 10)
 
                     return
 
@@ -1499,14 +1500,26 @@ class MechanismDesignTab(QWidget):
         to_scene_coords = self._get_scene_transform_function(mechanism_data)
         params = mechanism_data.get("params", {})
         key_points = mechanism_data.get("key_points")
-        if not to_scene_coords or not key_points or not params: 
+        
+        # Debug logging
+        if self.debug_mode:
+            logging.info(f"[DEBUG] _create_4bar_linkage_visuals called")
+            logging.info(f"[DEBUG]   to_scene_coords: {to_scene_coords is not None}")
+            logging.info(f"[DEBUG]   params: {params}")
+            logging.info(f"[DEBUG]   key_points: {key_points}")
+            
+        if not to_scene_coords or not params: 
+            if self.debug_mode:
+                logging.warning("[DEBUG] Cannot create 4-bar visuals - missing transform or params")
             return []
 
-        l2, l3, l4 = params.get("l2"), params.get("l3"), params.get("l4")
-        p1_coords, p2_coords = key_points.get("ground_pivot_1"), key_points.get("ground_pivot_2")
-
-        if not all([l2 is not None, l3 is not None, l4 is not None, p1_coords, p2_coords]):
-            logging.warning("Incomplete 4-bar linkage parameters for visualization.")
+        l1 = params.get("l1")
+        l2 = params.get("l2")
+        l3 = params.get("l3")
+        l4 = params.get("l4")
+        
+        if not all([l1 is not None, l2 is not None, l3 is not None, l4 is not None]):
+            logging.warning(f"Incomplete 4-bar linkage parameters: l1={l1}, l2={l2}, l3={l3}, l4={l4}")
             return []
 
         # Use initial positions from simulation data if available
@@ -1535,8 +1548,9 @@ class MechanismDesignTab(QWidget):
             else:
                 return []
         else:
-            # Fallback calculation
-            p1, p2 = np.array(p1_coords), np.array(p2_coords)
+            # Fallback - use default ground pivot positions based on l1
+            p1 = np.array([0, 0])
+            p2 = np.array([l1, 0])
             p3 = p1 + np.array([l2 * math.cos(0), l2 * math.sin(0)])
             d = np.linalg.norm(p2 - p3)
             if not (abs(l3 - l4) <= d <= l3 + l4):
@@ -1566,6 +1580,13 @@ class MechanismDesignTab(QWidget):
         p3_t = to_scene_coords(p3)
         p4_t = to_scene_coords(p4)
         p_coupler_t = to_scene_coords(p_coupler)
+        
+        # Debug logging for visual creation
+        if self.debug_mode:
+            logging.info("[DEBUG] Creating 4-bar visuals:")
+            logging.info(f"[DEBUG] Original points: p1={p1}, p2={p2}, p3={p3}, p4={p4}")
+            logging.info(f"[DEBUG] Scene points: p1_t={p1_t}, p2_t={p2_t}, p3_t={p3_t}, p4_t={p4_t}")
+            logging.info(f"[DEBUG] Scene rect: {self.mechanism_scene.sceneRect()}")
 
         visual_items = []
 
@@ -1652,6 +1673,13 @@ class MechanismDesignTab(QWidget):
         coupler_marker.setZValue(25)
         coupler_marker.setToolTip("Coupler Point (follows path)")
         visual_items.append(coupler_marker)
+        
+        # Debug logging for created visuals
+        if self.debug_mode:
+            logging.info(f"[DEBUG] Created {len(visual_items)} visual items for 4-bar linkage")
+            scene_items = self.mechanism_scene.items()
+            logging.info(f"[DEBUG] Total scene items: {len(scene_items)}")
+            logging.info(f"[DEBUG] Scene bounding rect: {self.mechanism_scene.itemsBoundingRect()}")
 
         return visual_items
 
@@ -1661,6 +1689,12 @@ class MechanismDesignTab(QWidget):
         mechanism_type = mechanism_graphics_data.get("mechanism_type")
         layer_data = self.mechanism_layers.get(mechanism_id)
         if not layer_data: return
+
+        # Remove any existing visual items for this mechanism
+        existing_visual_items = layer_data.get("visual_items", [])
+        for item in existing_visual_items:
+            if item and item.scene():
+                self.mechanism_scene.removeItem(item)
 
         visual_items = []
         if mechanism_type == "4_bar_linkage":
@@ -1673,6 +1707,16 @@ class MechanismDesignTab(QWidget):
             visual_items.extend(self._create_planetary_gear_visuals(mechanism_graphics_data))
 
         layer_data["visual_items"] = visual_items
+        
+        # Force scene update to ensure visuals are displayed
+        self.mechanism_scene.update()
+        
+        # Debug: Log visual items status
+        if self.debug_mode:
+            logging.info(f"[DEBUG] Stored {len(visual_items)} visual items for mechanism {mechanism_id}")
+            for i, item in enumerate(visual_items[:5]):  # Log first 5 items
+                if item:
+                    logging.info(f"[DEBUG]   Item {i}: {type(item).__name__}, visible={item.isVisible()}, in scene={item.scene() is not None}")
 
     def _generate_mechanism_visuals_directly(self, mechanism_id: str, mechanism_type: str, params: dict, layer_data: dict):
         """Generate mechanism visuals directly."""
