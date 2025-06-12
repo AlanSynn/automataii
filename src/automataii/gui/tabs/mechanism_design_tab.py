@@ -513,9 +513,13 @@ class MechanismDesignTab(QWidget):
         mechanism_type_value = mechanism_data.get('type', 'Unknown')
         mechanism_type_mapping = {
             "4-Bar Linkage": "4_bar_linkage",
+            "4-bar Coupler": "4_bar_linkage",  # From dataset
             "Cam & Follower": "cam",
+            "Cam-Follower": "cam",  # From dataset
             "Gears (Simple Pair)": "gear",
             "Gear Contact": "gear",
+            "Simple Gear": "gear",  # From dataset
+            "Planetary Gear": "planetary_gear",
         }
         internal_type = mechanism_type_mapping.get(mechanism_type_value, "4_bar_linkage")
 
@@ -532,9 +536,13 @@ class MechanismDesignTab(QWidget):
 
         mechanism_type_mapping = {
             "4-Bar Linkage": "4_bar_linkage",
+            "4-bar Coupler": "4_bar_linkage",  # From dataset
             "Cam & Follower": "cam",
+            "Cam-Follower": "cam",  # From dataset
             "Gears (Simple Pair)": "gear",
             "Gear Contact": "gear",
+            "Simple Gear": "gear",  # From dataset
+            "Planetary Gear": "planetary_gear",
         }
         internal_type = mechanism_type_mapping.get(mechanism_type_value, "4_bar_linkage")
 
@@ -901,36 +909,29 @@ class MechanismDesignTab(QWidget):
                 return None
 
         elif mech_type == "cam":
-            # Calculate cam follower output using skeleton attachment info
-            skeleton_attachment = layer_data.get("skeleton_attachment", {})
-            attachment_coords = skeleton_attachment.get("attachment_coordinates")
-
-            if attachment_coords:
-                # Use attachment coordinates as base, then calculate position at time
-                params = layer_data.get("params", {})
-                base_radius = params.get("base_radius", 25.0)
-                eccentricity = params.get("eccentricity", 10.0)
-                to_scene_coords = self._get_scene_transform_function(layer_data)
-
-                if to_scene_coords:
-                    # Calculate cam rotation and follower position (same as dataset)
-                    angle = time
-                    rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-                    cam_center_orig = rotation_matrix @ np.array([eccentricity, 0])
-                    follower_y = cam_center_orig[1] + base_radius
+            # First try to use full_simulation_data from dataset
+            full_sim_data = layer_data.get("full_simulation_data", {})
+            cam_data = full_sim_data.get("cam_data", {})
+            to_scene_coords = self._get_scene_transform_function(layer_data)
+            
+            if cam_data and "follower_y_positions" in cam_data and to_scene_coords:
+                follower_positions = cam_data["follower_y_positions"]
+                num_frames = len(follower_positions)
+                if num_frames > 0:
+                    frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                    follower_y = follower_positions[frame_index]
                     follower_pos_orig = np.array([0, follower_y])
-
+                    
                     scene_point = to_scene_coords(follower_pos_orig)
                     if self.debug_mode:
-                        logging.info(f"[DEBUG] Cam output (from attachment): follower_y={follower_y:.2f}, scene=({scene_point.x():.2f}, {scene_point.y():.2f})")
+                        logging.info(f"[DEBUG] Cam output from dataset: frame={frame_index}, follower_y={follower_y:.2f}")
                     return scene_point
-
-            # Fallback to manual calculation
+            
+            # Fallback to manual calculation if no simulation data
             params = layer_data.get("params", {})
             base_radius = params.get("base_radius", 25.0)
             eccentricity = params.get("eccentricity", 10.0)
-            to_scene_coords = self._get_scene_transform_function(layer_data)
-
+            
             if to_scene_coords:
                 angle = time
                 rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
@@ -940,35 +941,40 @@ class MechanismDesignTab(QWidget):
 
                 scene_point = to_scene_coords(follower_pos_orig)
                 if self.debug_mode:
-                    logging.info(f"[DEBUG] Cam output (fallback): follower_y={follower_y:.2f}, scene=({scene_point.x():.2f}, {scene_point.y():.2f})")
+                    logging.info(f"[DEBUG] Cam output (fallback): follower_y={follower_y:.2f}")
                 return scene_point
             else:
                 return None
 
         elif mech_type == "gear":
-            # Calculate gear train output using key_points and skeleton attachment info
+            # First try to use full_simulation_data from dataset
+            full_sim_data = layer_data.get("full_simulation_data", {})
+            gear_data = full_sim_data.get("gear_data", {})
+            to_scene_coords = self._get_scene_transform_function(layer_data)
+            
+            if gear_data and "tracking_points" in gear_data and to_scene_coords:
+                tracking_points = gear_data["tracking_points"]
+                num_frames = len(tracking_points)
+                if num_frames > 0:
+                    frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                    tracking_point = np.array(tracking_points[frame_index])
+                    
+                    scene_point = to_scene_coords(tracking_point)
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] Gear output from dataset: frame={frame_index}, tracking={tracking_point}")
+                    return scene_point
+            
+            # Fallback to manual calculation if no simulation data
             params = layer_data.get("params", {})
             r1 = params.get("r1", 30)
             key_points = layer_data.get("key_points", {})
-            to_scene_coords = self._get_scene_transform_function(layer_data)
-
+            
             if to_scene_coords:
                 # Use gear center from key_points if available
                 if "gear1_center" in key_points:
                     gear1_center = np.array(key_points["gear1_center"])
                 else:
-                    # Try mechanism_layout as fallback
-                    mechanism_layout = layer_data.get("mechanism_layout", {})
-                    if mechanism_layout:
-                        components = mechanism_layout.get("components", {})
-                        gear1_info = components.get("gear1", {})
-                        gear1_center_coords = gear1_info.get("center")
-                        if gear1_center_coords:
-                            gear1_center = np.array(gear1_center_coords)
-                        else:
-                            gear1_center = np.array([-r1, 0])  # Default
-                    else:
-                        gear1_center = np.array([-r1, 0])  # Default
+                    gear1_center = np.array([-r1, 0])  # Default
                 
                 # Calculate point on gear 1 circumference
                 theta1 = time
@@ -976,10 +982,33 @@ class MechanismDesignTab(QWidget):
 
                 scene_point = to_scene_coords(output_point_orig)
                 if self.debug_mode:
-                    logging.info(f"[DEBUG] Gear output: theta1={theta1:.2f}, center={gear1_center}, scene=({scene_point.x():.2f}, {scene_point.y():.2f})")
+                    logging.info(f"[DEBUG] Gear output (fallback): theta1={theta1:.2f}")
                 return scene_point
             else:
                 return None
+
+        elif mech_type == "planetary_gear":
+            # Handle planetary gear using full_simulation_data
+            full_sim_data = layer_data.get("full_simulation_data", {})
+            gear_positions = full_sim_data.get("gear_positions", {})
+            to_scene_coords = self._get_scene_transform_function(layer_data)
+            
+            if gear_positions and "tracking_points" in gear_positions and to_scene_coords:
+                tracking_points = gear_positions["tracking_points"]
+                num_frames = len(tracking_points)
+                if num_frames > 0:
+                    frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                    tracking_point = np.array(tracking_points[frame_index])
+                    
+                    scene_point = to_scene_coords(tracking_point)
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] Planetary gear output: frame={frame_index}, tracking_point={tracking_point}, scene=({scene_point.x():.2f}, {scene_point.y():.2f})")
+                    return scene_point
+            
+            # Fallback calculation for planetary gear
+            if self.debug_mode:
+                logging.warning(f"[DEBUG] Using fallback calculation for planetary_gear")
+            return None
 
         else:
             # Fallback to manual calculation if no simulation data
@@ -1242,27 +1271,29 @@ class MechanismDesignTab(QWidget):
                 params = layer_data.get("params", {})
                 base_radius = params.get("base_radius", 25.0)
                 eccentricity = params.get("eccentricity", 10.0)
-                key_points = layer_data.get("key_points", {})
+                full_sim_data = layer_data.get("full_simulation_data", {})
+                cam_data = full_sim_data.get("cam_data", {})
                 to_scene_coords = self._get_scene_transform_function(layer_data)
 
                 if to_scene_coords:
-                    # Calculate cam rotation based on time
-                    angle = time
-                    rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-                    
-                    # Use initial cam center from key_points if available
-                    initial_cam_offset = np.array(key_points.get("cam_center", [eccentricity, 0]))
-                    if "rotation_center" in key_points:
-                        # If cam doesn't rotate around origin, adjust
-                        rot_center = np.array(key_points["rotation_center"])
-                        cam_offset_from_rotation = initial_cam_offset - rot_center
-                        cam_center_orig = rot_center + rotation_matrix @ cam_offset_from_rotation
+                    # First try to use dataset positions
+                    if cam_data and "cam_centers" in cam_data and "follower_y_positions" in cam_data:
+                        cam_centers = cam_data["cam_centers"]
+                        follower_positions = cam_data["follower_y_positions"]
+                        num_frames = len(cam_centers)
+                        
+                        if num_frames > 0:
+                            frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                            cam_center_orig = np.array(cam_centers[frame_index])
+                            follower_y = follower_positions[frame_index]
+                            follower_pos_orig = np.array([0, follower_y])
                     else:
-                        cam_center_orig = rotation_matrix @ initial_cam_offset
-
-                    # Calculate follower position
-                    follower_y = cam_center_orig[1] + base_radius
-                    follower_pos_orig = np.array([0, follower_y])
+                        # Fallback to manual calculation
+                        angle = time
+                        rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+                        cam_center_orig = rotation_matrix @ np.array([eccentricity, 0])
+                        follower_y = cam_center_orig[1] + base_radius
+                        follower_pos_orig = np.array([0, follower_y])
 
                     # Transform to scene coordinates
                     cam_center_scene = to_scene_coords(cam_center_orig)
@@ -1282,17 +1313,37 @@ class MechanismDesignTab(QWidget):
                 params = layer_data.get("params", {})
                 r1 = params.get("r1", 30)
                 r2 = params.get("r2", 50)
-                key_points = layer_data.get("key_points", {})
+                full_sim_data = layer_data.get("full_simulation_data", {})
+                gear_data = full_sim_data.get("gear_data", {})
                 to_scene_coords = self._get_scene_transform_function(layer_data)
 
                 if to_scene_coords:
-                    # Calculate gear rotations
-                    theta1 = time
-                    theta2 = -theta1 * (r1 / r2)  # Gear ratio
-
-                    # Use gear centers from key_points if available
-                    gear1_center = np.array(key_points.get("gear1_center", [-r1, 0]))
-                    gear2_center = np.array(key_points.get("gear2_center", [r2, 0]))
+                    # First try to use dataset positions
+                    if gear_data and "gear1_angles" in gear_data and "gear2_angles" in gear_data:
+                        gear1_angles = gear_data["gear1_angles"]
+                        gear2_angles = gear_data["gear2_angles"]
+                        gear1_centers = gear_data.get("gear1_centers", [])
+                        gear2_centers = gear_data.get("gear2_centers", [])
+                        num_frames = len(gear1_angles)
+                        
+                        if num_frames > 0:
+                            frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                            theta1 = gear1_angles[frame_index]
+                            theta2 = gear2_angles[frame_index]
+                            
+                            # Use centers from dataset if available
+                            if gear1_centers and gear2_centers:
+                                gear1_center = np.array(gear1_centers[frame_index])
+                                gear2_center = np.array(gear2_centers[frame_index])
+                            else:
+                                gear1_center = np.array([-r1, 0])
+                                gear2_center = np.array([r2, 0])
+                    else:
+                        # Fallback to manual calculation
+                        theta1 = time
+                        theta2 = -theta1 * (r1 / r2)  # Gear ratio
+                        gear1_center = np.array([-r1, 0])
+                        gear2_center = np.array([r2, 0])
 
                     # Transform to scene coordinates
                     g1_center_scene = to_scene_coords(gear1_center)
@@ -1317,6 +1368,66 @@ class MechanismDesignTab(QWidget):
                             end2 = g2_center_scene + QPointF(r2 * math.cos(theta2), r2 * math.sin(theta2))
                             visual_items[3].setLine(QLineF(g2_center_scene, end2))
 
+                    return
+
+            elif mech_type == "planetary_gear" and len(visual_items) >= 5:  # Planetary gear
+                params = layer_data.get("params", {})
+                r_sun = params.get("r_sun", 20)
+                r_planet = params.get("r_planet", 30)
+                arm_length = params.get("arm_length", 15)
+                to_scene_coords = self._get_scene_transform_function(layer_data)
+                
+                if to_scene_coords:
+                    # Calculate planetary gear positions
+                    # Planet orbits around sun
+                    planet_orbital_angle = time
+                    # Planet rotation angle (depends on gear ratio)
+                    planet_rotation_angle = -time * (r_sun / r_planet)
+                    
+                    # Sun is stationary at origin
+                    sun_center_orig = np.array([0, 0])
+                    
+                    # Planet center orbits around sun
+                    planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([
+                        np.cos(planet_orbital_angle), 
+                        np.sin(planet_orbital_angle)
+                    ])
+                    
+                    # Tracking point on planet
+                    tracking_point_orig = planet_center_orig + arm_length * np.array([
+                        np.cos(planet_rotation_angle),
+                        np.sin(planet_rotation_angle)
+                    ])
+                    
+                    # Transform to scene coordinates
+                    sun_center_scene = to_scene_coords(sun_center_orig)
+                    planet_center_scene = to_scene_coords(planet_center_orig)
+                    tracking_scene = to_scene_coords(tracking_point_orig)
+                    
+                    # Update planet gear position (item 1)
+                    if len(visual_items) > 1 and isinstance(visual_items[1], QGraphicsEllipseItem):
+                        visual_items[1].setPos(
+                            planet_center_scene.x() - r_planet, 
+                            planet_center_scene.y() - r_planet
+                        )
+                    
+                    # Update arm line (item 2)
+                    if len(visual_items) > 2 and isinstance(visual_items[2], QGraphicsLineItem):
+                        visual_items[2].setLine(QLineF(
+                            planet_center_scene,
+                            tracking_scene
+                        ))
+                    
+                    # Update tracking point marker (item 3)
+                    if len(visual_items) > 3 and isinstance(visual_items[3], QGraphicsEllipseItem):
+                        visual_items[3].setPos(
+                            tracking_scene.x() - 8,
+                            tracking_scene.y() - 8
+                        )
+                    
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] Updated planetary gear visuals: orbital_angle={planet_orbital_angle:.2f}, rotation_angle={planet_rotation_angle:.2f}")
+                    
                     return
 
         except Exception as e:
@@ -1558,6 +1669,8 @@ class MechanismDesignTab(QWidget):
             visual_items.extend(self._create_cam_visuals(mechanism_graphics_data))
         elif mechanism_type == "gear":
             visual_items.extend(self._create_gear_visuals(mechanism_graphics_data))
+        elif mechanism_type == "planetary_gear":
+            visual_items.extend(self._create_planetary_gear_visuals(mechanism_graphics_data))
 
         layer_data["visual_items"] = visual_items
 
@@ -1582,9 +1695,15 @@ class MechanismDesignTab(QWidget):
                 "l3": json_params.get('l3'),
                 "l4": json_params.get('l4'),
             }
+            # Handle both formats: nested coupler_point and direct p_x/p_y
             coupler_point = json_params.get("coupler_point", {})
-            params["coupler_point_x"] = coupler_point.get("x")
-            params["coupler_point_y"] = coupler_point.get("y")
+            if coupler_point:
+                params["coupler_point_x"] = coupler_point.get("x", 0.0)
+                params["coupler_point_y"] = coupler_point.get("y", 0.0)
+            else:
+                # Fallback to p_x/p_y format used in dataset generator
+                params["coupler_point_x"] = json_params.get('p_x', 0.0)
+                params["coupler_point_y"] = json_params.get('p_y', 0.0)
 
             return params
         elif "Cam" in mechanism_type:
@@ -1597,6 +1716,13 @@ class MechanismDesignTab(QWidget):
             params = {
                 "r1": json_params.get("r1", 30),
                 "r2": json_params.get("r2", 50),
+            }
+            return params
+        elif "Planetary Gear" in mechanism_type:
+            params = {
+                "r_sun": json_params.get("r_sun", 20),
+                "r_planet": json_params.get("r_planet", 30),
+                "arm_length": json_params.get("arm_length", 15),
             }
             return params
         return json_params
@@ -1881,6 +2007,84 @@ class MechanismDesignTab(QWidget):
         gear2_pivot.setZValue(20)
         visual_items.append(gear2_pivot)
 
+        return visual_items
+
+    def _create_planetary_gear_visuals(self, mechanism_data: dict) -> List[QGraphicsItem]:
+        """Create visual representation of planetary gear mechanism."""
+        to_scene_coords = self._get_scene_transform_function(mechanism_data)
+        params = mechanism_data.get("params", {})
+        
+        if not to_scene_coords or not params:
+            return []
+        
+        r_sun = params.get("r_sun", 20)
+        r_planet = params.get("r_planet", 30)
+        arm_length = params.get("arm_length", 15)
+        
+        # Initial positions
+        sun_center_orig = np.array([0, 0])
+        planet_center_orig = np.array([r_sun + r_planet, 0])  # Initial planet position
+        tracking_point_orig = planet_center_orig + np.array([arm_length, 0])
+        
+        # Transform to scene coordinates
+        sun_center_scene = to_scene_coords(sun_center_orig)
+        planet_center_scene = to_scene_coords(planet_center_orig)
+        tracking_scene = to_scene_coords(tracking_point_orig)
+        
+        visual_items = []
+        
+        # Create sun gear (stationary)
+        sun_color = QColor("#7f8c8d")  # Gray
+        sun_gear = self.mechanism_scene.addEllipse(
+            sun_center_scene.x() - r_sun, sun_center_scene.y() - r_sun,
+            r_sun * 2, r_sun * 2,
+            QPen(sun_color, 4),
+            QBrush(sun_color.lighter(140))
+        )
+        sun_gear.setZValue(5)
+        visual_items.append(sun_gear)
+        
+        # Create planet gear
+        planet_color = QColor("#e67e22")  # Orange
+        planet_gear = self.mechanism_scene.addEllipse(
+            planet_center_scene.x() - r_planet, planet_center_scene.y() - r_planet,
+            r_planet * 2, r_planet * 2,
+            QPen(planet_color, 4),
+            QBrush(planet_color.lighter(150))
+        )
+        planet_gear.setZValue(10)
+        visual_items.append(planet_gear)
+        
+        # Create arm from planet center to tracking point
+        arm_color = QColor("#f39c12")  # Gold
+        arm_line = self.mechanism_scene.addLine(
+            planet_center_scene.x(), planet_center_scene.y(),
+            tracking_scene.x(), tracking_scene.y(),
+            QPen(arm_color, 3)
+        )
+        arm_line.setZValue(15)
+        visual_items.append(arm_line)
+        
+        # Create tracking point
+        tracking_color = QColor("#e74c3c")  # Red
+        tracking_marker = self.mechanism_scene.addEllipse(
+            tracking_scene.x() - 8, tracking_scene.y() - 8, 16, 16,
+            QPen(tracking_color.darker(150), 3),
+            QBrush(tracking_color)
+        )
+        tracking_marker.setZValue(20)
+        visual_items.append(tracking_marker)
+        
+        # Sun center marker
+        sun_center_color = QColor("#34495e")  # Dark gray
+        sun_center_marker = self.mechanism_scene.addEllipse(
+            sun_center_scene.x() - 6, sun_center_scene.y() - 6, 12, 12,
+            QPen(sun_center_color, 2),
+            QBrush(sun_center_color)
+        )
+        sun_center_marker.setZValue(25)
+        visual_items.append(sun_center_marker)
+        
         return visual_items
 
     def _create_generic_mechanism_visuals(self, mechanism_data):

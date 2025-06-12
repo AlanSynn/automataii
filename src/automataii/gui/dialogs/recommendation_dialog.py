@@ -342,10 +342,12 @@ class MechanismPreviewWidget(QGraphicsView):
 
         if mech_type == "4-bar Coupler" and key_points:
             self._draw_4_bar_structure(params, key_points, to_screen_coords)
-        elif mech_type == "Cam Follower":
+        elif mech_type in ["Cam Follower", "Cam-Follower"]:
             self._draw_cam_follower_structure(params, key_points, to_screen_coords)
-        elif mech_type == "Gear Contact":
+        elif mech_type in ["Gear Contact", "Simple Gear"]:
             self._draw_gear_contact_structure(params, key_points, to_screen_coords)
+        elif mech_type == "Planetary Gear":
+            self._draw_planetary_gear_structure(params, key_points, to_screen_coords)
 
     def _draw_4_bar_structure_from_sim(
         self, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray, to_screen_coords: callable
@@ -599,6 +601,66 @@ class MechanismPreviewWidget(QGraphicsView):
         # Draw gears with different colors
         draw_gear(c1_orig, r1, QColor("#3498db"), QColor("#f39c12"))
         draw_gear(c2_orig, r2, QColor("#2ecc71"), QColor("#e74c3c"))
+
+    def _draw_planetary_gear_structure(
+        self, params: Dict, key_points: Dict, to_scene_coords: callable
+    ) -> None:
+        """Draws a planetary gear system."""
+        r_sun = params.get("r_sun", 20)
+        r_planet = params.get("r_planet", 30)
+        arm_length = params.get("arm_length", 15)
+        
+        # Initial positions
+        sun_center_orig = np.array([0, 0])
+        planet_center_orig = np.array([r_sun + r_planet, 0])  # Initial planet position
+        tracking_point_orig = planet_center_orig + np.array([arm_length, 0])
+        
+        # Transform to scene coordinates
+        sun_center_scene = to_scene_coords(sun_center_orig)
+        planet_center_scene = to_scene_coords(planet_center_orig)
+        tracking_scene = to_scene_coords(tracking_point_orig)
+        
+        # Draw sun gear (stationary)
+        sun_color = QColor("#7f8c8d")  # Gray
+        self.scene.addEllipse(
+            sun_center_scene.x() - r_sun, sun_center_scene.y() - r_sun,
+            r_sun * 2, r_sun * 2,
+            QPen(sun_color, 4),
+            QBrush(sun_color.lighter(140))
+        )
+        
+        # Draw planet gear
+        planet_color = QColor("#e67e22")  # Orange
+        self.scene.addEllipse(
+            planet_center_scene.x() - r_planet, planet_center_scene.y() - r_planet,
+            r_planet * 2, r_planet * 2,
+            QPen(planet_color, 4),
+            QBrush(planet_color.lighter(150))
+        )
+        
+        # Draw arm from planet center to tracking point
+        arm_color = QColor("#f39c12")  # Gold
+        self.scene.addLine(
+            planet_center_scene.x(), planet_center_scene.y(),
+            tracking_scene.x(), tracking_scene.y(),
+            QPen(arm_color, 3)
+        )
+        
+        # Draw tracking point
+        tracking_color = QColor("#e74c3c")  # Red
+        self.scene.addEllipse(
+            tracking_scene.x() - 8, tracking_scene.y() - 8, 16, 16,
+            QPen(tracking_color.darker(150), 3),
+            QBrush(tracking_color)
+        )
+        
+        # Sun center marker
+        sun_center_color = QColor("#34495e")  # Dark gray
+        self.scene.addEllipse(
+            sun_center_scene.x() - 6, sun_center_scene.y() - 6, 12, 12,
+            QPen(sun_center_color, 2),
+            QBrush(sun_center_color)
+        )
 
     def _render_preview(self) -> None:
         self.scene.clear()
@@ -870,9 +932,8 @@ class MechanismRecommendationDialog(QDialog):
                 else:
                     placeholder_label = QLabel("No mechanism found")
                     placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    placeholder_label.setFrameShape(QLabel.FrameShape.Box)
                     placeholder_label.setFixedSize(220, 280)
-                    placeholder_label.setStyleSheet("background-color: #f0f0f0;")
+                    placeholder_label.setStyleSheet("background-color: #f0f0f0; border: 1px solid #cccccc;")
                     self.previews_layout.addWidget(placeholder_label)
             self.previews_layout.addStretch()
         else:
@@ -1010,8 +1071,11 @@ class MechanismRecommendationDialog(QDialog):
             "4-bar Coupler": "4-Bar Linkage",
             "3-bar Output": "3-Bar Linkage",
             "Cam Profile": "Cam & Follower",
+            "Cam-Follower": "Cam & Follower",  # Match dataset type
             "Gear Train": "Gears (Simple Pair)",
             "Gear Contact": "Gears (Simple Pair)",
+            "Simple Gear": "Gears (Simple Pair)",  # Match dataset type
+            "Planetary Gear": "Planetary Gear",  # Match dataset type
             "line": "Linear Motion"
         }
 
