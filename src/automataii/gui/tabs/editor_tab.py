@@ -1,6 +1,5 @@
 import logging
 from typing import Optional, Dict, List, Any, Tuple
-from pathlib import Path
 import math
 
 from PyQt6.QtWidgets import (
@@ -9,35 +8,22 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QPushButton,
     QGroupBox,
-    QComboBox,
-    QDoubleSpinBox,
-    QCheckBox,
-    QFormLayout,
     QListWidget,
     QScrollArea,
-    QSizePolicy,
-    QApplication,
     QStyle,
     QListWidgetItem,
     QMessageBox,
-    QGraphicsLineItem,
-    QGraphicsEllipseItem,
-    QDialog,
-    QGraphicsPathItem,
     QLabel,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QTimer, QRectF
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtWidgets import QGraphicsItem
-from PyQt6.QtGui import QPixmap, QPen, QBrush, QPainterPath, QColor
+from PyQt6.QtGui import QBrush, QPainterPath, QColor
 
 from ..views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene
 from ..graphics_items.part_item import CharacterPartItem
 from automataii.core.models import PartInfo
 
-from PyQt6.QtGui import QPainterPath
-from .utils import get_project_root
 
 
 class EditorTab(QWidget):
@@ -520,7 +506,7 @@ class EditorTab(QWidget):
             else:
                 self.selected_part_name = None
                 self.editor_scene.clearSelection()
-                logging.warning(f"EditorTab: No part name found in UserRole data")
+                logging.warning("EditorTab: No part name found in UserRole data")
         else:
             self.selected_part_name = None
             self.editor_scene.clearSelection()
@@ -1478,3 +1464,49 @@ class EditorTab(QWidget):
         path_data = self._collect_path_data()
         self.path_data_changed.emit(path_data)
         logging.info(f"EditorTab: Emitted path data for {len(path_data)} parts")
+
+    def activate_tab(self):
+        """Called when the tab becomes active. Re-enable animation controls if needed."""
+        # Ensure IKManager has the current parts data
+        main_window = self.window()
+        
+        # Try to get the most up-to-date parts data
+        parts_data_to_use = None
+        if hasattr(main_window, 'project_data_manager') and main_window.project_data_manager:
+            parts_data_to_use = main_window.project_data_manager.get_current_parts_data()
+        
+        # Fallback to local parts data if project data manager doesn't have it
+        if not parts_data_to_use and hasattr(self, 'current_parts_info') and self.current_parts_info:
+            parts_data_to_use = self.current_parts_info
+            
+        # Set the parts data in IKManager
+        if parts_data_to_use and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
+            if hasattr(main_window.ik_manager, 'set_project_parts_data'):
+                main_window.ik_manager.set_project_parts_data(parts_data_to_use)
+                logging.info(f"[EditorTab] Re-set project parts data in IKManager on tab activation ({len(parts_data_to_use)} parts)")
+        
+        # Re-enable animation controls based on current state
+        if self._has_motion_paths():
+            self.play_btn.setEnabled(True)
+            self.reset_sim_btn.setEnabled(True)
+            
+            # Update animation status
+            path_count = len(self._collect_path_data())
+            self.animation_status_label.setText(f"{path_count} motion path(s) defined")
+            
+            logging.info("[EditorTab] Tab activated - animation controls re-enabled")
+
+    def deactivate_tab(self):
+        """Called when leaving the tab. Stop any running animations."""
+        # Check if animation is running and stop it
+        if self.stop_btn.isEnabled():
+            self._stop_simulation_clicked()
+            logging.info("[EditorTab] Tab deactivated - animation stopped")
+            
+    def _has_motion_paths(self) -> bool:
+        """Check if any items have motion paths defined."""
+        for item in self.editor_scene.items():
+            if isinstance(item, CharacterPartItem):
+                if hasattr(item, 'motion_path') and item.motion_path and not item.motion_path.isEmpty():
+                    return True
+        return False

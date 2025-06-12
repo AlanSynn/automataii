@@ -21,12 +21,11 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsRectItem,
     QGraphicsLineItem,
-    QGraphicsTextItem,
     QStyle,
 )
-from PyQt6.QtCore import pyqtSignal, QPointF, Qt, QTimer, QRectF, QLineF
+from PyQt6.QtCore import pyqtSignal, QPointF, Qt, QTimer, QLineF
 from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtGui import QPainterPath, QPen, QColor, QBrush, QTransform, QFont, QPolygonF
+from PyQt6.QtGui import QPainterPath, QPen, QColor, QBrush, QFont, QPolygonF
 
 from ..views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem, QGraphicsPolygonItem
@@ -39,13 +38,9 @@ from automataii.kinematics.mechanism_simulator import MechanismSimulator
 from ..graphics_items.part_item import CharacterPartItem
 
 from ..dialogs.recommendation_dialog import (
-    MECHANISM_TYPE_USER_DISPLAY_4_BAR,
-    MECHANISM_TYPE_USER_DISPLAY_3_BAR,
-    MECHANISM_TYPE_USER_DISPLAY_CAM,
     MechanismRecommendationDialog,
     qpainterpath_to_numpy_array,
 )
-from .mechanism_factory import get_scene_transform_function
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -466,7 +461,7 @@ class MechanismDesignTab(QWidget):
     def _update_parts_from_skeleton(self, skeleton_data: Dict):
         """Update part positions and rotations based on skeleton joint movements (matching editor tab behavior)."""
         joints_dict = skeleton_data.get("joints", {})
-        hierarchy = skeleton_data.get("hierarchy", {})
+        # hierarchy = skeleton_data.get("hierarchy", {})
 
         if self.debug_mode and self.animation_timer.isActive() and int(self.animation_time * 10) % 20 == 0:
             logging.info(f"[DEBUG] _update_parts_from_skeleton: joints_dict keys: {list(joints_dict.keys())}")
@@ -934,7 +929,7 @@ class MechanismDesignTab(QWidget):
             # Use law of cosines to find elbow angle
             cos_angle = (l1*l1 + l2*l2 - distance*distance) / (2 * l1 * l2)
             cos_angle = max(-1, min(1, cos_angle))  # Clamp to valid range
-            elbow_angle = math.acos(cos_angle)
+            # elbow_angle = math.acos(cos_angle)
 
             # Calculate shoulder angle
             cos_shoulder = (l1*l1 + distance*distance - l2*l2) / (2 * l1 * distance)
@@ -1427,13 +1422,13 @@ class MechanismDesignTab(QWidget):
                 if "p1_positions" in joint_pos:
                     logging.info(f"[DEBUG] joint_positions has {len(joint_pos['p1_positions'])} frames")
             else:
-                logging.warning(f"[DEBUG] No joint_positions in full_simulation_data!")
+                logging.warning("[DEBUG] No joint_positions in full_simulation_data!")
 
             if "coupler_path" in full_sim_data:
                 coupler_path = full_sim_data["coupler_path"]
                 logging.info(f"[DEBUG] coupler_path has {len(coupler_path)} points")
             else:
-                logging.warning(f"[DEBUG] No coupler_path in full_simulation_data!")
+                logging.warning("[DEBUG] No coupler_path in full_simulation_data!")
 
         # Verify and adjust coupler point connection to skeleton joint
         self._verify_coupler_joint_connection(layer_data)
@@ -1647,7 +1642,7 @@ class MechanismDesignTab(QWidget):
 
         # Debug logging
         if self.debug_mode:
-            logging.info(f"[TRANSFORM] Using recommendation dialog transform_params:")
+            logging.info("[TRANSFORM] Using recommendation dialog transform_params:")
             logging.info(f"[TRANSFORM] Center: {center}, Scale: {scale}, Rotation: {rotation_angle:.3f} rad")
 
         return to_scene_coords
@@ -1685,7 +1680,7 @@ class MechanismDesignTab(QWidget):
 
             # Add text label
             text_item = self.mechanism_scene.addText(
-                f"Mech@t=0",
+                "Mech@t=0",
                 QFont("Arial", 10)
             )
             text_item.setDefaultTextColor(QColor("#ff0000"))
@@ -1900,7 +1895,7 @@ class MechanismDesignTab(QWidget):
 
             # Fallback calculation for planetary gear
             if self.debug_mode:
-                logging.warning(f"[DEBUG] Using fallback calculation for planetary_gear")
+                logging.warning("[DEBUG] Using fallback calculation for planetary_gear")
             return None
 
         else:
@@ -1917,7 +1912,7 @@ class MechanismDesignTab(QWidget):
         if mech_type == "4_bar_linkage":
             if not key_points or not params:
                 if self.debug_mode:
-                    logging.warning(f"Missing key_points or params for 4-bar linkage")
+                    logging.warning("Missing key_points or params for 4-bar linkage")
                 return None
 
             l2, l3, l4 = params.get("l2"), params.get("l3"), params.get("l4")
@@ -1939,7 +1934,8 @@ class MechanismDesignTab(QWidget):
 
             d_sq = np.sum((p2 - p3)**2)
             d = np.sqrt(d_sq)
-            if not (abs(l3 - l4) <= d <= (l3 + l4)): return None
+            if not (abs(l3 - l4) <= d <= (l3 + l4)):
+                return None
 
             a = (l3**2 - l4**2 + d_sq) / (2 * d)
             h = math.sqrt(max(0, l3**2 - a**2))
@@ -1949,7 +1945,8 @@ class MechanismDesignTab(QWidget):
 
             coupler_link_vec = p4 - p3
             coupler_link_len = np.linalg.norm(coupler_link_vec)
-            if np.isclose(coupler_link_len, 0): return None
+            if np.isclose(coupler_link_len, 0):
+                return None
 
             coupler_local_x_axis = coupler_link_vec / coupler_link_len
             coupler_local_y_axis = np.array([-coupler_local_x_axis[1], coupler_local_x_axis[0]])
@@ -2125,7 +2122,7 @@ class MechanismDesignTab(QWidget):
                             coupler_item = visual_items[2]
 
                             # Check collinearity (same as dataset generator)
-                            area = abs(p3[0]*(p4[1]-p_coupler[1]) + p4[0]*(p_coupler[1]-p3[1]) + p_coupler[0]*(p3[1]-p4[1])) / 2
+                            # area = abs(p3[0]*(p4[1]-p_coupler[1]) + p4[0]*(p_coupler[1]-p3[1]) + p_coupler[0]*(p3[1]-p4[1])) / 2
 
                             if isinstance(coupler_item, QGraphicsLineItem):
                                 # Update line
@@ -2168,7 +2165,7 @@ class MechanismDesignTab(QWidget):
 
                         # LOG: Log successful visual update
                         if self.debug_mode:
-                            logging.info(f"[DEBUG] Successfully updated 4-bar triangle visuals")
+                            logging.info("[DEBUG] Successfully updated 4-bar triangle visuals")
 
                     else:
                         logging.warning("[DEBUG] Missing p1_positions in joint_positions")
@@ -2309,7 +2306,6 @@ class MechanismDesignTab(QWidget):
                     ])
 
                     # Transform to scene coordinates
-                    sun_center_scene = to_scene_coords(sun_center_orig)
                     planet_center_scene = to_scene_coords(planet_center_orig)
                     tracking_scene = to_scene_coords(tracking_point_orig)
 
@@ -2389,7 +2385,8 @@ class MechanismDesignTab(QWidget):
     def _display_paths_in_preview(self):
         """Display motion paths from editor tab in the preview"""
         for item in self.path_visual_items.values():
-            if item.scene(): self.mechanism_scene.removeItem(item)
+            if item.scene():
+                self.mechanism_scene.removeItem(item)
         self.path_visual_items.clear()
 
         for part_name, path in self.path_data.items():
@@ -2411,7 +2408,7 @@ class MechanismDesignTab(QWidget):
 
         # Debug logging
         if self.debug_mode:
-            logging.info(f"[DEBUG] _create_4bar_linkage_visuals called")
+            logging.info("[DEBUG] _create_4bar_linkage_visuals called")
             logging.info(f"[DEBUG]   to_scene_coords: {to_scene_coords is not None}")
             logging.info(f"[DEBUG]   params: {params}")
             logging.info(f"[DEBUG]   key_points: {key_points}")
@@ -2596,7 +2593,8 @@ class MechanismDesignTab(QWidget):
         mechanism_id = mechanism_graphics_data.get("mechanism_id")
         mechanism_type = mechanism_graphics_data.get("mechanism_type")
         layer_data = self.mechanism_layers.get(mechanism_id)
-        if not layer_data: return
+        if not layer_data:
+            return
 
         # Remove any existing visual items for this mechanism
         existing_visual_items = layer_data.get("visual_items", [])
@@ -3341,6 +3339,43 @@ class MechanismDesignTab(QWidget):
 
         except Exception as e:
             logging.warning(f"[DEBUG] Error in consistency check: {e}")
+
+    def activate_tab(self):
+        """Called when the tab becomes active. Restore animation controls if needed."""
+        # Ensure IKManager has the current parts data
+        # Try to get the most up-to-date parts data
+        parts_data_to_use = None
+        if hasattr(self.main_window, 'project_data_manager') and self.main_window.project_data_manager:
+            parts_data_to_use = self.main_window.project_data_manager.get_current_parts_data()
+        
+        # Fallback to local parts data if project data manager doesn't have it
+        if not parts_data_to_use and hasattr(self, 'parts_data') and self.parts_data:
+            parts_data_to_use = self.parts_data
+            
+        # Set the parts data in IKManager
+        if parts_data_to_use and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+            if hasattr(self.main_window.ik_manager, 'set_project_parts_data'):
+                self.main_window.ik_manager.set_project_parts_data(parts_data_to_use)
+                if self.debug_mode:
+                    logging.info(f"[DEBUG] Mechanism Design Tab: Re-set project parts data in IKManager on tab activation ({len(parts_data_to_use)} parts)")
+        
+        # Re-enable animation controls if we have mechanisms
+        if self.mechanism_layers and any(self.mechanism_enabled_state.values()):
+            self.play_btn.setEnabled(True)
+            self.reset_btn.setEnabled(True)
+            self.enable_mechanisms_checkbox.setEnabled(True)
+            
+            if self.debug_mode:
+                logging.info("[DEBUG] Mechanism Design Tab activated - animation controls re-enabled")
+
+    def deactivate_tab(self):
+        """Called when leaving the tab. Stop any running animations."""
+        # Stop animation if running
+        if self.animation_timer.isActive():
+            self._on_stop_animation()
+            
+            if self.debug_mode:
+                logging.info("[DEBUG] Mechanism Design Tab deactivated - animation stopped")
 
     # ... other methods from the original file can be added here if needed
 

@@ -1,5 +1,4 @@
 import os
-import json
 import logging
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -13,22 +12,18 @@ from PyQt6.QtWidgets import (
     QGraphicsPixmapItem,
     QFileDialog,
 )
-from PyQt6.QtGui import QColor, QPen, QPainterPath, QBrush, QPixmap, QTransform
+from PyQt6.QtGui import QPainterPath
 from PyQt6.QtCore import (
-    Qt,
     QPointF,
-    QTimer,
     pyqtSlot,
-    QRectF,
 )
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
 # Local imports (adjust paths as needed)
 from .views.editor_view import EditorView  # ADD THIS IMPORT
-from .image_view import ImageProcessingView
 from .graphics_items.part_item import CharacterPartItem
-from ..utils.styling import LIGHT_STYLE, DARK_STYLE, UIColors
+from ..utils.styling import LIGHT_STYLE, DARK_STYLE
 
 from ..core.models import PartInfo  # ProjectFileModel is in models_pydantic
 from ..core.models_pydantic import (
@@ -57,7 +52,6 @@ from ..core.project_data_manager import ProjectDataManager
 # Import MechanismManager
 from ..core.mechanism_manager import MechanismManager
 
-from PyQt6.QtWidgets import QGraphicsEllipseItem
 
 # from qframelesswindow import FramelessMainWindow
 
@@ -363,6 +357,10 @@ class AutomataDesigner(QMainWindow):
         current_tab = self.tab_widget.widget(index)
         previous_tab = self.tab_widget.widget(self._previous_tab_index)
 
+        # Call deactivate_tab on the previous tab if it has the method
+        if previous_tab and hasattr(previous_tab, 'deactivate_tab'):
+            previous_tab.deactivate_tab()
+
         # --- Camera State Sharing ---
         tabs_with_shared_view = [self.editor_tab, self.mechanism_design_tab]
         camera_state_applied = False
@@ -406,6 +404,10 @@ class AutomataDesigner(QMainWindow):
             if current_parts_data and not self.mechanism_design_tab.parts_data:
                 self.mechanism_design_tab.set_parts_data(current_parts_data)
                 logging.info("MechanismDesignTab: Synchronized parts data on tab switch")
+
+        # Call activate_tab on the current tab if it has the method
+        if current_tab and hasattr(current_tab, 'activate_tab'):
+            current_tab.activate_tab()
 
             if (hasattr(self.skeleton_manager, 'get_current_skeleton_data') and
                 (not hasattr(self.mechanism_design_tab, '_initial_skeleton_data_cache') or
@@ -1222,7 +1224,7 @@ class AutomataDesigner(QMainWindow):
                 f"Skeleton loaded/updated: {num_joints} joints.", 3000
             )
         else:
-            self.statusBar().showMessage(f"Skeleton cleared or not loaded.", 3000)
+            self.statusBar().showMessage("Skeleton cleared or not loaded.", 3000)
 
     # --- New Slot for IKManager Signals ---
     @pyqtSlot(dict)
