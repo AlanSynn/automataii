@@ -1721,6 +1721,30 @@ class IKManager(QObject):
             )
             return
 
+        # CRITICAL FIX: Apply mechanism position targets directly before IK solving
+        # For mechanism-controlled joints, we bypass IK and set positions directly
+        if self._mechanism_position_targets:
+            logging.debug(f"IKM: Processing {len(self._mechanism_position_targets)} mechanism targets")
+            logging.debug(f"IKM: Available dynamic_joints: {list(self.dynamic_joints.keys())}")
+            logging.debug(f"IKM: Available sim_joints_config: {list(self.sim_joints_config.keys()) if self.sim_joints_config else 'None'}")
+            
+        for mech_joint_id, mech_target_pos in self._mechanism_position_targets.items():
+            logging.debug(f"IKM: Checking mechanism target for '{mech_joint_id}'")
+            if mech_joint_id in self.dynamic_joints:
+                old_pos = self.dynamic_joints[mech_joint_id]
+                self.dynamic_joints[mech_joint_id] = (mech_target_pos.x(), mech_target_pos.y())
+                # Safe logging for old_pos (might be tuple or other format)
+                old_pos_str = f"({old_pos[0]:.1f}, {old_pos[1]:.1f})" if isinstance(old_pos, (tuple, list)) and len(old_pos) >= 2 else str(old_pos)
+                logging.debug(f"IKM: DIRECT mechanism override for joint '{mech_joint_id}': {old_pos_str} -> ({mech_target_pos.x():.1f}, {mech_target_pos.y():.1f})")
+            elif mech_joint_id in self.sim_joints_config:
+                # Try to apply directly to sim_joints_config if not in dynamic_joints
+                old_pos = self.sim_joints_config[mech_joint_id].get("position", "Unknown")
+                self.sim_joints_config[mech_joint_id]["position"] = mech_target_pos
+                old_pos_str = f"({old_pos.x():.1f}, {old_pos.y():.1f})" if hasattr(old_pos, 'x') and hasattr(old_pos, 'y') else str(old_pos)
+                logging.debug(f"IKM: DIRECT mechanism override (sim_joints_config) for joint '{mech_joint_id}': {old_pos_str} -> ({mech_target_pos.x():.1f}, {mech_target_pos.y():.1f})")
+            else:
+                logging.warning(f"IKM: Mechanism target joint '{mech_joint_id}' not found in dynamic_joints or sim_joints_config")
+        
         # This is where the core IK logic happens and self.dynamic_joints gets updated.
         # The existing logic iterates sim_selectable_components, finds paths, solves IK, and updates dynamic_joints.
         # We will assume that by the end of this loop, self.dynamic_joints contains the latest animated joint positions.
@@ -1756,6 +1780,20 @@ class IKManager(QObject):
                 )
 
             if target_pos_on_path:
+                # CRITICAL FIX: Handle mechanism-controlled joints with enhanced IK
+                # If this joint is controlled by a mechanism, we need special handling to preserve bone lengths
+                target_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name)
+                is_mechanism_controlled = target_std_id and target_std_id in self._mechanism_position_targets
+                
+                if is_mechanism_controlled:
+                    # Use the mechanism target position, but ensure natural limb movement with bone length preservation
+                    mechanism_target_pos = self._mechanism_position_targets[target_std_id]
+                    logging.info(f"IKM: MECHANISM CONTROLLED joint '{target_std_id}' - enhanced IK with target at ({mechanism_target_pos.x():.1f}, {mechanism_target_pos.y():.1f})")
+                    
+                    # FOR MECHANISM-CONTROLLED JOINTS: Use the mechanism target directly as target_pos_on_path
+                    # This ensures the mechanism position is EXACTLY preserved while bone lengths are maintained
+                    target_pos_on_path = mechanism_target_pos
+                
                 if target_ik_joint_abstract_name in self.sim_two_bone_ik_effectors:
                     # This is the effector joint (e.g., 'left_hand')
                     effector_limb_config = self.sim_limb_configs.get(
@@ -1887,6 +1925,14 @@ class IKManager(QObject):
                                 f"IKM._run_ik_animation_step: Effector joint std_id '{effector_std_id}' not found in sim_joints_config to update position."
                             )
 
+                        # CRITICAL OVERRIDE: If this is mechanism-controlled, ensure the effector position matches exactly
+                        if is_mechanism_controlled and effector_std_id in self._mechanism_position_targets:
+                            mechanism_exact_pos = self._mechanism_position_targets[effector_std_id]
+                            if effector_std_id in self.sim_joints_config:
+                                # Force the effector to the EXACT mechanism position
+                                self.sim_joints_config[effector_std_id]["position"] = mechanism_exact_pos
+                                logging.info(f"  IKM MECHANISM OVERRIDE: Forced effector '{effector_std_id}' to exact mechanism position ({mechanism_exact_pos.x():.1f}, {mechanism_exact_pos.y():.1f})")
+                        
                         logging.debug(
                             f"  IKM Solved and updated: Middle ('{middle_std_id}') -> {p1_new}, Effector ('{effector_std_id}') -> {p2_new}"
                         )
@@ -1962,6 +2008,38 @@ class IKManager(QObject):
                     )
         # --- End of existing IK solving logic (simplified) ---
 
+        # CRITICAL FIX: Re-apply mechanism position targets after IK solving
+        # Ensure mechanism-controlled joints are not overridden by IK calculations
+        for mech_joint_id, mech_target_pos in self._mechanism_position_targets.items():
+            if mech_joint_id in self.sim_joints_config:
+                old_pos = self.sim_joints_config[mech_joint_id].get("position", "Unknown")
+                self.sim_joints_config[mech_joint_id]["position"] = mech_target_pos
+                # Safe logging for old_pos (might be QPointF or other format)
+                old_pos_str = f"({old_pos.x():.1f}, {old_pos.y():.1f})" if hasattr(old_pos, 'x') and hasattr(old_pos, 'y') else str(old_pos)
+                logging.debug(f"IKM: FINAL mechanism override for joint '{mech_joint_id}': {old_pos_str} -> ({mech_target_pos.x():.1f}, {mech_target_pos.y():.1f})")
+        
+        # CRITICAL UPDATE: Sync all sim_joints_config positions to dynamic_joints
+        # This ensures dynamic_joints reflects the latest IK + mechanism positions
+        for joint_std_id, joint_data in self.sim_joints_config.items():
+            pos = joint_data.get("position")
+            if pos is not None and hasattr(pos, 'x') and hasattr(pos, 'y'):
+                if joint_std_id in self.dynamic_joints:
+                    old_dyn_pos = self.dynamic_joints[joint_std_id]
+                    self.dynamic_joints[joint_std_id] = (pos.x(), pos.y())
+                    # Only log if position actually changed significantly
+                    if isinstance(old_dyn_pos, (tuple, list)) and len(old_dyn_pos) >= 2:
+                        distance = ((pos.x() - old_dyn_pos[0])**2 + (pos.y() - old_dyn_pos[1])**2)**0.5
+                        if distance > 0.1:  # Only log significant changes
+                            logging.debug(f"IKM: Updated dynamic_joints['{joint_std_id}']: ({old_dyn_pos[0]:.1f}, {old_dyn_pos[1]:.1f}) -> ({pos.x():.1f}, {pos.y():.1f})")
+                else:
+                    # Add new joint to dynamic_joints if it doesn't exist
+                    self.dynamic_joints[joint_std_id] = (pos.x(), pos.y())
+                    logging.debug(f"IKM: Added new joint to dynamic_joints['{joint_std_id}']: ({pos.x():.1f}, {pos.y():.1f})")
+        
+        # CRITICAL ADDITION: Recalculate ALL bone angles after position updates
+        # This ensures natural skeleton movement with proper rotations for mechanism-controlled joints
+        self._recalculate_all_bone_angles_after_ik()
+
         # After all IK updates, dynamic_joints holds the current pose.
         # Now, update character part visuals based on the new IK pose.
         self._update_character_part_visuals_from_ik()  # This emits character_visuals_updated for parts
@@ -2009,6 +2087,108 @@ class IKManager(QObject):
             f"IKManager: dynamic_joints setter called with {len(value)} items."
         )
         self._sim_dynamic_joints_data = value
+
+    def _recalculate_all_bone_angles_after_ik(self):
+        """Recalculate all bone angles after IK position updates to ensure natural skeleton movement.
+        This is critical for mechanism-controlled joints to have proper rotations.
+        """
+        if not self.sim_joints_config or not self._initial_snapshot:
+            logging.warning("IKM: Cannot recalculate bone angles - missing sim_joints_config or initial_snapshot")
+            return
+        
+        def angle_between_points(p1, p2):
+            """Calculate angle from p1 to p2 in degrees"""
+            return math.degrees(math.atan2(p2.y() - p1.y(), p2.x() - p1.x()))
+        
+        # Update angles for all bones based on current joint positions
+        angles_updated = 0
+        
+        # 1. Update limb angles (two-bone chains)
+        for eff_abs, limb_config in self.sim_limb_configs.items():
+            part_name = limb_config.get("label")
+            parent_abs = limb_config.get("parentAnchor")
+            
+            if not (part_name and parent_abs):
+                continue
+                
+            # Get standardized IDs
+            parent_std_id = self._get_standardized_joint_id(parent_abs)
+            child_std_id = self._get_standardized_joint_id(eff_abs)
+            
+            if not (parent_std_id and child_std_id):
+                continue
+                
+            # Get current positions
+            parent_pos = self.sim_joints_config.get(parent_std_id, {}).get("position")
+            child_pos = self.sim_joints_config.get(child_std_id, {}).get("position")
+            
+            if not (parent_pos and child_pos):
+                continue
+                
+            # Calculate current angle between parent and child
+            current_angle = angle_between_points(parent_pos, child_pos)
+            
+            # Get initial angle for this bone
+            initial_parent_pos = None
+            initial_child_pos = None
+            if parent_std_id in self._initial_snapshot:
+                initial_parent_pos = self._initial_snapshot[parent_std_id].get("position")
+            if child_std_id in self._initial_snapshot:
+                initial_child_pos = self._initial_snapshot[child_std_id].get("position")
+                
+            initial_angle = 0.0
+            if initial_parent_pos and initial_child_pos:
+                initial_angle = angle_between_points(initial_parent_pos, initial_child_pos)
+            
+            # Calculate angle delta from initial pose
+            angle_delta = current_angle - initial_angle
+            
+            # Update the angle in sim_joints_config for the child joint
+            if child_std_id in self.sim_joints_config:
+                old_angle = self.sim_joints_config[child_std_id].get("angle", 0.0)
+                # Parts start at 0° rotation, so world rotation = 0° + angle_delta
+                new_angle = 0.0 + angle_delta
+                self.sim_joints_config[child_std_id]["angle"] = new_angle
+                
+                # Log significant angle changes
+                if abs(new_angle - old_angle) > 5.0:  # Log changes > 5 degrees
+                    logging.debug(f"IKM: Updated angle for '{child_std_id}' (part: {part_name}): {old_angle:.1f}° -> {new_angle:.1f}° (delta: {angle_delta:.1f}°)")
+                
+                angles_updated += 1
+        
+        # 2. Update angles for single joints (head, torso, etc.)
+        for joint_std_id, joint_data in self.sim_joints_config.items():
+            if "angle" not in joint_data:
+                continue
+                
+            # For joints not handled by limb calculation above
+            handled_by_limb = False
+            for limb_config in self.sim_limb_configs.values():
+                if self._get_standardized_joint_id(limb_config.get("parentAnchor")) == joint_std_id:
+                    handled_by_limb = True
+                    break
+                    
+            if not handled_by_limb:
+                # For standalone joints, calculate angle based on movement from initial position
+                # This prevents constantly resetting to initial angle
+                current_pos = joint_data.get("position")
+                if current_pos and joint_std_id in self._initial_snapshot:
+                    initial_pos = self._initial_snapshot[joint_std_id].get("position")
+                    if initial_pos:
+                        # Calculate angle change based on position displacement
+                        dx = current_pos.x() - initial_pos.x()
+                        dy = current_pos.y() - initial_pos.y()
+                        if dx != 0 or dy != 0:  # Only update if there's actual movement
+                            movement_angle = math.degrees(math.atan2(dy, dx))
+                            initial_angle = self._initial_snapshot[joint_std_id].get("angle", 0.0)
+                            # Add movement angle to initial angle (don't just use initial)
+                            new_angle = initial_angle + movement_angle
+                            self.sim_joints_config[joint_std_id]["angle"] = new_angle
+                            logging.debug(f"IKM: Updated standalone joint '{joint_std_id}' angle: {initial_angle:.1f}° + {movement_angle:.1f}° = {new_angle:.1f}°")
+                        # If no movement, keep current angle (don't reset to initial)
+        
+        if angles_updated > 0:
+            logging.debug(f"IKM: Recalculated angles for {angles_updated} bones after IK position updates")
 
     def update_part_motion_path(self, part_name: str, motion_qpath: QPainterPath):
         """Updates the motion path for a specific part in the IKManager's project_parts_data."""

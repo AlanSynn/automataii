@@ -341,11 +341,12 @@ class EditorTab(QWidget):
                 background-color: #a7c7e7;
                 border: 1px solid #96b6d6;
                 border-radius: 5px;
-                padding: 6px 12px;
+                padding: 4px 6px;
                 font-weight: bold;
                 color: #ffffff;
                 min-height: 24px;
-                min-width: 55px;
+                min-width: 30px;
+                max-width: 35px;
                 font-size: 10pt;
             }
             QPushButton:hover {
@@ -699,10 +700,26 @@ class EditorTab(QWidget):
     def populate_parts_list(self, part_names: List[str]):
         """Populate the parts list widget with given names."""
         self.parts_list.clear()
+        disabled_parts = {
+            'torso',
+            'left_arm_upper', 'right_arm_upper',
+            'left_leg_upper', 'right_leg_upper'
+        }
+
         for part_name in part_names:
             item = QListWidgetItem(part_name)
-            item.setData(Qt.ItemDataRole.UserRole, part_name)  # Store part name in UserRole
-            self.parts_list.addItem(item)
+            item.setData(Qt.ItemDataRole.UserRole, part_name)
+
+            # 🔧 upper 파츠들과 torso 비활성화
+            if any(disabled_part in part_name.lower() for disabled_part in disabled_parts):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)  # 선택 불가
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)     # 비활성화
+
+                # 시각적으로 비활성화 표시
+                item.setForeground(QBrush(QColor(150, 150, 150)))  # 회색 텍스트
+                item.setBackground(QBrush(QColor(240, 240, 240)))   # 연한 회색 배경
+            else:
+                self.parts_list.addItem(item)
         self._update_button_states()
         self._update_part_list_styles()
         self._update_active_part_visuals()

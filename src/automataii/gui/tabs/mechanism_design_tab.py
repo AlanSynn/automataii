@@ -384,8 +384,19 @@ class MechanismDesignTab(QWidget):
                 logging.info(f"[DEBUG] Setting up initial skeleton visualization with cached data (joints: {len(self._initial_skeleton_data_cache.get('joints', {}))}, hierarchy: {bool(self._initial_skeleton_data_cache.get('hierarchy'))})")
             self._ensure_skeleton_visualization(self._initial_skeleton_data_cache)
 
-            if self.current_editor_items:
+            # CRITICAL FIX: Only position parts at anchor joints if animation is NOT running
+            # This prevents parts from being reset to initial positions during animation
+            if self.current_editor_items and not self._is_animation_running():
                 self._position_parts_at_anchor_joints()
+                if self.debug_mode:
+                    logging.info("[DEBUG] MechanismDesignTab: Positioned parts at anchor joints (animation not running)")
+            elif self._is_animation_running():
+                if self.debug_mode:
+                    logging.info("[DEBUG] MechanismDesignTab: Skipped parts repositioning - animation is running")
+
+    def _is_animation_running(self) -> bool:
+        """Check if mechanism animation is currently running."""
+        return self.animation_timer and self.animation_timer.isActive()
 
     def on_skeleton_updated(self, skeleton_data: Optional[Dict]):
         """Handle skeleton updates from IK manager with improved error handling and mechanism integration."""
@@ -453,35 +464,106 @@ class MechanismDesignTab(QWidget):
             # Don't let skeleton errors crash the mechanism animation
 
     def _update_parts_from_skeleton(self, skeleton_data: Dict):
-        """Update part positions based on skeleton joint movements (like in editor tab)."""
+        """Update part positions and rotations based on skeleton joint movements (matching editor tab behavior)."""
         joints_dict = skeleton_data.get("joints", {})
+        hierarchy = skeleton_data.get("hierarchy", {})
+
+        if self.debug_mode and self.animation_timer.isActive() and int(self.animation_time * 10) % 20 == 0:
+            logging.info(f"[DEBUG] _update_parts_from_skeleton: joints_dict keys: {list(joints_dict.keys())}")
+            logging.info(f"[DEBUG] current_editor_items keys: {list(self.current_editor_items.keys())}")
 
         for part_name, part_item in self.current_editor_items.items():
             part_info = self.parts_data.get(part_name)
-            if part_info and part_info.anchor_joint_id in joints_dict:
-                joint_data = joints_dict[part_info.anchor_joint_id]
+            if not part_info or not part_info.anchor_joint_id:
+                continue
 
-                # Check if this part is controlled by a mechanism
-                is_mechanism_controlled = self._is_part_mechanism_controlled(part_name)
+            anchor_joint_id = part_info.anchor_joint_id
+            if anchor_joint_id not in joints_dict:
+                continue
 
-                # Always update part position, but mechanism-controlled parts get priority
-                if "scene_position" in joint_data:
-                    scene_pos = joint_data["scene_position"]
-                    if isinstance(scene_pos, (list, tuple)) and len(scene_pos) >= 2:
-                        scene_pos = QPointF(scene_pos[0], scene_pos[1])
+            joint_data = joints_dict[anchor_joint_id]
+            is_mechanism_controlled = self._is_part_mechanism_controlled(part_name)
+
+            # 1. UPDATE POSITION (like editor tab)
+            position_updated = False
+            if "scene_position" in joint_data:
+                scene_pos = joint_data["scene_position"]
+                if isinstance(scene_pos, (list, tuple)) and len(scene_pos) >= 2:
+                    scene_pos = QPointF(scene_pos[0], scene_pos[1])
+                    if not is_mechanism_controlled:  # Only update if not controlled by mechanism
                         part_item.set_scene_position_from_anchor(scene_pos)
+                        position_updated = True
+            elif "position" in joint_data:
+                pos = joint_data["position"]
+                if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                    scene_pos = QPointF(pos[0], pos[1])
+                    if not is_mechanism_controlled:
+                        part_item.set_scene_position_from_anchor(scene_pos)
+                        position_updated = True
 
-                # Update rotation for all parts (skeleton handles this)
-                if "world_rotation_degrees" in joint_data:
-                    rotation = float(joint_data["world_rotation_degrees"])
+            # 2. UPDATE ROTATION (CRITICAL: like editor tab)
+            rotation_updated = False
+
+            # Try multiple rotation data sources
+            if "world_rotation_degrees" in joint_data:
+                rotation = float(joint_data["world_rotation_degrees"])
+                part_item.setRotation(rotation)
+                rotation_updated = True
+            elif "angle" in joint_data:
+                # Convert radians to degrees if needed
+                angle = joint_data["angle"]
+                if isinstance(angle, (int, float)):
+                    rotation_degrees = math.degrees(angle) if abs(angle) <= 2*math.pi else angle
+                    part_item.setRotation(rotation_degrees)
+                    rotation_updated = True
+            elif "rotation" in joint_data:
+                rotation = joint_data["rotation"]
+                if isinstance(rotation, (int, float)):
                     part_item.setRotation(rotation)
-                elif not is_mechanism_controlled:
-                    # For non-mechanism parts, use basic skeleton positioning
+                    rotation_updated = True
+            else:
+                # FALLBACK: Calculate bone angle from parent-child relationship (like editor tab)
+                parent_joint_id = joint_data.get("parent_id") or joint_data.get("parent")
+                if parent_joint_id and parent_joint_id in joints_dict:
+                    parent_data = joints_dict[parent_joint_id]
+
+                    # Get positions
+                    child_pos = None
+                    parent_pos = None
+
                     if "scene_position" in joint_data:
-                        scene_pos = joint_data["scene_position"]
-                        if isinstance(scene_pos, (list, tuple)) and len(scene_pos) >= 2:
-                            scene_pos = QPointF(scene_pos[0], scene_pos[1])
-                            part_item.set_scene_position_from_anchor(scene_pos)
+                        child_pos = joint_data["scene_position"]
+                    elif "position" in joint_data:
+                        child_pos = joint_data["position"]
+
+                    if "scene_position" in parent_data:
+                        parent_pos = parent_data["scene_position"]
+                    elif "position" in parent_data:
+                        parent_pos = parent_data["position"]
+
+                    # Calculate bone angle
+                    if (child_pos and parent_pos and
+                        isinstance(child_pos, (list, tuple)) and len(child_pos) >= 2 and
+                        isinstance(parent_pos, (list, tuple)) and len(parent_pos) >= 2):
+
+                        dx = child_pos[0] - parent_pos[0]
+                        dy = child_pos[1] - parent_pos[1]
+
+                        if abs(dx) > 0.1 or abs(dy) > 0.1:  # Avoid division by zero
+                            bone_angle_rad = math.atan2(dy, dx)
+                            bone_angle_deg = math.degrees(bone_angle_rad)
+                            part_item.setRotation(bone_angle_deg)
+                            rotation_updated = True
+
+            # 3. DEBUG LOGGING
+            if (self.debug_mode and self.animation_timer.isActive() and
+                int(self.animation_time * 10) % 40 == 0):  # Log every 4 seconds
+                if position_updated or rotation_updated:
+                    current_rot = part_item.rotation()
+                    current_pos = part_item.pos()
+                    logging.info(f"[DEBUG] Part '{part_name}': pos=({current_pos.x():.1f},{current_pos.y():.1f}), rot={current_rot:.1f}°, mech_controlled={is_mechanism_controlled}")
+                elif not is_mechanism_controlled:
+                    logging.warning(f"[DEBUG] Part '{part_name}' - no position/rotation data in joint: {list(joint_data.keys())}")
 
     def _is_part_mechanism_controlled(self, part_name: str) -> bool:
         """Check if a part is currently controlled by an active mechanism."""
@@ -531,7 +613,7 @@ class MechanismDesignTab(QWidget):
                     if self.debug_mode:
                         logging.debug(f"[DEBUG] Calling visualize_skeleton with {len(skeleton_for_view)} joints")
                     self.mechanism_view.visualize_skeleton(skeleton_for_view, hierarchy)
-                    
+
                     # Ensure proper Z-order after creation
                     if hasattr(self.mechanism_view, 'skeleton_graphics_item') and self.mechanism_view.skeleton_graphics_item:
                         self.mechanism_view.skeleton_graphics_item.setZValue(0)
@@ -653,6 +735,449 @@ class MechanismDesignTab(QWidget):
                     self.mechanism_view.skeleton_graphics_item = None
                 if self.debug_mode:
                     logging.warning("[DEBUG] Skeleton graphics item was already deleted")
+
+    def _get_target_joint_for_mechanism_control(self, part_name: str, anchor_joint_id: str) -> str:
+        """Get the correct target joint (end effector) for mechanism control based on part name.
+        ALL PARTS ARE END EFFECTORS - every part should control its furthest joint.
+        """
+        # Import BODY_PARTS to get joint definitions
+        try:
+            from automataii.animate.part_definitions import BODY_PARTS
+        except ImportError:
+            BODY_PARTS = {}
+            logging.warning("Could not import BODY_PARTS for end effector detection")
+
+        # Check if this part has joint definitions
+        part_definition = BODY_PARTS.get(part_name, {})
+        part_joints = part_definition.get("joints", [])
+
+        # CRITICAL CHANGE: ALL PARTS ARE END EFFECTORS
+        # Every part should control its FURTHEST joint (last in the joint chain)
+        if part_joints and len(part_joints) > 0:
+            # Always use the LAST joint as the end effector for this part
+            end_effector = part_joints[-1]
+            if self.debug_mode:
+                logging.info(f"[DEBUG] Part '{part_name}' → END EFFECTOR '{end_effector}' (all joints: {part_joints})")
+            return end_effector
+
+        # Fallback mapping for parts without joint definitions
+        FALLBACK_PART_TO_TARGET_JOINT = {
+            # Arms - target should be hands (end effectors)
+            "left_arm_upper": "left_elbow",     # shoulder → elbow (end of upper arm)
+            "left_arm_lower": "left_hand",     # elbow → hand (end of lower arm)
+            "right_arm_upper": "right_elbow",  # shoulder → elbow (end of upper arm)
+            "right_arm_lower": "right_hand",   # elbow → hand (end of lower arm)
+
+            # Legs - target should be feet (end effectors)
+            "left_leg_upper": "left_knee",     # hip → knee (end of upper leg)
+            "left_leg_lower": "left_foot",     # knee → foot (end of lower leg)
+            "right_leg_upper": "right_knee",   # hip → knee (end of upper leg)
+            "right_leg_lower": "right_foot",   # knee → foot (end of lower leg)
+
+            # Special cases
+            "head": "neck",                    # head is controlled via neck joint
+            "torso": "torso",                  # torso → torso (center)
+        }
+
+        target_joint = FALLBACK_PART_TO_TARGET_JOINT.get(part_name, anchor_joint_id)
+
+        if self.debug_mode:
+            if target_joint != anchor_joint_id:
+                logging.info(f"[DEBUG] Part '{part_name}' → FALLBACK END EFFECTOR '{target_joint}' (was anchor '{anchor_joint_id}')")
+            else:
+                logging.warning(f"[DEBUG] Part '{part_name}' → Using anchor '{anchor_joint_id}' as end effector (no definition found)")
+
+        return target_joint
+
+    def _get_all_end_effector_parts(self) -> List[str]:
+        """Get list of all parts that are end effectors (have terminal joints)."""
+        try:
+            from automataii.animate.part_definitions import BODY_PARTS
+        except ImportError:
+            BODY_PARTS = {}
+
+        end_effector_parts = []
+
+        # Parts that control end effectors
+        end_effector_candidates = [
+            "left_arm_lower",   # controls left_hand
+            "right_arm_lower",  # controls right_hand
+            "left_leg_lower",   # controls left_foot
+            "right_leg_lower",  # controls right_foot
+            "head",             # controls via neck
+        ]
+
+        for part_name in end_effector_candidates:
+            if part_name in BODY_PARTS:
+                end_effector_parts.append(part_name)
+
+        if self.debug_mode:
+            logging.info(f"[DEBUG] End effector parts identified: {end_effector_parts}")
+
+        return end_effector_parts
+
+    def _is_end_effector_part(self, part_name: str) -> bool:
+        """Check if a part is an end effector."""
+        return part_name in self._get_all_end_effector_parts()
+
+    def _get_current_skeleton_data_with_mechanism_override(self, mechanism_joint_updates: Dict[str, QPointF]) -> Dict[str, tuple]:
+        """Get current skeleton data and override mechanism-controlled joints."""
+        # Start with the initial skeleton data as base
+        base_skeleton_data = {}
+
+        if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+            # Use cached initial skeleton data as base
+            joints_dict = self._initial_skeleton_data_cache.get("joints", {})
+            for joint_id, joint_info in joints_dict.items():
+                if isinstance(joint_info, dict):
+                    position = joint_info.get("position", [0, 0])
+                    if len(position) >= 2:
+                        base_skeleton_data[joint_id] = (float(position[0]), float(position[1]))
+
+        # Get standardized joint IDs for the base skeleton
+        if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+            joints_dict = self._initial_skeleton_data_cache.get("joints", {})
+            joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+            for orig_name, std_name in joint_map.items():
+                if orig_name in joints_dict:
+                    joint_info = joints_dict[orig_name]
+                    if isinstance(joint_info, dict):
+                        position = joint_info.get("position", [0, 0])
+                        if len(position) >= 2:
+                            base_skeleton_data[std_name] = (float(position[0]), float(position[1]))
+
+        # Override with mechanism-controlled joint positions AND compute IK for connected joints
+        for joint_id, mechanism_pos in mechanism_joint_updates.items():
+            base_skeleton_data[joint_id] = (mechanism_pos.x(), mechanism_pos.y())
+            if self.debug_mode:
+                logging.info(f"[DEBUG] Overriding skeleton joint '{joint_id}' with mechanism position ({mechanism_pos.x():.1f}, {mechanism_pos.y():.1f})")
+
+            # CRITICAL: Compute IK for the entire limb chain to make all parts follow
+            self._compute_ik_chain_for_mechanism_joint(joint_id, mechanism_pos, base_skeleton_data)
+
+        if self.debug_mode:
+            logging.info(f"[DEBUG] Generated skeleton data with {len(base_skeleton_data)} joints, {len(mechanism_joint_updates)} mechanism overrides")
+
+        return base_skeleton_data
+
+    def _compute_ik_chain_for_mechanism_joint(self, target_joint_id: str, target_pos: QPointF, skeleton_data: Dict[str, tuple]):
+        """Compute IK for the entire limb chain when a target joint is controlled by mechanism."""
+        import math
+
+        # Define limb chains and their lengths
+        LIMB_CHAINS = {
+            # Left arm: shoulder → elbow → hand
+            "left_hand": {
+                "joints": ["left_shoulder", "left_elbow", "left_hand"],
+                "std_joints": ["left_shoulder_7", "left_elbow_8", "left_hand_9"],
+                "lengths": [100, 80]  # shoulder-elbow, elbow-hand
+            },
+            "left_hand_9": {  # Handle standardized ID too
+                "joints": ["left_shoulder", "left_elbow", "left_hand"],
+                "std_joints": ["left_shoulder_7", "left_elbow_8", "left_hand_9"],
+                "lengths": [100, 80]
+            },
+
+            # Right arm: shoulder → elbow → hand
+            "right_hand": {
+                "joints": ["right_shoulder", "right_elbow", "right_hand"],
+                "std_joints": ["right_shoulder_4", "right_elbow_5", "right_hand_6"],
+                "lengths": [100, 80]
+            },
+            "right_hand_6": {
+                "joints": ["right_shoulder", "right_elbow", "right_hand"],
+                "std_joints": ["right_shoulder_4", "right_elbow_5", "right_hand_6"],
+                "lengths": [100, 80]
+            },
+
+            # Left leg: hip → knee → foot
+            "left_foot": {
+                "joints": ["left_hip", "left_knee", "left_foot"],
+                "std_joints": ["left_hip_13", "left_knee_14", "left_foot_15"],
+                "lengths": [120, 100]
+            },
+            "left_foot_15": {
+                "joints": ["left_hip", "left_knee", "left_foot"],
+                "std_joints": ["left_hip_13", "left_knee_14", "left_foot_15"],
+                "lengths": [120, 100]
+            },
+
+            # Right leg: hip → knee → foot
+            "right_foot": {
+                "joints": ["right_hip", "right_knee", "right_foot"],
+                "std_joints": ["right_hip_10", "right_knee_11", "right_foot_12"],
+                "lengths": [120, 100]
+            },
+            "right_foot_12": {
+                "joints": ["right_hip", "right_knee", "right_foot"],
+                "std_joints": ["right_hip_10", "right_knee_11", "right_foot_12"],
+                "lengths": [120, 100]
+            }
+        }
+
+        chain_info = LIMB_CHAINS.get(target_joint_id)
+        if not chain_info:
+            if self.debug_mode:
+                logging.warning(f"[DEBUG] No IK chain defined for target joint '{target_joint_id}'")
+            return
+
+        std_joints = chain_info["std_joints"]
+        lengths = chain_info["lengths"]
+
+        if len(std_joints) != 3 or len(lengths) != 2:
+            if self.debug_mode:
+                logging.warning(f"[DEBUG] Invalid chain configuration for '{target_joint_id}'")
+            return
+
+        try:
+            # Get positions: root, middle, target
+            root_joint_id = std_joints[0]
+            middle_joint_id = std_joints[1]
+            target_joint_id = std_joints[2]
+
+            # Root position (fixed - shoulder/hip)
+            root_pos = skeleton_data.get(root_joint_id, (0, 0))
+            root_x, root_y = root_pos[0], root_pos[1]
+
+            # Target position (controlled by mechanism)
+            target_x, target_y = target_pos.x(), target_pos.y()
+
+            # 2-bone IK calculation
+            l1, l2 = lengths[0], lengths[1]  # root-middle, middle-target lengths
+
+            # Distance from root to target
+            dx = target_x - root_x
+            dy = target_y - root_y
+            distance = math.sqrt(dx*dx + dy*dy)
+
+            # Clamp distance to reachable range
+            max_reach = l1 + l2
+            min_reach = abs(l1 - l2)
+            distance = max(min_reach, min(distance, max_reach))
+
+            # Use law of cosines to find elbow angle
+            cos_angle = (l1*l1 + l2*l2 - distance*distance) / (2 * l1 * l2)
+            cos_angle = max(-1, min(1, cos_angle))  # Clamp to valid range
+            elbow_angle = math.acos(cos_angle)
+
+            # Calculate shoulder angle
+            cos_shoulder = (l1*l1 + distance*distance - l2*l2) / (2 * l1 * distance)
+            cos_shoulder = max(-1, min(1, cos_shoulder))
+            shoulder_to_target_angle = math.atan2(dy, dx)
+            shoulder_angle = shoulder_to_target_angle - math.acos(cos_shoulder)
+
+            # Calculate middle joint (elbow/knee) position
+            middle_x = root_x + l1 * math.cos(shoulder_angle)
+            middle_y = root_y + l1 * math.sin(shoulder_angle)
+
+            # Update skeleton data with computed positions
+            skeleton_data[middle_joint_id] = (middle_x, middle_y)
+            skeleton_data[target_joint_id] = (target_x, target_y)  # Ensure target is set
+
+            if self.debug_mode:
+                logging.info(f"[DEBUG] IK chain for '{target_joint_id}': root({root_x:.1f},{root_y:.1f}) → middle({middle_x:.1f},{middle_y:.1f}) → target({target_x:.1f},{target_y:.1f})")
+
+        except Exception as e:
+            if self.debug_mode:
+                logging.error(f"[DEBUG] IK chain calculation failed for '{target_joint_id}': {e}")
+
+    def _force_parts_to_follow_mechanism(self, mechanism_outputs: Dict[str, QPointF]):
+        """Smoothly animate parts to follow mechanism outputs (prevent blinking)."""
+        if not mechanism_outputs:
+            return
+
+        for part_name, mechanism_pos in mechanism_outputs.items():
+            # Find the part item
+            part_item = self.current_editor_items.get(part_name)
+            if not part_item:
+                continue
+
+            # Get part info to understand anchor joint
+            part_info = self.parts_data.get(part_name)
+            if not part_info or not part_info.anchor_joint_id:
+                continue
+
+            try:
+                # SMOOTH ANIMATION: Use interpolation instead of instant teleport
+                current_pos = part_item.pos()
+
+                # Calculate distance for smooth movement
+                distance_vector = mechanism_pos - current_pos
+                distance = (distance_vector.x() ** 2 + distance_vector.y() ** 2) ** 0.5
+
+                if distance > 2.0:  # Only move if significant difference
+                    # Interpolate for smooth movement (adjust factor for speed)
+                    interpolation_factor = min(0.25, 2.0 / distance)  # Adaptive smooth movement
+                    new_pos = current_pos + distance_vector * interpolation_factor
+
+                    # Use the interpolated position for smooth animation
+                    part_item.set_scene_position_from_anchor(new_pos)
+
+                    # Reduce debug logging frequency
+                    if self.debug_mode and int(self.animation_time * 10) % 60 == 0:  # Log every 6 seconds
+                        logging.debug(f"[DEBUG] Smoothly animating part '{part_name}' toward mechanism (distance: {distance:.1f})")
+
+            except Exception as e:
+                if self.debug_mode:
+                    logging.error(f"[DEBUG] Failed to animate part '{part_name}' to mechanism position: {e}")
+
+    def _force_parts_to_mechanism_positions_immediately(self, mechanism_outputs: Dict[str, QPointF]):
+        """CRITICAL: Force parts to mechanism positions immediately (like editor tab does)."""
+        if not mechanism_outputs:
+            return
+
+        for part_name, mechanism_pos in mechanism_outputs.items():
+            part_item = self.current_editor_items.get(part_name)
+            if not part_item:
+                continue
+
+            part_info = self.parts_data.get(part_name)
+            if not part_info or not part_info.anchor_joint_id:
+                continue
+
+            try:
+                # IMMEDIATE POSITION UPDATE (like editor tab)
+                old_pos = part_item.pos()
+                part_item.set_scene_position_from_anchor(mechanism_pos)
+
+                if self.debug_mode and int(self.animation_time * 10) % 20 == 0:
+                    logging.info(f"[CRITICAL] IMMEDIATELY moved part '{part_name}' from ({old_pos.x():.1f}, {old_pos.y():.1f}) to mechanism position ({mechanism_pos.x():.1f}, {mechanism_pos.y():.1f})")
+
+                # Force immediate visual update
+                part_item.update()
+
+            except Exception as e:
+                logging.error(f"[CRITICAL] Failed to immediately move part '{part_name}' to mechanism position: {e}")
+
+    def _align_skeleton_to_parts_immediately(self, mechanism_outputs: Dict[str, QPointF]):
+        """Force skeleton joints to align with parts immediately."""
+        if not mechanism_outputs or not hasattr(self.mechanism_view, 'skeleton_graphics_item'):
+            return
+
+        skeleton_item = self.mechanism_view.skeleton_graphics_item
+        if not skeleton_item or not hasattr(skeleton_item, '_joint_items'):
+            return
+
+        try:
+            # Update skeleton joint positions to match part positions
+            for part_name, mechanism_pos in mechanism_outputs.items():
+                part_info = self.parts_data.get(part_name)
+                if not part_info or not part_info.anchor_joint_id:
+                    continue
+
+                anchor_joint_id = part_info.anchor_joint_id
+
+                # Find standardized joint ID
+                std_joint_id = None
+                if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+                    joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+                    for orig_name, std_id in joint_map.items():
+                        if orig_name == anchor_joint_id:
+                            std_joint_id = std_id
+                            break
+
+                # Update skeleton joint position
+                if std_joint_id and std_joint_id in skeleton_item._joint_items:
+                    joint_item = skeleton_item._joint_items[std_joint_id]
+                    joint_item.setPos(mechanism_pos)
+
+                    # Update cached position in skeleton data
+                    for cached_joint in skeleton_item._joints_data_cache:
+                        if cached_joint["id"] == std_joint_id:
+                            cached_joint["position"] = mechanism_pos
+                            break
+
+                    if self.debug_mode and int(self.animation_time * 10) % 40 == 0:
+                        logging.info(f"[CRITICAL] Aligned skeleton joint '{std_joint_id}' to mechanism position ({mechanism_pos.x():.1f}, {mechanism_pos.y():.1f})")
+
+            # Force skeleton bone updates
+            if hasattr(skeleton_item, '_update_existing_bone_positions'):
+                skeleton_item._update_existing_bone_positions()
+
+        except Exception as e:
+            logging.error(f"[CRITICAL] Failed to align skeleton to parts: {e}")
+
+    def _update_parts_from_mechanism_directly(self, mechanism_outputs: Dict[str, QPointF]):
+        """CRITICAL: Update parts directly from mechanism outputs like editor tab does."""
+        if not mechanism_outputs or not self.current_editor_items:
+            return
+
+        # Create joint data structure similar to EditorView.update_visuals_from_animation_data
+        joint_data = {}
+
+        # CRITICAL FIX: Use ANCHOR JOINT positions, not end effector positions
+        # The mechanism calculates end effector positions, but parts are positioned at their anchor joints
+        for part_name, mechanism_pos in mechanism_outputs.items():
+            part_info = self.parts_data.get(part_name)
+            if not part_info or not part_info.anchor_joint_id:
+                continue
+
+            # Use the ANCHOR JOINT position, not the mechanism output position
+            # The mechanism output is for end effector (e.g., left_hand) but part is anchored at left_elbow
+            anchor_joint_id = part_info.anchor_joint_id
+
+            # Find standardized joint ID for the ANCHOR JOINT
+            std_joint_id = None
+            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+                joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+                for orig_name, std_id in joint_map.items():
+                    if orig_name == anchor_joint_id:
+                        std_joint_id = std_id
+                        break
+
+            if std_joint_id:
+                # Get the current skeleton joint position (from IK calculation)
+                # This should be the anchor joint position, not the mechanism output
+                anchor_pos = mechanism_pos  # Temporary: use mechanism pos until IK provides anchor pos
+
+                # TODO: Get actual anchor joint position from IK system
+                # For now, we'll use the mechanism position as anchor position
+                # This is not ideal but will move the part toward the mechanism
+
+                # Create joint transform data like EditorView expects
+                joint_data[std_joint_id] = {
+                    "scene_position": anchor_pos,
+                    "world_rotation_degrees": 0.0  # Start with 0 rotation
+                }
+
+                if self.debug_mode:
+                    logging.info(f"[CRITICAL] Mapping part '{part_name}' anchor '{anchor_joint_id}' -> std_joint '{std_joint_id}' at pos({anchor_pos.x():.1f}, {anchor_pos.y():.1f})")
+
+        # Update parts using the same logic as EditorView
+        for part_item in self.current_editor_items.values():
+            if not isinstance(part_item, CharacterPartItem):
+                continue
+
+            original_anchor_joint_name = part_item.anchor_joint_id
+            if not original_anchor_joint_name:
+                continue
+
+            # Find standardized joint ID (same as EditorView)
+            standardized_anchor_joint_id = None
+            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+                joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+                standardized_anchor_joint_id = joint_map.get(original_anchor_joint_name)
+
+            if not standardized_anchor_joint_id or standardized_anchor_joint_id not in joint_data:
+                continue
+
+            joint_transform_data = joint_data[standardized_anchor_joint_id]
+            target_joint_scene_pos = joint_transform_data.get("scene_position")
+            target_part_world_rotation = joint_transform_data.get("world_rotation_degrees", part_item.rotation())
+
+            if not isinstance(target_joint_scene_pos, QPointF):
+                continue
+
+            # Apply the calculated world rotation and position (exactly like EditorView)
+            part_item.setRotation(float(target_part_world_rotation))
+            part_item.set_scene_position_from_anchor(target_joint_scene_pos)
+
+            if self.debug_mode and int(self.animation_time * 10) % 30 == 0:
+                logging.info(f"[CRITICAL] Direct update: part '{part_item.name()}' -> pos({target_joint_scene_pos.x():.1f}, {target_joint_scene_pos.y():.1f}), rot={target_part_world_rotation:.1f}°")
+
+        # Force scene update
+        if hasattr(self.mechanism_view, 'scene') and self.mechanism_view.scene():
+            self.mechanism_view.scene().update()
 
     def _recreate_skeleton_visualization(self, skeleton_data: Dict):
         """Recreate skeleton visualization when the graphics item was deleted."""
@@ -914,6 +1439,7 @@ class MechanismDesignTab(QWidget):
             "original_json_type": candidate_data.get("original_json_type"),
             "path_normalization": candidate_data.get("path_normalization", {}),
             "full_simulation_data": candidate_data.get("full_simulation_data", {}),
+            "reverse_direction": False,  # Can be set to True to reverse mechanism animation direction
         }
 
         # DEBUG: Log the mechanism data structure
@@ -1220,6 +1746,13 @@ class MechanismDesignTab(QWidget):
             if "p1_positions" in joint_positions and to_scene_coords:
                 num_frames = len(joint_positions["p1_positions"])
                 normalized_time = time / (2 * math.pi)
+
+                # MECHANISM DIRECTION FIX: Check if mechanism should run in reverse
+                # Try both directions and pick the one that matches expected motion
+                reverse_direction = layer_data.get("reverse_direction", False)
+                if reverse_direction:
+                    normalized_time = 1.0 - normalized_time
+
                 frame_index = int(normalized_time * (num_frames - 1))
                 frame_index = max(0, min(frame_index, num_frames - 1))
 
@@ -1472,11 +2005,30 @@ class MechanismDesignTab(QWidget):
                             logging.info(f"[DEBUG] part_info for '{part_name}': exists={part_info is not None}, anchor_joint_id={getattr(part_info, 'anchor_joint_id', 'None') if part_info else 'N/A'}")
 
                         if part_info and part_info.anchor_joint_id:
-                            # Store for IK system to use as target
-                            active_joint_updates[part_info.anchor_joint_id] = output_pos
+                            # CRITICAL FIX: Get the correct TARGET JOINT (end effector) for mechanism control
+                            target_joint_id = self._get_target_joint_for_mechanism_control(part_name, part_info.anchor_joint_id)
 
-                            if self.debug_mode:  # Always log when setting targets
-                                logging.info(f"[DEBUG] Setting IK target for part '{part_name}' (joint_id: '{part_info.anchor_joint_id}') at mechanism position: ({output_pos.x():.1f}, {output_pos.y():.1f})")
+                            if target_joint_id:
+                                # Find standardized joint ID for the target joint
+                                std_joint_id = None
+                                if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+                                    joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
+                                    for orig_name, std_name in joint_map.items():
+                                        if orig_name == target_joint_id:
+                                            std_joint_id = std_name
+                                            break
+
+                                # Use standardized joint ID if found, otherwise use original
+                                final_joint_id = std_joint_id if std_joint_id else target_joint_id
+
+                                # Store for IK system to use as target
+                                active_joint_updates[final_joint_id] = output_pos
+
+                                if self.debug_mode:  # Always log when setting targets
+                                    logging.info(f"[DEBUG] Setting IK target for part '{part_name}' (anchor: '{part_info.anchor_joint_id}' -> target: '{target_joint_id}' -> std_id: '{final_joint_id}') at mechanism position: ({output_pos.x():.1f}, {output_pos.y():.1f})")
+                            else:
+                                if self.debug_mode:
+                                    logging.warning(f"[DEBUG] No target joint found for part '{part_name}' with anchor '{part_info.anchor_joint_id}'")
                         elif self.debug_mode:
                             logging.warning(f"[DEBUG] Cannot set IK target for '{part_name}': part_info={part_info is not None}, anchor_joint_id={getattr(part_info, 'anchor_joint_id', 'None') if part_info else 'N/A'}")
                     elif self.debug_mode:
@@ -1509,23 +2061,53 @@ class MechanismDesignTab(QWidget):
         if self.debug_mode:
             logging.info(f"[DEBUG] active_joint_updates count: {len(active_joint_updates)}, has ik_manager: {hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager is not None}")
 
-        if active_joint_updates and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+        # CRITICAL FIX: DIRECTLY FORCE SKELETON AND PARTS TO FOLLOW MECHANISM
+        if active_joint_updates:
             try:
-                # Use the new mechanism position target system
-                for joint_id, target_pos in active_joint_updates.items():
-                    if self.debug_mode:
-                        logging.info(f"[DEBUG] Setting mechanism target: joint_id='{joint_id}', pos=({target_pos.x():.1f}, {target_pos.y():.1f})")
-                    self.main_window.ik_manager.set_mechanism_position_target(joint_id, target_pos)
+                # METHOD 1: Set mechanism targets in IK manager (if available)
+                if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+                    for joint_id, target_pos in active_joint_updates.items():
+                        if self.debug_mode:
+                            logging.info(f"[DEBUG] Setting mechanism target: joint_id='{joint_id}', pos=({target_pos.x():.1f}, {target_pos.y():.1f})")
+                        self.main_window.ik_manager.set_mechanism_position_target(joint_id, target_pos)
 
-                # The IK manager will handle these targets during its animation step
+                # METHOD 2: DIRECTLY FORCE SKELETON UPDATE (BYPASS IK)
+                # Get current skeleton state and modify only mechanism-controlled joints
+                current_skeleton_data = self._get_current_skeleton_data_with_mechanism_override(active_joint_updates)
+
+                if current_skeleton_data:
+                    if self.debug_mode:
+                        logging.info(f"[DEBUG] FORCING complete skeleton update with mechanism overrides: {list(active_joint_updates.keys())}")
+
+                    # Send complete skeleton update directly to mechanism view
+                    if hasattr(self.mechanism_view, 'update_skeleton_animation'):
+                        self.mechanism_view.update_skeleton_animation(current_skeleton_data)
+
+                    # Also send to main window's skeleton handling
+                    if hasattr(self.main_window, '_handle_skeleton_pose_updated_from_ik'):
+                        self.main_window._handle_skeleton_pose_updated_from_ik(current_skeleton_data)
+
+                    # Force the on_skeleton_updated method in this tab too
+                    self.on_skeleton_updated({"joints": {joint_id: {"scene_position": list(pos)} for joint_id, pos in current_skeleton_data.items()}})
+
+                # METHOD 3: CRITICAL - IMMEDIATE PART UPDATES (like editor tab)
+                # Force parts to follow mechanism immediately WITHOUT interpolation
+                self._force_parts_to_mechanism_positions_immediately(mechanism_outputs)
+
+                # Also force skeleton alignment to parts
+                self._align_skeleton_to_parts_immediately(mechanism_outputs)
+
+                # METHOD 4: Direct part visual update like EditorView.update_visuals_from_animation_data
+                self._update_parts_from_mechanism_directly(mechanism_outputs)
+
                 if self.debug_mode:
-                    logging.info(f"[DEBUG] Successfully set {len(active_joint_updates)} mechanism position targets for IK system")
+                    logging.info(f"[DEBUG] FORCED immediate part and skeleton update with {len(active_joint_updates)} mechanism positions")
 
             except Exception as e:
                 if self.debug_mode:
-                    logging.warning(f"[DEBUG] Failed to set mechanism position targets: {e}")
+                    logging.warning(f"[DEBUG] Failed to force mechanism update: {e}")
         elif self.debug_mode:
-            logging.warning(f"[DEBUG] Not setting mechanism targets - active_joint_updates: {len(active_joint_updates)}, ik_manager exists: {hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager is not None}")
+            logging.warning(f"[DEBUG] No mechanism joint updates to apply")
 
         # Debug logging for animation state
         if self.debug_mode and int(self.animation_time * 10) % 20 == 0:  # Log every 2 seconds
@@ -1563,6 +2145,12 @@ class MechanismDesignTab(QWidget):
                     if "p1_positions" in joint_positions:
                         num_frames = len(joint_positions["p1_positions"])
                         normalized_time = time / (2 * math.pi)
+
+                        # MECHANISM DIRECTION FIX: Apply same direction correction as output calculation
+                        reverse_direction = layer_data.get("reverse_direction", False)
+                        if reverse_direction:
+                            normalized_time = 1.0 - normalized_time
+
                         frame_index = int(normalized_time * (num_frames - 1))
                         frame_index = max(0, min(frame_index, num_frames - 1))
 
@@ -1646,6 +2234,10 @@ class MechanismDesignTab(QWidget):
                             coupler_marker = visual_items[12]
                             if isinstance(coupler_marker, QGraphicsEllipseItem):
                                 coupler_marker.setRect(p_coupler_t.x() - 4, p_coupler_t.y() - 4, 8, 8)
+
+                                # DEBUG: Log coupler marker position
+                                if self.debug_mode and int(time * 10) % 20 == 0:
+                                    logging.info(f"[DEBUG] Coupler marker (red dot) position: ({p_coupler_t.x():.1f}, {p_coupler_t.y():.1f})")
 
                         # LOG: Log successful visual update
                         if self.debug_mode:
@@ -2106,6 +2698,37 @@ class MechanismDesignTab(QWidget):
             for i, item in enumerate(visual_items[:5]):  # Log first 5 items
                 if item:
                     logging.info(f"[DEBUG]   Item {i}: {type(item).__name__}, visible={item.isVisible()}, in scene={item.scene() is not None}")
+
+    def handle_ik_update(self, ik_results: Dict[str, Dict[str, Any]]):
+        """Receives IK results and updates the MechanismView - SAME AS EDITOR TAB.
+        This ensures natural skeleton movement in mechanism design tab.
+        """
+        if self.debug_mode:
+            logging.info(f"[DEBUG] MechanismDesignTab.handle_ik_update entered. IK Results count: {len(ik_results)}")
+
+        if not self.mechanism_view:
+            logging.warning("MechanismDesignTab: MechanismView not available to handle IK update.")
+            return
+
+        if not ik_results:
+            if self.debug_mode:
+                logging.warning("[DEBUG] MechanismDesignTab: No IK results to process")
+            return
+
+        # CRITICAL: Use the SAME method as EditorTab to ensure consistent skeleton movement
+        # The mechanism_view is an EditorView, so it has the same update_visuals_from_animation_data method
+        if hasattr(self.mechanism_view, 'update_visuals_from_animation_data'):
+            self.mechanism_view.update_visuals_from_animation_data(ik_results)
+            if self.debug_mode:
+                logging.info(f"[DEBUG] MechanismDesignTab: Updated visuals from IK animation data for {len(ik_results)} joints")
+        else:
+            logging.error("MechanismDesignTab: mechanism_view does not have update_visuals_from_animation_data method")
+
+        # Update the scene to reflect changes
+        if self.mechanism_scene:
+            self.mechanism_scene.update()
+            if self.debug_mode:
+                logging.debug("[DEBUG] MechanismDesignTab: Updated mechanism scene after IK update")
 
     def _generate_mechanism_visuals_directly(self, mechanism_id: str, mechanism_type: str, params: dict, layer_data: dict):
         """Generate mechanism visuals directly."""

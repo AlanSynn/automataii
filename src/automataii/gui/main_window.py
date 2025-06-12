@@ -1230,12 +1230,17 @@ class AutomataDesigner(QMainWindow):
         """Handles updates to part visuals from the IKManager.
         Transforms part-centric data to joint-centric for EditorView.
         """
-        # The EditorTab.handle_ik_update method is now responsible for processing
-        # these part_transforms and updating its view.
+        # Send IK updates to BOTH editor_tab AND mechanism_design_tab
+        # This ensures both tabs can display natural skeleton movement
+        
         if self.editor_tab:
             self.editor_tab.handle_ik_update(part_transforms)
-        # else: # This case is already handled by the check at the beginning of the method
-        # logging.warning("MainWindow: EditorTab not available to handle IK visuals update.")
+        
+        # CRITICAL FIX: Also send IK updates to mechanism design tab
+        if self.mechanism_design_tab and hasattr(self.mechanism_design_tab, 'handle_ik_update'):
+            self.mechanism_design_tab.handle_ik_update(part_transforms)
+        elif self.mechanism_design_tab:
+            logging.warning("MainWindow: MechanismDesignTab exists but does not have handle_ik_update method")
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""

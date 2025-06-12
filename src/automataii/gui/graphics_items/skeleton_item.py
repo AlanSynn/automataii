@@ -203,13 +203,15 @@ class SkeletonGraphicsItem(QGraphicsItem):
             )
 
     def _update_bone_lines(self):
+        # Only create bones if they don't exist yet (avoid recreation every frame)
+        if self._bone_items and len(self._bone_items) > 0:
+            # UPDATE existing bones instead of recreating
+            self._update_existing_bone_positions()
+            return
+
         logging.debug(
-            f"SkeletonItem:_update_bone_lines - Clearing {len(self._bone_items)} existing bone items."
+            f"SkeletonItem:_update_bone_lines - Creating {len(self._bone_items)} initial bone items."
         )
-        if self.scene():
-            for bone in self._bone_items:
-                self.scene().removeItem(bone)
-        self._bone_items.clear()
 
         if not self._joints_data_cache or not self._hierarchy_cache:
             logging.debug(
@@ -227,26 +229,51 @@ class SkeletonGraphicsItem(QGraphicsItem):
         for parent_id, child_ids in self._hierarchy_cache.items():
             parent_pos = current_joint_positions.get(parent_id)
             if not parent_pos:
-                # logging.warning(f"SkeletonItem:_update_bone_lines - Parent joint '{parent_id}' not found in current positions cache. Cannot draw bones from it.")
                 continue
 
             for child_id in child_ids:
                 child_pos = current_joint_positions.get(child_id)
                 if not child_pos:
-                    # logging.warning(f"SkeletonItem:_update_bone_lines - Child joint '{child_id}' of parent '{parent_id}' not found in current positions cache.")
                     continue
 
                 line = QLineF(parent_pos, child_pos)
-                bone_item = QGraphicsLineItem(
-                    line, parent=self
-                )  # Add as child of SkeletonGraphicsItem
+                bone_item = QGraphicsLineItem(line, parent=self)
                 bone_item.setPen(QPen(Qt.GlobalColor.gray, self.BONE_PEN_WIDTH))
-                bone_item.setZValue(0)  # Bones behind joints
+                bone_item.setZValue(0)
                 self._bone_items.append(bone_item)
 
         logging.debug(
             f"SkeletonItem:_update_bone_lines - Created {len(self._bone_items)} new bone items."
         )
+
+    def _update_existing_bone_positions(self):
+        """Update existing bone positions without recreating them."""
+        if not self._joints_data_cache or not self._hierarchy_cache:
+            return
+
+        # Create a quick lookup for current joint positions
+        current_joint_positions = {
+            j["id"]: j["position"]
+            for j in self._joints_data_cache
+            if isinstance(j.get("position"), QPointF)
+        }
+
+        bone_index = 0
+        for parent_id, child_ids in self._hierarchy_cache.items():
+            parent_pos = current_joint_positions.get(parent_id)
+            if not parent_pos:
+                continue
+
+            for child_id in child_ids:
+                child_pos = current_joint_positions.get(child_id)
+                if not child_pos:
+                    continue
+
+                if bone_index < len(self._bone_items):
+                    # Update existing bone line
+                    new_line = QLineF(parent_pos, child_pos)
+                    self._bone_items[bone_index].setLine(new_line)
+                bone_index += 1
 
     def paint(
         self,
