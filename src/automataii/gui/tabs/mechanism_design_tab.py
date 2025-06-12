@@ -1859,12 +1859,44 @@ class MechanismDesignTab(QWidget):
                 num_frames = len(tracking_points)
                 if num_frames > 0:
                     frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                    frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
                     tracking_point = np.array(tracking_points[frame_index])
 
                     scene_point = to_scene_coords(tracking_point)
                     if self.debug_mode:
                         logging.info(f"[DEBUG] Planetary gear output: frame={frame_index}, tracking_point={tracking_point}, scene=({scene_point.x():.2f}, {scene_point.y():.2f})")
                     return scene_point
+
+            # Fallback calculation for planetary gear
+            params = layer_data.get("params", {})
+            r_sun = params.get("r_sun", 20)
+            r_planet = params.get("r_planet", 30)
+            arm_length = params.get("arm_length", 15)
+
+            if to_scene_coords:
+                # Calculate planetary gear positions manually
+                planet_orbital_angle = time
+                planet_rotation_angle = -time * (r_sun / r_planet)
+
+                # Sun is stationary at origin
+                sun_center_orig = np.array([0, 0])
+
+                # Planet center orbits around sun
+                planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([
+                    np.cos(planet_orbital_angle),
+                    np.sin(planet_orbital_angle)
+                ])
+
+                # Tracking point on planet
+                tracking_point_orig = planet_center_orig + arm_length * np.array([
+                    np.cos(planet_rotation_angle),
+                    np.sin(planet_rotation_angle)
+                ])
+
+                scene_point = to_scene_coords(tracking_point_orig)
+                if self.debug_mode:
+                    logging.info(f"[DEBUG] Planetary gear output (fallback): orbital_angle={planet_orbital_angle:.2f}, rotation_angle={planet_rotation_angle:.2f}")
+                return scene_point
 
             # Fallback calculation for planetary gear
             if self.debug_mode:
@@ -2159,7 +2191,7 @@ class MechanismDesignTab(QWidget):
                         num_frames = len(cam_centers)
 
                         if num_frames > 0:
-                            frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                            frame_index = int((time / (2 * math.pi)) * (num_frames - 1)) % num_frames
                             cam_center_orig = np.array(cam_centers[frame_index])
                             follower_y = follower_positions[frame_index]
                             follower_pos_orig = np.array([0, follower_y])
@@ -3052,69 +3084,105 @@ class MechanismDesignTab(QWidget):
         r_planet = params.get("r_planet", 30)
         arm_length = params.get("arm_length", 15)
 
-        # Initial positions
-        sun_center_orig = np.array([0, 0])
-        planet_center_orig = np.array([r_sun + r_planet, 0])  # Initial planet position
-        tracking_point_orig = planet_center_orig + np.array([arm_length, 0])
+        visual_items = []
+
+        # Try to get initial positions from simulation data
+        full_sim_data = mechanism_data.get("full_simulation_data", {})
+        gear_positions = full_sim_data.get("gear_positions", {})
+
+        if gear_positions and "sun_centers" in gear_positions and len(gear_positions["sun_centers"]) > 0:
+            # Use simulation data for accurate positioning
+            frame_idx = 0
+            sun_center_orig = np.array(gear_positions["sun_centers"][frame_idx])
+            planet_center_orig = np.array(gear_positions["planet_centers"][frame_idx])
+            tracking_point_orig = np.array(gear_positions["tracking_points"][frame_idx])
+        else:
+            # Fallback to calculated initial positions
+            sun_center_orig = np.array([0, 0])
+            planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([1, 0])  # Initial position
+            tracking_point_orig = planet_center_orig + arm_length * np.array([1, 0])  # Initial tracking point
 
         # Transform to scene coordinates
         sun_center_scene = to_scene_coords(sun_center_orig)
         planet_center_scene = to_scene_coords(planet_center_orig)
-        tracking_scene = to_scene_coords(tracking_point_orig)
+        tracking_point_scene = to_scene_coords(tracking_point_orig)
 
-        visual_items = []
+        # Calculate screen radii for proper scaling
+        sun_edge_orig = sun_center_orig + np.array([r_sun, 0])
+        planet_edge_orig = planet_center_orig + np.array([r_planet, 0])
+
+        sun_edge_scene = to_scene_coords(sun_edge_orig)
+        planet_edge_scene = to_scene_coords(planet_edge_orig)
+
+        r_sun_screen = QLineF(sun_center_scene, sun_edge_scene).length()
+        r_planet_screen = QLineF(planet_center_scene, planet_edge_scene).length()
 
         # Create sun gear (stationary)
         sun_color = QColor("#7f8c8d")  # Gray
         sun_gear = self.mechanism_scene.addEllipse(
-            sun_center_scene.x() - r_sun, sun_center_scene.y() - r_sun,
-            r_sun * 2, r_sun * 2,
+            sun_center_scene.x() - r_sun_screen, sun_center_scene.y() - r_sun_screen,
+            r_sun_screen * 2, r_sun_screen * 2,
             QPen(sun_color, 4),
-            QBrush(sun_color.lighter(140))
+            QBrush(sun_color.lighter(150))
         )
         sun_gear.setZValue(5)
         visual_items.append(sun_gear)
 
-        # Create planet gear
+        # Create planet gear (orbiting)
         planet_color = QColor("#e67e22")  # Orange
         planet_gear = self.mechanism_scene.addEllipse(
-            planet_center_scene.x() - r_planet, planet_center_scene.y() - r_planet,
-            r_planet * 2, r_planet * 2,
+            planet_center_scene.x() - r_planet_screen, planet_center_scene.y() - r_planet_screen,
+            r_planet_screen * 2, r_planet_screen * 2,
             QPen(planet_color, 4),
             QBrush(planet_color.lighter(150))
         )
         planet_gear.setZValue(10)
         visual_items.append(planet_gear)
 
-        # Create arm from planet center to tracking point
-        arm_color = QColor("#f39c12")  # Gold
+        # Create arm connecting planet center to tracking point
+        arm_color = QColor("#f39c12")  # Golden
         arm_line = self.mechanism_scene.addLine(
-            planet_center_scene.x(), planet_center_scene.y(),
-            tracking_scene.x(), tracking_scene.y(),
+            QLineF(planet_center_scene, tracking_point_scene),
             QPen(arm_color, 3)
         )
         arm_line.setZValue(15)
         visual_items.append(arm_line)
 
-        # Create tracking point
+        # Create tracking point marker
         tracking_color = QColor("#e74c3c")  # Red
         tracking_marker = self.mechanism_scene.addEllipse(
-            tracking_scene.x() - 8, tracking_scene.y() - 8, 16, 16,
-            QPen(tracking_color.darker(150), 3),
+            tracking_point_scene.x() - 8, tracking_point_scene.y() - 8, 16, 16,
+            QPen(tracking_color, 2),
             QBrush(tracking_color)
         )
         tracking_marker.setZValue(20)
         visual_items.append(tracking_marker)
 
+        # Create center markers for pivots
+        center_color = QColor("#3498db")  # Blue
+
         # Sun center marker
-        sun_center_color = QColor("#34495e")  # Dark gray
         sun_center_marker = self.mechanism_scene.addEllipse(
             sun_center_scene.x() - 6, sun_center_scene.y() - 6, 12, 12,
-            QPen(sun_center_color, 2),
-            QBrush(sun_center_color)
+            QPen(center_color.darker(150), 2),
+            QBrush(center_color)
         )
         sun_center_marker.setZValue(25)
         visual_items.append(sun_center_marker)
+
+        # Planet center marker
+        planet_center_marker = self.mechanism_scene.addEllipse(
+            planet_center_scene.x() - 4, planet_center_scene.y() - 4, 8, 8,
+            QPen(center_color.darker(150), 1),
+            QBrush(center_color.lighter(130))
+        )
+        planet_center_marker.setZValue(25)
+        visual_items.append(planet_center_marker)
+
+        if self.debug_mode:
+            logging.info(f"[DEBUG] Created planetary gear visuals: {len(visual_items)} items")
+            logging.info(f"[DEBUG] Sun radius: {r_sun} -> {r_sun_screen:.1f} screen")
+            logging.info(f"[DEBUG] Planet radius: {r_planet} -> {r_planet_screen:.1f} screen")
 
         return visual_items
 

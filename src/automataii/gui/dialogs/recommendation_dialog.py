@@ -427,14 +427,15 @@ class MechanismPreviewWidget(QGraphicsView):
         to_screen_coords = lambda p: to_screen_coords_func(p, transform)
 
         def draw_gear(center, radius, color):
-            path = QPainterPath()
-            for i in range(101):
-                theta = 2 * np.pi * i / 100
-                p_orig = center + radius * np.array([np.cos(theta), np.sin(theta)])
-                p_screen = to_screen_coords(p_orig)
-                if i == 0: path.moveTo(p_screen)
-                else: path.lineTo(p_screen)
-            self.scene.addPath(path, QPen(color, 4), QBrush(color.lighter(150)))
+            p1_screen = to_screen_coords(center)
+            p2_screen = to_screen_coords(center + np.array([radius, 0]))
+            radius_screen = QLineF(p1_screen, p2_screen).length()
+
+            self.scene.addEllipse(
+                p1_screen.x() - radius_screen, p1_screen.y() - radius_screen,
+                radius_screen * 2, radius_screen * 2,
+                QPen(color, 4), QBrush(color.lighter(150))
+            )
 
         draw_gear(sun_center, r_sun, QColor("#7f8c8d"))
         draw_gear(planet_center, r_planet, QColor("#e67e22"))

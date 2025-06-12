@@ -648,19 +648,13 @@ class EditorTab(QWidget):
         self.request_reset_simulation.emit()
 
         # Reset parts to original positions
-        for part_name, part_item in self.current_editor_items.items():
-            if hasattr(part_item, "_original_anchor_pos"):
-                part_item.set_scene_position_from_anchor(part_item._original_anchor_pos)
-                del part_item._original_anchor_pos
-
-        # Reset skeleton visualization to its cached initial state
         if self._initial_skeleton_data_cache:
+            self._position_parts_at_anchor_joints()
             self.on_skeleton_updated(self._initial_skeleton_data_cache.copy())
             logging.info(
-                "EditorTab: Skeleton visualization reset to cached initial state."
+                "EditorTab: Skeleton and parts reset to cached initial state."
             )
         else:
-            self.on_skeleton_updated(None)
             logging.warning("EditorTab: No cached initial skeleton data for reset.")
 
         self.play_btn.setEnabled(True)
@@ -669,7 +663,6 @@ class EditorTab(QWidget):
         self._update_button_states()
 
         self.editor_scene.update()
-
 
     def _handle_zoom_change(self, zoom_text: str):
         # This functionality is removed from the UI, but we keep the method
