@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from ..dialogs.camera_dialog import CameraDialog
-from ..views.image_view import ImageProcessingView
+from ..image_view import ImageProcessingView
 from PyQt6.QtWidgets import QGraphicsScene
 from ..widgets.processing_steps_group import ProcessingStepsGroup
 

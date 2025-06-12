@@ -95,8 +95,22 @@ def simulate_cam_motion(base_radius, eccentricity, num_steps=180):
 def simulate_gear_motion(r1, r2, num_steps=180):
     """Simulates a gear train, returning data for animation."""
     sim_data = []
+    gear1_center = np.array([0, 0])
+    gear2_center = np.array([r1 + r2, 0])
+
     for theta1 in np.linspace(0, 2*np.pi, num_steps):
-        sim_data.append({'t1': theta1, 't2': -theta1 * (r1 / r2)})
+        theta2 = -theta1 * (r1 / r2)  # Gear ratio
+
+        # Calculate tracking point on gear 1 circumference
+        tracking_point = gear1_center + np.array([r1 * np.cos(theta1), r1 * np.sin(theta1)])
+
+        sim_data.append({
+            't1': theta1,
+            't2': theta2,
+            'gear1_center': gear1_center,
+            'gear2_center': gear2_center,
+            'tracking_point': tracking_point
+        })
     return sim_data
 
 # --- CONFIGURATION GENERATORS ---
@@ -137,6 +151,12 @@ def generate_crank_rocker_configs(num_configs: int, max_dim: float = 100.0) -> L
             'params': {'l1': l1, 'l2': l2, 'l3': l3, 'l4': l4, 'p_x': p_x, 'p_y': p_y}
         })
 
+    # Add a specific case with the coupler point on the link center
+    if len(configs) > 0:
+        configs[0]['name'] = 'Crank-Rocker (Center Coupler)'
+        configs[0]['params']['p_x'] = configs[0]['params']['l3'] / 2
+        configs[0]['params']['p_y'] = 0
+
     print(f"Generated {len(configs)} diverse Crank-Rocker configurations.")
     return configs
 
@@ -147,19 +167,31 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
     num_mechs = len(configs)
     if not num_mechs: return
 
-    fig, axes = plt.subplots(1, num_mechs, figsize=(num_mechs * 6, 6))
+    fig, axes = plt.subplots(1, num_mechs, figsize=(num_mechs * 8, 8))
     axes = np.array(axes).flatten()
-    fig.suptitle(title, fontsize=16)
+    fig.suptitle(title, fontsize=20)
 
     anim_funcs = []
     for i, config in enumerate(configs):
         ax = axes[i]
         ax.set_aspect('equal', adjustable='box')
         ax.grid(True)
-        ax.set_title(config['name'], fontsize=10)
+        ax.set_title(config['name'], fontsize=12)
         params, mech_type = config['params'], config['type']
 
         if mech_type == '4-bar':
+            # Add text annotations for link lengths and coupler point
+            l1, l2, l3, l4 = params['l1'], params['l2'], params['l3'], params['l4']
+            p_x, p_y = params['p_x'], params['p_y']
+            info_text = (
+                f"l1 (ground): {l1:.1f}\n"
+                f"l2 (crank): {l2:.1f}\n"
+                f"l3 (coupler): {l3:.1f}\n"
+                f"l4 (rocker): {l4:.1f}\n"
+                f"Coupler Pt (x,y): ({p_x:.1f}, {p_y:.1f})"
+            )
+            ax.text(0.05, 0.95, info_text, transform=ax.transAxes, fontsize=9,
+                    verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', fc='wheat', alpha=0.5))
             sim_data = simulate_4bar_motion(**params)
             path = np.array([f['p_coupler'] for f in sim_data])
 
@@ -205,11 +237,18 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
                     "description": "The coupler point moves along the generated path and drives skeleton animation"
                 },
                 "mechanism_layout": {
-                    "description": "4-bar linkage with crank (l2) driving from ground pivot p1",
+                    "description": (
+                        "A 4-bar linkage consisting of a ground link (l1), an input crank (l2), "
+                        "a coupler link (l3), and an output rocker (l4). The input crank (l2) rotates fully, "
+                        "driving the mechanism. The path is traced by a point on a triangular coupler plate, "
+                        "defined by the vertices (p3, p4, and the coupler point). "
+                        "The coupler point's position is defined by an offset (p_x, p_y) relative to the coupler link's local "
+                        "coordinate system, where the origin is at joint p3 and the x-axis points towards p4."
+                    ),
                     "link_roles": {
                         "l1": {"name": "ground_link", "connects": ["p1", "p2"], "fixed": True},
                         "l2": {"name": "input_crank", "connects": ["p1", "p3"], "driver": True},
-                        "l3": {"name": "coupler_link", "connects": ["p3", "p4"], "carries_point": True},
+                        "l3": {"name": "coupler_plate", "connects": ["p3", "p4", "coupler_point"], "carries_point": True},
                         "l4": {"name": "output_rocker", "connects": ["p4", "p2"], "driven": True}
                     },
                     "coordinate_system": {
@@ -251,28 +290,45 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
             ax.plot(path[:,0], path[:,1], '--m', lw=1.5)
             driver, = ax.plot([], [], 'o-', color='orange', lw=5)
             follower, = ax.plot([], [], 'o-', color='gold', lw=5)
-            coupler, = ax.plot([], [], 'o-', color='green', lw=3)
-            coupler_point_marker, = ax.plot([], [], 'o', color='red', markersize=8)
 
-            def create_4bar_anim(sd, dr, fo, co, cpm):
+            # Visualize coupler dynamically as a line or triangle
+            coupler_poly = plt.Polygon([[0,0],[0,0],[0,0]], fc='lightgreen', alpha=0.8, zorder=2, visible=False)
+            coupler_line, = ax.plot([], [], '-', color='lightgreen', lw=4, zorder=2, visible=False)
+            ax.add_patch(coupler_poly)
+            coupler_point_marker, = ax.plot([], [], 'o', color='red', markersize=8, zorder=3)
+
+
+            def create_4bar_anim(sd, dr, fo, cpoly, cline, cpm):
                 def init():
                     all_x = np.concatenate([path[:, 0], [ground_p1[0], ground_p2[0]]])
                     all_y = np.concatenate([path[:, 1], [ground_p1[1], ground_p2[1]]])
                     padding = 5
                     ax.set_xlim(all_x.min() - padding, all_x.max() + padding)
                     ax.set_ylim(all_y.min() - padding, all_y.max() + padding)
-                    return dr, fo, co, cpm
+                    return dr, fo, cpoly, cline, cpm
                 def update(idx):
                     frame = sd[idx]
                     p1, p2, p3, p4 = frame['p1'], frame['p2'], frame['p3'], frame['p4']
                     p_coupler_pos = frame['p_coupler']
-                    dr.set_data([p1[0], p3[0]], [p1[1], p3[1]])  # Link 1
-                    fo.set_data([p2[0], p4[0]], [p2[1], p4[1]])  # Link 2
-                    co.set_data([p3[0], p4[0]], [p3[1], p4[1]])  # Coupler link
+                    dr.set_data([p1[0], p3[0]], [p1[1], p3[1]])
+                    fo.set_data([p2[0], p4[0]], [p2[1], p4[1]])
+
+                    # Check for collinearity to decide visualization
+                    # Area of triangle using cross-product. If area is near zero, points are collinear.
+                    area = np.abs(p3[0]*(p4[1]-p_coupler_pos[1]) + p4[0]*(p_coupler_pos[1]-p3[1]) + p_coupler_pos[0]*(p3[1]-p4[1])) / 2
+                    if area < 1e-3: # Treat as collinear
+                        cpoly.set_visible(False)
+                        cline.set_visible(True)
+                        cline.set_data([p3[0], p4[0]], [p3[1], p4[1]])
+                    else: # Treat as a triangle
+                        cpoly.set_visible(True)
+                        cline.set_visible(False)
+                        cpoly.set_xy([p3, p4, p_coupler_pos])
+
                     cpm.set_data([p_coupler_pos[0]], [p_coupler_pos[1]])
-                    return dr, fo, co, cpm
+                    return dr, fo, cpoly, cline, cpm
                 return init, update
-            init, update = create_4bar_anim(sim_data, driver, follower, coupler, coupler_point_marker)
+            init, update = create_4bar_anim(sim_data, driver, follower, coupler_poly, coupler_line, coupler_point_marker)
             anim_funcs.append({'init': init, 'update': update, 'frames': len(sim_data)})
 
         elif mech_type == 'cam-follower':
@@ -356,14 +412,14 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
         elif mech_type == 'gear-train':
             sim_data = simulate_gear_motion(**params)
             r1, r2 = params['r1'], params['r2']
-            path = np.array([[r1*np.cos(f['t1']), r1*np.sin(f['t1'])] for f in sim_data]) # Path on driver gear
+            path = np.array([f['tracking_point'] for f in sim_data]) # Path on driver gear circumference
 
             # Normalize path and get parameters
             normalized_path, norm_params = normalize_path(path.tolist())
 
-            # Calculate gear mechanism geometry
-            gear1_center = np.array([-r1, 0])  # Left gear center
-            gear2_center = np.array([r2, 0])   # Right gear center
+            # Calculate gear mechanism geometry - gears should be touching
+            gear1_center = np.array([0, 0])  # Left gear center at origin
+            gear2_center = np.array([r1 + r2, 0])   # Right gear center at distance r1+r2
 
             # Initial position on gear 1 circumference
             initial_gear_point = gear1_center + np.array([r1, 0])
@@ -399,17 +455,17 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
                     }
                 },
                 "visualization_params": {
-                    "center": [0, 0],  # Center between gears
+                    "center": [(r1 + r2) / 2, 0],  # Center between gears
                     "scale": max(r1, r2),
                     "bounding_box": {
-                        "min": [-r1 - r1, -max(r1, r2)],
-                        "max": [r2 + r2, max(r1, r2)]
+                        "min": [-r1, -max(r1, r2)],
+                        "max": [r1 + r2 + r2, max(r1, r2)]
                     }
                 }
             }
             dataset_aggregator.append(dataset_entry)
 
-            p1, p2 = np.array([-r1,0]), np.array([r2,0])
+            p1, p2 = gear1_center, gear2_center
             ax.add_patch(plt.Circle(p1,r1,color='slategray')); ax.add_patch(plt.Circle(p2,r2,color='coral'))
             line1, = ax.plot([],[],'w-'); line2, = ax.plot([],[],'w-')
 
@@ -432,7 +488,12 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
             artists.extend(funcs['update'](frame_index % funcs['frames']))
         return artists
 
-    # Skip animation generation for faster dataset creation
+    # Create the animation
+    ani = FuncAnimation(fig, master_update, frames=range(180), init_func=anim_funcs[0]['init'], blit=True, interval=50)
+    anim_path = os.path.join(output_dir, f"{title.replace(' ', '_').lower()}.gif")
+    ani.save(anim_path, writer='imagemagick', fps=20)
+    print(f"Saved animation to {anim_path}")
+
     plt.close(fig)
     print(f"Processed mechanisms for: {title}")
 
@@ -460,12 +521,24 @@ def main():
     if gear_configs:
         process_mechanisms(gear_configs, "Planar Gear Trains", args.output_dir, all_mechanisms_data)
 
-    # --- Save Dataset ---
+    # --- Save Dataset Safely ---
     dataset_path = os.path.join(os.path.dirname(__file__), "..", "kinematics", "generated_mechanism_paths.json")
+    temp_dataset_path = dataset_path + ".tmp"
     os.makedirs(os.path.dirname(dataset_path), exist_ok=True)
-    print(f"\nSaving dataset with {len(all_mechanisms_data)} mechanisms to: {dataset_path}")
-    with open(dataset_path, 'w') as f:
-        json.dump(all_mechanisms_data, f, indent=2)
+
+    print(f"\nSafely overwriting dataset with {len(all_mechanisms_data)} mechanisms at: {dataset_path}")
+    try:
+        with open(temp_dataset_path, 'w') as f:
+            json.dump(all_mechanisms_data, f, indent=2)
+        # Atomic rename to replace the old file with the new one
+        os.rename(temp_dataset_path, dataset_path)
+        print("✓ Dataset saved successfully.")
+    except Exception as e:
+        print(f"Error saving dataset: {e}")
+    finally:
+        # Clean up temp file if it still exists
+        if os.path.exists(temp_dataset_path):
+            os.remove(temp_dataset_path)
 
     print("\n✓ Generation complete!")
 

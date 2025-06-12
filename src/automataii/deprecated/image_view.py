@@ -16,12 +16,12 @@ import numpy as np
 import cv2  # Added for cv2.findContours etc.
 from PyQt6.QtWidgets import QApplication
 
-from ...core.models import PartInfo
-from ...utils.svg_utils import contour_to_svg_path
-from ..graphics_items.part_item import CharacterPartItem  # UPDATED
+from ..core.models import PartInfo
+from ..utils.svg_utils import contour_to_svg_path
+from ..gui.graphics_items.part_item import CharacterPartItem  # UPDATED
 
 # from .graphics_items.skeleton_item import SkeletonJoint, SkeletonLine # UPDATED # Commented out
-from ..graphics_items.anchor_item import (
+from ..gui.graphics_items.anchor_item import (
     AnchorItem,
 )  # UPDATED (if it was moved, otherwise adjust)
 
