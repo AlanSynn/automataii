@@ -175,10 +175,26 @@ class CharacterDataModel(BaseModel):
         return v
 
 
+class ProjectMetadata(BaseModel):
+    """Metadata for Automataii projects."""
+    
+    name: str
+    description: Optional[str] = None
+    version: str = "1.0.0"
+    created_at: Optional[str] = None
+    modified_at: Optional[str] = None
+    author: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    
+    class Config:
+        extra = "allow"  # Allow additional fields for extensibility
+
+
 class ProjectFileModel(BaseModel):
     """Root Pydantic model for the entire project file (e.g., parts_info.json)."""
 
     character: CharacterDataModel
+    metadata: Optional[ProjectMetadata] = None
 
 
 # Example usage (for testing and understanding)
