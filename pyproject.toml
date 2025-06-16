@@ -106,3 +106,8 @@ addopts = [
     "--cov-report=term-missing",
     "-v",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+]
