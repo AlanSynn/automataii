@@ -1,56 +1,108 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "automataii"
 version = "0.1.0"
-description = "A project for animating figure drawings and generating mechanisms."
+description = "AI-powered character animation system with pose estimation and ONNX deployment"
 readme = "README.md"
-requires-python = ">=3.9"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License", # Choose appropriate license
-    "Operating System :: OS Independent",
+requires-python = ">=3.13"
+license = "MIT"
+authors = [
+    {name = "Alan Synn", email = "alan@alansynn.com"},
 ]
+keywords = ["animation", "pose-estimation", "computer-vision", "onnx", "mmpose", "mmdetection"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
 dependencies = [
-    "PyQt5",
-    "numpy",
-    "scipy",
-    "svgpathtools", # For blueprint generation
-    "pydantic>=1.0,<2.0", # Constraint from instructions
-    "torch",
-    "torchvision",
-    "segment-anything", # For CharSegNet
-    "opencv-python-headless", # Often needed with torch/vision
-    "shapely", # Potential use in geometry/path operations
-    # Add other core dependencies here
+    "numpy>=2.0.0",
+    "onnxruntime>=1.22.0",
+    "opencv-python>=4.11.0",
+    "pyqt6>=6.8.0",
+    "pyyaml>=6.0.2",
+    "scikit-image>=0.25.0",
+    "scikit-learn>=1.7.0",
+    "scipy>=1.15.0",
+    "pillow>=10.0.0",
+    "matplotlib>=3.9.0",
+    "pydantic>=2.11.7",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-cov",
-    "ruff", # Linter/formatter
-    "mypy", # Static type checker
-    # Add other development dependencies
+    "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
+    "black>=24.0.0",
+    "isort>=5.13.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/automataii" # Replace with actual URL
-"Bug Tracker" = "https://github.com/yourusername/automataii/issues" # Replace
+Homepage = "https://github.com/alansynn/automataii"
+Repository = "https://github.com/alansynn/automataii.git"
+Issues = "https://github.com/alansynn/automataii/issues"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[project.scripts]
+automataii = "automataii.__main__:main"
+automataii-animate = "automataii.animate.image_to_annotations:main"
 
-# Add ruff configuration if you use it
-#[tool.ruff]
-# line-length = 88
-# select = ["E", "W", "F", "I", "UP"]
-# ignore = []
+[tool.hatch.build.targets.wheel]
+packages = ["src/automataii"]
 
-# Add mypy configuration if you use it
-#[tool.mypy]
-# python_version = "3.9"
-# warn_return_any = true
-# warn_unused_configs = true
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by formatter
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=automataii",
+    "--cov-report=term-missing",
+    "-v",
+]

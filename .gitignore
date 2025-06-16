@@ -325,8 +325,13 @@ examples/peppa/character_data/
 examples/peppa/body_parts_output/
 
 .cursor/
+.cursor/rules/
 .cursorignore
 src/automataii/examples/
 *.svg
 *.yaml
 *.html
+
+*venv*
+tmp/
+.claude/

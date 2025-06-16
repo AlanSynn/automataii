@@ -264,7 +264,7 @@ class ARAP:
                 Tuple[np.int32, np.float32],
             ]
         ],
-        npt.NDArray[np.bool8],
+        npt.NDArray[np.bool_],
     ]:
         """
         Given and array containing xy locations and the vertices & triangles making up a mesh,
@@ -343,7 +343,7 @@ class ARAP:
             )  # append to our list  # pyright: ignore[reportGeneralTypeIssues]
             pin_mask.append(True)
 
-        return (b_coords, np.array(pin_mask, dtype=np.bool8))
+        return (b_coords, np.array(pin_mask, dtype=np.bool_))
 
     def _get_barycentric_coords(
         self,
