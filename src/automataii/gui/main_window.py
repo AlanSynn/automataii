@@ -1234,10 +1234,10 @@ class AutomataDesigner(QMainWindow):
         """
         # Send IK updates to BOTH editor_tab AND mechanism_design_tab
         # This ensures both tabs can display natural skeleton movement
-        
+
         if self.editor_tab:
             self.editor_tab.handle_ik_update(part_transforms)
-        
+
         # CRITICAL FIX: Also send IK updates to mechanism design tab
         if self.mechanism_design_tab and hasattr(self.mechanism_design_tab, 'handle_ik_update'):
             self.mechanism_design_tab.handle_ik_update(part_transforms)

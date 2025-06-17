@@ -79,6 +79,10 @@ def apply_dark_theme(app: QApplication) -> None:
 # Stylesheets for the Automata Designer application
 
 LIGHT_STYLE = """
+    QApplication {
+        background-color: #fdfdfe;
+    }
+
     /* Base Styling */
     QMainWindow {
         background-color: #fdfdfe; /* Near white */
@@ -87,7 +91,7 @@ LIGHT_STYLE = """
         font-family: "Helvetica Neue", Arial, sans-serif; /* Use loaded Segoe UI first */
         font-size: 13pt; /* Increased base font size AGAIN */
         color: #495057; /* Softer dark gray text */
-        background-color: transparent;
+        background-color: #fdfdfe;
     }
 
     /* Toolbar */
