@@ -22,6 +22,7 @@ def main():
     parser.add_argument('--no-installer', action='store_true', help='Skip installer creation (Windows only)')
     parser.add_argument('--no-zsync', action='store_true', help='Skip zsync file creation (Linux only)')
     parser.add_argument('--update-url', type=str, help='Update server URL (Linux only)')
+    parser.add_argument('--experiment', action='store_true', help='Build in experiment mode (hides Options tab)')
     
     args = parser.parse_args()
     
@@ -46,7 +47,8 @@ def main():
             builder = MacOSBuilder(Path(__file__).parent.parent)
             success = builder.build(
                 sign_identity=args.sign,
-                create_dmg=not args.no_dmg
+                create_dmg=not args.no_dmg,
+                experiment_mode=args.experiment
             )
         
         elif args.platform == 'linux':
@@ -54,14 +56,16 @@ def main():
             builder = LinuxBuilder(Path(__file__).parent.parent)
             success = builder.build(
                 update_url=args.update_url,
-                create_zsync=not args.no_zsync
+                create_zsync=not args.no_zsync,
+                experiment_mode=args.experiment
             )
         
         elif args.platform == 'windows':
             from build_windows import WindowsBuilder
             builder = WindowsBuilder(Path(__file__).parent.parent)
             success = builder.build(
-                create_installer=not args.no_installer
+                create_installer=not args.no_installer,
+                experiment_mode=args.experiment
             )
         
         else:
