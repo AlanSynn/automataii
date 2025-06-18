@@ -139,15 +139,16 @@ class LandingTab(QWidget):
     STEEL_BLUE = "#1982c4"
     ULTRA_VIOLET = "#6a4c93"
 
-    def __init__(self, main_window, parent=None):
+    def __init__(self, main_window, parent=None, experiment_mode=False):
         super().__init__(parent)
         self.main_window = main_window
+        self.experiment_mode = experiment_mode
 
         # Use resolve_path to find examples directory in both development and bundled environments
         self.example_dirs = [
-            resolve_path("src/examples"),
+            resolve_path("examples"),
             # Add fallback paths if needed
-            get_project_root() / "src" / "examples",
+            get_project_root() / "examples",
         ]
 
         self.image_widgets: List[ExampleImageWidget] = []

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPixmapItem,
     QFileDialog,
+    QLabel,
 )
 from PyQt6.QtGui import QPainterPath
 from PyQt6.QtCore import (
@@ -65,9 +66,10 @@ class AutomataDesigner(QMainWindow):
     simulation, and blueprint generation.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None, debug_mode: bool = False):
+    def __init__(self, parent: Optional[QWidget] = None, debug_mode: bool = False, experiment_mode: bool = False):
         super().__init__(parent)
         self.debug_mode = debug_mode
+        self.experiment_mode = experiment_mode
         logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}")
         self.resize(1200, 680)
         self.setMinimumHeight(600)
@@ -162,6 +164,19 @@ class AutomataDesigner(QMainWindow):
                 "AutomataDesigner.__init__ (END): Critical error - SkeletonManager or IKManager not initialized before linking."
             )
 
+        # Setup status bar
+        if self.experiment_mode:
+            # Add permanent experiment indicator to status bar
+            experiment_label = QLabel("🧪 Experiment")
+            experiment_label.setStyleSheet("""
+                QLabel {
+                    color: #1982c4;
+                    font-weight: bold;
+                    padding: 2px 8px;
+                }
+            """)
+            self.statusBar().addPermanentWidget(experiment_label)
+        
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
     
@@ -197,26 +212,31 @@ class AutomataDesigner(QMainWindow):
         main_layout.addWidget(self.tab_widget)
 
         # --- Tab 0: Landing Page ---
-        self.landing_tab = LandingTab(self)
-        self.tab_widget.addTab(self.landing_tab, "Welcome")
+        self.landing_tab = LandingTab(self, experiment_mode=self.experiment_mode)
+        welcome_title = "A. Welcome" if self.experiment_mode else "Welcome"
+        self.tab_widget.addTab(self.landing_tab, welcome_title)
 
         # --- Tab 1: Image Processing ---
         self.image_proc_tab = ImageProcessingTab(self)
-        self.tab_widget.addTab(self.image_proc_tab, "Character Selection")
+        character_title = "B. Character Selection" if self.experiment_mode else "Character Selection"
+        self.tab_widget.addTab(self.image_proc_tab, character_title)
 
         # --- Tab 2: Editor & Simulation ---
         self.editor_tab = EditorTab(self)
-        self.tab_widget.addTab(self.editor_tab, "Path Editor")
+        path_title = "C. Path Editor" if self.experiment_mode else "Path Editor"
+        self.tab_widget.addTab(self.editor_tab, path_title)
 
         # --- Tab 3: Mechanism Design ---
         self.mechanism_design_tab = MechanismDesignTab(self)
-        self.tab_widget.addTab(self.mechanism_design_tab, "Mechanism Design")
+        mechanism_title = "D. Mechanism Design" if self.experiment_mode else "Mechanism Design"
+        self.tab_widget.addTab(self.mechanism_design_tab, mechanism_title)
 
         # --- Tab 4: Options ---
         self.options_tab = OptionsTab(
             initial_anim_duration=self.ik_manager.animation_duration
         )
-        self.tab_widget.addTab(self.options_tab, "Options")
+        if not self.experiment_mode:
+            self.tab_widget.addTab(self.options_tab, "Options")
 
         # --- Connect Signals from LandingTab ---
         self.landing_tab.image_selected.connect(self._handle_landing_image_selected)

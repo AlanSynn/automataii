@@ -726,7 +726,7 @@ class MechanismRecommendationDialog(QDialog):
                 color: #666666;
             }
         """)
-        self.ok_button.clicked.connect(self.accept)
+        self.ok_button.clicked.connect(self._on_ok_clicked)
         self.ok_button.setEnabled(False)
 
         self.cancel_button = QPushButton("Cancel")
@@ -938,6 +938,12 @@ class MechanismRecommendationDialog(QDialog):
         for container in self.preview_containers:
             container._set_selected_style(container.mechanism_data == mechanism_data)
         self.mechanism_preview_selected.emit(mechanism_data)
+
+    def _on_ok_clicked(self) -> None:
+        """Handle OK button click - emit signal and accept dialog."""
+        if self.selected_mechanism_data:
+            self.mechanism_selected.emit(self.selected_mechanism_data)
+        self.accept()
 
     @staticmethod
     def get_recommendation(

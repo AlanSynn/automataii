@@ -52,6 +52,9 @@ def main():
     parser.add_argument(
         "--debug", action="store_true", help="Enable debug logging and features."
     )
+    parser.add_argument(
+        "--experiment", action="store_true", help="Enable experimental mode (hides Options tab)."
+    )
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.debug else logging.INFO
@@ -102,7 +105,7 @@ def main():
         logging.info("Auto-updater not available")
 
     logging.info("Creating main window...")
-    main_window = AutomataDesigner(debug_mode=args.debug)
+    main_window = AutomataDesigner(debug_mode=args.debug, experiment_mode=args.experiment)
 
     # Pass updater to main window if available
     if updater and hasattr(main_window, 'set_updater'):
