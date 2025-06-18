@@ -1,5 +1,53 @@
 # 매커니즘 디자인 탭 재설계 태스크
 
+## 체크리스트 진행 상황
+
+### 현재 진행된 사항 ✅
+- [x] 스마트 파트 선택 시스템 구현 (Get Mechanism 자동 선택)
+- [x] Upper 파트 필터링 시스템 구현
+- [x] 다이얼로그 매개변수 오류 수정
+- [x] 테스트 파일 정리 (tests/ 폴더로 이동)
+
+### 매커니즘 디자인 탭 재설계 - 미완료 항목
+
+#### UI 구조 변경 체크리스트
+- [x] UI 구조 변경: _setup_ui() 메서드 수정
+  - [x] Target Part, Type 콤보박스 제거 (이미 없음)
+  - [x] Parametric Design을 Generation Group 안으로 이동 (이미 구현됨)
+  - [x] Animation Group을 Editor Tab 스타일로 변경 (Play/Stop/Reset) (이미 구현됨)
+  - [x] Blueprint Group을 별도 4번 섹션으로 추가
+
+#### 기능 구현 체크리스트
+- [x] 시그널 연결 수정: _connect_signals() 메서드 업데이트
+  - [x] 제거된 UI 요소들의 시그널 연결 제거
+  - [x] reset 버튼 시그널 추가
+  
+- [x] Get Recommendations 로직 완전 구현
+  - [x] 현재 선택된 파트 자동 감지 로직 강화
+  - [x] 선택된 파트의 패스 존재 여부 확인 개선
+  
+- [x] 애니메이션 컨트롤 구현
+  - [x] _on_start_animation(): Play 버튼 동작
+  - [x] _on_stop_animation(): Stop 버튼 동작  
+  - [x] _on_reset_animation(): Reset 버튼 동작 (새로 추가)
+  - [x] _update_animation_status(): 상태 레이블 업데이트
+
+- [x] 레이어 관리 개선
+  - [x] _add_mechanism_layer(): "Part Name - Mechanism Type" 형식으로 표시
+  - [x] _on_layer_selection_changed(): 선택된 레이어에서 파트 정보 추출
+
+#### 테스트 및 검증 체크리스트
+- [x] 기능 테스트 작성 및 실행
+  - [x] UI 변경사항 테스트
+  - [x] Get Mechanism 워크플로우 테스트
+  - [x] 애니메이션 컨트롤 테스트
+  - [x] 전체 통합 테스트
+
+- [x] 코드 품질 검증
+  - [x] 린터 실행 (CLAUDE.md 준수)
+  - [x] 타입 체커 실행
+  - [x] 코드 리뷰
+
 ## 목표
 매커니즘 디자인 탭을 Editor Tab과 유사한 흐름으로 재구성하여, 파트의 모션 패스를 기반으로 매커니즘을 추천받고 시뮬레이션할 수 있도록 만들기
 
