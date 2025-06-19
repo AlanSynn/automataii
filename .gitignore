@@ -334,3 +334,6 @@ src/automataii/examples/
 *venv*
 tmp/
 .claude/
+
+!resources/icons/AppIcon.png
+!resources/img/landing.png

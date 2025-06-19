@@ -1,7 +1,7 @@
 # Automataii Makefile
 # Uses uv for dependency management and development workflow
 
-.PHONY: help install dev clean test lint format type-check build run sync update deps build-macos build-windows build-linux
+.PHONY: help install dev clean test lint format type-check build run sync update deps build-macos build-windows build-linux build-experiment
 
 # Default target
 help:
@@ -21,6 +21,7 @@ help:
 	@echo "  type-check    - Run mypy type checking"
 	@echo ""
 	@echo "  build         - Build for current platform"
+	@echo "  build-experiment - Build experiment version (hides Options tab)"
 	@echo "  build-macos   - Build macOS app bundle"
 	@echo "  build-windows - Build Windows executable"
 	@echo "  build-linux   - Build Linux executable"
@@ -94,6 +95,10 @@ quality: lint format-check type-check
 build:
 	@echo "Building for current platform..."
 	$(PYTHON) scripts/build.py
+
+build-experiment:
+	@echo "Building experiment version for current platform..."
+	$(PYTHON) scripts/build_experiment.py
 
 build-macos:
 	@echo "Building macOS app bundle..."
