@@ -3,6 +3,8 @@ import os
 import json
 from scipy.spatial import cKDTree
 from typing import List, Dict, Set, Optional
+import logging
+from pathlib import Path
 
 from automataii.kinematics.mechanism import (
     MechanismType,
@@ -13,7 +15,10 @@ from automataii.kinematics.mechanism import (
 )
 from automataii.kinematics.mechanism_simulator import MechanismSimulator
 from automataii.kinematics.curve_similarity import CurveSimilarity
+from automataii.utils.paths import resolve_path
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
 class MotionDatabase:
     """Manages a precomputed database of mechanism motions for fast querying."""
@@ -23,6 +28,7 @@ class MotionDatabase:
         self.entries: Dict[MechanismType, List[PrecomputedMotionEntry]] = {}
         self.feature_trees: Dict[MechanismType, cKDTree] = {}
         self.similarity_metric = CurveSimilarity()
+        self.db = []
         self.load_database()
 
     def build_database(
@@ -150,51 +156,55 @@ class MotionDatabase:
         print(f"Database saved to {self.db_path}")
 
     def load_database(self):
-        """Loads the mechanism database from the JSON file."""
-        db_path = os.path.join(os.path.dirname(__file__), 'generated_mechanism_paths.json')
-        if not os.path.exists(db_path):
-            print(f"Database file not found at {db_path}. Please generate it first.")
+        """Loads the motion path database from the JSON file."""
+        db_path = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
+        if not db_path or not db_path.exists():
+            logger.warning("Generated mechanism paths file not found.")
             return
 
-        with open(db_path, 'r') as f:
-            data = json.load(f)
+        try:
+            with open(db_path, 'r') as f:
+                data = json.load(f)
 
-        for item in data:
-            mech_type_str = item.get("type", "").split()[0].lower()
-            try:
-                mech_type = {
-                    "4-bar": MechanismType.FOUR_BAR,
-                    "3-bar": MechanismType.THREE_BAR,
-                    "cam": MechanismType.CAM,
-                }.get(mech_type_str)
+            for item in data:
+                mech_type_str = item.get("type", "").split()[0].lower()
+                try:
+                    mech_type = {
+                        "4-bar": MechanismType.FOUR_BAR,
+                        "3-bar": MechanismType.THREE_BAR,
+                        "cam": MechanismType.CAM,
+                    }.get(mech_type_str)
 
-                if mech_type is None:
+                    if mech_type is None:
+                        continue
+
+                    numeric_params = [v for v in item["parameters"].values() if isinstance(v, (int, float))]
+                    params = np.array(numeric_params)
+                    points = np.array(item["path_coordinates"])
+                    motion_curve = MotionCurve(points=points, parameter_vector=params)
+                    features = self.similarity_metric._extract_curve_features(motion_curve)
+
+                    entry = PrecomputedMotionEntry(
+                        mechanism_type=mech_type,
+                        parameters=params,
+                        motion_curve=motion_curve,
+                        features=features,
+                    )
+
+                    if mech_type not in self.entries:
+                        self.entries[mech_type] = []
+                    self.entries[mech_type].append(entry)
+
+                except (KeyError, TypeError) as e:
+                    print(f"Skipping invalid entry in database: {item.get('name')}, error: {e}")
                     continue
 
-                numeric_params = [v for v in item["parameters"].values() if isinstance(v, (int, float))]
-                params = np.array(numeric_params)
-                points = np.array(item["path_coordinates"])
-                motion_curve = MotionCurve(points=points, parameter_vector=params)
-                features = self.similarity_metric._extract_curve_features(motion_curve)
+            for mech_type, entries in self.entries.items():
+                if entries:
+                    features = np.array([e.features for e in entries])
+                    self.feature_trees[mech_type] = cKDTree(features)
 
-                entry = PrecomputedMotionEntry(
-                    mechanism_type=mech_type,
-                    parameters=params,
-                    motion_curve=motion_curve,
-                    features=features,
-                )
+            print(f"Database loaded successfully from {db_path} with {len(data)} total entries.")
 
-                if mech_type not in self.entries:
-                    self.entries[mech_type] = []
-                self.entries[mech_type].append(entry)
-
-            except (KeyError, TypeError) as e:
-                print(f"Skipping invalid entry in database: {item.get('name')}, error: {e}")
-                continue
-
-        for mech_type, entries in self.entries.items():
-            if entries:
-                features = np.array([e.features for e in entries])
-                self.feature_trees[mech_type] = cKDTree(features)
-
-        print(f"Database loaded successfully from {db_path} with {len(data)} total entries.")
+        except Exception as e:
+            logger.error(f"Error loading database: {e}")
