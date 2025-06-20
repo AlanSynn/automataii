@@ -23,7 +23,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal, QPointF, Qt, QTimer, QLineF
 from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtGui import QPainterPath, QPen, QColor, QBrush, QPolygonF
+from PyQt6.QtGui import QPainterPath, QPen, QColor, QBrush, QPolygonF, QFont, QIcon, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
+from automataii.kinematics.ik_manager import IKManager
+from automataii.utils.paths import get_project_root, resolve_path
 
 from automataii.gui.views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem, QGraphicsPolygonItem
@@ -43,6 +46,8 @@ from automataii.gui.tabs.mechanism_design_utils import (
     qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
     convert_json_params_to_internal
 )
+
+logger = logging.getLogger(__name__)
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -136,6 +141,16 @@ class MechanismDesignTab(QWidget):
         self._connect_signals()
         self._connect_to_ik_manager()
 
+        self.recommendation_dialog = MechanismRecommendationDialog(self)
+        self.recommendation_dialog.mechanism_selected.connect(self.handle_mechanism_selected)
+
+        # Load generated paths
+        generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
+        self.generated_paths = self.load_generated_paths(generated_paths_file)
+
+    def load_generated_paths(self, file_path):
+        """Loads generated mechanism paths from a JSON file."""
+        # ... existing code ...
 
     def _setup_ui(self):
         """Setup UI - Similar to EditorTab but with mechanism layers instead of parts"""
