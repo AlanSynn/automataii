@@ -169,9 +169,6 @@ class CharacterPartItem(QGraphicsPixmapItem):
         if self.part_info.image_path and Path(self.part_info.image_path).is_absolute():
             if Path(self.part_info.image_path).exists():
                 potential_path_str = self.part_info.image_path
-                logging.info(
-                    f"CharacterPartItem '{self.part_info.name}': Attempting to load texture from absolute image_path: {potential_path_str}"
-                )
             else:
                 logging.warning(
                     f"CharacterPartItem '{self.part_info.name}': Absolute image_path does not exist: {self.part_info.image_path}"
@@ -186,17 +183,11 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
             if path_to_try.exists():
                 potential_path_str = str(path_to_try)
-                logging.info(
-                    f"CharacterPartItem '{self.part_info.name}': Attempting to load texture from resolved path: {potential_path_str}"
-                )
             else:
                 # Construct the old fallback name.png path just in case it's the only one available during transition
                 legacy_png_path = self.project_dir / f"{self.part_info.name}.png"
                 if legacy_png_path.exists():
                     potential_path_str = str(legacy_png_path)
-                    logging.info(
-                        f"CharacterPartItem '{self.part_info.name}': Attempting to load texture from legacy path: {potential_path_str}"
-                    )
                 else:
                     logging.warning(
                         f"CharacterPartItem '{self.part_info.name}': Texture file not found at {path_to_try}"
@@ -224,14 +215,8 @@ class CharacterPartItem(QGraphicsPixmapItem):
                         Qt.AspectRatioMode.KeepAspectRatio,  # Or IgnoreAspectRatio if ROI defines exact output size
                         Qt.TransformationMode.SmoothTransformation,
                     )
-                    logging.info(
-                        f"CharacterPartItem '{self.part_info.name}': Loaded and scaled texture from {potential_path_str} to {target_width}x{target_height}"
-                    )
                 else:
-                    self.part_pixmap = temp_pixmap  # Use as is
-                    logging.info(
-                        f"CharacterPartItem '{self.part_info.name}': Loaded texture from {potential_path_str}"
-                    )
+                    self.part_pixmap = temp_pixmap
                 loaded_successfully = True
             else:
                 logging.error(
@@ -355,7 +340,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         else:
             if self.selection_highlight_item:
                 self.selection_highlight_item.setVisible(False)
-    
+
     def _update_selection_highlight_position(self):
         """Update the selection highlight to match the current position and rotation of the part."""
         if self.selection_highlight_item and self.selection_highlight_item.isVisible():
@@ -512,18 +497,19 @@ class CharacterPartItem(QGraphicsPixmapItem):
         # This simplifies to: item.pos() = scene_anchor_pos - self.anchor_offset
         new_pos = scene_anchor_pos - self.anchor_offset
         self.setPos(new_pos)
-        
+
         # Update selection highlight position if it's visible
         self._update_selection_highlight_position()
 
         # Debug logging for torso alignment issues
         if self.name() == "torso":
-            logging.info(
+            logging.debug(
                 f"CharacterPartItem 'torso': Setting position from anchor. "
                 f"scene_anchor_pos={scene_anchor_pos}, anchor_offset={self.anchor_offset}, "
                 f"resulting pos={new_pos}"
             )
-    
+            pass
+
     def setRotation(self, angle: float):
         """Override setRotation to also update the selection highlight."""
         super().setRotation(angle)
