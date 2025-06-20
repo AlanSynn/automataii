@@ -141,11 +141,14 @@ class MechanismDesignTab(QWidget):
         self._connect_signals()
         self._connect_to_ik_manager()
 
-        self.recommendation_dialog = MechanismRecommendationDialog(self)
-        self.recommendation_dialog.mechanism_selected.connect(self.handle_mechanism_selected)
-
         # Load generated paths
         generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
+        # Initialize with empty QPainterPath since no user path is drawn yet
+        empty_path = QPainterPath()
+        self.recommendation_dialog = MechanismRecommendationDialog(empty_path, generated_paths_file, parent=self)
+        self.recommendation_dialog.mechanism_selected.connect(self.handle_mechanism_visuals)
+
+
         self.generated_paths = self.load_generated_paths(generated_paths_file)
 
     def load_generated_paths(self, file_path):

@@ -146,9 +146,9 @@ class LandingTab(QWidget):
 
         # Use resolve_path to find examples directory in both development and bundled environments
         self.example_dirs = [
-            resolve_path("examples"),
+            resolve_path("src/examples"),
             # Add fallback paths if needed
-            get_project_root() / "examples",
+            get_project_root() / "src" / "examples",
         ]
 
         self.image_widgets: List[ExampleImageWidget] = []
