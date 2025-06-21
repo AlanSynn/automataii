@@ -337,3 +337,5 @@ tmp/
 
 !resources/icons/AppIcon.png
 !resources/img/landing.png
+
+*_entry.py
