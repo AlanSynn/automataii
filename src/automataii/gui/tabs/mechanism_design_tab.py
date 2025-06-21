@@ -28,6 +28,18 @@ from PyQt6.QtSvg import QSvgRenderer
 from automataii.kinematics.ik_manager import IKManager
 from automataii.utils.paths import get_project_root, resolve_path
 
+# Parametric Design System (ULTRATHINK Architecture)
+try:
+    from .mechanism_design.parametric import (
+        ParameterController,
+        BaseHandle,
+        AnchorHandle
+    )
+    PARAMETRIC_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Parametric design system not available: {e}")
+    PARAMETRIC_AVAILABLE = False
+
 from automataii.gui.views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsPathItem, QGraphicsPolygonItem
 from automataii.core.models import PartInfo
@@ -125,6 +137,17 @@ class MechanismDesignTab(QWidget):
 
         # Mechanism path tracing
         self.mechanism_trace_paths: Dict[str, QPainterPath] = {}  # Store traced paths
+        
+        # Parametric Design System (ULTRATHINK Architecture)
+        self.parametric_controller: Optional['ParameterController'] = None
+        self.parametric_handles: Dict[str, List['BaseHandle']] = {}  # mechanism_id -> handles
+        self.parametric_mode_enabled = False
+        
+        # Initialize parametric system if available
+        if PARAMETRIC_AVAILABLE:
+            self._initialize_parametric_system()
+        else:
+            logging.info("Parametric design features disabled (module not available)")
         self.mechanism_trace_items: Dict[str, QGraphicsPathItem] = {}  # Visual path items
         self.mechanism_trace_points: Dict[str, List[QPointF]] = {}  # Store trace points
 
@@ -140,6 +163,10 @@ class MechanismDesignTab(QWidget):
         self._setup_ui()
         self._connect_signals()
         self._connect_to_ik_manager()
+        
+        # Connect parametric system signals if available
+        if self.parametric_controller:
+            self._connect_parametric_signals()
 
         # Load generated paths
         generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
@@ -172,7 +199,7 @@ class MechanismDesignTab(QWidget):
         panel_layout.setSpacing(15)
 
         # 1. Parts for Mechanism Generation
-        layers_group = QGroupBox("1 Parts for Mechanism Generation")
+        layers_group = QGroupBox("1 Parts for Mechanisms")
         layers_group.setStyleSheet("""
             QGroupBox {
                 background-color: #ffffff;
@@ -193,9 +220,13 @@ class MechanismDesignTab(QWidget):
             }
         """)
         layers_layout = QVBoxLayout(layers_group)
+
+        # Parts list with scrollable area
         self.mechanism_layers_list = QListWidget()
-        self.mechanism_layers_list.setToolTip("Parts list - gray items have no motion paths")
+        self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
         self.mechanism_layers_list.setMinimumHeight(180)
+        self.mechanism_layers_list.setMaximumHeight(300)  # Set max height to ensure it's visible
+        logging.debug(f"[MECHANISM TAB] Created mechanism_layers_list widget: {self.mechanism_layers_list}")
         self.mechanism_layers_list.setStyleSheet("""
             QListWidget {
                 background-color: white;
@@ -216,8 +247,20 @@ class MechanismDesignTab(QWidget):
                 color: white;
                 border: 1px solid #004578;
             }
+            QListWidget::item:hover {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+            }
         """)
         layers_layout.addWidget(self.mechanism_layers_list)
+        
+        # Add initial placeholder item to show the list is working
+        placeholder_item = QListWidgetItem("Parts will appear here...")
+        placeholder_item.setForeground(QBrush(QColor(150, 150, 150)))
+        placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+        self.mechanism_layers_list.addItem(placeholder_item)
+        logging.debug(f"[MECHANISM TAB] Added initial placeholder to mechanism_layers_list")
 
         panel_layout.addWidget(layers_group)
 
@@ -247,7 +290,55 @@ class MechanismDesignTab(QWidget):
         self.recommendation_btn = QPushButton("Get Mechanism")
         self.recommendation_btn.setEnabled(False)
         self.recommendation_btn.setToolTip("Get mechanism recommendations based on motion paths")
+        self.recommendation_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: normal;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """)
         generation_layout.addWidget(self.recommendation_btn)
+
+        # Parametric Design Button (ULTRATHINK Architecture)
+        if PARAMETRIC_AVAILABLE:
+            self.parametric_edit_btn = QPushButton("Parametric Edit")
+            self.parametric_edit_btn.setToolTip("Enable interactive parameter editing with drag handles")
+            self.parametric_edit_btn.setEnabled(False)  # Enable when mechanisms are loaded
+            self.parametric_edit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #3498db;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-size: 13px;
+                    font-weight: normal;
+                    min-height: 20px;
+                }
+                QPushButton:hover {
+                    background-color: #2980b9;
+                }
+                QPushButton:disabled {
+                    background-color: #bdc3c7;
+                    color: #7f8c8d;
+                }
+            """)
+            generation_layout.addWidget(self.parametric_edit_btn)
+        else:
+            # Parametric features not available
+            self.parametric_edit_btn = None
 
         panel_layout.addWidget(generation_group)
 
@@ -315,6 +406,10 @@ class MechanismDesignTab(QWidget):
         self.reset_btn.clicked.connect(self._on_reset_animation)
         self.mechanism_layers_list.itemSelectionChanged.connect(self._on_layer_selection_changed)
         self.mechanism_layers_list.itemClicked.connect(self._on_layer_item_clicked)
+        
+        # Parametric Design System signals
+        if PARAMETRIC_AVAILABLE and self.parametric_edit_btn:
+            self.parametric_edit_btn.clicked.connect(lambda: self.toggle_parametric_mode())
 
     def _connect_to_ik_manager(self):
         """Connect to IK manager signals for skeleton animation."""
@@ -327,6 +422,10 @@ class MechanismDesignTab(QWidget):
 
     def set_path_data_from_editor(self, path_data: Dict[str, QPainterPath]):
         """Receive path data from editor tab"""
+        logging.debug(f"[MECHANISM TAB] set_path_data_from_editor called with {len(path_data) if path_data else 0} paths")
+        if path_data:
+            logging.debug(f"[MECHANISM TAB] Path parts: {list(path_data.keys())}")
+        
         self.path_data = path_data.copy()
 
         # Initialize enabled state for new parts (default to enabled)
@@ -358,6 +457,10 @@ class MechanismDesignTab(QWidget):
 
     def set_parts_data(self, parts_data: Dict[str, PartInfo]):
         """Set parts data (synchronized with editor tab)"""
+        logging.debug(f"[MECHANISM TAB] set_parts_data called with {len(parts_data) if parts_data else 0} parts")
+        if parts_data:
+            logging.debug(f"[MECHANISM TAB] Parts: {list(parts_data.keys())}")
+        
         # Sort parts data to show parts with paths first
         if parts_data:
             sorted_part_names = sorted(
@@ -379,6 +482,11 @@ class MechanismDesignTab(QWidget):
                 if project_dir:
                     item = CharacterPartItem(part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode)
                     item.setZValue(1)  # Parts above skeleton (Z=0) but below mechanisms
+
+                    # Disable part dragging in mechanism tab while keeping click functionality
+                    item.setFlag(item.GraphicsItemFlag.ItemIsMovable, False)
+                    # Ensure parts remain selectable for click interactions
+                    item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, True)
 
                     # All parts display normally without any highlighting
                     item.setOpacity(1.0)
@@ -1377,7 +1485,7 @@ class MechanismDesignTab(QWidget):
         }
         internal_type = mechanism_type_mapping.get(mechanism_type_value, "4_bar_linkage")
 
-        layer_name = f"{self.selected_part_name} - {mechanism_type_value}"
+        layer_name = self.selected_part_name
         target_path = self.path_data.get(self.selected_part_name)
 
         layer_data = {
@@ -1416,12 +1524,14 @@ class MechanismDesignTab(QWidget):
             layout_desc = mechanism_layout.get("description", "")
             coord_system = mechanism_layout.get("coordinate_system", {})
 
-        # Select the newly added mechanism in the list
-        for i in range(self.mechanism_layers_list.count()):
-            item = self.mechanism_layers_list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == mechanism_id:
-                self.mechanism_layers_list.setCurrentItem(item)
-                break
+        # Select the part that got the mechanism in the list
+        part_name = layer_data.get("part_name")
+        if part_name:
+            for i in range(self.mechanism_layers_list.count()):
+                item = self.mechanism_layers_list.item(i)
+                if item.data(Qt.ItemDataRole.UserRole) == part_name:
+                    self.mechanism_layers_list.setCurrentItem(item)
+                    break
 
 
     def _verify_coupler_joint_connection(self, layer_data: dict):
@@ -1516,14 +1626,18 @@ class MechanismDesignTab(QWidget):
                     logging.warning("Cannot adjust mechanism: missing full simulation data")
 
     def _add_mechanism_layer(self, layer_name: str, layer_data: Any):
-        """Add a mechanism layer to the layers list"""
+        """Add a mechanism layer to the internal data structure (no separate UI display)"""
         mechanism_id = layer_data["id"]
         self.mechanism_layers[mechanism_id] = layer_data
-        item = QListWidgetItem(layer_name)
-        item.setData(Qt.ItemDataRole.UserRole, mechanism_id)
-        self.mechanism_layers_list.addItem(item)
+        # Don't add separate mechanism item to list - mechanisms are shown through part highlighting
         self.play_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
+        
+        # Update parametric edit button state
+        self._update_parametric_button_state()
+        
+        # Refresh the parts list to show mechanism assignment
+        self._update_mechanism_layers_list()
 
         # Initialize path tracing for this mechanism
         self._init_mechanism_path_trace(mechanism_id)
@@ -1827,7 +1941,7 @@ class MechanismDesignTab(QWidget):
         Update animation frame by calculating mechanism outputs and setting them as targets for the IK system.
         The IK system is the single source of truth for skeleton and part animation.
         """
-        dt = 0.033 * self.animation_speed
+        dt = 0.05 * self.animation_speed
         self.animation_time += dt
         if self.animation_time > 2 * math.pi:
             self.animation_time -= 2 * math.pi
@@ -1835,12 +1949,14 @@ class MechanismDesignTab(QWidget):
         active_joint_updates = {}
 
         # 1. Calculate all mechanism outputs and determine IK targets
-        for mechanism_id, is_enabled in self.mechanism_enabled_state.items():
-            if not is_enabled:
+        for mechanism_id, layer_data in self.mechanism_layers.items():
+            if not layer_data or not layer_data.get("part_name"):
                 continue
 
-            layer_data = self.mechanism_layers.get(mechanism_id)
-            if not layer_data or not layer_data.get("part_name"):
+            part_name = layer_data["part_name"]
+            # Check if this part is enabled in the parts list
+            is_enabled = self.part_enabled_state.get(part_name, True)
+            if not is_enabled:
                 continue
 
             try:
@@ -1849,8 +1965,6 @@ class MechanismDesignTab(QWidget):
                 )
 
                 if output_pos:
-                    part_name = layer_data["part_name"]
-
                     # Get the correct end effector joint for this part
                     part_info = self.parts_data.get(part_name)
                     if part_info and part_info.anchor_joint_id:
@@ -2251,11 +2365,13 @@ class MechanismDesignTab(QWidget):
             self.recommendation_btn.setEnabled(has_parts_with_paths)
 
     def _update_mechanism_layers_list(self):
-        """Update the mechanism layers list to show all parts with togglable mechanism states."""
+        """Update the mechanism layers list to show all parts with simple path-based coloring and toggle functionality."""
         if not self.mechanism_layers_list:
+            logging.debug("mechanism_layers_list is None, skipping update")
             return
 
         self.mechanism_layers_list.clear()
+        logging.debug(f"Updating mechanism layers list with {len(self.parts_data) if self.parts_data else 0} parts")
 
         # Show all parts (like in editor tab)
         if self.parts_data:
@@ -2265,37 +2381,41 @@ class MechanismDesignTab(QWidget):
 
             for part_name in all_parts:
                 has_path = part_name in self.path_data
+                is_enabled = self.part_enabled_state.get(part_name, True)  # Default to enabled
                 has_mechanism = self._part_has_mechanism(part_name)
-                mechanism_enabled = self.mechanism_enabled_state.get(part_name, False)
 
-                # Create list item
-                item = QListWidgetItem(part_name)
+                # Create list item with toggle indicator
+                display_text = part_name
+                if has_path:
+                    # Add toggle indicator for parts with paths
+                    toggle_symbol = "●" if is_enabled else "○"
+                    display_text = f"{part_name} {toggle_symbol}"
+
+                item = QListWidgetItem(display_text)
                 item.setData(Qt.ItemDataRole.UserRole, part_name)  # Store part name
 
-                # Style based on part state
+                # Style based on part state - simplified like editor tab
                 if has_path:
-                    if has_mechanism:
-                        if mechanism_enabled:
-                            # Part with enabled mechanism: dark sky blue
-                            item.setForeground(QBrush(QColor(0, 100, 150)))  # Dark blue text
-                            item.setBackground(QBrush(QColor(135, 206, 250)))  # Sky blue background
-                            item.setToolTip(f"{part_name} - Mechanism ENABLED (click to disable)")
+                    # Part with path: black text (enabled) or dark gray (disabled)
+                    if is_enabled:
+                        item.setForeground(QBrush(QColor(0, 0, 0)))  # Black text
+                        if has_mechanism:
+                            # Light orange background for parts with mechanisms
+                            item.setBackground(QBrush(QColor(255, 165, 0, 100)))
+                            item.setToolTip(f"{part_name} - Has mechanism (● enabled, click to toggle)")
                         else:
-                            # Part with disabled mechanism: light sky blue
-                            item.setForeground(QBrush(QColor(70, 130, 180)))  # Medium blue text
-                            item.setBackground(QBrush(QColor(176, 224, 230)))  # Light sky blue background
-                            item.setToolTip(f"{part_name} - Mechanism DISABLED (click to enable)")
+                            item.setBackground(QBrush(QColor(Qt.GlobalColor.transparent)))
+                            item.setToolTip(f"{part_name} - Has motion path (● enabled, click to toggle)")
                     else:
-                        # Part with path but no mechanism: normal appearance
-                        item.setForeground(QBrush(QColor(51, 51, 51)))  # Dark text
-                        item.setBackground(QBrush(QColor(Qt.GlobalColor.transparent)))  # Transparent background
-                        item.setToolTip(f"{part_name} - Has motion path (click to generate mechanism)")
+                        item.setForeground(QBrush(QColor(100, 100, 100)))  # Dark gray text
+                        item.setBackground(QBrush(QColor(Qt.GlobalColor.transparent)))
+                        item.setToolTip(f"{part_name} - Has motion path (○ disabled, click to toggle)")
 
                     # Enable for parts with paths
                     item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
                 else:
-                    # Part without path: grayed out
-                    item.setForeground(QBrush(QColor(150, 150, 150)))  # Gray text
+                    # Part without path: light gray text
+                    item.setForeground(QBrush(QColor(150, 150, 150)))  # Light gray text
                     item.setBackground(QBrush(QColor(240, 240, 240)))  # Light gray background
                     item.setToolTip(f"{part_name} - No motion path")
                     # Disable selection for parts without paths
@@ -2304,6 +2424,17 @@ class MechanismDesignTab(QWidget):
 
                 # Add to list
                 self.mechanism_layers_list.addItem(item)
+                logging.debug(f"Added part {part_name} to list (has_path: {has_path}, enabled: {is_enabled})")
+        else:
+            # Show placeholder when no parts data is available
+            placeholder_item = QListWidgetItem("No parts loaded yet...")
+            placeholder_item.setForeground(QBrush(QColor(150, 150, 150)))
+            placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            self.mechanism_layers_list.addItem(placeholder_item)
+            logging.debug("Added placeholder item to mechanism layers list")
+
+        logging.debug(f"Mechanism layers list updated with {self.mechanism_layers_list.count()} items")
 
     def _part_has_mechanism(self, part_name: str) -> bool:
         """Check if a part has any mechanism assigned to it."""
@@ -2656,7 +2787,7 @@ class MechanismDesignTab(QWidget):
             logging.debug("No part selected")
 
     def _on_layer_item_clicked(self, item):
-        """Handle clicking on a layer item to toggle mechanism state."""
+        """Handle clicking on a layer item to toggle part enabled/disabled state."""
         part_name = item.data(Qt.ItemDataRole.UserRole)
 
         # Only process clicks on parts with motion paths
@@ -2664,23 +2795,70 @@ class MechanismDesignTab(QWidget):
             logging.debug(f"Part {part_name} has no motion path, ignoring click")
             return
 
-        has_mechanism = self._part_has_mechanism(part_name)
+        # Simple toggle of enabled/disabled state
+        current_state = self.part_enabled_state.get(part_name, True)
+        new_state = not current_state
+        self.part_enabled_state[part_name] = new_state
 
-        if has_mechanism:
-            # Toggle mechanism enabled/disabled state
-            current_state = self.mechanism_enabled_state.get(part_name, False)
-            new_state = not current_state
-            self.mechanism_enabled_state[part_name] = new_state
+        # Update visual representation and animation control
+        self._update_part_visibility_and_animation(part_name, new_state)
 
-            # Update visual items visibility
-            self._toggle_mechanism_visuals(part_name, new_state)
-
-        else:
-            # No mechanism yet - trigger mechanism generation
-            self._request_mechanism_for_part(part_name)
-
-        # Update the list display
+        # Update the list display to reflect new state
         self._update_mechanism_layers_list()
+
+        logging.debug(f"Toggled {part_name}: {current_state} -> {new_state}")
+
+    def _update_part_visibility_and_animation(self, part_name: str, enabled: bool):
+        """Update part visibility and animation control based on enabled state."""
+        # Control part visibility in the scene
+        if hasattr(self, 'current_editor_items') and part_name in self.current_editor_items:
+            part_item = self.current_editor_items[part_name]
+            if hasattr(part_item, 'setVisible'):
+                part_item.setVisible(enabled)
+                logging.debug(f"Set part {part_name} visibility to {enabled}")
+
+        # Control mechanism visuals if they exist
+        has_mechanism = self._part_has_mechanism(part_name)
+        if has_mechanism:
+            self._toggle_mechanism_visuals(part_name, enabled)
+
+        # Update animation control buttons if needed
+        self._update_animation_button_states()
+        
+        # Update parametric edit button state
+        self._update_parametric_button_state()
+
+    def _update_animation_button_states(self):
+        """Update animation button states based on enabled parts."""
+        # Check if any parts with paths are enabled
+        has_enabled_parts = any(
+            self.part_enabled_state.get(part_name, True)
+            for part_name in self.path_data.keys()
+        )
+
+        # Enable/disable animation buttons based on enabled parts
+        self.play_btn.setEnabled(has_enabled_parts and bool(self.path_data))
+        self.reset_btn.setEnabled(has_enabled_parts and bool(self.path_data))
+    
+    def _update_parametric_button_state(self):
+        """Update parametric edit button state based on available mechanisms."""
+        if not PARAMETRIC_AVAILABLE or not self.parametric_edit_btn:
+            return
+            
+        # Enable parametric edit if we have any mechanisms loaded
+        has_mechanisms = bool(self.mechanism_layers)
+        # Enable parametric edit button based on available mechanisms
+        self.parametric_edit_btn.setEnabled(has_mechanisms)
+        
+        if has_mechanisms:
+            self.parametric_edit_btn.setToolTip(
+                "Enable interactive parameter editing with drag handles\n"
+                f"{len(self.mechanism_layers)} mechanism(s) available for editing"
+            )
+        else:
+            self.parametric_edit_btn.setToolTip(
+                "Generate mechanisms first to enable parametric editing"
+            )
 
     def _toggle_mechanism_visuals(self, part_name: str, enabled: bool):
         """Toggle visibility of mechanism visuals for a specific part."""
@@ -3197,9 +3375,10 @@ class MechanismDesignTab(QWidget):
         if not parts_data_to_use and hasattr(self, 'parts_data') and self.parts_data:
             parts_data_to_use = self.parts_data
 
-        # If we don't have parts data locally, try to get it from project manager
-        if not self.parts_data and parts_data_to_use:
+        # Always update parts data if available from project manager
+        if parts_data_to_use:
             self.set_parts_data(parts_data_to_use)
+            logging.info(f"[MECHANISM TAB] Refreshed parts data on tab activation: {len(parts_data_to_use)} parts")
 
         # Try to get path data from editor tab if we don't have it
         if not self.path_data and hasattr(self.main_window, 'editor_tab'):
@@ -3216,6 +3395,549 @@ class MechanismDesignTab(QWidget):
 
         # Update mechanism layers list to show current parts and path status
         self._update_mechanism_layers_list()
+
+    # ================================================================================
+    # PARAMETRIC DESIGN SYSTEM (ULTRATHINK Architecture)
+    # Jeff Dean Performance + Kent Beck Simplicity + Rob Pike Clarity
+    # ================================================================================
+    
+    def _initialize_parametric_system(self):
+        """
+        Initialize the parametric design system for interactive manipulation.
+        
+        Features:
+        - Interactive drag handles for mechanism parameters
+        - Real-time parameter updates with constraint validation
+        - Undo/Redo functionality for parameter changes
+        - Performance-optimized update throttling
+        """
+        if not PARAMETRIC_AVAILABLE:
+            return
+            
+        try:
+            # Initialize parameter controller (Observer + Command patterns)
+            self.parametric_controller = ParameterController(
+                mechanism_tab_ref=self,
+                update_throttle_ms=50,  # 20 FPS max update rate for performance
+                parent=self
+            )
+            
+            logging.info("Parametric design system initialized successfully")
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize parametric system: {e}")
+            self.parametric_controller = None
+    
+    def _connect_parametric_signals(self):
+        """Connect parametric system signals to mechanism updates."""
+        if not self.parametric_controller:
+            return
+            
+        try:
+            # Connect parameter controller signals
+            self.parametric_controller.mechanism_update_requested.connect(
+                self._on_parametric_mechanism_update
+            )
+            self.parametric_controller.visual_refresh_requested.connect(
+                self._on_parametric_visual_refresh
+            )
+            self.parametric_controller.constraint_violation.connect(
+                self._on_parametric_constraint_violation
+            )
+            
+            logging.debug("Parametric system signals connected")
+            
+        except Exception as e:
+            logging.error(f"Failed to connect parametric signals: {e}")
+    
+    def toggle_parametric_mode(self, enabled: Optional[bool] = None):
+        """
+        Toggle parametric editing mode on/off.
+        
+        Args:
+            enabled: Explicit enable/disable, or None to toggle current state
+        """
+        logging.info(f"[PARAMETRIC] toggle_parametric_mode called with enabled={enabled}, current_mode={self.parametric_mode_enabled}")
+        
+        if not PARAMETRIC_AVAILABLE:
+            logging.warning("Parametric mode not available - PARAMETRIC_AVAILABLE is False")
+            return
+            
+        if not self.parametric_controller:
+            logging.warning("Parametric mode not available - parametric_controller is None")
+            return
+            
+        if enabled is None:
+            enabled = not self.parametric_mode_enabled
+            
+        logging.info(f"[PARAMETRIC] Will set parametric mode to: {enabled}")
+        
+        # Debug: Show current state
+        logging.info(f"[PARAMETRIC] Current system state:")
+        logging.info(f"[PARAMETRIC] - PARAMETRIC_AVAILABLE: {PARAMETRIC_AVAILABLE}")
+        logging.info(f"[PARAMETRIC] - parametric_controller: {self.parametric_controller is not None}")
+        logging.info(f"[PARAMETRIC] - mechanism_layers count: {len(self.mechanism_layers) if hasattr(self, 'mechanism_layers') else 'No attribute'}")
+        if hasattr(self, 'mechanism_layers'):
+            logging.info(f"[PARAMETRIC] - mechanism_layers keys: {list(self.mechanism_layers.keys())}")
+        
+        # Check if we have mechanisms to edit
+        if enabled and not self.mechanism_layers:
+            logging.warning("Cannot enable parametric mode: no mechanisms loaded")
+            # Show user-friendly message
+            if hasattr(self, 'main_window'):
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.information(
+                    self.main_window,
+                    "Parametric Edit",
+                    "Please generate mechanisms first using 'Get Mechanism' button.\n\n"
+                    "Parametric editing allows you to interactively adjust mechanism parameters by dragging anchor points."
+                )
+            return
+            
+        self.parametric_mode_enabled = enabled
+        
+        if enabled:
+            self._enable_parametric_mode()
+        else:
+            self._disable_parametric_mode()
+            
+        logging.info(f"Parametric mode {'enabled' if enabled else 'disabled'}")
+    
+    def _enable_parametric_mode(self):
+        """Enable parametric editing mode - show interactive handles."""
+        if not self.parametric_controller:
+            return
+            
+        try:
+            # CRITICAL: Disable mouse events on mechanism visuals to allow handle interaction
+            self._disable_mechanism_visual_interaction()
+            
+            # Create interactive handles for all existing mechanisms
+            logging.info(f"[PARAMETRIC] Creating handles for {len(self.mechanism_layers)} mechanisms")
+            for mechanism_id, layer_data in self.mechanism_layers.items():
+                logging.info(f"[PARAMETRIC] Creating handles for mechanism {mechanism_id}, type: {layer_data.get('type')}")
+                self._create_parametric_handles_for_mechanism(mechanism_id, layer_data)
+            
+            # Update UI to show parametric mode
+            if self.parametric_edit_btn:
+                self.parametric_edit_btn.setText("Exit Parametric Mode")
+                self.parametric_edit_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #e74c3c;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background-color: #c0392b;
+                    }
+                """)
+            
+            logging.debug("Parametric mode enabled - interactive handles created")
+            
+        except Exception as e:
+            logging.error(f"Failed to enable parametric mode: {e}")
+    
+    def _disable_parametric_mode(self):
+        """Disable parametric editing mode - hide interactive handles."""
+        if not self.parametric_controller:
+            return
+            
+        try:
+            # Re-enable mouse events on mechanism visuals
+            self._enable_mechanism_visual_interaction()
+            
+            # Remove all parametric handles from scene
+            for mechanism_id in list(self.parametric_handles.keys()):
+                self._remove_parametric_handles_for_mechanism(mechanism_id)
+            
+            # Update UI to show normal mode
+            if self.parametric_edit_btn:
+                self.parametric_edit_btn.setText("Parametric Edit")
+                self.parametric_edit_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3498db;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        background-color: #2980b9;
+                    }
+                """)
+            
+            logging.debug("Parametric mode disabled - interactive handles removed")
+            
+        except Exception as e:
+            logging.error(f"Failed to disable parametric mode: {e}")
+    
+    def _create_parametric_handles_for_mechanism(self, mechanism_id: str, layer_data: Dict[str, Any]):
+        """
+        Create interactive handles for a specific mechanism.
+        
+        Args:
+            mechanism_id: Unique mechanism identifier
+            layer_data: Mechanism layer data containing parameters and geometry
+        """
+        if not PARAMETRIC_AVAILABLE or not self.parametric_controller:
+            return
+            
+        try:
+            mechanism_type = layer_data.get("type")
+            
+            if mechanism_type == "4_bar_linkage":
+                self._create_4bar_linkage_handles(mechanism_id, layer_data)
+            elif mechanism_type == "cam":
+                self._create_cam_handles(mechanism_id, layer_data)
+            elif mechanism_type == "gear":
+                self._create_gear_handles(mechanism_id, layer_data)
+            # Add other mechanism types as needed
+            
+            logging.debug(f"Created parametric handles for {mechanism_type} mechanism {mechanism_id}")
+            
+        except Exception as e:
+            logging.error(f"Failed to create parametric handles for {mechanism_id}: {e}")
+    
+    def _create_4bar_linkage_handles(self, mechanism_id: str, layer_data: Dict[str, Any]):
+        """
+        Create interactive handles for 4-bar linkage manipulation.
+        
+        Handles created:
+        - Ground pivot 1 (anchor handle)
+        - Ground pivot 2 (anchor handle)  
+        - Link length controls (future implementation)
+        - Coupler point control (future implementation)
+        
+        Args:
+            mechanism_id: Mechanism ID
+            layer_data: Mechanism data
+        """
+        if mechanism_id in self.parametric_handles:
+            # Already has handles, remove first
+            self._remove_parametric_handles_for_mechanism(mechanism_id)
+        
+        handles = []
+        
+        try:
+            # Get key points for anchor positions
+            key_points = layer_data.get("key_points", {})
+            logging.info(f"[PARAMETRIC] key_points available: {list(key_points.keys()) if key_points else 'None'}")
+            
+            # Try to create anchor handles - use key_points first, then fallback
+            anchor_positions = self._get_anchor_positions_for_mechanism(layer_data)
+            
+            for anchor_name, anchor_pos in anchor_positions.items():
+                logging.info(f"[PARAMETRIC] Creating handle for {anchor_name} at {anchor_pos}")
+                
+                anchor_handle = AnchorHandle(
+                    mechanism_id=mechanism_id,
+                    anchor_name=anchor_name,
+                    initial_position=anchor_pos,
+                    mechanism_data=layer_data,
+                    update_callback=self._on_anchor_moved,
+                    constraint_validator=self._validate_anchor_constraints,
+                    parent=None
+                )
+                
+                # Add to scene and register with controller
+                self.mechanism_scene.addItem(anchor_handle)
+                handle_id = self.parametric_controller.register_handle(anchor_handle)
+                handles.append(anchor_handle)
+                
+                # VERIFY handle is actually in scene
+                scene_items = self.mechanism_scene.items()
+                handle_in_scene = anchor_handle in scene_items
+                
+                logging.info(f"[PARAMETRIC] ✅ Created {anchor_name} handle at {anchor_pos}")
+                logging.info(f"[PARAMETRIC] Handle in scene: {handle_in_scene}, Total scene items: {len(scene_items)}")
+                logging.info(f"[PARAMETRIC] Handle Z-value: {anchor_handle.zValue()}, Visible: {anchor_handle.isVisible()}")
+                logging.info(f"[PARAMETRIC] Handle bounds: {anchor_handle.boundingRect()}")
+                logging.info(f"[PARAMETRIC] Handle scene pos: {anchor_handle.scenePos()}")
+            
+            # Store handles for this mechanism
+            self.parametric_handles[mechanism_id] = handles
+            
+            logging.debug(f"Created {len(handles)} handles for 4-bar linkage {mechanism_id}")
+            
+        except Exception as e:
+            logging.error(f"Failed to create 4-bar linkage handles: {e}")
+            # Clean up any partially created handles
+            for handle in handles:
+                if handle.scene():
+                    self.mechanism_scene.removeItem(handle)
+    
+    def _create_cam_handles(self, mechanism_id: str, layer_data: Dict[str, Any]):
+        """Create interactive handles for cam mechanism - placeholder for future implementation."""
+        logging.debug(f"Cam handles not yet implemented for {mechanism_id}")
+    
+    def _create_gear_handles(self, mechanism_id: str, layer_data: Dict[str, Any]):
+        """Create interactive handles for gear mechanism - placeholder for future implementation."""
+        logging.debug(f"Gear handles not yet implemented for {mechanism_id}")
+    
+    def _remove_parametric_handles_for_mechanism(self, mechanism_id: str):
+        """
+        Remove all parametric handles for a specific mechanism.
+        
+        Args:
+            mechanism_id: Mechanism ID to remove handles for
+        """
+        if mechanism_id not in self.parametric_handles:
+            return
+            
+        try:
+            handles = self.parametric_handles[mechanism_id]
+            
+            for handle in handles:
+                # Unregister from controller
+                if self.parametric_controller:
+                    handle_id = f"{handle.mechanism_id}:{handle.param_name}:{id(handle)}"
+                    self.parametric_controller.unregister_handle(handle_id)
+                
+                # Remove from scene
+                if handle.scene():
+                    self.mechanism_scene.removeItem(handle)
+            
+            # Remove from tracking
+            del self.parametric_handles[mechanism_id]
+            
+            logging.debug(f"Removed {len(handles)} handles for mechanism {mechanism_id}")
+            
+        except Exception as e:
+            logging.error(f"Failed to remove handles for {mechanism_id}: {e}")
+    
+    # Parametric Event Handlers
+    
+    def _on_anchor_moved(self, anchor_name: str, new_position: QPointF):
+        """
+        Handle anchor point movement from interactive manipulation.
+        
+        Args:
+            anchor_name: Name of anchor that was moved
+            new_position: New position in scene coordinates
+        """
+        try:
+            logging.info(f"[PARAMETRIC] Anchor {anchor_name} moved to {new_position}")
+            
+            # Find which mechanism this anchor belongs to and update its visuals immediately
+            for mechanism_id, layer_data in self.mechanism_layers.items():
+                key_points = layer_data.get("key_points", {})
+                if anchor_name in key_points:
+                    # Update the key_points data
+                    key_points[anchor_name] = [new_position.x(), new_position.y()]
+                    
+                    # Trigger immediate visual update
+                    self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
+                    logging.info(f"[PARAMETRIC] Updated mechanism {mechanism_id} visuals")
+                    break
+            
+        except Exception as e:
+            logging.error(f"Failed to handle anchor movement: {e}")
+    
+    def _validate_anchor_constraints(self, param_name: str, new_value: Any) -> Any:
+        """
+        Validate anchor position constraints.
+        
+        Args:
+            param_name: Parameter name being changed
+            new_value: Proposed new value
+            
+        Returns:
+            Validated value (may be adjusted to meet constraints)
+        """
+        # Constraints are handled within the AnchorHandle class
+        # This is a placeholder for additional global constraints
+        return new_value
+    
+    @pyqtSlot(str, dict)
+    def _on_parametric_mechanism_update(self, mechanism_id: str, param_changes: Dict[str, Any]):
+        """
+        Handle mechanism update request from parametric controller.
+        
+        Args:
+            mechanism_id: Mechanism ID to update
+            param_changes: Dictionary of parameter changes
+        """
+        try:
+            # Trigger mechanism visual update
+            if mechanism_id in self.mechanism_layers:
+                layer_data = self.mechanism_layers[mechanism_id]
+                self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
+            
+            logging.debug(f"Updated mechanism {mechanism_id} with changes: {param_changes}")
+            
+        except Exception as e:
+            logging.error(f"Failed to update mechanism {mechanism_id}: {e}")
+    
+    @pyqtSlot(str)  
+    def _on_parametric_visual_refresh(self, mechanism_id: str):
+        """
+        Handle visual refresh request from parametric controller.
+        
+        Args:
+            mechanism_id: Mechanism ID to refresh visuals for
+        """
+        try:
+            if mechanism_id in self.mechanism_layers:
+                layer_data = self.mechanism_layers[mechanism_id]
+                self._refresh_mechanism_visuals(mechanism_id, layer_data)
+                
+        except Exception as e:
+            logging.error(f"Failed to refresh visuals for {mechanism_id}: {e}")
+    
+    @pyqtSlot(str, str, str)
+    def _on_parametric_constraint_violation(self, mechanism_id: str, param_name: str, error_msg: str):
+        """
+        Handle constraint violation from parametric controller.
+        
+        Args:
+            mechanism_id: Mechanism ID
+            param_name: Parameter name that violated constraints
+            error_msg: Error message describing the violation
+        """
+        logging.warning(f"Constraint violation in {mechanism_id}:{param_name}: {error_msg}")
+        # Could show user notification here if needed
+    
+    def _update_mechanism_visuals_realtime(self, mechanism_id: str, layer_data: Dict[str, Any]):
+        """
+        Update mechanism visuals in real-time during parametric manipulation.
+        
+        Args:
+            mechanism_id: Mechanism ID
+            layer_data: Updated mechanism data
+        """
+        try:
+            # Remove old visual items
+            existing_items = layer_data.get("visual_items", [])
+            for item in existing_items:
+                if item and item.scene():
+                    self.mechanism_scene.removeItem(item)
+            
+            # Recreate visual items with updated parameters
+            mechanism_type = layer_data.get("type")
+            if mechanism_type == "4_bar_linkage":
+                new_items = self._create_4bar_linkage_visuals(layer_data)
+                layer_data["visual_items"] = new_items
+            
+            # Update display
+            self.mechanism_view.update()
+            
+        except Exception as e:
+            logging.error(f"Failed to update visuals realtime for {mechanism_id}: {e}")
+    
+    def _refresh_mechanism_visuals(self, mechanism_id: str, layer_data: Dict[str, Any]):
+        """
+        Refresh mechanism visuals after parametric changes.
+        
+        Args:
+            mechanism_id: Mechanism ID
+            layer_data: Mechanism data
+        """
+        # Delegate to existing visual update system
+        self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
+    
+    def _get_anchor_positions_for_mechanism(self, layer_data: Dict[str, Any]) -> Dict[str, QPointF]:
+        """
+        Get anchor positions for mechanism handles.
+        
+        Args:
+            layer_data: Mechanism layer data
+            
+        Returns:
+            Dictionary mapping anchor names to QPointF positions
+        """
+        anchor_positions = {}
+        
+        try:
+            # First try key_points if available
+            key_points = layer_data.get("key_points", {})
+            if key_points:
+                for anchor_name in ["ground_pivot_1", "ground_pivot_2"]:
+                    if anchor_name in key_points:
+                        pos_data = key_points[anchor_name]
+                        anchor_positions[anchor_name] = QPointF(pos_data[0], pos_data[1])
+                        logging.info(f"[PARAMETRIC] Found {anchor_name} in key_points: {pos_data}")
+            
+            # Fallback: use simulation data if key_points not available
+            if not anchor_positions:
+                full_sim_data = layer_data.get("full_simulation_data", {})
+                joint_positions = full_sim_data.get("joint_positions", {})
+                
+                if "p1_positions" in joint_positions and "p2_positions" in joint_positions:
+                    # Use first frame positions as ground pivots
+                    p1_pos = joint_positions["p1_positions"][0]
+                    p2_pos = joint_positions["p2_positions"][0]
+                    
+                    # Transform to scene coordinates using existing transform function
+                    to_scene_coords = self._get_scene_transform_function(layer_data)
+                    if to_scene_coords:
+                        p1_scene = to_scene_coords(np.array(p1_pos))
+                        p2_scene = to_scene_coords(np.array(p2_pos))
+                        
+                        anchor_positions["ground_pivot_1"] = p1_scene
+                        anchor_positions["ground_pivot_2"] = p2_scene
+                        
+                        logging.info(f"[PARAMETRIC] Using transformed simulation data - p1: {p1_scene}, p2: {p2_scene}")
+                    else:
+                        # Direct positions if no transform available
+                        anchor_positions["ground_pivot_1"] = QPointF(p1_pos[0], p1_pos[1])
+                        anchor_positions["ground_pivot_2"] = QPointF(p2_pos[0], p2_pos[1])
+                        
+                        logging.info(f"[PARAMETRIC] Using direct simulation data - p1: {p1_pos}, p2: {p2_pos}")
+            
+            # Last resort: create default positions based on scene bounds
+            if not anchor_positions:
+                scene_rect = self.mechanism_scene.itemsBoundingRect()
+                center_x = scene_rect.center().x()
+                center_y = scene_rect.center().y()
+                
+                anchor_positions["ground_pivot_1"] = QPointF(center_x - 50, center_y)
+                anchor_positions["ground_pivot_2"] = QPointF(center_x + 50, center_y)
+                
+                logging.info(f"[PARAMETRIC] Using default positions around scene center")
+                
+        except Exception as e:
+            logging.error(f"Failed to get anchor positions: {e}")
+            
+        return anchor_positions
+    
+    def _disable_mechanism_visual_interaction(self):
+        """Disable mouse interaction on mechanism visual items to allow handle interaction."""
+        try:
+            for mechanism_id, layer_data in self.mechanism_layers.items():
+                visual_items = layer_data.get("visual_items", [])
+                for item in visual_items:
+                    if hasattr(item, 'setFlag'):
+                        # Disable all mouse interaction flags
+                        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+                        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+                        if hasattr(item, 'setAcceptedMouseButtons'):
+                            item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+                        if hasattr(item, 'setAcceptHoverEvents'):
+                            item.setAcceptHoverEvents(False)
+                            
+            logging.info(f"[PARAMETRIC] Disabled interaction on mechanism visuals")
+                            
+        except Exception as e:
+            logging.error(f"Failed to disable mechanism visual interaction: {e}")
+    
+    def _enable_mechanism_visual_interaction(self):
+        """Re-enable mouse interaction on mechanism visual items."""
+        try:
+            for mechanism_id, layer_data in self.mechanism_layers.items():
+                visual_items = layer_data.get("visual_items", [])
+                for item in visual_items:
+                    if hasattr(item, 'setFlag'):
+                        # Re-enable default interaction flags if needed
+                        # (Most mechanism visuals don't need interaction anyway)
+                        pass
+                        
+            logging.info(f"[PARAMETRIC] Re-enabled interaction on mechanism visuals")
+                        
+        except Exception as e:
+            logging.error(f"Failed to enable mechanism visual interaction: {e}")
 
         # Re-enable animation controls if we have enabled mechanisms
         has_enabled_mechanisms = any(self.mechanism_enabled_state.values()) if self.mechanism_enabled_state else False

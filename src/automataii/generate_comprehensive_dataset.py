@@ -92,19 +92,19 @@ def simulate_simple_gear_motion(r1, r2, distance, tracking_radius, num_steps=180
     sim_data = []
     gear1_center = np.array([0, 0])
     gear2_center = np.array([distance, 0])
-    
+
     # Calculate gear ratio
     gear_ratio = r1 / r2
-    
+
     for t in np.linspace(0, 2 * np.pi, num_steps):
         # Driving gear rotates at constant speed
         theta1 = t
         # Driven gear rotates based on gear ratio (opposite direction)
         theta2 = -t * gear_ratio
-        
+
         # Tracking point on driven gear
         tracking_point = gear2_center + tracking_radius * np.array([np.cos(theta2), np.sin(theta2)])
-        
+
         sim_data.append({
             'gear1_center': gear1_center,
             'gear2_center': gear2_center,
@@ -112,7 +112,7 @@ def simulate_simple_gear_motion(r1, r2, distance, tracking_radius, num_steps=180
             'gear2_angle': theta2,
             'tracking_point': tracking_point
         })
-    
+
     return sim_data
 
 # --- CONFIGURATION GENERATORS ---
@@ -156,7 +156,7 @@ def generate_planetary_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
 def generate_cam_follower_configs(num_configs: int) -> List[Dict[str, Any]]:
     """Generate configurations for cam-follower mechanisms with different eccentricities."""
     configs = []
-    
+
     # Add some specific cases
     cases = [
         ('Centered Cam (Simple Harmonic)', 25.0, 0.0),
@@ -164,7 +164,7 @@ def generate_cam_follower_configs(num_configs: int) -> List[Dict[str, Any]]:
         ('Medium Eccentricity', 25.0, 10.0),
         ('Large Eccentricity', 20.0, 15.0)
     ]
-    
+
     for name, base_radius, eccentricity in cases:
         configs.append({
             'type': 'cam-follower',
@@ -174,12 +174,12 @@ def generate_cam_follower_configs(num_configs: int) -> List[Dict[str, Any]]:
                 'eccentricity': eccentricity
             }
         })
-    
+
     # Generate random configs for remaining slots
     while len(configs) < num_configs:
         base_radius = np.random.uniform(15, 35)
         eccentricity = np.random.uniform(0, base_radius * 0.6)
-        
+
         configs.append({
             'type': 'cam-follower',
             'name': f'Cam-Follower #{len(configs)}',
@@ -188,14 +188,14 @@ def generate_cam_follower_configs(num_configs: int) -> List[Dict[str, Any]]:
                 'eccentricity': eccentricity
             }
         })
-    
+
     print(f"Generated {len(configs)} diverse Cam-Follower configurations.")
     return configs
 
 def generate_simple_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
     """Generate configurations for simple gear pairs with different ratios and tracking points."""
     configs = []
-    
+
     # Add some specific cases
     cases = [
         ('1:1 Gear Ratio', 20, 20, 0.8),
@@ -203,7 +203,7 @@ def generate_simple_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
         ('1:2 Speed Increase', 15, 30, 0.7),
         ('3:1 Speed Reduction', 36, 12, 1.0)
     ]
-    
+
     for name, r1, r2, track_factor in cases:
         distance = r1 + r2  # Gears touching
         tracking_radius = r2 * track_factor
@@ -217,14 +217,14 @@ def generate_simple_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
                 'tracking_radius': tracking_radius
             }
         })
-    
+
     # Generate random configs for remaining slots
     while len(configs) < num_configs:
         r1 = np.random.uniform(15, 40)
         r2 = np.random.uniform(10, 35)
         distance = r1 + r2
         tracking_radius = r2 * np.random.uniform(0.5, 1.2)
-        
+
         configs.append({
             'type': 'simple-gear',
             'name': f'Simple Gear #{len(configs)}',
@@ -235,7 +235,7 @@ def generate_simple_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
                 'tracking_radius': tracking_radius
             }
         })
-    
+
     print(f"Generated {len(configs)} diverse Simple Gear configurations.")
     return configs
 
@@ -362,7 +362,7 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
                 "full_simulation_data": full_simulation_data
             }
             dataset_aggregator.append(dataset_entry)
-            
+
             # Visualization setup
             base_radius, eccentricity = params['base_radius'], params['eccentricity']
             cam_circle = plt.Circle([0, 0], base_radius, color='steelblue', alpha=0.7, zorder=1)
@@ -370,7 +370,7 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
             follower_rect = plt.Rectangle([-5, base_radius], 10, 20, color='coral', zorder=2)
             ax.add_patch(follower_rect)
             cam_center_dot, = ax.plot([], [], 'o', c='darkblue', ms=6, zorder=3)
-            
+
             def create_cam_anim(sd, cam_circ, foll_rect, cam_dot):
                 def init():
                     padding = 10
@@ -411,20 +411,20 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
                 "full_simulation_data": full_simulation_data
             }
             dataset_aggregator.append(dataset_entry)
-            
+
             # Visualization setup
             r1, r2 = params['r1'], params['r2']
             gear1_circle = plt.Circle(sim_data[0]['gear1_center'], r1, color='darkgreen', alpha=0.7, zorder=1)
             gear2_circle = plt.Circle(sim_data[0]['gear2_center'], r2, color='darkred', alpha=0.7, zorder=1)
             ax.add_patch(gear1_circle)
             ax.add_patch(gear2_circle)
-            
+
             # Add gear teeth indicators
             gear1_line, = ax.plot([], [], '-', c='darkgreen', lw=3, zorder=2)
             gear2_line, = ax.plot([], [], '-', c='darkred', lw=3, zorder=2)
             tracking_point_marker, = ax.plot([], [], 'o', c='gold', ms=8, zorder=3)
             path_line, = ax.plot(path[:,0], path[:,1], '--b', lw=1.5, alpha=0.5)
-            
+
             def create_gear_anim(sd, g1_line, g2_line, track_marker):
                 def init():
                     padding = 10
@@ -438,14 +438,14 @@ def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: st
                     g1_center, g2_center = fr['gear1_center'], fr['gear2_center']
                     theta1, theta2 = fr['gear1_angle'], fr['gear2_angle']
                     tracking_pt = fr['tracking_point']
-                    
+
                     # Update gear rotation indicators
                     g1_end = g1_center + r1 * np.array([np.cos(theta1), np.sin(theta1)])
                     g2_end = g2_center + r2 * np.array([np.cos(theta2), np.sin(theta2)])
                     g1_line.set_data([g1_center[0], g1_end[0]], [g1_center[1], g1_end[1]])
                     g2_line.set_data([g2_center[0], g2_end[0]], [g2_center[1], g2_end[1]])
                     track_marker.set_data([tracking_pt[0]], [tracking_pt[1]])
-                    
+
                     return g1_line, g2_line, track_marker
                 return init, update
             init, update = create_gear_anim(sim_data, gear1_line, gear2_line, tracking_point_marker)
