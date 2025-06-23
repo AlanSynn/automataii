@@ -72,7 +72,7 @@ class AnchorHandle(BaseHandle):
         # Override colors for anchor-specific appearance
         self._setup_anchor_appearance()
         
-        logging.debug(f"Created AnchorHandle for {anchor_name} at {initial_position}")
+        logging.debug(f"Created AnchorHandle for {self.anchor_name} at {initial_position}")
     
     def _setup_anchor_appearance(self):
         """Setup anchor-specific visual appearance."""
@@ -94,7 +94,7 @@ class AnchorHandle(BaseHandle):
         self.setOpacity(1.0)
         self.show()
         
-        logging.info(f"[ANCHOR] Created BRIGHT RED anchor handle: {anchor_name}")
+        logging.info(f"[ANCHOR] Created BRIGHT RED anchor handle: {self.anchor_name}")
     
     def _calculate_parameter_from_position(self, scene_pos: QPointF) -> QPointF:
         """

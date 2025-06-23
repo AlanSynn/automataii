@@ -483,7 +483,7 @@ class PreviewContainer(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        name = self.mechanism_data.get("name", "Unnamed Mechanism")
+        name = self.mechanism_data.get("type", "Unnamed Mechanism")
         if ":" in name:
             mech_type = name.split(":")[0].strip()
         else:
@@ -514,8 +514,7 @@ class PreviewContainer(QWidget):
         print(f"Debug PreviewContainer: overall_score = {score}")
 
         if score is not None and score >= 0:
-            import math
-            similarity_percentage = max(0, min(100, math.exp(-score * 5) * 100))
+            similarity_percentage = max(0, min(100, (1 / (1 + score)) * 100))
         else:
             similarity_percentage = 0
 
