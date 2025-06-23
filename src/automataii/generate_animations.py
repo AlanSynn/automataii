@@ -5,24 +5,24 @@ This script creates animations for various mechanisms, showing the true motion o
 and end-effectors, and saves the animations as GIF files.
 """
 
-import os
-import sys
-import numpy as np
 import argparse
+import os
+from typing import Any
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.animation import FuncAnimation
-from typing import List, Dict, Any, Tuple
 from scipy.optimize import fsolve
 
 # --- Kinematic Solvers ---
 
-def solve_4bar_closure(x: np.ndarray, l1: float, l2: float, l3: float, l4: float, theta2: float) -> Tuple[float, float]:
+def solve_4bar_closure(x: np.ndarray, l1: float, l2: float, l3: float, l4: float, theta2: float) -> tuple[float, float]:
     theta3, theta4 = x
     eq1 = l2 * np.cos(theta2) + l3 * np.cos(theta3) - l4 * np.cos(theta4) - l1
     eq2 = l2 * np.sin(theta2) + l3 * np.sin(theta3) - l4 * np.sin(theta4)
     return (eq1, eq2)
 
-def get_4bar_input_angle_range(l1: float, l2: float, l3: float, l4: float) -> Tuple[float, float]:
+def get_4bar_input_angle_range(l1: float, l2: float, l3: float, l4: float) -> tuple[float, float]:
     links = sorted([l1, l2, l3, l4])
     s, p, q, l = links
     # Grashof condition
@@ -40,7 +40,7 @@ def get_4bar_input_angle_range(l1: float, l2: float, l3: float, l4: float) -> Tu
     return (np.pi/4, 3*np.pi/4) # Placeholder range
 
 
-def animate_mechanisms(mechanisms: List[Dict[str, Any]], title: str, output_dir: str):
+def animate_mechanisms(mechanisms: list[dict[str, Any]], title: str, output_dir: str):
     """Creates and saves an animation showing all mechanisms."""
     num_mechanisms = len(mechanisms)
     if not num_mechanisms: return

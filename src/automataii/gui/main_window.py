@@ -1,58 +1,57 @@
-import os
 import logging
-from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QGraphicsScene,
-    QTabWidget,
-    QMessageBox,
-    QToolBar,
-    QGraphicsItem,
-    QGraphicsPixmapItem,
-    QFileDialog,
-    QLabel,
-)
-from PyQt6.QtGui import QPainterPath
+import os
+from pathlib import Path
+from typing import Any
+
 from PyQt6.QtCore import (
     QPointF,
     pyqtSlot,
 )
-from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple
+from PyQt6.QtGui import QPainterPath
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QGraphicsItem,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QTabWidget,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
-# Local imports (adjust paths as needed)
-from automataii.gui.views.editor_view import EditorView  # ADD THIS IMPORT
-from automataii.gui.graphics_items.part_item import CharacterPartItem
-from automataii.utils.styling import LIGHT_STYLE, DARK_STYLE
-
+# Import MechanismManager
+from automataii.core.mechanism_manager import MechanismManager
 from automataii.core.models import PartInfo  # ProjectFileModel is in models_pydantic
 from automataii.core.models_pydantic import (
     ProjectFileModel,
 )  # Added ProjectFileModel from correct location
 
-# Import new tab modules
-from automataii.gui.tabs.landing_tab import LandingTab
-from automataii.gui.tabs.image_processing_tab import ImageProcessingTab
-from automataii.gui.tabs.editor_tab import EditorTab
-from automataii.gui.tabs.mechanism_design_tab import MechanismDesignTab
-from automataii.gui.tabs.options_tab import OptionsTab
-
-# Import ActionManager for centralized action management
-from automataii.gui.actions.action_manager import ActionManager
+# Import ProjectDataManager
+from automataii.core.project_data_manager import ProjectDataManager
 
 # Import SkeletonManager
 from automataii.core.skeleton_manager import SkeletonManager
 
+# Import ActionManager for centralized action management
+from automataii.gui.actions.action_manager import ActionManager
+from automataii.gui.graphics_items.part_item import CharacterPartItem
+from automataii.gui.tabs.editor_tab import EditorTab
+from automataii.gui.tabs.image_processing_tab import ImageProcessingTab
+
+# Import new tab modules
+from automataii.gui.tabs.landing_tab import LandingTab
+from automataii.gui.tabs.mechanism_design_tab import MechanismDesignTab
+from automataii.gui.tabs.options_tab import OptionsTab
+
+# Local imports (adjust paths as needed)
+from automataii.gui.views.editor_view import EditorView  # ADD THIS IMPORT
+
 # Import IKManager
 from automataii.kinematics.ik_manager import IKManager
-
-# Import ProjectDataManager
-from automataii.core.project_data_manager import ProjectDataManager
-
-# Import MechanismManager
-from automataii.core.mechanism_manager import MechanismManager
-
+from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 
 # from qframelesswindow import FramelessMainWindow
 
@@ -66,7 +65,7 @@ class AutomataDesigner(QMainWindow):
     simulation, and blueprint generation.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None, debug_mode: bool = False, experiment_mode: bool = False):
+    def __init__(self, parent: QWidget | None = None, debug_mode: bool = False, experiment_mode: bool = False):
         super().__init__(parent)
         self.debug_mode = debug_mode
         self.experiment_mode = experiment_mode
@@ -93,13 +92,13 @@ class AutomataDesigner(QMainWindow):
         # Create MechanismManager
         self.mechanism_manager = MechanismManager(self)
 
-        self.viewer_char_texture_item: Optional[QGraphicsPixmapItem] = None
-        self.viewer_skeleton_items: List[QGraphicsItem] = []
-        self.viewer_body_part_items: Dict[str, CharacterPartItem] = {}
-        self.viewer_loaded_parts_info: Optional[dict] = None
-        self.viewer_loaded_texture_path: Optional[str] = None
-        self.viewer_scene: Optional[QGraphicsScene] = None
-        self.viewer_view: Optional[EditorView] = None
+        self.viewer_char_texture_item: QGraphicsPixmapItem | None = None
+        self.viewer_skeleton_items: list[QGraphicsItem] = []
+        self.viewer_body_part_items: dict[str, CharacterPartItem] = {}
+        self.viewer_loaded_parts_info: dict | None = None
+        self.viewer_loaded_texture_path: str | None = None
+        self.viewer_scene: QGraphicsScene | None = None
+        self.viewer_view: EditorView | None = None
 
         # --- Initialize scenes and views that were previously in tab creation methods ---
 
@@ -107,13 +106,13 @@ class AutomataDesigner(QMainWindow):
 
         # Markers for selected points - these are drawn by EditorView, state might be in MainWindow if needed globally
 
-        self.project_dir: Optional[str] = None  # Renamed/clarified for project scope
+        self.project_dir: str | None = None  # Renamed/clarified for project scope
 
         # IK Animation Timer (New)
         # IK Animation Timer (New)
 
         self.main_toolbar = None
-        self.shared_camera_state: Optional[Dict[str, Any]] = None
+        self.shared_camera_state: dict[str, Any] | None = None
 
         # Track previous tab index for camera state sharing
         self._previous_tab_index = 0
@@ -176,19 +175,19 @@ class AutomataDesigner(QMainWindow):
                 }
             """)
             self.statusBar().addPermanentWidget(experiment_label)
-        
+
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
-    
+
     def set_updater(self, updater):
         """Set the auto-updater instance"""
         self.updater = updater
         logging.info("Auto-updater set in main window")
-        
+
         # Update the action manager with updater
         if hasattr(self.action_manager, 'set_updater'):
             self.action_manager.set_updater(updater)
-    
+
     def check_for_updates(self):
         """Check for updates manually"""
         if self.updater:
@@ -635,6 +634,19 @@ class AutomataDesigner(QMainWindow):
             )
 
     @pyqtSlot()
+    def _handle_continue_without_example(self):
+        """Handles user choosing to continue without selecting an example."""
+        logging.info("MainWindow: User chose to continue without example, switching to Image Processing Tab")
+
+        # Switch to the image processing tab to allow manual image loading
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.widget(i) == self.image_proc_tab:
+                self.tab_widget.setCurrentIndex(i)
+                logging.info("MainWindow: Switched to Image Processing Tab for manual image loading")
+                self.statusBar().showMessage("Ready to load your own image", 3000)
+                break
+
+    @pyqtSlot()
     def switch_to_editor_tab(self):
         """Switches the main tab widget to the Editor Tab."""
         editor_idx = -1
@@ -702,7 +714,7 @@ class AutomataDesigner(QMainWindow):
             self.project_data_manager.load_project_from_file(filepath)
             # The UI updates will be triggered by project_data_manager.project_data_loaded signal
 
-    def load_parts(self, filepath: Optional[str] = None) -> bool:
+    def load_parts(self, filepath: str | None = None) -> bool:
         """
         DEPRECATED/REFACTORED: This method's core logic is moved to ProjectDataManager.
         This method now primarily serves as a direct way to trigger loading if filepath is provided,
@@ -734,7 +746,7 @@ class AutomataDesigner(QMainWindow):
         self,
         success: bool,
         project_directory_path: str,
-        parts_info: Dict[str, PartInfo],  # from ProjectDataManager
+        parts_info: dict[str, PartInfo],  # from ProjectDataManager
     ):
         """Handles the project_data_loaded signal from ProjectDataManager."""
         if success:
@@ -1224,7 +1236,7 @@ class AutomataDesigner(QMainWindow):
 
     @pyqtSlot(dict)
     def _on_skeleton_manager_updated(
-        self, standardized_skeleton_data_dict: Optional[dict]
+        self, standardized_skeleton_data_dict: dict | None
     ):
         """Slot called when SkeletonManager has new processed skeleton data (dictionary format)."""
         logging.info(
@@ -1260,7 +1272,7 @@ class AutomataDesigner(QMainWindow):
         self.update_status_bar_with_skeleton_info(standardized_skeleton_data_dict)
 
     # MODIFIED: Method now accepts the skeleton data dictionary
-    def update_status_bar_with_skeleton_info(self, skeleton_data_dict: Optional[dict]):
+    def update_status_bar_with_skeleton_info(self, skeleton_data_dict: dict | None):
         if skeleton_data_dict and skeleton_data_dict.get("joints"):
             num_joints = len(skeleton_data_dict.get("joints", {}))
             self.statusBar().showMessage(
@@ -1271,7 +1283,7 @@ class AutomataDesigner(QMainWindow):
 
     # --- New Slot for IKManager Signals ---
     @pyqtSlot(dict)
-    def _handle_ik_visuals_update(self, part_transforms: Dict[str, Dict[str, Any]]):
+    def _handle_ik_visuals_update(self, part_transforms: dict[str, dict[str, Any]]):
         """Handles updates to part visuals from the IKManager.
         Transforms part-centric data to joint-centric for EditorView.
         """
@@ -1461,7 +1473,7 @@ class AutomataDesigner(QMainWindow):
 
     @pyqtSlot(dict)
     def _handle_skeleton_pose_updated_from_ik(
-        self, animated_pose_data_dict: Dict[str, Tuple[float, float]]
+        self, animated_pose_data_dict: dict[str, tuple[float, float]]
     ):
         """Handles the raw animated skeleton pose update from IKManager."""
         logging.debug(

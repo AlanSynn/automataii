@@ -1,6 +1,4 @@
 import logging
-import os
-from pathlib import Path
 
 
 def setup_logging(console_log_level: int = logging.INFO):

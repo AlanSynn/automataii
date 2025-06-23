@@ -3,17 +3,18 @@ Decorators for event handling.
 """
 
 import functools
-from typing import Type, Optional, Callable, Any
+from collections.abc import Callable
+from typing import Any
 
-from .base import Event, EventHandler
-from .types import EventFilter, EventPriority
+from .base import Event
 from .event_bus import get_global_event_bus
+from .types import EventFilter, EventPriority
 
 
 def event_handler(
-    event_type: Type[Event],
+    event_type: type[Event],
     priority: EventPriority = EventPriority.NORMAL,
-    filter_func: Optional[EventFilter] = None,
+    filter_func: EventFilter | None = None,
     auto_subscribe: bool = True
 ):
     """
@@ -30,20 +31,20 @@ def event_handler(
         func._priority = priority
         func._filter_func = filter_func
         func._auto_subscribe = auto_subscribe
-        
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
-        
+
         return wrapper
-    
+
     return decorator
 
 
 def async_event_handler(
-    event_type: Type[Event],
+    event_type: type[Event],
     priority: EventPriority = EventPriority.NORMAL,
-    filter_func: Optional[EventFilter] = None,
+    filter_func: EventFilter | None = None,
     auto_subscribe: bool = True
 ):
     """
@@ -61,13 +62,13 @@ def async_event_handler(
         func._filter_func = filter_func
         func._auto_subscribe = auto_subscribe
         func._is_async = True
-        
+
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             return await func(*args, **kwargs)
-        
+
         return wrapper
-    
+
     return decorator
 
 
@@ -82,30 +83,30 @@ class EventHandlerMixin:
                 # This will be automatically subscribed
                 pass
     """
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._event_subscriptions = []
         self._auto_subscribe_handlers()
-    
+
     def _auto_subscribe_handlers(self):
         """Automatically subscribe methods decorated with @event_handler."""
         event_bus = get_global_event_bus()
-        
+
         for attr_name in dir(self):
             attr = getattr(self, attr_name)
-            
-            if (callable(attr) and 
-                hasattr(attr, '_event_type') and 
-                hasattr(attr, '_auto_subscribe') and 
+
+            if (callable(attr) and
+                hasattr(attr, '_event_type') and
+                hasattr(attr, '_auto_subscribe') and
                 attr._auto_subscribe):
-                
+
                 # Create bound method handler
                 def create_handler(method):
                     def handler(event):
                         return method(event)
                     return handler
-                
+
                 handler = create_handler(attr)
                 subscription_id = event_bus.subscribe(
                     attr._event_type,
@@ -113,18 +114,18 @@ class EventHandlerMixin:
                     getattr(attr, '_priority', EventPriority.NORMAL),
                     getattr(attr, '_filter_func', None)
                 )
-                
+
                 self._event_subscriptions.append((attr._event_type, subscription_id))
-    
+
     def unsubscribe_all_events(self):
         """Unsubscribe all automatically subscribed event handlers."""
         event_bus = get_global_event_bus()
-        
+
         for event_type, subscription_id in self._event_subscriptions:
             event_bus.unsubscribe(event_type, subscription_id)
-        
+
         self._event_subscriptions.clear()
-    
+
     def __del__(self):
         """Cleanup subscriptions on object destruction."""
         try:
@@ -133,7 +134,7 @@ class EventHandlerMixin:
             pass  # Ignore errors during cleanup
 
 
-def subscribes_to(*event_types: Type[Event]):
+def subscribes_to(*event_types: type[Event]):
     """
     Class decorator to mark which events a class subscribes to.
     Useful for documentation and introspection.
@@ -141,5 +142,5 @@ def subscribes_to(*event_types: Type[Event]):
     def decorator(cls):
         cls._subscribed_events = event_types
         return cls
-    
+
     return decorator

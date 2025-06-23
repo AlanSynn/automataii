@@ -13,6 +13,10 @@ Z_PART_SELECTED_ADJUSTMENT = (
 Z_SKELETON_BONES = 5
 Z_SKELETON_JOINTS = 6
 
+# Enhanced Skeleton for Mechanism Tab (above parts for better IK visibility)
+Z_SKELETON_MECHANISM_BONES = 45
+Z_SKELETON_MECHANISM_JOINTS = 46
+
 # Motion Paths
 Z_MOTION_PATH_LINE = 20
 
@@ -35,7 +39,7 @@ Z_DEBUG_IK_SOLVER_VIS = 502
 # Z-index for the temporary path being drawn by the user in EditorView
 Z_MOTION_PATH_PREVIEW = 45  # Higher than selection highlight and finalized paths
 Z_SKELETON_OVERLAY = (
-    40  # For SkeletonGraphicsItem, above parts, below motion path preview
+    50  # For SkeletonGraphicsItem, above parts and motion paths for IK visibility
 )
 Z_SELECTION_MARKER = 50  # For mechanism point markers like pivot A, D etc.
 Z_TOOLTIP = 100  # Tooltips should be on top

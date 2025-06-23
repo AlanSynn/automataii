@@ -1,4 +1,3 @@
-import os
 
 SVG_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
@@ -42,7 +41,7 @@ def save_svg(
         with open(output_path, "w") as f:
             f.write(content)
         return True
-    except IOError as e:
+    except OSError as e:
         print(
             f"Error saving SVG to {output_path}: {e}"
         )  # Consider logging instead of print

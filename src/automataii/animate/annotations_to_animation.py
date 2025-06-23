@@ -2,12 +2,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import animated_drawings.render
 import logging
-from pathlib import Path
-import sys
-import yaml
 import os
+import sys
+from pathlib import Path
+
+import animated_drawings.render
+import yaml
 from pkg_resources import resource_filename
 
 

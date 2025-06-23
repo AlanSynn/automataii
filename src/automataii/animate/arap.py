@@ -2,14 +2,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
+from collections import defaultdict
+
 import numpy as np
 import numpy.typing as npt
-from collections import defaultdict
-import logging
-from typing import List, Dict, Set, Tuple
-import scipy.sparse.linalg as spla
 import scipy.sparse as sp
-
+import scipy.sparse.linalg as spla
 
 csr_matrix = sp._csr.csr_matrix  # for typing  # pyright: ignore[reportPrivateUsage]
 
@@ -41,7 +40,7 @@ class ARAP:
     def __init__(
         self,
         pins_xy: npt.NDArray[np.float32],
-        triangles: List[npt.NDArray[np.int32]],
+        triangles: list[npt.NDArray[np.int32]],
         vertices: npt.NDArray[np.float32],
         w: int = 1000,
     ):  # noqa: C901
@@ -58,7 +57,7 @@ class ARAP:
         self.vertices = np.copy(vertices)
 
         # build a deduplicated list of edge->vertex IDS...
-        self.e_v_idxs: List[Tuple[np.int32, np.int32]] = []
+        self.e_v_idxs: list[tuple[np.int32, np.int32]] = []
         for v0, v1, v2 in triangles:
             self.e_v_idxs.append(tuple(sorted((v0, v1))))
             self.e_v_idxs.append(tuple(sorted((v1, v2))))
@@ -66,7 +65,7 @@ class ARAP:
         self.e_v_idxs = list(set(self.e_v_idxs))  # ...and deduplicate it
 
         # build list of edge vectors
-        _edge_vectors: List[npt.NDArray[np.float32]] = []
+        _edge_vectors: list[npt.NDArray[np.float32]] = []
         for vi_idx, vj_idx in self.e_v_idxs:
             vi = self.vertices[vi_idx]
             vj = self.vertices[vj_idx]
@@ -74,11 +73,11 @@ class ARAP:
         self.edge_vectors: npt.NDArray[np.float32] = np.array(_edge_vectors)
 
         # get barycentric coordinates of pins, and mask denoting which pins were initially outside the mesh
-        pins_bc: List[
-            Tuple[
-                Tuple[np.int32, np.float32],
-                Tuple[np.int32, np.float32],
-                Tuple[np.int32, np.float32],
+        pins_bc: list[
+            tuple[
+                tuple[np.int32, np.float32],
+                tuple[np.int32, np.float32],
+                tuple[np.int32, np.float32],
             ]
         ]
         self.pin_mask = npt.NDArray[np.bool8]
@@ -86,7 +85,7 @@ class ARAP:
             pins_xy, vertices, triangles
         )
 
-        v_vnbr_idxs: Dict[np.int32, Set[np.int32]] = defaultdict(
+        v_vnbr_idxs: dict[np.int32, set[np.int32]] = defaultdict(
             set
         )  # build a dict mapping vertex ID -> neighbor vertex IDs
         for v0, v1, v2 in triangles:
@@ -114,17 +113,17 @@ class ARAP:
             self.A1[2 * k : 2 * (k + 1), 2 * vj_idx : 2 * (vj_idx + 1)] = np.identity(2)
 
             # Find the 'neighbor' vertices for this edge: {v_i, v_j,v_r, v_l}
-            vi_vnbr_idxs: Set[np.int32] = v_vnbr_idxs[vi_idx]
-            vj_vnbr_idxs: Set[np.int32] = v_vnbr_idxs[vj_idx]
-            e_vnbr_idxs: List[np.int32] = list(vi_vnbr_idxs.intersection(vj_vnbr_idxs))
+            vi_vnbr_idxs: set[np.int32] = v_vnbr_idxs[vi_idx]
+            vj_vnbr_idxs: set[np.int32] = v_vnbr_idxs[vj_idx]
+            e_vnbr_idxs: list[np.int32] = list(vi_vnbr_idxs.intersection(vj_vnbr_idxs))
             e_vnbr_idxs.insert(0, vi_idx)
             e_vnbr_idxs.insert(1, vj_idx)
 
-            e_vnbr_xys: Tuple[np.float32, np.float32] = tuple(
+            e_vnbr_xys: tuple[np.float32, np.float32] = tuple(
                 [self.vertices[v_idx] for v_idx in e_vnbr_idxs]
             )
 
-            _: List[Tuple[float, float]] = []
+            _: list[tuple[float, float]] = []
             for v in e_vnbr_xys[1:]:
                 vx: float = v[0] - e_vnbr_xys[0][0]
                 vy: float = v[1] - e_vnbr_xys[0][1]
@@ -255,13 +254,13 @@ class ARAP:
         self,
         points: npt.NDArray[np.float32],
         vertices: npt.NDArray[np.float32],
-        triangles: List[npt.NDArray[np.int32]],
-    ) -> Tuple[
-        List[
-            Tuple[
-                Tuple[np.int32, np.float32],
-                Tuple[np.int32, np.float32],
-                Tuple[np.int32, np.float32],
+        triangles: list[npt.NDArray[np.int32]],
+    ) -> tuple[
+        list[
+            tuple[
+                tuple[np.int32, np.float32],
+                tuple[np.int32, np.float32],
+                tuple[np.int32, np.float32],
             ]
         ],
         npt.NDArray[np.bool_],
@@ -297,14 +296,14 @@ class ARAP:
         v1 = np.subtract(tv_locs[:, 2:4], v0)
         v2 = np.subtract(tv_locs[:, 4:], v0)
 
-        b_coords: List[
-            Tuple[
-                Tuple[np.int32, np.float32],
-                Tuple[np.int32, np.float32],
-                Tuple[np.int32, np.float32],
+        b_coords: list[
+            tuple[
+                tuple[np.int32, np.float32],
+                tuple[np.int32, np.float32],
+                tuple[np.int32, np.float32],
             ]
         ] = []
-        pin_mask: List[bool] = []
+        pin_mask: list[bool] = []
 
         for p_xy in points:
             p_xy = np.expand_dims(p_xy, axis=0)
@@ -339,7 +338,7 @@ class ARAP:
                 p_xy, a_xy, b_xy, c_xy
             )  # get barycentric coords
             b_coords.append(
-                list(zip(vertex_ids, uvw))
+                list(zip(vertex_ids, uvw, strict=False))
             )  # append to our list  # pyright: ignore[reportGeneralTypeIssues]
             pin_mask.append(True)
 

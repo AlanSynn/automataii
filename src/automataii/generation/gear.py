@@ -172,3 +172,177 @@ if __name__ == "__main__":
         print(f"  Gear 2: Radius={g2_info['radius']}, Teeth={g2_info['num_teeth']}")
     else:
         print("Failed to generate gear pair with default teeth.")
+
+
+class GearGenerator:
+    """Generator for gear mechanism SVG blueprints."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def generate_svg(self, gear_data: Dict[str, Any]) -> str:
+        """
+        Generate SVG representation of gear mechanism for blueprints.
+        
+        Args:
+            gear_data: Dictionary containing gear mechanism data
+            
+        Returns:
+            str: SVG content for the gear mechanism
+        """
+        try:
+            # Extract gear parameters with defaults
+            center = gear_data.get('center', [0, 0])
+            radius = gear_data.get('radius', 30.0)
+            num_teeth = gear_data.get('num_teeth', 12)
+            tooth_height = gear_data.get('tooth_height', radius * 0.2)
+            angle_deg = gear_data.get('angle_deg', 0)
+            gear_name = gear_data.get('name', 'Gear')
+            
+            # Generate gear teeth path
+            teeth_path = self._generate_gear_teeth_path(
+                center[0], center[1], radius, num_teeth, tooth_height, angle_deg
+            )
+            
+            # Calculate additional technical parameters
+            module = (radius * 2) / num_teeth  # Gear module
+            outer_radius = radius + tooth_height
+            root_radius = radius - tooth_height * 0.3
+            bore_radius = radius * 0.15  # Shaft hole
+            
+            # Create comprehensive technical drawing
+            svg_content = f'''
+            <g class="gear-mechanism">
+                <!-- Title and part number -->
+                <text x="{center[0]}" y="{center[1] - outer_radius - 30}" 
+                      font-family="Arial" font-size="12" font-weight="bold" text-anchor="middle">{gear_name}</text>
+                <text x="{center[0]}" y="{center[1] - outer_radius - 15}" 
+                      font-family="Arial" font-size="8" text-anchor="middle">Part No: GEAR-{num_teeth}T-M{module:.1f}</text>
+                
+                <!-- Root circle (cutting guideline) -->
+                <circle cx="{center[0]}" cy="{center[1]}" r="{root_radius}" 
+                        fill="none" stroke="#888" stroke-width="0.5" stroke-dasharray="2,2"/>
+                
+                <!-- Pitch circle (reference) -->
+                <circle cx="{center[0]}" cy="{center[1]}" r="{radius}" 
+                        fill="none" stroke="blue" stroke-width="0.5" stroke-dasharray="3,3"/>
+                
+                <!-- Gear teeth (cutting outline) -->
+                <path d="{teeth_path}" fill="none" stroke="red" stroke-width="2"/>
+                
+                <!-- Center bore hole -->
+                <circle cx="{center[0]}" cy="{center[1]}" r="{bore_radius}" 
+                        fill="none" stroke="black" stroke-width="1.5"/>
+                
+                <!-- Keyway (if applicable) -->
+                <rect x="{center[0] - bore_radius * 0.3}" y="{center[1] - bore_radius}" 
+                      width="{bore_radius * 0.6}" height="{bore_radius * 2}" 
+                      fill="none" stroke="black" stroke-width="1"/>
+                
+                <!-- Manufacturing notes with anti-overlap positioning -->
+                <g class="manufacturing-notes">
+                    <rect x="{center[0] + outer_radius + 15}" y="{center[1] - 50}" 
+                          width="160" height="85" fill="white" stroke="#ddd" stroke-width="0.5" rx="2"/>
+                    <text x="{center[0] + outer_radius + 20}" y="{center[1] - 35}" 
+                          font-family="Arial" font-size="8" font-weight="bold">Manufacturing Specs:</text>
+                    <text x="{center[0] + outer_radius + 25}" y="{center[1] - 20}" 
+                          font-family="Arial" font-size="7">• Material: 3mm Plywood/Acrylic</text>
+                    <text x="{center[0] + outer_radius + 25}" y="{center[1] - 8}" 
+                          font-family="Arial" font-size="7">• Cut on Red Lines</text>
+                    <text x="{center[0] + outer_radius + 25}" y="{center[1] + 4}" 
+                          font-family="Arial" font-size="7">• Tolerance: ±0.1mm</text>
+                    <text x="{center[0] + outer_radius + 25}" y="{center[1] + 16}" 
+                          font-family="Arial" font-size="7">• Module: {module:.2f}mm</text>
+                    <text x="{center[0] + outer_radius + 25}" y="{center[1] + 28}" 
+                          font-family="Arial" font-size="7">• Pressure Angle: 20°</text>
+                </g>
+                
+                <!-- Dimension lines and measurements -->
+                <g class="dimensions">
+                    <!-- Overall diameter -->
+                    <line x1="{center[0] - outer_radius - 15}" y1="{center[1]}" 
+                          x2="{center[0] + outer_radius + 15}" y2="{center[1]}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    <line x1="{center[0] - outer_radius - 15}" y1="{center[1] - 5}" 
+                          x2="{center[0] - outer_radius - 15}" y2="{center[1] + 5}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    <line x1="{center[0] + outer_radius + 15}" y1="{center[1] - 5}" 
+                          x2="{center[0] + outer_radius + 15}" y2="{center[1] + 5}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    <text x="{center[0]}" y="{center[1] + outer_radius + 35}" 
+                          font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">
+                          Ø{outer_radius * 2:.1f}mm OD ({num_teeth} teeth)
+                    </text>
+                    
+                    <!-- Pitch diameter -->
+                    <text x="{center[0]}" y="{center[1] + outer_radius + 50}" 
+                          font-family="Arial" font-size="8" text-anchor="middle">
+                          Ø{radius * 2:.1f}mm PCD (Pitch Circle)
+                    </text>
+                    
+                    <!-- Bore diameter -->
+                    <line x1="{center[0] - bore_radius}" y1="{center[1] - outer_radius - 5}" 
+                          x2="{center[0] + bore_radius}" y2="{center[1] - outer_radius - 5}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    <text x="{center[0]}" y="{center[1] - outer_radius - 10}" 
+                          font-family="Arial" font-size="8" text-anchor="middle">
+                          Ø{bore_radius * 2:.1f}mm BORE
+                    </text>
+                </g>
+                
+                <!-- Assembly reference marks -->
+                <g class="assembly-marks">
+                    <circle cx="{center[0]}" cy="{center[1] - radius}" r="1" fill="green"/>
+                    <text x="{center[0] + 5}" y="{center[1] - radius + 3}" 
+                          font-family="Arial" font-size="6">TDC</text>
+                </g>
+            </g>
+            '''
+            
+            return svg_content.strip()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate gear SVG: {e}")
+            return f'<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate gear</text>'
+    
+    def _generate_gear_teeth_path(self, cx: float, cy: float, radius: float, 
+                                 num_teeth: int, tooth_height: float, angle_deg: float) -> str:
+        """Generate SVG path for gear teeth."""
+        if num_teeth < 3:
+            return ""  # Not enough teeth to draw
+        
+        angle_per_tooth = 360.0 / num_teeth
+        outer_radius = radius + tooth_height
+        
+        path_data = ""
+        
+        for i in range(num_teeth):
+            # Calculate angles for this tooth
+            base_angle = angle_deg + i * angle_per_tooth
+            tooth_start = math.radians(base_angle - angle_per_tooth * 0.4)
+            tooth_mid1 = math.radians(base_angle - angle_per_tooth * 0.1)
+            tooth_mid2 = math.radians(base_angle + angle_per_tooth * 0.1)
+            tooth_end = math.radians(base_angle + angle_per_tooth * 0.4)
+            
+            # Points on inner circle (gear base)
+            x1 = cx + radius * math.cos(tooth_start)
+            y1 = cy + radius * math.sin(tooth_start)
+            x4 = cx + radius * math.cos(tooth_end)
+            y4 = cy + radius * math.sin(tooth_end)
+            
+            # Points on outer circle (tooth tips)
+            x2 = cx + outer_radius * math.cos(tooth_mid1)
+            y2 = cy + outer_radius * math.sin(tooth_mid1)
+            x3 = cx + outer_radius * math.cos(tooth_mid2)
+            y3 = cy + outer_radius * math.sin(tooth_mid2)
+            
+            if i == 0:
+                path_data += f"M {x1:.2f} {y1:.2f} "
+            else:
+                path_data += f"L {x1:.2f} {y1:.2f} "
+            
+            # Draw tooth profile
+            path_data += f"L {x2:.2f} {y2:.2f} L {x3:.2f} {y3:.2f} L {x4:.2f} {y4:.2f} "
+        
+        path_data += "Z"  # Close the path
+        return path_data

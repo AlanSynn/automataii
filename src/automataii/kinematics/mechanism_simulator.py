@@ -1,11 +1,12 @@
+
 import numpy as np
 from scipy.optimize import fsolve
+
 from automataii.kinematics.mechanism import MechanismType, MotionCurve
-from typing import Tuple
 
 
 # --- Kinematic Solvers ---
-def solve_4bar_closure(x: np.ndarray, l1: float, l2: float, l3: float, l4: float, theta2: float) -> Tuple[float, float]:
+def solve_4bar_closure(x: np.ndarray, l1: float, l2: float, l3: float, l4: float, theta2: float) -> tuple[float, float]:
     """Solve the 4-bar linkage closure equations."""
     theta3, theta4 = x
     eq1 = l2 * np.cos(theta2) + l3 * np.cos(theta3) - l4 * np.cos(theta4) - l1
@@ -13,7 +14,7 @@ def solve_4bar_closure(x: np.ndarray, l1: float, l2: float, l3: float, l4: float
     return (eq1, eq2)
 
 
-def get_4bar_input_angle_range(l1: float, l2: float, l3: float, l4: float) -> Tuple[float, float]:
+def get_4bar_input_angle_range(l1: float, l2: float, l3: float, l4: float) -> tuple[float, float]:
     """Get the valid input angle range for a 4-bar linkage based on Grashof condition."""
     links = sorted([l1, l2, l3, l4])
     s, p, q, l = links

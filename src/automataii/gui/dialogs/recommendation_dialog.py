@@ -1,37 +1,33 @@
-from typing import Any, Dict, List, Optional, Tuple
+import json  # Add json import
+from typing import Any, Callable
 
 import numpy as np  # Add numpy import
-from scipy.spatial.distance import directed_hausdorff  # Add scipy import
-import json  # Add json import
-
-from PyQt6.QtCore import Qt, pyqtSignal as Signal, QSize, QSizeF, QPointF, QLineF, QRectF
+from PyQt6.QtCore import QLineF, QPointF, QRectF, QSize, Qt
+from PyQt6.QtCore import pyqtSignal as Signal
 from PyQt6.QtGui import (
-    QPixmap,
-    QPainter,
-    QColor,
-    QPen,
     QBrush,
+    QColor,
+    QFont,
     QPainterPath,
+    QPen,
     QPolygonF,
     QTransform,
-    QFont,
 )
 from PyQt6.QtWidgets import (
     QDialog,
-    QVBoxLayout,
+    QGraphicsPathItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QWidget,
-    QGroupBox,
+    QScrollArea,
     QSizePolicy,
-    QGraphicsView,
-    QGraphicsScene,
-    QGraphicsEllipseItem,
-    QGraphicsRectItem,
-    QGraphicsPathItem,
-    QDialogButtonBox,
+    QVBoxLayout,
+    QWidget,
 )
+from scipy.spatial.distance import directed_hausdorff  # Add scipy import
 
 # Color palette
 BITTERSWEET = QColor("#ff595e")
@@ -54,7 +50,7 @@ DEFAULT_NUM_SAMPLES_FOR_PATH = (
 
 def qpainterpath_to_numpy_array(
     path: QPainterPath, num_points: int = DEFAULT_NUM_SAMPLES_FOR_PATH
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Converts a QPainterPath to a numpy array of (x, y) coordinates.
 
     Args:
@@ -116,8 +112,9 @@ def calculate_hausdorff_distance(
 
 
 def align_and_compare_paths(
-    path1_points: np.ndarray, path2_points: np.ndarray, rotation_steps: int = 72
-) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray], Optional[Dict]]:
+    path1_points: np.ndarray, path2_points: np.ndarray, rotation_steps: int = 72, 
+    mechanism_type: str = ""
+) -> tuple[float, np.ndarray | None, np.ndarray | None, dict | None]:
     """
     Aligns two paths (translation, scale, rotation) and finds the best match.
 
@@ -154,12 +151,20 @@ def align_and_compare_paths(
     )
 
     # 3. Find the optimal rotation for path2 to match path1
+    # Skip rotation search for cam-followers as they have directional constraints
     min_distance = float("inf")
     best_rotated_path2 = None
     best_angle = 0
-    angles = np.linspace(0, 2 * np.pi, rotation_steps, endpoint=False)
+    
+    # Cam-followers should not be rotated - they have inherent directional motion
+    if "cam" in mechanism_type.lower() or "follower" in mechanism_type.lower():
+        # For cam-followers, only test original orientation (follower moves vertically up)
+        test_angles = [0]  # 0° only - follower must be below cam to move upward
+    else:
+        # For other mechanisms (linkages, gears), test full rotation range
+        test_angles = np.linspace(0, 2 * np.pi, rotation_steps, endpoint=False)
 
-    for angle in angles:
+    for angle in test_angles:
         rotation_matrix = np.array(
             [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]]
         )
@@ -184,11 +189,11 @@ class MechanismPreviewWidget(QGraphicsView):
     """A widget to display a preview of a single mechanism."""
 
     def __init__(
-        self, mechanism_data: Dict[str, Any], parent: Optional[QWidget] = None
+        self, mechanism_data: dict[str, Any], parent: QWidget | None = None
     ):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
-        self.setFixedSize(500, 400)  # Larger size for better path visibility
+        self.setFixedSize(280, 220)  # Reduced size to prevent overlap in dialog
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -234,7 +239,7 @@ class MechanismPreviewWidget(QGraphicsView):
         # Create the transform: move to center, then scale (with Y-flip)
         transform = QTransform()
         transform.translate(draw_area.center().x(), draw_area.center().y())
-        transform.scale(scale, -scale)  # Negative y-scale to flip Qt's coordinate system
+        transform.scale(scale, scale)  # Use positive y-scale to maintain correct orientation
 
         # Draw the mechanism structure first so it's in the background
         self._draw_mechanism_structure(transform)
@@ -270,7 +275,7 @@ class MechanismPreviewWidget(QGraphicsView):
         elif mech_type == "Planetary Gear" and "gear_positions" in full_sim_data:
             self._draw_planetary_gear_from_sim(transform, full_sim_data, params)
 
-    def _get_transform_for_sim_data(self, full_sim_data: Dict, path_key: str) -> Optional[callable]:
+    def _get_transform_for_sim_data(self, full_sim_data: dict, path_key: str) -> Callable | None:
         """Helper to create a transformation function to align simulation data with the displayed path."""
         mech_path = np.array(full_sim_data.get(path_key, []))
         user_path_aligned = self.mechanism_data.get("user_path_aligned_np")
@@ -296,7 +301,7 @@ class MechanismPreviewWidget(QGraphicsView):
 
         return to_screen_coords
 
-    def _draw_4_bar_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict) -> None:
+    def _draw_4_bar_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict) -> None:
         """Draws the 4-bar linkage structure using exact simulation positions."""
         joint_positions = full_sim_data["joint_positions"]
         frame_idx = 0
@@ -343,8 +348,8 @@ class MechanismPreviewWidget(QGraphicsView):
 
         self.scene.addEllipse(p_coupler_t.x() - 3, p_coupler_t.y() - 3, 6, 6, QPen(QColor("#ff0000")), QBrush(QColor("#ff0000")))
 
-    def _draw_cam_follower_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict):
-        """Draws a cam and follower from simulation data."""
+    def _draw_cam_follower_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
+        """Draws a cam and follower from simulation data using correct cam-follower relationship."""
         cam_data = full_sim_data["cam_data"]
         frame_idx = 0
 
@@ -360,15 +365,32 @@ class MechanismPreviewWidget(QGraphicsView):
 
         to_screen_coords = lambda p: to_screen_coords_func(p, transform)
 
+        # Create egg-shaped cam profile centered at cam_center
         cam_path = QPainterPath()
         for i in range(101):
             theta = 2 * np.pi * i / 100
-            p_orig = cam_center + base_radius * np.array([np.cos(theta), np.sin(theta)])
+            
+            # Egg shape: vary radius based on angle for more realistic cam profile
+            if theta <= np.pi:
+                # Top half: smaller radius (narrow part of egg)
+                radius_factor = 0.7 + 0.3 * (1 - np.cos(theta))
+            else:
+                # Bottom half: larger radius (wide part of egg)
+                radius_factor = 1.0 + 0.4 * (1 + np.cos(theta))
+            
+            effective_radius = base_radius * radius_factor * 0.6  # Scale down for proper cam size
+            
+            p_orig = cam_center + effective_radius * np.array([np.cos(theta), np.sin(theta)])
             p_screen = to_screen_coords(p_orig)
-            if i == 0: cam_path.moveTo(p_screen)
-            else: cam_path.lineTo(p_screen)
+            if i == 0: 
+                cam_path.moveTo(p_screen)
+            else: 
+                cam_path.lineTo(p_screen)
+        
         self.scene.addPath(cam_path, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
 
+        # Follower positioned according to dataset relationship: follower_y = cam_center[1] + base_radius
+        # This means follower is above the cam center by base_radius distance
         follower_pos_orig = np.array([0, follower_y])
         w, h = 20, 10
         tl = follower_pos_orig + np.array([-w/2, h/2]); tr = follower_pos_orig + np.array([w/2, h/2])
@@ -376,7 +398,7 @@ class MechanismPreviewWidget(QGraphicsView):
         follower_poly = QPolygonF([to_screen_coords(p) for p in [tl, tr, br, bl]])
         self.scene.addPolygon(follower_poly, QPen(QColor("#2ecc71"), 3), QBrush(QColor("#2ecc71").lighter(160)))
 
-    def _draw_simple_gear_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict):
+    def _draw_simple_gear_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
         """Draws a simple gear train from simulation data."""
         gear_data = full_sim_data["gear_data"]
         frame_idx = 0
@@ -410,7 +432,7 @@ class MechanismPreviewWidget(QGraphicsView):
         draw_gear(g1_center, r1, theta1, QColor("#3498db"))
         draw_gear(g2_center, r2, theta2, QColor("#2ecc71"))
 
-    def _draw_planetary_gear_from_sim(self, transform: QTransform, full_sim_data: Dict, params: Dict):
+    def _draw_planetary_gear_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
         """Draws a planetary gear system from simulation data."""
         gear_pos = full_sim_data["gear_positions"]
         frame_idx = 0
@@ -471,7 +493,7 @@ class PreviewContainer(QWidget):
     clicked = Signal(dict)
 
     def __init__(
-        self, mechanism_data: Dict[str, Any], parent: Optional[QWidget] = None
+        self, mechanism_data: dict[str, Any], parent: QWidget | None = None
     ):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
@@ -522,10 +544,10 @@ class PreviewContainer(QWidget):
         match_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         match_label.setStyleSheet("""
             QLabel {
-                font-size: 18px;
-                font-weight: bold;
+                font-size: 16px;
+                font-weight: normal;
                 color: #1e8449;
-                padding: 10px;
+                padding: 5px;
                 background-color: #e8f6ef;
                 border-radius: 5px;
                 border: 1px solid #d1e7dd;
@@ -533,7 +555,7 @@ class PreviewContainer(QWidget):
         """)
         layout.addWidget(match_label)
 
-        select_button = QPushButton("Select This")
+        select_button = QPushButton("Apply this")
         select_button.setFixedSize(140, 40)
         select_button.setStyleSheet("""
             QPushButton {
@@ -556,9 +578,8 @@ class PreviewContainer(QWidget):
         layout.addWidget(select_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(layout)
-        self.setMinimumWidth(520)
         self.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
         )
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -601,12 +622,6 @@ class PreviewContainer(QWidget):
     def _emit_selected(self) -> None:
         self.selected.emit(self.mechanism_data)
 
-    def minimumSizeHint(self) -> QSize:
-        return QSize(520, 550)
-
-    def sizeHint(self) -> QSize:
-        return self.minimumSizeHint()
-
 
 class MechanismRecommendationDialog(QDialog):
     mechanism_selected = Signal(dict)
@@ -617,12 +632,12 @@ class MechanismRecommendationDialog(QDialog):
         user_motion_path: QPainterPath,
         generated_paths_filepath: str,
         num_samples_user_path: int = DEFAULT_NUM_SAMPLES_FOR_PATH,
-        parent: Optional[QWidget] = None,
+        parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Choose a Mechanism")
-        self.setMinimumSize(1400, 800)
-        self.selected_mechanism_data: Optional[Dict[str, Any]] = None
+        self.setWindowTitle("Mechanism Recommendations")
+        self.setMinimumSize(1050, 650)
+        self.selected_mechanism_data: dict[str, Any] | None = None
 
         self.user_motion_path_original = user_motion_path
         self.user_motion_path_np = qpainterpath_to_numpy_array(
@@ -663,17 +678,36 @@ class MechanismRecommendationDialog(QDialog):
         """)
         main_layout.addWidget(subtitle_label)
 
-        self.previews_layout = QHBoxLayout()
-        self.previews_layout.setSpacing(10)
-        self.previews_layout.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
+        # Use scroll area to handle multiple recommendations properly
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
+
+        scroll_widget = QWidget()
+        scroll_area.setWidget(scroll_widget)
+
+        # Use grid layout for better space utilization
+        self.previews_layout = QGridLayout(scroll_widget)
+        self.previews_layout.setSpacing(15)
+        self.previews_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
         recommendations = self._get_best_recommendations()
         self.preview_containers = []
 
         if recommendations:
-            for rec_data in recommendations:
+            # Arrange widgets in a grid for better space utilization
+            columns = 3
+            for i, rec_data in enumerate(recommendations):
+                row = i // columns
+                col = i % columns
+
                 if rec_data:
                     rec_data_with_user_path = rec_data.copy()
                     rec_data_with_user_path["user_motion_path_local"] = (
@@ -683,73 +717,50 @@ class MechanismRecommendationDialog(QDialog):
                     container = PreviewContainer(rec_data_with_user_path, self)
                     container.selected.connect(self._on_select)
                     container.clicked.connect(self._on_preview_click)
-                    self.previews_layout.addWidget(container)
+                    self.previews_layout.addWidget(container, row, col)
                     self.preview_containers.append(container)
                 else:
                     placeholder_label = QLabel("No mechanism found")
                     placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    placeholder_label.setFixedSize(220, 280)
+                    placeholder_label.setFixedSize(280, 220)  # Match reduced preview size
                     placeholder_label.setStyleSheet("background-color: #f0f0f0; border: 1px solid #cccccc;")
-                    self.previews_layout.addWidget(placeholder_label)
-            self.previews_layout.addStretch()
+                    self.previews_layout.addWidget(placeholder_label, row, col)
         else:
             no_recs_label = QLabel(
                 "No mechanism recommendations could be generated or found."
             )
             no_recs_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.previews_layout.addWidget(no_recs_label)
+            self.previews_layout.addWidget(no_recs_label, 0, 0, 1, 3)
 
-        main_layout.addLayout(self.previews_layout)
+        main_layout.addWidget(scroll_area, 1)
 
+        # Simple close button for users who want to exit without selecting
         button_layout = QHBoxLayout()
         button_layout.setSpacing(20)
 
-        self.ok_button = QPushButton("OK")
-        self.ok_button.setFixedSize(80, 30)
-        self.ok_button.setStyleSheet("""
+        self.close_button = QPushButton("Close")
+        self.close_button.setFixedSize(100, 40)
+        self.close_button.setStyleSheet("""
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #6c757d;
                 color: white;
                 border: none;
-                border-radius: 4px;
-                font-size: 12px;
+                border-radius: 5px;
+                padding: 10px;
+                font-size: 15px;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #5a6268;
             }
             QPushButton:pressed {
-                background-color: #3d8b40;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
+                background-color: #545b62;
             }
         """)
-        self.ok_button.clicked.connect(self._on_ok_clicked)
-        self.ok_button.setEnabled(False)
-
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.setFixedSize(80, 30)
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-            QPushButton:pressed {
-                background-color: #ba1a0d;
-            }
-        """)
-        self.cancel_button.clicked.connect(self.reject)
+        self.close_button.clicked.connect(self.reject)
 
         button_layout.addStretch()
-        button_layout.addWidget(self.ok_button)
-        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.close_button)
         button_layout.addStretch()
 
         main_layout.addSpacing(20)
@@ -758,11 +769,11 @@ class MechanismRecommendationDialog(QDialog):
 
         self.setLayout(main_layout)
 
-    def _load_generated_paths(self, filepath: str) -> List[Dict[str, Any]]:
+    def _load_generated_paths(self, filepath: str) -> list[dict[str, Any]]:
         """Loads mechanism paths from a JSON file and prepares them."""
         loaded_paths = []
         try:
-            with open(filepath, "r") as f:
+            with open(filepath) as f:
                 raw_data = json.load(f)
 
             for item in raw_data:
@@ -819,7 +830,7 @@ class MechanismRecommendationDialog(QDialog):
             print(f"An unexpected error occurred while loading generated paths: {e}")
         return loaded_paths
 
-    def _get_best_recommendations(self) -> List[Optional[Dict[str, Any]]]:
+    def _get_best_recommendations(self) -> list[dict[str, Any] | None]:
         """
         Finds the best mechanism from each type by comparing user path with JSON database.
         """
@@ -859,7 +870,8 @@ class MechanismRecommendationDialog(QDialog):
                 user_path_aligned,
                 gen_path_aligned,
                 transform_params,
-            ) = align_and_compare_paths(self.user_motion_path_np, gen_path_np)
+            ) = align_and_compare_paths(self.user_motion_path_np, gen_path_np, 
+                                      mechanism_type=json_type_str)
 
             if user_path_aligned is None or gen_path_aligned is None:
                 continue
@@ -926,31 +938,31 @@ class MechanismRecommendationDialog(QDialog):
 
         return top_3
 
-    def _on_select(self, mechanism_data: Dict[str, Any]) -> None:
+    def _on_select(self, mechanism_data: dict[str, Any]) -> None:
+        """Handle immediate application of selected mechanism."""
         self.selected_mechanism_data = mechanism_data
-        self.ok_button.setEnabled(True)
+
+        # Provide visual feedback for the selection
         for container in self.preview_containers:
             container._set_selected_style(container.mechanism_data == mechanism_data)
 
-    def _on_preview_click(self, mechanism_data: Dict[str, Any]) -> None:
+        # Emit the selection signal and immediately accept the dialog
+        self.mechanism_selected.emit(mechanism_data)
+        self.accept()
+
+    def _on_preview_click(self, mechanism_data: dict[str, Any]) -> None:
         """Handle preview click to show mechanism in main view."""
         for container in self.preview_containers:
             container._set_selected_style(container.mechanism_data == mechanism_data)
         self.mechanism_preview_selected.emit(mechanism_data)
-
-    def _on_ok_clicked(self) -> None:
-        """Handle OK button click - emit signal and accept dialog."""
-        if self.selected_mechanism_data:
-            self.mechanism_selected.emit(self.selected_mechanism_data)
-        self.accept()
 
     @staticmethod
     def get_recommendation(
         user_motion_path: QPainterPath,
         generated_paths_filepath: str,
         num_samples_user_path: int = DEFAULT_NUM_SAMPLES_FOR_PATH,
-        parent: Optional[QWidget] = None,
-    ) -> Optional[Dict[str, Any]]:
+        parent: QWidget | None = None,
+    ) -> dict[str, Any] | None:
         """Static method to show the dialog and return the selected mechanism data."""
         dialog = MechanismRecommendationDialog(
             user_motion_path, generated_paths_filepath, num_samples_user_path, parent
@@ -961,8 +973,8 @@ class MechanismRecommendationDialog(QDialog):
         return None
 
     def _get_mechanism_points_orig(
-        self, mechanism_data: Dict[str, Any]
-    ) -> Optional[np.ndarray]:
+        self, mechanism_data: dict[str, Any]
+    ) -> np.ndarray | None:
         """Gathers all points of the mechanism (structure and path) in original coordinates."""
         params = mechanism_data.get("parameters")
         path_points = mechanism_data.get("path_coordinates_np")
@@ -1035,8 +1047,9 @@ class MechanismRecommendationDialog(QDialog):
 
 
 if __name__ == "__main__":
-    import sys
     import logging
+    import sys
+
     from PyQt6.QtWidgets import QApplication
 
     logging.basicConfig(level=logging.DEBUG)

@@ -1,7 +1,7 @@
-import math
 import logging
-from PyQt6.QtCore import QPointF, QLineF
-from PyQt6.QtGui import QTransform
+import math
+
+from PyQt6.QtCore import QLineF, QPointF
 
 
 def get_world_rotation(item):
@@ -542,33 +542,33 @@ def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1
             initial_angles.append(item._initial_ik_angle)
         else:
             initial_angles.append(item._initial_ik_angle)
-            
+
     # Calculate bend hints based on bend directions
     bend_hints = {}
     if bend_directions:
         for i in range(1, len(chain) - 1):  # Only middle joints
             item = chain[i]
             joint_name = item.part_info.name
-            
+
             # Find bend direction for this joint
             bend_dir = None
             for key, direction in bend_directions.items():
                 if key in joint_name or joint_name in key:
                     bend_dir = direction
                     break
-                    
+
             if bend_dir is not None:
                 # Calculate bend hint position
                 prev_pos = chain[i-1].mapToScene(chain[i-1].anchor_offset)
                 curr_pos = item.mapToScene(item.anchor_offset)
                 next_pos = chain[i+1].mapToScene(chain[i+1].anchor_offset)
-                
+
                 # Vector from previous to next joint
                 vec = next_pos - prev_pos
                 # Perpendicular vector (90 degree rotation)
                 perp = QPointF(-vec.y() * bend_dir, vec.x() * bend_dir)
                 perp_length = math.sqrt(perp.x()**2 + perp.y()**2)
-                
+
                 if perp_length > 0.1:
                     # Normalize and scale
                     bone_length = bone_lengths[i-1]
@@ -598,18 +598,18 @@ def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1
                 # Use blend between direct line and bend hint
                 direction = current_pos - next_pos
                 distance = QLineF(current_pos, next_pos).length()
-                
+
                 if distance < 0.1:
                     direction = QPointF(bone_length, 0)
                     distance = bone_length
-                    
+
                 # Direct position
                 direct_pos = next_pos + (direction / distance) * bone_length
-                
+
                 # Position influenced by bend hint
                 hint_dir = bend_hints[i] - next_pos
                 hint_dist = QLineF(bend_hints[i], next_pos).length()
-                
+
                 if hint_dist > 0.1:
                     hint_pos = next_pos + (hint_dir / hint_dist) * bone_length
                     # Blend between direct and hint positions
@@ -641,18 +641,18 @@ def _solve_ik_fabrik(chain, bone_lengths, target_pos, iterations=10, tolerance=1
             if i in bend_hints and i < len(chain) - 1:  # Middle joint with bend hint
                 direction = current_pos - prev_pos
                 distance = QLineF(prev_pos, current_pos).length()
-                
+
                 if distance < 0.1:
                     direction = QPointF(bone_length, 0)
                     distance = bone_length
-                    
+
                 # Direct position
                 direct_pos = prev_pos + (direction / distance) * bone_length
-                
+
                 # Position influenced by bend hint
                 hint_dir = bend_hints[i] - prev_pos
                 hint_dist = QLineF(bend_hints[i], prev_pos).length()
-                
+
                 if hint_dist > 0.1:
                     hint_pos = prev_pos + (hint_dir / hint_dist) * bone_length
                     # Blend

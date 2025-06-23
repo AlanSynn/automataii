@@ -1,8 +1,16 @@
 import logging
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsEllipseItem, QGraphicsLineItem
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QPainter
-from PyQt6.QtCore import QRectF, QPointF, Qt, QLineF
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Optional
+
+from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
+
+from automataii.config.z_indices import (
+    Z_SKELETON_BONES,
+    Z_SKELETON_JOINTS,
+    Z_SKELETON_MECHANISM_BONES,
+    Z_SKELETON_MECHANISM_JOINTS,
+)
 
 
 class SkeletonGraphicsItem(QGraphicsItem):
@@ -15,9 +23,10 @@ class SkeletonGraphicsItem(QGraphicsItem):
 
     def __init__(
         self,
-        skeleton_data: Optional[List[Dict[str, Any]]] = None,
-        hierarchy: Optional[Dict[str, List[str]]] = None,
-        parent: Optional[QGraphicsItem] = None,
+        skeleton_data: list[dict[str, Any]] | None = None,
+        hierarchy: dict[str, list[str]] | None = None,
+        parent: QGraphicsItem | None = None,
+        mechanism_mode: bool = False,
     ):
         """
         Initializes the SkeletonGraphicsItem.
@@ -27,19 +36,31 @@ class SkeletonGraphicsItem(QGraphicsItem):
                            and contains 'id', 'position' (QPointF or [x,y]), 'parent', 'name', 'color'.
             hierarchy: A dictionary mapping parent joint IDs to a list of child joint IDs.
             parent: The parent QGraphicsItem.
+            mechanism_mode: If True, uses higher Z-values for mechanism tab visibility above parts.
         """
         super().__init__(parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        
+        # Store mechanism mode for Z-value configuration
+        self.mechanism_mode = mechanism_mode
+        
+        # Configure Z-values based on mode
+        if mechanism_mode:
+            self.bone_z_value = Z_SKELETON_MECHANISM_BONES
+            self.joint_z_value = Z_SKELETON_MECHANISM_JOINTS
+        else:
+            self.bone_z_value = Z_SKELETON_BONES  
+            self.joint_z_value = Z_SKELETON_JOINTS
 
-        self._joint_items: Dict[
+        self._joint_items: dict[
             str, QGraphicsEllipseItem
         ] = {}  # joint_id -> QGraphicsEllipseItem
-        self._bone_items: List[QGraphicsLineItem] = []
+        self._bone_items: list[QGraphicsLineItem] = []
 
         # Cache of the original structural data for rebuilding/updating bones
-        self._joints_data_cache: List[Dict[str, Any]] = []
-        self._hierarchy_cache: Dict[str, List[str]] = {}
+        self._joints_data_cache: list[dict[str, Any]] = []
+        self._hierarchy_cache: dict[str, list[str]] = {}
 
         if skeleton_data and hierarchy:
             self.load_skeleton_data(skeleton_data, hierarchy)
@@ -60,7 +81,7 @@ class SkeletonGraphicsItem(QGraphicsItem):
         self._bone_items.clear()
 
     def load_skeleton_data(
-        self, skeleton_data: List[Dict[str, Any]], hierarchy: Dict[str, List[str]]
+        self, skeleton_data: list[dict[str, Any]], hierarchy: dict[str, list[str]]
     ):
         """
         Loads new skeleton data and rebuilds the visual representation.
@@ -151,9 +172,7 @@ class SkeletonGraphicsItem(QGraphicsItem):
 
             joint_item.setBrush(QBrush(joint_color))
             joint_item.setPen(QPen(Qt.GlobalColor.black, 1))
-            joint_item.setZValue(
-                1
-            )  # Joints on top of bones (if bones were also children)
+            joint_item.setZValue(self.joint_z_value)  # Use configured Z-value
             self._joint_items[joint_id] = joint_item
 
         logging.debug(
@@ -162,7 +181,7 @@ class SkeletonGraphicsItem(QGraphicsItem):
         self._update_bone_lines()  # Create bones based on the newly loaded joints and hierarchy
         self.update()  # Recalculate bounding rect and trigger repaint
 
-    def set_animated_pose(self, joint_positions: Dict[str, Tuple[float, float]]):
+    def set_animated_pose(self, joint_positions: dict[str, tuple[float, float]]):
         logging.debug(
             f"SkeletonItem:set_animated_pose - Received joint_positions (count: {len(joint_positions)}): {joint_positions if len(joint_positions) < 5 else str(list(joint_positions.items())[:5]) + '...'}"
         )
@@ -239,7 +258,7 @@ class SkeletonGraphicsItem(QGraphicsItem):
                 line = QLineF(parent_pos, child_pos)
                 bone_item = QGraphicsLineItem(line, parent=self)
                 bone_item.setPen(QPen(Qt.GlobalColor.gray, self.BONE_PEN_WIDTH))
-                bone_item.setZValue(0)
+                bone_item.setZValue(self.bone_z_value)  # Use configured Z-value
                 self._bone_items.append(bone_item)
 
         logging.debug(
@@ -331,11 +350,11 @@ class SkeletonGraphicsItem(QGraphicsItem):
         # logging.debug(f"SkeletonItem:boundingRect calculated: {rect}")
         return rect
 
-    def get_joint_position(self, joint_id: str) -> Optional[QPointF]:
+    def get_joint_position(self, joint_id: str) -> QPointF | None:
         """Returns the current visual position of a joint by its ID."""
         item = self._joint_items.get(joint_id)
         return item.pos() if item else None
 
-    def get_all_joint_positions(self) -> Dict[str, QPointF]:
+    def get_all_joint_positions(self) -> dict[str, QPointF]:
         """Returns a dictionary of all current joint positions {id: QPointF}."""
         return {id: item.pos() for id, item in self._joint_items.items()}

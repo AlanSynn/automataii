@@ -1,34 +1,32 @@
 import os
 import tempfile
 import time
-import yaml
-import cv2
-from typing import Optional
 from pathlib import Path
 
+import cv2
+import yaml
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget,
-    QHBoxLayout,
-    QVBoxLayout,
-    QPushButton,
-    QGroupBox,
+    QApplication,
     QComboBox,
-    QSizePolicy,
+    QDialog,
     QFileDialog,
+    QGraphicsScene,
+    QGroupBox,
+    QHBoxLayout,
     QMessageBox,
     QProgressDialog,
-    QDialog,
-    QApplication,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
 
+from automataii.animate.body_parts_extractor import BodyPartsExtractor
+from automataii.animate.image_to_annotations import AnnotationResults, image_to_annotations
 from automataii.gui.dialogs.camera_dialog import CameraDialog
 from automataii.gui.image_view import ImageProcessingView
-from PyQt6.QtWidgets import QGraphicsScene
 from automataii.gui.widgets.processing_steps_group import ProcessingStepsGroup
-
-from automataii.animate.image_to_annotations import image_to_annotations, AnnotationResults
-from automataii.animate.body_parts_extractor import BodyPartsExtractor
 
 
 class ImageProcessingTab(QWidget):
@@ -40,11 +38,11 @@ class ImageProcessingTab(QWidget):
         super().__init__(parent)
         self.main_window = main_window
 
-        self.input_image_path: Optional[str] = None
-        self.character_dir: Optional[str] = None
-        self.current_temp_char_dir: Optional[str] = None
-        self.current_annotation_results: Optional[AnnotationResults] = None
-        self.skeleton_data: Optional[dict] = None
+        self.input_image_path: str | None = None
+        self.character_dir: str | None = None
+        self.current_temp_char_dir: str | None = None
+        self.current_annotation_results: AnnotationResults | None = None
+        self.skeleton_data: dict | None = None
         self.active_camera_dialogs: list = []
 
         self.image_proc_scene = QGraphicsScene(self)
@@ -500,7 +498,7 @@ class ImageProcessingTab(QWidget):
             return False
 
         try:
-            with open(char_cfg_filepath, "r") as f:
+            with open(char_cfg_filepath) as f:
                 loaded_skeleton_data = yaml.safe_load(f)
             if (
                 not loaded_skeleton_data or "skeleton" not in loaded_skeleton_data
@@ -734,7 +732,7 @@ class ImageProcessingTab(QWidget):
 
         self.update_button_states()  # General state update
 
-    def on_skeleton_updated_externally(self, skeleton_data: Optional[dict]):
+    def on_skeleton_updated_externally(self, skeleton_data: dict | None):
         """
         Slot for when skeleton data is updated from an external source
         (e.g., loaded directly into SkeletonManager by MainWindow).
@@ -809,8 +807,15 @@ class ImageProcessingTab(QWidget):
 
     def show_lock_joints_dialog(self):
         """Shows a dialog for locking/unlocking specific joints."""
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QListWidget, QListWidgetItem, QDialogButtonBox, QLabel
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QDialogButtonBox,
+            QLabel,
+            QListWidget,
+            QListWidgetItem,
+            QVBoxLayout,
+        )
 
         if not self.main_window or not self.main_window.skeleton_manager:
             QMessageBox.warning(

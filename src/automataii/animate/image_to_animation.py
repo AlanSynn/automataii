@@ -2,13 +2,15 @@ import os
 
 os.environ["PYOPENGL_PLATFORM"] = "glut"
 
-from automataii.animate.image_to_annotations import image_to_annotations, AnnotationResults
-from automataii.animate.annotations_to_animation import annotations_to_animation
-from pathlib import Path
 import logging
-import sys
 import shutil
+import sys
+from pathlib import Path
+
 from pkg_resources import resource_filename
+
+from automataii.animate.annotations_to_animation import annotations_to_animation
+from automataii.animate.image_to_annotations import image_to_annotations
 
 
 def image_to_animation(

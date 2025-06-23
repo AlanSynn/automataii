@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QApplication
+from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QPen
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QObject, QRectF
+from PyQt6.QtWidgets import QApplication, QGraphicsEllipseItem, QGraphicsItem
 
 
 # Internal class for handling signals
@@ -121,8 +121,9 @@ if __name__ == "__main__":
     # This is a QGraphicsItem, requires a QGraphicsScene and QGraphicsView to be visualized.
     # Example usage would typically be within a main application.
 
-    from PyQt6.QtWidgets import QApplication, QGraphicsView, QGraphicsScene
     import sys
+
+    from PyQt6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 
     app = QApplication(sys.argv)
 

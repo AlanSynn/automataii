@@ -4,10 +4,10 @@ Project Management Module
 Handles .atii project files, serialization, and project lifecycle management.
 """
 
-from .project_manager import ProjectManager
-from .project_format import AtiiProject
-from .serialization import ProjectSerializer, SerializationFormat
 from .file_integration import FileIntegration
+from .project_format import AtiiProject
+from .project_manager import ProjectManager
+from .serialization import ProjectSerializer, SerializationFormat
 
 # Global project manager instance
 _global_project_manager = None
@@ -26,7 +26,7 @@ def set_global_project_manager(manager: ProjectManager) -> None:
 
 __all__ = [
     'ProjectManager',
-    'AtiiProject', 
+    'AtiiProject',
     'ProjectSerializer', 'SerializationFormat',
     'FileIntegration',
     'get_global_project_manager', 'set_global_project_manager'

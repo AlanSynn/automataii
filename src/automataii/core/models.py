@@ -1,15 +1,13 @@
-import os
-from PyQt6.QtGui import QPainterPath, QColor
-from PyQt6.QtCore import QPointF
 import logging
-from typing import TYPE_CHECKING, Optional, List, Dict, Any  # Added Any for data dict
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional  # Added Any for data dict
+
+from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QColor, QPainterPath
 
 if TYPE_CHECKING:
     from .models_pydantic import (
         PartInfoModel as PydanticPartInfoModel,
-        MotionPathDataModel,
-        QPointFModel,
     )  # For type hinting
 
 # svgpathtools is no longer needed for basic PartInfo if rendering is via QPixmap
@@ -86,32 +84,32 @@ class PartInfo:
     """
 
     def __init__(
-        self, model: "PydanticPartInfoModel", resolved_image_path: Optional[str] = None
+        self, model: "PydanticPartInfoModel", resolved_image_path: str | None = None
     ):
         from .models_pydantic import (
             QPointFModel,
         )  # Late import for type hint resolution
 
         self.name: str = model.name
-        self.roi: Optional[List[float]] = model.roi
+        self.roi: list[float] | None = model.roi
         # Store resolved absolute paths if provided, otherwise use what's in the model (which might be relative)
-        self.image_path: Optional[str] = (
+        self.image_path: str | None = (
             resolved_image_path if resolved_image_path is not None else model.image_path
         )
         self.fill_color: str = model.fill_color
         self.z_value: float = model.z_value
         self.fixed: bool = model.fixed
         self.opacity: float = model.opacity
-        self.group: Optional[str] = model.group
-        self.original_svg_path: Optional[str] = model.original_svg_path
-        self.enhanced_svg_path: Optional[str] = model.enhanced_svg_path
+        self.group: str | None = model.group
+        self.original_svg_path: str | None = model.original_svg_path
+        self.enhanced_svg_path: str | None = model.enhanced_svg_path
         self.effective_bbox_offset_x: float = model.effective_bbox_offset_x
         self.effective_bbox_offset_y: float = model.effective_bbox_offset_y
         self.show_anchor: bool = model.show_anchor
-        self.local_pivot_offset: Optional[List[float]] = model.local_pivot_offset
-        self.anchor_joint_id: Optional[str] = model.anchor_joint_id
+        self.local_pivot_offset: list[float] | None = model.local_pivot_offset
+        self.anchor_joint_id: str | None = model.anchor_joint_id
 
-        self.motion_path_data: Optional[QPainterPath] = None
+        self.motion_path_data: QPainterPath | None = None
         if model.motion_path_data and model.motion_path_data.path_points:
             path = QPainterPath()
             first_point = True
@@ -164,14 +162,14 @@ class PartInfo:
 
     def to_pydantic_model(self) -> "PydanticPartInfoModel":
         from .models_pydantic import (
-            PydanticPartInfoModel,
             MotionPathDataModel,
+            PydanticPartInfoModel,
             QPointFModel,
         )  # Late import
 
         motion_path_pydantic = None
         if self.motion_path_data and not self.motion_path_data.isEmpty():
-            points_for_pydantic: List[QPointFModel] = []  # Type hint for clarity
+            points_for_pydantic: list[QPointFModel] = []  # Type hint for clarity
             for i in range(self.motion_path_data.elementCount()):
                 element = self.motion_path_data.elementAt(i)
                 # For simplicity, only capture LineTo and MoveTo points.

@@ -1,24 +1,22 @@
 #!/usr/bin/env python
 
-from typing import Optional, Dict, Any, List, Tuple
+import argparse
+import json
+import os
+import random
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
+
 import cv2
 import numpy as np
 import yaml
-import os
-from pathlib import Path
-import json
-import argparse
-from scipy.ndimage import distance_transform_edt, gaussian_filter, binary_fill_holes
+from scipy.ndimage import gaussian_filter
 from scipy.spatial.distance import cdist
-import networkx as nx
-from collections import defaultdict
-import random
-from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
+
 from automataii.animate.body_parts_animation import animate_body_part, save_animation
 from automataii.animate.part_definitions import BODY_PARTS
 from automataii.animate.templates import HTML_VIEWER_TEMPLATE, PART_CARD_TEMPLATE
-from automataii.utils.image_utils import save_image
 
 
 class FastSkeletonSegmenter:
@@ -27,8 +25,8 @@ class FastSkeletonSegmenter:
     def __init__(
         self,
         mask: np.ndarray,
-        joint_map: Dict[str, Tuple[int, int]],
-        part_definitions: Dict[str, Any],
+        joint_map: dict[str, tuple[int, int]],
+        part_definitions: dict[str, Any],
         scale_factor: float = 0.5,
     ):
         self.mask = mask
@@ -55,7 +53,7 @@ class FastSkeletonSegmenter:
         # Cache for distance computations
         self._distance_cache = {}
 
-    def segment_fast(self) -> Dict[str, np.ndarray]:
+    def segment_fast(self) -> dict[str, np.ndarray]:
         """Fast segmentation using vectorized operations"""
         # Create part influence maps
         influence_maps = self._create_all_influence_maps()
@@ -91,7 +89,7 @@ class FastSkeletonSegmenter:
 
         return part_masks
 
-    def _create_all_influence_maps(self) -> Dict[str, np.ndarray]:
+    def _create_all_influence_maps(self) -> dict[str, np.ndarray]:
         """Create all influence maps using parallel processing"""
         influence_maps = {}
 
@@ -112,8 +110,8 @@ class FastSkeletonSegmenter:
         return influence_maps
 
     def _create_part_influence_vectorized(
-        self, part_name: str, part_def: Dict[str, Any]
-    ) -> Optional[np.ndarray]:
+        self, part_name: str, part_def: dict[str, Any]
+    ) -> np.ndarray | None:
         """Create influence map using vectorized operations"""
         joints = part_def.get("joints", [])
         if not joints:
@@ -174,7 +172,7 @@ class FastSkeletonSegmenter:
         return influence
 
     def _create_bone_influence_vectorized(
-        self, p1: Tuple[int, int], p2: Tuple[int, int]
+        self, p1: tuple[int, int], p2: tuple[int, int]
     ) -> np.ndarray:
         """Vectorized bone influence calculation"""
         # Cache key
@@ -253,7 +251,7 @@ class BodyPartsExtractor:
     def __init__(
         self,
         char_dir: str,
-        output_dir: Optional[str] = None,
+        output_dir: str | None = None,
         generate_animations: bool = False,
         num_frames: int = 30,
         fps: int = 24,
@@ -264,23 +262,23 @@ class BodyPartsExtractor:
         self.num_frames = num_frames
         self.fps = fps
 
-        self.char_cfg: Optional[Dict[str, Any]] = None
-        self.texture: Optional[np.ndarray] = None
-        self.mask: Optional[np.ndarray] = None
-        self.texture_relative_joint_map: Optional[Dict[str, Tuple[int, int]]] = None
-        self.part_masks: Optional[Dict[str, np.ndarray]] = None
-        self.results: Optional[Dict[str, Any]] = None
-        self.image_height: Optional[int] = None
-        self.image_width: Optional[int] = None
+        self.char_cfg: dict[str, Any] | None = None
+        self.texture: np.ndarray | None = None
+        self.mask: np.ndarray | None = None
+        self.texture_relative_joint_map: dict[str, tuple[int, int]] | None = None
+        self.part_masks: dict[str, np.ndarray] | None = None
+        self.results: dict[str, Any] | None = None
+        self.image_height: int | None = None
+        self.image_width: int | None = None
 
-    def _read_char_config(self, config_path: str) -> Optional[Dict[str, Any]]:
+    def _read_char_config(self, config_path: str) -> dict[str, Any] | None:
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 return yaml.safe_load(f)
         except:
             return None
 
-    def _create_joint_map(self, skeleton_data: Any) -> Dict[str, Tuple[int, int]]:
+    def _create_joint_map(self, skeleton_data: Any) -> dict[str, tuple[int, int]]:
         joint_map = {}
 
         # Handle different skeleton data formats
@@ -320,8 +318,8 @@ class BodyPartsExtractor:
         return joint_map
 
     def _get_proximal_joint_name(
-        self, part_name: str, part_definition: Dict[str, Any]
-    ) -> Optional[str]:
+        self, part_name: str, part_definition: dict[str, Any]
+    ) -> str | None:
         if part_name == "head":
             return "neck"
         if part_name == "torso":
@@ -365,7 +363,7 @@ class BodyPartsExtractor:
         if skeleton_data:
             self.texture_relative_joint_map = self._create_joint_map(skeleton_data)
 
-    def _segment_body_parts(self) -> Dict[str, np.ndarray]:
+    def _segment_body_parts(self) -> dict[str, np.ndarray]:
         """Fast body part segmentation"""
         if self.mask is None or self.texture_relative_joint_map is None:
             return {}
@@ -445,8 +443,8 @@ class BodyPartsExtractor:
 
     def _extract_body_part(
         self, full_texture: np.ndarray, part_mask_data: np.ndarray
-    ) -> Tuple[
-        Optional[np.ndarray], Optional[np.ndarray], Optional[Tuple[int, int, int, int]]
+    ) -> tuple[
+        np.ndarray | None, np.ndarray | None, tuple[int, int, int, int] | None
     ]:
         if part_mask_data is None or np.sum(part_mask_data) == 0:
             return None, None, None

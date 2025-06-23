@@ -2,11 +2,11 @@
 Base event system components.
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Type, TypeVar, Generic
 from datetime import datetime
-import uuid
+from typing import Any, Generic, TypeVar
 
 EventType = TypeVar('EventType', bound='Event')
 
@@ -17,18 +17,18 @@ class Event:
     Base event class with immutable data and metadata.
     All events should inherit from this class.
     """
-    
+
     # Event metadata (automatically filled)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.now)
-    source: Optional[str] = field(default=None)
-    
+    source: str | None = field(default=None)
+
     # Event data (to be defined by subclasses)
-    
+
     def __post_init__(self):
         """Validate event data after initialization."""
         self.validate()
-    
+
     def validate(self) -> None:
         """Override in subclasses to add validation logic."""
         pass
@@ -39,23 +39,23 @@ class EventHandler(ABC, Generic[EventType]):
     Abstract base class for event handlers.
     Provides type safety and consistent interface.
     """
-    
+
     @abstractmethod
     def handle(self, event: EventType) -> None:
         """Handle the given event."""
         pass
-    
+
     @property
     @abstractmethod
-    def event_type(self) -> Type[EventType]:
+    def event_type(self) -> type[EventType]:
         """Return the event type this handler processes."""
         pass
-    
+
     @property
     def priority(self) -> int:
         """Return handler priority (higher = processed first)."""
         return 0
-    
+
     @property
     def is_async(self) -> bool:
         """Return True if this handler should be called asynchronously."""
@@ -65,7 +65,7 @@ class EventHandler(ABC, Generic[EventType]):
 @dataclass(frozen=True)
 class DomainEvent(Event):
     """Base class for domain-specific events."""
-    
+
     aggregate_id: str = ""
     aggregate_type: str = ""
     version: int = 1
@@ -74,7 +74,7 @@ class DomainEvent(Event):
 @dataclass(frozen=True)
 class SystemEvent(Event):
     """Base class for system-level events."""
-    
+
     component: str = ""
     level: str = "info"  # debug, info, warning, error, critical
 
@@ -82,10 +82,10 @@ class SystemEvent(Event):
 @dataclass(frozen=True)
 class UIEvent(Event):
     """Base class for UI-related events."""
-    
-    widget_id: Optional[str] = None
-    action: Optional[str] = None
-    data: Dict[str, Any] = field(default_factory=dict)
+
+    widget_id: str | None = None
+    action: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
 
 
 # Common event types
@@ -145,7 +145,7 @@ class ProjectModified(DomainEvent):
 class AutoSaveTriggered(DomainEvent):
     """Fired when auto-save is triggered."""
     aggregate_type: str = "project"
-    backup_path: Optional[str] = None
+    backup_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -166,8 +166,8 @@ class ComponentDeactivated(UIEvent):
 class ImageSelectedEvent(UIEvent):
     """Fired when an image is selected."""
     image_path: str = ""
-    widget_id: Optional[str] = "landing_tab"
-    action: Optional[str] = "image_selected"
+    widget_id: str | None = "landing_tab"
+    action: str | None = "image_selected"
 
 
 @dataclass(frozen=True)

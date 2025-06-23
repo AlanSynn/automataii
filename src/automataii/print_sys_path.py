@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 print("--- sys.path ---")
 for p in sys.path:

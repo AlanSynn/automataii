@@ -6,10 +6,10 @@ based on user input and character part data.
 """
 
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any
 
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsItem
+from PyQt6.QtCore import QObject, QPointF, pyqtSignal
+from PyQt6.QtWidgets import QGraphicsItem
 
 from automataii.core.models import PartInfo  # Assuming PartInfo is in core.models
 
@@ -28,16 +28,16 @@ class MechanismManager(QObject):
         dict
     )  # Dict containing mechanism parameters, joint info, etc.
 
-    def __init__(self, parent: Optional[QObject] = None):
+    def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         logging.info("MechanismManager initialized.")
 
     def generate_mechanism(
         self,
         mechanism_type: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         target_part_info: PartInfo,
-        all_parts_info: Dict[str, PartInfo],
+        all_parts_info: dict[str, PartInfo],
         editor_scene_center: QPointF,  # Example: center of the editor scene or a key reference point
     ) -> None:
         """
@@ -65,16 +65,16 @@ class MechanismManager(QObject):
         # 3. Potentially calling C++ backend for complex calculations
         # 4. Creating QGraphicsItem instances for the visual representation
 
-        generated_items: List[QGraphicsItem] = []
-        generated_data: Dict[str, Any] = {
+        generated_items: list[QGraphicsItem] = []
+        generated_data: dict[str, Any] = {
             "type": mechanism_type,
             "target_part": target_part_info.name,
         }
 
         # Example: Simple placeholder visual for any mechanism type
         try:
+            from PyQt6.QtGui import QBrush, QColor
             from PyQt6.QtWidgets import QGraphicsEllipseItem
-            from PyQt6.QtGui import QColor, QBrush
 
             # Use target part's current position as a reference if motion path is empty
             ref_point = QPointF(target_part_info.x, target_part_info.y)
@@ -116,8 +116,9 @@ class MechanismManager(QObject):
 
 # Example usage (for testing, not part of the class)
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QApplication
     import sys
+
+    from PyQt6.QtWidgets import QApplication
 
     logging.basicConfig(level=logging.DEBUG)
     app = QApplication(

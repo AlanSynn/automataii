@@ -1,22 +1,22 @@
-import sys
-import time
 import logging
+import sys
+
 import cv2
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QGraphicsView,
-    QGraphicsScene,
     QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QHBoxLayout,
+    QLabel,
     QMessageBox,
+    QPushButton,
     QStyle,
+    QVBoxLayout,
 )
-from PyQt6.QtGui import QImage, QPixmap, QPainter
-from PyQt6.QtCore import Qt, QThread, QObject, pyqtSignal, pyqtSlot
 
 
 class CameraWorker(QObject):

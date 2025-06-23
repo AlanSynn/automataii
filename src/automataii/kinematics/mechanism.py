@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Set
-import numpy as np
 from enum import Enum
+
+import numpy as np
 
 
 class MechanismType(Enum):
@@ -45,7 +45,7 @@ class MechanismTemplate:
     """Template for a mechanism, defining its type and parameters."""
 
     type: MechanismType
-    parameters: List[MechanismParameter] = field(default_factory=list)
+    parameters: list[MechanismParameter] = field(default_factory=list)
     enabled: bool = True
 
 
@@ -64,7 +64,7 @@ class MechanismCandidate:
     """A candidate mechanism recommended for a target motion."""
 
     mechanism_type: MechanismType
-    parameters: Dict[str, float] = field(default_factory=dict)
+    parameters: dict[str, float] = field(default_factory=dict)
     motion_curve: MotionCurve = field(default_factory=MotionCurve)
     similarity_score: float = 0.0
     transform_matrix: np.ndarray = field(

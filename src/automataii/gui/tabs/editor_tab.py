@@ -1,30 +1,28 @@
 import logging
-from typing import Optional, Dict, List, Any, Tuple
 import math
+from typing import Any
 
+from PyQt6.QtCore import QPointF, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QBrush, QColor, QPainterPath
 from PyQt6.QtWidgets import (
-    QWidget,
-    QHBoxLayout,
-    QVBoxLayout,
-    QPushButton,
+    QGraphicsScene,
     QGroupBox,
+    QHBoxLayout,
+    QLabel,
     QListWidget,
-    QScrollArea,
-    QStyle,
     QListWidgetItem,
     QMessageBox,
-    QLabel,
+    QPushButton,
+    QScrollArea,
     QSlider,
+    QStyle,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF
-from PyQt6.QtCore import pyqtSlot
-from PyQt6.QtGui import QBrush, QPainterPath, QColor
 
-from automataii.gui.views.editor_view import EditorView
-from PyQt6.QtWidgets import QGraphicsScene
-from automataii.gui.graphics_items.part_item import CharacterPartItem
 from automataii.core.models import PartInfo
-
+from automataii.gui.graphics_items.part_item import CharacterPartItem
+from automataii.gui.views.editor_view import EditorView
 
 
 class EditorTab(QWidget):
@@ -63,33 +61,33 @@ class EditorTab(QWidget):
         )  # Pass self (EditorTab) as parent to EditorView
 
         # --- UI Elements owned by this tab ---
-        self.parts_list: Optional[QListWidget] = None
-        self.define_motion_path_btn: Optional[QPushButton] = None
-        self.clear_motion_path_btn: Optional[QPushButton] = None
-        self.motion_path_status_label: Optional[QLabel] = None
-        self.motion_path_info_label: Optional[QLabel] = None
-        self.animation_status_label: Optional[QLabel] = None
-        self.generate_mechanisms_btn: Optional[QPushButton] = None
-        self.smoothness_slider: Optional[QSlider] = None
-        self.smoothness_value_label: Optional[QLabel] = None
+        self.parts_list: QListWidget | None = None
+        self.define_motion_path_btn: QPushButton | None = None
+        self.clear_motion_path_btn: QPushButton | None = None
+        self.motion_path_status_label: QLabel | None = None
+        self.motion_path_info_label: QLabel | None = None
+        self.animation_status_label: QLabel | None = None
+        self.generate_mechanisms_btn: QPushButton | None = None
+        self.smoothness_slider: QSlider | None = None
+        self.smoothness_value_label: QLabel | None = None
 
-        self.play_btn: Optional[QPushButton] = None
-        self.stop_btn: Optional[QPushButton] = None
-        self.reset_sim_btn: Optional[QPushButton] = None
+        self.play_btn: QPushButton | None = None
+        self.stop_btn: QPushButton | None = None
+        self.reset_sim_btn: QPushButton | None = None
 
         # Data specific to this tab
-        self.selected_part_name: Optional[str] = None
-        self.current_parts_info: Dict[str, PartInfo] = {}
-        self.current_editor_items: Dict[str, CharacterPartItem] = {}
+        self.selected_part_name: str | None = None
+        self.current_parts_info: dict[str, PartInfo] = {}
+        self.current_editor_items: dict[str, CharacterPartItem] = {}
 
         # Store for defined joints within this tab
-        self.joints: List[Dict] = []  # List of joint data dictionaries
+        self.joints: list[dict] = []  # List of joint data dictionaries
 
         # Cache for initial skeleton data, to be set by MainWindow
-        self._initial_skeleton_data_cache: Optional[Dict] = None
+        self._initial_skeleton_data_cache: dict | None = None
 
         self.current_simulation_state: str = "stopped"  # For logging IK updates
-        self.ik_log_counter: Dict[str, int] = {}  # To limit logs per part/state
+        self.ik_log_counter: dict[str, int] = {}  # To limit logs per part/state
 
         self._init_ui()
 
@@ -292,11 +290,11 @@ class EditorTab(QWidget):
         # Smoothness control
         smoothness_layout = QHBoxLayout()
         smoothness_layout.setSpacing(8)
-        
+
         smoothness_label = QLabel("Smoothness:")
         smoothness_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #495057;")
         smoothness_layout.addWidget(smoothness_label)
-        
+
         self.smoothness_slider = QSlider(Qt.Orientation.Horizontal)
         self.smoothness_slider.setMinimum(0)  # 0% = original raw points
         self.smoothness_slider.setMaximum(100)  # 100% = perfect ellipse
@@ -333,13 +331,13 @@ class EditorTab(QWidget):
             }
         """)
         smoothness_layout.addWidget(self.smoothness_slider)
-        
+
         self.smoothness_value_label = QLabel("50%")
         self.smoothness_value_label.setMinimumWidth(30)
         self.smoothness_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.smoothness_value_label.setStyleSheet("font-size: 11px; color: #666;")
         smoothness_layout.addWidget(self.smoothness_value_label)
-        
+
         motion_path_layout.addLayout(smoothness_layout)
 
         panel_layout.addWidget(motion_path_group)
@@ -502,11 +500,7 @@ class EditorTab(QWidget):
         self.zoom_fit_btn.setStyleSheet(zoom_button_style)
         zoom_controls_layout.addWidget(self.zoom_fit_btn)
 
-        self.zoom_reset_btn = QPushButton("1:1")
-        self.zoom_reset_btn.setToolTip("Reset Zoom (100%)")
-        self.zoom_reset_btn.setStyleSheet(zoom_button_style)
-        self.zoom_reset_btn.setMinimumWidth(35)
-        zoom_controls_layout.addWidget(self.zoom_reset_btn)
+        # Removed 1:1 zoom reset button as requested (Issue #4)
 
         view_controls_layout.addLayout(zoom_controls_layout)
         panel_layout.addWidget(view_controls_group)
@@ -538,10 +532,10 @@ class EditorTab(QWidget):
         self.zoom_in_btn.clicked.connect(lambda: self.editor_view.zoom(1))
         self.zoom_out_btn.clicked.connect(lambda: self.editor_view.zoom(-1))
         self.zoom_fit_btn.clicked.connect(self.editor_view.zoom_to_fit)
-        self.zoom_reset_btn.clicked.connect(self.editor_view.reset_view)
+        # Removed zoom_reset_btn connection (1:1 button removed)
 
     def _handle_part_selection_change(
-        self, current: Optional[QListWidgetItem], previous: Optional[QListWidgetItem]
+        self, current: QListWidgetItem | None, previous: QListWidgetItem | None
     ):
         """Handles selection changes from the parts_list QListWidget."""
         logging.debug(f"EditorTab: Part selection changed. Current item: {current}")
@@ -634,7 +628,7 @@ class EditorTab(QWidget):
             # Clear motion path points if they exist
             if hasattr(part_item, 'motion_path_points'):
                 part_item.motion_path_points = []
-            
+
             # Clear original path points for smoothness adjustment
             if hasattr(part_item, 'original_path_points'):
                 part_item.original_path_points = []
@@ -739,7 +733,7 @@ class EditorTab(QWidget):
         # This functionality is removed from the UI
         pass
 
-    def populate_parts_list(self, part_names: List[str]):
+    def populate_parts_list(self, part_names: list[str]):
         """Populate the parts list widget with given names."""
         self.parts_list.clear()
         disabled_parts = {
@@ -766,7 +760,7 @@ class EditorTab(QWidget):
         self._update_part_list_styles()
         self._update_active_part_visuals()
 
-    def update_part_properties_panel(self, part_name: Optional[str]):
+    def update_part_properties_panel(self, part_name: str | None):
         # This panel is now removed. This function can be kept as a no-op for now.
         pass
 
@@ -781,7 +775,7 @@ class EditorTab(QWidget):
         # Motion Path section
         self.define_motion_path_btn.setEnabled(selected)
         self.clear_motion_path_btn.setEnabled(selected_part_has_path)
-        
+
         # Smoothness slider - enable only when a part with path is selected
         if self.smoothness_slider:
             self.smoothness_slider.setEnabled(selected_part_has_path)
@@ -893,12 +887,12 @@ class EditorTab(QWidget):
             has_path = self._has_motion_path(name)
             item.set_active(has_path)
 
-    def set_parts_data(self, parts_info: Dict[str, PartInfo]):
+    def set_parts_data(self, parts_info: dict[str, PartInfo]):
         """Receives parts data and populates the editor."""
         self.clear_editor_content()  # Clear previous content first
 
         self.current_parts_info = parts_info if parts_info else {}
-        created_editor_items: Dict[str, CharacterPartItem] = {}
+        created_editor_items: dict[str, CharacterPartItem] = {}
 
         if not self.current_parts_info:
             logging.info("EditorTab: No parts data to set.")
@@ -1118,7 +1112,7 @@ class EditorTab(QWidget):
         self.ik_log_counter.clear()  # Reset log counter when simulation state changes
 
     @pyqtSlot(dict)
-    def on_skeleton_updated(self, skeleton_data: Optional[Dict]):
+    def on_skeleton_updated(self, skeleton_data: dict | None):
         """Called by MainWindow when the skeleton is updated.
         This method is for *displaying* the skeleton.
         Initial skeleton caching is handled by `cache_initial_skeleton`.
@@ -1194,7 +1188,7 @@ class EditorTab(QWidget):
         self._update_button_states()
 
     # New method to cache initial skeleton data
-    def cache_initial_skeleton(self, skeleton_data_dict: Optional[Dict]):
+    def cache_initial_skeleton(self, skeleton_data_dict: dict | None):
         """Caches the initial skeleton data dictionary provided by MainWindow."""
         if skeleton_data_dict:
             self._initial_skeleton_data_cache = (
@@ -1290,7 +1284,7 @@ class EditorTab(QWidget):
 
     # Slot for freehandPathCompleted signal from EditorView
     @pyqtSlot(list)  # Changed to match signal: list of QPointF
-    def _handle_freehand_path_completed(self, path_points: List[QPointF]):
+    def _handle_freehand_path_completed(self, path_points: list[QPointF]):
         """
         Handles the completion of a freehand drawing path from the view.
         The view is responsible for creating the final spline path. This method
@@ -1329,7 +1323,7 @@ class EditorTab(QWidget):
         if part_name in self.current_editor_items:
             char_part_item = self.current_editor_items[part_name]
             char_part_item.set_motion_path(motion_qpath)
-            
+
             # Store the original path points for smoothness adjustment
             if not hasattr(char_part_item, 'original_path_points'):
                 char_part_item.original_path_points = path_points.copy()
@@ -1403,7 +1397,7 @@ class EditorTab(QWidget):
         )
         self._update_button_states()
 
-    def handle_ik_update(self, ik_results: Dict[str, Dict[str, Any]]):
+    def handle_ik_update(self, ik_results: dict[str, dict[str, Any]]):
         """Receives IK results and updates the EditorView."""
         logging.debug(
             f"[IK_ENTRY_TRACE] EditorTab.handle_ik_update entered. Current state: {self.current_simulation_state}. IK Results count: {len(ik_results)}"
@@ -1456,7 +1450,7 @@ class EditorTab(QWidget):
         L2: float,
         L3: float,
         input_angle_L1_rad: float,
-    ) -> Optional[Tuple[QPointF, QPointF, float, float, float]]:
+    ) -> tuple[QPointF, QPointF, float, float, float] | None:
         """
         Solves the forward kinematics for a four-bar linkage for a given input angle of L1.
         P0 and P3 are fixed pivots. L1 is the crank, L2 the coupler, L3 the rocker.
@@ -1511,7 +1505,7 @@ class EditorTab(QWidget):
                     self.editor_scene.removeItem(item)
             self._preview_path_items.clear()
 
-    def _collect_path_data(self) -> Dict[str, QPainterPath]:
+    def _collect_path_data(self) -> dict[str, QPainterPath]:
         """Collect all motion paths from parts."""
         path_data = {}
 
@@ -1537,17 +1531,17 @@ class EditorTab(QWidget):
         path_data = self._collect_path_data()
         self.path_data_changed.emit(path_data)
         logging.info(f"EditorTab: Emitted path data for {len(path_data)} parts")
-    
+
     def _on_smoothness_changed(self, value: int):
         """Handle smoothness slider value change."""
         # Update the value label
         if self.smoothness_value_label:
             self.smoothness_value_label.setText(f"{value}%")
-        
+
         # If a part is selected and has a path, regenerate it with new smoothness
         if self.selected_part_name and self._has_motion_path(self.selected_part_name):
             self._regenerate_path_with_smoothness(self.selected_part_name, value)
-    
+
     def _regenerate_path_with_smoothness(self, part_name: str, smoothness_percentage: int):
         """Regenerate the motion path for a part with new smoothness percentage (0-100)."""
         # Get the original path points if available
@@ -1555,7 +1549,7 @@ class EditorTab(QWidget):
         if not original_points or len(original_points) < 3:
             logging.warning(f"Cannot regenerate path for {part_name}: insufficient original points")
             return
-        
+
         # Create new path based on smoothness percentage
         if smoothness_percentage == 0:
             # 0% = raw points (straight lines)
@@ -1566,29 +1560,29 @@ class EditorTab(QWidget):
         else:
             # Interpolation between raw points and ellipse
             new_path = self._create_interpolated_path(original_points, smoothness_percentage)
-        
+
         # Update the path in both the part item and project data
         self._update_part_path(part_name, new_path)
-        
+
         logging.info(f"Regenerated path for {part_name} with smoothness {smoothness_percentage}%")
-    
-    def _get_original_path_points(self, part_name: str) -> List[QPointF]:
+
+    def _get_original_path_points(self, part_name: str) -> list[QPointF]:
         """Get the original drawn points for a part (before spline interpolation)."""
         # Try to get from the part item first
         if part_name in self.current_editor_items:
             part_item = self.current_editor_items[part_name]
             if hasattr(part_item, 'original_path_points') and part_item.original_path_points:
                 return part_item.original_path_points
-        
+
         # If not available, try to extract from the current path (approximation)
         if part_name in self.current_editor_items:
             part_item = self.current_editor_items[part_name]
             if hasattr(part_item, 'motion_path') and part_item.motion_path:
                 return self._extract_points_from_path(part_item.motion_path)
-        
+
         return []
-    
-    def _extract_points_from_path(self, path: QPainterPath) -> List[QPointF]:
+
+    def _extract_points_from_path(self, path: QPainterPath) -> list[QPointF]:
         """Extract points from a QPainterPath (approximation for existing paths)."""
         points = []
         # Sample the path at regular intervals
@@ -1600,8 +1594,8 @@ class EditorTab(QWidget):
                 point = path.pointAtPercent(percent)
                 points.append(point)
         return points
-    
-    def _create_raw_path(self, points: List[QPointF]) -> QPainterPath:
+
+    def _create_raw_path(self, points: list[QPointF]) -> QPainterPath:
         """Create a path using raw points connected by straight lines."""
         path = QPainterPath()
         if points:
@@ -1611,137 +1605,140 @@ class EditorTab(QWidget):
             if len(points) > 2:
                 path.lineTo(points[0])  # Close the path
         return path
-    
-    def _create_perfect_ellipse_path(self, points: List[QPointF]) -> QPainterPath:
+
+    def _create_perfect_ellipse_path(self, points: list[QPointF]) -> QPainterPath:
         """Create a perfect ellipse optimized for the original points' distribution and orientation."""
         if not points:
             return QPainterPath()
-        
+
         import math
+
         import numpy as np
-        
+
         # Convert points to numpy array for easier calculation
         coords = np.array([[p.x(), p.y()] for p in points])
-        
+
         # Calculate center (centroid)
         center = np.mean(coords, axis=0)
         center_x, center_y = center[0], center[1]
-        
+
         # Center the points
         centered_coords = coords - center
-        
+
         # Calculate covariance matrix to find principal axes
         cov_matrix = np.cov(centered_coords.T)
-        
+
         # Find eigenvalues and eigenvectors (principal components)
         eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-        
+
         # Sort eigenvalues and eigenvectors by eigenvalue magnitude (largest first)
         sorted_indices = np.argsort(eigenvalues)[::-1]
         eigenvalues = eigenvalues[sorted_indices]
         eigenvectors = eigenvectors[:, sorted_indices]
-        
+
         # Principal axes
         major_axis = eigenvectors[:, 0]  # Direction of largest variance
         minor_axis = eigenvectors[:, 1]  # Direction of smallest variance
-        
+
         # Calculate ellipse radii based on the spread of data along principal axes
         # Project points onto principal axes and find the range
         major_projections = np.dot(centered_coords, major_axis)
         minor_projections = np.dot(centered_coords, minor_axis)
-        
-        # Use 2 standard deviations to capture most of the data
-        major_radius = 2 * np.std(major_projections)
-        minor_radius = 2 * np.std(minor_projections)
-        
+
+        # Use smaller multiplier to keep ellipse size closer to original (Issue #3)
+        # Original used 2 std devs which made ellipse too large
+        major_radius = 1.2 * np.std(major_projections)  # Reduced from 2.0 to 1.2
+        minor_radius = 1.2 * np.std(minor_projections)  # Reduced from 2.0 to 1.2
+
         # Ensure minimum radius to avoid degenerate ellipse
         min_radius = 10.0  # Minimum radius in pixels
         major_radius = max(major_radius, min_radius)
         minor_radius = max(minor_radius, min_radius)
-        
+
         # Calculate rotation angle of the major axis
         rotation_angle = math.atan2(major_axis[1], major_axis[0])
-        
+
         # Create ellipse path
         path = QPainterPath()
         num_points = max(36, len(points) * 3)  # Smooth ellipse with enough points
-        
+
         for i in range(num_points + 1):  # +1 to close the ellipse
             # Parametric angle
             t = 2 * math.pi * i / num_points
-            
+
             # Ellipse in local coordinates (before rotation)
             local_x = major_radius * math.cos(t)
             local_y = minor_radius * math.sin(t)
-            
+
             # Rotate by the principal axis angle
             cos_rot = math.cos(rotation_angle)
             sin_rot = math.sin(rotation_angle)
-            
+
             rotated_x = local_x * cos_rot - local_y * sin_rot
             rotated_y = local_x * sin_rot + local_y * cos_rot
-            
+
             # Translate to center
             x = center_x + rotated_x
             y = center_y + rotated_y
-            
+
             if i == 0:
                 path.moveTo(x, y)
             else:
                 path.lineTo(x, y)
-        
+
         return path
-    
-    def _create_interpolated_path(self, points: List[QPointF], smoothness_percentage: int) -> QPainterPath:
+
+    def _create_interpolated_path(self, points: list[QPointF], smoothness_percentage: int) -> QPainterPath:
         """Create a path interpolated between raw points and perfect ellipse with optimal point correspondence."""
         if not points:
             return QPainterPath()
-        
+
         import math
+
         import numpy as np
-        
+
         # Get raw path points
         raw_path_points = points
-        
+
         # Get ellipse path and center
         ellipse_path = self._create_perfect_ellipse_path(points)
-        
+
         # Calculate center for angle-based correspondence
         coords = np.array([[p.x(), p.y()] for p in points])
         center = np.mean(coords, axis=0)
         center_x, center_y = center[0], center[1]
-        
+
         # Find corresponding ellipse points using angular alignment
         ellipse_points = []
-        
+
         for raw_point in raw_path_points:
             # Calculate angle of raw point relative to center
             raw_angle = math.atan2(raw_point.y() - center_y, raw_point.x() - center_x)
-            
+
             # Find corresponding point on ellipse using the same angle
             # Convert angle to path parameter (0 to 1)
             # Normalize angle to [0, 2π]
             normalized_angle = (raw_angle + 2 * math.pi) % (2 * math.pi)
             percent = normalized_angle / (2 * math.pi)
-            
+
             # Get point on ellipse at this parameter
             ellipse_point = ellipse_path.pointAtPercent(percent)
             ellipse_points.append(ellipse_point)
-        
+
         # Interpolation factor (0.0 = raw, 1.0 = ellipse)
         factor = smoothness_percentage / 100.0
-        
+
         # Interpolate between raw points and corresponding ellipse points
         interpolated_points = []
         for i in range(len(raw_path_points)):
             raw_p = raw_path_points[i]
             ellipse_p = ellipse_points[i]
-            
+
             # Linear interpolation
             x = raw_p.x() * (1 - factor) + ellipse_p.x() * factor
             y = raw_p.y() * (1 - factor) + ellipse_p.y() * factor
             interpolated_points.append(QPointF(x, y))
-        
+
         # Create spline path from interpolated points for additional smoothness
         if hasattr(self.editor_view, '_create_spline_path'):
             # Use lower tension for smoother interpolation
@@ -1749,13 +1746,13 @@ class EditorTab(QWidget):
             return self.editor_view._create_spline_path(interpolated_points, closed_loop=True, tension=tension)
         else:
             return self._create_raw_path(interpolated_points)
-    
-    def _extract_points_from_ellipse_path(self, ellipse_path: QPainterPath, num_points: int) -> List[QPointF]:
+
+    def _extract_points_from_ellipse_path(self, ellipse_path: QPainterPath, num_points: int) -> list[QPointF]:
         """Extract evenly spaced points from an ellipse path, maintaining proper correspondence with original points."""
         points = []
         if ellipse_path.isEmpty():
             return points
-        
+
         # Sample the ellipse path at regular intervals
         # We want to distribute points evenly around the ellipse perimeter
         length = ellipse_path.length()
@@ -1765,32 +1762,32 @@ class EditorTab(QWidget):
                 percent = i / num_points if num_points > 1 else 0
                 point = ellipse_path.pointAtPercent(percent)
                 points.append(point)
-        
+
         return points
-    
+
     def _update_part_path(self, part_name: str, new_path: QPainterPath):
         """Update the motion path for a part in all relevant data structures."""
         # Update the CharacterPartItem
         if part_name in self.current_editor_items:
             part_item = self.current_editor_items[part_name]
             part_item.set_motion_path(new_path)
-        
+
         # Update the project data
         if hasattr(self.main_window, 'project_data_manager') and self.main_window.project_data_manager:
             current_parts = self.main_window.project_data_manager.get_current_parts_data()
             if current_parts and part_name in current_parts:
                 current_parts[part_name].motion_path = new_path
-        
+
         # Update the visual path in EditorView if it exists
         if hasattr(self.editor_view, 'final_paths_map') and part_name in self.editor_view.final_paths_map:
             path_item = self.editor_view.final_paths_map[part_name]
             if path_item:
                 path_item.setPath(new_path)
-        
+
         # Emit the updated path data
         self.motion_path_updated.emit(part_name, new_path)
         self._emit_path_data()
-        
+
         # Update the scene
         self.editor_scene.update()
 
@@ -1798,29 +1795,29 @@ class EditorTab(QWidget):
         """Called when the tab becomes active. Re-enable animation controls if needed."""
         # Ensure IKManager has the current parts data
         main_window = self.window()
-        
+
         # Try to get the most up-to-date parts data
         parts_data_to_use = None
         if hasattr(main_window, 'project_data_manager') and main_window.project_data_manager:
             parts_data_to_use = main_window.project_data_manager.get_current_parts_data()
-        
+
         # Fallback to local parts data if project data manager doesn't have it
         if not parts_data_to_use and hasattr(self, 'current_parts_info') and self.current_parts_info:
             parts_data_to_use = self.current_parts_info
-            
+
         # Set the parts data in IKManager
         if parts_data_to_use and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
             if hasattr(main_window.ik_manager, 'set_project_parts_data'):
                 main_window.ik_manager.set_project_parts_data(parts_data_to_use)
                 logging.info(f"[EditorTab] Re-set project parts data in IKManager on tab activation ({len(parts_data_to_use)} parts)")
-        
+
         # CRITICAL: Re-send skeleton data to IKManager to ensure proper initialization
         if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
             if hasattr(main_window, 'ik_manager') and main_window.ik_manager:
                 if hasattr(main_window.ik_manager, 'on_skeleton_data_updated_from_manager'):
                     main_window.ik_manager.on_skeleton_data_updated_from_manager(self._initial_skeleton_data_cache)
                     logging.info("[EditorTab] Re-sent skeleton data to IKManager on tab activation")
-        
+
         # CRITICAL: Also send current motion paths to IKManager to ensure they're not lost
         current_paths = self._collect_path_data()
         if current_paths and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
@@ -1828,19 +1825,19 @@ class EditorTab(QWidget):
                 if hasattr(main_window.ik_manager, 'update_part_motion_path'):
                     main_window.ik_manager.update_part_motion_path(part_name, motion_path)
                     logging.info(f"[EditorTab] Re-sent motion path for {part_name} to IKManager on tab activation")
-        
+
         # Re-enable animation controls based on current state
         if self._has_motion_paths():
             self.play_btn.setEnabled(True)
             self.reset_sim_btn.setEnabled(True)
-            
+
             # Update animation status
             path_count = len(self._collect_path_data())
             self.animation_status_label.setText(f"{path_count} motion path(s) defined")
-            
+
             # Emit path data to ensure all tabs and systems are synchronized
             self._emit_path_data()
-            
+
             logging.info("[EditorTab] Tab activated - animation controls re-enabled")
         else:
             # Update button states to ensure correct state
@@ -1852,7 +1849,7 @@ class EditorTab(QWidget):
         if self.stop_btn.isEnabled():
             self._stop_simulation_clicked()
             logging.info("[EditorTab] Tab deactivated - animation stopped")
-            
+
     def _has_motion_paths(self) -> bool:
         """Check if any items have motion paths defined."""
         for item in self.editor_scene.items():

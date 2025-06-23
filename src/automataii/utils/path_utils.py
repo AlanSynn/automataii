@@ -1,11 +1,11 @@
 """Path manipulation utilities."""
 
-from PyQt6.QtGui import QPainterPath
+
 from PyQt6.QtCore import QPointF
-from typing import List
+from PyQt6.QtGui import QPainterPath
 
 
-def create_smooth_path(points: List[QPointF]) -> QPainterPath:
+def create_smooth_path(points: list[QPointF]) -> QPainterPath:
     """Creates a smooth QPainterPath from a list of points using Catmull-Rom-like splines (converted to Bezier segments).
 
     Args:

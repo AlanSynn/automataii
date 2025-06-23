@@ -1,16 +1,16 @@
+import logging
+from pathlib import Path
+
 import cv2
 import numpy as np
 import onnxruntime as ort
-import logging
-from pathlib import Path
-from typing import Union, Optional
 
 from automataii.utils.paths import resolve_path
 
 logger = logging.getLogger(__name__)
 
 class InferenceService:
-    def __init__(self, model_dir: Union[str, Path], providers=None):
+    def __init__(self, model_dir: str | Path, providers=None):
         """
         Initializes the ONNX inference service.
 

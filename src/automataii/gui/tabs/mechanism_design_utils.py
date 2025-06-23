@@ -3,12 +3,12 @@ Utility functions for mechanism design operations.
 This module contains standalone utility functions that don't depend on class state.
 """
 
-from typing import Optional
+
 import numpy as np
 from PyQt6.QtGui import QPainterPath
 
 
-def qpainterpath_to_numpy_array(path: QPainterPath, num_points: int = 100) -> Optional[np.ndarray]:
+def qpainterpath_to_numpy_array(path: QPainterPath, num_points: int = 100) -> np.ndarray | None:
     """Convert QPainterPath to numpy array of points.
     
     Args:
@@ -51,21 +51,21 @@ def convert_json_params_to_internal(mechanism_type: str, json_params: dict) -> d
             params["coupler_point_x"] = json_params.get('p_x', 0.0)
             params["coupler_point_y"] = json_params.get('p_y', 0.0)
         return params
-    
+
     elif "Cam" in mechanism_type:
         params = {
             "base_radius": json_params.get("base_radius", 25.0),
             "eccentricity": json_params.get("eccentricity", 10.0),
         }
         return params
-    
+
     elif "Gear" in mechanism_type:
         params = {
             "r1": json_params.get("r1", 30),
             "r2": json_params.get("r2", 50),
         }
         return params
-    
+
     elif "Planetary Gear" in mechanism_type:
         params = {
             "r_sun": json_params.get("r_sun", 20),
@@ -73,5 +73,5 @@ def convert_json_params_to_internal(mechanism_type: str, json_params: dict) -> d
             "arm_length": json_params.get("arm_length", 15),
         }
         return params
-    
+
     return json_params

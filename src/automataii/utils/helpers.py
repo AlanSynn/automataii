@@ -1,11 +1,10 @@
-import os
-import sys
-import logging
-from typing import List  # Add this import
-from PyQt6.QtCore import QPointF, QLineF
-from PyQt6.QtGui import QTransform  # Import QTransform from QtGui
 import json  # Added import
+import logging
+import os
+
 import numpy as np  # Added import
+from PyQt6.QtCore import QLineF, QPointF
+from PyQt6.QtGui import QTransform  # Import QTransform from QtGui
 
 # --- Environment Setup ---
 
@@ -139,7 +138,7 @@ def distance(p1: QPointF, p2: QPointF) -> float:
 
 
 def points_to_closed_bezier_path(
-    points: List[QPointF], tension: float = 1 / 6
+    points: list[QPointF], tension: float = 1 / 6
 ) -> "QPainterPath":
     """Converts a list of QPointF objects to a closed, smooth QPainterPath using Bezier curves.
 

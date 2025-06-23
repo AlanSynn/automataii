@@ -1,6 +1,8 @@
+
 import numpy as np
-from typing import List
+
 from automataii.kinematics.mechanism import MotionCurve
+
 
 class CurveSimilarity:
     """

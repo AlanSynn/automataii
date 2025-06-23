@@ -1,13 +1,13 @@
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QGroupBox,
-    QFormLayout,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QCheckBox,
+    QFormLayout,
+    QGroupBox,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import pyqtSignal, Qt
 
 
 class OptionsTab(QWidget):

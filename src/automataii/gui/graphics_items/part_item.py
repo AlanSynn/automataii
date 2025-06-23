@@ -1,38 +1,33 @@
 import logging
 from pathlib import Path
-from typing import Optional, List, Any, Tuple
+from typing import Any
 
-from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QLineF
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import (
-    QPixmap,
-    QPainter,
-    QPen,
     QBrush,
     QColor,
-    QTransform,
+    QPainter,
     QPainterPath,
-    QMouseEvent,
-    QPolygonF,
-    QPainterPathStroker,
+    QPen,
+    QPixmap,
 )
 from PyQt6.QtWidgets import (
-    QGraphicsPixmapItem,
-    QGraphicsSceneMouseEvent,
     QGraphicsItem,
+    QGraphicsPathItem,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
+    QGraphicsSceneMouseEvent,
     QStyleOptionGraphicsItem,
     QWidget,
-    QGraphicsPathItem,
-    QGraphicsRectItem,
-    QGraphicsEllipseItem,
 )
 
-from automataii.core.models import PartInfo
 from automataii.config.z_indices import (
     Z_PART_DEFAULT,
-    Z_ANCHOR_POINT,
-    Z_MOTION_PATH_LINE,
+)
+from automataii.config.z_indices import (
     Z_SELECTION_HIGHLIGHT as Z_ITEM_SELECTION_HIGHLIGHT,
 )
+from automataii.core.models import PartInfo
 
 # Constants for hover effects
 HOVER_PEN_COLOR = QColor(Qt.GlobalColor.yellow)
@@ -54,7 +49,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self,
         part_info: PartInfo,
         project_dir: Path,
-        parent: Optional[QGraphicsItem] = None,
+        parent: QGraphicsItem | None = None,
         debug_mode: bool = False,
     ):
         # QObject.__init__(self) # Removed
@@ -72,17 +67,17 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
-        self.part_pixmap: Optional[QPixmap] = None
+        self.part_pixmap: QPixmap | None = None
         self._bounding_rect_local: QRectF = QRectF()
         self.anchor_offset: QPointF = QPointF()
-        self.anchor_joint_id: Optional[str] = part_info.anchor_joint_id
-        self.end_effector_offset: Optional[QPointF] = None  # IK end effector point
-        self.parent_item_name: Optional[str] = None  # Parent part name for IK chain
+        self.anchor_joint_id: str | None = part_info.anchor_joint_id
+        self.end_effector_offset: QPointF | None = None  # IK end effector point
+        self.parent_item_name: str | None = None  # Parent part name for IK chain
 
-        self.motion_path: Optional[QPainterPath] = None
-        self.motion_path_item: Optional[QGraphicsPathItem] = None
+        self.motion_path: QPainterPath | None = None
+        self.motion_path_item: QGraphicsPathItem | None = None
 
-        self.selection_highlight_item: Optional[QGraphicsRectItem] = None
+        self.selection_highlight_item: QGraphicsRectItem | None = None
 
         self._is_fixed: bool = part_info.fixed
         self._is_joint_locked: bool = False  # Whether the associated joint is locked for IK
@@ -163,7 +158,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
             self._create_placeholder_pixmap()
             return
 
-        potential_path_str: Optional[str] = None
+        potential_path_str: str | None = None
 
         # 1. Prioritize image_path if it's absolute and exists
         if self.part_info.image_path and Path(self.part_info.image_path).is_absolute():
@@ -288,7 +283,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
             self.is_active = active
             self.update()  # Trigger a repaint
 
-    def set_motion_path(self, path: Optional[QPainterPath]):
+    def set_motion_path(self, path: QPainterPath | None):
         self.motion_path = path
         # self.update_motion_path_visual() # View now handles this
 
@@ -312,7 +307,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
             logging.debug(f"CharacterPartItem '{self.name()}': No motion path data.")
 
     def _setup_selection_highlight(self):
-        pen = QPen(QColor(0, 120, 215, 200), 1.5)
+        pen = QPen(QColor(0, 120, 215, 200), 3.0)  # Increased thickness from 1.5 to 3.0
         pen.setCosmetic(True)
         self.selection_highlight_item = QGraphicsRectItem()
         self.selection_highlight_item.setPen(pen)
@@ -366,7 +361,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self,
         painter: QPainter,
         option: QStyleOptionGraphicsItem,
-        widget: Optional[QWidget] = None,
+        widget: QWidget | None = None,
     ):
         # We don't want the default Qt selection rectangle to be drawn,
         # so we clear the QStyle.State_Selected flag before calling super().paint()

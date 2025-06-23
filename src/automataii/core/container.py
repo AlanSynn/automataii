@@ -3,16 +3,19 @@ Dependency injection container for modular architecture.
 """
 
 import inspect
+import logging
 import threading
-from abc import ABC, abstractmethod
+from abc import ABC
+from collections.abc import Callable
 from enum import Enum
 from typing import (
-    Any, Dict, List, Optional, Type, TypeVar, Generic, Callable,
-    get_type_hints, get_origin, get_args
+    Any,
+    Generic,
+    Optional,
+    TypeVar,
+    get_type_hints,
 )
 from weakref import WeakKeyDictionary
-import logging
-
 
 T = TypeVar('T')
 
@@ -29,7 +32,7 @@ class Injectable(ABC):
     Base class for injectable services.
     Provides automatic dependency resolution.
     """
-    
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         # Mark class as injectable
@@ -38,15 +41,15 @@ class Injectable(ABC):
 
 class ServiceDescriptor(Generic[T]):
     """Describes how to create and manage a service."""
-    
+
     def __init__(
         self,
-        service_type: Type[T],
-        implementation: Optional[Type[T]] = None,
-        factory: Optional[Callable[..., T]] = None,
-        instance: Optional[T] = None,
+        service_type: type[T],
+        implementation: type[T] | None = None,
+        factory: Callable[..., T] | None = None,
+        instance: T | None = None,
         lifetime: Lifetime = Lifetime.TRANSIENT,
-        name: Optional[str] = None
+        name: str | None = None
     ):
         self.service_type = service_type
         self.implementation = implementation or service_type
@@ -54,11 +57,11 @@ class ServiceDescriptor(Generic[T]):
         self.instance = instance
         self.lifetime = lifetime
         self.name = name or service_type.__name__
-        
+
         # Validation
         if not any([implementation, factory, instance]):
             raise ValueError("Must provide implementation, factory, or instance")
-        
+
         if lifetime == Lifetime.SINGLETON and instance:
             # Pre-created singleton
             pass
@@ -68,30 +71,30 @@ class ServiceDescriptor(Generic[T]):
 
 class Scope:
     """Represents a dependency injection scope."""
-    
+
     def __init__(self, name: str = "default"):
         self.name = name
-        self._instances: Dict[str, Any] = {}
+        self._instances: dict[str, Any] = {}
         self._lock = threading.RLock()
-    
-    def get_instance(self, key: str) -> Optional[Any]:
+
+    def get_instance(self, key: str) -> Any | None:
         """Get instance from this scope."""
         with self._lock:
             return self._instances.get(key)
-    
+
     def set_instance(self, key: str, instance: Any) -> None:
         """Set instance in this scope."""
         with self._lock:
             self._instances[key] = instance
-    
+
     def clear(self) -> None:
         """Clear all instances in this scope."""
         with self._lock:
             self._instances.clear()
-    
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.clear()
 
@@ -107,54 +110,54 @@ class Container:
     - Circular dependency detection
     - Generic type support
     """
-    
+
     def __init__(self, parent: Optional['Container'] = None):
         self.parent = parent
-        self._services: Dict[str, ServiceDescriptor] = {}
-        self._singletons: Dict[str, Any] = {}
-        self._scopes: Dict[str, Scope] = {}
-        self._current_scope: Optional[Scope] = None
+        self._services: dict[str, ServiceDescriptor] = {}
+        self._singletons: dict[str, Any] = {}
+        self._scopes: dict[str, Scope] = {}
+        self._current_scope: Scope | None = None
         self._lock = threading.RLock()
         self._logger = logging.getLogger(__name__)
         self._resolving: set[str] = set()  # Circular dependency detection
-        
+
         # Weak reference cache for performance
         self._resolution_cache: WeakKeyDictionary = WeakKeyDictionary()
-    
+
     def register_singleton(
-        self, 
-        service_type: Type[T], 
-        implementation: Optional[Type[T]] = None,
-        factory: Optional[Callable[..., T]] = None,
-        instance: Optional[T] = None
+        self,
+        service_type: type[T],
+        implementation: type[T] | None = None,
+        factory: Callable[..., T] | None = None,
+        instance: T | None = None
     ) -> 'Container':
         """Register a singleton service."""
         return self._register(service_type, implementation, factory, instance, Lifetime.SINGLETON)
-    
+
     def register_transient(
-        self, 
-        service_type: Type[T], 
-        implementation: Optional[Type[T]] = None,
-        factory: Optional[Callable[..., T]] = None
+        self,
+        service_type: type[T],
+        implementation: type[T] | None = None,
+        factory: Callable[..., T] | None = None
     ) -> 'Container':
         """Register a transient service."""
         return self._register(service_type, implementation, factory, None, Lifetime.TRANSIENT)
-    
+
     def register_scoped(
-        self, 
-        service_type: Type[T], 
-        implementation: Optional[Type[T]] = None,
-        factory: Optional[Callable[..., T]] = None
+        self,
+        service_type: type[T],
+        implementation: type[T] | None = None,
+        factory: Callable[..., T] | None = None
     ) -> 'Container':
         """Register a scoped service."""
         return self._register(service_type, implementation, factory, None, Lifetime.SCOPED)
-    
+
     def _register(
         self,
-        service_type: Type[T],
-        implementation: Optional[Type[T]],
-        factory: Optional[Callable[..., T]],
-        instance: Optional[T],
+        service_type: type[T],
+        implementation: type[T] | None,
+        factory: Callable[..., T] | None,
+        instance: T | None,
         lifetime: Lifetime
     ) -> 'Container':
         """Internal registration method."""
@@ -165,19 +168,19 @@ class Container:
             instance=instance,
             lifetime=lifetime
         )
-        
+
         with self._lock:
             key = self._get_service_key(service_type)
             self._services[key] = descriptor
-            
+
             # If singleton instance provided, store it
             if lifetime == Lifetime.SINGLETON and instance:
                 self._singletons[key] = instance
-        
+
         self._logger.debug(f"Registered {lifetime.value} service: {service_type.__name__}")
         return self
-    
-    def resolve(self, service_type: Type[T]) -> T:
+
+    def resolve(self, service_type: type[T]) -> T:
         """
         Resolve a service instance.
         
@@ -192,29 +195,29 @@ class Container:
             CircularDependencyError: If circular dependency detected
         """
         key = self._get_service_key(service_type)
-        
+
         # Check circular dependency
         if key in self._resolving:
             raise CircularDependencyError(f"Circular dependency detected for {service_type.__name__}")
-        
+
         try:
             self._resolving.add(key)
             return self._resolve_internal(service_type, key)
         finally:
             self._resolving.discard(key)
-    
-    def _resolve_internal(self, service_type: Type[T], key: str) -> T:
+
+    def _resolve_internal(self, service_type: type[T], key: str) -> T:
         """Internal resolution logic."""
         # Try current container
         descriptor = self._services.get(key)
-        
+
         # Try parent container
         if not descriptor and self.parent:
             return self.parent.resolve(service_type)
-        
+
         if not descriptor:
             raise ServiceNotFoundError(f"Service not found: {service_type.__name__}")
-        
+
         # Handle different lifetimes
         if descriptor.lifetime == Lifetime.SINGLETON:
             return self._resolve_singleton(descriptor, key)
@@ -222,61 +225,61 @@ class Container:
             return self._resolve_scoped(descriptor, key)
         else:  # TRANSIENT
             return self._create_instance(descriptor)
-    
+
     def _resolve_singleton(self, descriptor: ServiceDescriptor, key: str) -> Any:
         """Resolve singleton instance."""
         with self._lock:
             # Check if already created
             if key in self._singletons:
                 return self._singletons[key]
-            
+
             # Create new singleton
             instance = self._create_instance(descriptor)
             self._singletons[key] = instance
             return instance
-    
+
     def _resolve_scoped(self, descriptor: ServiceDescriptor, key: str) -> Any:
         """Resolve scoped instance."""
         if not self._current_scope:
             raise ScopeError("No active scope for scoped service")
-        
+
         # Check if already created in current scope
         instance = self._current_scope.get_instance(key)
         if instance:
             return instance
-        
+
         # Create new scoped instance
         instance = self._create_instance(descriptor)
         self._current_scope.set_instance(key, instance)
         return instance
-    
+
     def _create_instance(self, descriptor: ServiceDescriptor) -> Any:
         """Create new service instance."""
         if descriptor.instance:
             return descriptor.instance
-        
+
         if descriptor.factory:
             # Use factory with dependency injection
             return self._call_with_injection(descriptor.factory)
-        
+
         # Use constructor with dependency injection
         return self._call_with_injection(descriptor.implementation)
-    
+
     def _call_with_injection(self, callable_obj: Callable) -> Any:
         """Call function/constructor with automatic dependency injection."""
         # Get type hints for parameters
         type_hints = get_type_hints(callable_obj)
         sig = inspect.signature(callable_obj)
-        
+
         kwargs = {}
-        
+
         for param_name, param in sig.parameters.items():
             if param_name == 'self':
                 continue
-            
+
             # Get parameter type
             param_type = type_hints.get(param_name, param.annotation)
-            
+
             if param_type and param_type != inspect.Parameter.empty:
                 try:
                     # Resolve dependency
@@ -287,54 +290,54 @@ class Container:
                         kwargs[param_name] = param.default
                     else:
                         # Try to create if it's an Injectable
-                        if (inspect.isclass(param_type) and 
+                        if (inspect.isclass(param_type) and
                             issubclass(param_type, Injectable)):
                             kwargs[param_name] = self._auto_resolve(param_type)
                         else:
                             raise
-        
+
         return callable_obj(**kwargs)
-    
-    def _auto_resolve(self, service_type: Type[T]) -> T:
+
+    def _auto_resolve(self, service_type: type[T]) -> T:
         """Automatically resolve Injectable types."""
         # Register as transient and resolve
         self.register_transient(service_type)
         return self.resolve(service_type)
-    
-    def _get_service_key(self, service_type: Type) -> str:
+
+    def _get_service_key(self, service_type: type) -> str:
         """Get unique key for service type."""
         if hasattr(service_type, '__name__'):
             return service_type.__name__
         else:
             return str(service_type)
-    
+
     def create_scope(self, name: str = "scope") -> Scope:
         """Create a new dependency scope."""
         scope = Scope(name)
         with self._lock:
             self._scopes[name] = scope
         return scope
-    
+
     def enter_scope(self, scope: Scope) -> None:
         """Enter a dependency scope."""
         self._current_scope = scope
-    
+
     def exit_scope(self) -> None:
         """Exit current dependency scope."""
         if self._current_scope:
             self._current_scope.clear()
             self._current_scope = None
-    
-    def is_registered(self, service_type: Type) -> bool:
+
+    def is_registered(self, service_type: type) -> bool:
         """Check if service type is registered."""
         key = self._get_service_key(service_type)
         return key in self._services or (self.parent and self.parent.is_registered(service_type))
-    
-    def get_registrations(self) -> List[ServiceDescriptor]:
+
+    def get_registrations(self) -> list[ServiceDescriptor]:
         """Get all service registrations."""
         with self._lock:
             return list(self._services.values())
-    
+
     def clear(self) -> None:
         """Clear all registrations and instances."""
         with self._lock:
@@ -362,7 +365,7 @@ class ScopeError(Exception):
 
 
 # Global container instance
-_global_container: Optional[Container] = None
+_global_container: Container | None = None
 
 
 def get_global_container() -> Container:
@@ -380,16 +383,16 @@ def set_global_container(container: Container) -> None:
 
 
 # Convenience functions
-def inject(service_type: Type[T]) -> T:
+def inject(service_type: type[T]) -> T:
     """Inject a service from the global container."""
     return get_global_container().resolve(service_type)
 
 
-def register_singleton(service_type: Type[T], implementation: Type[T] = None) -> None:
+def register_singleton(service_type: type[T], implementation: type[T] = None) -> None:
     """Register a singleton in the global container."""
     get_global_container().register_singleton(service_type, implementation)
 
 
-def register_transient(service_type: Type[T], implementation: Type[T] = None) -> None:
+def register_transient(service_type: type[T], implementation: type[T] = None) -> None:
     """Register a transient in the global container."""
     get_global_container().register_transient(service_type, implementation)

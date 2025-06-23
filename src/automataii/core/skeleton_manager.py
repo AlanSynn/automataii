@@ -3,11 +3,11 @@ SkeletonManager module for managing skeleton data and conversions.
 """
 
 import logging
-from typing import Dict, List, Any, Optional, Tuple
 import math  # For calculating limb lengths if needed
+from typing import Any
 
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF
 from pydantic import ValidationError
+from PyQt6.QtCore import QObject, pyqtSignal
 
 # Import the new standardized models
 from automataii.core.models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
@@ -36,26 +36,26 @@ class SkeletonManager(QObject):
     error_occurred = pyqtSignal(str)  # Emits an error message
     skeleton_data_cleared = pyqtSignal()  # Emits when skeleton data is cleared
 
-    def __init__(self, parent: Optional[QObject] = None):
+    def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
-        self._raw_input_skeleton_data: Optional[Dict[str, Any]] = (
+        self._raw_input_skeleton_data: dict[str, Any] | None = (
             None  # Store the original input dict if needed for reprocessing
         )
-        self._standardized_skeleton_model: Optional[StandardizedSkeletonModel] = None
+        self._standardized_skeleton_model: StandardizedSkeletonModel | None = None
         logging.info("SkeletonManager initialized with new standardized models.")
 
     @property
-    def raw_input_data(self) -> Optional[Dict[str, Any]]:
+    def raw_input_data(self) -> dict[str, Any] | None:
         """Returns the most recent raw input dictionary that was processed."""
         return self._raw_input_skeleton_data
 
     @property
-    def standardized_model(self) -> Optional[StandardizedSkeletonModel]:
+    def standardized_model(self) -> StandardizedSkeletonModel | None:
         """Returns the current StandardizedSkeletonModel instance."""
         return self._standardized_skeleton_model
 
     @property
-    def joint_positions(self) -> Dict[str, Tuple[float, float]]:
+    def joint_positions(self) -> dict[str, tuple[float, float]]:
         """Returns a dictionary of joint ID to (x,y) position from the standardized model."""
         if not self._standardized_skeleton_model:
             return {}
@@ -65,21 +65,21 @@ class SkeletonManager(QObject):
         }
 
     @property
-    def joint_hierarchy(self) -> Dict[str, List[str]]:
+    def joint_hierarchy(self) -> dict[str, list[str]]:
         """Returns the parent_id -> [child_ids] hierarchy from the standardized model."""
         if not self._standardized_skeleton_model:
             return {}
         return self._standardized_skeleton_model.hierarchy
 
     @property
-    def root_joints(self) -> List[str]:  # Returns list of root joint IDs
+    def root_joints(self) -> list[str]:  # Returns list of root joint IDs
         """Returns a list of root joint IDs from the standardized model."""
         if not self._standardized_skeleton_model:
             return []
         return self._standardized_skeleton_model.root_joint_ids
 
     def load_skeleton_from_dict(
-        self, data: Optional[Dict[str, Any]], source_format: str = "auto"
+        self, data: dict[str, Any] | None, source_format: str = "auto"
     ) -> bool:
         """
         Loads skeleton data from a dictionary, converting it to StandardizedSkeletonModel.
@@ -104,7 +104,7 @@ class SkeletonManager(QObject):
             f"SkeletonManager: Loading skeleton from dict. Source format hint: {source_format}"
         )
 
-        processed_model: Optional[StandardizedSkeletonModel] = None
+        processed_model: StandardizedSkeletonModel | None = None
         detected_format = source_format
 
         if source_format == "animated_drawings" or (
@@ -159,8 +159,8 @@ class SkeletonManager(QObject):
 
     def load_skeleton_from_project_data(
         self,
-        raw_skeleton_list: Optional[List[Dict[str, Any]]],
-        parts_data: Optional[Dict[str, Any]] = None,
+        raw_skeleton_list: list[dict[str, Any]] | None,
+        parts_data: dict[str, Any] | None = None,
     ) -> bool:
         """
         Loads skeleton data from a raw list of joint dictionaries (e.g., from ProjectDataManager's
@@ -210,7 +210,7 @@ class SkeletonManager(QObject):
             {}
         )  # Emit empty dict to signal state change to empty
 
-    def _is_animated_drawings_format(self, data: Dict[str, Any]) -> bool:
+    def _is_animated_drawings_format(self, data: dict[str, Any]) -> bool:
         """Checks if the provided data dictionary matches the Animated Drawings char_cfg.yaml structure."""
         if "skeleton" in data and isinstance(data["skeleton"], list):
             if not data["skeleton"]:
@@ -225,7 +225,7 @@ class SkeletonManager(QObject):
                 )
         return False
 
-    def _is_already_standardized_format(self, data: Dict[str, Any]) -> bool:
+    def _is_already_standardized_format(self, data: dict[str, Any]) -> bool:
         """Checks if data is already in our target StandardizedSkeletonModel format (or close to it)."""
         # Check for key fields of StandardizedSkeletonModel
         if (
@@ -253,8 +253,8 @@ class SkeletonManager(QObject):
         return False
 
     def _process_animated_drawings_format(
-        self, data: Dict[str, Any]
-    ) -> Optional[StandardizedSkeletonModel]:
+        self, data: dict[str, Any]
+    ) -> StandardizedSkeletonModel | None:
         """
         Processes skeleton data from the Animated Drawings format (e.g., char_cfg.yaml content).
         Populates and returns a StandardizedSkeletonModel.
@@ -267,8 +267,8 @@ class SkeletonManager(QObject):
             return None
 
         std_skeleton = StandardizedSkeletonModel(source_format="animated_drawings")
-        temp_joint_name_to_id: Dict[str, str] = {}
-        temp_id_to_parent_name: Dict[str, Optional[str]] = {}
+        temp_joint_name_to_id: dict[str, str] = {}
+        temp_id_to_parent_name: dict[str, str | None] = {}
 
         for i, joint_info_raw in enumerate(raw_joints_list):
             if not isinstance(joint_info_raw, dict):
@@ -393,8 +393,8 @@ class SkeletonManager(QObject):
         return std_skeleton
 
     def _process_already_standardized_format(
-        self, data: Dict[str, Any]
-    ) -> Optional[StandardizedSkeletonModel]:
+        self, data: dict[str, Any]
+    ) -> StandardizedSkeletonModel | None:
         """
         Processes data that is already expected to be in StandardizedSkeletonModel format.
         Mainly involves validation using Pydantic.
@@ -439,7 +439,7 @@ class SkeletonManager(QObject):
             return None
 
     # --- Getter methods for specific joint information ---
-    def get_joint_by_id(self, joint_id: str) -> Optional[StandardizedJointModel]:
+    def get_joint_by_id(self, joint_id: str) -> StandardizedJointModel | None:
         if (
             self._standardized_skeleton_model
             and joint_id in self._standardized_skeleton_model.joints
@@ -447,7 +447,7 @@ class SkeletonManager(QObject):
             return self._standardized_skeleton_model.joints[joint_id]
         return None
 
-    def get_joint_by_name(self, name: str) -> Optional[StandardizedJointModel]:
+    def get_joint_by_name(self, name: str) -> StandardizedJointModel | None:
         """Gets a joint by its 'name' field. Assumes names are reasonably unique or returns first match."""
         if self._standardized_skeleton_model:
             for joint in self._standardized_skeleton_model.joints.values():
@@ -455,7 +455,7 @@ class SkeletonManager(QObject):
                     return joint
         return None
 
-    def get_joint_id_by_original_name(self, original_name: str) -> Optional[str]:
+    def get_joint_id_by_original_name(self, original_name: str) -> str | None:
         """
         Retrieves the standardized joint ID using an original name from char_cfg.yaml (or similar source).
         Uses the 'joint_map' in the standardized model.
@@ -469,7 +469,7 @@ class SkeletonManager(QObject):
 
     def get_joint_position(
         self, joint_id_or_name: str
-    ) -> Optional[Tuple[float, float]]:
+    ) -> tuple[float, float] | None:
         joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(
             joint_id_or_name
         )
@@ -477,7 +477,7 @@ class SkeletonManager(QObject):
 
     def get_parent_joint(
         self, joint_id_or_name: str
-    ) -> Optional[StandardizedJointModel]:
+    ) -> StandardizedJointModel | None:
         joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(
             joint_id_or_name
         )
@@ -485,7 +485,7 @@ class SkeletonManager(QObject):
             return self._standardized_skeleton_model.joints.get(joint.parent_id)
         return None
 
-    def get_child_joints(self, joint_id_or_name: str) -> List[StandardizedJointModel]:
+    def get_child_joints(self, joint_id_or_name: str) -> list[StandardizedJointModel]:
         joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(
             joint_id_or_name
         )
@@ -498,7 +498,7 @@ class SkeletonManager(QObject):
             ]
         return []
 
-    def get_limb_length(self, descriptive_limb_name: str) -> Optional[float]:
+    def get_limb_length(self, descriptive_limb_name: str) -> float | None:
         """Gets a pre-calculated or defined limb length by its descriptive name."""
         if (
             self._standardized_skeleton_model
@@ -521,71 +521,71 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded to extend")
             return False
-            
+
         try:
             logging.info(f"Extending skeleton lengths by factor {scale_factor}")
-            
+
             # Store the root positions as they should not move
             root_positions = {}
             for root_id in self._standardized_skeleton_model.root_joint_ids:
                 if root_id in self._standardized_skeleton_model.joints:
                     root_positions[root_id] = self._standardized_skeleton_model.joints[root_id].position
-            
+
             # Process each joint starting from roots
             processed_joints = set()
-            
-            def scale_joint_recursive(joint_id: str, parent_pos: Optional[Tuple[float, float]] = None):
+
+            def scale_joint_recursive(joint_id: str, parent_pos: tuple[float, float] | None = None):
                 if joint_id in processed_joints:
                     return
-                    
+
                 processed_joints.add(joint_id)
                 joint = self._standardized_skeleton_model.joints.get(joint_id)
                 if not joint:
                     return
-                    
+
                 # If this is not a root joint and has a parent position, scale its position
                 if parent_pos is not None and joint.parent_id:
                     # Calculate the vector from parent to this joint
                     dx = joint.position[0] - parent_pos[0]
                     dy = joint.position[1] - parent_pos[1]
-                    
+
                     # Scale the vector
                     new_dx = dx * scale_factor
                     new_dy = dy * scale_factor
-                    
+
                     # Set new position
                     new_pos = (parent_pos[0] + new_dx, parent_pos[1] + new_dy)
                     joint.position = new_pos
-                    
+
                     # Update limb length if it exists
                     parent_joint = self._standardized_skeleton_model.joints.get(joint.parent_id)
                     if parent_joint and self._standardized_skeleton_model.limb_lengths:
                         limb_key = f"{parent_joint.name}_to_{joint.name}"
                         if limb_key in self._standardized_skeleton_model.limb_lengths:
                             self._standardized_skeleton_model.limb_lengths[limb_key] *= scale_factor
-                
+
                 # Process children
                 current_pos = joint.position
                 child_ids = self._standardized_skeleton_model.hierarchy.get(joint_id, [])
                 for child_id in child_ids:
                     scale_joint_recursive(child_id, current_pos)
-            
+
             # Start scaling from each root
             for root_id in self._standardized_skeleton_model.root_joint_ids:
                 if root_id in self._standardized_skeleton_model.joints:
                     scale_joint_recursive(root_id)
-            
+
             # Scale all limb lengths that haven't been updated yet
             if self._standardized_skeleton_model.limb_lengths:
                 for limb_name in list(self._standardized_skeleton_model.limb_lengths.keys()):
                     # This ensures any pre-calculated lengths are also scaled
                     self._standardized_skeleton_model.limb_lengths[limb_name] *= scale_factor
-            
+
             # Emit update signal
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
             logging.info(f"Successfully extended skeleton lengths by {scale_factor}")
             return True
-            
+
         except Exception as e:
             logging.error(f"Error extending skeleton lengths: {e}", exc_info=True)
             return False
@@ -603,36 +603,36 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded")
             return False
-            
+
         joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(joint_id_or_name)
         if not joint:
             logging.warning(f"Joint '{joint_id_or_name}' not found")
             return False
-            
+
         joint.is_locked = locked
         logging.info(f"Joint '{joint.name}' (ID: {joint.id}) {'locked' if locked else 'unlocked'}")
-        
+
         # Emit update signal
         self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return True
-    
-    def get_locked_joints(self) -> List[str]:
+
+    def get_locked_joints(self) -> list[str]:
         """Returns a list of joint IDs that are currently locked."""
         if not self._standardized_skeleton_model:
             return []
-            
+
         return [
-            joint_id 
+            joint_id
             for joint_id, joint in self._standardized_skeleton_model.joints.items()
             if joint.is_locked
         ]
 
-    def get_current_skeleton_data(self) -> Optional[Dict[str, Any]]:
+    def get_current_skeleton_data(self) -> dict[str, Any] | None:
         """Returns the current skeleton data as a dictionary, or None if no skeleton is loaded."""
         if not self._standardized_skeleton_model:
             return None
         return self._standardized_skeleton_model.model_dump()
-    
+
     def unlock_all_joints(self) -> bool:
         """Unlocks all joints in the skeleton.
         
@@ -642,10 +642,10 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             logging.warning("No skeleton model loaded")
             return False
-            
+
         for joint in self._standardized_skeleton_model.joints.values():
             joint.is_locked = False
-            
+
         logging.info("All joints unlocked")
         self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
         return True

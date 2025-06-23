@@ -1,25 +1,22 @@
-import os
 import logging
 from pathlib import Path
-from typing import Optional, List
+
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QCursor, QFont, QPixmap
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QScrollArea,
+    QFileDialog,
     QFrame,
     QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
     QSizePolicy,
-    QFileDialog,
-    QMessageBox,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPalette, QCursor
-from PyQt6.QtSvg import QSvgRenderer
 
-from automataii.utils.paths import resolve_path, get_project_root
+from automataii.utils.paths import get_project_root, resolve_path
 
 
 class ExampleImageWidget(QFrame):
@@ -78,19 +75,19 @@ class ExampleImageWidget(QFrame):
 
     def _apply_normal_style(self):
         self.setStyleSheet(
-            f"""
-            ExampleImageWidget {{
+            """
+            ExampleImageWidget {
                 background-color: #FFFFFF;
                 border: 2px solid #E9ECEF;
                 border-radius: 15px;
                 padding: 10px;
-            }}
-            ExampleImageWidget QLabel {{
+            }
+            ExampleImageWidget QLabel {
                 background-color: transparent;
                 color: #333333;
                 font-weight: 500;
                 border: none;
-            }}
+            }
         """
         )
 
@@ -151,7 +148,7 @@ class LandingTab(QWidget):
             get_project_root() / "src" / "examples",
         ]
 
-        self.image_widgets: List[ExampleImageWidget] = []
+        self.image_widgets: list[ExampleImageWidget] = []
         self._init_ui()
         self._load_example_images()
 
@@ -194,14 +191,14 @@ class LandingTab(QWidget):
 
         main_layout.addWidget(hero_widget)
 
-        # Subtitle
-        subtitle_label = QLabel("Get started by selecting an example character!")
+        # Subtitle and progression options
+        subtitle_label = QLabel("Get started by selecting an example character or continue with your own!")
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle_label.setStyleSheet("""
             color: #6c757d;
             font-size: 14px;
             margin-top: 5px;
-            margin-bottom: 15px;
+            margin-bottom: 10px;
         """)
         main_layout.addWidget(subtitle_label)
 
@@ -337,36 +334,6 @@ class LandingTab(QWidget):
         # loading the image into ImageProcessingTab, switching tabs,
         # and updating the status bar.
         # Therefore, the direct calls to switch tab and load image here are removed.
-
-    def _load_custom_image(self):
-        """Open file dialog to load a custom image."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Character Image",
-            str(Path.home()),
-            "Image Files (*.png *.jpg *.jpeg *.gif);;All Files (*)",
-        )
-
-        if file_path:
-            logging.info(f"Custom image selected: {file_path}")
-            self.image_selected.emit(file_path)
-
-            # Switch to image processing tab and load the image
-            if hasattr(self.main_window, "image_proc_tab"):
-                self.main_window.image_proc_tab._load_image_from_path(file_path)
-
-                # Switch to the image processing tab
-                for i in range(self.main_window.tab_widget.count()):
-                    if (
-                        self.main_window.tab_widget.widget(i)
-                        == self.main_window.image_proc_tab
-                    ):
-                        self.main_window.tab_widget.setCurrentIndex(i)
-                        break
-
-            self.main_window.statusBar().showMessage(
-                f"Loaded: {Path(file_path).name}", 3000
-            )
 
     def refresh(self):
         """Refresh the example images display."""

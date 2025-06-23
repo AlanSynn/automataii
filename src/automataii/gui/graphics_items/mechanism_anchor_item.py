@@ -1,9 +1,8 @@
 """Draggable anchor item for mechanism pivots."""
 
-from typing import Optional
-from PyQt6.QtCore import Qt, QPointF, pyqtSignal, QObject
+from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QPen
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsSceneMouseEvent
-from PyQt6.QtGui import QPen, QBrush, QColor
 
 
 class MechanismAnchorSignals(QObject):

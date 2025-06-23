@@ -5,10 +5,10 @@ Redux-like state management with immutable updates, middleware support,
 and time-travel debugging capabilities.
 """
 
-from .store import StateStore
 from .base import Action, Reducer, State
-from .middleware import Middleware, LoggingMiddleware, PersistenceMiddleware
+from .middleware import LoggingMiddleware, Middleware, PersistenceMiddleware
 from .selectors import Selector, create_selector, memoize
+from .store import StateStore
 
 # Global store instance
 _global_store = None
@@ -32,22 +32,22 @@ def get_global_store() -> StateStore:
                 'active_tab': 'welcome'
             }
         }
-        
+
         class DefaultReducer(Reducer):
             def reduce(self, state: State, action: Action) -> State:
                 # Simple default reducer
                 return state
-            
+
             @property
             def action_types(self) -> set[str]:
                 """Return set of action types this reducer handles."""
                 return set()  # Default reducer handles no specific actions
-        
+
         _global_store = StateStore(
             initial_state=initial_state,
             reducer=DefaultReducer()
         )
-    
+
     return _global_store
 
 def set_global_store(store: StateStore) -> None:

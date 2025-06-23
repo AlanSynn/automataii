@@ -5,16 +5,17 @@ This script creates animations for 4-bar linkages, cam-followers, and gear train
 and also generates a single JSON dataset file with their path data.
 """
 
-import os
-import json
-import numpy as np
 import argparse
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, FFMpegWriter
-from typing import List, Dict, Any, Tuple
-from scipy.optimize import fsolve
-from datetime import datetime
+import json
 import math
+import os
+from datetime import datetime
+from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.animation import FFMpegWriter, FuncAnimation
+from scipy.optimize import fsolve
 
 # --- UTILITIES ---
 
@@ -24,7 +25,7 @@ def gcd(a, b):
 def lcm(a, b):
     return abs(a*b) // gcd(a, b) if a != 0 and b != 0 else 0
 
-def normalize_path(path_coords: List[List[float]], target_bounds: Tuple[float, float] = (-1.0, 1.0)) -> Tuple[List[List[float]], Dict]:
+def normalize_path(path_coords: list[list[float]], target_bounds: tuple[float, float] = (-1.0, 1.0)) -> tuple[list[list[float]], dict]:
     if not path_coords: return [], {}
     coords_array = np.array(path_coords)
     min_vals, max_vals = coords_array.min(axis=0), coords_array.max(axis=0)
@@ -117,7 +118,7 @@ def simulate_simple_gear_motion(r1, r2, distance, tracking_radius, num_steps=180
 
 # --- CONFIGURATION GENERATORS ---
 
-def generate_crank_rocker_configs(num_configs: int, max_dim: float = 100.0) -> List[Dict[str, Any]]:
+def generate_crank_rocker_configs(num_configs: int, max_dim: float = 100.0) -> list[dict[str, Any]]:
     configs = []
     attempts = 0
     while len(configs) < num_configs and attempts < 500:
@@ -135,7 +136,7 @@ def generate_crank_rocker_configs(num_configs: int, max_dim: float = 100.0) -> L
     print(f"Generated {len(configs)} diverse Crank-Rocker configurations.")
     return configs
 
-def generate_planetary_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
+def generate_planetary_gear_configs(num_configs: int) -> list[dict[str, Any]]:
     configs = []
     def find_valid_radii(max_revolutions=4):
         for _ in range(100):
@@ -153,7 +154,7 @@ def generate_planetary_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
     print(f"Generated {len(configs)} diverse Planetary Gear configurations.")
     return configs
 
-def generate_cam_follower_configs(num_configs: int) -> List[Dict[str, Any]]:
+def generate_cam_follower_configs(num_configs: int) -> list[dict[str, Any]]:
     """Generate configurations for cam-follower mechanisms with different eccentricities."""
     configs = []
 
@@ -192,7 +193,7 @@ def generate_cam_follower_configs(num_configs: int) -> List[Dict[str, Any]]:
     print(f"Generated {len(configs)} diverse Cam-Follower configurations.")
     return configs
 
-def generate_simple_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
+def generate_simple_gear_configs(num_configs: int) -> list[dict[str, Any]]:
     """Generate configurations for simple gear pairs with different ratios and tracking points."""
     configs = []
 
@@ -241,7 +242,7 @@ def generate_simple_gear_configs(num_configs: int) -> List[Dict[str, Any]]:
 
 # --- VISUALIZATION & DATASET GENERATION ---
 
-def process_mechanisms(configs: List[Dict[str, Any]], title: str, output_dir: str, dataset_aggregator: List):
+def process_mechanisms(configs: list[dict[str, Any]], title: str, output_dir: str, dataset_aggregator: list):
     num_mechs = len(configs)
     if not num_mechs: return
     fig, axes = plt.subplots(1, num_mechs, figsize=(num_mechs * 8, 8))

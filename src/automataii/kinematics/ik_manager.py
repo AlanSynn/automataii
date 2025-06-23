@@ -6,25 +6,25 @@ including skeleton definition for IK, solving IK for limbs, and managing
 IK-driven animation state.
 """
 
-import logging
-from typing import Optional, Dict, Any, List, Tuple, Set, TYPE_CHECKING
-from pathlib import Path
-import math  # Already present, but good to ensure
 import inspect  # For logging the caller in the property setter
-import numpy as np
-import copy  # ADDED BACK
+import logging
+import math  # Already present, but good to ensure
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF, QTimer, QElapsedTimer, QLineF
-from PyQt6.QtGui import QTransform, QPainterPath
+import numpy as np
+from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
+from PyQt6.QtGui import QPainterPath, QTransform
+
+from automataii.core.models import PartInfo  # For PartInfo type hint
 
 # Assuming StandardizedSkeletonModel and StandardizedJointModel are now the primary way
 # SkeletonManager provides data, even if it's as a dictionary dump.
 # IKManager will need to understand this structure.
 from automataii.core.models_skeleton import (
-    StandardizedSkeletonModel,
     StandardizedJointModel,
+    StandardizedSkeletonModel,
 )  # For type hinting if directly using models
-from automataii.core.models import PartInfo  # For PartInfo type hint
 from automataii.gui.graphics_items.part_item import (
     CharacterPartItem,
 )  # For CharacterPartItem type hint
@@ -51,7 +51,7 @@ class IKManager(QObject):
     skeleton_pose_updated = pyqtSignal(dict)  # NEW SIGNAL for raw joint positions
 
     def __init__(
-        self, main_window_ref, parent: Optional[QObject] = None
+        self, main_window_ref, parent: QObject | None = None
     ):  # main_window_ref for statusbar or config access initially
         super().__init__(parent)
         self.main_window = main_window_ref  # Keep a reference if needed, e.g. for status messages or part items
@@ -59,23 +59,23 @@ class IKManager(QObject):
         logging.debug(f"IKManager (id:{id(self)}): Initializing IKManager instance.")
 
         # --- IK System Data (to be moved from MainWindow) ---
-        self.sim_joints_config: Dict[str, Dict[str, Any]] = {}
-        self.sim_limb_configs: Dict[str, Dict[str, Any]] = {}
-        self.sim_limb_lengths: Dict[
+        self.sim_joints_config: dict[str, dict[str, Any]] = {}
+        self.sim_limb_configs: dict[str, dict[str, Any]] = {}
+        self.sim_limb_lengths: dict[
             str, float
         ] = {}  # Stores actual lengths used by IK for parts
-        self.sim_selectable_components: List[Dict[str, Any]] = []
-        self.sim_two_bone_ik_effectors: List[str] = []
-        self.sim_joint_bend_directions: Dict[str, int] = {}
-        self._sim_dynamic_joints_data: Dict[
-            str, Dict[str, Any]
+        self.sim_selectable_components: list[dict[str, Any]] = []
+        self.sim_two_bone_ik_effectors: list[str] = []
+        self.sim_joint_bend_directions: dict[str, int] = {}
+        self._sim_dynamic_joints_data: dict[
+            str, dict[str, Any]
         ] = {}  # Actual data store
-        self.scene_joints_snapshot: Dict[
+        self.scene_joints_snapshot: dict[
             str, Any
         ] = {}  # Stores calculated scene_joints
 
         # Mapping from IK part names to actual CharacterPartItem names
-        self.ik_part_to_actual_part_name: Dict[str, str] = {
+        self.ik_part_to_actual_part_name: dict[str, str] = {
             "head": "head",
             "torso": "torso",
             "left_upper_arm": "left_arm_upper",
@@ -90,7 +90,7 @@ class IKManager(QObject):
         # This map links IK system's internal joint IDs (used in sim_joints_config keys)
         # to the *original names* found in char_cfg.yaml or similar source files.
         # SkeletonManager's standardized_model.joint_map will map these original names to standardized IDs.
-        self.ik_joint_ids_to_source_names: Dict[str, str] = {
+        self.ik_joint_ids_to_source_names: dict[str, str] = {
             "j_neck_base": "hip",  # Example: IK 'j_neck_base' might correspond to 'hip' in some AD char_cfg
             "j_head_tip": "head",  # IK 'j_head_tip' might be the 'head' joint in AD char_cfg
             "j_left_shoulder": "left_shoulder",
@@ -109,7 +109,7 @@ class IKManager(QObject):
         }
 
         # Active path definition target (if IKManager handles this interaction point)
-        self._active_path_definition_target_joint_id: Optional[str] = None
+        self._active_path_definition_target_joint_id: str | None = None
 
         # --- Animation Timer & Control (to be moved from MainWindow) ---
         self.ik_animation_timer = QTimer(self)
@@ -120,34 +120,34 @@ class IKManager(QObject):
 
         self.ik_animation_speed: float = 0.5
         self.animation_duration: int = 3000  # milliseconds
-        self._animation_start_time_qelapsed: Optional[QElapsedTimer] = None
+        self._animation_start_time_qelapsed: QElapsedTimer | None = None
         self._current_animation_progress: float = 0.0  # Normalized 0-1
 
         # Reference to the SkeletonManager (passed from MainWindow)
-        self.skeleton_manager_ref: Optional["SkeletonManager"] = (
+        self.skeleton_manager_ref: SkeletonManager | None = (
             None  # Use forward reference string
         )
 
         # Project data references (populated by on_project_data_loaded or similar)
-        self.project_dir: Optional[Path] = (
+        self.project_dir: Path | None = (
             None  # Still useful for context if IK needs to load related files
         )
-        self.project_parts_data: Dict[str, PartInfo] = {}  # Use imported PartInfo
+        self.project_parts_data: dict[str, PartInfo] = {}  # Use imported PartInfo
 
         # Placeholder for an actual IK solving utility/library if used
         # self.ik_solver_instance = IKSolver()
 
         # For managing initialization based on data availability
-        self.__internal_current_skeleton_data: Optional[Dict[str, Any]] = None
-        self._current_joint_connections: Optional[List[Tuple[str, str]]] = None
-        self._pending_motion_paths: Dict[str, QPainterPath] = {}
-        self._initial_snapshot: Dict[
+        self.__internal_current_skeleton_data: dict[str, Any] | None = None
+        self._current_joint_connections: list[tuple[str, str]] | None = None
+        self._pending_motion_paths: dict[str, QPainterPath] = {}
+        self._initial_snapshot: dict[
             str, Any
         ] = {}  # Ensure _initial_snapshot is initialized
 
         # Mechanism-driven position targets (direct positions instead of paths)
-        self._mechanism_position_targets: Dict[str, QPointF] = {}  # joint_id -> target position
-        self._mechanism_controlled_joints: Set[str] = set()  # Track which joints are mechanism-driven
+        self._mechanism_position_targets: dict[str, QPointF] = {}  # joint_id -> target position
+        self._mechanism_controlled_joints: set[str] = set()  # Track which joints are mechanism-driven
 
         # Debug: Track initialization attempts
         self._init_attempts = 0
@@ -156,7 +156,7 @@ class IKManager(QObject):
 
     def _get_standardized_joint_id(
         self, abstract_or_original_name: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Looks up the standardized joint ID from an abstract IK rig name or original source name."""
         if (
             not self._current_skeleton_data
@@ -205,11 +205,11 @@ class IKManager(QObject):
         return None
 
     @property
-    def _current_skeleton_data(self) -> Optional[Dict[str, Any]]:
+    def _current_skeleton_data(self) -> dict[str, Any] | None:
         return self.__internal_current_skeleton_data
 
     @_current_skeleton_data.setter
-    def _current_skeleton_data(self, value: Optional[Dict[str, Any]]):
+    def _current_skeleton_data(self, value: dict[str, Any] | None):
         try:
             caller_function = inspect.stack()[1].function
         except IndexError:
@@ -263,7 +263,7 @@ class IKManager(QObject):
         elif self.__internal_current_skeleton_data and isinstance(
             self.__internal_current_skeleton_data, dict
         ):
-            confirm_state += f", 'joints' key MISSING."
+            confirm_state += ", 'joints' key MISSING."
         logging.debug(
             f"IKManager (id:{id(self)}) @_current_skeleton_data.SETTER: __internal_current_skeleton_data is NOW {confirm_state} (post-assignment). Caller was '{caller_function}'."
         )
@@ -332,7 +332,7 @@ class IKManager(QObject):
             )
 
     def set_project_parts_data(
-        self, parts_data: Dict[str, PartInfo]
+        self, parts_data: dict[str, PartInfo]
     ):  # Use imported PartInfo
         """Sets the parts data from the current project, used for animation paths etc."""
         logging.debug(
@@ -340,7 +340,7 @@ class IKManager(QObject):
         )
         if "head" in parts_data:
             logging.debug(
-                f"IKManager: 'head' part IS IN incoming parts_data for set_project_parts_data."
+                "IKManager: 'head' part IS IN incoming parts_data for set_project_parts_data."
             )
             head_part_info_incoming = parts_data["head"]
             logging.debug(
@@ -348,17 +348,17 @@ class IKManager(QObject):
             )
         else:
             logging.debug(
-                f"IKManager: 'head' part IS NOT in incoming parts_data for set_project_parts_data."
+                "IKManager: 'head' part IS NOT in incoming parts_data for set_project_parts_data."
             )
 
         self.project_parts_data = parts_data.copy()  # Create a copy
         if "head" in self.project_parts_data:
             logging.debug(
-                f"IKManager: 'head' part exists in self.project_parts_data after copy."
+                "IKManager: 'head' part exists in self.project_parts_data after copy."
             )
         else:
             logging.debug(
-                f"IKManager: 'head' part DOES NOT exist in self.project_parts_data after copy."
+                "IKManager: 'head' part DOES NOT exist in self.project_parts_data after copy."
             )
 
         # Apply any pending motion paths that might have been set before parts data
@@ -391,7 +391,7 @@ class IKManager(QObject):
             )
         else:
             logging.debug(
-                f"IKManager: AFTER pending paths, 'head' part still not in self.project_parts_data."
+                "IKManager: AFTER pending paths, 'head' part still not in self.project_parts_data."
             )
 
         self._try_initialize_solver()
@@ -409,7 +409,7 @@ class IKManager(QObject):
         if self._current_skeleton_data and "joints" in self._current_skeleton_data:
             log_msg_skel += f", 'joints' key present with {len(self._current_skeleton_data['joints'])} items."
         elif self._current_skeleton_data:
-            log_msg_skel += f", 'joints' key MISSING."
+            log_msg_skel += ", 'joints' key MISSING."
 
         log_msg_parts = (
             "IS Empty/None"
@@ -808,7 +808,7 @@ class IKManager(QObject):
         return True
 
     def on_skeleton_data_updated_from_manager(
-        self, standardized_skeleton_dict: Optional[dict]
+        self, standardized_skeleton_dict: dict | None
     ):  # Allow None
         """Called when SkeletonManager emits its skeleton_updated signal (with a dict)."""
         logging.debug(
@@ -914,13 +914,13 @@ class IKManager(QObject):
         target_joint_abstract_name: str,
         anchor_joint_abstract_name: str,
         target_position: np.ndarray,
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         Solves IK for a single bone (e.g., head controlled by neck, anchored at torso).
         The target_joint_abstract_name ('neck') is placed at target_position.
         The anchor_joint_abstract_name ('torso') is its base.
         """
-        updated_configs: Dict[str, Dict[str, Any]] = {}
+        updated_configs: dict[str, dict[str, Any]] = {}
 
         target_joint_id_std = self._get_standardized_joint_id(
             target_joint_abstract_name
@@ -1004,7 +1004,7 @@ class IKManager(QObject):
         length1: float,
         length2: float,
         root_joint_std_id: str,
-    ) -> Optional[Tuple[QPointF, QPointF]]:
+    ) -> tuple[QPointF, QPointF] | None:
         """
         Solves 2-bone IK for a given root, target, and bone lengths.
         Returns (middle_joint_pos, end_effector_pos) or None if unsolvable.
@@ -1236,10 +1236,10 @@ class IKManager(QObject):
             return p1_new, p2_new
 
     def _apply_ik_to_limb_chains(
-        self, editor_items: Dict[str, CharacterPartItem]
+        self, editor_items: dict[str, CharacterPartItem]
     ) -> None:  # Use imported CharacterPartItem
-        """Applies CCD IK to arm and leg chains to maintain proper joint constraints."""
-        from ..kinematics.ik_solver import solve_ik_ccd
+        """Applies FABRIK IK to arm and leg chains to maintain proper joint constraints."""
+        from ..kinematics.ik_solver_improved import solve_ik_fabrik_with_constraints as solve_ik_ccd
 
         # Define the limb chains - maps end effector joint to chain parts
         limb_chains = {
@@ -1331,8 +1331,8 @@ class IKManager(QObject):
             # Build and solve IK chains for arms and legs
             self._apply_ik_to_limb_chains(editor_items)
 
-        updated: Dict[str, Dict[str, Any]] = {}
-        processed_parts: Set[str] = set()
+        updated: dict[str, dict[str, Any]] = {}
+        processed_parts: set[str] = set()
 
         # ------------------------ helpers ------------------------
         std = self._get_standardized_joint_id  # alias
@@ -1543,7 +1543,7 @@ class IKManager(QObject):
         )
         self.animation_state_changed.emit("reset")
 
-    def _extract_points_from_painter_path(self, painter_path) -> List[QPointF]:
+    def _extract_points_from_painter_path(self, painter_path) -> list[QPointF]:
         """Extracts QPointF coordinates from a QPainterPath."""
         points = []
         if (
@@ -1557,8 +1557,8 @@ class IKManager(QObject):
             points.append(QPointF(element.x, element.y))
         return points
 
-    def _get_point_on_path(self, path_obj: Any, progress: float) -> Optional[QPointF]:
-        path_points: List[QPointF] = []
+    def _get_point_on_path(self, path_obj: Any, progress: float) -> QPointF | None:
+        path_points: list[QPointF] = []
         if isinstance(path_obj, list):
             if all(isinstance(p, QPointF) for p in path_obj):
                 path_points = path_obj
@@ -2046,7 +2046,7 @@ class IKManager(QObject):
 
         # NEW: Prepare and emit raw joint positions for SkeletonGraphicsItem
         # Populate from self.sim_joints_config as it's the most up-to-date source of solved positions
-        animated_joint_scene_positions: Dict[str, Tuple[float, float]] = {}
+        animated_joint_scene_positions: dict[str, tuple[float, float]] = {}
         if self.sim_joints_config:
             for joint_std_id, joint_data in self.sim_joints_config.items():
                 pos = joint_data.get("position")  # position is a QPointF
@@ -2078,11 +2078,11 @@ class IKManager(QObject):
         return math.degrees(angle_rad)
 
     @property
-    def dynamic_joints(self) -> Dict[str, Dict[str, Any]]:
+    def dynamic_joints(self) -> dict[str, dict[str, Any]]:
         return self._sim_dynamic_joints_data
 
     @dynamic_joints.setter
-    def dynamic_joints(self, value: Dict[str, Dict[str, Any]]):
+    def dynamic_joints(self, value: dict[str, dict[str, Any]]):
         logging.debug(
             f"IKManager: dynamic_joints setter called with {len(value)} items."
         )
@@ -2215,7 +2215,7 @@ class IKManager(QObject):
         if self._current_skeleton_data and "joints" in self._current_skeleton_data:
             current_skel_state_at_entry += f", 'joints' key present with {len(self._current_skeleton_data['joints'])} items."
         elif self._current_skeleton_data:
-            current_skel_state_at_entry += f", 'joints' key MISSING."
+            current_skel_state_at_entry += ", 'joints' key MISSING."
         logging.debug(
             f"IKManager (id:{id(self)}).update_part_motion_path (pre-workaround) for '{part_name}'. _current_skeleton_data state: {current_skel_state_at_entry}"
         )
@@ -2227,7 +2227,7 @@ class IKManager(QObject):
             self._pending_motion_paths[part_name] = motion_qpath
             if part_name == "head":
                 logging.debug(
-                    f"IKManager: 'head's path stored as PENDING because project_parts_data is not set."
+                    "IKManager: 'head's path stored as PENDING because project_parts_data is not set."
                 )
             # Log state of _current_skeleton_data here for context, even if pending
             final_skel_state_for_log = (
@@ -2250,7 +2250,7 @@ class IKManager(QObject):
             )
             if part_name == "head":
                 logging.debug(
-                    f"IKManager: 'head' motion_path_data directly updated in self.project_parts_data['head']."
+                    "IKManager: 'head' motion_path_data directly updated in self.project_parts_data['head']."
                 )
                 logging.debug(
                     f"IKManager: project_parts_data['head'].motion_path_data IS NOW {'SET' if self.project_parts_data['head'].motion_path_data else 'None/Empty'}"
@@ -2262,7 +2262,7 @@ class IKManager(QObject):
             self._pending_motion_paths[part_name] = motion_qpath
             if part_name == "head":
                 logging.debug(
-                    f"IKManager: 'head's path stored as PENDING because 'head' not in project_parts_data."
+                    "IKManager: 'head's path stored as PENDING because 'head' not in project_parts_data."
                 )
             # No return here, still try to init solver if other conditions met, though this part won't have a path for now
 
@@ -2275,7 +2275,7 @@ class IKManager(QObject):
         if self._current_skeleton_data and "joints" in self._current_skeleton_data:
             final_skel_state_before_try_init += f", 'joints' key present with {len(self._current_skeleton_data['joints'])} items."
         elif self._current_skeleton_data:
-            final_skel_state_before_try_init += f", 'joints' key MISSING."
+            final_skel_state_before_try_init += ", 'joints' key MISSING."
         logging.debug(
             f"IKManager.update_part_motion_path (before _try_initialize_solver): Final _current_skeleton_data state for this call: {final_skel_state_before_try_init}"
         )
@@ -2284,8 +2284,9 @@ class IKManager(QObject):
 
 
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QApplication
     import sys
+
+    from PyQt6.QtWidgets import QApplication
 
     logging.basicConfig(level=logging.INFO)
     app = QApplication(sys.argv)
@@ -2329,7 +2330,7 @@ if __name__ == "__main__":
 
         def __init__(self):
             super().__init__()
-            self.standardized_model_instance: Optional[StandardizedSkeletonModel] = None
+            self.standardized_model_instance: StandardizedSkeletonModel | None = None
 
         def load_and_emit_sample_skeleton(self):
             # Create a sample StandardizedSkeletonModel dictionary

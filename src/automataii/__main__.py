@@ -1,17 +1,17 @@
-import sys
-import logging
 import argparse
+import logging
 import os
 import platform
+import sys
 from pathlib import Path
 
 try:
-    from PyQt6.QtWidgets import QApplication
     from PyQt6.QtCore import QStandardPaths, Qt
+    from PyQt6.QtWidgets import QApplication
 except ImportError:
     try:
-        from PySide6.QtWidgets import QApplication
         from PySide6.QtCore import QStandardPaths, Qt
+        from PySide6.QtWidgets import QApplication
     except ImportError:
         print(
             "This application requires PyQt6 or PySide6; please install one of these packages.",
@@ -20,11 +20,11 @@ except ImportError:
         sys.exit(1)
 
 from automataii.gui.main_window import AutomataDesigner
-from automataii.utils.config import AppConfig
-from automataii.utils.styling import LIGHT_STYLE
 from automataii.utils.auto_updater import setup_auto_updater
-from automataii.utils.paths import get_project_root, get_base_path
+from automataii.utils.config import AppConfig
 from automataii.utils.logging_config import setup_logging
+from automataii.utils.paths import get_base_path, get_project_root
+from automataii.utils.styling import LIGHT_STYLE
 
 
 def main():

@@ -1,11 +1,9 @@
-import tempfile
-from pathlib import Path
-import shutil
 import logging
-import uuid
+import shutil
 import sys
-import os
-from typing import Optional, Union
+import tempfile
+import uuid
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +49,7 @@ def get_app_temp_dir() -> Path:
 
 
 def get_session_temp_dir(
-    session_id: Optional[str] = None, clear_existing: bool = False
+    session_id: str | None = None, clear_existing: bool = False
 ) -> Path:
     """
     Returns a unique temporary directory for a specific processing session or project instance.
@@ -124,7 +122,7 @@ def get_base_path() -> Path:
     return get_project_root()
 
 
-def resolve_path(relative_path: Union[str, Path]) -> Path:
+def resolve_path(relative_path: str | Path) -> Path:
     """
     Resolves a relative path to an absolute path, correctly handling
     both bundled and development environments.

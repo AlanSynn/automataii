@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
+
 import cv2
 import numpy as np
-import os
-import logging
-from scipy.ndimage import distance_transform_edt
+
 from automataii.animate.arap import ARAP
 
 

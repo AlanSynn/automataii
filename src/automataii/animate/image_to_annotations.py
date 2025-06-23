@@ -4,16 +4,16 @@ Modern image to annotations pipeline using ONNX models
 Based on our successful test_onnx_inference.py implementation
 """
 
-import os
+import logging
 import sys
+from pathlib import Path
+from typing import TypedDict
+
 import cv2
 import numpy as np
 import yaml
-import logging
-from pathlib import Path
-from typing import Optional, TypedDict
-from skimage import measure
 from scipy import ndimage
+from skimage import measure
 
 try:
     import onnxruntime as ort
@@ -21,8 +21,8 @@ except ImportError:
     ort = None
     logging.warning("ONNXRuntime not available. Install with: pip install onnxruntime")
 
-from automataii.utils.paths import get_session_temp_dir, resolve_path
 from automataii.utils.model_downloader import ModelDownloader
+from automataii.utils.paths import get_session_temp_dir, resolve_path
 
 
 class AnnotationResults(TypedDict):
@@ -320,7 +320,7 @@ def create_skeleton_config(keypoints):
     return skeleton
 
 
-def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Optional[AnnotationResults]:
+def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> AnnotationResults | None:
     """
     Modern ONNX-based image to annotations pipeline
 

@@ -24,9 +24,9 @@
 #     # "tail": {"joints": ["pelvis", "tail_base", "tail_mid", "tail_tip"], "color": "rgba(100,100,100,0.5)", "z_value": -1, "fixed": False, "anchor_joint": "pelvis"},
 # }
 
-from typing import Dict, Any
+from typing import Any
 
-BODY_PARTS: Dict[str, Dict[str, Any]] = {
+BODY_PARTS: dict[str, dict[str, Any]] = {
     "head": {
         "joints": ["neck", "head_top"],
         "color": "rgba(255,0,0,0.5)",

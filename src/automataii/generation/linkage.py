@@ -330,3 +330,244 @@ if __name__ == "__main__":
     else:
         print("\nError: Non-constructible 4-bar linkage (case 2) did not return None.")
         # print(linkage_4bar_fail_2)
+
+
+class LinkageGenerator:
+    """Generator for linkage mechanism SVG blueprints."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def generate_svg(self, linkage_data: Dict[str, Any]) -> str:
+        """
+        Generate SVG representation of linkage mechanism for blueprints.
+        
+        Args:
+            linkage_data: Dictionary containing linkage mechanism data
+            
+        Returns:
+            str: SVG content for the linkage mechanism
+        """
+        try:
+            # Extract linkage parameters - handle GUI format
+            linkage_type = linkage_data.get('type', '4_bar_linkage')
+            params = linkage_data.get('params', {})
+            name = linkage_data.get('name', 'Linkage')
+            
+            # Debug logging
+            self.logger.debug(f"LinkageGenerator received data: type={linkage_type}, params={params}")
+            
+            # Handle GUI format with params (l1, l2, l3, l4)
+            if params and 'l1' in params:
+                # Convert from GUI format to links/joints format
+                l1 = params.get('l1', 50)
+                l2 = params.get('l2', 80)
+                l3 = params.get('l3', 70)
+                l4 = params.get('l4', 90)
+                
+                # Create links and joints from parameters - use proper 4-bar layout
+                # Position joints to form a proper 4-bar linkage
+                import math
+                theta = math.radians(45)  # Initial crank angle
+                
+                # Joint positions
+                O1 = [0, 0]  # Fixed pivot 1
+                O2 = [l4, 0]  # Fixed pivot 2
+                A = [l1 * math.cos(theta), l1 * math.sin(theta)]  # Crank endpoint
+                
+                # Calculate position B using constraint circles
+                # This is simplified - in reality would solve the constraint equations
+                B = [O2[0] - l3 * 0.7, l3 * 0.7]  # Approximation for visualization
+                
+                links = [
+                    {'name': 'Ground', 'start': O1, 'end': O2, 'length': l4, 'width': 10},
+                    {'name': 'Crank', 'start': O1, 'end': A, 'length': l1, 'width': 8},
+                    {'name': 'Coupler', 'start': A, 'end': B, 'length': l2, 'width': 8},
+                    {'name': 'Rocker', 'start': O2, 'end': B, 'length': l3, 'width': 8}
+                ]
+                
+                joints = [
+                    {'name': 'O1', 'position': O1, 'type': 'revolute', 'links': ['Ground', 'Crank']},
+                    {'name': 'A', 'position': A, 'type': 'revolute', 'links': ['Crank', 'Coupler']},
+                    {'name': 'B', 'position': B, 'type': 'revolute', 'links': ['Coupler', 'Rocker']},
+                    {'name': 'O2', 'position': O2, 'type': 'revolute', 'links': ['Ground', 'Rocker']}
+                ]
+            else:
+                # Fallback to original format
+                links = linkage_data.get('links', [])
+                joints = linkage_data.get('joints', [])
+            
+            if not links or not joints:
+                # Generate basic 4-bar linkage if no data
+                links = [
+                    {'name': 'Ground', 'start': [0, 0], 'end': [100, 0], 'length': 100, 'width': 10},
+                    {'name': 'Crank', 'start': [0, 0], 'end': [40, 30], 'length': 50, 'width': 8},
+                    {'name': 'Coupler', 'start': [40, 30], 'end': [90, 40], 'length': 80, 'width': 8},
+                    {'name': 'Rocker', 'start': [100, 0], 'end': [90, 40], 'length': 60, 'width': 8}
+                ]
+                joints = [
+                    {'name': 'O1', 'position': [0, 0], 'type': 'revolute'},
+                    {'name': 'A', 'position': [40, 30], 'type': 'revolute'},
+                    {'name': 'B', 'position': [90, 40], 'type': 'revolute'},
+                    {'name': 'O2', 'position': [100, 0], 'type': 'revolute'}
+                ]
+            
+            # Calculate linkage bounds for layout
+            all_x = []
+            all_y = []
+            for link in links:
+                all_x.extend([link.get('start', [0, 0])[0], link.get('end', [50, 0])[0]])
+                all_y.extend([link.get('start', [0, 0])[1], link.get('end', [50, 0])[1]])
+            
+            min_x, max_x = min(all_x), max(all_x)
+            min_y, max_y = min(all_y), max(all_y)
+            center_x, center_y = (min_x + max_x) / 2, (min_y + max_y) / 2
+            
+            # Generate comprehensive technical drawing
+            svg_content = f'''
+            <g class="linkage-mechanism">
+                <!-- Title and part information -->
+                <text x="{center_x}" y="{min_y - 40}" 
+                      font-family="Arial" font-size="12" font-weight="bold" text-anchor="middle">{name}</text>
+                <text x="{center_x}" y="{min_y - 25}" 
+                      font-family="Arial" font-size="8" text-anchor="middle">Type: {linkage_type.upper()} Linkage Assembly</text>
+                <text x="{center_x}" y="{min_y - 10}" 
+                      font-family="Arial" font-size="8" text-anchor="middle">Part No: LINK-{len(links)}BAR-001</text>
+            '''
+            
+            # Draw links with detailed specifications
+            for i, link in enumerate(links):
+                start_pos = link.get('start', [0, 0])
+                end_pos = link.get('end', [50, 0])
+                length = link.get('length', 50.0)
+                width = link.get('width', 8.0)  # Link width for cutting
+                
+                # Calculate link angle and perpendicular offset for width
+                import math
+                dx = end_pos[0] - start_pos[0]
+                dy = end_pos[1] - start_pos[1]
+                angle = math.atan2(dy, dx)
+                perp_x = -math.sin(angle) * width / 2
+                perp_y = math.cos(angle) * width / 2
+                
+                # Draw link as rectangle for manufacturing
+                link_points = [
+                    [start_pos[0] + perp_x, start_pos[1] + perp_y],
+                    [start_pos[0] - perp_x, start_pos[1] - perp_y],
+                    [end_pos[0] - perp_x, end_pos[1] - perp_y],
+                    [end_pos[0] + perp_x, end_pos[1] + perp_y]
+                ]
+                
+                path_data = f"M {link_points[0][0]:.2f},{link_points[0][1]:.2f} "
+                for point in link_points[1:]:
+                    path_data += f"L {point[0]:.2f},{point[1]:.2f} "
+                path_data += "Z"
+                
+                svg_content += f'''
+                <!-- Link {i+1} -->
+                <g class="link-{i+1}">
+                    <!-- Link body (cutting outline) -->
+                    <path d="{path_data}" fill="none" stroke="red" stroke-width="2"/>
+                    
+                    <!-- Center line (reference) -->
+                    <line x1="{start_pos[0]}" y1="{start_pos[1]}" 
+                          x2="{end_pos[0]}" y2="{end_pos[1]}" 
+                          stroke="blue" stroke-width="0.5" stroke-dasharray="3,3"/>
+                    
+                    <!-- Bearing holes at ends -->
+                    <circle cx="{start_pos[0]}" cy="{start_pos[1]}" r="3" 
+                            fill="none" stroke="black" stroke-width="1.5"/>
+                    <circle cx="{end_pos[0]}" cy="{end_pos[1]}" r="3" 
+                            fill="none" stroke="black" stroke-width="1.5"/>
+                    
+                    <!-- Link label and dimensions with background for clarity -->
+                    <rect x="{(start_pos[0] + end_pos[0]) / 2 - 25}" y="{(start_pos[1] + end_pos[1]) / 2 - 20}" 
+                          width="50" height="30" fill="white" stroke="#ddd" stroke-width="0.3" rx="2"/>
+                    <text x="{(start_pos[0] + end_pos[0]) / 2}" y="{(start_pos[1] + end_pos[1]) / 2 - 8}" 
+                          font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">
+                          {link.get('name', f'LINK {i+1}')}
+                    </text>
+                    <text x="{(start_pos[0] + end_pos[0]) / 2}" y="{(start_pos[1] + end_pos[1]) / 2 + 8}" 
+                          font-family="Arial" font-size="7" text-anchor="middle">
+                          L={length:.1f}mm × W={width:.1f}mm
+                    </text>
+                </g>
+                '''
+            
+            # Draw joints with manufacturing specifications
+            for i, joint in enumerate(joints):
+                pos = joint.get('position', [0, 0])
+                joint_type = joint.get('type', 'revolute')
+                
+                if joint_type == 'fixed':
+                    # Ground joint with mounting holes
+                    svg_content += f'''
+                    <g class="ground-joint" transform="translate({pos[0]},{pos[1]})">
+                        <!-- Base plate -->
+                        <rect x="-15" y="-8" width="30" height="16" 
+                              fill="none" stroke="black" stroke-width="1.5"/>
+                        <!-- Pivot hole -->
+                        <circle r="3" fill="none" stroke="black" stroke-width="1.5"/>
+                        <!-- Mounting holes -->
+                        <circle cx="-10" cy="0" r="1.5" fill="none" stroke="black" stroke-width="0.5"/>
+                        <circle cx="10" cy="0" r="1.5" fill="none" stroke="black" stroke-width="0.5"/>
+                        <!-- Ground symbol -->
+                        <path d="M -15,8 L 15,8 M -12,12 L 12,12 M -9,16 L 9,16" 
+                              stroke="black" stroke-width="1"/>
+                        <!-- Label -->
+                        <text x="0" y="-15" font-family="Arial" font-size="7" text-anchor="middle">
+                            {joint.get('name', 'GROUND PIVOT')}
+                        </text>
+                    </g>
+                    '''
+                else:
+                    # Revolute joint with bearing specifications
+                    svg_content += f'''
+                    <g class="revolute-joint" transform="translate({pos[0]},{pos[1]})">
+                        <!-- Bearing outer ring -->
+                        <circle r="5" fill="none" stroke="black" stroke-width="1"/>
+                        <!-- Bearing inner ring (shaft) -->
+                        <circle r="3" fill="none" stroke="black" stroke-width="1.5"/>
+                        <!-- Center mark -->
+                        <circle r="0.5" fill="black"/>
+                        <!-- Label -->
+                        <text x="8" y="3" font-family="Arial" font-size="6">
+                            {joint.get('name', f'J{i+1}')} - Ø6mm
+                        </text>
+                    </g>
+                    '''
+            
+            # Add manufacturing notes with anti-overlap layout
+            svg_content += f'''
+            <!-- Manufacturing specifications with background -->
+            <g class="manufacturing-specs">
+                <rect x="{max_x + 15}" y="{min_y - 5}" 
+                      width="180" height="120" fill="white" stroke="#ddd" stroke-width="0.5" rx="3"/>
+                <text x="{max_x + 20}" y="{min_y + 10}" 
+                      font-family="Arial" font-size="8" font-weight="bold">Manufacturing Notes:</text>
+                <text x="{max_x + 25}" y="{min_y + 25}" 
+                      font-family="Arial" font-size="7">• Material: 3mm Plywood/Acrylic</text>
+                <text x="{max_x + 25}" y="{min_y + 37}" 
+                      font-family="Arial" font-size="7">• Cut RED outlines</text>
+                <text x="{max_x + 25}" y="{min_y + 49}" 
+                      font-family="Arial" font-size="7">• Drill bearing holes Ø6mm</text>
+                <text x="{max_x + 25}" y="{min_y + 61}" 
+                      font-family="Arial" font-size="7">• Sand all edges smooth</text>
+                <text x="{max_x + 25}" y="{min_y + 73}" 
+                      font-family="Arial" font-size="7">• Tolerance: ±0.1mm</text>
+                <text x="{max_x + 20}" y="{min_y + 90}" 
+                      font-family="Arial" font-size="8" font-weight="bold">Assembly Order:</text>
+                <text x="{max_x + 25}" y="{min_y + 105}" 
+                      font-family="Arial" font-size="7">1. Install ground pivots</text>
+                <text x="{max_x + 20}" y="{min_y + 100}" 
+                      font-family="Arial" font-size="7">2. Insert bearings</text>
+                <text x="{max_x + 20}" y="{min_y + 110}" 
+                      font-family="Arial" font-size="7">3. Connect links in sequence</text>
+            </g>
+            </g>
+            '''
+            return svg_content.strip()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate linkage SVG: {e}")
+            return f'<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate linkage</text>'

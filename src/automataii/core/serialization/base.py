@@ -2,11 +2,10 @@
 Base serialization classes and interfaces.
 """
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Type, TypeVar, Optional
-from datetime import datetime
 import json
-
+from abc import ABC
+from datetime import datetime
+from typing import Any, TypeVar
 
 T = TypeVar('T', bound='Serializable')
 
@@ -18,8 +17,8 @@ class Serializable(ABC):
     Provides automatic serialization of dataclass fields and
     template methods for custom serialization logic.
     """
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert object to dictionary representation.
         
@@ -27,7 +26,7 @@ class Serializable(ABC):
             Dictionary representation of object
         """
         result = {}
-        
+
         # Get all fields if this is a dataclass
         if hasattr(self, '__dataclass_fields__'):
             import dataclasses
@@ -39,12 +38,12 @@ class Serializable(ABC):
             for key, value in self.__dict__.items():
                 if not key.startswith('_'):
                     result[key] = self._serialize_value(value)
-        
+
         # Allow subclasses to customize
         return self.customize_serialization(result)
-    
+
     @classmethod
-    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
+    def from_dict(cls: type[T], data: dict[str, Any]) -> T:
         """
         Create object from dictionary representation.
         
@@ -56,7 +55,7 @@ class Serializable(ABC):
         """
         # Allow subclasses to preprocess
         processed_data = cls.customize_deserialization(data)
-        
+
         # Create instance
         if hasattr(cls, '__dataclass_fields__'):
             # Handle dataclass
@@ -75,7 +74,7 @@ class Serializable(ABC):
                 if not key.startswith('_'):
                     setattr(instance, key, cls._deserialize_value(value))
             return instance
-    
+
     def _serialize_value(self, value: Any) -> Any:
         """Serialize a single value."""
         if isinstance(value, Serializable):
@@ -91,9 +90,9 @@ class Serializable(ABC):
             return {k: self._serialize_value(v) for k, v in value.items()}
         else:
             return value
-    
+
     @classmethod
-    def _deserialize_value(cls, value: Any, expected_type: Optional[Type] = None) -> Any:
+    def _deserialize_value(cls, value: Any, expected_type: type | None = None) -> Any:
         """Deserialize a single value."""
         if isinstance(value, dict):
             # Handle special types
@@ -107,9 +106,9 @@ class Serializable(ABC):
             return [cls._deserialize_value(item) for item in value]
         else:
             return value
-    
+
     @classmethod
-    def _get_field_type(cls, field_name: str) -> Optional[Type]:
+    def _get_field_type(cls, field_name: str) -> type | None:
         """Get type hint for field."""
         if hasattr(cls, '__dataclass_fields__'):
             import dataclasses
@@ -118,8 +117,8 @@ class Serializable(ABC):
                 if field.name == field_name:
                     return field.type
         return None
-    
-    def customize_serialization(self, data: Dict[str, Any]) -> Dict[str, Any]:
+
+    def customize_serialization(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Customize serialization output.
         
@@ -130,9 +129,9 @@ class Serializable(ABC):
             Customized serialized data
         """
         return data
-    
+
     @classmethod
-    def customize_deserialization(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def customize_deserialization(cls, data: dict[str, Any]) -> dict[str, Any]:
         """
         Customize deserialization input.
         
@@ -143,23 +142,23 @@ class Serializable(ABC):
             Processed deserialized data
         """
         return data
-    
-    def to_json(self, indent: Optional[int] = None) -> str:
+
+    def to_json(self, indent: int | None = None) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict(), indent=indent, default=str)
-    
+
     @classmethod
-    def from_json(cls: Type[T], json_str: str) -> T:
+    def from_json(cls: type[T], json_str: str) -> T:
         """Create from JSON string."""
         data = json.loads(json_str)
         return cls.from_dict(data)
-    
+
     def __eq__(self, other) -> bool:
         """Check equality based on serialized representation."""
         if not isinstance(other, self.__class__):
             return False
         return self.to_dict() == other.to_dict()
-    
+
     def __repr__(self) -> str:
         """String representation."""
         class_name = self.__class__.__name__
@@ -185,24 +184,24 @@ class SerializationMixin:
     
     Use this when you can't inherit from Serializable directly.
     """
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         result = {}
         for key, value in self.__dict__.items():
             if not key.startswith('_'):
                 result[key] = self._serialize_value(value)
         return result
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls, data: dict[str, Any]):
         """Create from dictionary."""
         instance = cls.__new__(cls)
         for key, value in data.items():
             if not key.startswith('_'):
                 setattr(instance, key, cls._deserialize_value(value))
         return instance
-    
+
     def _serialize_value(self, value: Any) -> Any:
         """Serialize a value."""
         if hasattr(value, 'to_dict'):
@@ -218,7 +217,7 @@ class SerializationMixin:
             return {k: self._serialize_value(v) for k, v in value.items()}
         else:
             return value
-    
+
     @classmethod
     def _deserialize_value(cls, value: Any) -> Any:
         """Deserialize a value."""

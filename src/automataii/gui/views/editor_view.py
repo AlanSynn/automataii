@@ -1,39 +1,41 @@
 import logging
 import math
-from PyQt6.QtWidgets import (
-    QGraphicsView,
-    QGraphicsEllipseItem,
-    QGraphicsPathItem,
-    QMenu,
-    QApplication,
-)
-from PyQt6.QtGui import (
-    QPainter,
-    QPen,
-    QColor,
-    QPainterPath,
-    QMouseEvent,
-    QWheelEvent,
-)
+from typing import Any
+
 from PyQt6.QtCore import (
-    Qt,
+    QEvent,
+    QLineF,
     QPointF,
     QRectF,
+    Qt,
     pyqtSignal,
-    QLineF,
-    QEvent,
 )
-from typing import Optional, Dict, List, Any, Tuple
-
-from automataii.gui.graphics_items.part_item import CharacterPartItem  # UPDATED
-from automataii.gui.graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
-from automataii.gui.widgets.view_controls import HoverViewControls
+from PyQt6.QtGui import (
+    QColor,
+    QMouseEvent,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QWheelEvent,
+)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QGraphicsEllipseItem,
+    QGraphicsPathItem,
+    QGraphicsView,
+    QMenu,
+)
 
 # from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
 from automataii.config.z_indices import (
     Z_MOTION_PATH_PREVIEW,
     Z_SKELETON_OVERLAY,
-)  # Added Z_SKELETON_OVERLAY
+    Z_SKELETON_MECHANISM_BONES,
+    Z_SKELETON_MECHANISM_JOINTS,
+)  # Added Z_SKELETON_OVERLAY and mechanism-specific Z-indices
+from automataii.gui.graphics_items.part_item import CharacterPartItem  # UPDATED
+from automataii.gui.graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
+from automataii.gui.widgets.view_controls import HoverViewControls
 
 TARGET_PATH_POINTS = 12
 
@@ -85,9 +87,10 @@ class EditorView(QGraphicsView):
         str
     )  # NEW: Emits component_key when its path data should be cleared
 
-    def __init__(self, scene, parent_window=None):
+    def __init__(self, scene, parent_window=None, mechanism_mode=False):
         super().__init__(scene, parent_window)
         self.parent_window = parent_window  # Reference to the main window if needed
+        self.mechanism_mode = mechanism_mode  # Flag for mechanism design tab context
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Set background color to gray
@@ -103,7 +106,7 @@ class EditorView(QGraphicsView):
         # Enable touch gestures
         self.grabGesture(Qt.GestureType.PinchGesture)
 
-        self._joint_map_original_to_std: Dict[str, str] = {}  # original_name -> std_id
+        self._joint_map_original_to_std: dict[str, str] = {}  # original_name -> std_id
 
         # Pinch-to-zoom variables
         self._pinch_mode = False
@@ -163,16 +166,16 @@ class EditorView(QGraphicsView):
         self.scene().addItem(self.skeleton_graphics_item)
         self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY)  # Set Z-value
 
-        self.selection_markers: Dict[
+        self.selection_markers: dict[
             str, QGraphicsEllipseItem
         ] = {}  # For mechanism point markers
-        self.final_paths_map: Dict[
+        self.final_paths_map: dict[
             str, QGraphicsPathItem
         ] = {}  # NEW: To store final green paths
 
         # Rounded corners and white background for the viewport
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
-        
+
         # Initialize hover view controls
         self._setup_hover_controls()
 
@@ -199,7 +202,7 @@ class EditorView(QGraphicsView):
                 f"EditorView: Invalid display unit '{unit}'. Using current: {self.display_unit}"
             )
 
-    def set_joint_map(self, joint_map: Optional[Dict[str, str]]):
+    def set_joint_map(self, joint_map: dict[str, str] | None):
         """Sets the joint map (original name to standardized ID)."""
         if joint_map:
             self._joint_map_original_to_std = joint_map
@@ -728,17 +731,17 @@ class EditorView(QGraphicsView):
             # might need to listen to scene selection changes and then monitor position of selected items.
             # This signal is tricky to implement robustly from EditorView without item cooperation.
             # Let's defer emitting part_item_moved from here unless a clear mechanism is found.
-            
+
         # Handle hover controls visibility (merged from duplicate method)
         view_rect = self.rect()
         corner_size = 150  # Size of the corner area to trigger controls
-        
+
         corner_rect = view_rect.adjusted(
-            view_rect.width() - corner_size, 
+            view_rect.width() - corner_size,
             view_rect.height() - corner_size,
             0, 0
         )
-        
+
         if corner_rect.contains(event.pos()):
             self.hover_controls.show_controls()
             # Update zoom level display
@@ -933,7 +936,7 @@ class EditorView(QGraphicsView):
 
     # --- Motion Path Definition --- #
 
-    def start_define_motion_path(self, target_item: Optional[CharacterPartItem]):
+    def start_define_motion_path(self, target_item: CharacterPartItem | None):
         """Starts the freehand motion path definition mode."""
         # For the new IK system, target_item might be None if AutomataDesigner
         # is managing the selected component via sim_selected_component_key.
@@ -1100,7 +1103,7 @@ class EditorView(QGraphicsView):
 
     # --- Skeleton Visualization --- #
 
-    def get_part_item_by_name(self, part_name: str) -> Optional[CharacterPartItem]:
+    def get_part_item_by_name(self, part_name: str) -> CharacterPartItem | None:
         """Finds a CharacterPartItem in the scene by its part_info.name."""
         if not self.scene():
             return None
@@ -1114,7 +1117,7 @@ class EditorView(QGraphicsView):
         return None
 
     def visualize_skeleton(
-        self, skeleton_data: List[Dict[str, Any]], hierarchy_data: Dict[str, List[str]]
+        self, skeleton_data: list[dict[str, Any]], hierarchy_data: dict[str, list[str]]
     ):
         """
         Visualizes the skeleton using SkeletonGraphicsItem.
@@ -1156,7 +1159,7 @@ class EditorView(QGraphicsView):
             )
             # Pass both skeleton_data and hierarchy_data to the constructor or load_skeleton_data
             self.skeleton_graphics_item = SkeletonGraphicsItem(
-                skeleton_data, hierarchy_data
+                skeleton_data, hierarchy_data, mechanism_mode=self.mechanism_mode
             )
             self.scene().addItem(self.skeleton_graphics_item)
             self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY)
@@ -1172,7 +1175,7 @@ class EditorView(QGraphicsView):
         self.scene().update()  # Trigger a repaint of the scene
 
     def update_skeleton_animation(
-        self, animated_joint_positions: Dict[str, Tuple[float, float]]
+        self, animated_joint_positions: dict[str, tuple[float, float]]
     ):
         """Updates the skeleton item with new animated joint positions."""
         logging.debug(
@@ -1187,7 +1190,7 @@ class EditorView(QGraphicsView):
                 "EditorView:update_skeleton_animation - skeleton_graphics_item is None. Cannot update pose."
             )
 
-    def update_visuals_from_animation_data(self, joint_data: Dict[str, Dict[str, Any]]):
+    def update_visuals_from_animation_data(self, joint_data: dict[str, dict[str, Any]]):
         """Updates skeleton and part visuals based on joint-centric animation data."""
         if not self.scene():
             logging.warning("EditorView: No scene available for animation update.")
@@ -1195,7 +1198,7 @@ class EditorView(QGraphicsView):
 
         # 1. Update Skeleton Visualization
         # Extract all joint positions for the skeleton item
-        all_joint_positions: Dict[str, Tuple[float, float]] = {}
+        all_joint_positions: dict[str, tuple[float, float]] = {}
         for (
             joint_id,
             data,
@@ -1270,7 +1273,7 @@ class EditorView(QGraphicsView):
         self.scene().update()  # Update scene once after all items are processed
 
     def set_selected_part(
-        self, part_name: Optional[str], part_items: Dict[str, CharacterPartItem]
+        self, part_name: str | None, part_items: dict[str, CharacterPartItem]
     ):
         """Sets the visual state for the selected part and deselects others."""
         logging.debug(f"EditorView: Setting selected part to: {part_name}")
@@ -1289,7 +1292,7 @@ class EditorView(QGraphicsView):
                 "EditorView.set_selected_part: Scene not available for update."
             )
 
-    def get_current_part_transforms(self) -> Dict[str, Tuple[QPointF, float]]:
+    def get_current_part_transforms(self) -> dict[str, tuple[QPointF, float]]:
         """Returns a dictionary of part names to their (position, rotation_degrees)."""
         transforms = {}
         for name, item in self.part_items.items():
@@ -1382,7 +1385,7 @@ class EditorView(QGraphicsView):
         # logging.debug(f"Motion path preview updated with {len(self._motion_path_points)} points.")
 
     def _create_spline_path(
-        self, points: List[QPointF], closed_loop: bool = False, tension: float = 0.5
+        self, points: list[QPointF], closed_loop: bool = False, tension: float = 0.5
     ) -> QPainterPath:
         """Creates a QPainterPath from a list of points using Catmull-Rom like splines (approximated with Bezier curves)."""
         path = QPainterPath()
@@ -1469,8 +1472,8 @@ class EditorView(QGraphicsView):
         return path
 
     def _resample_points_simple(
-        self, points: List[QPointF], num_target_points: int
-    ) -> List[QPointF]:
+        self, points: list[QPointF], num_target_points: int
+    ) -> list[QPointF]:
         """Resamples the given points to num_target_points. Simple version."""
         if not points:
             return []
@@ -1482,7 +1485,7 @@ class EditorView(QGraphicsView):
         # it might be better to return them as is, or an empty list if not usable.
         # For this function, we'll aim to produce num_target_points if possible.
 
-        final_resampled: List[QPointF] = []
+        final_resampled: list[QPointF] = []
         if n <= num_target_points:
             final_resampled = points.copy()
             # Pad with the last point if fewer points than num_target_points
@@ -1541,7 +1544,7 @@ class EditorView(QGraphicsView):
                 f"No visual path to clear for {component_key}, ensuring data is cleared."
             )
 
-    def get_camera_state(self) -> Dict[str, Any]:
+    def get_camera_state(self) -> dict[str, Any]:
         """Get current camera state including transform and center position.
         
         Returns:
@@ -1552,14 +1555,14 @@ class EditorView(QGraphicsView):
         """
         transform = self.transform()
         center = self.mapToScene(self.viewport().rect().center())
-        
+
         return {
             'transform': transform,
             'center': center,
             'zoom_level': self._zoom_level
         }
-    
-    def set_camera_state(self, state: Dict[str, Any]):
+
+    def set_camera_state(self, state: dict[str, Any]):
         """Set camera state from a previously saved state.
         
         Args:
@@ -1567,59 +1570,59 @@ class EditorView(QGraphicsView):
         """
         if 'transform' in state:
             self.setTransform(state['transform'])
-        
+
         if 'center' in state:
             self.centerOn(state['center'])
-        
+
         if 'zoom_level' in state:
             self._zoom_level = state['zoom_level']
             # Emit zoom changed signal
             current_scale = self.transform().m11()
             self.zoom_changed.emit(current_scale)
-    
+
     def _setup_hover_controls(self):
         """Setup hover view controls."""
         self.hover_controls = HoverViewControls(self)
-        
+
         # Connect signals
         self.hover_controls.zoom_in_requested.connect(lambda: self.zoom(1))
         self.hover_controls.zoom_out_requested.connect(lambda: self.zoom(-1))
         self.hover_controls.zoom_fit_requested.connect(self.zoom_to_fit)
         self.hover_controls.zoom_reset_requested.connect(self.reset_view)
         self.hover_controls.zoom_changed.connect(self._on_zoom_slider_changed)
-        
+
         # Position controls in bottom-right corner
         self._position_hover_controls()
-        
+
         # Track mouse movement to show/hide controls
         self.setMouseTracking(True)
-        
+
     def _position_hover_controls(self):
         """Position hover controls in bottom-right corner."""
         if hasattr(self, 'hover_controls'):
             view_rect = self.rect()
             controls_rect = self.hover_controls.rect()
-            
+
             x = view_rect.width() - controls_rect.width() - 20
             y = view_rect.height() - controls_rect.height() - 20
-            
+
             self.hover_controls.move(x, y)
-    
+
     def _on_zoom_slider_changed(self, zoom_factor: float):
         """Handle zoom slider change."""
         # Reset transform and apply new scale
         self.resetTransform()
         self.scale(zoom_factor, zoom_factor)
-        
+
         # Update zoom level for consistency
         import math
         self._zoom_level = int(math.log(zoom_factor) / math.log(self._zoom_factor_base))
-        
+
         # Emit zoom changed signal
         self.zoom_changed.emit(zoom_factor)
-    
+
     def resizeEvent(self, event):
         """Handle resize events to reposition hover controls."""
         super().resizeEvent(event)
         self._position_hover_controls()
-        
+

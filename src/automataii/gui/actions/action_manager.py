@@ -3,11 +3,11 @@ ActionManager module for centralizing QAction management.
 """
 
 import logging
-from typing import Dict, Optional, Callable, Any
+from collections.abc import Callable
 
-from PyQt6.QtWidgets import QStyle, QApplication
-from PyQt6.QtGui import QIcon, QKeySequence, QAction
 from PyQt6.QtCore import QObject, QSize
+from PyQt6.QtGui import QAction, QIcon, QKeySequence
+from PyQt6.QtWidgets import QStyle
 
 
 class ActionManager(QObject):
@@ -27,7 +27,7 @@ class ActionManager(QObject):
         """
         super().__init__(parent)
         self.parent = parent
-        self.actions: Dict[str, QAction] = {}
+        self.actions: dict[str, QAction] = {}
         self.updater = None
         self._initialize_actions()
 
@@ -120,7 +120,7 @@ class ActionManager(QObject):
             tooltip="Show information about the application",
             status_tip="Show information about the application",
         )
-        
+
         self.create_action(
             action_id="check_updates",
             text="Check for &Updates...",
@@ -149,10 +149,10 @@ class ActionManager(QObject):
         self,
         action_id: str,
         text: str,
-        icon: Optional[QIcon] = None,
-        tooltip: Optional[str] = None,
-        shortcut: Optional[QKeySequence] = None,
-        status_tip: Optional[str] = None,
+        icon: QIcon | None = None,
+        tooltip: str | None = None,
+        shortcut: QKeySequence | None = None,
+        status_tip: str | None = None,
         checkable: bool = False,
         checked: bool = False,
         enabled: bool = True,
@@ -196,7 +196,7 @@ class ActionManager(QObject):
         self.actions[action_id] = action
         return action
 
-    def get_action(self, action_id: str) -> Optional[QAction]:
+    def get_action(self, action_id: str) -> QAction | None:
         """
         Get an action by its ID.
 
@@ -331,11 +331,11 @@ class ActionManager(QObject):
 
         for action_id in project_dependent_actions:
             self.set_action_enabled(action_id, project_loaded)
-    
+
     def set_updater(self, updater):
         """Set the auto-updater and connect the update action"""
         self.updater = updater
-        
+
         # Connect the check_updates action to the main window's check method
         if hasattr(self.parent, 'check_for_updates'):
             self.connect_action("check_updates", self.parent.check_for_updates)

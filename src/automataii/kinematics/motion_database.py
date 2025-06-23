@@ -1,20 +1,18 @@
-import numpy as np
-import os
 import json
-from scipy.spatial import cKDTree
-from typing import List, Dict, Set, Optional
 import logging
-from pathlib import Path
 
+import numpy as np
+from scipy.spatial import cKDTree
+
+from automataii.kinematics.curve_similarity import CurveSimilarity
 from automataii.kinematics.mechanism import (
-    MechanismType,
+    MechanismCandidate,
     MechanismTemplate,
+    MechanismType,
     MotionCurve,
     PrecomputedMotionEntry,
-    MechanismCandidate,
 )
 from automataii.kinematics.mechanism_simulator import MechanismSimulator
-from automataii.kinematics.curve_similarity import CurveSimilarity
 from automataii.utils.paths import resolve_path
 
 # Configure logging
@@ -25,14 +23,14 @@ class MotionDatabase:
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.entries: Dict[MechanismType, List[PrecomputedMotionEntry]] = {}
-        self.feature_trees: Dict[MechanismType, cKDTree] = {}
+        self.entries: dict[MechanismType, list[PrecomputedMotionEntry]] = {}
+        self.feature_trees: dict[MechanismType, cKDTree] = {}
         self.similarity_metric = CurveSimilarity()
         self.db = []
         self.load_database()
 
     def build_database(
-        self, mechanism_templates: List[MechanismTemplate], force_rebuild: bool = False
+        self, mechanism_templates: list[MechanismTemplate], force_rebuild: bool = False
     ):
         """
         Builds the precomputed motion database using Poisson-disk sampling.
@@ -54,7 +52,7 @@ class MotionDatabase:
 
     def _sample_mechanism_space(
         self, template: MechanismTemplate
-    ) -> List[PrecomputedMotionEntry]:
+    ) -> list[PrecomputedMotionEntry]:
         """
         Generates motion samples using a simplified sampling strategy.
         Note: This is a simplified version of the Poisson-disk sampling from the plan.
@@ -94,16 +92,16 @@ class MotionDatabase:
         print(f"Generated {len(entries)} samples for {template.type.value}")
         return entries
 
-    def _random_parameters(self, param_ranges: List[tuple]) -> np.ndarray:
+    def _random_parameters(self, param_ranges: list[tuple]) -> np.ndarray:
         """Generates a random set of parameters within the given ranges."""
         return np.array([np.random.uniform(low, high) for low, high in param_ranges])
 
     def query_similar_curves(
         self,
         target_curve: np.ndarray,
-        enabled_types: Set[MechanismType],
+        enabled_types: set[MechanismType],
         k: int = 3,
-    ) -> List[MechanismCandidate]:
+    ) -> list[MechanismCandidate]:
         """Finds the k most similar curves from the database."""
         if not self.entries:
             print("Database is empty. Please build it first.")
@@ -120,7 +118,7 @@ class MotionDatabase:
             tree = self.feature_trees[mech_type]
             distances, indices = tree.query(target_features, k=k)
 
-            for dist, idx in zip(distances, indices):
+            for dist, idx in zip(distances, indices, strict=False):
                 entry = self.entries[mech_type][idx]
                 transform = self._compute_alignment_transform(
                     target_curve, entry.motion_curve.points
@@ -163,7 +161,7 @@ class MotionDatabase:
             return
 
         try:
-            with open(db_path, 'r') as f:
+            with open(db_path) as f:
                 data = json.load(f)
 
             for item in data:

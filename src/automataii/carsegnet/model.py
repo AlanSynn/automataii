@@ -1,11 +1,10 @@
 import logging
-from typing import Dict, Tuple, Type, Optional, List
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from segment_anything import sam_model_registry
-from segment_anything.modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam
+from segment_anything.modeling import ImageEncoderViT, MaskDecoder, PromptEncoder
 from torchvision.ops.boxes import masks_to_boxes
 
 logger = logging.getLogger(__name__)
@@ -141,10 +140,10 @@ class CharSegNet(nn.Module):
 
     def _get_face_crops_and_masks(
         self, image: torch.Tensor, stage2_logits: torch.Tensor, face_class_index: int
-    ) -> Tuple[
-        List[Optional[torch.Tensor]],
-        List[Optional[torch.Tensor]],
-        List[Optional[List[int]]],
+    ) -> tuple[
+        list[torch.Tensor | None],
+        list[torch.Tensor | None],
+        list[list[int] | None],
     ]:
         """Get face crops, masks, and bounding boxes based on Stage 2 output.
 
@@ -207,7 +206,7 @@ class CharSegNet(nn.Module):
         return face_crops, face_masks, face_bboxes
 
     def _upsample_logits(
-        self, logits: torch.Tensor, target_size: Tuple[int, int]
+        self, logits: torch.Tensor, target_size: tuple[int, int]
     ) -> torch.Tensor:
         """Upsamples logits to the target spatial size."""
         # Expects logits shape (B, C, H, W)
@@ -220,7 +219,7 @@ class CharSegNet(nn.Module):
             align_corners=False,
         )
 
-    def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def forward(self, image: torch.Tensor) -> dict[str, torch.Tensor]:
         """
         Forward pass through the three stages of CharSegNet.
 
@@ -452,7 +451,7 @@ class CharSegNet(nn.Module):
 if __name__ == "__main__":
     # Example Usage (Requires a SAM checkpoint file)
     import os
-    import cv2  # For reading image
+
 
     # --- Configuration ---
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

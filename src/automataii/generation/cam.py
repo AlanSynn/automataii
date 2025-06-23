@@ -334,3 +334,203 @@ if __name__ == "__main__":
                 print(f"  {key}: {value}")
     else:
         print("\nFailed to generate default cam data.")
+
+
+class CamGenerator:
+    """Generator for cam mechanism SVG blueprints."""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def generate_svg(self, cam_data: Dict[str, Any]) -> str:
+        """
+        Generate SVG representation of cam mechanism for blueprints.
+        
+        Args:
+            cam_data: Dictionary containing cam mechanism data
+            
+        Returns:
+            str: SVG content for the cam mechanism
+        """
+        try:
+            # Extract cam parameters with defaults
+            center = cam_data.get('center', [0, 0])
+            base_radius = cam_data.get('base_radius', 20.0)
+            max_radius = cam_data.get('max_radius', 30.0)
+            profile_points = cam_data.get('profile_points', [])
+            name = cam_data.get('name', 'Cam')
+            
+            # If no profile points, create a simple circular cam
+            if not profile_points:
+                profile_points = self._generate_circular_profile(center, base_radius, 36)
+            
+            # Generate cam profile path
+            profile_path = self._generate_cam_profile_path(profile_points)
+            
+            # Calculate additional cam parameters
+            lift = max_radius - base_radius
+            bore_radius = base_radius * 0.15
+            follower_diameter = 8.0  # Standard follower size
+            
+            # Create comprehensive technical drawing
+            svg_content = f'''
+            <g class="cam-mechanism">
+                <!-- Title and part information -->
+                <text x="{center[0]}" y="{center[1] - max_radius - 50}" 
+                      font-family="Arial" font-size="12" font-weight="bold" text-anchor="middle">{name}</text>
+                <text x="{center[0]}" y="{center[1] - max_radius - 35}" 
+                      font-family="Arial" font-size="8" text-anchor="middle">Part No: CAM-{lift:.0f}MM-LIFT</text>
+                <text x="{center[0]}" y="{center[1] - max_radius - 20}" 
+                      font-family="Arial" font-size="8" text-anchor="middle">Cam Profile with {lift:.1f}mm Lift</text>
+                
+                <!-- Base circle (reference for machining) -->
+                <circle cx="{center[0]}" cy="{center[1]}" r="{base_radius}" 
+                        fill="none" stroke="blue" stroke-width="0.5" stroke-dasharray="3,3"/>
+                
+                <!-- Cam profile (cutting outline) -->
+                <path d="{profile_path}" fill="none" stroke="red" stroke-width="2"/>
+                
+                <!-- Center bore -->
+                <circle cx="{center[0]}" cy="{center[1]}" r="{bore_radius}" 
+                        fill="none" stroke="black" stroke-width="1.5"/>
+                
+                <!-- Keyway -->
+                <rect x="{center[0] - bore_radius * 0.3}" y="{center[1] - bore_radius}" 
+                      width="{bore_radius * 0.6}" height="{bore_radius * 2}" 
+                      fill="none" stroke="black" stroke-width="1"/>
+                
+                <!-- Timing marks every 90 degrees -->
+                <g class="timing-marks">
+                    <circle cx="{center[0]}" cy="{center[1] - base_radius}" r="1" fill="green"/>
+                    <text x="{center[0] + 5}" y="{center[1] - base_radius + 3}" 
+                          font-family="Arial" font-size="6">0°</text>
+                    
+                    <circle cx="{center[0] + base_radius}" cy="{center[1]}" r="1" fill="green"/>
+                    <text x="{center[0] + base_radius + 5}" y="{center[1] + 3}" 
+                          font-family="Arial" font-size="6">90°</text>
+                    
+                    <circle cx="{center[0]}" cy="{center[1] + base_radius}" r="1" fill="green"/>
+                    <text x="{center[0] + 5}" y="{center[1] + base_radius + 8}" 
+                          font-family="Arial" font-size="6">180°</text>
+                    
+                    <circle cx="{center[0] - base_radius}" cy="{center[1]}" r="1" fill="green"/>
+                    <text x="{center[0] - base_radius - 15}" y="{center[1] + 3}" 
+                          font-family="Arial" font-size="6">270°</text>
+                </g>
+                
+                <!-- Follower assembly detail -->
+                <g class="follower-assembly" transform="translate({center[0] + max_radius + 40}, {center[1]})">
+                    <!-- Follower housing -->
+                    <rect x="-8" y="-15" width="16" height="30" 
+                          fill="none" stroke="black" stroke-width="1.5"/>
+                    <!-- Follower rod -->
+                    <circle r="{follower_diameter/2}" fill="none" stroke="black" stroke-width="1"/>
+                    <!-- Spring -->
+                    <path d="M -6,8 Q -3,12 0,8 Q 3,4 6,8" 
+                          stroke="black" stroke-width="0.5" fill="none"/>
+                    <!-- Mounting holes -->
+                    <circle cx="-5" cy="-10" r="1" fill="none" stroke="black" stroke-width="0.5"/>
+                    <circle cx="5" cy="-10" r="1" fill="none" stroke="black" stroke-width="0.5"/>
+                    <circle cx="-5" cy="10" r="1" fill="none" stroke="black" stroke-width="0.5"/>
+                    <circle cx="5" cy="10" r="1" fill="none" stroke="black" stroke-width="0.5"/>
+                    
+                    <!-- Labels -->
+                    <text x="0" y="-25" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">
+                        FOLLOWER ASSEMBLY
+                    </text>
+                    <text x="0" y="25" font-family="Arial" font-size="7" text-anchor="middle">
+                        Ø{follower_diameter:.1f}mm Roller
+                    </text>
+                </g>
+                
+                <!-- Manufacturing specifications -->
+                <g class="manufacturing-specs">
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] - 40}" 
+                          font-family="Arial" font-size="8" font-weight="bold">Manufacturing Notes:</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] - 25}" 
+                          font-family="Arial" font-size="7">• Material: 6mm Plywood/Acrylic</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] - 15}" 
+                          font-family="Arial" font-size="7">• Cut RED profile outline</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] - 5}" 
+                          font-family="Arial" font-size="7">• Drill center bore Ø{bore_radius * 2:.1f}mm</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] + 5}" 
+                          font-family="Arial" font-size="7">• Cut keyway slot</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] + 15}" 
+                          font-family="Arial" font-size="7">• Sand profile smooth</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] + 25}" 
+                          font-family="Arial" font-size="7">• Tolerance: ±0.05mm</text>
+                    
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] + 45}" 
+                          font-family="Arial" font-size="8" font-weight="bold">Performance Data:</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] + 60}" 
+                          font-family="Arial" font-size="7">• Max Lift: {lift:.1f}mm</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] + 70}" 
+                          font-family="Arial" font-size="7">• Base Circle: Ø{base_radius * 2:.1f}mm</text>
+                    <text x="{center[0] - max_radius - 40}" y="{center[1] + 80}" 
+                          font-family="Arial" font-size="7">• Rotation: Clockwise</text>
+                </g>
+                
+                <!-- Dimension lines -->
+                <g class="dimensions">
+                    <!-- Overall diameter -->
+                    <line x1="{center[0] - max_radius - 15}" y1="{center[1]}" 
+                          x2="{center[0] + max_radius + 15}" y2="{center[1]}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    <line x1="{center[0] - max_radius - 15}" y1="{center[1] - 5}" 
+                          x2="{center[0] - max_radius - 15}" y2="{center[1] + 5}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    <line x1="{center[0] + max_radius + 15}" y1="{center[1] - 5}" 
+                          x2="{center[0] + max_radius + 15}" y2="{center[1] + 5}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    
+                    <text x="{center[0]}" y="{center[1] + max_radius + 35}" 
+                          font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">
+                          Ø{max_radius * 2:.1f}mm MAX DIA
+                    </text>
+                    
+                    <!-- Base circle dimension -->
+                    <text x="{center[0]}" y="{center[1] + max_radius + 50}" 
+                          font-family="Arial" font-size="8" text-anchor="middle">
+                          Ø{base_radius * 2:.1f}mm BASE CIRCLE
+                    </text>
+                    
+                    <!-- Bore dimension -->
+                    <line x1="{center[0] - bore_radius}" y1="{center[1] - max_radius - 5}" 
+                          x2="{center[0] + bore_radius}" y2="{center[1] - max_radius - 5}" 
+                          stroke="#666" stroke-width="0.5"/>
+                    <text x="{center[0]}" y="{center[1] - max_radius - 10}" 
+                          font-family="Arial" font-size="8" text-anchor="middle">
+                          Ø{bore_radius * 2:.1f}mm BORE
+                    </text>
+                </g>
+            </g>
+            '''
+            
+            return svg_content.strip()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate cam SVG: {e}")
+            return f'<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate cam</text>'
+    
+    def _generate_circular_profile(self, center: List[float], radius: float, num_points: int) -> List[List[float]]:
+        """Generate points for a circular cam profile."""
+        points = []
+        for i in range(num_points):
+            angle = 2 * math.pi * i / num_points
+            x = center[0] + radius * math.cos(angle)
+            y = center[1] + radius * math.sin(angle)
+            points.append([x, y])
+        return points
+    
+    def _generate_cam_profile_path(self, profile_points: List[List[float]]) -> str:
+        """Generate SVG path for cam profile."""
+        if not profile_points:
+            return ""
+        
+        path_data = f"M {profile_points[0][0]:.2f} {profile_points[0][1]:.2f} "
+        
+        for point in profile_points[1:]:
+            path_data += f"L {point[0]:.2f} {point[1]:.2f} "
+        
+        path_data += "Z"  # Close the path
+        return path_data

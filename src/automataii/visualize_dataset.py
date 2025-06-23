@@ -4,13 +4,15 @@ Visualize the generated mechanism dataset.
 """
 
 import json
+
 import matplotlib.pyplot as plt
-import numpy as np
-import os
-from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QListWidget, QGraphicsView, QGraphicsScene
-from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath
-from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+)
+
 from automataii.utils.paths import resolve_path
+
 
 class MechanismVisualizer(QMainWindow):
     def __init__(self):
@@ -20,7 +22,7 @@ class MechanismVisualizer(QMainWindow):
         # Load the dataset
         dataset_path = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
         try:
-            with open(dataset_path, 'r') as f:
+            with open(dataset_path) as f:
                 self.dataset = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError) as e:
             print(f"Error loading dataset: {e}")
@@ -72,7 +74,7 @@ class MechanismVisualizer(QMainWindow):
 
         plt.tight_layout()
         plt.savefig('mechanism_samples.png', dpi=150)
-        print(f"\nSample plots saved to mechanism_samples.png")
+        print("\nSample plots saved to mechanism_samples.png")
 
         # Also save dataset statistics
         self.stats = {
