@@ -1526,6 +1526,10 @@ class EditorTab(QWidget):
         logging.debug(f"EditorTab: Collected {len(path_data)} motion paths: {list(path_data.keys())}")
         return path_data
 
+    def get_current_path_data(self) -> dict[str, QPainterPath]:
+        """Get current motion path data for all parts. Public interface for other tabs."""
+        return self._collect_path_data()
+
     def _emit_path_data(self):
         """Emit current path data to other tabs."""
         path_data = self._collect_path_data()

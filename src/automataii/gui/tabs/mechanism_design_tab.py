@@ -204,6 +204,7 @@ class MechanismDesignTab(QWidget):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         control_panel = QWidget()
+        self.control_panel = control_panel  # Store as instance variable for recreation methods
         panel_layout = QVBoxLayout(control_panel)
         panel_layout.setContentsMargins(10, 10, 10, 10)
         panel_layout.setSpacing(15)
@@ -231,6 +232,7 @@ class MechanismDesignTab(QWidget):
         """)
         layers_layout = QVBoxLayout(layers_group)
         self.mechanism_layers_list = QListWidget()
+        logging.error(f"[MECHANISM TAB] Created mechanism_layers_list widget: {id(self.mechanism_layers_list)}")
         self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
         self.mechanism_layers_list.setMinimumHeight(180)
         self.mechanism_layers_list.setStyleSheet("""
@@ -265,8 +267,8 @@ class MechanismDesignTab(QWidget):
             }
         """)
         # Add widget to layout (Qt handles parent automatically)
-        layers_layout.addWidget(self.mechanism_layers_list)
-        panel_layout.addWidget(layers_group)
+        # layers_layout.addWidget(self.mechanism_layers_list)
+        # panel_layout.addWidget(layers_group)
 
         # 2. Mechanism Generation Group
         generation_group = QGroupBox("2 Mechanism Generation")
@@ -1636,10 +1638,42 @@ class MechanismDesignTab(QWidget):
 
         logging.debug("All existing mechanisms cleared")
 
+    def _clear_mechanism_for_part(self, part_name: str):
+        """Clear mechanism for a specific part only, keeping others intact."""
+        mechanisms_to_remove = []
+
+        # Find mechanisms for this part
+        for mechanism_id, layer_data in self.mechanism_layers.items():
+            if layer_data.get("part_name") == part_name:
+                mechanisms_to_remove.append(mechanism_id)
+
+                # Remove visual items safely
+                visual_items = layer_data.get("visual_items", [])
+                self._safe_remove_visual_items(visual_items)
+
+                # Remove trace items
+                if mechanism_id in self.mechanism_trace_items:
+                    trace_item = self.mechanism_trace_items[mechanism_id]
+                    self._safe_remove_visual_items([trace_item])
+                    del self.mechanism_trace_items[mechanism_id]
+
+        # Remove from mechanism_layers
+        for mechanism_id in mechanisms_to_remove:
+            del self.mechanism_layers[mechanism_id]
+            logging.info(f"[MECHANISM TAB] Removed mechanism {mechanism_id} for part {part_name}")
+
+        # Clear enabled state for this part
+        if part_name in self.mechanism_enabled_state:
+            del self.mechanism_enabled_state[part_name]
+
     def _generate_mechanism_from_candidate(self, candidate_data: dict[str, Any]):
         """Generates a mechanism layer and visuals from a selected candidate."""
-        # ISSUE #6: Clear all existing mechanisms to completely replace them
-        self._clear_all_existing_mechanisms()
+        # CHANGED: Support multiple mechanisms - only clear mechanism for current part
+        if hasattr(self, 'selected_part_name') and self.selected_part_name:
+            self._clear_mechanism_for_part(self.selected_part_name)
+            logging.info(f"[MECHANISM TAB] Cleared existing mechanism for part: {self.selected_part_name}")
+        else:
+            logging.warning("[MECHANISM TAB] No selected part - creating mechanism anyway")
 
         mechanism_id = str(uuid.uuid4())[:8]
         mechanism_type_value = candidate_data.get('type', 'Unknown')
@@ -2745,11 +2779,10 @@ class MechanismDesignTab(QWidget):
             self.mechanism_scene.addItem(test_item)
             logging.debug("[MECHANISM TAB] Added test path for debugging")
 
-            # Try to zoom to the test path
+            # REMOVED: Don't auto-zoom to test path to preserve user camera position
             test_rect = test_item.boundingRect()
             if test_rect.isValid():
-                self.mechanism_view.fitInView(test_rect, Qt.AspectRatioMode.KeepAspectRatio)
-                logging.debug(f"[MECHANISM TAB] Zoomed to test path: {test_rect}")
+                logging.debug(f"[MECHANISM TAB] Test path bounds: {test_rect} (not auto-zooming)")
 
         except Exception as e:
             logging.error(f"[MECHANISM TAB] Failed to add test path: {e}")
@@ -2768,24 +2801,83 @@ class MechanismDesignTab(QWidget):
 
     def _update_mechanism_layers_list(self):
         """Update the mechanism layers list to show all parts with simple path-based coloring and toggle functionality."""
+        logging.error("[MECHANISM TAB] _update_mechanism_layers_list() CALLED - DEBUGGING")
+
+        # If widget is None, create a simple replacement immediately
         if not self.mechanism_layers_list:
-            logging.error("[MECHANISM TAB] WARNING: mechanism_layers_list is None! Attempting to recreate...")
-            self._recreate_layers_list_widget()
-            if not self.mechanism_layers_list:
-                logging.error("[MECHANISM TAB] CRITICAL: Failed to recreate mechanism_layers_list widget")
-                return
+            logging.error(f"[MECHANISM TAB] mechanism_layers_list is None! Creating simple replacement...")
+
+            # Create simple replacement widget
+            self.mechanism_layers_list = QListWidget()
+            self.mechanism_layers_list.setToolTip("Parts for mechanisms")
+            self.mechanism_layers_list.setMinimumHeight(180)
+
+            # Try to add it to existing layout if possible, but check for duplicates first
+            if hasattr(self, 'control_panel') and self.control_panel:
+                # Check if we already have a "Parts for Mechanisms" group
+                existing_groups = self.control_panel.findChildren(QGroupBox)
+                parts_group_exists = any("Parts for Mechanisms" in group.title() for group in existing_groups)
+
+                if not parts_group_exists:
+                    layout = self.control_panel.layout()
+                    if layout:
+                        # Create a simple group to contain it
+                        temp_group = QGroupBox("Parts for Mechanisms")
+                        temp_layout = QVBoxLayout(temp_group)
+                        temp_layout.addWidget(self.mechanism_layers_list)
+                        layout.insertWidget(0, temp_group)
+                        logging.error("[MECHANISM TAB] Added replacement widget to layout")
+                else:
+                    # Try to find existing group and add widget there
+                    for group in existing_groups:
+                        if "Parts for Mechanisms" in group.title():
+                            group_layout = group.layout()
+                            if group_layout and group_layout.count() == 0:  # Empty group
+                                group_layout.addWidget(self.mechanism_layers_list)
+                                logging.error("[MECHANISM TAB] Added widget to existing empty group")
+                                break
+
+                # Reconnect signals
+                if hasattr(self, '_on_layers_list_item_clicked'):
+                    self.mechanism_layers_list.itemClicked.connect(self._on_layers_list_item_clicked)
+
+            logging.error(f"[MECHANISM TAB] Created replacement widget: {id(self.mechanism_layers_list)}")
+
+        if not hasattr(self.mechanism_layers_list, 'clear'):
+            logging.error(f"[MECHANISM TAB] mechanism_layers_list missing 'clear' method! Type: {type(self.mechanism_layers_list)}")
+            return
+
+        # Safety check - verify the widget is still connected to Qt
+        try:
+            _ = self.mechanism_layers_list.count()
+        except RuntimeError:
+            logging.warning("[MECHANISM TAB] Widget was deleted by Qt, skipping update")
+            return
 
         # Simple clear like editor tab
         self.mechanism_layers_list.clear()
-        logging.info(f"[MECHANISM TAB] Updating mechanism layers list with {len(self.parts_data) if self.parts_data else 0} parts")
 
-        # Debug current state
-        logging.info(f"[MECHANISM TAB] Path data available: {len(self.path_data) if self.path_data else 0} paths")
-        if self.path_data:
-            logging.info(f"[MECHANISM TAB] Parts with paths: {list(self.path_data.keys())}")
+        # CRITICAL: Use editor tab data directly instead of local copy
+        editor_parts_data = None
+        editor_path_data = None
 
-        # Simple population like editor tab
-        if self.parts_data:
+        logging.error(f"[MECHANISM TAB] main_window exists: {hasattr(self, 'main_window') and self.main_window is not None}")
+
+        if hasattr(self, 'main_window') and self.main_window:
+            logging.error(f"[MECHANISM TAB] editor_tab exists: {hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab is not None}")
+
+            if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
+                editor_parts_data = self.main_window.editor_tab.current_parts_info
+                editor_path_data = self.main_window.editor_tab.get_current_path_data()
+
+                logging.error(f"[MECHANISM TAB] editor_parts_data type: {type(editor_parts_data)}")
+                logging.error(f"[MECHANISM TAB] editor_path_data type: {type(editor_path_data)}")
+
+        logging.error(f"[MECHANISM TAB] FINAL - Using EDITOR TAB data: {len(editor_parts_data) if editor_parts_data else 0} parts")
+        logging.error(f"[MECHANISM TAB] FINAL - Using EDITOR TAB paths: {len(editor_path_data) if editor_path_data else 0} paths")
+
+        # Simple population using editor tab data directly
+        if editor_parts_data:
             # Apply same filtering as editor tab for consistency
             disabled_parts = {
                 'torso',
@@ -2795,13 +2887,13 @@ class MechanismDesignTab(QWidget):
 
             # Filter out disabled parts to match editor tab behavior
             all_parts = [
-                part_name for part_name in self.parts_data.keys()
+                part_name for part_name in editor_parts_data.keys()
                 if not any(disabled_part in part_name.lower() for disabled_part in disabled_parts)
             ]
             all_parts.sort()
 
             for part_name in all_parts:
-                has_path = part_name in self.path_data
+                has_path = part_name in editor_path_data if editor_path_data else False
                 is_enabled = self.part_enabled_state.get(part_name, True)  # Default to enabled
                 has_mechanism = self._part_has_mechanism(part_name)
 
@@ -2834,9 +2926,53 @@ class MechanismDesignTab(QWidget):
 
                 # Add to list
                 self.mechanism_layers_list.addItem(item)
-                logging.info(f"[MECHANISM TAB] Added part {part_name} to list (has_path: {has_path}, enabled: {is_enabled})")
+                logging.error(f"[MECHANISM TAB] ADDED ITEM: {part_name} (has_path: {has_path}, enabled: {is_enabled})")
+        else:
+            logging.error("[MECHANISM TAB] NO EDITOR PARTS DATA - LIST WILL BE EMPTY!")
 
-        logging.info(f"[MECHANISM TAB] Mechanism layers list updated with {self.mechanism_layers_list.count()} items")
+        final_count = self.mechanism_layers_list.count() if self.mechanism_layers_list else 0
+        logging.error(f"[MECHANISM TAB] FINAL RESULT: {final_count} items in list")
+
+        # CRITICAL: Check widget state immediately
+        logging.error(f"[MECHANISM TAB] Widget exists: {self.mechanism_layers_list is not None}")
+        logging.error(f"[MECHANISM TAB] Widget type: {type(self.mechanism_layers_list)}")
+
+        # CRITICAL: Check widget visibility and parent
+        if self.mechanism_layers_list:
+            logging.error(f"[MECHANISM TAB] Widget visible: {self.mechanism_layers_list.isVisible()}")
+            logging.error(f"[MECHANISM TAB] Widget size: {self.mechanism_layers_list.size()}")
+            logging.error(f"[MECHANISM TAB] Widget parent: {self.mechanism_layers_list.parent()}")
+            logging.error(f"[MECHANISM TAB] Widget geometry: {self.mechanism_layers_list.geometry()}")
+
+            # FORCE VISIBILITY AND PROPER PARENT
+            self.mechanism_layers_list.setVisible(True)
+            self.mechanism_layers_list.show()
+            self.mechanism_layers_list.raise_()
+
+            # Force parent if missing
+            if not self.mechanism_layers_list.parent():
+                logging.error("[MECHANISM TAB] CRITICAL: Widget has no parent! Finding container...")
+                if hasattr(self, 'control_panel') and self.control_panel:
+                    # Find or create a group for it
+                    found_group = False
+                    for group in self.control_panel.findChildren(QGroupBox):
+                        if "Parts" in group.title():
+                            if group.layout():
+                                group.layout().addWidget(self.mechanism_layers_list)
+                                logging.error(f"[MECHANISM TAB] Added widget to existing group: {group.title()}")
+                                found_group = True
+                                break
+
+                    if not found_group:
+                        # Create new group
+                        new_group = QGroupBox("Parts for Mechanisms")
+                        new_layout = QVBoxLayout(new_group)
+                        new_layout.addWidget(self.mechanism_layers_list)
+                        self.control_panel.layout().insertWidget(0, new_group)
+                        logging.error("[MECHANISM TAB] Created emergency group for widget")
+
+        if final_count == 0:
+            logging.error("[MECHANISM TAB] CRITICAL: List is empty after update!")
 
     def _recreate_layers_list_widget(self):
         """Recreate the mechanism_layers_list widget if it was destroyed externally."""
@@ -2844,19 +2980,25 @@ class MechanismDesignTab(QWidget):
             # Find the layers group and layout to re-add the widget
             layers_group = None
             layers_layout = None
-            
+
             # Try to find existing layers group in the control panel
             if hasattr(self, 'control_panel') and self.control_panel:
-                for child in self.control_panel.findChildren(QGroupBox):
-                    if child.title() == "1 Mechanism Layers":
+                logging.error(f"[MECHANISM TAB] Searching for layers group in control panel")
+                all_group_boxes = self.control_panel.findChildren(QGroupBox)
+                logging.error(f"[MECHANISM TAB] Found {len(all_group_boxes)} group boxes:")
+                for i, child in enumerate(all_group_boxes):
+                    logging.error(f"  {i}: '{child.title()}'")
+                    if "Parts for Mechanisms" in child.title() or "Mechanism Layers" in child.title():
                         layers_group = child
                         layers_layout = child.layout()
+                        logging.error(f"[MECHANISM TAB] Found matching group: '{child.title()}'")
                         break
-            
+
             if not layers_group or not layers_layout:
                 logging.error("[MECHANISM TAB] Could not find layers group to recreate widget")
-                return
-                
+                # Last resort: recreate the entire group
+                return self._force_recreate_layers_group()
+
             # Create new widget with same configuration as original
             self.mechanism_layers_list = QListWidget()
             self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
@@ -2886,18 +3028,241 @@ class MechanismDesignTab(QWidget):
                     border: 1px solid #dee2e6;
                 }
             """)
-            
+
             # Add to layout
             layers_layout.addWidget(self.mechanism_layers_list)
-            
+
             # Reconnect signals
             self.mechanism_layers_list.itemClicked.connect(self._on_layers_list_item_clicked)
-            
+
             logging.info("[MECHANISM TAB] Successfully recreated mechanism_layers_list widget")
-            
+
         except Exception as e:
             logging.error(f"[MECHANISM TAB] Failed to recreate mechanism_layers_list: {e}")
-            self.mechanism_layers_list = None
+            # Don't set to None - keep existing widget if possible
+
+    def _force_recreate_layers_group(self):
+        """Force recreate the entire layers group if individual widget recreation fails."""
+        try:
+            logging.error("[MECHANISM TAB] Force recreating entire layers group...")
+
+            # Find the scroll area and panel layout
+            scroll_area = None
+            panel_layout = None
+
+            if hasattr(self, 'control_panel') and self.control_panel:
+                # Find parent scroll area
+                parent = self.control_panel.parent()
+                while parent and not isinstance(parent, QScrollArea):
+                    parent = parent.parent()
+                scroll_area = parent
+                panel_layout = self.control_panel.layout()
+
+            if not panel_layout:
+                logging.error("[MECHANISM TAB] Could not find panel layout for force recreation")
+                return
+
+            # Create new layers group exactly like in _setup_ui
+            layers_group = QGroupBox("1 Parts for Mechanisms")
+            layers_group.setStyleSheet("""
+                QGroupBox {
+                    background-color: #ffffff;
+                    border: 1px solid #e3e9f0;
+                    border-radius: 9px;
+                    padding: 18px;
+                    margin-top: 15px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    subcontrol-position: top left;
+                    padding: 0 10px;
+                    margin-left: 15px;
+                    font-size: 12pt;
+                    font-weight: bold;
+                    color: #5c85d6;
+                    background-color: #ffffff;
+                }
+            """)
+            layers_layout = QVBoxLayout(layers_group)
+
+            # Create the list widget
+            self.mechanism_layers_list = QListWidget()
+            self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
+            self.mechanism_layers_list.setMinimumHeight(180)
+            self.mechanism_layers_list.setStyleSheet("""
+                QListWidget {
+                    background-color: #ffffff;
+                    border: 1px solid #e3e9f0;
+                    border-radius: 6px;
+                    padding: 8px;
+                    font-size: 13px;
+                    selection-background-color: #e8f4fd;
+                    selection-color: #004578;
+                }
+                QListWidget::item {
+                    padding: 6px 8px;
+                    border-radius: 4px;
+                    margin: 2px 0;
+                    border: 1px solid transparent;
+                }
+                QListWidget::item:selected {
+                    background-color: #e8f4fd;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:hover {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                }
+            """)
+
+            # Add to layout
+            layers_layout.addWidget(self.mechanism_layers_list)
+
+            # Insert at the beginning of panel layout (position 0)
+            panel_layout.insertWidget(0, layers_group)
+
+            # Reconnect signals
+            self.mechanism_layers_list.itemClicked.connect(self._on_layers_list_item_clicked)
+
+            logging.error("[MECHANISM TAB] Successfully force recreated layers group and widget")
+
+        except Exception as e:
+            logging.error(f"[MECHANISM TAB] Failed to force recreate layers group: {e}")
+            # Don't set to None - let the update method handle widget creation
+
+    def _emergency_rebuild_ui(self):
+        """Emergency method to rebuild just the control panel when widgets are destroyed."""
+        try:
+            logging.error("[MECHANISM TAB] Emergency UI rebuild started...")
+
+            # Instead of full rebuild, just recreate the control panel part
+            # This is much safer and won't affect views
+            self._rebuild_control_panel_only()
+
+            logging.error("[MECHANISM TAB] Emergency UI rebuild completed successfully")
+
+        except Exception as e:
+            logging.error(f"[MECHANISM TAB] Emergency UI rebuild failed: {e}")
+            # Last resort: create minimal working UI
+            self._create_minimal_ui()
+
+    def _rebuild_control_panel_only(self):
+        """Rebuild only the control panel, keeping views intact."""
+        try:
+            # Find the main layout
+            main_layout = self.layout()
+            if not main_layout or main_layout.count() == 0:
+                logging.error("[MECHANISM TAB] No main layout found for control panel rebuild")
+                return
+
+            # Create new control panel exactly like in _setup_ui
+            scroll_area = QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setFixedWidth(300)
+            scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+            control_panel = QWidget()
+            self.control_panel = control_panel
+            panel_layout = QVBoxLayout(control_panel)
+            panel_layout.setContentsMargins(10, 10, 10, 10)
+            panel_layout.setSpacing(15)
+
+            # Create layers group
+            layers_group = QGroupBox("1 Parts for Mechanisms")
+            layers_group.setStyleSheet("""
+                QGroupBox {
+                    background-color: #ffffff;
+                    border: 1px solid #e3e9f0;
+                    border-radius: 9px;
+                    padding: 18px;
+                    margin-top: 15px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    subcontrol-position: top left;
+                    padding: 0 10px;
+                    margin-left: 15px;
+                    font-size: 12pt;
+                    font-weight: bold;
+                    color: #5c85d6;
+                    background-color: #ffffff;
+                }
+            """)
+            layers_layout = QVBoxLayout(layers_group)
+
+            # Create the list widget
+            self.mechanism_layers_list = QListWidget()
+            self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
+            self.mechanism_layers_list.setMinimumHeight(180)
+            self.mechanism_layers_list.setStyleSheet("""
+                QListWidget {
+                    background-color: #ffffff;
+                    border: 1px solid #e3e9f0;
+                    border-radius: 6px;
+                    padding: 8px;
+                    font-size: 13px;
+                    selection-background-color: #e8f4fd;
+                    selection-color: #004578;
+                }
+                QListWidget::item {
+                    padding: 6px 8px;
+                    border-radius: 4px;
+                    margin: 2px 0;
+                    border: 1px solid transparent;
+                }
+                QListWidget::item:selected {
+                    background-color: #e8f4fd;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:hover {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                }
+            """)
+
+            layers_layout.addWidget(self.mechanism_layers_list)
+            panel_layout.addWidget(layers_group)
+
+            control_panel.setMinimumWidth(280)
+            scroll_area.setWidget(control_panel)
+
+            # Insert at position 0 (left side)
+            main_layout.insertWidget(0, scroll_area)
+
+            # Reconnect signals
+            if hasattr(self, '_on_layers_list_item_clicked'):
+                self.mechanism_layers_list.itemClicked.connect(self._on_layers_list_item_clicked)
+
+        except Exception as e:
+            logging.error(f"[MECHANISM TAB] Control panel rebuild failed: {e}")
+            raise
+
+    def _create_minimal_ui(self):
+        """Create absolute minimal UI when everything else fails."""
+        try:
+            logging.error("[MECHANISM TAB] Creating minimal UI as last resort...")
+
+            # Create simple layout
+            main_layout = QHBoxLayout(self)
+
+            # Create just the essential list widget
+            self.mechanism_layers_list = QListWidget()
+            self.mechanism_layers_list.setToolTip("Parts for mechanisms")
+            self.mechanism_layers_list.setMinimumHeight(180)
+
+            # Add to layout
+            main_layout.addWidget(self.mechanism_layers_list)
+
+            # Reconnect essential signals
+            if hasattr(self, '_on_layers_list_item_clicked'):
+                self.mechanism_layers_list.itemClicked.connect(self._on_layers_list_item_clicked)
+
+            logging.error("[MECHANISM TAB] Minimal UI created successfully")
+
+        except Exception as e:
+            logging.error(f"[MECHANISM TAB] Even minimal UI creation failed: {e}")
+            # Don't set to None - widget will be created on next update call
 
     def _part_has_mechanism(self, part_name: str) -> bool:
         """Check if a part has any mechanism assigned to it."""
@@ -3374,14 +3739,8 @@ class MechanismDesignTab(QWidget):
 
         self.prepare_tab_activation()
 
-        # Ensure parts_data synchronization like editor tab
-        if not self.parts_data and hasattr(self.main_window, 'project_data_manager'):
-            current_parts_data = self.main_window.project_data_manager.get_current_parts_data()
-            if current_parts_data:
-                self.set_parts_data(current_parts_data)
-                return  # set_parts_data already calls _update_mechanism_layers_list
-
-        # Update layers list like editor tab does
+        # Data synchronization is now handled by MainWindow before activate_tab is called
+        # Just update the layers list with current data
         self._update_mechanism_layers_list()
 
     def showEvent(self, event):
@@ -3581,8 +3940,10 @@ class MechanismDesignTab(QWidget):
 
         if is_selection_valid:
             part_name = selected_items[0].data(Qt.ItemDataRole.UserRole)
-            logging.debug(f"Selected part: {part_name}")
+            self.selected_part_name = part_name  # CRITICAL: Set selected part for mechanism operations
+            logging.info(f"[MECHANISM TAB] Selected part for mechanism: {part_name}")
         else:
+            self.selected_part_name = None  # Clear selection
             logging.debug("No part selected")
 
     def _on_layer_item_clicked(self, item):

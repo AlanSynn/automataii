@@ -411,16 +411,29 @@ class AutomataDesigner(QMainWindow):
         if previous_tab in tabs_with_shared_view:
             view = getattr(previous_tab, 'editor_view', None) or getattr(previous_tab, 'mechanism_view', None)
             if view:
-                self.shared_camera_state = view.get_camera_state()
-                logging.info(f"Saved camera state from {previous_tab.__class__.__name__}")
+                try:
+                    # CRITICAL: Check if view is still valid before using it
+                    _ = view.scene()  # This will raise RuntimeError if view was deleted
+                    self.shared_camera_state = view.get_camera_state()
+                    logging.info(f"Saved camera state from {previous_tab.__class__.__name__}")
+                except RuntimeError as e:
+                    logging.error(f"View was deleted by Qt, cannot save camera state: {e}")
+                    # Don't update shared_camera_state if we can't read from the view
 
         # Apply camera state if entering a shared-view tab
         if current_tab in tabs_with_shared_view and self.shared_camera_state:
             view = getattr(current_tab, 'editor_view', None) or getattr(current_tab, 'mechanism_view', None)
             if view:
-                view.set_camera_state(self.shared_camera_state)
-                logging.info(f"Applied camera state to {current_tab.__class__.__name__}")
-                camera_state_applied = True
+                try:
+                    # CRITICAL: Check if view is still valid before using it
+                    _ = view.scene()  # This will raise RuntimeError if view was deleted
+                    view.set_camera_state(self.shared_camera_state)
+                    logging.info(f"Applied camera state to {current_tab.__class__.__name__}")
+                    camera_state_applied = True
+                except RuntimeError as e:
+                    logging.error(f"View was deleted by Qt, cannot apply camera state: {e}")
+                    # Clear the invalid shared camera state to prevent future errors
+                    self.shared_camera_state = None
 
         # --- Tab-specific actions ---
         if hasattr(current_tab, "tab_name"):
@@ -440,12 +453,9 @@ class AutomataDesigner(QMainWindow):
                 elif hasattr(current_tab.image_proc_view, 'fit_in_view'):
                     current_tab.image_proc_view.fit_in_view()
 
-        # Data synchronization for mechanism tab
+        # Data synchronization for mechanism tab - now uses editor data directly
         if current_tab == self.mechanism_design_tab:
-            current_parts_data = self.project_data_manager.get_current_parts_data()
-            if current_parts_data and not self.mechanism_design_tab.parts_data:
-                self.mechanism_design_tab.set_parts_data(current_parts_data)
-                logging.info("MechanismDesignTab: Synchronized parts data on tab switch")
+            logging.info("MechanismDesignTab: Now uses editor tab data directly - no sync needed")
 
         # Call activate_tab on the current tab if it has the method
         if current_tab and hasattr(current_tab, 'activate_tab'):
