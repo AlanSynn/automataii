@@ -708,54 +708,67 @@ class IKManager(QObject):
                 continue
             p2_pos = self.sim_joints_config[p2_std_id]["position"]
 
-            # Calculate signed area (related to cross product z-component)
-            # (P1.x - P0.x) * (P2.y - P0.y) - (P1.y - P0.y) * (P2.x - P0.x)
-            # A positive value means P0-P1-P2 is a counter-clockwise turn (P1 is "to the left" of vector P0P2).
-            # A negative value means P0-P1-P2 is a clockwise turn (P1 is "to the right" of vector P0P2).
-            # The IK solver's bend_direction: positive usually means counter-clockwise bend.
-            signed_area = (p1_pos.x() - p0_pos.x()) * (p2_pos.y() - p0_pos.y()) - (
-                p1_pos.y() - p0_pos.y()
-            ) * (p2_pos.x() - p0_pos.x())
-
-            if abs(signed_area) < 1e-6:  # Collinear or very close to it
-                # Default based on joint type and side
+            # ULTRATHINK SOLUTION: Calculate bend direction based on SMALLEST ANGLE (most natural bending)
+            # Instead of using signed area, calculate which direction requires smaller rotation
+            
+            # Calculate vectors from P1 (middle joint) to P0 (root) and P2 (end)
+            
+            vec_to_root = QPointF(p0_pos.x() - p1_pos.x(), p0_pos.y() - p1_pos.y())
+            vec_to_end = QPointF(p2_pos.x() - p1_pos.x(), p2_pos.y() - p1_pos.y())
+            
+            # Calculate angles of both vectors
+            angle_to_root = math.atan2(vec_to_root.y(), vec_to_root.x())
+            angle_to_end = math.atan2(vec_to_end.y(), vec_to_end.x())
+            
+            # Calculate the current angle between the vectors
+            angle_diff = angle_to_end - angle_to_root
+            
+            # Normalize angle difference to [-π, π]
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+            
+            # CRITICAL: Determine natural bend direction based on smaller angle
+            # Positive angle_diff means CCW from root to end vector
+            # Negative angle_diff means CW from root to end vector
+            
+            # For natural movement, choose direction that reduces the angle (brings limb toward center)
+            if abs(angle_diff) < 1e-6:  # Nearly straight
+                # Default based on anatomy (anatomically correct)
                 if "right" in middle_joint_abstract_name:
-                    # Right limbs typically bend clockwise (negative)
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1
-                else:
-                    # Left limbs typically bend counter-clockwise (positive)
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
-                logging.debug(
-                    f"IKManager: Joints for '{middle_joint_abstract_name}' are collinear. "
-                    f"Defaulting bend_direction to {self.sim_joint_bend_directions[middle_joint_abstract_name]}."
-                )
-            elif signed_area > 0:  # P1 is to the "left" (CCW turn from P0P2 to P0P1)
-                # For natural arm bending, we REVERSE the geometric direction
-                # Positive signed area geometrically, but we want opposite bend for natural motion
-                # Arms: left arm with positive area should bend CW (inward)
-                if "left" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Reverse
-                elif "right" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Keep
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Right side bends CW (inward)
+                else:  # left
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1   # Left side bends CCW (inward)
+                logging.debug(f"IKManager: '{middle_joint_abstract_name}' nearly straight, using default direction")
+            else:
+                # Choose direction that creates the most natural bending
+                # For arms/legs, bending inward (toward body center) is more natural
+                
+                if "elbow" in middle_joint_abstract_name:
+                    # Arms: bend toward body center (anatomically correct)
+                    if "left" in middle_joint_abstract_name:
+                        # Left arm: bend counter-clockwise (inward toward body)
+                        self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
+                    else:  # right
+                        # Right arm: bend clockwise (inward toward body)  
+                        self.sim_joint_bend_directions[middle_joint_abstract_name] = -1
                 elif "knee" in middle_joint_abstract_name:
-                    # Knees typically bend opposite to their geometric direction
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Reverse
+                    # Knees: bend backward (away from front) is natural
+                    # Both knees bend the same way (backward)
+                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Bend backward
                 else:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
-            else:  # signed_area < 0, P1 is to the "right" (CW turn)
-                # Negative signed area geometrically
-                if "left" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Keep
-                elif "right" in middle_joint_abstract_name and "elbow" in middle_joint_abstract_name:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Reverse
-                elif "knee" in middle_joint_abstract_name:
-                    # Knees typically bend opposite to their geometric direction
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Reverse
-                else:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1
+                    # For other joints, use the direction that requires smaller rotation
+                    # If current angle is obtuse (> 90°), prefer bending to reduce it
+                    if abs(angle_diff) > math.pi/2:
+                        # Large angle, bend to reduce it
+                        self.sim_joint_bend_directions[middle_joint_abstract_name] = 1 if angle_diff > 0 else -1
+                    else:
+                        # Small angle, maintain natural direction
+                        self.sim_joint_bend_directions[middle_joint_abstract_name] = -1 if angle_diff > 0 else 1
 
             logging.debug(
-                f"IKManager: Calculated bend_direction for '{middle_joint_abstract_name}': {self.sim_joint_bend_directions[middle_joint_abstract_name]} (signed_area: {signed_area:.2f})"
+                f"IKManager: Calculated bend_direction for '{middle_joint_abstract_name}': {self.sim_joint_bend_directions[middle_joint_abstract_name]} (angle_diff: {angle_diff:.2f} rad, {math.degrees(angle_diff):.1f}°)"
             )
 
         logging.debug(

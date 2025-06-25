@@ -1293,11 +1293,16 @@ class AutomataDesigner(QMainWindow):
         if self.editor_tab:
             self.editor_tab.handle_ik_update(part_transforms)
 
-        # CRITICAL FIX: Also send IK updates to mechanism design tab
-        if self.mechanism_design_tab and hasattr(self.mechanism_design_tab, 'handle_ik_update'):
+        # CRITICAL FIX: Send IK updates to mechanism design tab with safety checks
+        if (self.mechanism_design_tab and
+            hasattr(self.mechanism_design_tab, 'handle_ik_update') and
+            self.mechanism_design_tab.isVisible() and
+            hasattr(self.mechanism_design_tab, '_tab_active') and
+            self.mechanism_design_tab._tab_active):
             self.mechanism_design_tab.handle_ik_update(part_transforms)
         elif self.mechanism_design_tab:
-            logging.warning("MainWindow: MechanismDesignTab exists but does not have handle_ik_update method")
+            # Tab exists but is not active - this is normal during tab switching
+            pass
 
     def _handle_option_change(self, setting_name: str, value: Any):
         """Handles generic setting changes from the OptionsTab."""

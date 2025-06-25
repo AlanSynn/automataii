@@ -273,16 +273,33 @@ class EnhancedMechanismProcessor:
         try:
             mechanism_type = mech_data.get('type', 'unknown')  # Fixed: GUI uses 'type' not 'mechanism_type'
             
-            # Get standard size for mechanism type
-            standard_size = self.standard_mechanism_sizes.get(
-                mechanism_type, 
-                {'width': 60, 'height': 60}  # Default size
-            )
-            
-            # Apply any custom scaling from mechanism data
-            scale = mech_data.get('scale', 1.0)
-            actual_width = standard_size['width'] * scale
-            actual_height = standard_size['height'] * scale
+            # CRITICAL: Use real-world scaling if available from screen calculations
+            if 'real_world_params' in mech_data and 'total_scale_factor' in mech_data:
+                # Use actual screen-to-blueprint scaling
+                real_world_params = mech_data['real_world_params']
+                scale_factor = mech_data['total_scale_factor']
+                
+                # Calculate actual mechanism dimensions from real parameters
+                actual_width, actual_height = self._calculate_mechanism_dimensions_from_params(
+                    real_world_params, mechanism_type
+                )
+                
+                self.logger.info(f"Using screen-calculated dimensions for {mech_id}: "
+                               f"{actual_width:.1f}x{actual_height:.1f}mm (scale: {scale_factor:.3f})")
+            else:
+                # Fallback to standard sizes
+                standard_size = self.standard_mechanism_sizes.get(
+                    mechanism_type, 
+                    {'width': 60, 'height': 60}  # Default size
+                )
+                
+                # Apply any custom scaling from mechanism data
+                scale = mech_data.get('scale', 1.0)
+                actual_width = standard_size['width'] * scale
+                actual_height = standard_size['height'] * scale
+                
+                self.logger.debug(f"Using standard dimensions for {mech_id}: "
+                                f"{actual_width:.1f}x{actual_height:.1f}mm")
             
             # Create scaled bounds
             bounds = ScaledBounds(
@@ -292,7 +309,7 @@ class EnhancedMechanismProcessor:
                 height=actual_height
             )
             
-            # Generate mechanism SVG content
+            # Generate mechanism SVG content with enhanced scaling information
             svg_content = self._generate_mechanism_svg(mech_id, mech_data, bounds)
             
             # Create layout item
@@ -310,6 +327,68 @@ class EnhancedMechanismProcessor:
         except Exception as e:
             self.logger.error(f"Error processing mechanism {mech_id}: {e}")
             return None
+    
+    def _calculate_mechanism_dimensions_from_params(self, real_world_params: Dict[str, Any], mechanism_type: str) -> Tuple[float, float]:
+        """
+        Calculate mechanism bounding box dimensions from real-world parameters.
+        
+        Args:
+            real_world_params: Real-world mechanism parameters in millimeters
+            mechanism_type: Type of mechanism
+            
+        Returns:
+            Tuple of (width_mm, height_mm)
+        """
+        try:
+            if mechanism_type == "4_bar_linkage":
+                # For 4-bar linkage, use the maximum link lengths to estimate bounds
+                l1 = real_world_params.get('l1_mm', 50.0)
+                l2 = real_world_params.get('l2_mm', 30.0)
+                l3 = real_world_params.get('l3_mm', 40.0)
+                l4 = real_world_params.get('l4_mm', 35.0)
+                
+                # Estimate bounding box as maximum reach of the linkage
+                max_width = l1 + max(l2, l3, l4) * 1.2  # Add some padding
+                max_height = max(l2, l3, l4) * 1.5  # Allow for vertical movement
+                
+                return max_width, max_height
+                
+            elif mechanism_type == "cam":
+                # For cam, use base radius and eccentricity
+                base_radius = real_world_params.get('base_radius_mm', 25.0)
+                eccentricity = real_world_params.get('eccentricity_mm', 5.0)
+                
+                # Cam bounding box includes rotation and follower movement
+                width = (base_radius + eccentricity) * 2.5  # Include follower space
+                height = (base_radius + eccentricity) * 2.2  # Vertical movement space
+                
+                return width, height
+                
+            elif mechanism_type in ["gear", "planetary_gear"]:
+                # For gears, use the larger of the gear radii
+                max_radius = 0
+                for param_name in ['r1_mm', 'r2_mm', 'r_sun_mm', 'r_planet_mm']:
+                    if param_name in real_world_params:
+                        max_radius = max(max_radius, real_world_params[param_name])
+                
+                if max_radius == 0:
+                    max_radius = 30.0  # Default
+                
+                # Add space for gear mesh and rotation
+                width = max_radius * 3.0  # Allow for two gears side by side
+                height = max_radius * 2.2  # Vertical clearance
+                
+                return width, height
+                
+            else:
+                # Default dimensions for unknown mechanism types
+                scale_factor = real_world_params.get('scale_factor_used', 1.0)
+                return 60.0 * scale_factor, 60.0 * scale_factor
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating mechanism dimensions: {e}")
+            # Return reasonable defaults
+            return 80.0, 60.0
     
     def _generate_mechanism_svg(self, mech_id: str, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
         """Generate SVG content for mechanism with enhanced support for all types"""
@@ -358,10 +437,16 @@ class EnhancedMechanismProcessor:
         text_height = 60  # Reserve space for labels
         total_bounds_height = bounds.height + text_height
         
-        # Wrap in positioned group with anti-overlap labeling
+        # Generate real-world parameter annotations
+        param_annotations = self._generate_parameter_annotations(mech_data, bounds)
+        
+        # Calculate mechanism name for display
+        mechanism_name = mech_data.get('part_name', mech_id)
+        
+        # Wrap in positioned group with anti-overlap labeling and scale information
         positioned_svg = f'''
         <g class="mechanism-{mechanism_type}" data-id="{mech_id}">
-            <title>{mech_id} ({mechanism_type})</title>
+            <title>{mech_id} ({mechanism_type}) - Screen-Scaled Blueprint</title>
             
             <!-- Mechanism background for visibility with text space -->
             <rect x="-5" y="-5" width="{bounds.width + 10:.1f}" height="{total_bounds_height + 10:.1f}" 
@@ -386,16 +471,106 @@ class EnhancedMechanismProcessor:
                     Type: {mechanism_type.replace('_', '-').title()}
                 </text>
                 
-                <!-- Mechanism ID for assembly reference -->
+                <!-- Real-world dimensions from screen scaling -->
                 <text x="{bounds.width/2:.1f}" y="{bounds.height + 56:.1f}" 
+                      class="dimension-text" text-anchor="middle" font-size="7" fill="#666">
+                    Size: {bounds.width:.0f}×{bounds.height:.0f}mm (Screen-Scaled)
+                </text>
+                
+                <!-- Mechanism ID for assembly reference -->
+                <text x="{bounds.width/2:.1f}" y="{bounds.height + 70:.1f}" 
                       class="dimension-text" text-anchor="middle" font-size="7" fill="#666">
                     ID: {mech_id}
                 </text>
             </g>
+            
+            <!-- Real-world parameter annotations -->
+            {param_annotations}
         </g>
         '''
         
         return positioned_svg
+    
+    def _generate_parameter_annotations(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+        """
+        Generate parameter annotations for real-world mechanism dimensions.
+        
+        Args:
+            mech_data: Mechanism data with real_world_params
+            bounds: Mechanism bounds for positioning
+            
+        Returns:
+            SVG string with parameter annotations
+        """
+        annotations = []
+        
+        try:
+            real_world_params = mech_data.get('real_world_params', {})
+            mechanism_type = mech_data.get('type', 'unknown')
+            
+            if not real_world_params:
+                return ""
+            
+            # Position annotations to the right of the mechanism
+            annotation_x = bounds.width + 15
+            annotation_y_start = 20
+            line_height = 12
+            
+            annotations.append('<g class="parameter-annotations">')
+            annotations.append(f'<text x="{annotation_x}" y="{annotation_y_start}" '
+                             f'class="parameter-header" font-size="8" font-weight="bold" fill="#333">'
+                             f'Real-World Dimensions:</text>')
+            
+            y_offset = annotation_y_start + line_height
+            
+            # Add mechanism-specific parameter annotations
+            if mechanism_type == "4_bar_linkage":
+                link_params = ['l1_mm', 'l2_mm', 'l3_mm', 'l4_mm']
+                for i, param in enumerate(link_params):
+                    if param in real_world_params:
+                        value = real_world_params[param]
+                        link_name = param.replace('_mm', '').upper()
+                        annotations.append(f'<text x="{annotation_x}" y="{y_offset}" '
+                                         f'class="parameter-text" font-size="7" fill="#666">'
+                                         f'{link_name}: {value:.1f}mm</text>')
+                        y_offset += line_height
+                        
+            elif mechanism_type == "cam":
+                cam_params = ['base_radius_mm', 'eccentricity_mm']
+                for param in cam_params:
+                    if param in real_world_params:
+                        value = real_world_params[param]
+                        param_name = param.replace('_mm', '').replace('_', ' ').title()
+                        annotations.append(f'<text x="{annotation_x}" y="{y_offset}" '
+                                         f'class="parameter-text" font-size="7" fill="#666">'
+                                         f'{param_name}: {value:.1f}mm</text>')
+                        y_offset += line_height
+                        
+            elif mechanism_type in ["gear", "planetary_gear"]:
+                gear_params = ['r1_mm', 'r2_mm', 'r_sun_mm', 'r_planet_mm', 'arm_length_mm']
+                for param in gear_params:
+                    if param in real_world_params:
+                        value = real_world_params[param]
+                        param_name = param.replace('_mm', '').replace('_', ' ').title()
+                        annotations.append(f'<text x="{annotation_x}" y="{y_offset}" '
+                                         f'class="parameter-text" font-size="7" fill="#666">'
+                                         f'{param_name}: {value:.1f}mm</text>')
+                        y_offset += line_height
+            
+            # Add scale factor information
+            if 'scale_factor_used' in real_world_params:
+                scale_factor = real_world_params['scale_factor_used']
+                annotations.append(f'<text x="{annotation_x}" y="{y_offset + 5}" '
+                                 f'class="scale-info" font-size="6" fill="#999" font-style="italic">'
+                                 f'Scale Factor: {scale_factor:.3f}</text>')
+            
+            annotations.append('</g>')
+            
+        except Exception as e:
+            # Return empty string if annotation generation fails
+            return ""
+            
+        return '\n'.join(annotations)
     
     def _generate_standard_mechanism_svg(self, mech_id: str, mechanism_type: str, bounds: ScaledBounds) -> str:
         """Generate standard mechanism representation"""

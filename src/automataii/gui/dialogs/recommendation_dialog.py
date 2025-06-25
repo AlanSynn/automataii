@@ -112,7 +112,7 @@ def calculate_hausdorff_distance(
 
 
 def align_and_compare_paths(
-    path1_points: np.ndarray, path2_points: np.ndarray, rotation_steps: int = 72, 
+    path1_points: np.ndarray, path2_points: np.ndarray, rotation_steps: int = 72,
     mechanism_type: str = ""
 ) -> tuple[float, np.ndarray | None, np.ndarray | None, dict | None]:
     """
@@ -155,7 +155,7 @@ def align_and_compare_paths(
     min_distance = float("inf")
     best_rotated_path2 = None
     best_angle = 0
-    
+
     # Cam-followers should not be rotated - they have inherent directional motion
     if "cam" in mechanism_type.lower() or "follower" in mechanism_type.lower():
         # For cam-followers, only test original orientation (follower moves vertically up)
@@ -369,7 +369,7 @@ class MechanismPreviewWidget(QGraphicsView):
         cam_path = QPainterPath()
         for i in range(101):
             theta = 2 * np.pi * i / 100
-            
+
             # Egg shape: vary radius based on angle for more realistic cam profile
             if theta <= np.pi:
                 # Top half: smaller radius (narrow part of egg)
@@ -377,16 +377,16 @@ class MechanismPreviewWidget(QGraphicsView):
             else:
                 # Bottom half: larger radius (wide part of egg)
                 radius_factor = 1.0 + 0.4 * (1 + np.cos(theta))
-            
+
             effective_radius = base_radius * radius_factor * 0.6  # Scale down for proper cam size
-            
+
             p_orig = cam_center + effective_radius * np.array([np.cos(theta), np.sin(theta)])
             p_screen = to_screen_coords(p_orig)
-            if i == 0: 
+            if i == 0:
                 cam_path.moveTo(p_screen)
-            else: 
+            else:
                 cam_path.lineTo(p_screen)
-        
+
         self.scene.addPath(cam_path, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
 
         # Follower positioned according to dataset relationship: follower_y = cam_center[1] + base_radius
@@ -834,8 +834,11 @@ class MechanismRecommendationDialog(QDialog):
         """
         Finds the best mechanism from each type by comparing user path with JSON database.
         """
-        if self.user_motion_path_np is None or not self.generated_paths_data:
+        if self.user_motion_path_np is None:
             print("Error: User motion path is not processed or no generated paths loaded.")
+            return []
+        if not self.generated_paths_data:
+            print("Error: No generated paths loaded.")
             return []
 
         print(f"Debug: User path has {len(self.user_motion_path_np)} points")
@@ -870,7 +873,7 @@ class MechanismRecommendationDialog(QDialog):
                 user_path_aligned,
                 gen_path_aligned,
                 transform_params,
-            ) = align_and_compare_paths(self.user_motion_path_np, gen_path_np, 
+            ) = align_and_compare_paths(self.user_motion_path_np, gen_path_np,
                                       mechanism_type=json_type_str)
 
             if user_path_aligned is None or gen_path_aligned is None:

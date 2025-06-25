@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStyle,
     QVBoxLayout,
     QWidget,
@@ -139,6 +140,11 @@ class MechanismDesignTab(QWidget):
         self.animation_speed = 1.0  # radians per second
         self.animating_mechanisms = {}  # Store original positions for animation
 
+        # Tab state tracking for safe Qt object lifecycle management
+        self._tab_visible = False
+        self._tab_active = False  # Critical: Track if tab is active to prevent race conditions
+        self._scene_recently_cleared = False  # Track scene clear operations to prevent redundant cleanup
+
         # Mechanism path tracing
         self.mechanism_trace_paths: dict[str, QPainterPath] = {}  # Store traced paths
 
@@ -173,7 +179,7 @@ class MechanismDesignTab(QWidget):
             self._connect_parametric_signals()
 
         # Load generated paths
-        generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
+        generated_paths_file = resolve_path("src/automataii/kinematics/generated_mechanism_paths.json")
         # Initialize with empty QPainterPath since no user path is drawn yet
         empty_path = QPainterPath()
         self.recommendation_dialog = MechanismRecommendationDialog(empty_path, generated_paths_file, parent=self)
@@ -202,7 +208,7 @@ class MechanismDesignTab(QWidget):
         panel_layout.setContentsMargins(10, 10, 10, 10)
         panel_layout.setSpacing(15)
 
-        # 1. Parts for Mechanism Generation
+        # 1. Parts List Group - EXACT COPY from EditorTab
         layers_group = QGroupBox("1 Parts for Mechanisms")
         layers_group.setStyleSheet("""
             QGroupBox {
@@ -224,13 +230,9 @@ class MechanismDesignTab(QWidget):
             }
         """)
         layers_layout = QVBoxLayout(layers_group)
-
-        # Parts list with scrollable area
         self.mechanism_layers_list = QListWidget()
         self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
         self.mechanism_layers_list.setMinimumHeight(180)
-        self.mechanism_layers_list.setMaximumHeight(300)  # Set max height to ensure it's visible
-        logging.debug(f"[MECHANISM TAB] Created mechanism_layers_list widget: {self.mechanism_layers_list}")
         self.mechanism_layers_list.setStyleSheet("""
             QListWidget {
                 background-color: white;
@@ -251,21 +253,19 @@ class MechanismDesignTab(QWidget):
                 color: white;
                 border: 1px solid #004578;
             }
+            QListWidget::item:selected:!active {
+                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                    stop: 0 #0078D7, stop: 1 #005a9e);
+                color: white;
+                border: 1px solid #004578;
+            }
             QListWidget::item:hover {
                 background-color: #f8f9fa;
                 border: 1px solid #dee2e6;
             }
         """)
+        # Add widget to layout (Qt handles parent automatically)
         layers_layout.addWidget(self.mechanism_layers_list)
-
-        # Add initial placeholder item to show the list is working
-        placeholder_item = QListWidgetItem("Parts will appear here...")
-        placeholder_item.setForeground(QBrush(QColor(150, 150, 150)))
-        placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-        placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-        self.mechanism_layers_list.addItem(placeholder_item)
-        logging.debug("[MECHANISM TAB] Added initial placeholder to mechanism_layers_list")
-
         panel_layout.addWidget(layers_group)
 
         # 2. Mechanism Generation Group
@@ -883,10 +883,30 @@ class MechanismDesignTab(QWidget):
             logging.debug("Skeleton item already deleted by Qt, skipping removal")
             pass
 
-        # Clear the scene (this will delete all other items)
+        # CRITICAL: Clear data structures BEFORE clearing scene to prevent Qt object access errors
+        logging.debug("[MECHANISM TAB] Clearing data structures before Qt scene clear")
+
+        # 1. Clear all mechanism visual item references FIRST
+        for mechanism_id, layer_data in self.mechanism_layers.items():
+            if "visual_items" in layer_data:
+                layer_data["visual_items"] = []
+                logging.debug(f"Cleared visual items for mechanism {mechanism_id}")
+
+        # 2. Clear other visual tracking structures
+        self.mechanism_trace_items.clear()
+        if hasattr(self, 'path_visual_items'):
+            self.path_visual_items.clear()
+
+        # 3. NOW clear the scene (this will delete all Qt objects atomically)
+        logging.debug("[MECHANISM TAB] Performing Qt scene clear")
+        self._scene_recently_cleared = True  # Flag to prevent individual item removal
         self.mechanism_scene.clear()
 
-        # Re-add skeleton item if it was preserved
+        # Reset the flag after a short delay to allow normal operations
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, lambda: setattr(self, '_scene_recently_cleared', False))
+
+        # 4. Re-add skeleton item if it was preserved
         if skeleton_item:
             try:
                 # Test if skeleton item is still valid
@@ -894,10 +914,12 @@ class MechanismDesignTab(QWidget):
                 self.mechanism_scene.addItem(skeleton_item)
                 # Set proper Z-order: skeleton at bottom (Z=0)
                 skeleton_item.setZValue(Z_SKELETON_OVERLAY)
+                logging.debug("[MECHANISM TAB] Skeleton item preserved and re-added")
             except RuntimeError:
                 # Skeleton was already deleted, clear the reference
                 if hasattr(self.mechanism_view, 'skeleton_graphics_item'):
                     self.mechanism_view.skeleton_graphics_item = None
+                logging.debug("[MECHANISM TAB] Skeleton item was deleted during clear")
 
     def _get_target_joint_for_mechanism_control(self, part_name: str, anchor_joint_id: str) -> str:
         """Get the correct target joint (end effector) for mechanism control based on part name.
@@ -1654,7 +1676,7 @@ class MechanismDesignTab(QWidget):
             "full_simulation_data": candidate_data.get("full_simulation_data", {}),
             "reverse_direction": False,  # Can be set to True to reverse mechanism animation direction
         }
-        
+
         # Generate key_points from full_simulation_data if missing (critical for animation)
         if not layer_data.get("key_points") and layer_data.get("full_simulation_data"):
             layer_data["key_points"] = self._extract_key_points_from_simulation(
@@ -1676,7 +1698,7 @@ class MechanismDesignTab(QWidget):
             current_parts_data = self.main_window.project_data_manager.get_current_parts_data()
             if current_parts_data:
                 self.set_parts_data(current_parts_data)
-        
+
         # Update blueprint button state now that parts are available
         self._update_blueprint_button_state()
 
@@ -1821,7 +1843,7 @@ class MechanismDesignTab(QWidget):
         # Get transformation parameters from recommendation system
         transform_params = layer_data.get("transform_params")
         target_path = layer_data.get("generated_path")
-        
+
         if not transform_params or not target_path:
             # Fallback: simple centering
             scene_center = QPointF(400, 300)
@@ -1859,29 +1881,29 @@ class MechanismDesignTab(QWidget):
                 """
                 Apply the EXACT same transformation as recommendation system:
                 1. Center the point (subtract mechanism center)
-                2. Scale down to normalized space  
+                2. Scale down to normalized space
                 3. Apply rotation
                 4. Map to user path space
                 """
                 if p_orig is None or len(p_orig) != 2:
                     return QPointF(user_center[0], user_center[1])
-                
+
                 try:
                     # Apply same transformation as align_and_compare_paths
                     p_centered = p_orig - center                    # Center
-                    p_scaled = p_centered / scale                   # Scale to normalized space  
+                    p_scaled = p_centered / scale                   # Scale to normalized space
                     p_rotated = p_scaled @ rotation_matrix.T        # Apply rotation
 
                     # Transform from normalized space to user path space
                     final_point = p_rotated * user_scale + user_center
                     return QPointF(float(final_point[0]), float(final_point[1]))
-                    
+
                 except (ValueError, TypeError, IndexError, ZeroDivisionError):
                     # Robust fallback
                     return QPointF(user_center[0], user_center[1])
 
             return to_scene_coords
-            
+
         except (KeyError, ValueError, TypeError) as e:
             logging.warning(f"Error creating transform function: {e}")
             # Fallback: simple centering
@@ -1891,7 +1913,7 @@ class MechanismDesignTab(QWidget):
     def _extract_key_points_from_simulation(self, full_sim_data: dict, mechanism_type: str) -> dict:
         """Extract key_points from full_simulation_data to enable proper animation."""
         key_points = {}
-        
+
         try:
             if mechanism_type == "4_bar_linkage" and "joint_positions" in full_sim_data:
                 joint_pos = full_sim_data["joint_positions"]
@@ -1904,33 +1926,33 @@ class MechanismDesignTab(QWidget):
                     key_points["crank_end"] = joint_pos["p3_positions"][0]
                 if "p4_positions" in joint_pos and len(joint_pos["p4_positions"]) > 0:
                     key_points["rocker_end"] = joint_pos["p4_positions"][0]
-                    
+
             elif mechanism_type == "cam" and "cam_data" in full_sim_data:
                 cam_data = full_sim_data["cam_data"]
                 if "cam_centers" in cam_data and len(cam_data["cam_centers"]) > 0:
                     key_points["cam_center"] = cam_data["cam_centers"][0]
                 if "follower_y_positions" in cam_data and len(cam_data["follower_y_positions"]) > 0:
                     key_points["follower_position"] = [0, cam_data["follower_y_positions"][0]]
-                    
+
             elif mechanism_type in ["gear", "planetary_gear"] and "gear_positions" in full_sim_data:
                 gear_pos = full_sim_data["gear_positions"]
                 if "sun_centers" in gear_pos and len(gear_pos["sun_centers"]) > 0:
                     key_points["sun_center"] = gear_pos["sun_centers"][0]
                 if "planet_centers" in gear_pos and len(gear_pos["planet_centers"]) > 0:
                     key_points["planet_center"] = gear_pos["planet_centers"][0]
-                    
+
             elif mechanism_type == "simple_gear" and "gear_data" in full_sim_data:
                 gear_data = full_sim_data["gear_data"]
                 if "gear1_centers" in gear_data and len(gear_data["gear1_centers"]) > 0:
                     key_points["gear1_center"] = gear_data["gear1_centers"][0]
                 if "gear2_centers" in gear_data and len(gear_data["gear2_centers"]) > 0:
                     key_points["gear2_center"] = gear_data["gear2_centers"][0]
-                    
+
         except (KeyError, IndexError, TypeError) as e:
             logging.warning(f"Error extracting key_points for {mechanism_type}: {e}")
             # Fallback key points
             key_points = {"center": [0, 0], "reference": [50, 0]}
-            
+
         return key_points
 
     def _calculate_mechanism_output(self, mech_type: str, params: dict, time: float, layer_data: dict) -> QPointF | None:
@@ -2177,6 +2199,13 @@ class MechanismDesignTab(QWidget):
         Update animation frame by calculating mechanism outputs and setting them as targets for the IK system.
         The IK system is the single source of truth for skeleton and part animation.
         """
+        # CRITICAL: Prevent animation updates when tab is not active
+        if not hasattr(self, '_tab_active') or not self._tab_active:
+            logging.debug("[MECHANISM TAB] Stopping animation - tab is not active")
+            if hasattr(self, 'animation_timer') and self.animation_timer.isActive():
+                self.animation_timer.stop()
+            return
+
         dt = 0.05 * self.animation_speed
         self.animation_time += dt
         if self.animation_time > 2 * math.pi:
@@ -2376,7 +2405,7 @@ class MechanismDesignTab(QWidget):
                         """Y축을 뒤집어서 캠이 아래쪽에 오도록 함"""
                         p_flipped = np.array([p[0], -p[1]])
                         return to_scene_coords(p_flipped)
-                    
+
                     # Use EXACT same calculation as dataset generator
                     if cam_data and "cam_centers" in cam_data and "follower_y_positions" in cam_data:
                         cam_centers = cam_data["cam_centers"]
@@ -2402,7 +2431,7 @@ class MechanismDesignTab(QWidget):
                         cam_center_scene = to_scene_coords_flipped(current_cam_center)
                         cam_edge_scene = to_scene_coords_flipped(current_cam_center + np.array([base_radius, 0]))
                         cam_radius_screen = QLineF(cam_center_scene, cam_edge_scene).length()
-                        
+
                         visual_items[0].setRect(
                             cam_center_scene.x() - cam_radius_screen, cam_center_scene.y() - cam_radius_screen,
                             cam_radius_screen * 2, cam_radius_screen * 2
@@ -2413,11 +2442,11 @@ class MechanismDesignTab(QWidget):
                         follower_scene = to_scene_coords_flipped(follower_pos_orig)
                         follower_width, follower_height = 10, 20  # 데이터셋과 동일
                         visual_items[1].setRect(
-                            follower_scene.x() - follower_width/2, 
-                            follower_scene.y() - follower_height/2, 
+                            follower_scene.x() - follower_width/2,
+                            follower_scene.y() - follower_height/2,
                             follower_width, follower_height
                         )
-                    
+
                     # 캠 중심점 마커 업데이트 (visual_items[2])
                     if len(visual_items) >= 3 and isinstance(visual_items[2], QGraphicsEllipseItem):
                         cam_center_scene = to_scene_coords_flipped(current_cam_center)
@@ -2501,30 +2530,30 @@ class MechanismDesignTab(QWidget):
                 if to_scene_coords:
                     # Calculate normalized time for all planetary gear calculations
                     normalized_time = time / (2 * math.pi)
-                    
+
                     # Apply direction correction if needed
                     reverse_direction = layer_data.get("reverse_direction", False)
                     if reverse_direction:
                         normalized_time = 1.0 - normalized_time
-                    
+
                     # Use dataset planetary gear data if available
                     full_sim_data = layer_data.get("full_simulation_data", {})
                     gear_positions = full_sim_data.get("gear_positions", {})
-                    
+
                     if gear_positions and "planet_centers" in gear_positions:
                         # Use exact dataset positions
                         planet_centers = gear_positions.get("planet_centers", [])
                         sun_centers = gear_positions.get("sun_centers", [])
                         tracking_points = gear_positions.get("tracking_points", [])
-                        
+
                         if planet_centers and sun_centers and tracking_points:
                             # Calculate proper frame index for multi-revolution planetary motion
                             num_frames = len(planet_centers)
                             frame_index = int(normalized_time * (num_frames - 1))
                             frame_index = max(0, min(frame_index, num_frames - 1))
-                            
+
                             sun_center_orig = np.array(sun_centers[frame_index])
-                            planet_center_orig = np.array(planet_centers[frame_index]) 
+                            planet_center_orig = np.array(planet_centers[frame_index])
                             tracking_point_orig = np.array(tracking_points[frame_index])
                         else:
                             # Fallback to single revolution calculation
@@ -2538,7 +2567,7 @@ class MechanismDesignTab(QWidget):
                                 np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)
                             ])
                     else:
-                        # Fallback to single revolution calculation  
+                        # Fallback to single revolution calculation
                         planet_orbital_angle = time
                         planet_rotation_angle = -time * (r_sun / r_planet)
                         sun_center_orig = np.array([0, 0])
@@ -2559,7 +2588,7 @@ class MechanismDesignTab(QWidget):
                         planet_edge_orig = planet_center_orig + np.array([r_planet, 0])
                         planet_edge_scene = to_scene_coords(planet_edge_orig)
                         r_planet_screen = QLineF(planet_center_scene, planet_edge_scene).length()
-                        
+
                         # Use setRect instead of setPos to properly position the ellipse
                         visual_items[1].setRect(
                             planet_center_scene.x() - r_planet_screen,
@@ -2740,12 +2769,14 @@ class MechanismDesignTab(QWidget):
     def _update_mechanism_layers_list(self):
         """Update the mechanism layers list to show all parts with simple path-based coloring and toggle functionality."""
         if not self.mechanism_layers_list:
-            logging.warning("[MECHANISM TAB] mechanism_layers_list is None, skipping update")
-            return
+            logging.error("[MECHANISM TAB] WARNING: mechanism_layers_list is None! Attempting to recreate...")
+            self._recreate_layers_list_widget()
+            if not self.mechanism_layers_list:
+                logging.error("[MECHANISM TAB] CRITICAL: Failed to recreate mechanism_layers_list widget")
+                return
 
-        # Force clear and ensure widget is visible
+        # Simple clear like editor tab
         self.mechanism_layers_list.clear()
-        self.mechanism_layers_list.setVisible(True)
         logging.info(f"[MECHANISM TAB] Updating mechanism layers list with {len(self.parts_data) if self.parts_data else 0} parts")
 
         # Debug current state
@@ -2753,7 +2784,7 @@ class MechanismDesignTab(QWidget):
         if self.path_data:
             logging.info(f"[MECHANISM TAB] Parts with paths: {list(self.path_data.keys())}")
 
-        # Show all parts (like in editor tab) with same filtering rules
+        # Simple population like editor tab
         if self.parts_data:
             # Apply same filtering as editor tab for consistency
             disabled_parts = {
@@ -2784,60 +2815,89 @@ class MechanismDesignTab(QWidget):
                 item = QListWidgetItem(display_text)
                 item.setData(Qt.ItemDataRole.UserRole, part_name)  # Store part name
 
-                # Style based on part state - simplified like editor tab
+                # Color coding like editor tab
                 if has_path:
-                    # Part with path: black text (enabled) or dark gray (disabled)
                     if is_enabled:
-                        item.setForeground(QBrush(QColor(0, 0, 0)))  # Black text
-                        if has_mechanism:
-                            # Light orange background for parts with mechanisms
-                            item.setBackground(QBrush(QColor(255, 165, 0, 100)))
-                            item.setToolTip(f"{part_name} - Has mechanism (● enabled, click to toggle)")
-                        else:
-                            item.setBackground(QBrush(QColor(Qt.GlobalColor.transparent)))
-                            item.setToolTip(f"{part_name} - Has motion path (● enabled, click to toggle)")
+                        # Enabled part with path - normal black text
+                        item.setForeground(QBrush(QColor(0, 0, 0)))
+                        item.setToolTip(f"{part_name} - Has motion path (enabled)")
                     else:
-                        item.setForeground(QBrush(QColor(100, 100, 100)))  # Dark gray text
-                        item.setBackground(QBrush(QColor(Qt.GlobalColor.transparent)))
-                        item.setToolTip(f"{part_name} - Has motion path (○ disabled, click to toggle)")
-
-                    # Enable for parts with paths
+                        # Disabled part with path - gray text
+                        item.setForeground(QBrush(QColor(128, 128, 128)))
+                        item.setToolTip(f"{part_name} - Has motion path (disabled)")
                     item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
                 else:
-                    # Part without path: light gray text
-                    item.setForeground(QBrush(QColor(150, 150, 150)))  # Light gray text
-                    item.setBackground(QBrush(QColor(240, 240, 240)))  # Light gray background
-                    item.setToolTip(f"{part_name} - No motion path")
-                    # Disable selection for parts without paths
+                    # Part without path - gray text and disabled
+                    item.setForeground(QBrush(QColor(160, 160, 160)))
+                    item.setToolTip(f"{part_name} - No motion path defined")
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
 
                 # Add to list
                 self.mechanism_layers_list.addItem(item)
                 logging.info(f"[MECHANISM TAB] Added part {part_name} to list (has_path: {has_path}, enabled: {is_enabled})")
-        else:
-            # Show placeholder when no parts data is available
-            placeholder_item = QListWidgetItem("No parts loaded yet...")
-            placeholder_item.setForeground(QBrush(QColor(150, 150, 150)))
-            placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            placeholder_item.setFlags(placeholder_item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-            self.mechanism_layers_list.addItem(placeholder_item)
-            logging.info("[MECHANISM TAB] Added placeholder item to mechanism layers list")
-
-        # Force UI refresh and ensure visibility
-        self.mechanism_layers_list.update()
-        self.mechanism_layers_list.repaint()
-        if hasattr(self.mechanism_layers_list.parent(), 'update'):
-            self.mechanism_layers_list.parent().update()
 
         logging.info(f"[MECHANISM TAB] Mechanism layers list updated with {self.mechanism_layers_list.count()} items")
 
-        # Additional debugging for visibility issues
-        if self.mechanism_layers_list.count() == 0:
-            logging.warning("[MECHANISM TAB] WARNING: No items in mechanism layers list after update!")
-            logging.warning(f"[MECHANISM TAB] Parts data: {bool(self.parts_data)}")
-            logging.warning(f"[MECHANISM TAB] Widget visible: {self.mechanism_layers_list.isVisible()}")
-            logging.warning(f"[MECHANISM TAB] Widget size: {self.mechanism_layers_list.size()}")
+    def _recreate_layers_list_widget(self):
+        """Recreate the mechanism_layers_list widget if it was destroyed externally."""
+        try:
+            # Find the layers group and layout to re-add the widget
+            layers_group = None
+            layers_layout = None
+            
+            # Try to find existing layers group in the control panel
+            if hasattr(self, 'control_panel') and self.control_panel:
+                for child in self.control_panel.findChildren(QGroupBox):
+                    if child.title() == "1 Mechanism Layers":
+                        layers_group = child
+                        layers_layout = child.layout()
+                        break
+            
+            if not layers_group or not layers_layout:
+                logging.error("[MECHANISM TAB] Could not find layers group to recreate widget")
+                return
+                
+            # Create new widget with same configuration as original
+            self.mechanism_layers_list = QListWidget()
+            self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
+            self.mechanism_layers_list.setMinimumHeight(180)
+            self.mechanism_layers_list.setStyleSheet("""
+                QListWidget {
+                    background-color: #ffffff;
+                    border: 1px solid #e3e9f0;
+                    border-radius: 6px;
+                    padding: 8px;
+                    font-size: 13px;
+                    selection-background-color: #e8f4fd;
+                    selection-color: #004578;
+                }
+                QListWidget::item {
+                    padding: 6px 8px;
+                    border-radius: 4px;
+                    margin: 2px 0;
+                    border: 1px solid transparent;
+                }
+                QListWidget::item:selected {
+                    background-color: #e8f4fd;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:hover {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                }
+            """)
+            
+            # Add to layout
+            layers_layout.addWidget(self.mechanism_layers_list)
+            
+            # Reconnect signals
+            self.mechanism_layers_list.itemClicked.connect(self._on_layers_list_item_clicked)
+            
+            logging.info("[MECHANISM TAB] Successfully recreated mechanism_layers_list widget")
+            
+        except Exception as e:
+            logging.error(f"[MECHANISM TAB] Failed to recreate mechanism_layers_list: {e}")
+            self.mechanism_layers_list = None
 
     def _part_has_mechanism(self, part_name: str) -> bool:
         """Check if a part has any mechanism assigned to it."""
@@ -3092,14 +3152,7 @@ class MechanismDesignTab(QWidget):
 
         # Remove any existing visual items for this mechanism safely
         existing_visual_items = layer_data.get("visual_items", [])
-        for item in existing_visual_items:
-            try:
-                if item and hasattr(item, 'scene') and item.scene():
-                    self.mechanism_scene.removeItem(item)
-            except RuntimeError:
-                # Item was already deleted by Qt - ignore
-                logging.debug("Visual item already deleted by Qt, skipping removal")
-                pass
+        self._safe_remove_visual_items(existing_visual_items)
 
         visual_items = []
         if mechanism_type == "4_bar_linkage":
@@ -3116,11 +3169,258 @@ class MechanismDesignTab(QWidget):
         # Force scene update to ensure visuals are displayed
         self.mechanism_scene.update()
 
+    def _safe_remove_visual_items(self, visual_items: list):
+        """Safely remove visual items from scene, handling Qt object lifecycle issues."""
+        if not visual_items:
+            return
+
+        # CRITICAL: Don't attempt individual removal if scene was already cleared
+        # This prevents the "Visual item already deleted by Qt" flood
+        if hasattr(self, '_scene_recently_cleared') and self._scene_recently_cleared:
+            logging.debug(f"[MECHANISM TAB] Skipping individual item removal - scene was recently cleared ({len(visual_items)} items)")
+            return
+
+        valid_items_count = 0
+        deleted_items_count = 0
+
+        for item in visual_items:
+            if item is None:
+                continue
+
+            try:
+                # Quick validity check without accessing properties that might crash
+                if hasattr(item, 'scene'):
+                    scene = item.scene()
+
+                    # Only try to remove if item is actually in a scene
+                    if scene is not None:
+                        try:
+                            # Quick check if scene is still valid
+                            _ = scene.itemsBoundingRect()
+                            scene.removeItem(item)
+                            valid_items_count += 1
+                        except RuntimeError as e:
+                            if "wrapped C/C++ object" in str(e):
+                                deleted_items_count += 1
+                            else:
+                                logging.warning(f"Unexpected error removing visual item: {e}")
+
+            except RuntimeError as e:
+                if "wrapped C/C++ object" in str(e):
+                    deleted_items_count += 1
+                else:
+                    logging.warning(f"Unexpected RuntimeError with visual item: {e}")
+            except Exception as e:
+                logging.warning(f"Unexpected error checking visual item: {e}")
+
+        if deleted_items_count > 0:
+            logging.debug(f"[MECHANISM TAB] Visual item cleanup: {valid_items_count} removed, {deleted_items_count} already deleted by Qt")
+        elif valid_items_count > 0:
+            logging.debug(f"[MECHANISM TAB] Successfully removed {valid_items_count} visual items")
+
+    def cleanup_tab_resources(self):
+        """Clean up resources when switching away from mechanism tab."""
+        try:
+            logging.info("[MECHANISM TAB] Cleaning up tab resources for tab switch")
+
+            # CRITICAL: Stop IK manager animations to prevent race conditions
+            if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
+                try:
+                    self.main_window.ik_manager.stop_animation()
+                    logging.debug("Stopped IK manager animation to prevent race conditions")
+                except Exception as e:
+                    logging.warning(f"Error stopping IK animation: {e}")
+
+            # Stop any running mechanism animations
+            if hasattr(self, 'animation_timer') and self.animation_timer.isActive():
+                self.animation_timer.stop()
+                logging.debug("Stopped mechanism animation timer")
+
+            # CRITICAL: Clear data structures FIRST, then attempt safe Qt cleanup
+            logging.debug("[MECHANISM TAB] Clearing mechanism data structures during tab cleanup")
+
+            # 1. Store references to visual items before clearing data structures
+            all_visual_items = []
+            for mechanism_id, layer_data in self.mechanism_layers.items():
+                visual_items = layer_data.get("visual_items", [])
+                all_visual_items.extend(visual_items)
+                # Clear the visual items list FIRST
+                layer_data["visual_items"] = []
+                logging.debug(f"Cleared data structure for mechanism {mechanism_id}")
+
+            # 2. Clear other tracking structures
+            self.mechanism_trace_items.clear()
+            if hasattr(self, 'path_visual_items'):
+                self.path_visual_items.clear()
+
+            # 3. NOW attempt safe removal of Qt objects (many may already be deleted)
+            if all_visual_items:
+                self._safe_remove_visual_items(all_visual_items)
+                logging.debug(f"Attempted safe cleanup of {len(all_visual_items)} visual items")
+
+            # Clear scene if needed
+            if hasattr(self, 'mechanism_scene') and self.mechanism_scene:
+                try:
+                    # Don't clear the entire scene, just ensure it's stable
+                    self.mechanism_scene.update()
+                except Exception as e:
+                    logging.warning(f"Error updating scene during cleanup: {e}")
+
+            logging.info("[MECHANISM TAB] Tab resource cleanup completed")
+
+        except Exception as e:
+            logging.error(f"Error during tab resource cleanup: {e}")
+
+    def prepare_tab_activation(self):
+        """Prepare tab for activation when switching back to mechanism tab."""
+        try:
+            logging.info("[MECHANISM TAB] Preparing tab for activation")
+
+            # Ensure skeleton is properly initialized if we have cached data
+            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+                try:
+                    self._ensure_skeleton_visualization(self._initial_skeleton_data_cache)
+                    logging.debug("Skeleton visualization ensured for tab activation")
+                except Exception as e:
+                    logging.warning(f"Error ensuring skeleton visualization: {e}")
+
+            # Refresh mechanism visuals if any mechanisms are enabled
+            enabled_mechanisms = [mid for mid, enabled in self.mechanism_enabled_state.items() if enabled]
+            if enabled_mechanisms:
+                logging.debug(f"Refreshing visuals for {len(enabled_mechanisms)} enabled mechanisms")
+                for mechanism_id in enabled_mechanisms:
+                    layer_data = self.mechanism_layers.get(mechanism_id)
+                    if layer_data:
+                        try:
+                            # Only regenerate visuals if they don't exist or are invalid
+                            visual_items = layer_data.get("visual_items", [])
+                            needs_regeneration = not visual_items or any(
+                                item is None or self._is_visual_item_invalid(item)
+                                for item in visual_items
+                            )
+
+                            if needs_regeneration:
+                                mechanism_graphics_data = {
+                                    "mechanism_id": mechanism_id,
+                                    "mechanism_type": layer_data.get("type"),
+                                    **layer_data
+                                }
+                                self._generate_mechanism_visuals_directly(
+                                    mechanism_id,
+                                    layer_data.get("type"),
+                                    layer_data.get("params", {}),
+                                    layer_data
+                                )
+                                logging.debug(f"Regenerated visuals for mechanism {mechanism_id}")
+
+                            # CRITICAL FIX: Regenerate trace items (red paths) if missing or invalid
+                            trace_item = self.mechanism_trace_items.get(mechanism_id)
+                            trace_needs_regeneration = (
+                                trace_item is None or
+                                self._is_visual_item_invalid(trace_item)
+                            )
+
+                            if trace_needs_regeneration:
+                                logging.debug(f"Regenerating trace path for mechanism {mechanism_id}")
+                                self._init_mechanism_path_trace(mechanism_id)
+
+                                # Restore trace points if they exist in data
+                                if mechanism_id in self.mechanism_trace_points and self.mechanism_trace_points[mechanism_id]:
+                                    trace_points = self.mechanism_trace_points[mechanism_id]
+                                    if len(trace_points) > 1:
+                                        path = QPainterPath()
+                                        path.moveTo(trace_points[0])
+                                        for point in trace_points[1:]:
+                                            path.lineTo(point)
+                                        self.mechanism_trace_paths[mechanism_id] = path
+                                        self.mechanism_trace_items[mechanism_id].setPath(path)
+                                        logging.debug(f"Restored {len(trace_points)} trace points for mechanism {mechanism_id}")
+
+                        except Exception as e:
+                            logging.warning(f"Error refreshing mechanism {mechanism_id}: {e}")
+
+            logging.info("[MECHANISM TAB] Tab activation preparation completed")
+
+        except Exception as e:
+            logging.error(f"Error during tab activation preparation: {e}")
+
+    def _is_visual_item_invalid(self, item) -> bool:
+        """Check if a visual item is invalid (deleted by Qt)."""
+        try:
+            if item is None:
+                return True
+
+            # Try to access a simple property
+            _ = item.isVisible()
+            return False
+
+        except RuntimeError as e:
+            if "wrapped C/C++ object" in str(e):
+                return True
+            raise
+        except:
+            return True
+
+    def deactivate_tab(self):
+        """Called when user switches away from mechanism tab."""
+        self._tab_active = False  # CRITICAL: Stop IK race condition
+        logging.info("[MECHANISM TAB] Tab deactivating - cleaning up resources")
+        self.cleanup_tab_resources()
+
+    def activate_tab(self):
+        """Called when user switches to mechanism tab."""
+        self._tab_active = True  # CRITICAL: Allow IK updates
+        logging.info("[MECHANISM TAB] Tab activating - preparing resources")
+
+        self.prepare_tab_activation()
+
+        # Ensure parts_data synchronization like editor tab
+        if not self.parts_data and hasattr(self.main_window, 'project_data_manager'):
+            current_parts_data = self.main_window.project_data_manager.get_current_parts_data()
+            if current_parts_data:
+                self.set_parts_data(current_parts_data)
+                return  # set_parts_data already calls _update_mechanism_layers_list
+
+        # Update layers list like editor tab does
+        self._update_mechanism_layers_list()
+
+    def showEvent(self, event):
+        """Handle widget show event for additional safety."""
+        super().showEvent(event)
+        try:
+            # Additional activation logic if needed
+            if hasattr(self, '_tab_visible'):
+                self._tab_visible = True
+        except Exception as e:
+            logging.warning(f"Error in showEvent: {e}")
+
+    def hideEvent(self, event):
+        """Handle widget hide event for additional safety."""
+        super().hideEvent(event)
+        try:
+            # Additional deactivation logic if needed
+            if hasattr(self, '_tab_visible'):
+                self._tab_visible = False
+
+            # Emergency cleanup if normal deactivation didn't work
+            if hasattr(self, 'animation_timer') and self.animation_timer.isActive():
+                self.animation_timer.stop()
+                logging.debug("Emergency animation stop in hideEvent")
+        except Exception as e:
+            logging.warning(f"Error in hideEvent: {e}")
 
     def handle_ik_update(self, ik_results: dict[str, dict[str, Any]]):
         """Receives IK results and updates the MechanismView - SAME AS EDITOR TAB.
         This ensures natural skeleton movement in mechanism design tab.
         """
+        # CRITICAL: Prevent race condition crashes during tab switching
+        if not hasattr(self, '_tab_active') or not self._tab_active:
+            logging.debug("[MECHANISM TAB] Ignoring IK update - tab is not active")
+            return
+
+        if not self.isVisible():
+            logging.debug("[MECHANISM TAB] Ignoring IK update - tab is not visible")
+            return
 
         if not self.mechanism_view:
             logging.warning("MechanismDesignTab: MechanismView not available to handle IK update.")
@@ -3129,16 +3429,26 @@ class MechanismDesignTab(QWidget):
         if not ik_results:
             return
 
-        # Use the same method as EditorTab to ensure consistent skeleton movement
-        # The mechanism_view is an EditorView, so it has the same update_visuals_from_animation_data method
-        if hasattr(self.mechanism_view, 'update_visuals_from_animation_data'):
-            self.mechanism_view.update_visuals_from_animation_data(ik_results)
-        else:
-            logging.error("MechanismDesignTab: mechanism_view does not have update_visuals_from_animation_data method")
+        try:
+            # Use the same method as EditorTab to ensure consistent skeleton movement
+            # The mechanism_view is an EditorView, so it has the same update_visuals_from_animation_data method
+            if hasattr(self.mechanism_view, 'update_visuals_from_animation_data'):
+                self.mechanism_view.update_visuals_from_animation_data(ik_results)
+            else:
+                logging.error("MechanismDesignTab: mechanism_view does not have update_visuals_from_animation_data method")
 
-        # Update the scene to reflect changes
-        if self.mechanism_scene:
-            self.mechanism_scene.update()
+            # Update the scene to reflect changes - with safety checks
+            if self.mechanism_scene and hasattr(self, '_tab_active') and self._tab_active:
+                try:
+                    self.mechanism_scene.update()
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        logging.debug("Scene already deleted, ignoring update")
+                    else:
+                        raise
+
+        except Exception as e:
+            logging.warning(f"Error in handle_ik_update: {e}")
 
     def _generate_mechanism_visuals_directly(self, mechanism_id: str, mechanism_type: str, params: dict, layer_data: dict):
         """Generate mechanism visuals directly."""
@@ -3455,25 +3765,25 @@ class MechanismDesignTab(QWidget):
 
         base_radius = params.get("base_radius", 25.0)
         eccentricity = params.get("eccentricity", 10.0)
-        
+
         # Y축 대칭을 위한 coordinate transform 함수
         def to_scene_coords_flipped(p):
             """Y축을 뒤집어서 캠이 아래쪽에 오도록 함"""
             p_flipped = np.array([p[0], -p[1]])
             return to_scene_coords(p_flipped)
-        
+
         # Initial cam position (dataset과 동일: eccentricity offset)
         cam_offset = np.array([eccentricity, 0])  # Same as dataset
         initial_cam_center = cam_offset  # No rotation at time=0
-        
+
         # Initial follower position (dataset formula: follower_y = cam_center[1] + base_radius)
         # Y축 대칭으로 인해 follower가 cam 위에 위치하게 됨
         initial_follower_y = initial_cam_center[1] + base_radius
         follower_pos_orig = np.array([0, initial_follower_y])
-        
+
         # 데이터셋과 동일한 원형 캠 생성 (간단한 원)
         cam_center_scene = to_scene_coords_flipped(initial_cam_center)
-        
+
         # 캠 radius를 화면 좌표로 변환
         cam_edge_orig = initial_cam_center + np.array([base_radius, 0])
         cam_edge_scene = to_scene_coords_flipped(cam_edge_orig)
@@ -3488,7 +3798,7 @@ class MechanismDesignTab(QWidget):
 
         # 데이터셋과 동일한 원형 캠 생성
         cam_color = QColor("#4682b4")  # SteelBlue - 데이터셋과 동일
-        
+
         cam_body = self.mechanism_scene.addEllipse(
             cam_center_scene.x() - cam_radius_screen, cam_center_scene.y() - cam_radius_screen,
             cam_radius_screen * 2, cam_radius_screen * 2,
@@ -3520,7 +3830,7 @@ class MechanismDesignTab(QWidget):
         )
         cam_center_marker.setZValue(20)
         visual_items.append(cam_center_marker)
-        
+
         # 회전 중심점 표시 (원점)
         center_color = QColor("#f39c12")  # Orange
         rotation_marker = self.mechanism_scene.addEllipse(
@@ -3557,12 +3867,12 @@ class MechanismDesignTab(QWidget):
 
         # Create gear 1 (driver) with proper screen coordinates
         gear1_color = QColor("#3498db")  # Blue
-        
+
         # Calculate screen radius for gear1
         gear1_edge_orig = gear1_center_orig + np.array([r1, 0])
         gear1_edge_scene = to_scene_coords(gear1_edge_orig)
         r1_screen = QLineF(gear1_center_scene, gear1_edge_scene).length()
-        
+
         gear1_body = self.mechanism_scene.addEllipse(
             gear1_center_scene.x() - r1_screen, gear1_center_scene.y() - r1_screen,
             r1_screen * 2, r1_screen * 2,
@@ -3574,12 +3884,12 @@ class MechanismDesignTab(QWidget):
 
         # Create gear 2 (driven) with proper screen coordinates
         gear2_color = QColor("#2ecc71")  # Green
-        
+
         # Calculate screen radius for gear2
         gear2_edge_orig = gear2_center_orig + np.array([r2, 0])
         gear2_edge_scene = to_scene_coords(gear2_edge_orig)
         r2_screen = QLineF(gear2_center_scene, gear2_edge_scene).length()
-        
+
         gear2_body = self.mechanism_scene.addEllipse(
             gear2_center_scene.x() - r2_screen, gear2_center_scene.y() - r2_screen,
             r2_screen * 2, r2_screen * 2,
@@ -3894,84 +4204,7 @@ class MechanismDesignTab(QWidget):
         except Exception:
             pass
 
-    def activate_tab(self):
-        """Called when the tab becomes active. Restore animation controls if needed."""
-        logging.info("[MECHANISM TAB] === TAB ACTIVATION STARTED ===")
 
-        # Ensure IKManager has the current parts data
-        # Try to get the most up-to-date parts data
-        parts_data_to_use = None
-        if hasattr(self.main_window, 'project_data_manager') and self.main_window.project_data_manager:
-            parts_data_to_use = self.main_window.project_data_manager.get_current_parts_data()
-
-        # Fallback to local parts data if project data manager doesn't have it
-        if not parts_data_to_use and hasattr(self, 'parts_data') and self.parts_data:
-            parts_data_to_use = self.parts_data
-
-        # Always update parts data if available from project manager
-        if parts_data_to_use:
-            logging.info(f"[MECHANISM TAB] Setting parts data: {len(parts_data_to_use)} parts")
-            self.set_parts_data(parts_data_to_use)
-            logging.info(f"[MECHANISM TAB] Refreshed parts data on tab activation: {len(parts_data_to_use)} parts")
-        else:
-            logging.warning("[MECHANISM TAB] No parts data available on tab activation!")
-
-        # ALWAYS try to get path data from editor tab (not just when we don't have it)
-        if hasattr(self.main_window, 'editor_tab'):
-            editor_tab = self.main_window.editor_tab
-            if hasattr(editor_tab, '_collect_path_data'):
-                current_path_data = editor_tab._collect_path_data()
-                logging.info(f"[MECHANISM TAB] Collected path data from editor: {len(current_path_data) if current_path_data else 0} paths")
-                if current_path_data:
-                    self.set_path_data_from_editor(current_path_data)
-                else:
-                    logging.info("[MECHANISM TAB] No path data found in editor tab")
-            else:
-                logging.warning("[MECHANISM TAB] Editor tab does not have _collect_path_data method")
-
-        # Set the parts data in IKManager
-        if parts_data_to_use and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            if hasattr(self.main_window.ik_manager, 'set_project_parts_data'):
-                self.main_window.ik_manager.set_project_parts_data(parts_data_to_use)
-
-        # Redraw any existing mechanisms to ensure they are visible after tab switch
-        if self.mechanism_layers:
-            logging.info(f"[MECHANISM TAB] Re-drawing {len(self.mechanism_layers)} existing mechanisms.")
-            for mechanism_id, layer_data in self.mechanism_layers.items():
-                self._generate_mechanism_visuals_directly(
-                    mechanism_id,
-                    layer_data["type"],
-                    layer_data["params"],
-                    layer_data
-                )
-
-        # Update mechanism layers list to show current parts and path status
-        self._update_mechanism_layers_list()
-
-        # Force complete UI refresh to ensure visibility
-        if self.mechanism_layers_list:
-            from PyQt6.QtCore import QTimer
-            # Use a small delay to ensure all layout updates are complete
-            QTimer.singleShot(50, self._final_ui_refresh)
-
-        logging.info("[MECHANISM TAB] === TAB ACTIVATION COMPLETED ===")
-
-    def _final_ui_refresh(self):
-        """Final UI refresh to ensure parts list is visible after tab activation."""
-        if self.mechanism_layers_list:
-            self.mechanism_layers_list.update()
-            self.mechanism_layers_list.repaint()
-
-            # Ensure parent widgets are also updated
-            parent = self.mechanism_layers_list.parent()
-            while parent:
-                if hasattr(parent, 'update'):
-                    parent.update()
-                parent = parent.parent() if hasattr(parent, 'parent') else None
-                if isinstance(parent, QWidget):
-                    break
-
-            logging.info(f"[MECHANISM TAB] Final UI refresh completed. List has {self.mechanism_layers_list.count()} items, visible: {self.mechanism_layers_list.isVisible()}")
 
     # ================================================================================
     # PARAMETRIC DESIGN SYSTEM (ULTRATHINK Architecture)
@@ -4538,16 +4771,10 @@ class MechanismDesignTab(QWidget):
             self.reset_btn.setEnabled(True)
 
 
-    def deactivate_tab(self):
-        """Called when leaving the tab. Stop any running animations."""
-        # Stop animation if running
-        if self.animation_timer.isActive():
-            self._on_stop_animation()
-
 
 
     def _on_export_blueprint(self):
-        """Handle blueprint export button click."""
+        """Handle blueprint export button click with proper screen-to-blueprint scaling."""
         try:
             from automataii.core.blueprint_manager import BlueprintExportManager
 
@@ -4562,11 +4789,17 @@ class MechanismDesignTab(QWidget):
                 )
                 return
 
-            # Create and use blueprint export manager
+            # CRITICAL: Calculate accurate screen-to-blueprint scale ratios
+            screen_scale_info = self._calculate_screen_to_blueprint_scale()
+
+            # Add scale information to mechanism layers for blueprint export
+            enhanced_mechanism_layers = self._enhance_mechanism_layers_with_scale_info(screen_scale_info)
+
+            # Create and use blueprint export manager with enhanced scaling
             export_manager = BlueprintExportManager.get_instance()
             success = export_manager.export_blueprint(
                 part_items=part_items,
-                mechanism_layers=self.mechanism_layers,
+                mechanism_layers=enhanced_mechanism_layers,
                 parent_widget=self
             )
 
@@ -4574,7 +4807,9 @@ class MechanismDesignTab(QWidget):
                 QMessageBox.information(
                     self,
                     "Blueprint Export Complete",
-                    "All blueprint pages exported successfully!\nCheck the selected directory for all page files."
+                    f"Blueprint exported with accurate scaling!\n"
+                    f"Screen Scale: {screen_scale_info['pixels_per_mm']:.2f} pixels/mm\n"
+                    f"Character Height: {screen_scale_info['character_height_mm']:.0f}mm"
                 )
             else:
                 QMessageBox.warning(
@@ -4597,6 +4832,219 @@ class MechanismDesignTab(QWidget):
                 f"An error occurred during blueprint export:\n{str(e)}"
             )
 
+
+    def _calculate_screen_to_blueprint_scale(self) -> dict:
+        """
+        Calculate accurate screen-to-blueprint scale ratios based on current view.
+
+        Returns:
+            Dictionary with scale information for blueprint export
+        """
+        try:
+            # Get current view dimensions and transformation
+            view_rect = self.mechanism_view.viewport().rect()
+            scene_rect = self.mechanism_view.mapToScene(view_rect).boundingRect()
+
+            # Calculate pixels per scene unit from current view
+            if scene_rect.width() > 0 and scene_rect.height() > 0:
+                pixels_per_scene_unit_x = view_rect.width() / scene_rect.width()
+                pixels_per_scene_unit_y = view_rect.height() / scene_rect.height()
+                pixels_per_scene_unit = (pixels_per_scene_unit_x + pixels_per_scene_unit_y) / 2.0
+            else:
+                pixels_per_scene_unit = 1.0  # Fallback
+
+            # Calculate character dimensions in current view
+            character_height_pixels = 0
+            character_width_pixels = 0
+
+            if self.current_editor_items:
+                # Find the overall character bounds in scene coordinates
+                all_bounds = []
+                for part_item in self.current_editor_items.values():
+                    try:
+                        scene_bounds = part_item.sceneBoundingRect()
+                        all_bounds.append(scene_bounds)
+                    except:
+                        continue
+
+                if all_bounds:
+                    # Calculate unified character bounds
+                    min_x = min(b.left() for b in all_bounds)
+                    max_x = max(b.right() for b in all_bounds)
+                    min_y = min(b.top() for b in all_bounds)
+                    max_y = max(b.bottom() for b in all_bounds)
+
+                    character_height_pixels = (max_y - min_y) * pixels_per_scene_unit
+                    character_width_pixels = (max_x - min_x) * pixels_per_scene_unit
+
+            # Use standard 30cm character height as reference
+            target_character_height_mm = 300.0
+
+            if character_height_pixels > 0:
+                # Calculate scale factor: mm per pixel
+                mm_per_pixel = target_character_height_mm / character_height_pixels
+                pixels_per_mm = 1.0 / mm_per_pixel
+                actual_character_height_mm = target_character_height_mm
+            else:
+                # Fallback scale
+                mm_per_pixel = 0.36  # Default reasonable scale
+                pixels_per_mm = 1.0 / mm_per_pixel
+                actual_character_height_mm = target_character_height_mm
+
+            # Get mechanism scale factors from transform functions
+            mechanism_scale_factors = {}
+            for mech_id, layer_data in self.mechanism_layers.items():
+                transform_func = self._get_scene_transform_function(layer_data)
+                if transform_func:
+                    # Test transform function with known coordinates to determine scale
+                    test_point = np.array([0.0, 100.0])  # 100 unit displacement
+                    test_origin = np.array([0.0, 0.0])
+
+                    try:
+                        transformed_point = transform_func(test_point)
+                        transformed_origin = transform_func(test_origin)
+
+                        # Calculate scale factor from transform
+                        scene_distance = ((transformed_point.x() - transformed_origin.x())**2 +
+                                        (transformed_point.y() - transformed_origin.y())**2)**0.5
+                        if scene_distance > 0:
+                            mechanism_scale_factors[mech_id] = scene_distance / 100.0  # scene units per mechanism unit
+                        else:
+                            mechanism_scale_factors[mech_id] = 1.0
+                    except:
+                        mechanism_scale_factors[mech_id] = 1.0
+
+            scale_info = {
+                'pixels_per_mm': pixels_per_mm,
+                'mm_per_pixel': mm_per_pixel,
+                'pixels_per_scene_unit': pixels_per_scene_unit,
+                'character_height_mm': actual_character_height_mm,
+                'character_height_pixels': character_height_pixels,
+                'character_width_pixels': character_width_pixels,
+                'view_rect': view_rect,
+                'scene_rect': scene_rect,
+                'mechanism_scale_factors': mechanism_scale_factors,
+                'target_character_height_mm': target_character_height_mm
+            }
+
+            logging.info(f"Screen-to-blueprint scale calculated: {pixels_per_mm:.2f} pixels/mm, "
+                        f"character: {actual_character_height_mm:.0f}mm")
+
+            return scale_info
+
+        except Exception as e:
+            logging.warning(f"Error calculating screen scale, using defaults: {e}")
+            return {
+                'pixels_per_mm': 2.78,  # Default ~0.36mm/pixel
+                'mm_per_pixel': 0.36,
+                'pixels_per_scene_unit': 1.0,
+                'character_height_mm': 300.0,
+                'character_height_pixels': 800,
+                'character_width_pixels': 400,
+                'mechanism_scale_factors': {},
+                'target_character_height_mm': 300.0
+            }
+
+    def _enhance_mechanism_layers_with_scale_info(self, screen_scale_info: dict) -> dict:
+        """
+        Enhance mechanism layers with accurate scale information for blueprint export.
+
+        Args:
+            screen_scale_info: Scale information from _calculate_screen_to_blueprint_scale
+
+        Returns:
+            Enhanced mechanism layers with scale data
+        """
+        enhanced_layers = {}
+
+        try:
+            for mech_id, layer_data in self.mechanism_layers.items():
+                # Create enhanced copy
+                enhanced_layer = layer_data.copy()
+
+                # Add screen scale information
+                enhanced_layer['screen_scale_info'] = screen_scale_info
+
+                # Calculate mechanism-specific scaling
+                mech_scale_factor = screen_scale_info['mechanism_scale_factors'].get(mech_id, 1.0)
+
+                # Add mechanism scaling information
+                enhanced_layer['mechanism_to_screen_scale'] = mech_scale_factor
+                enhanced_layer['screen_to_blueprint_scale'] = screen_scale_info['mm_per_pixel']
+                enhanced_layer['total_scale_factor'] = mech_scale_factor * screen_scale_info['mm_per_pixel']
+
+                # Calculate real-world mechanism dimensions
+                if 'params' in enhanced_layer:
+                    real_world_params = self._calculate_real_world_mechanism_params(
+                        enhanced_layer['params'],
+                        enhanced_layer['total_scale_factor'],
+                        enhanced_layer.get('type', 'unknown')
+                    )
+                    enhanced_layer['real_world_params'] = real_world_params
+
+                # Store original scene transformation for reference
+                transform_func = self._get_scene_transform_function(layer_data)
+                if transform_func:
+                    enhanced_layer['has_transform_function'] = True
+
+                enhanced_layers[mech_id] = enhanced_layer
+
+                logging.debug(f"Enhanced mechanism {mech_id}: scale={mech_scale_factor:.3f}, "
+                            f"total={enhanced_layer['total_scale_factor']:.3f}")
+
+        except Exception as e:
+            logging.error(f"Error enhancing mechanism layers: {e}")
+            # Return original layers as fallback
+            return self.mechanism_layers.copy()
+
+        return enhanced_layers
+
+    def _calculate_real_world_mechanism_params(self, params: dict, scale_factor: float, mech_type: str) -> dict:
+        """
+        Calculate real-world mechanism parameters based on screen scaling.
+
+        Args:
+            params: Original mechanism parameters
+            scale_factor: Total scale factor (mechanism -> screen -> blueprint)
+            mech_type: Type of mechanism
+
+        Returns:
+            Dictionary with real-world parameters in millimeters
+        """
+        real_world_params = {}
+
+        try:
+            if mech_type == "4_bar_linkage":
+                # Scale link lengths
+                for param_name in ['l1', 'l2', 'l3', 'l4']:
+                    if param_name in params:
+                        real_world_params[f'{param_name}_mm'] = params[param_name] * scale_factor
+
+                # Scale coupler point coordinates
+                for param_name in ['coupler_point_x', 'coupler_point_y']:
+                    if param_name in params:
+                        real_world_params[f'{param_name}_mm'] = params[param_name] * scale_factor
+            elif mech_type == "cam":
+                # Scale cam dimensions
+                for param_name in ['base_radius', 'eccentricity']:
+                    if param_name in params:
+                        real_world_params[f'{param_name}_mm'] = params[param_name] * scale_factor
+
+            elif mech_type in ["gear", "planetary_gear"]:
+                # Scale gear dimensions
+                for param_name in ['r1', 'r2', 'r_sun', 'r_planet', 'arm_length', 'distance', 'tracking_radius']:
+                    if param_name in params:
+                        real_world_params[f'{param_name}_mm'] = params[param_name] * scale_factor
+
+            # Add general scale information
+            real_world_params['scale_factor_used'] = scale_factor
+            real_world_params['mechanism_type'] = mech_type
+
+        except Exception as e:
+            logging.warning(f"Error calculating real-world params for {mech_type}: {e}")
+            real_world_params = {'scale_factor_used': scale_factor, 'mechanism_type': mech_type}
+
+        return real_world_params
 
     def _update_blueprint_button_state(self):
         """Update blueprint button enabled state based on available parts."""

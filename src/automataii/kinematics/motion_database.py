@@ -155,7 +155,7 @@ class MotionDatabase:
 
     def load_database(self):
         """Loads the motion path database from the JSON file."""
-        db_path = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
+        db_path = resolve_path("src/automataii/kinematics/generated_mechanism_paths.json")
         if not db_path or not db_path.exists():
             logger.warning("Generated mechanism paths file not found.")
             return
