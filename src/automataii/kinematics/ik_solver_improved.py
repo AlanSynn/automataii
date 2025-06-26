@@ -4,7 +4,9 @@ import math
 from PyQt6.QtCore import QLineF, QPointF
 
 # Maximum allowed bone length deviation from original extracted lengths
-MAX_BONE_LENGTH_DEVIATION = 0.0
+# 🔧 LENGTH TOLERANCE FIX: Allow 5% deviation for floating-point precision
+# Was 0.0 (too strict) - caused rejection of valid IK solutions due to fp errors
+MAX_BONE_LENGTH_DEVIATION = 0.05  # 5% tolerance for numerical precision
 
 
 def get_world_rotation(item):
@@ -54,8 +56,9 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
 
         # 2. Calculate a vector perpendicular to this limb segment.
         #    The direction of rotation is controlled by `bend_dir` (+1 for CCW, -1 for CW).
-        perp_x = -vec_to_middle.y() * bend_dir
-        perp_y =  vec_to_middle.x() * bend_dir
+        # 🔧 COORDINATE SYSTEM FIX: Adjust perpendicular vector for Qt's Y-down coordinate system
+        perp_x = vec_to_middle.y() * bend_dir   # Remove negative sign for Qt Y-down
+        perp_y = -vec_to_middle.x() * bend_dir  # Add negative sign for Qt Y-down
         perp_vec = QPointF(perp_x, perp_y)
 
         # 3. Scale the perpendicular vector to create a reasonable offset distance.

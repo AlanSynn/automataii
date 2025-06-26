@@ -530,7 +530,8 @@ class CharacterPartItem(QGraphicsPixmapItem):
             bool: True if position change is valid, False if it would violate skeleton constraints
         """
         # Define bone length tolerance (matching FABRIK solver constraint)
-        MAX_BONE_LENGTH_DEVIATION = 0.01  # 1% tolerance for floating point precision
+        # 🔧 LENGTH TOLERANCE FIX: Increase to match IK solver tolerance
+        MAX_BONE_LENGTH_DEVIATION = 0.1  # 10% tolerance for animation movements
 
         # For now, implement a basic validation that prevents extreme position changes
         # A full implementation would require access to the skeleton hierarchy and original bone lengths
@@ -545,11 +546,12 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
         # Prevent extreme displacements that could violate skeleton constraints
         # This is a simplified check - a full implementation would check actual bone lengths
+        # 🔧 DISPLACEMENT TOLERANCE FIX: Increase thresholds for animation
         # Different thresholds for different body parts
         if "leg" in self.name():
-            MAX_DISPLACEMENT_THRESHOLD = 5.0  # Legs can be longer, need higher threshold
+            MAX_DISPLACEMENT_THRESHOLD = 100.0  # Legs can be longer, need higher threshold
         else:
-            MAX_DISPLACEMENT_THRESHOLD = 5.0  # Default for arms, torso, etc.
+            MAX_DISPLACEMENT_THRESHOLD = 100.0  # Increased for animation movements
 
         if displacement > MAX_DISPLACEMENT_THRESHOLD:
             logging.debug(

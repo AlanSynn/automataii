@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
-from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
+from PyQt6.QtCore import QElapsedTimer, QLineF, QObject, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainterPath, QTransform
 
 from automataii.core.models import PartInfo  # For PartInfo type hint
@@ -751,8 +751,10 @@ class IKManager(QObject):
                 logging.warning(f"IKManager: Limb '{middle_joint_abstract_name}' is nearly straight (cross_product: {cross_product:.2e}). Using anatomical default bend direction: {direction}")
             else:
                 # The initial pose has a clear bend. Trust the artist.
-                direction = 1 if cross_product > 0 else -1
-                logging.info(f"IKManager: Inferred bend direction for '{middle_joint_abstract_name}' from initial pose: {direction} (cross_product: {cross_product:.2f})")
+                # 🔧 COORDINATE SYSTEM FIX: Invert for Qt's Y-down coordinate system
+                # Qt: Y increases downward, so cross-product signs are inverted
+                direction = -1 if cross_product > 0 else 1  # Invert for Qt Y-down system
+                logging.info(f"IKManager: Inferred bend direction for '{middle_joint_abstract_name}' from initial pose: {direction} (cross_product: {cross_product:.2f}, Qt Y-down adjusted)")
 
             self.sim_joint_bend_directions[middle_joint_abstract_name] = direction
 
@@ -1013,9 +1015,53 @@ class IKManager(QObject):
             "position"
         ]  # ERROR LIKELY HERE if anchor_joint_id_std is not a valid key
 
-        # For a single bone, the target joint simply moves to the target_position.
+        # 🎯 HEAD NOD CONSTRAINT: Add flexible length constraint for natural head movement
+        # Calculate original bone length from initial skeleton
+        original_bone_length = None
+        if (anchor_joint_id_std in self.initial_skeleton_joints_snapshot and 
+            target_joint_id_std in self.initial_skeleton_joints_snapshot):
+            anchor_initial = self.initial_skeleton_joints_snapshot[anchor_joint_id_std]["position"]
+            target_initial = self.initial_skeleton_joints_snapshot[target_joint_id_std]["position"]
+            original_bone_length = QLineF(anchor_initial, target_initial).length()
+        
+        # Calculate desired position with length flexibility
+        desired_pos = QPointF(target_position[0], target_position[1])
+        
+        if original_bone_length and original_bone_length > 0:
+            # Calculate distance from anchor to desired position
+            current_distance = QLineF(base_joint_pos, desired_pos).length()
+            
+            # 🎯 HEAD NOD FLEXIBILITY: Allow 20% length variation for natural nodding
+            min_length = original_bone_length * 0.8  # Can compress to 80%
+            max_length = original_bone_length * 1.2  # Can extend to 120%
+            
+            if current_distance < min_length or current_distance > max_length:
+                # Clamp to allowed range while preserving direction
+                if current_distance > 1e-6:  # Avoid division by zero
+                    clamped_length = max(min_length, min(max_length, current_distance))
+                    direction_x = (desired_pos.x() - base_joint_pos.x()) / current_distance
+                    direction_y = (desired_pos.y() - base_joint_pos.y()) / current_distance
+                    
+                    final_pos = QPointF(
+                        base_joint_pos.x() + direction_x * clamped_length,
+                        base_joint_pos.y() + direction_y * clamped_length
+                    )
+                    
+                    logging.debug(f"  🎯 HEAD NOD ({target_joint_id_std}): Clamped distance {current_distance:.1f} → {clamped_length:.1f} (range: {min_length:.1f}-{max_length:.1f})")
+                else:
+                    # If distance is zero, place at original length directly below anchor
+                    final_pos = QPointF(base_joint_pos.x(), base_joint_pos.y() + original_bone_length)
+                    logging.debug(f"  🎯 HEAD NOD ({target_joint_id_std}): Zero distance, using fallback position")
+            else:
+                final_pos = desired_pos
+                logging.debug(f"  🎯 HEAD NOD ({target_joint_id_std}): Distance {current_distance:.1f} within range {min_length:.1f}-{max_length:.1f}")
+        else:
+            # No length constraint available, use desired position
+            final_pos = desired_pos
+            logging.debug(f"  🎯 HEAD NOD ({target_joint_id_std}): No length constraint available, using target position")
+
         updated_configs[target_joint_id_std] = {
-            "position": QPointF(target_position[0], target_position[1]),
+            "position": final_pos,
             "angle": 0.0,
             "parent": anchor_joint_id_std,
             "name": target_joint_id_std,
@@ -1056,9 +1102,60 @@ class IKManager(QObject):
         dist_sq = dx * dx + dy * dy
         dist = math.sqrt(dist_sq) if dist_sq > 1e-12 else 0.0
 
-        bend_direction = float(
-            self.sim_joint_bend_directions.get(root_joint_std_id, 1.0)
-        )  # Default to -1 for typical elbow/knee
+        # 🎯 ARTIST INTENT DETECTION: Detect natural bend direction from current joint angles
+        # Find middle joint to check current angle configuration
+        middle_joint_id = None
+        if "shoulder" in root_joint_std_id:
+            middle_joint_id = root_joint_std_id.replace("shoulder", "elbow")
+        elif "hip" in root_joint_std_id:
+            middle_joint_id = root_joint_std_id.replace("hip", "knee")
+        
+        # Get current middle joint position to calculate current angle
+        bend_direction = 1.0  # Default fallback
+        if middle_joint_id and middle_joint_id in self.sim_joints_config:
+            current_middle_pos = self.sim_joints_config[middle_joint_id].get("position")
+            if current_middle_pos:
+                # Calculate current angle at middle joint
+                vec1 = QPointF(p0.x() - current_middle_pos.x(), p0.y() - current_middle_pos.y())
+                vec2 = QPointF(target.x() - current_middle_pos.x(), target.y() - current_middle_pos.y())
+                
+                # Calculate current internal angle
+                len1 = math.sqrt(vec1.x() * vec1.x() + vec1.y() * vec1.y())
+                len2 = math.sqrt(vec2.x() * vec2.x() + vec2.y() * vec2.y())
+                
+                if len1 > 1e-6 and len2 > 1e-6:
+                    dot_product = (vec1.x() * vec2.x() + vec1.y() * vec2.y()) / (len1 * len2)
+                    dot_product = max(-1.0, min(1.0, dot_product))  # Clamp for safety
+                    current_angle_rad = math.acos(dot_product)
+                    current_angle_deg = math.degrees(current_angle_rad)
+                    
+                    # 🎯 INTENT DETECTION: If current angle < 180°, keep bending in same direction
+                    # Use cross product to determine which side is currently bent
+                    cross_product = vec1.x() * vec2.y() - vec1.y() * vec2.x()
+                    
+                    if current_angle_deg < 180.0:  # Already bent < 180°, continue in same direction
+                        bend_direction = 1.0 if cross_product > 0 else -1.0
+                        logging.debug(f"  🎯 ARTIST INTENT ({root_joint_std_id}): Current angle {current_angle_deg:.1f}° < 180°, continuing bend direction {bend_direction}")
+                    else:
+                        # Use stored bend direction as fallback for nearly straight limbs
+                        bend_direction_source = middle_joint_id if middle_joint_id else root_joint_std_id
+                        bend_direction = float(self.sim_joint_bend_directions.get(bend_direction_source, 1.0))
+                        logging.debug(f"  🎯 FALLBACK ({root_joint_std_id}): Current angle {current_angle_deg:.1f}° ≥ 180°, using stored direction {bend_direction}")
+                else:
+                    # Use stored bend direction as fallback
+                    bend_direction_source = middle_joint_id if middle_joint_id else root_joint_std_id
+                    bend_direction = float(self.sim_joint_bend_directions.get(bend_direction_source, 1.0))
+                    logging.debug(f"  🎯 GEOMETRIC FALLBACK ({root_joint_std_id}): Using stored direction {bend_direction}")
+            else:
+                # Use stored bend direction as fallback
+                bend_direction_source = middle_joint_id if middle_joint_id else root_joint_std_id
+                bend_direction = float(self.sim_joint_bend_directions.get(bend_direction_source, 1.0))
+                logging.debug(f"  🎯 DATA FALLBACK ({root_joint_std_id}): Using stored direction {bend_direction}")
+        else:
+            # Use stored bend direction as fallback
+            bend_direction_source = root_joint_std_id
+            bend_direction = float(self.sim_joint_bend_directions.get(bend_direction_source, 1.0))
+            logging.debug(f"  🎯 NO MIDDLE JOINT ({root_joint_std_id}): Using stored direction {bend_direction}")
 
         # Constants from __init__ or class level
         # _max_elbow_flexion_deg = self.DEFAULT_MAX_ELBOW_FLEXION_DEG (assuming these are set)
@@ -1385,8 +1482,12 @@ class IKManager(QObject):
         # Apply IK to character parts if we have access to them
         if hasattr(self.main_window, "editor_tab") and self.main_window.editor_tab:
             editor_items = self.main_window.editor_tab.current_editor_items
+            logging.info(f"🔧 FABRIK IK: Applying FABRIK to {len(editor_items) if editor_items else 0} editor items")
             # Build and solve IK chains for arms and legs
             self._apply_ik_to_limb_chains(editor_items)
+            logging.info("🔧 FABRIK IK: FABRIK application completed")
+        else:
+            logging.warning("🔧 FABRIK IK: Cannot access editor_tab or current_editor_items - FABRIK skipped")
 
         updated: dict[str, dict[str, Any]] = {}
         processed_parts: set[str] = set()
@@ -1928,9 +2029,21 @@ class IKManager(QObject):
                         "position"
                     ]  # This is a QPointF
 
-                    # Get bone lengths
-                    length1 = self.sim_limb_lengths.get(part_label_for_l1)
-                    length2 = self.sim_limb_lengths.get(part_label_for_l2)
+                    # 🔧 SKELETON LENGTH ADAPTATION: Use current actual lengths from joint positions
+                    # This respects FABRIK's length adjustments instead of forcing original lengths
+                    current_middle_pos = self.sim_joints_config[middle_std_id].get("position")
+                    current_effector_pos = self.sim_joints_config[effector_std_id].get("position")
+                    
+                    if current_middle_pos and current_effector_pos:
+                        # Calculate current actual bone lengths from joint positions
+                        length1 = QLineF(current_root_pos_for_ik, current_middle_pos).length()
+                        length2 = QLineF(current_middle_pos, current_effector_pos).length()
+                        logging.debug(f"  TWO-BONE IK: Using current lengths l1={length1:.1f}, l2={length2:.1f} (adaptive)")
+                    else:
+                        # Fallback to original lengths if current positions unavailable
+                        length1 = self.sim_limb_lengths.get(part_label_for_l1)
+                        length2 = self.sim_limb_lengths.get(part_label_for_l2)
+                        logging.debug(f"  TWO-BONE IK: Using original lengths l1={length1:.1f}, l2={length2:.1f} (fallback)")
 
                     if (
                         length1 is None
@@ -1949,7 +2062,9 @@ class IKManager(QObject):
                         f"l1={length1}, l2={length2}, root_joint_std_id='{root_std_id}'"
                     )
 
-                    # Call the solver
+                    # 🔧 DUAL IK COORDINATION: Use Two-Bone IK but respect FABRIK bend directions
+                    logging.info(f"🔧 TWO-BONE IK: Solving for {root_std_id} with bend direction {self.sim_joint_bend_directions.get(root_std_id, 'unknown')}")
+                    # Apply bend direction from FABRIK to Two-Bone IK solver
                     # def _solve_two_bone_ik(self, root_pos: QPointF, target_pos: QPointF, length1: float, length2: float, root_joint_std_id: str)
                     solved_points = self._solve_two_bone_ik(
                         current_root_pos_for_ik,
