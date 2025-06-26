@@ -1316,12 +1316,42 @@ class IKManager(QObject):
             if not target_pos:
                 continue
 
-            # Apply IK to the chain with bend directions
+            # Get original bone lengths for the chain
+            original_lengths = self._get_bone_lengths_for_chain(chain_parts)
+            
+            # Apply IK to the chain with bend directions and original lengths
             logging.debug(
-                f"IKManager: Applying IK for {effector_joint} chain with {len(chain)} parts, target: {target_pos}"
+                f"IKManager: Applying IK for {effector_joint} chain with {len(chain)} parts, target: {target_pos}, lengths: {original_lengths}"
             )
-            # Pass the bend directions to the IK solver
-            solve_ik_ccd(chain, target_pos, iterations=10, tolerance=1.0, bend_directions=self.sim_joint_bend_directions)
+            # Pass the bend directions and original lengths to preserve skeleton structure
+            solve_ik_ccd(chain, target_pos, original_lengths, bend_directions=self.sim_joint_bend_directions, iterations=10, tolerance=1.0)
+
+    def _get_bone_lengths_for_chain(self, chain_parts: list[str]) -> list[float]:
+        """Get original bone lengths for a chain of parts to preserve skeleton structure.
+        
+        Args:
+            chain_parts: List of part names forming the kinematic chain
+            
+        Returns:
+            List of bone lengths between consecutive parts in the chain
+        """
+        bone_lengths = []
+        
+        for i in range(len(chain_parts) - 1):
+            part_name = chain_parts[i + 1]  # Get the child part (bone connects from parent to child)
+            
+            # Try to get length from sim_limb_lengths (original extracted lengths)
+            if part_name in self.sim_limb_lengths:
+                length = self.sim_limb_lengths[part_name]
+                bone_lengths.append(length)
+                logging.debug(f"IKManager: Using preserved length for {part_name}: {length}")
+            else:
+                # Fallback to default length if not found
+                default_length = 50.0
+                bone_lengths.append(default_length)
+                logging.warning(f"IKManager: No preserved length for {part_name}, using default: {default_length}")
+        
+        return bone_lengths
 
     def _update_character_part_visuals_from_ik(self) -> None:
         """Updates character part visuals using proper IK chains for arms and legs.

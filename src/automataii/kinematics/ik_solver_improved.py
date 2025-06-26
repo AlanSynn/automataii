@@ -3,6 +3,13 @@ import math
 
 from PyQt6.QtCore import QLineF, QPointF
 
+# ===== SKELETON LENGTH PRESERVATION SETTINGS =====
+# Maximum allowed bone length deviation from original extracted lengths
+# 0.0 = No stretching allowed (rigid preservation)
+# 0.1 = 10% stretching allowed
+# 0.2 = 20% stretching allowed
+MAX_BONE_LENGTH_DEVIATION = 0.1  # 10% margin by default
+
 
 def get_world_rotation(item):
     """Get the world rotation angle of an item."""
@@ -73,6 +80,7 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
 def solve_ik_fabrik_with_constraints(
     chain: list,
     target_pos: QPointF,
+    original_bone_lengths: list[float] | None = None,
     bend_directions: dict[str, int] | None = None,
     iterations: int = 10,
     tolerance: float = 1.0
@@ -82,6 +90,7 @@ def solve_ik_fabrik_with_constraints(
     Args:
         chain: List of CharacterPartItem objects forming the kinematic chain
         target_pos: Target position in scene coordinates
+        original_bone_lengths: Optional list of original bone lengths to preserve
         bend_directions: Dictionary mapping joint names to preferred bend directions
         iterations: Maximum number of iterations
         tolerance: Position error tolerance
@@ -90,23 +99,31 @@ def solve_ik_fabrik_with_constraints(
         logging.warning("IK solver requires at least 2 items in chain.")
         return
 
-    # Store original bone lengths
-    bone_lengths = []
-    for i in range(len(chain) - 1):
-        curr_pos = chain[i].mapToScene(chain[i].anchor_offset)
-        next_pos = chain[i + 1].mapToScene(chain[i + 1].anchor_offset)
-        length = QLineF(curr_pos, next_pos).length()
-        bone_lengths.append(length)
+    # Use provided original bone lengths or calculate from current positions
+    if original_bone_lengths and len(original_bone_lengths) == len(chain) - 1:
+        bone_lengths = original_bone_lengths.copy()
+        logging.debug(f"IK: Using preserved bone lengths: {bone_lengths}")
+    else:
+        # Fallback: calculate from current positions (for compatibility)
+        bone_lengths = []
+        for i in range(len(chain) - 1):
+            curr_pos = chain[i].mapToScene(chain[i].anchor_offset)
+            next_pos = chain[i + 1].mapToScene(chain[i + 1].anchor_offset)
+            length = QLineF(curr_pos, next_pos).length()
+            bone_lengths.append(length)
+        logging.debug(f"IK: Calculated bone lengths from current positions: {bone_lengths}")
 
     # Check if target is reachable
     total_length = sum(bone_lengths)
     base_pos = chain[0].mapToScene(chain[0].anchor_offset)
     target_distance = QLineF(base_pos, target_pos).length()
 
-    if target_distance > total_length * 0.99:  # Allow slight stretch
-        logging.debug(f"Target may be unreachable. Distance: {target_distance:.2f}, Total length: {total_length:.2f}")
-        # Stretch towards target
-        _stretch_chain_to_target(chain, bone_lengths, base_pos, target_pos)
+    # Apply length preservation constraint
+    max_reach = total_length * (1.0 + MAX_BONE_LENGTH_DEVIATION)
+    if target_distance > max_reach:
+        logging.debug(f"Target unreachable with length preservation. Distance: {target_distance:.2f}, Max reach: {max_reach:.2f}")
+        # Stretch towards target but respect length limits
+        _stretch_chain_to_target_with_preservation(chain, bone_lengths, base_pos, target_pos)
         return
 
     # Calculate bend hints if bend directions provided
@@ -284,6 +301,30 @@ def _stretch_chain_to_target(chain: list, bone_lengths: list[float], base_pos: Q
                 current_world_angle = get_world_rotation(prev_item)
                 angle_delta = angle_deg - current_world_angle
                 prev_item.setRotation(prev_item.rotation() + angle_delta)
+
+
+def _stretch_chain_to_target_with_preservation(chain: list, bone_lengths: list[float], base_pos: QPointF, target_pos: QPointF):
+    """Stretch the chain towards target while preserving bone length constraints."""
+    direction = target_pos - base_pos
+    distance = QLineF(base_pos, target_pos).length()
+
+    if distance < 0.1:
+        return
+
+    # Calculate maximum allowed total length
+    max_total_length = sum(bone_lengths) * (1.0 + MAX_BONE_LENGTH_DEVIATION)
+    
+    # If target is still unreachable, stretch to maximum allowed distance
+    if distance > max_total_length:
+        direction_normalized = direction / distance
+        # Stretch to maximum allowed distance, not to target
+        stretch_distance = max_total_length
+        effective_target = base_pos + direction_normalized * stretch_distance
+    else:
+        effective_target = target_pos
+
+    # Use regular stretch with effective target
+    _stretch_chain_to_target(chain, bone_lengths, base_pos, effective_target)
 
 
 # Export the improved solver
