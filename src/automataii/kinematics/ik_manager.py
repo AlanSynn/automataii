@@ -710,70 +710,53 @@ class IKManager(QObject):
 
             # ULTRATHINK SOLUTION: Calculate bend direction based on SMALLEST ANGLE (most natural bending)
             # Instead of using signed area, calculate which direction requires smaller rotation
-            
+
             # Calculate vectors from P1 (middle joint) to P0 (root) and P2 (end)
-            
+
             vec_to_root = QPointF(p0_pos.x() - p1_pos.x(), p0_pos.y() - p1_pos.y())
             vec_to_end = QPointF(p2_pos.x() - p1_pos.x(), p2_pos.y() - p1_pos.y())
-            
+
             # Calculate angles of both vectors
             angle_to_root = math.atan2(vec_to_root.y(), vec_to_root.x())
             angle_to_end = math.atan2(vec_to_end.y(), vec_to_end.x())
-            
+
             # Calculate the current angle between the vectors
             angle_diff = angle_to_end - angle_to_root
-            
+
             # Normalize angle difference to [-π, π]
             while angle_diff > math.pi:
                 angle_diff -= 2 * math.pi
             while angle_diff < -math.pi:
                 angle_diff += 2 * math.pi
-            
-            # CRITICAL: Determine natural bend direction based on smaller angle
-            # Positive angle_diff means CCW from root to end vector
-            # Negative angle_diff means CW from root to end vector
-            
-            # For natural movement, choose direction that reduces the angle (brings limb toward center)
-            if abs(angle_diff) < 1e-6:  # Nearly straight
-                # Default based on anatomy (anatomically correct)
-                if "right" in middle_joint_abstract_name:
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = -1  # Right side bends CW (inward)
-                else:  # left
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1   # Left side bends CCW (inward)
-                logging.debug(f"IKManager: '{middle_joint_abstract_name}' nearly straight, using default direction")
+
+            # --- ROBUST BEND DIRECTION INFERENCE ---
+            # This logic infers the bend direction from the initial drawing,
+            # respecting the artist's intent rather than a rigid anatomical model.
+
+            # Vector from the middle joint (e.g., elbow) to the root (e.g., shoulder)
+            vec_to_root = p0_pos - p1_pos
+            # Vector from the middle joint to the end effector (e.g., wrist)
+            vec_to_end = p2_pos - p1_pos
+
+            # The 2D cross-product of these vectors determines the bend direction.
+            # (v1.x * v2.y) - (v1.y * v2.x)
+            # A positive result means vec_to_end is "to the left" of vec_to_root (CCW).
+            # A negative result means it's "to the right" (CW).
+            cross_product = (vec_to_root.x() * vec_to_end.y()) - (vec_to_root.y() * vec_to_end.x())
+
+            # Use a small tolerance to handle nearly straight limbs.
+            if abs(cross_product) < 1e-4:
+                # The limb is almost perfectly straight. Fall back to a simple default.
+                direction = 1 if "left" in middle_joint_abstract_name else -1
+                logging.warning(f"IKManager: Limb '{middle_joint_abstract_name}' is nearly straight (cross_product: {cross_product:.2e}). Using anatomical default bend direction: {direction}")
             else:
-                # Choose direction that creates the most natural bending
-                # For arms/legs, bending inward (toward body center) is more natural
-                
-                if "elbow" in middle_joint_abstract_name:
-                    # Arms: bend toward body center (anatomically correct)
-                    if "left" in middle_joint_abstract_name:
-                        # Left arm: bend counter-clockwise (inward toward body)
-                        self.sim_joint_bend_directions[middle_joint_abstract_name] = 1
-                    else:  # right
-                        # Right arm: bend clockwise (inward toward body)  
-                        self.sim_joint_bend_directions[middle_joint_abstract_name] = -1
-                elif "knee" in middle_joint_abstract_name:
-                    # Knees: bend backward (away from front) is natural
-                    # Both knees bend the same way (backward)
-                    self.sim_joint_bend_directions[middle_joint_abstract_name] = 1  # Bend backward
-                else:
-                    # For other joints, use the direction that requires smaller rotation
-                    # If current angle is obtuse (> 90°), prefer bending to reduce it
-                    if abs(angle_diff) > math.pi/2:
-                        # Large angle, bend to reduce it
-                        self.sim_joint_bend_directions[middle_joint_abstract_name] = 1 if angle_diff > 0 else -1
-                    else:
-                        # Small angle, maintain natural direction
-                        self.sim_joint_bend_directions[middle_joint_abstract_name] = -1 if angle_diff > 0 else 1
+                # The initial pose has a clear bend. Trust the artist.
+                direction = 1 if cross_product > 0 else -1
+                logging.info(f"IKManager: Inferred bend direction for '{middle_joint_abstract_name}' from initial pose: {direction} (cross_product: {cross_product:.2f})")
 
-            logging.debug(
-                f"IKManager: Calculated bend_direction for '{middle_joint_abstract_name}': {self.sim_joint_bend_directions[middle_joint_abstract_name]} (angle_diff: {angle_diff:.2f} rad, {math.degrees(angle_diff):.1f}°)"
-            )
+            self.sim_joint_bend_directions[middle_joint_abstract_name] = direction
 
-        logging.debug(
-            f"IKManager: Populated sim_joint_bend_directions: {self.sim_joint_bend_directions}"
-        )
+        logging.info(f"🎯 Artist-Intent Bend directions: {self.sim_joint_bend_directions}")
 
         # 5. Initialize rest angles for joints (used when IK can't reach target)
         if not hasattr(self, "sim_joint_rest_angles"):
@@ -816,6 +799,37 @@ class IKManager(QObject):
                 self.sim_limb_lengths[part_label_for_length] = 50  # Default length
 
         logging.debug(f"IKManager: Populated sim_limb_lengths: {self.sim_limb_lengths}")
+        
+        # 🔍 CRITICAL DEBUG: Leg bone length analysis
+        leg_parts = ["left_leg_upper", "left_leg_lower", "right_leg_upper", "right_leg_lower"]
+        arm_parts = ["left_arm_upper", "left_arm_lower", "right_arm_upper", "right_arm_lower"]
+        
+        logging.info("🦵 LEG BONE LENGTH ANALYSIS:")
+        for leg_part in leg_parts:
+            if leg_part in self.sim_limb_lengths:
+                length = self.sim_limb_lengths[leg_part]
+                if leg_part in self.project_parts_data:
+                    roi = self.project_parts_data[leg_part].roi
+                    logging.info(f"  ✅ {leg_part}: {length}px (ROI: {roi})")
+                else:
+                    logging.info(f"  ❌ {leg_part}: {length}px (DEFAULT - part not found)")
+            else:
+                logging.info(f"  🚫 {leg_part}: Not in sim_limb_lengths")
+        
+        logging.info("💪 ARM BONE LENGTH ANALYSIS:")
+        for arm_part in arm_parts:
+            if arm_part in self.sim_limb_lengths:
+                length = self.sim_limb_lengths[arm_part]
+                if arm_part in self.project_parts_data:
+                    roi = self.project_parts_data[arm_part].roi
+                    logging.info(f"  ✅ {arm_part}: {length}px (ROI: {roi})")
+                else:
+                    logging.info(f"  ❌ {arm_part}: {length}px (DEFAULT - part not found)")
+            else:
+                logging.info(f"  🚫 {arm_part}: Not in sim_limb_lengths")
+        
+        logging.info(f"📊 AVAILABLE PARTS: {list(self.project_parts_data.keys())}")
+        
         # --- End Populate IK Rig ---
 
         return True
@@ -1318,7 +1332,7 @@ class IKManager(QObject):
 
             # Get original bone lengths for the chain
             original_lengths = self._get_bone_lengths_for_chain(chain_parts)
-            
+
             # Apply IK to the chain with bend directions and original lengths
             logging.debug(
                 f"IKManager: Applying IK for {effector_joint} chain with {len(chain)} parts, target: {target_pos}, lengths: {original_lengths}"
@@ -1328,18 +1342,18 @@ class IKManager(QObject):
 
     def _get_bone_lengths_for_chain(self, chain_parts: list[str]) -> list[float]:
         """Get original bone lengths for a chain of parts to preserve skeleton structure.
-        
+
         Args:
             chain_parts: List of part names forming the kinematic chain
-            
+
         Returns:
             List of bone lengths between consecutive parts in the chain
         """
         bone_lengths = []
-        
+
         for i in range(len(chain_parts) - 1):
             part_name = chain_parts[i + 1]  # Get the child part (bone connects from parent to child)
-            
+
             # Try to get length from sim_limb_lengths (original extracted lengths)
             if part_name in self.sim_limb_lengths:
                 length = self.sim_limb_lengths[part_name]
@@ -1350,7 +1364,7 @@ class IKManager(QObject):
                 default_length = 50.0
                 bone_lengths.append(default_length)
                 logging.warning(f"IKManager: No preserved length for {part_name}, using default: {default_length}")
-        
+
         return bone_lengths
 
     def _update_character_part_visuals_from_ik(self) -> None:

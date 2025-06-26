@@ -511,6 +511,24 @@ class MechanismDesignTab(QWidget):
                 else:
                     logging.debug(f"[MECHANISM TAB] Path '{part_name}': empty or None")
 
+        # 🔧 PATH SYNC FIX: Clear mechanisms for parts that no longer have paths or have new paths
+        current_parts = set(path_data.keys()) if path_data else set()
+        previous_parts = set(self.path_data.keys()) if hasattr(self, 'path_data') and self.path_data else set()
+        
+        # Find parts that were removed or changed
+        parts_to_clear = previous_parts - current_parts  # Parts that no longer have paths
+        
+        # Also clear parts that have new/different paths
+        for part_name in current_parts:
+            if (hasattr(self, 'path_data') and part_name in self.path_data and 
+                path_data.get(part_name) != self.path_data.get(part_name)):
+                parts_to_clear.add(part_name)
+        
+        # Clear mechanisms for affected parts
+        for part_name in parts_to_clear:
+            self._clear_mechanism_for_part(part_name)
+            logging.info(f"[MECHANISM TAB] Cleared mechanism for part '{part_name}' due to path change")
+
         self.path_data = path_data.copy() if path_data else {}
 
         # Initialize enabled state for new parts (default to enabled)
@@ -538,6 +556,8 @@ class MechanismDesignTab(QWidget):
                 self.recommendation_btn.setToolTip("No motion paths available")
 
         self._display_paths_in_preview()
+        
+        # 🔧 UI UPDATE: Update mechanism layers list to reflect cleared mechanisms
         self._update_mechanism_layers_list()
 
     def set_parts_data(self, parts_data: dict[str, PartInfo]):
@@ -2097,7 +2117,7 @@ class MechanismDesignTab(QWidget):
                     normalized_time = (time / (2 * np.pi)) % 1.0  # Keep in [0, 1] range
                     frame_index = int(normalized_time * (num_frames - 1))
                     frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
-                    
+
                     # Use the tracking point directly from dataset
                     tracking_point = np.array(tracking_points[frame_index])
 
@@ -2139,7 +2159,7 @@ class MechanismDesignTab(QWidget):
                     normalized_time = (time / (2 * np.pi)) % 1.0  # Keep in [0, 1] range
                     frame_index = int(normalized_time * (num_frames - 1))
                     frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
-                    
+
                     # Use the tracking point directly from dataset
                     tracking_point = np.array(tracking_points[frame_index])
 
@@ -2514,12 +2534,15 @@ class MechanismDesignTab(QWidget):
                 to_scene_coords = self._get_scene_transform_function(layer_data)
 
                 if to_scene_coords:
-                    # First try to use dataset positions
+                    # 🔧 POSITION CONSISTENCY: Always use fixed positions to match initial creation
+                    distance = r1 + r2  # Gears touching
+                    gear1_center = np.array([0, 0])
+                    gear2_center = np.array([distance, 0])
+                    
+                    # Get rotation angles from dataset if available
                     if gear_data and "gear1_angles" in gear_data and "gear2_angles" in gear_data:
                         gear1_angles = gear_data["gear1_angles"]
                         gear2_angles = gear_data["gear2_angles"]
-                        gear1_centers = gear_data.get("gear1_centers", [])
-                        gear2_centers = gear_data.get("gear2_centers", [])
                         num_frames = len(gear1_angles)
 
                         if num_frames > 0:
@@ -2529,45 +2552,48 @@ class MechanismDesignTab(QWidget):
                             frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
                             theta1 = gear1_angles[frame_index]
                             theta2 = gear2_angles[frame_index]
-
-                            # Use centers from dataset if available
-                            if gear1_centers and gear2_centers:
-                                gear1_center = np.array(gear1_centers[frame_index])
-                                gear2_center = np.array(gear2_centers[frame_index])
-                            else:
-                                # Match dataset generator coordinates
-                                distance = r1 + r2  # Gears touching
-                                gear1_center = np.array([0, 0])
-                                gear2_center = np.array([distance, 0])
                     else:
-                        # Fallback to manual calculation - match dataset coordinates
+                        # Fallback to manual calculation
                         theta1 = time
                         theta2 = -theta1 * (r1 / r2)  # Gear ratio
-                        distance = r1 + r2  # Gears touching
-                        gear1_center = np.array([0, 0])
-                        gear2_center = np.array([distance, 0])
 
                     # Transform to scene coordinates
                     g1_center_scene = to_scene_coords(gear1_center)
                     g2_center_scene = to_scene_coords(gear2_center)
 
+                    # 🔧 GEAR POSITION FIX: Calculate screen-space radii for proper positioning
+                    gear1_edge_orig = gear1_center + np.array([r1, 0])
+                    gear1_edge_scene = to_scene_coords(gear1_edge_orig)
+                    r1_screen = QLineF(g1_center_scene, gear1_edge_scene).length()
+                    
+                    gear2_edge_orig = gear2_center + np.array([r2, 0])
+                    gear2_edge_scene = to_scene_coords(gear2_edge_orig)
+                    r2_screen = QLineF(g2_center_scene, gear2_edge_scene).length()
+
                     # Update gear visual positions (assuming items 0,1 are gear bodies, 2,3 are indicators)
                     if len(visual_items) >= 2:
-                        if hasattr(visual_items[0], 'setPos'):
-                            visual_items[0].setPos(g1_center_scene.x() - r1, g1_center_scene.y() - r1)
-                        if hasattr(visual_items[1], 'setPos'):
-                            visual_items[1].setPos(g2_center_scene.x() - r2, g2_center_scene.y() - r2)
+                        # 🔧 GEAR BODY FIX: Update ellipse rect directly instead of setPos
+                        if hasattr(visual_items[0], 'setRect'):
+                            visual_items[0].setRect(
+                                g1_center_scene.x() - r1_screen, g1_center_scene.y() - r1_screen,
+                                r1_screen * 2, r1_screen * 2
+                            )
+                        if hasattr(visual_items[1], 'setRect'):
+                            visual_items[1].setRect(
+                                g2_center_scene.x() - r2_screen, g2_center_scene.y() - r2_screen,
+                                r2_screen * 2, r2_screen * 2
+                            )
 
                     # Update gear rotation indicators (lines)
                     if len(visual_items) >= 4:
-                        # Gear 1 indicator
+                        # Gear 1 indicator - use screen-space radius
                         if isinstance(visual_items[2], QGraphicsLineItem):
-                            end1 = g1_center_scene + QPointF(r1 * math.cos(theta1), r1 * math.sin(theta1))
+                            end1 = g1_center_scene + QPointF(r1_screen * math.cos(theta1), r1_screen * math.sin(theta1))
                             visual_items[2].setLine(QLineF(g1_center_scene, end1))
 
-                        # Gear 2 indicator
+                        # Gear 2 indicator - use screen-space radius
                         if isinstance(visual_items[3], QGraphicsLineItem):
-                            end2 = g2_center_scene + QPointF(r2 * math.cos(theta2), r2 * math.sin(theta2))
+                            end2 = g2_center_scene + QPointF(r2_screen * math.cos(theta2), r2_screen * math.sin(theta2))
                             visual_items[3].setLine(QLineF(g2_center_scene, end2))
 
                     return
@@ -2762,13 +2788,6 @@ class MechanismDesignTab(QWidget):
                 logging.debug(f"[MECHANISM TAB] Skipping empty path for part: {part_name}")
 
         logging.debug(f"[MECHANISM TAB] Added {paths_added} path items to scene")
-
-        # Set scene rect to encompass all paths with some margin
-        if combined_bounds is not None and combined_bounds.isValid():
-            margin = max(50.0, max(combined_bounds.width(), combined_bounds.height()) * 0.1)
-            scene_rect = combined_bounds.adjusted(-margin, -margin, margin, margin)
-            self.mechanism_scene.setSceneRect(scene_rect)
-            logging.debug(f"[MECHANISM TAB] Set scene rect to: {scene_rect}")
 
         # Debug scene bounds
         scene_rect = self.mechanism_scene.itemsBoundingRect()
@@ -4361,19 +4380,19 @@ class MechanismDesignTab(QWidget):
         # Create rotation indicators (lines that will rotate)
         indicator_color = QColor("#ffffff")  # White lines
 
-        # Gear 1 indicator (initially horizontal)
+        # Gear 1 indicator (initially horizontal) - use screen-space radius
         gear1_indicator = self.mechanism_scene.addLine(
             gear1_center_scene.x(), gear1_center_scene.y(),
-            gear1_center_scene.x() + r1, gear1_center_scene.y(),
+            gear1_center_scene.x() + r1_screen, gear1_center_scene.y(),
             QPen(indicator_color, 3)
         )
         gear1_indicator.setZValue(15)
         visual_items.append(gear1_indicator)
 
-        # Gear 2 indicator (initially horizontal)
+        # Gear 2 indicator (initially horizontal) - use screen-space radius
         gear2_indicator = self.mechanism_scene.addLine(
             gear2_center_scene.x(), gear2_center_scene.y(),
-            gear2_center_scene.x() + r2, gear2_center_scene.y(),
+            gear2_center_scene.x() + r2_screen, gear2_center_scene.y(),
             QPen(indicator_color, 3)
         )
         gear2_indicator.setZValue(15)

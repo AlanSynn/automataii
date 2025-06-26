@@ -414,22 +414,39 @@ class AutomataDesigner(QMainWindow):
                 try:
                     # CRITICAL: Check if view is still valid before using it
                     _ = view.scene()  # This will raise RuntimeError if view was deleted
-                    self.shared_camera_state = view.get_camera_state()
+                    camera_state = view.get_camera_state()
+                    
+                    # Save both shared and tab-specific camera state
+                    self.shared_camera_state = camera_state
+                    previous_tab._last_camera_state = camera_state  # Save tab-specific state as backup
+                    
                     logging.info(f"Saved camera state from {previous_tab.__class__.__name__}")
                 except RuntimeError as e:
                     logging.error(f"View was deleted by Qt, cannot save camera state: {e}")
-                    # Don't update shared_camera_state if we can't read from the view
+                    # Don't update camera states if we can't read from the view
 
         # Apply camera state if entering a shared-view tab
-        if current_tab in tabs_with_shared_view and self.shared_camera_state:
+        if current_tab in tabs_with_shared_view:
             view = getattr(current_tab, 'editor_view', None) or getattr(current_tab, 'mechanism_view', None)
             if view:
                 try:
                     # CRITICAL: Check if view is still valid before using it
                     _ = view.scene()  # This will raise RuntimeError if view was deleted
-                    view.set_camera_state(self.shared_camera_state)
-                    logging.info(f"Applied camera state to {current_tab.__class__.__name__}")
-                    camera_state_applied = True
+                    
+                    # Try to apply shared camera state first
+                    if self.shared_camera_state:
+                        view.set_camera_state(self.shared_camera_state)
+                        logging.info(f"Applied shared camera state to {current_tab.__class__.__name__}")
+                        camera_state_applied = True
+                    else:
+                        # No shared state, but check if tab has its own previous state
+                        if hasattr(current_tab, '_last_camera_state') and current_tab._last_camera_state:
+                            view.set_camera_state(current_tab._last_camera_state)
+                            logging.info(f"Applied tab-specific camera state to {current_tab.__class__.__name__}")
+                            camera_state_applied = True
+                        else:
+                            logging.debug(f"No camera state available for {current_tab.__class__.__name__}")
+                            
                 except RuntimeError as e:
                     logging.error(f"View was deleted by Qt, cannot apply camera state: {e}")
                     # Clear the invalid shared camera state to prevent future errors
@@ -441,17 +458,39 @@ class AutomataDesigner(QMainWindow):
         else:
             self.statusBar().showMessage(f"Tab {index + 1} active")
 
-        # If camera state was not applied, then do the default action (e.g., zoom to fit)
+        # 🔧 CAMERA FIX: Only auto-zoom on first visit, not every tab switch
         if not camera_state_applied:
+            # Check if this tab has been initialized before
+            tab_needs_initial_zoom = False
+            
             if hasattr(current_tab, 'editor_view') and current_tab.editor_view:
-                current_tab.editor_view.zoom_to_fit()
+                # Only zoom if view has no previous transform (first time setup)
+                if not hasattr(current_tab, '_view_initialized'):
+                    tab_needs_initial_zoom = True
+                    current_tab._view_initialized = True
             elif hasattr(current_tab, 'mechanism_view') and current_tab.mechanism_view:
-                current_tab.mechanism_view.zoom_to_fit()
+                # Only zoom if view has no previous transform (first time setup)
+                if not hasattr(current_tab, '_view_initialized'):
+                    tab_needs_initial_zoom = True
+                    current_tab._view_initialized = True
             elif hasattr(current_tab, 'image_proc_view'):
-                if hasattr(current_tab.image_proc_view, 'zoom_to_fit'):
-                    current_tab.image_proc_view.zoom_to_fit()
-                elif hasattr(current_tab.image_proc_view, 'fit_in_view'):
-                    current_tab.image_proc_view.fit_in_view()
+                # Image processing tab should zoom to fit each time (different behavior)
+                tab_needs_initial_zoom = True
+            
+            # Apply zoom only when needed
+            if tab_needs_initial_zoom:
+                logging.debug(f"Applying initial zoom for tab: {getattr(current_tab, 'tab_name', 'Unknown')}")
+                if hasattr(current_tab, 'editor_view') and current_tab.editor_view:
+                    current_tab.editor_view.zoom_to_fit()
+                elif hasattr(current_tab, 'mechanism_view') and current_tab.mechanism_view:
+                    current_tab.mechanism_view.zoom_to_fit()
+                elif hasattr(current_tab, 'image_proc_view'):
+                    if hasattr(current_tab.image_proc_view, 'zoom_to_fit'):
+                        current_tab.image_proc_view.zoom_to_fit()
+                    elif hasattr(current_tab.image_proc_view, 'fit_in_view'):
+                        current_tab.image_proc_view.fit_in_view()
+            else:
+                logging.debug(f"Preserving camera position for tab: {getattr(current_tab, 'tab_name', 'Unknown')}")
 
         # Data synchronization for mechanism tab - now uses editor data directly
         if current_tab == self.mechanism_design_tab:
