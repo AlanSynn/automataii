@@ -2049,7 +2049,10 @@ class MechanismDesignTab(QWidget):
                 follower_positions = cam_data["follower_y_positions"]
                 num_frames = len(follower_positions)
                 if num_frames > 0:
-                    frame_index = int((time / (2 * math.pi)) * (num_frames - 1)) % num_frames
+                    # Fix frame index calculation - remove modulo to prevent jumping
+                    normalized_time = (time / (2 * math.pi)) % 1.0  # Keep in [0, 1] range
+                    frame_index = int(normalized_time * (num_frames - 1))
+                    frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
                     follower_y = follower_positions[frame_index]
                     follower_pos_orig = np.array([0, follower_y])
 
@@ -2090,7 +2093,12 @@ class MechanismDesignTab(QWidget):
                 tracking_points = gear_data["tracking_points"]
                 num_frames = len(tracking_points)
                 if num_frames > 0:
-                    frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                    # Fix frame index calculation - remove modulo to prevent jumping
+                    normalized_time = (time / (2 * np.pi)) % 1.0  # Keep in [0, 1] range
+                    frame_index = int(normalized_time * (num_frames - 1))
+                    frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
+                    
+                    # Use the tracking point directly from dataset
                     tracking_point = np.array(tracking_points[frame_index])
 
                     scene_point = to_scene_coords(tracking_point)
@@ -2127,8 +2135,12 @@ class MechanismDesignTab(QWidget):
                 tracking_points = gear_positions["tracking_points"]
                 num_frames = len(tracking_points)
                 if num_frames > 0:
-                    frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                    # Fix frame index calculation - remove modulo to prevent jumping
+                    normalized_time = (time / (2 * np.pi)) % 1.0  # Keep in [0, 1] range
+                    frame_index = int(normalized_time * (num_frames - 1))
                     frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
+                    
+                    # Use the tracking point directly from dataset
                     tracking_point = np.array(tracking_points[frame_index])
 
                     scene_point = to_scene_coords(tracking_point)
@@ -2447,7 +2459,10 @@ class MechanismDesignTab(QWidget):
                         num_frames = len(cam_centers)
 
                         if num_frames > 0:
-                            frame_index = int((time / (2 * math.pi)) * (num_frames - 1)) % num_frames
+                            # Fix frame index calculation - remove modulo to prevent jumping
+                            normalized_time = (time / (2 * math.pi)) % 1.0  # Keep in [0, 1] range
+                            frame_index = int(normalized_time * (num_frames - 1))
+                            frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
                             current_cam_center = np.array(cam_centers[frame_index])
                             follower_y = follower_positions[frame_index]
                             follower_pos_orig = np.array([0, follower_y])
@@ -2508,7 +2523,10 @@ class MechanismDesignTab(QWidget):
                         num_frames = len(gear1_angles)
 
                         if num_frames > 0:
-                            frame_index = int((time / (2 * np.pi)) * (num_frames - 1)) % num_frames
+                            # Fix frame index calculation - remove modulo to prevent jumping
+                            normalized_time = (time / (2 * np.pi)) % 1.0  # Keep in [0, 1] range
+                            frame_index = int(normalized_time * (num_frames - 1))
+                            frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
                             theta1 = gear1_angles[frame_index]
                             theta2 = gear2_angles[frame_index]
 
@@ -2701,10 +2719,10 @@ class MechanismDesignTab(QWidget):
         logging.debug(f"[MECHANISM TAB] _display_paths_in_preview called with {len(self.path_data)} paths")
 
         # Clear existing path items
-        # for item in self.path_visual_items.values():
-        #     if item.scene():
-        #         self.mechanism_scene.removeItem(item)
-        # self.path_visual_items.clear()
+        for item in self.path_visual_items.values():
+            if item.scene():
+                self.mechanism_scene.removeItem(item)
+        self.path_visual_items.clear()
 
         # Calculate combined bounds of all paths to set scene rect properly
         combined_bounds = None
@@ -2811,6 +2829,37 @@ class MechanismDesignTab(QWidget):
             self.mechanism_layers_list = QListWidget()
             self.mechanism_layers_list.setToolTip("Parts for mechanisms")
             self.mechanism_layers_list.setMinimumHeight(180)
+            self.mechanism_layers_list.setStyleSheet("""
+                QListWidget {
+                    background-color: white;
+                    border: 1px solid #dee2e6;
+                    border-radius: 6px;
+                    padding: 4px;
+                    font-size: 13px;
+                }
+                QListWidget::item {
+                    padding: 8px 12px;
+                    margin: 2px;
+                    border-radius: 4px;
+                    border: 1px solid transparent;
+                }
+                QListWidget::item:selected {
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:selected:!active {
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:hover {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                }
+            """)
 
             # Try to add it to existing layout if possible, but check for duplicates first
             if hasattr(self, 'control_panel') and self.control_panel:
@@ -3005,22 +3054,28 @@ class MechanismDesignTab(QWidget):
             self.mechanism_layers_list.setMinimumHeight(180)
             self.mechanism_layers_list.setStyleSheet("""
                 QListWidget {
-                    background-color: #ffffff;
-                    border: 1px solid #e3e9f0;
+                    background-color: white;
+                    border: 1px solid #dee2e6;
                     border-radius: 6px;
-                    padding: 8px;
+                    padding: 4px;
                     font-size: 13px;
-                    selection-background-color: #e8f4fd;
-                    selection-color: #004578;
                 }
                 QListWidget::item {
-                    padding: 6px 8px;
+                    padding: 8px 12px;
+                    margin: 2px;
                     border-radius: 4px;
-                    margin: 2px 0;
                     border: 1px solid transparent;
                 }
                 QListWidget::item:selected {
-                    background-color: #e8f4fd;
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:selected:!active {
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
                     border: 1px solid #004578;
                 }
                 QListWidget::item:hover {
@@ -3091,22 +3146,28 @@ class MechanismDesignTab(QWidget):
             self.mechanism_layers_list.setMinimumHeight(180)
             self.mechanism_layers_list.setStyleSheet("""
                 QListWidget {
-                    background-color: #ffffff;
-                    border: 1px solid #e3e9f0;
+                    background-color: white;
+                    border: 1px solid #dee2e6;
                     border-radius: 6px;
-                    padding: 8px;
+                    padding: 4px;
                     font-size: 13px;
-                    selection-background-color: #e8f4fd;
-                    selection-color: #004578;
                 }
                 QListWidget::item {
-                    padding: 6px 8px;
+                    padding: 8px 12px;
+                    margin: 2px;
                     border-radius: 4px;
-                    margin: 2px 0;
                     border: 1px solid transparent;
                 }
                 QListWidget::item:selected {
-                    background-color: #e8f4fd;
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:selected:!active {
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
                     border: 1px solid #004578;
                 }
                 QListWidget::item:hover {
@@ -3197,22 +3258,28 @@ class MechanismDesignTab(QWidget):
             self.mechanism_layers_list.setMinimumHeight(180)
             self.mechanism_layers_list.setStyleSheet("""
                 QListWidget {
-                    background-color: #ffffff;
-                    border: 1px solid #e3e9f0;
+                    background-color: white;
+                    border: 1px solid #dee2e6;
                     border-radius: 6px;
-                    padding: 8px;
+                    padding: 4px;
                     font-size: 13px;
-                    selection-background-color: #e8f4fd;
-                    selection-color: #004578;
                 }
                 QListWidget::item {
-                    padding: 6px 8px;
+                    padding: 8px 12px;
+                    margin: 2px;
                     border-radius: 4px;
-                    margin: 2px 0;
                     border: 1px solid transparent;
                 }
                 QListWidget::item:selected {
-                    background-color: #e8f4fd;
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:selected:!active {
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
                     border: 1px solid #004578;
                 }
                 QListWidget::item:hover {
@@ -3250,6 +3317,37 @@ class MechanismDesignTab(QWidget):
             self.mechanism_layers_list = QListWidget()
             self.mechanism_layers_list.setToolTip("Parts for mechanisms")
             self.mechanism_layers_list.setMinimumHeight(180)
+            self.mechanism_layers_list.setStyleSheet("""
+                QListWidget {
+                    background-color: white;
+                    border: 1px solid #dee2e6;
+                    border-radius: 6px;
+                    padding: 4px;
+                    font-size: 13px;
+                }
+                QListWidget::item {
+                    padding: 8px 12px;
+                    margin: 2px;
+                    border-radius: 4px;
+                    border: 1px solid transparent;
+                }
+                QListWidget::item:selected {
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:selected:!active {
+                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                        stop: 0 #0078D7, stop: 1 #005a9e);
+                    color: white;
+                    border: 1px solid #004578;
+                }
+                QListWidget::item:hover {
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                }
+            """)
 
             # Add to layout
             main_layout.addWidget(self.mechanism_layers_list)
