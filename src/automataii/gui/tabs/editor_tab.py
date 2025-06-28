@@ -1108,69 +1108,31 @@ class EditorTab(QWidget):
         ):  # Also clear map in view
             self.editor_view.set_joint_map(None)
 
-    @pyqtSlot(str)
-    def on_simulation_state_changed(self, state_string: str):
+    @pyqtSlot(bool, bool)
+    def on_simulation_state_changed(self, is_playing: bool, can_reset: bool):
         """
-        Slot to handle animation_state_changed signal from IKManager.
+        Slot to handle animation_state_changed signal from KinematicsSystem.
         Updates the enabled state of simulation control buttons.
         Args:
-            state_string (str): The new animation state (e.g., "playing", "stopped", "reset").
+            is_playing (bool): True if the animation is currently playing.
+            can_reset (bool): True if the animation can be reset.
         """
-        logging.info(f"EditorTab: Simulation state changed to: {state_string}")
+        logging.info(f"EditorTab: Simulation state changed to: is_playing={is_playing}, can_reset={can_reset}")
 
-        is_playing = False
-        can_play = False
-        can_stop = False
-        can_reset = False  # Default can_reset to False, enable if data exists
-
-        if state_string == "playing":
-            is_playing = True
-            can_play = False
-            can_stop = True
-            can_reset = False  # Cannot reset while playing
-        elif state_string == "stopped":
-            is_playing = False
-            # Check if there's data to play/reset
-            # This depends on whether skeleton/parts are loaded, which IKManager might know
-            # For now, assume if stopped, can play if data exists.
-            can_play = bool(
-                self.current_editor_items
-            )  # Or check ProjectDataManager via MainWindow if needed
-            can_stop = False
-            can_reset = bool(self.current_editor_items)
-        elif state_string == "reset":
-            is_playing = False
-            can_play = bool(self.current_editor_items)
-            can_stop = False
-            can_reset = False  # After reset, usually cannot reset again immediately unless new state allows
-            # Let's assume reset means back to initial, can play, cannot reset further.
-            # Or, if reset clears data, then can_reset would be false.
-            # For now, if state is "reset", assume it's ready to play again if data exists.
-            can_reset = bool(
-                self.current_editor_items
-            )  # Can reset if there's something to reset
-        else:
-            logging.warning(
-                f"EditorTab: Unknown simulation state string: {state_string}"
-            )
-            # Default to a safe state (e.g., not playing, can play if items exist)
-            is_playing = False
-            can_play = bool(self.current_editor_items)
-            can_stop = False
-            can_reset = bool(self.current_editor_items)
+        self.current_simulation_state = "playing" if is_playing else "stopped"
 
         # Update button states
         if self.play_btn:
-            self.play_btn.setEnabled(can_play and not is_playing)
-            self.play_btn.setChecked(is_playing)  # Reflects if it's actively playing
+            self.play_btn.setEnabled(not is_playing and self._has_any_motion_path())
+            self.play_btn.setChecked(is_playing)
         if self.stop_btn:
-            self.stop_btn.setEnabled(can_stop and is_playing)
+            self.stop_btn.setEnabled(is_playing)
         if self.reset_sim_btn:
-            self.reset_sim_btn.setEnabled(can_reset and not is_playing)
+            self.reset_sim_btn.setEnabled(can_reset)
 
-        # Update other UI elements if necessary
+        # Lock/unlock part movement based on animation state
+        self._lock_part_movement(is_playing)
 
-        self.current_simulation_state = state_string  # Update current state
         self.ik_log_counter.clear()  # Reset log counter when simulation state changes
 
     @pyqtSlot(dict)
