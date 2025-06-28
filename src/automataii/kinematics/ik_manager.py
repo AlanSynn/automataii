@@ -772,33 +772,72 @@ class IKManager(QObject):
             f"IKManager: Using sim_joint_rest_angles: {self.sim_joint_rest_angles}"
         )
 
-        # 5. Populate sim_limb_lengths from project_parts_data
-        # This uses the 'label' from sim_limb_configs as the key into project_parts_data (visual part name)
+        # 🎯 ROOT CAUSE FIX: Populate sim_limb_lengths from CURRENT screen joint distances
+        # CRITICAL: Use actual joint-to-joint distances from current screen positions, NOT ROI dimensions
         self.sim_limb_lengths.clear()
-        for limb_effector_key, config in self.sim_limb_configs.items():
-            part_label_for_length = config.get("label")
-            if (
-                part_label_for_length
-                and part_label_for_length in self.project_parts_data
-            ):
-                part_info = self.project_parts_data[part_label_for_length]
-                # Calculate length: distance from its anchor point to some "tip" or use bounding box
-                # For simplicity, let's use height of bounding box if available, or a default.
-                # A more accurate measure would be distance between joint connection points defined on the part.
-                length = 0
-                if part_info.roi and len(part_info.roi) == 4:  # x,y,w,h
-                    length = float(part_info.roi[3])  # Use height as a proxy for length
-                if length <= 0:
-                    length = 50  # Default length if ROI is bad or part has no height
-                self.sim_limb_lengths[part_label_for_length] = length
-                logging.debug(
-                    f"IKManager: Set limb length for '{part_label_for_length}' to {length}"
-                )
-            elif part_label_for_length:
-                logging.debug(
-                    f"IKManager: Part '{part_label_for_length}' for length measurement not found in project_parts_data. Using default for {limb_effector_key}."
-                )
-                self.sim_limb_lengths[part_label_for_length] = 50  # Default length
+        
+        # Calculate actual bone lengths from current sim_joints_config (screen positions)
+        if (hasattr(self, 'sim_joints_config') and 
+            self.sim_joints_config and 
+            hasattr(self, 'sim_limb_configs')):
+            
+            for limb_effector_key, config in self.sim_limb_configs.items():
+                part_label_for_length = config.get("label")
+                parent_anchor = config.get("parentAnchor")
+                
+                if part_label_for_length and parent_anchor:
+                    # Get standardized joint IDs for the bone endpoints
+                    child_std_id = self._get_standardized_joint_id(limb_effector_key)
+                    parent_std_id = self._get_standardized_joint_id(parent_anchor)
+                    
+                    # Calculate actual bone length from CURRENT screen positions
+                    if (child_std_id and parent_std_id and 
+                        child_std_id in self.sim_joints_config and 
+                        parent_std_id in self.sim_joints_config):
+                        
+                        child_pos = self.sim_joints_config[child_std_id].get("position")
+                        parent_pos = self.sim_joints_config[parent_std_id].get("position")
+                        
+                        if child_pos and parent_pos:
+                            actual_bone_length = QLineF(parent_pos, child_pos).length()
+                            
+                            if actual_bone_length > 0:
+                                self.sim_limb_lengths[part_label_for_length] = actual_bone_length
+                                logging.debug(f"IKManager: ✅ SCREEN bone length for '{part_label_for_length}': {actual_bone_length:.1f} (joints: {parent_std_id} -> {child_std_id})")
+                                continue
+                    
+                    logging.warning(f"IKManager: ⚠️ Could not calculate screen bone length for '{part_label_for_length}', using fallback")
+                
+                # Fallback: use ROI or default only if skeleton calculation fails
+                if (part_label_for_length and 
+                    part_label_for_length in self.project_parts_data):
+                    part_info = self.project_parts_data[part_label_for_length]
+                    length = 0
+                    if part_info.roi and len(part_info.roi) == 4:  # x,y,w,h
+                        length = float(part_info.roi[3])  # Use height as a proxy for length
+                    if length <= 0:
+                        length = 50  # Default length if ROI is bad or part has no height
+                    self.sim_limb_lengths[part_label_for_length] = length
+                    logging.debug(f"IKManager: 📐 FALLBACK ROI length for '{part_label_for_length}': {length}")
+                elif part_label_for_length:
+                    self.sim_limb_lengths[part_label_for_length] = 50  # Default length
+                    logging.debug(f"IKManager: 🔧 DEFAULT length for '{part_label_for_length}': 50")
+        else:
+            # If no skeleton data available, use old ROI method as complete fallback
+            logging.warning("IKManager: No initial_skeleton_joints_snapshot available, using ROI fallback for all bones")
+            for limb_effector_key, config in self.sim_limb_configs.items():
+                part_label_for_length = config.get("label")
+                if (part_label_for_length and 
+                    part_label_for_length in self.project_parts_data):
+                    part_info = self.project_parts_data[part_label_for_length]
+                    length = 0
+                    if part_info.roi and len(part_info.roi) == 4:  # x,y,w,h
+                        length = float(part_info.roi[3])  # Use height as a proxy for length
+                    if length <= 0:
+                        length = 50  # Default length if ROI is bad or part has no height
+                    self.sim_limb_lengths[part_label_for_length] = length
+                elif part_label_for_length:
+                    self.sim_limb_lengths[part_label_for_length] = 50  # Default length
 
         logging.debug(f"IKManager: Populated sim_limb_lengths: {self.sim_limb_lengths}")
         
@@ -1016,13 +1055,14 @@ class IKManager(QObject):
         ]  # ERROR LIKELY HERE if anchor_joint_id_std is not a valid key
 
         # 🎯 HEAD NOD CONSTRAINT: Add flexible length constraint for natural head movement
-        # Calculate original bone length from initial skeleton
+        # Calculate original bone length from CURRENT screen positions
         original_bone_length = None
-        if (anchor_joint_id_std in self.initial_skeleton_joints_snapshot and 
-            target_joint_id_std in self.initial_skeleton_joints_snapshot):
-            anchor_initial = self.initial_skeleton_joints_snapshot[anchor_joint_id_std]["position"]
-            target_initial = self.initial_skeleton_joints_snapshot[target_joint_id_std]["position"]
-            original_bone_length = QLineF(anchor_initial, target_initial).length()
+        if (anchor_joint_id_std in self.sim_joints_config and 
+            target_joint_id_std in self.sim_joints_config):
+            anchor_current = self.sim_joints_config[anchor_joint_id_std].get("position")
+            target_current = self.sim_joints_config[target_joint_id_std].get("position")
+            if anchor_current and target_current:
+                original_bone_length = QLineF(anchor_current, target_current).length()
         
         # Calculate desired position with length flexibility
         desired_pos = QPointF(target_position[0], target_position[1])
@@ -1031,9 +1071,9 @@ class IKManager(QObject):
             # Calculate distance from anchor to desired position
             current_distance = QLineF(base_joint_pos, desired_pos).length()
             
-            # 🎯 HEAD NOD FLEXIBILITY: Allow 20% length variation for natural nodding
-            min_length = original_bone_length * 0.8  # Can compress to 80%
-            max_length = original_bone_length * 1.2  # Can extend to 120%
+            # 🎯 HEAD NOD FLEXIBILITY: Allow 10% length variation for natural nodding
+            min_length = original_bone_length * 0.9  # Can compress to 90%
+            max_length = original_bone_length * 1.1  # Can extend to 110%
             
             if current_distance < min_length or current_distance > max_length:
                 # Clamp to allowed range while preserving direction
@@ -1801,6 +1841,10 @@ class IKManager(QObject):
         self._mechanism_position_targets[std_joint_id] = target_pos
         self._mechanism_controlled_joints.add(std_joint_id)
         logging.debug(f"IKManager: Set mechanism target for joint '{std_joint_id}' at ({target_pos.x():.1f}, {target_pos.y():.1f})")
+        
+        # Special logging for head/neck
+        if "neck" in joint_id.lower() or "head" in joint_id.lower() or "neck" in std_joint_id.lower():
+            logging.info(f"🎯 HEAD MECHANISM TARGET: '{joint_id}' -> '{std_joint_id}' at ({target_pos.x():.1f}, {target_pos.y():.1f})")
 
     def clear_mechanism_position_targets(self):
         """Clear all mechanism position targets."""
@@ -1914,6 +1958,11 @@ class IKManager(QObject):
             )  # e.g., j_left_wrist
             if not target_ik_joint_abstract_name:
                 continue
+            
+            # Debug head/neck processing
+            if "neck" in target_ik_joint_abstract_name.lower() or "head" in target_ik_joint_abstract_name.lower():
+                logging.info(f"🔍 HEAD DEBUG: Processing component with target_ik_joint_abstract_name='{target_ik_joint_abstract_name}'")
+                logging.info(f"🔍 HEAD DEBUG: Available mechanism targets: {list(self._mechanism_position_targets.keys())}")
 
             part_name_for_path = component.get(
                 "partName"
@@ -1927,7 +1976,9 @@ class IKManager(QObject):
             if target_std_id and target_std_id in self._mechanism_position_targets:
                 # Use mechanism position target directly
                 target_pos_on_path = self._mechanism_position_targets[target_std_id]
-                logging.debug(f"IKM: Using mechanism target for joint '{target_std_id}' at ({target_pos_on_path.x():.1f}, {target_pos_on_path.y():.1f})")
+                logging.debug(f"IKM: ✅ Using mechanism target for joint '{target_std_id}' at ({target_pos_on_path.x():.1f}, {target_pos_on_path.y():.1f})")
+                if "neck" in target_std_id.lower() or "head" in target_ik_joint_abstract_name.lower():
+                    logging.info(f"🎯 HEAD MECHANISM: Joint '{target_std_id}' (abstract: '{target_ik_joint_abstract_name}') using mechanism target at ({target_pos_on_path.x():.1f}, {target_pos_on_path.y():.1f})")
             elif part_info and part_info.motion_path_data:
                 # Fall back to motion path if no mechanism target
                 motion_path_obj = (
@@ -2045,6 +2096,30 @@ class IKManager(QObject):
                         length2 = self.sim_limb_lengths.get(part_label_for_l2)
                         logging.debug(f"  TWO-BONE IK: Using original lengths l1={length1:.1f}, l2={length2:.1f} (fallback)")
 
+                    # 🎯 BONE LENGTH PRESERVATION: Apply 10% extension limit based on original skeleton
+                    original_length1 = self.sim_limb_lengths.get(part_label_for_l1)
+                    original_length2 = self.sim_limb_lengths.get(part_label_for_l2)
+                    
+                    if original_length1 and original_length1 > 0:
+                        max_length1 = original_length1 * 1.1  # Can extend to 110%
+                        min_length1 = original_length1 * 0.9  # Can compress to 90%
+                        if length1 > max_length1:
+                            length1 = max_length1
+                            logging.debug(f"  🎯 TWO-BONE IK: Clamped length1 to max {max_length1:.1f}")
+                        elif length1 < min_length1:
+                            length1 = min_length1
+                            logging.debug(f"  🎯 TWO-BONE IK: Clamped length1 to min {min_length1:.1f}")
+                    
+                    if original_length2 and original_length2 > 0:
+                        max_length2 = original_length2 * 1.1  # Can extend to 110%
+                        min_length2 = original_length2 * 0.9  # Can compress to 90%
+                        if length2 > max_length2:
+                            length2 = max_length2
+                            logging.debug(f"  🎯 TWO-BONE IK: Clamped length2 to max {max_length2:.1f}")
+                        elif length2 < min_length2:
+                            length2 = min_length2
+                            logging.debug(f"  🎯 TWO-BONE IK: Clamped length2 to min {min_length2:.1f}")
+
                     if (
                         length1 is None
                         or length2 is None
@@ -2157,9 +2232,47 @@ class IKManager(QObject):
                             target_std_id
                             and target_std_id in self.sim_joints_config
                         ):  # Check sim_joints_config now
-                            self.sim_joints_config[target_std_id]["position"] = (
-                                target_pos_on_path
-                            )
+                            # 🎯 DIRECT POSITION UPDATE: Apply 10% length constraint for head movement
+                            final_target_pos = target_pos_on_path
+                            
+                            # Find anchor joint for this target (similar to single-bone IK)
+                            target_limb_config = self.sim_limb_configs.get(target_ik_joint_abstract_name)
+                            anchor_joint_abstract = target_limb_config.get("parentAnchor") if target_limb_config else None
+                            
+                            if anchor_joint_abstract:
+                                anchor_std_id = self._get_standardized_joint_id(anchor_joint_abstract)
+                                if anchor_std_id and anchor_std_id in self.sim_joints_config:
+                                    anchor_pos = self.sim_joints_config[anchor_std_id]["position"]
+                                    
+                                    # Get original bone length from CURRENT screen positions
+                                    if (anchor_std_id in self.sim_joints_config and 
+                                        target_std_id in self.sim_joints_config):
+                                        anchor_current = self.sim_joints_config[anchor_std_id].get("position")
+                                        target_current = self.sim_joints_config[target_std_id].get("position")
+                                        if anchor_current and target_current:
+                                            original_bone_length = QLineF(anchor_current, target_current).length()
+                                        
+                                        if original_bone_length and original_bone_length > 0:
+                                            current_distance = QLineF(anchor_pos, target_pos_on_path).length()
+                                            min_length = original_bone_length * 0.9  # Can compress to 90%
+                                            max_length = original_bone_length * 1.1  # Can extend to 110%
+                                            
+                                            if current_distance < min_length or current_distance > max_length:
+                                                # Clamp to allowed range while preserving direction
+                                                if current_distance > 1e-6:
+                                                    clamped_length = max(min_length, min(max_length, current_distance))
+                                                    direction_x = (target_pos_on_path.x() - anchor_pos.x()) / current_distance
+                                                    direction_y = (target_pos_on_path.y() - anchor_pos.y()) / current_distance
+                                                    
+                                                    final_target_pos = QPointF(
+                                                        anchor_pos.x() + direction_x * clamped_length,
+                                                        anchor_pos.y() + direction_y * clamped_length
+                                                    )
+                                                    logging.debug(f"  🎯 DIRECT POSITION ({target_std_id}): Clamped distance {current_distance:.1f} → {clamped_length:.1f}")
+                                                else:
+                                                    final_target_pos = QPointF(anchor_pos.x(), anchor_pos.y() + original_bone_length)
+                            
+                            self.sim_joints_config[target_std_id]["position"] = final_target_pos
                             # Potentially update angle if it's a root or has a fixed orientation relative to path
                             logging.debug(
                                 f"IKM._run_ik_animation_step: Directly moved joint '{target_std_id}' (from abs '{target_ik_joint_abstract_name}') to path position {target_pos_on_path}."

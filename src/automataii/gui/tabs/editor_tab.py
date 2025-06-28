@@ -592,6 +592,31 @@ class EditorTab(QWidget):
             return
 
         logging.debug(f"Toggling drawing mode for part: {part_name}")
+        
+        # CRITICAL FIX: Clear any existing mechanism visuals AND motion path for this part before starting new path
+        if hasattr(self.main_window, 'mechanism_design_tab'):
+            mechanism_tab = self.main_window.mechanism_design_tab
+            if hasattr(mechanism_tab, '_clear_mechanism_for_part'):
+                mechanism_tab._clear_mechanism_for_part(part_name)
+                logging.info(f"🔄 EDITOR TAB: Cleared mechanism visuals for part '{part_name}' before new path drawing")
+        
+        # ALSO CLEAR existing motion path visuals from editor view
+        if hasattr(self.editor_view, 'clear_visual_path_for_component'):
+            self.editor_view.clear_visual_path_for_component(part_name)
+            logging.info(f"🔄 EDITOR TAB: Cleared motion path visuals for part '{part_name}' before new drawing")
+        
+        # Clear from path data (check if exists first)
+        if hasattr(self, 'path_data') and part_name in self.path_data:
+            del self.path_data[part_name]
+            logging.info(f"🔄 EDITOR TAB: Removed path data for part '{part_name}'")
+        
+        # Also clear from project data manager if available
+        if hasattr(self.main_window, 'project_data_manager'):
+            parts_data = self.main_window.project_data_manager.get_current_parts_data()
+            if parts_data and part_name in parts_data:
+                parts_data[part_name].motion_path_data = None
+                logging.info(f"🔄 EDITOR TAB: Cleared motion_path_data for part '{part_name}' in project data")
+        
         # Set the drawing mode and start motion path definition
         self.editor_view.set_mode("define_motion_path")
         # Find the target part item for path drawing

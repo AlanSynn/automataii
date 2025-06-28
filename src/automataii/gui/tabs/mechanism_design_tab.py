@@ -954,6 +954,10 @@ class MechanismDesignTab(QWidget):
             BODY_PARTS = {}
             logging.warning("Could not import BODY_PARTS for end effector detection")
 
+        # CRITICAL FIX: Always use neck for head mechanism control
+        if part_name == "head":
+            return "neck"
+
         # Check if this part has joint definitions
         part_definition = BODY_PARTS.get(part_name, {})
         part_joints = part_definition.get("joints", [])
@@ -1691,7 +1695,6 @@ class MechanismDesignTab(QWidget):
         # CHANGED: Support multiple mechanisms - only clear mechanism for current part
         if hasattr(self, 'selected_part_name') and self.selected_part_name:
             self._clear_mechanism_for_part(self.selected_part_name)
-            logging.info(f"[MECHANISM TAB] Cleared existing mechanism for part: {self.selected_part_name}")
         else:
             logging.warning("[MECHANISM TAB] No selected part - creating mechanism anyway")
 
@@ -2279,6 +2282,15 @@ class MechanismDesignTab(QWidget):
 
         active_joint_updates = {}
 
+        # DEBUG: Check if mechanism_layers has any data
+        logging.info(f"🔍 MECHANISM DEBUG: mechanism_layers count: {len(self.mechanism_layers)}")
+        if not self.mechanism_layers:
+            logging.warning("🚨 MECHANISM DEBUG: mechanism_layers is empty!")
+        else:
+            for mech_id, layer_data in self.mechanism_layers.items():
+                part_name = layer_data.get("part_name", "unknown")
+                logging.info(f"🔍 MECHANISM DEBUG: Found mechanism {mech_id} for part {part_name}")
+
         # 1. Calculate all mechanism outputs and determine IK targets
         for mechanism_id, layer_data in self.mechanism_layers.items():
             if not layer_data or not layer_data.get("part_name"):
@@ -2303,6 +2315,9 @@ class MechanismDesignTab(QWidget):
 
                         # Find the standardized joint ID for the IK system
                         std_joint_id = self._get_standardized_joint_id(target_joint_id)
+
+                        # DEBUG: Log target joint conversion for all parts
+                        logging.info(f"🎯 TARGET DEBUG: part_name='{part_name}', anchor_joint_id='{part_info.anchor_joint_id}', target_joint_id='{target_joint_id}', std_joint_id='{std_joint_id}'")
 
                         if std_joint_id:
                             # This is the target for the IK system
@@ -3473,14 +3488,14 @@ class MechanismDesignTab(QWidget):
         driver_link = QGraphicsLineItem(QLineF(p1_t, p3_t))
         driver_pen = QPen(QColor("#e74c3c"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         driver_link.setPen(driver_pen)
-        driver_link.setZValue(3)
+        driver_link.setZValue(15)  # Above parts (Z_PART_DEFAULT = 10)
         self.mechanism_scene.addItem(driver_link)
         visual_items.append(driver_link)
 
         follower_link = QGraphicsLineItem(QLineF(p2_t, p4_t))
         follower_pen = QPen(QColor("#f39c12"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         follower_link.setPen(follower_pen)
-        follower_link.setZValue(3)
+        follower_link.setZValue(15)  # Above parts
         self.mechanism_scene.addItem(follower_link)
         visual_items.append(follower_link)
 
@@ -3491,7 +3506,7 @@ class MechanismDesignTab(QWidget):
             coupler_line = QGraphicsLineItem(QLineF(p3_t, p4_t))
             coupler_pen = QPen(QColor("#2ecc71"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
             coupler_line.setPen(coupler_pen)
-            coupler_line.setZValue(4)
+            coupler_line.setZValue(16)  # Above other links
             self.mechanism_scene.addItem(coupler_line)
             visual_items.append(coupler_line)
         else:  # Non-collinear - show as triangle
@@ -3505,7 +3520,7 @@ class MechanismDesignTab(QWidget):
             triangle_brush.setStyle(Qt.BrushStyle.SolidPattern)
             coupler_triangle.setPen(triangle_pen)
             coupler_triangle.setBrush(triangle_brush)
-            coupler_triangle.setZValue(4)
+            coupler_triangle.setZValue(16)  # Above other links
             coupler_triangle.setOpacity(0.8)
             self.mechanism_scene.addItem(coupler_triangle)
             visual_items.append(coupler_triangle)
@@ -3514,7 +3529,7 @@ class MechanismDesignTab(QWidget):
         ground_link = QGraphicsLineItem(QLineF(p1_t, p2_t))
         ground_pen = QPen(QColor("#9b59b6"), 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)  # Purple
         ground_link.setPen(ground_pen)
-        ground_link.setZValue(2)  # Lower than other links
+        ground_link.setZValue(14)  # Base mechanism level, above parts
         self.mechanism_scene.addItem(ground_link)
         visual_items.append(ground_link)
 
@@ -4283,7 +4298,7 @@ class MechanismDesignTab(QWidget):
             QPen(cam_color, 4),
             QBrush(cam_color.lighter(130))
         )
-        cam_body.setZValue(10)
+        cam_body.setZValue(15)  # Above parts (Z_PART_DEFAULT = 10)
         cam_body.setOpacity(0.7)  # 데이터셋과 동일한 투명도
         visual_items.append(cam_body)
 
@@ -4357,7 +4372,7 @@ class MechanismDesignTab(QWidget):
             QPen(gear1_color, 4),
             QBrush(gear1_color.lighter(170))
         )
-        gear1_body.setZValue(10)
+        gear1_body.setZValue(15)  # Above parts
         visual_items.append(gear1_body)
 
         # Create gear 2 (driven) with proper screen coordinates
@@ -4374,7 +4389,7 @@ class MechanismDesignTab(QWidget):
             QPen(gear2_color, 4),
             QBrush(gear2_color.lighter(170))
         )
-        gear2_body.setZValue(10)
+        gear2_body.setZValue(15)  # Above parts
         visual_items.append(gear2_body)
 
         # Create rotation indicators (lines that will rotate)
@@ -4474,7 +4489,7 @@ class MechanismDesignTab(QWidget):
             QPen(sun_color, 4),
             QBrush(sun_color.lighter(150))
         )
-        sun_gear.setZValue(5)
+        sun_gear.setZValue(14)  # Base level, above parts
         visual_items.append(sun_gear)
 
         # Create planet gear (orbiting)
@@ -4485,7 +4500,7 @@ class MechanismDesignTab(QWidget):
             QPen(planet_color, 4),
             QBrush(planet_color.lighter(150))
         )
-        planet_gear.setZValue(10)
+        planet_gear.setZValue(15)  # Above base level
         visual_items.append(planet_gear)
 
         # Create arm connecting planet center to tracking point

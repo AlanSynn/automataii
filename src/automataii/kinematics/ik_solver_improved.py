@@ -4,9 +4,9 @@ import math
 from PyQt6.QtCore import QLineF, QPointF
 
 # Maximum allowed bone length deviation from original extracted lengths
-# 🔧 LENGTH TOLERANCE FIX: Allow 5% deviation for floating-point precision
-# Was 0.0 (too strict) - caused rejection of valid IK solutions due to fp errors
-MAX_BONE_LENGTH_DEVIATION = 0.05  # 5% tolerance for numerical precision
+# 🔧 LENGTH TOLERANCE FIX: Allow 10% deviation for natural bone extension
+# Updated from 5% to match the two-bone and single-bone IK systems
+MAX_BONE_LENGTH_DEVIATION = 0.1  # 10% tolerance for natural bone extension
 
 
 def get_world_rotation(item):

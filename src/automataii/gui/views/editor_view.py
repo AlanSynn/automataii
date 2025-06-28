@@ -962,18 +962,30 @@ class EditorView(QGraphicsView):
         # Clear any existing path for this component before starting new drawing
         if target_item and target_item.part_info and target_item.part_info.name:
             component_key = target_item.part_info.name
+            logging.info(f"🔄 PATH CLEAR: Checking for existing path for component '{component_key}' (via target_item)")
             if component_key in self.final_paths_map:
                 old_path_item = self.final_paths_map.pop(component_key)
                 if old_path_item and old_path_item.scene():
                     self.scene().removeItem(old_path_item)
-                    logging.debug(f"Cleared existing green path for {component_key} before starting new drawing")
+                    logging.info(f"✅ PATH CLEAR: Removed existing green path for {component_key} before starting new drawing")
+                else:
+                    logging.warning(f"⚠️  PATH CLEAR: Found path item for {component_key} but couldn't remove it (item={old_path_item}, scene={old_path_item.scene() if old_path_item else None})")
+            else:
+                logging.info(f"ℹ️  PATH CLEAR: No existing path found for {component_key}")
         elif hasattr(self.parent_window, 'selected_part_name') and self.parent_window.selected_part_name:
             component_key = self.parent_window.selected_part_name
+            logging.info(f"🔄 PATH CLEAR: Checking for existing path for component '{component_key}' (via selected_part_name)")
             if component_key in self.final_paths_map:
                 old_path_item = self.final_paths_map.pop(component_key)
                 if old_path_item and old_path_item.scene():
                     self.scene().removeItem(old_path_item)
-                    logging.debug(f"Cleared existing green path for {component_key} before starting new drawing")
+                    logging.info(f"✅ PATH CLEAR: Removed existing green path for {component_key} before starting new drawing")
+                else:
+                    logging.warning(f"⚠️  PATH CLEAR: Found path item for {component_key} but couldn't remove it (item={old_path_item}, scene={old_path_item.scene() if old_path_item else None})")
+            else:
+                logging.info(f"ℹ️  PATH CLEAR: No existing path found for {component_key}")
+        else:
+            logging.warning("⚠️  PATH CLEAR: No target_item or selected_part_name available for path clearing")
 
         self.current_target_item_for_path = target_item  # Can be None
         self.current_freehand_path = QPainterPath()
