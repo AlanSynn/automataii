@@ -61,8 +61,6 @@ from automataii.gui.views.editor_view import EditorView
 from automataii.kinematics.mechanism import (
     MechanismCandidate,
 )
-from automataii.kinematics.mechanism_simulator import MechanismSimulator
-from automataii.kinematics.motion_database import MotionDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +87,6 @@ class MechanismDesignTab(QWidget):
         self.main_window = main_window
         self.debug_mode = getattr(main_window, "debug_mode", False)
 
-        # Core components from the paper plan
-        self.motion_database = MotionDatabase("motion_database.h5")
-        self.mechanism_simulator = MechanismSimulator()
         self.candidates: list[MechanismCandidate] = []
         self.selected_mechanism: MechanismCandidate | None = None
 
@@ -514,16 +509,16 @@ class MechanismDesignTab(QWidget):
         # 🔧 PATH SYNC FIX: Clear mechanisms for parts that no longer have paths or have new paths
         current_parts = set(path_data.keys()) if path_data else set()
         previous_parts = set(self.path_data.keys()) if hasattr(self, 'path_data') and self.path_data else set()
-        
+
         # Find parts that were removed or changed
         parts_to_clear = previous_parts - current_parts  # Parts that no longer have paths
-        
+
         # Also clear parts that have new/different paths
         for part_name in current_parts:
-            if (hasattr(self, 'path_data') and part_name in self.path_data and 
+            if (hasattr(self, 'path_data') and part_name in self.path_data and
                 path_data.get(part_name) != self.path_data.get(part_name)):
                 parts_to_clear.add(part_name)
-        
+
         # Clear mechanisms for affected parts
         for part_name in parts_to_clear:
             self._clear_mechanism_for_part(part_name)
@@ -556,7 +551,7 @@ class MechanismDesignTab(QWidget):
                 self.recommendation_btn.setToolTip("No motion paths available")
 
         self._display_paths_in_preview()
-        
+
         # 🔧 UI UPDATE: Update mechanism layers list to reflect cleared mechanisms
         self._update_mechanism_layers_list()
 
@@ -2553,7 +2548,7 @@ class MechanismDesignTab(QWidget):
                     distance = r1 + r2  # Gears touching
                     gear1_center = np.array([0, 0])
                     gear2_center = np.array([distance, 0])
-                    
+
                     # Get rotation angles from dataset if available
                     if gear_data and "gear1_angles" in gear_data and "gear2_angles" in gear_data:
                         gear1_angles = gear_data["gear1_angles"]
@@ -2580,7 +2575,7 @@ class MechanismDesignTab(QWidget):
                     gear1_edge_orig = gear1_center + np.array([r1, 0])
                     gear1_edge_scene = to_scene_coords(gear1_edge_orig)
                     r1_screen = QLineF(g1_center_scene, gear1_edge_scene).length()
-                    
+
                     gear2_edge_orig = gear2_center + np.array([r2, 0])
                     gear2_edge_scene = to_scene_coords(gear2_edge_orig)
                     r2_screen = QLineF(g2_center_scene, gear2_edge_scene).length()
