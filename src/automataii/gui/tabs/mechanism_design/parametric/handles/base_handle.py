@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import Any
 
 from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import pyqtSignal as Signal
 from PyQt6.QtGui import QBrush, QColor, QCursor, QPen
 from PyQt6.QtWidgets import (
     QApplication,
@@ -35,6 +36,9 @@ class BaseHandle(QGraphicsEllipseItem):
     - Constraint validation integration
     - Performance-optimized event handling
     """
+    # Signals to notify controller about manipulation state
+    manipulation_started = Signal(str)  # mechanism_id
+    manipulation_finished = Signal(str) # mechanism_id
 
     # Handle appearance constants - make them larger for easier interaction
     HANDLE_RADIUS = 15.0
@@ -165,7 +169,6 @@ class BaseHandle(QGraphicsEllipseItem):
 
     def hoverEnterEvent(self, event):
         """Handle mouse enter event."""
-        logging.info(f"[HANDLE] 🔥 HOVER ENTER {self.param_name}")
         if self._is_enabled:
             self._is_hovered = True
             self._update_visual_state()
@@ -179,10 +182,8 @@ class BaseHandle(QGraphicsEllipseItem):
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
         """Handle mouse press - start drag operation."""
-        logging.info(f"[HANDLE] 🔥 MOUSE PRESS {self.param_name} button={event.button()}")
-
         if not self._is_enabled or event.button() != Qt.MouseButton.LeftButton:
-            logging.info(f"[HANDLE] ❌ Ignoring press - enabled:{self._is_enabled} button:{event.button()}")
+            super().mousePressEvent(event)
             return
 
         self._is_dragging = True
@@ -190,10 +191,9 @@ class BaseHandle(QGraphicsEllipseItem):
         self._initial_param_value = self.get_current_parameter_value()
 
         self._update_visual_state()
-        logging.info(f"[HANDLE] ✅ Started dragging {self.param_name}")
-
-        # Capture parameter state for potential undo
-        self._capture_initial_state()
+        
+        # Emit signal that manipulation has started
+        self.manipulation_started.emit(self.mechanism_id)
 
         super().mousePressEvent(event)
         logging.debug(f"Started dragging {self.param_name} handle")
@@ -201,6 +201,7 @@ class BaseHandle(QGraphicsEllipseItem):
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
         """Handle mouse move - update parameter during drag."""
         if not self._is_dragging or not self._is_enabled:
+            super().mouseMoveEvent(event)
             return
 
         # Calculate new parameter value based on position change
@@ -208,11 +209,12 @@ class BaseHandle(QGraphicsEllipseItem):
 
         # Validate against constraints
         if self.constraint_validator:
-            validated_value = self.constraint_validator(self.param_name, new_value)
-            if validated_value != new_value:
-                # Constraint violation - provide visual feedback
+            is_valid, error_msg = self.constraint_validator(self.param_name, new_value)
+            if not is_valid:
                 self._show_constraint_feedback()
-                new_value = validated_value
+                # Do not update if constraint is violated
+                super().mouseMoveEvent(event)
+                return
 
         # Update parameter if changed
         if new_value != self._initial_param_value:
@@ -224,18 +226,18 @@ class BaseHandle(QGraphicsEllipseItem):
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         """Handle mouse release - finish drag operation."""
-        if not self._is_dragging:
+        if not self._is_dragging or event.button() != Qt.MouseButton.LeftButton:
+            super().mouseReleaseEvent(event)
             return
 
         self._is_dragging = False
         self._update_visual_state()
 
-        # Finalize parameter change
-        final_value = self.get_current_parameter_value()
-        logging.info(f"[HANDLE] Finished dragging {self.param_name}: {final_value}")
+        # Emit signal that manipulation has finished
+        self.manipulation_finished.emit(self.mechanism_id)
 
         super().mouseReleaseEvent(event)
-        logging.debug(f"Finished dragging {self.param_name} handle: {final_value}")
+        logging.debug(f"Finished dragging {self.param_name} handle")
 
     def _show_constraint_feedback(self):
         """Show visual feedback for constraint violations."""
@@ -281,12 +283,6 @@ class BaseHandle(QGraphicsEllipseItem):
         Returns:
             Current parameter value
         """
-        pass
-
-    def _capture_initial_state(self):
-        """Capture initial parameter state for undo functionality."""
-        # Implementation for undo/redo system
-        # Store in parameter history for Command pattern
         pass
 
     # Utility Methods
