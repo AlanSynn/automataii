@@ -372,6 +372,34 @@ class ProjectDataManager(QObject):
             return self._parts.copy()
         return None
 
+    def update_motion_path_for_part(self, part_name: str, motion_qpath: "QPainterPath"):
+        """Updates the motion path for a specific part."""
+        if part_name in self._parts:
+            self._parts[part_name].motion_path_data = motion_qpath
+            logging.debug(f"Updated motion path for part '{part_name}' in ProjectDataManager.")
+            
+            # Also update the underlying Pydantic model for serialization
+            if self._validated_project_data and self._validated_project_data.character:
+                if part_name in self._validated_project_data.character.parts:
+                    part_model = self._validated_project_data.character.parts[part_name]
+                    
+                    # Convert QPainterPath to a serializable format for the Pydantic model
+                    from .models_pydantic import MotionPathDataModel, QPointFModel
+                    
+                    points_for_pydantic: list[QPointFModel] = []
+                    if motion_qpath and not motion_qpath.isEmpty():
+                        for i in range(motion_qpath.elementCount()):
+                            element = motion_qpath.elementAt(i)
+                            if element.isMoveTo() or element.isLineTo():
+                                points_for_pydantic.append(QPointFModel(x=element.x, y=element.y))
+                    
+                    if points_for_pydantic:
+                        part_model.motion_path_data = MotionPathDataModel(path_points=points_for_pydantic)
+                    else:
+                        part_model.motion_path_data = None
+        else:
+            logging.warning(f"Attempted to update motion path for non-existent part: {part_name}")
+
     # --- Methods for project saving (to be implemented using Pydantic models) ---
     def save_project_to_file(self, filepath: str) -> bool:
         logging.info(f"ProjectDataManager: Attempting to save project to: {filepath}")
