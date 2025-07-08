@@ -209,11 +209,12 @@ class AutomataDesigner(QMainWindow):
         self.editor_tab.set_parts_data(parts_info)
         self.mechanism_design_tab.set_parts_data(parts_info)
 
-        # Ensure editor tab has current skeleton data if available
+        # Ensure both editor and mechanism tabs have current skeleton data if available
         if self.skeleton_manager.standardized_model is not None:
             current_skeleton = self.skeleton_manager.get_current_skeleton_data()
             if current_skeleton:
                 self.editor_tab.cache_initial_skeleton(current_skeleton)
+                self.mechanism_design_tab.cache_initial_skeleton(current_skeleton)
 
         skeleton_data = self.project_data_manager.raw_skeleton_data
         # Only load skeleton data if we have some, or if we don't have any existing skeleton
