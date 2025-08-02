@@ -1,15 +1,18 @@
 # src/automataii/kinematics/ik_manager.py
 import logging
-from typing import Dict, List, Any, Optional, TYPE_CHECKING
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF
+from typing import TYPE_CHECKING
 
-from .ik_solver_improved import IKSolver, FABRIKSolver, IKChain
-from automataii.models.skeleton import StandardizedSkeletonModel, StandardizedJointModel
+from PyQt6.QtCore import QObject, QPointF, pyqtSignal
+
+from automataii.models.skeleton import StandardizedJointModel, StandardizedSkeletonModel
+
+from .ik_solver_improved import FABRIKSolver, IKChain, IKSolver
 
 if TYPE_CHECKING:
-    from ...services.skeleton_manager import SkeletonManager
+    pass
 
 logger = logging.getLogger(__name__)
+
 
 class IKManager(QObject):
     """
@@ -18,18 +21,19 @@ class IKManager(QObject):
     and using a solver to calculate new poses based on targets.
     It is now decoupled from animation timing.
     """
+
     pose_updated = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
-        self.skeleton_model: Optional[StandardizedSkeletonModel] = None
-        self.ik_chains: Dict[str, IKChain] = {}  # Maps end-effector ID to its chain
+        self.skeleton_model: StandardizedSkeletonModel | None = None
+        self.ik_chains: dict[str, IKChain] = {}  # Maps end-effector ID to its chain
         self.solver: IKSolver = FABRIKSolver()
-        self.joint_positions: Dict[str, QPointF] = {}
-        self._initial_joint_positions: Dict[str, QPointF] = {}
+        self.joint_positions: dict[str, QPointF] = {}
+        self._initial_joint_positions: dict[str, QPointF] = {}
 
-    def on_skeleton_data_updated(self, skeleton_data: Optional[Dict]):
+    def on_skeleton_data_updated(self, skeleton_data: dict | None):
         """
         Receives new skeleton data, clears old state, and builds new IK chains.
         """
@@ -56,7 +60,7 @@ class IKManager(QObject):
         self.ik_chains.clear()
         self.joint_positions.clear()
         self._initial_joint_positions.clear()
-        
+
         if not self.skeleton_model:
             return
 
@@ -68,7 +72,13 @@ class IKManager(QObject):
         # This could be loaded from a rig definition file in the future
         # These are abstract names that will be mapped to standardized IDs
         # Using joint names that actually exist in the skeleton
-        end_effector_abstract_names = ["left_wrist", "right_wrist", "left_ankle", "right_ankle", "head"]
+        end_effector_abstract_names = [
+            "left_hand",
+            "right_hand", 
+            "left_foot",
+            "right_foot",
+            "neck",
+        ]
 
         for abstract_name in end_effector_abstract_names:
             effector_id = self.skeleton_model.joint_map.get(abstract_name)
@@ -81,24 +91,40 @@ class IKManager(QObject):
                 # The key for the chain is the end-effector's standardized ID
                 self.ik_chains[effector_id] = IKChain(chain_joints)
 
-    def _trace_chain_to_root(self, end_effector_id: str) -> List[StandardizedJointModel]:
+    def _trace_chain_to_root(self, end_effector_id: str) -> list[StandardizedJointModel]:
         """Traces a joint's hierarchy back to a root or a maximum depth."""
-        chain: List[StandardizedJointModel] = []
-        current_id: Optional[str] = end_effector_id
+        chain: list[StandardizedJointModel] = []
+        current_id: str | None = end_effector_id
+
+        logger.debug(f"Tracing chain from end effector: {end_effector_id}")
 
         # Max depth to prevent infinite loops in case of malformed hierarchy
-        for _ in range(10):
+        for i in range(10):
             if not current_id:
+                logger.info(f"Chain tracing stopped: no current_id at step {i}")
                 break
             joint = self.skeleton_model.get_joint(current_id)
             if not joint:
+                logger.info(f"Chain tracing stopped: no joint found for {current_id} at step {i}")
                 break
+            
+            logger.info(f"Step {i}: Adding joint {joint.id} (parent: {joint.parent_id})")
             chain.append(joint)
             current_id = joint.parent_id
+            
+            # Stop at torso or hip to create reasonable IK chains
+            if current_id in ["torso", "hip", "root"]:
+                # Add the parent joint too for a complete chain
+                parent_joint = self.skeleton_model.get_joint(current_id)
+                if parent_joint:
+                    logger.info(f"Step {i+1}: Adding parent joint {parent_joint.id} and stopping")
+                    chain.append(parent_joint)
+                break
 
-        return list(reversed(chain)) # Return in order from root to effector
+        logger.info(f"Final chain for {end_effector_id}: {[j.id for j in chain]} (length: {len(chain)})")
+        return list(reversed(chain))  # Return in order from root to effector
 
-    def solve_for_targets(self, targets: Dict[str, QPointF]):
+    def solve_for_targets(self, targets: dict[str, QPointF]):
         """
         Solves the IK for the entire skeleton given a set of targets.
 
@@ -118,10 +144,20 @@ class IKManager(QObject):
 
                 # The solver returns a list of new QPointF positions for the joints in the chain
                 solved_positions = self.solver.solve(chain, target_pos)
+                
+                logger.debug(f"IK Chain for {effector_id}: {len(chain.joints)} joints, {len(solved_positions)} solved positions")
+                if len(chain.joints) < 2:
+                    logger.warning(f"Chain {effector_id} has insufficient joints ({len(chain.joints)}) for IK solving")
+
+                # Ensure we have the right number of positions
+                if len(solved_positions) != len(chain.joints):
+                    logger.error(f"Mismatch: expected {len(chain.joints)} positions, got {len(solved_positions)}")
+                    continue
 
                 # Update the main joint positions dictionary with the solved chain
                 for i, joint_model in enumerate(chain.joints):
-                    self.joint_positions[joint_model.id] = solved_positions[i]
+                    if i < len(solved_positions):
+                        self.joint_positions[joint_model.id] = solved_positions[i]
 
         # Emit the complete updated pose
         self.pose_updated.emit(self.joint_positions)
@@ -139,7 +175,7 @@ class IKManager(QObject):
         self._initial_joint_positions.clear()
         logger.info("IKManager: All data has been cleared.")
 
-    def get_end_effector_for_part(self, part_name: str) -> Optional[str]:
+    def get_end_effector_for_part(self, part_name: str) -> str | None:
         """
         Maps a visual part name (e.g., 'left_forearm') to its controlling
         end-effector ID (e.g., 'std_lhand_9').
@@ -152,19 +188,19 @@ class IKManager(QObject):
         # The key is the part name (from parts_info.json), the value is the ABSTRACT joint name.
         part_to_effector_abstract_name = {
             # Map actual part names to IK end-effectors (using joint names that exist in skeleton)
-            "left_arm_lower": "left_wrist",   # left_arm_lower -> left_wrist
-            "right_arm_lower": "right_wrist", # right_arm_lower -> right_wrist
-            "left_leg_lower": "left_ankle",   # left_leg_lower -> left_ankle
-            "right_leg_lower": "right_ankle", # right_leg_lower -> right_ankle
-            "head": "head",
-            "left_arm_upper": "left_elbow",   # left_arm_upper -> left_elbow
-            "right_arm_upper": "right_elbow", # right_arm_upper -> right_elbow
-            "torso": "hip", # torso movement could drive the hip
+            "left_arm_lower": "left_hand",  # left_arm_lower -> left_hand
+            "right_arm_lower": "right_hand",  # right_arm_lower -> right_hand
+            "left_leg_lower": "left_foot",  # left_leg_lower -> left_foot
+            "right_leg_lower": "right_foot",  # right_leg_lower -> right_foot
+            "head": "neck",  # head part -> neck joint
+            "left_arm_upper": "left_elbow",  # left_arm_upper -> left_elbow
+            "right_arm_upper": "right_elbow",  # right_arm_upper -> right_elbow
+            "torso": "hip",  # torso movement could drive the hip
             # Legacy names for backward compatibility
-            "left_forearm": "left_wrist",
-            "right_forearm": "right_wrist",
-            "left_shin": "left_ankle",
-            "right_shin": "right_ankle",
+            "left_forearm": "left_hand",
+            "right_forearm": "right_hand",
+            "left_shin": "left_foot",
+            "right_shin": "right_foot",
             "left_upper_arm": "left_elbow",
             "right_upper_arm": "right_elbow",
         }

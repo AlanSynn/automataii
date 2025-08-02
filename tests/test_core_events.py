@@ -2,8 +2,7 @@
 Test event bus system
 """
 import pytest
-from automataii.core import EventBus
-from automataii.core.events.base import ApplicationStarted, ComponentActivated
+from automataii.core import EventBus, ApplicationStarted, ComponentActivated
 
 
 class TestEventBus:

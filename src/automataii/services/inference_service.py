@@ -9,6 +9,7 @@ from automataii.utils.paths import resolve_path
 
 logger = logging.getLogger(__name__)
 
+
 class InferenceService:
     def __init__(self, model_dir: str | Path, providers=None):
         """
@@ -19,7 +20,7 @@ class InferenceService:
             providers: ONNX Runtime execution providers (default: ['CPUExecutionProvider'])
         """
         if providers is None:
-            providers = ['CPUExecutionProvider']
+            providers = ["CPUExecutionProvider"]
 
         # Resolve the model directory path using the utility function
         if isinstance(model_dir, str):
@@ -63,7 +64,9 @@ class InferenceService:
 
         # Get input details
         self.detector_input_name = self.detector_session.get_inputs()[0].name
-        self.detector_input_shape = self.detector_session.get_inputs()[0].shape[2:]  # (height, width)
+        self.detector_input_shape = self.detector_session.get_inputs()[0].shape[
+            2:
+        ]  # (height, width)
 
         self.pose_input_name = self.pose_session.get_inputs()[0].name
         self.pose_input_shape = self.pose_session.get_inputs()[0].shape[2:]  # (height, width)
@@ -84,7 +87,7 @@ class InferenceService:
 
         # Normalize to [0, 1] and convert to CHW format
         input_tensor = resized_image.astype(np.float32) / 255.0
-        input_tensor = np.transpose(input_tensor, (2, 0, 1)) # HWC to CHW
+        input_tensor = np.transpose(input_tensor, (2, 0, 1))  # HWC to CHW
 
         # Add batch dimension
         return np.expand_dims(input_tensor, axis=0)
@@ -109,7 +112,7 @@ class InferenceService:
         # into bounding boxes, scores, and labels. This is highly model-specific.
         # Example: bboxes = self._postprocess_detection(outputs)
         logger.debug("Detector output shape:", [o.shape for o in outputs])
-        return outputs # Returning raw output for now
+        return outputs  # Returning raw output for now
 
     def run_pose_estimation(self, image: np.ndarray, bboxes: list) -> list:
         """
@@ -140,8 +143,9 @@ class InferenceService:
 
         return all_poses
 
+
 # Example usage (for testing)
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(level=logging.INFO)
 
@@ -154,7 +158,7 @@ if __name__ == '__main__':
 
         service = InferenceService(models_path)
 
-        sample_image_path = "peppa_pig.jpg" # A placeholder, use a real image path
+        sample_image_path = "peppa_pig.jpg"  # A placeholder, use a real image path
         if Path(sample_image_path).exists():
             img = cv2.imread(sample_image_path)
 

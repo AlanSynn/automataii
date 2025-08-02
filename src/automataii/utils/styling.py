@@ -32,9 +32,7 @@ class UIColors:
     GEAR_BODY_BORDER = QColor(Qt.GlobalColor.black)
     GEAR_TOOTH_FRONT = QColor("#DCDCDC")  # Gainsboro
     GEAR_TOOTH_BACK = QColor("#A9A9A9")  # DarkGray
-    GEAR_TOOTH_BORDER = QColor(
-        Qt.GlobalColor.darkGray
-    )  # Slightly lighter border for teeth
+    GEAR_TOOTH_BORDER = QColor(Qt.GlobalColor.darkGray)  # Slightly lighter border for teeth
 
     TEXT_PRIMARY = QColor("#E0E0E0")
     MOTION_PATH_COLOR = QColor(0, 255, 0, 150)
@@ -70,9 +68,7 @@ def apply_dark_theme(app: QApplication) -> None:
         QPalette.ColorRole.WindowText,
         QColor(127, 127, 127),
     )
-    palette.setColor(
-        QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127)
-    )
+    palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(127, 127, 127))
     app.setPalette(palette)
 
 

@@ -4,7 +4,7 @@ import os
 
 import numpy as np  # Added import
 from PyQt6.QtCore import QLineF, QPointF
-from PyQt6.QtGui import QTransform  # Import QTransform from QtGui
+from PyQt6.QtGui import QPainterPath, QTransform  # Import QPainterPath and QTransform from QtGui
 
 # --- Environment Setup ---
 
@@ -46,9 +46,7 @@ def transform_to_dict(transform: QTransform) -> dict:
 def dict_to_transform(data: dict) -> QTransform:
     """Converts a dictionary back to a QTransform object."""
     if not data or len(data) != 9:
-        logging.warning(
-            "Invalid data format for dict_to_transform. Returning identity."
-        )
+        logging.warning("Invalid data format for dict_to_transform. Returning identity.")
         return QTransform()  # Return identity transform
     return QTransform(
         data.get("m11", 1.0),
@@ -108,9 +106,7 @@ def points_to_qpainterpath(points_data: list):
         elif el_type == QPainterPath.ElementType.CurveToDataElement:
             # This stores control points, but needs careful handling during restore.
             # For simplicity, treating as LineTo.
-            logging.warning(
-                "CurveToDataElement restoration not implemented. Using LineTo."
-            )
+            logging.warning("CurveToDataElement restoration not implemented. Using LineTo.")
             # path.lineTo(x, y) # Data element isn't a vertex
             pass
         else:
@@ -137,9 +133,7 @@ def distance(p1: QPointF, p2: QPointF) -> float:
     return QLineF(p1, p2).length()
 
 
-def points_to_closed_bezier_path(
-    points: list[QPointF], tension: float = 1 / 6
-) -> "QPainterPath":
+def points_to_closed_bezier_path(points: list[QPointF], tension: float = 1 / 6) -> QPainterPath:
     """Converts a list of QPointF objects to a closed, smooth QPainterPath using Bezier curves.
 
     Args:
@@ -150,15 +144,12 @@ def points_to_closed_bezier_path(
         A QPainterPath representing the smooth, closed Bezier curve.
         Returns an empty path if fewer than 3 points are provided.
     """
-    from PyQt6.QtGui import QPainterPath  # Local import
 
     num_points = len(points)
     if num_points < 3:
         # For 0 or 1 point, return empty path
         # For 2 points, could return a line, but for a "closed Bezier curve" it's ambiguous
-        logging.warning(
-            "Cannot generate a closed Bezier path with fewer than 3 points."
-        )
+        logging.warning("Cannot generate a closed Bezier path with fewer than 3 points.")
         path = QPainterPath()
         if num_points == 1:
             path.moveTo(points[0])
@@ -207,4 +198,4 @@ class NumpyEncoder(json.JSONEncoder):
             return float(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        return super(NumpyEncoder, self).default(obj)
+        return super().default(obj)

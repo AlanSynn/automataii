@@ -339,3 +339,5 @@ tmp/
 !resources/img/landing.png
 
 *_entry.py
+.cursor/
+backup_original_files/

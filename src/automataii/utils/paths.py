@@ -20,11 +20,11 @@ def get_project_root() -> Path:
         current_path = current_path.parent
 
     # Check if we're running from a PyInstaller bundle
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         # We're running from a PyInstaller bundle
         # Try to find project root from the bundle's location
         bundle_path = Path(sys.executable).parent
-        if bundle_path.name.endswith('.app'):
+        if bundle_path.name.endswith(".app"):
             # macOS app bundle - go up to find the project root
             return bundle_path.parent
         else:
@@ -48,9 +48,7 @@ def get_app_temp_dir() -> Path:
     return app_temp_dir
 
 
-def get_session_temp_dir(
-    session_id: str | None = None, clear_existing: bool = False
-) -> Path:
+def get_session_temp_dir(session_id: str | None = None, clear_existing: bool = False) -> Path:
     """
     Returns a unique temporary directory for a specific processing session or project instance.
     If no session_id is provided, a new UUID will be generated.
@@ -72,9 +70,7 @@ def get_session_temp_dir(
         logger.debug(f"No session_id provided, generated new UUID: {session_id}")
 
     # Sanitize session_id to be a valid directory name (simple sanitization)
-    safe_session_id = "".join(
-        c for c in session_id if c.isalnum() or c in ("_", "-")
-    ).strip()
+    safe_session_id = "".join(c for c in session_id if c.isalnum() or c in ("_", "-")).strip()
     if not safe_session_id:  # If sanitization results in empty string, use a UUID
         safe_session_id = str(uuid.uuid4())
         logger.warning(
@@ -84,15 +80,11 @@ def get_session_temp_dir(
     project_temp_dir = base_temp_dir / safe_session_id
 
     if project_temp_dir.exists() and clear_existing:
-        logger.debug(
-            f"Clearing existing temporary session directory: {project_temp_dir}"
-        )
+        logger.debug(f"Clearing existing temporary session directory: {project_temp_dir}")
         try:
             shutil.rmtree(project_temp_dir)
         except OSError as e:
-            logger.error(
-                f"Error removing directory {project_temp_dir}: {e}", exc_info=True
-            )
+            logger.error(f"Error removing directory {project_temp_dir}: {e}", exc_info=True)
             # Proceed to try creating it, maybe it was partially deleted or permissions issue
 
     project_temp_dir.mkdir(parents=True, exist_ok=True)
@@ -114,7 +106,7 @@ def get_base_path() -> Path:
         Path: Base path for resource resolution
     """
     # Check if we're running from a PyInstaller bundle
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         # We're running from a PyInstaller bundle
         return Path(sys._MEIPASS)
 

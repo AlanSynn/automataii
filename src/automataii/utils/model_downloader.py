@@ -11,6 +11,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
 class ModelDownloader:
     """Downloads model files on-demand"""
 
@@ -22,14 +23,14 @@ class ModelDownloader:
             "url": "https://github.com/alansynn/automataii/releases/download/models-v1.0/detector_latest.pth",
             "sha256": "placeholder_hash_detector",  # Update with actual hash when hosting
             "size": 400_000_000,  # ~400MB
-            "description": "PyTorch detection model weights (training/fine-tuning only)"
+            "description": "PyTorch detection model weights (training/fine-tuning only)",
         },
         "pose_best_AP_epoch_72.pth": {
             "url": "https://github.com/alansynn/automataii/releases/download/models-v1.0/pose_best_AP_epoch_72.pth",
             "sha256": "placeholder_hash_pose",  # Update with actual hash when hosting
             "size": 300_000_000,  # ~300MB
-            "description": "PyTorch pose estimation model weights (training/fine-tuning only)"
-        }
+            "description": "PyTorch pose estimation model weights (training/fine-tuning only)",
+        },
     }
 
     def __init__(self, models_dir: Path | None = None):
@@ -37,6 +38,7 @@ class ModelDownloader:
         if models_dir is None:
             # Use project root to find models directory
             from .paths import get_project_root
+
             project_root = get_project_root()
             self.models_dir = project_root / "models"
         else:
@@ -61,12 +63,12 @@ class ModelDownloader:
             response = requests.get(url, stream=True)
             response.raise_for_status()
 
-            total_size = int(response.headers.get('content-length', 0))
+            total_size = int(response.headers.get("content-length", 0))
             if expected_size and total_size != expected_size:
                 logger.warning(f"Size mismatch: expected {expected_size}, got {total_size}")
 
             downloaded = 0
-            with open(destination, 'wb') as f:
+            with open(destination, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
@@ -171,16 +173,17 @@ class ModelDownloader:
                     available[model_name] = {
                         "path": str(file_path),
                         "size": file_path.stat().st_size,
-                        "valid": is_valid
+                        "valid": is_valid,
                     }
                 except Exception as e:
                     available[model_name] = {
                         "path": str(file_path),
                         "size": file_path.stat().st_size,
                         "valid": False,
-                        "error": str(e)
+                        "error": str(e),
                     }
         return available
+
 
 # Convenience function for easy access
 def get_model_path(model_name: str) -> Path:

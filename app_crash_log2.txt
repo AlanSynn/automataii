@@ -1,0 +1,78 @@
+WARNING: [root] Could not set High DPI attributes (Qt version might be too old or attributes moved).
+Attribute Qt::AA_PluginApplication must be set before QCoreApplication is created.
+INFO: [root] Project root: /Users/alansynn/Workspace/src/Research/automataii
+INFO: [root] Base path: /Users/alansynn/Workspace/src/Research/automataii
+INFO: [root] Current working directory: /Users/alansynn/Workspace/src/Research/automataii
+INFO: [root] Setting up dependency injection container...
+INFO: [automataii.core.app_container] Setting up application dependency injection container
+INFO: [automataii.core.error_handler] GlobalErrorHandler initialized
+INFO: [automataii.core.app_container] Application container setup completed
+INFO: [automataii.core.app_container] Registered services: ['EventBus', 'GlobalErrorHandler', 'MotionPathService', 'ProjectDataManager', 'SkeletonManager', 'MechanismManager', 'BlueprintExportManager', 'KinematicsSystem']
+INFO: [root] Initializing application services...
+INFO: [automataii.core.app_container] Initializing application services
+INFO: [automataii.services.motion_path_service] MotionPathService initialized with event bus architecture
+INFO: [root] ProjectDataManager initialized.
+INFO: [root] SkeletonManager initialized with new standardized models.
+INFO: [root] MechanismManager initialized.
+INFO: [automataii.core.app_container] Successfully initialized services: ['EventBus', 'GlobalErrorHandler', 'MotionPathService', 'ProjectDataManager', 'SkeletonManager', 'MechanismManager', 'BlueprintExportManager', 'KinematicsSystem']
+INFO: [automataii.utils.auto_updater] Not running from bundle, skipping Sparkle setup
+INFO: [automataii.utils.auto_updater] Auto-updater not available on this platform/configuration
+INFO: [root] Auto-updater not available
+INFO: [root] Creating main window...
+INFO: [root] Initializing AutomataDesigner... Debug mode: False
+INFO: [root] Initialized with dependency injection container
+INFO: [root] ProjectDataManager initialized.
+INFO: [root] SkeletonManager initialized with new standardized models.
+INFO: [automataii.ui.tabs.landing.tab] LandingTab architecture initialized
+INFO: [automataii.ui.tabs.landing.action_handler] Loading example images...
+INFO: [automataii.ui.tabs.landing.action_handler] Looking for example images in: /Users/alansynn/Workspace/src/Research/automataii/src/examples
+INFO: [automataii.ui.tabs.landing.action_handler] Looking for example images in: /Users/alansynn/Workspace/src/Research/automataii/src/examples
+INFO: [automataii.ui.tabs.landing.action_handler] Loaded 49 example images
+INFO: [automataii.ui.tabs.landing.ui_panel] Updated display with 49 example images
+INFO: [automataii.ui.tabs.landing.state_manager] StateManager: Set 49 example images
+INFO: [automataii.ui.views.image_processing.input_handler] ImageProcessingInputHandler initialized
+INFO: [automataii.ui.views.image_processing.view] ImageProcessingView initialized with new architecture
+INFO: [automataii.ui.tabs.image_processing.tab] ImageProcessingTab initialized with new architecture.
+INFO: [automataii.ui.views.editor.input_handler] EditorInputHandler initialized
+INFO: [automataii.ui.views.editor.view] EditorView initialized (mechanism_mode=False)
+qt.qpa.fonts: Populating font family aliases took 295 ms. Replace uses of missing font family "Sans-serif" with one that exists to avoid this cost. 
+INFO: [automataii.ui.tabs.editor.tab] EditorTab initialized with new architecture.
+INFO: [automataii.ui.views.editor.input_handler] EditorInputHandler initialized
+INFO: [automataii.ui.views.editor.view] EditorView initialized (mechanism_mode=True)
+INFO: [automataii.ui.tabs.mechanism_design.parametric.controllers.parameter_controller] ParameterController initialized with update throttling and command pattern
+INFO: [automataii.ui.tabs.mechanism_design.tab] MechanismDesignTab initialized with new architecture.
+INFO: [automataii.ui.tabs.options.tab] OptionsTab architecture initialized
+INFO: [root] MechanismManager initialized.
+INFO: [root] AutomataDesigner initialized.
+INFO: [root] Application started.
+INFO: [automataii.ui.tabs.landing.action_handler] Example image selected: /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png
+INFO: [automataii.ui.tabs.image_processing.scene_manager] Loading image into view: /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png
+INFO: [automataii.ui.tabs.image_processing.tab] Auto-processing image after loading: /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png
+ERROR: [root] Error activating tab ImageProcessingTab: 'ImageProcessingStateManager' object has no attribute 'refresh_display'
+INFO: [automataii.domain.animation.image_to_annotations] Processing /Users/alansynn/Workspace/src/Research/automataii/src/examples/astronaut.png, outputting to: /var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut
+INFO: [automataii.domain.animation.image_to_annotations] Image shape: (812, 776, 3)
+INFO: [root] Loaded detector ONNX: /Users/alansynn/Workspace/src/Research/automataii/models/onnx/detector_backbone.onnx
+INFO: [root] Loaded pose ONNX: /Users/alansynn/Workspace/src/Research/automataii/models/onnx/pose_model.onnx
+INFO: [root] Detection complete, using full image bbox: [0, 0, 776, 812, 0.9]
+INFO: [root] Pose estimation complete, extracted 17 keypoints
+INFO: [automataii.domain.animation.image_to_annotations] Annotation generation complete. Output at /var/folders/qf/8vynx0hj5q55zj3rcrqw1myw0000gn/T/automataii/astronaut
+INFO: [automataii.ui.tabs.image_processing.action_handler] Generated basic skeleton structure for testing
+INFO: [automataii.ui.tabs.image_processing.scene_manager] Loading skeleton data into view
+INFO: [root] MainWindow: Received skeleton_updated signal. Forwarding to SkeletonManager.
+INFO: [root] SkeletonManager: Clearing all internal skeleton data.
+INFO: [automataii.domain.kinematics.ik_manager] IKManager: All data has been cleared.
+INFO: [root] SkeletonManager: Loading skeleton from dict. Source format hint: auto
+WARNING: [root] SkeletonManager: Unknown source format 'auto'. Attempting to process as Animated Drawings, then as Standard.
+WARNING: [root] No valid joints processed from Animated Drawings format.
+INFO: [root] SkeletonManager: Animated Drawings processing failed, trying as Standardized format.
+INFO: [root] SkeletonManager: Skeleton data processed successfully as standard.
+INFO: [automataii.domain.kinematics.ik_manager] IKManager: Successfully built 0 IK chains.
+INFO: [automataii.ui.tabs.image_processing.action_handler] Auto-generating body parts after skeleton creation
+INFO: [automataii.ui.tabs.image_processing.action_handler] Parts generated successfully: /Users/alansynn/Workspace/src/Research/automataii/src/examples/character_1752250737/parts_info.json
+INFO: [root] ProjectDataManager: Attempting to load project from: /Users/alansynn/Workspace/src/Research/automataii/src/examples/character_1752250737/parts_info.json
+INFO: [root] ProjectDataManager: Clearing project data (preserve_skeleton=False).
+INFO: [root] MainWindow: Handling project data cleared signal.
+INFO: [automataii.ui.tabs.mechanism_design.tab] Clearing all mechanism data.
+INFO: [root] char_cfg.yaml not found at /Users/alansynn/Workspace/src/Research/automataii/src/examples/character_1752250737/char_cfg.yaml, no supplemental skeleton to load.
+INFO: [root] ProjectDataManager: Successfully validated and parsed 10 parts. Project dir: /Users/alansynn/Workspace/src/Research/automataii/src/examples/character_1752250737
+INFO: [root] MainWindow: Project data loaded successfully from /Users/alansynn/Workspace/src/Research/automataii/src/examples/character_1752250737

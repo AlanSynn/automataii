@@ -5,9 +5,7 @@ Z_BACKGROUND_IMAGE = 0
 
 # Character Parts
 Z_PART_DEFAULT = 10
-Z_PART_SELECTED_ADJUSTMENT = (
-    1  # Added to base when selected, if needed visually on top of others
-)
+Z_PART_SELECTED_ADJUSTMENT = 1  # Added to base when selected, if needed visually on top of others
 
 # Skeletons (visual guides, non-interactive typically)
 Z_SKELETON_BONES = 5
@@ -38,8 +36,6 @@ Z_DEBUG_IK_SOLVER_VIS = 502
 
 # Z-index for the temporary path being drawn by the user in EditorView
 Z_MOTION_PATH_PREVIEW = 45  # Higher than selection highlight and finalized paths
-Z_SKELETON_OVERLAY = (
-    50  # For SkeletonGraphicsItem, above parts and motion paths for IK visibility
-)
+Z_SKELETON_OVERLAY = 50  # For SkeletonGraphicsItem, above parts and motion paths for IK visibility
 Z_SELECTION_MARKER = 50  # For mechanism point markers like pivot A, D etc.
 Z_TOOLTIP = 100  # Tooltips should be on top

@@ -1,4 +1,3 @@
-
 SVG_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
   <path d="{path_data}" fill="{fill_color}" stroke="{stroke_color}" stroke-width="{stroke_width}" />
@@ -42,7 +41,5 @@ def save_svg(
             f.write(content)
         return True
     except OSError as e:
-        print(
-            f"Error saving SVG to {output_path}: {e}"
-        )  # Consider logging instead of print
+        print(f"Error saving SVG to {output_path}: {e}")  # Consider logging instead of print
         return False

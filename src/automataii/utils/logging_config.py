@@ -12,14 +12,13 @@ def setup_logging(console_log_level: int = logging.INFO):
     """
     # Create logs directory if it doesn't exist
     from .paths import get_project_root
+
     project_root = get_project_root()
     log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True, parents=True)
 
     # Configure file handler (always DEBUG)
-    file_handler = logging.FileHandler(
-        log_dir / "automataii.log", mode="a"
-    )  # Append mode
+    file_handler = logging.FileHandler(log_dir / "automataii.log", mode="a")  # Append mode
     file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter(
         "%(asctime)s - %(levelname)-8s - %(name)-25s - %(module)-20s - %(funcName)-25s - L%(lineno)-4d - %(message)s"

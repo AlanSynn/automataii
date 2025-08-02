@@ -10,13 +10,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 class AutoUpdater:
     """Cross-platform auto-updater"""
 
     def __init__(self, app_instance=None):
         self.app_instance = app_instance
         self.update_url = "https://github.com/alansynn/automataii/releases/latest"
-        self.appcast_url = "https://github.com/alansynn/automataii/releases/latest/download/appcast.xml"
+        self.appcast_url = (
+            "https://github.com/alansynn/automataii/releases/latest/download/appcast.xml"
+        )
         self.updater = None
         self.platform = sys.platform
 
@@ -40,7 +43,7 @@ class AutoUpdater:
         """Setup Sparkle for macOS"""
         try:
             # Check if running from app bundle
-            if not getattr(sys, '_MEIPASS', None):
+            if not getattr(sys, "_MEIPASS", None):
                 logger.info("Not running from bundle, skipping Sparkle setup")
                 return False
 
@@ -55,14 +58,14 @@ class AutoUpdater:
 
             # Load Sparkle framework
             objc_namespace = {}
-            success = loadBundle('Sparkle', objc_namespace, bundle_path=str(bundle_path))
+            success = loadBundle("Sparkle", objc_namespace, bundle_path=str(bundle_path))
 
             if not success:
                 logger.error("Failed to load Sparkle framework")
                 return False
 
             # Get SUUpdater class
-            SUUpdater = objc_namespace.get('SUUpdater')
+            SUUpdater = objc_namespace.get("SUUpdater")
             if not SUUpdater:
                 logger.error("SUUpdater class not found")
                 return False
@@ -82,6 +85,7 @@ class AutoUpdater:
 
             # Setup cleanup on app quit
             if self.app_instance:
+
                 def cleanup_sparkle():
                     try:
                         if self.updater:
@@ -110,9 +114,11 @@ class AutoUpdater:
             # Find WinSparkle DLL
             dll_path = None
             search_paths = [
-                os.path.join(sys._MEIPASS, 'WinSparkle.dll') if getattr(sys, '_MEIPASS', None) else None,
-                os.path.join(os.path.dirname(sys.executable), 'WinSparkle.dll'),
-                'WinSparkle.dll'  # System PATH
+                os.path.join(sys._MEIPASS, "WinSparkle.dll")
+                if getattr(sys, "_MEIPASS", None)
+                else None,
+                os.path.join(os.path.dirname(sys.executable), "WinSparkle.dll"),
+                "WinSparkle.dll",  # System PATH
             ]
 
             for path in search_paths:
@@ -131,7 +137,11 @@ class AutoUpdater:
             winsparkle.win_sparkle_set_appcast_url.argtypes = [ctypes.c_char_p]
             winsparkle.win_sparkle_set_appcast_url.restype = None
 
-            winsparkle.win_sparkle_set_app_details.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p]
+            winsparkle.win_sparkle_set_app_details.argtypes = [
+                ctypes.c_wchar_p,
+                ctypes.c_wchar_p,
+                ctypes.c_wchar_p,
+            ]
             winsparkle.win_sparkle_set_app_details.restype = None
 
             winsparkle.win_sparkle_init.argtypes = []
@@ -145,13 +155,14 @@ class AutoUpdater:
 
             # Configure WinSparkle
             winsparkle.win_sparkle_set_app_details("Automataii", "Automataii", "0.1.0")
-            winsparkle.win_sparkle_set_appcast_url(self.appcast_url.encode('utf-8'))
+            winsparkle.win_sparkle_set_appcast_url(self.appcast_url.encode("utf-8"))
 
             # Initialize WinSparkle
             winsparkle.win_sparkle_init()
 
             # Setup cleanup
             if self.app_instance:
+
                 def cleanup_winsparkle():
                     try:
                         winsparkle.win_sparkle_cleanup()
@@ -172,7 +183,7 @@ class AutoUpdater:
         """Setup AppImageUpdate for Linux"""
         try:
             # Check if running from AppImage
-            appimage_path = os.environ.get('APPIMAGE')
+            appimage_path = os.environ.get("APPIMAGE")
             if not appimage_path:
                 logger.info("Not running from AppImage, skipping update setup")
                 return False
@@ -231,20 +242,21 @@ class AutoUpdater:
                 "Check for Updates",
                 "Would you like to check for updates?\n\nThis will download the latest version if available.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
+                QMessageBox.StandardButton.Yes,
             )
 
             if reply == QMessageBox.StandardButton.Yes:
                 # Try to run AppImageUpdate
-                appimage_path = os.environ.get('APPIMAGE')
+                appimage_path = os.environ.get("APPIMAGE")
                 if appimage_path:
                     process = QProcess()
-                    process.start(appimage_path, ['--appimage-update'])
+                    process.start(appimage_path, ["--appimage-update"])
                     if process.waitForStarted():
                         logger.info("AppImage update process started")
                     else:
                         # Fallback: open browser to releases page
                         import webbrowser
+
                         webbrowser.open(self.update_url)
 
         except Exception as e:
@@ -256,7 +268,7 @@ class AutoUpdater:
             "platform": self.platform,
             "updater_available": self.updater is not None,
             "update_url": self.update_url,
-            "appcast_url": self.appcast_url
+            "appcast_url": self.appcast_url,
         }
 
         if self.platform == "darwin":
@@ -265,9 +277,10 @@ class AutoUpdater:
             info["updater_type"] = "WinSparkle"
         elif self.platform.startswith("linux"):
             info["updater_type"] = "AppImageUpdate"
-            info["appimage_path"] = os.environ.get('APPIMAGE')
+            info["appimage_path"] = os.environ.get("APPIMAGE")
 
         return info
+
 
 def setup_auto_updater(app_instance) -> AutoUpdater | None:
     """Setup auto-updater for the application"""
