@@ -792,7 +792,7 @@ class IKManager(QObject):
         self, editor_items: dict[str, CharacterPartItem]
     ) -> None:
         """Applies FABRIK IK to arm and leg chains to maintain proper joint constraints."""
-        from ..kinematics.ik_solver_improved import solve_ik_fabrik_with_constraints as solve_ik_ccd
+        from ..kinematics.solvers.fabraik_solver import solve_ik_fabrik_with_constraints as solve_ik_ccd
 
         limb_chains = {
             "left_hand": {

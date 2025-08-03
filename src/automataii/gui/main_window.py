@@ -46,6 +46,9 @@ from automataii.gui.tabs.landing_tab import LandingTab
 from automataii.gui.tabs.mechanism_design_tab import MechanismDesignTab
 from automataii.gui.tabs.options_tab import OptionsTab
 
+# Import mechanism foundry tab
+from automataii.ui.tabs.mechanism_foundry import EnhancedMacanismTab
+
 # Local imports (adjust paths as needed)
 from automataii.gui.views.editor_view import EditorView  # ADD THIS IMPORT
 
@@ -212,25 +215,30 @@ class AutomataDesigner(QMainWindow):
 
         # --- Tab 0: Landing Page ---
         self.landing_tab = LandingTab(self, experiment_mode=self.experiment_mode)
-        welcome_title = "A. Welcome" if self.experiment_mode else "Welcome"
+        welcome_title = "1. Welcome" if self.experiment_mode else "Welcome"
         self.tab_widget.addTab(self.landing_tab, welcome_title)
 
         # --- Tab 1: Image Processing ---
         self.image_proc_tab = ImageProcessingTab(self)
-        character_title = "B. Character Selection" if self.experiment_mode else "Character Selection"
+        character_title = "2. Character Selection" if self.experiment_mode else "Character Selection"
         self.tab_widget.addTab(self.image_proc_tab, character_title)
 
         # --- Tab 2: Editor & Simulation ---
         self.editor_tab = EditorTab(self)
-        path_title = "C. Path Editor" if self.experiment_mode else "Path Editor"
+        path_title = "3. Path Editor" if self.experiment_mode else "Path Editor"
         self.tab_widget.addTab(self.editor_tab, path_title)
 
         # --- Tab 3: Mechanism Design ---
         self.mechanism_design_tab = MechanismDesignTab(self)
-        mechanism_title = "D. Mechanism Design" if self.experiment_mode else "Mechanism Design"
+        mechanism_title = "4. Mechanism Design" if self.experiment_mode else "Mechanism Design"
         self.tab_widget.addTab(self.mechanism_design_tab, mechanism_title)
 
-        # --- Tab 4: Options ---
+        # --- Tab 4: Mechanism Foundry ---
+        self.mechanism_foundry_tab = EnhancedMacanismTab(self)
+        foundry_title = "5. Mechanism Foundry" if self.experiment_mode else "Mechanism Foundry"
+        self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
+
+        # --- Tab 5: Options ---
         self.options_tab = OptionsTab(
             initial_anim_duration=self.ik_manager.animation_duration
         )
@@ -415,11 +423,11 @@ class AutomataDesigner(QMainWindow):
                     # CRITICAL: Check if view is still valid before using it
                     _ = view.scene()  # This will raise RuntimeError if view was deleted
                     camera_state = view.get_camera_state()
-                    
+
                     # Save both shared and tab-specific camera state
                     self.shared_camera_state = camera_state
                     previous_tab._last_camera_state = camera_state  # Save tab-specific state as backup
-                    
+
                     logging.info(f"Saved camera state from {previous_tab.__class__.__name__}")
                 except RuntimeError as e:
                     logging.error(f"View was deleted by Qt, cannot save camera state: {e}")
@@ -432,7 +440,7 @@ class AutomataDesigner(QMainWindow):
                 try:
                     # CRITICAL: Check if view is still valid before using it
                     _ = view.scene()  # This will raise RuntimeError if view was deleted
-                    
+
                     # Try to apply shared camera state first
                     if self.shared_camera_state:
                         view.set_camera_state(self.shared_camera_state)
@@ -446,7 +454,7 @@ class AutomataDesigner(QMainWindow):
                             camera_state_applied = True
                         else:
                             logging.debug(f"No camera state available for {current_tab.__class__.__name__}")
-                            
+
                 except RuntimeError as e:
                     logging.error(f"View was deleted by Qt, cannot apply camera state: {e}")
                     # Clear the invalid shared camera state to prevent future errors
@@ -462,7 +470,7 @@ class AutomataDesigner(QMainWindow):
         if not camera_state_applied:
             # Check if this tab has been initialized before
             tab_needs_initial_zoom = False
-            
+
             if hasattr(current_tab, 'editor_view') and current_tab.editor_view:
                 # Only zoom if view has no previous transform (first time setup)
                 if not hasattr(current_tab, '_view_initialized'):
@@ -476,7 +484,7 @@ class AutomataDesigner(QMainWindow):
             elif hasattr(current_tab, 'image_proc_view'):
                 # Image processing tab should zoom to fit each time (different behavior)
                 tab_needs_initial_zoom = True
-            
+
             # Apply zoom only when needed
             if tab_needs_initial_zoom:
                 logging.debug(f"Applying initial zoom for tab: {getattr(current_tab, 'tab_name', 'Unknown')}")
