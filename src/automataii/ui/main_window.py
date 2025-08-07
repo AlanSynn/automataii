@@ -130,7 +130,7 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.addTab(self.image_proc_tab, "Character Selection")
         self.tab_widget.addTab(self.editor_tab, "Path Editor")
         self.tab_widget.addTab(self.mechanism_design_tab, "Mechanism Design")
-        self.tab_widget.addTab(self.mechanism_foundry_tab, "Foundry")
+
         self.tab_widget.addTab(self.enhanced_mechanism_tab, "Interactive Mechanism")
         if not self.experiment_mode:
             self.tab_widget.addTab(self.options_tab, "Options")
