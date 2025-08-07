@@ -5033,8 +5033,53 @@ class MechanismDesignTab(QWidget):
             for mechanism_id, layer_data in self.mechanism_layers.items():
                 key_points = layer_data.get("key_points", {})
                 if anchor_name in key_points:
-                    # Update the key_points data
-                    key_points[anchor_name] = [new_position.x(), new_position.y()]
+                    # Convert scene position back to mechanism coordinates
+                    # We need to inverse the transformation
+                    scene_pos_array = np.array([new_position.x(), new_position.y()])
+
+                    # Get transformation parameters to inverse the transform
+                    transform_params = layer_data.get("transform_params", {})
+                    if transform_params:
+                        # Inverse transformation: scene -> mechanism coordinates
+                        center = np.array(transform_params.get("center", [0, 0]))
+                        scale = transform_params.get("scale", 1.0)
+                        rotation_angle = transform_params.get("rotation", 0.0)
+
+                        # Get user path properties
+                        target_path = layer_data.get("generated_path")
+                        if target_path:
+                            user_path_np = utils_qpainterpath_to_numpy_array(target_path)
+                            if user_path_np is not None and len(user_path_np) > 0:
+                                user_center = np.mean(user_path_np, axis=0)
+                                user_bbox = np.max(user_path_np, axis=0) - np.min(user_path_np, axis=0)
+                                user_scale = np.max(user_bbox) / 2.0 if np.max(user_bbox) > 0 else 100.0
+
+                                # Inverse transformation
+                                # 1. Transform from user space to normalized space
+                                p_user_space = (scene_pos_array - user_center) / user_scale
+
+                                # 2. Inverse rotation
+                                inv_rotation_matrix = np.array([
+                                    [np.cos(-rotation_angle), -np.sin(-rotation_angle)],
+                                    [np.sin(-rotation_angle), np.cos(-rotation_angle)]
+                                ])
+                                p_rotated_back = p_user_space @ inv_rotation_matrix.T
+
+                                # 3. Scale back up and add center
+                                mechanism_pos = p_rotated_back * scale + center
+
+                                # Update the key_points data with mechanism coordinates
+                                key_points[anchor_name] = [float(mechanism_pos[0]), float(mechanism_pos[1])]
+                                logging.info(f"[PARAMETRIC] Converted scene pos {new_position} to mechanism coords: {mechanism_pos}")
+                            else:
+                                # Fallback if transform fails
+                                key_points[anchor_name] = [new_position.x(), new_position.y()]
+                        else:
+                            # Fallback if no path
+                            key_points[anchor_name] = [new_position.x(), new_position.y()]
+                    else:
+                        # No transform params, use direct position
+                        key_points[anchor_name] = [new_position.x(), new_position.y()]
 
                     # Trigger immediate visual update
                     self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
@@ -5134,11 +5179,42 @@ class MechanismDesignTab(QWidget):
                 new_items = self._create_4bar_linkage_visuals(layer_data)
                 layer_data["visual_items"] = new_items
 
+                # Update handle positions to match new mechanism positions
+                if mechanism_id in self.parametric_handles and self.parametric_mode_enabled:
+                    self._update_handle_positions_for_mechanism(mechanism_id, layer_data)
+
             # Update display
             self.mechanism_view.update()
 
         except Exception as e:
             logging.error(f"Failed to update visuals realtime for {mechanism_id}: {e}")
+
+    def _update_handle_positions_for_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
+        """
+        Update handle positions to match mechanism's current state.
+
+        Args:
+            mechanism_id: Mechanism ID
+            layer_data: Current mechanism data
+        """
+        try:
+            handles = self.parametric_handles.get(mechanism_id, [])
+            if not handles:
+                return
+
+            # Get updated anchor positions
+            anchor_positions = self._get_anchor_positions_for_mechanism(layer_data)
+
+            # Update each handle's position
+            for handle in handles:
+                anchor_name = handle.anchor_name if hasattr(handle, 'anchor_name') else handle.param_name
+                if anchor_name in anchor_positions:
+                    new_pos = anchor_positions[anchor_name]
+                    handle.setPos(new_pos)
+                    logging.debug(f"[PARAMETRIC] Updated handle {anchor_name} position to {new_pos}")
+
+        except Exception as e:
+            logging.error(f"Failed to update handle positions for {mechanism_id}: {e}")
 
     def _refresh_mechanism_visuals(self, mechanism_id: str, layer_data: dict[str, Any]):
         """
@@ -5164,14 +5240,19 @@ class MechanismDesignTab(QWidget):
         anchor_positions = {}
 
         try:
+            # Get the transformation function for this mechanism
+            to_scene_coords = self._get_scene_transform_function(layer_data)
+
             # First try key_points if available
             key_points = layer_data.get("key_points", {})
-            if key_points:
+            if key_points and to_scene_coords:
                 for anchor_name in ["ground_pivot_1", "ground_pivot_2"]:
                     if anchor_name in key_points:
                         pos_data = key_points[anchor_name]
-                        anchor_positions[anchor_name] = QPointF(pos_data[0], pos_data[1])
-                        logging.info(f"[PARAMETRIC] Found {anchor_name} in key_points: {pos_data}")
+                        # Apply scene transformation to get actual position
+                        scene_pos = to_scene_coords(np.array(pos_data))
+                        anchor_positions[anchor_name] = scene_pos
+                        logging.info(f"[PARAMETRIC] Found {anchor_name} in key_points: {pos_data} -> scene: {scene_pos}")
 
             # Fallback: use simulation data if key_points not available
             if not anchor_positions:
