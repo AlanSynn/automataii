@@ -106,7 +106,7 @@ class MechanismSceneManager(QObject):
 
     def add_mechanism_visuals(self, mechanism_id):
         logger.info(f"SceneManager: Adding visuals for mechanism {mechanism_id}")
-        
+
         # First, remove any existing visuals for this mechanism to prevent duplicates
         self.remove_mechanism_visuals(mechanism_id)
 
@@ -117,11 +117,11 @@ class MechanismSceneManager(QObject):
 
         logger.info(f"SceneManager: Creating visuals for mechanism type {layer_data.get('type')} with {len(layer_data)} data keys")
         logger.info(f"SceneManager: Layer data keys: {list(layer_data.keys())}")
-        
+
         visual_items, debug_items = visual_factory.create(layer_data, self)
         self.mechanism_visuals[mechanism_id] = visual_items
         logger.info(f"SceneManager: Created {len(visual_items)} visual items for mechanism {mechanism_id}")
-        
+
         # Log each visual item's properties
         for i, item in enumerate(visual_items):
             logger.info(f"SceneManager: Visual item {i}: type={type(item).__name__}, in_scene={item.scene() is not None}, visible={item.isVisible() if hasattr(item, 'isVisible') else 'N/A'}")
@@ -134,16 +134,16 @@ class MechanismSceneManager(QObject):
 
         self._init_mechanism_path_trace(mechanism_id)
         self.update_animation_frame(0)
-        
+
         # Force scene update
         self.scene.update()
         logger.info(f"SceneManager: Scene updated after adding mechanism visuals")
-        
+
         # Debug: Check actual positions of visual items
         if visual_items:
             scene_rect = self.scene.sceneRect()
             logger.info(f"SceneManager: Scene rect: {scene_rect}")
-            
+
             for i, item in enumerate(visual_items):
                 if hasattr(item, 'line'):
                     line = item.line()
@@ -156,7 +156,7 @@ class MechanismSceneManager(QObject):
                     if not poly.isEmpty():
                         first_point = poly.at(0)
                         logger.info(f"SceneManager: Polygon item {i} - first point: ({first_point.x():.1f}, {first_point.y():.1f})")
-        
+
         # Don't auto-start animation - user must press Play button
         logger.info("SceneManager: Mechanism added. Press Play button to start animation.")
 
@@ -189,7 +189,7 @@ class MechanismSceneManager(QObject):
                 if output_pos:
                     mechanism_outputs[layer_data["part_name"]] = output_pos
                     self._update_mechanism_path_trace(mid, output_pos)
-                    
+
                 # Update force visualization if enabled
                 self.force_visualizer.update_forces(layer_data, time)
 
@@ -231,7 +231,7 @@ class MechanismSceneManager(QObject):
 
             # Collect targets for batch solving
             targets[target_joint_id] = position
-        
+
         # Solve IK for all targets at once
         if targets:
             ik_manager.solve_for_targets(targets)
@@ -239,35 +239,35 @@ class MechanismSceneManager(QObject):
     def clear_all_mechanisms(self):
         """Enhanced mechanism clearing with comprehensive memory cleanup"""
         logger.info("Clearing all mechanisms with enhanced memory management")
-        
+
         # Clear mechanism visuals first
         for mid in list(self.mechanism_visuals.keys()):
             self.remove_mechanism_visuals(mid)
         self.mechanism_visuals.clear()
-        
+
         # Clear trace path items
         for item in list(self.trace_path_items):
             self._safe_remove_item(item)
         self.trace_path_items.clear()
-        
+
         # Clear debug items
         for item in list(self.debug_items):
             self._safe_remove_item(item)
         self.debug_items.clear()
-        
+
         # Clear preview items
         for item in list(self.preview_items):
             self._safe_remove_item(item)
         self.preview_items.clear()
-        
+
         # Clear skeleton joint highlights
         if self.skeleton_item:
             self.skeleton_item.clear_highlights()
-            
+
         # Force garbage collection hint
         import gc
         gc.collect()
-        
+
         logger.info("All mechanisms cleared successfully")
 
     def reset_all_visuals(self):
@@ -310,10 +310,22 @@ class MechanismSceneManager(QObject):
             self.ensure_skeleton_visualization(ik_results)
             return
 
-        pose_data = self._convert_skeleton_data_for_animation(ik_results)
+        # Check if ik_results is already in tuple format (from IKManager)
+        if isinstance(ik_results, dict) and all(isinstance(v, tuple) for v in ik_results.values()):
+            # IK results are already in the correct format (joint_id -> (x, y))
+            pose_data = ik_results
+            logger.debug(f"Using direct IK results: {len(pose_data)} joints")
+        else:
+            # Legacy format - convert from skeleton data format
+            pose_data = self._convert_skeleton_data_for_animation(ik_results)
+            logger.debug(f"Converted skeleton data to pose: {len(pose_data)} joints")
+
         if pose_data:
             self.skeleton_item.set_animated_pose(pose_data)
-        self._update_parts_from_skeleton(ik_results)
+
+        # Update parts only if we have legacy skeleton data format
+        if not isinstance(ik_results, dict) or not all(isinstance(v, tuple) for v in ik_results.values()):
+            self._update_parts_from_skeleton(ik_results)
 
     def _update_parts_from_skeleton(self, skeleton_data):
         joints_dict = skeleton_data.get("joints", {})
@@ -372,12 +384,12 @@ class MechanismSceneManager(QObject):
         """Toggle force visualization on/off"""
         self.force_visualizer.set_show_forces(enabled)
         logger.info(f"Force visualization {'enabled' if enabled else 'disabled'}")
-        
+
     def set_force_scale(self, scale: float):
         """Set force vector scale factor"""
         self.force_visualizer.set_scale_factor(scale)
         logger.info(f"Force scale set to {scale}")
-        
+
     def is_force_visualization_enabled(self) -> bool:
         """Check if force visualization is currently enabled"""
         return self.force_visualizer.show_forces
@@ -402,29 +414,29 @@ class MechanismSceneManager(QObject):
         """Enhanced safe item removal with memory leak prevention"""
         if not item:
             return
-            
+
         try:
             # Check if item is still valid and in scene
             if item.scene():
                 # Disconnect any signals first to prevent callbacks during deletion
                 if hasattr(item, 'disconnect'):
                     item.disconnect()
-                    
+
                 # Remove from scene
                 self.scene.removeItem(item)
-                
+
             # Clear highlights if removing skeleton item
             if item is self.skeleton_item:
                 if self.skeleton_item:
                     self.skeleton_item.clear_highlights()
                 self.skeleton_item = None
-                
+
             # Force cleanup of item properties
             if hasattr(item, 'setParentItem'):
                 item.setParentItem(None)
-                
+
             # Clear any references in our tracking lists
-            for item_list in [self.mechanism_visuals, self.preview_items, 
+            for item_list in [self.mechanism_visuals, self.preview_items,
                             self.debug_items, self.trace_path_items]:
                 if isinstance(item_list, dict):
                     # Handle dict values that might be lists
@@ -435,13 +447,13 @@ class MechanismSceneManager(QObject):
                             del item_list[key]
                 elif isinstance(item_list, list) and item in item_list:
                     item_list.remove(item)
-                    
+
         except RuntimeError as e:
             # Item already deleted
             logger.debug(f"Item already deleted during removal: {e}")
         except Exception as e:
             logger.warning(f"Error during safe item removal: {e}")
-            
+
         finally:
             # Ensure item reference is cleared
             item = None

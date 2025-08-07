@@ -91,7 +91,7 @@ class KinematicsSystem(QObject):
         # 1. Get targets from motion paths stored in ProjectDataManager
         parts_data = self.project_data_manager.get_current_parts_data()
         logger.debug(f"CALCULATE_IK: Got parts data: {list(parts_data.keys()) if parts_data else None}")
-        
+
         if parts_data:
             for part_name, part_info in parts_data.items():
                 # Check for a valid, non-empty QPainterPath
@@ -104,11 +104,22 @@ class KinematicsSystem(QObject):
                     # Map the part name to its corresponding end-effector ID
                     effector_id = self.ik_manager.get_end_effector_for_part(part_name)
                     logger.info(f"CALCULATE_IK: Effector ID for {part_name}: {effector_id}")
-                    
+
                     if effector_id:
                         target_point = part_info.motion_path_data.pointAtPercent(progress)
                         targets[effector_id] = target_point
-                        logger.info(f"CALCULATE_IK: Set target for {effector_id}: {target_point} (progress: {progress:.3f})")
+
+                        # Check reachability and log information
+                        is_reachable = self.ik_manager.is_target_reachable(effector_id, target_point)
+                        max_reach = self.ik_manager.get_max_reach_distance(effector_id)
+
+                        if is_reachable:
+                            logger.debug(f"CALCULATE_IK: Set target for {effector_id}: {target_point} (progress: {progress:.3f}) - REACHABLE")
+                        else:
+                            logger.info(
+                                f"CALCULATE_IK: Set target for {effector_id}: {target_point} (progress: {progress:.3f}) - "
+                                f"OUT OF REACH (max_reach: {max_reach:.2f}) - skeleton will extend in target direction"
+                            )
                     else:
                         logger.warning(f"CALCULATE_IK: No effector ID found for part: {part_name}")
                 else:

@@ -7,6 +7,7 @@ def create(layer_data, scene_manager, is_preview=False):
     """
     (Factory/Strategy) Creates visualization for a mechanism.
     Returns a tuple of (visual_items, debug_items).
+    Uses EXACT same visual parameters as recommendation dialog for perfect consistency.
     """
     mech_type = layer_data.get("type")
     original_json_type = layer_data.get("original_json_type", mech_type)
@@ -14,17 +15,21 @@ def create(layer_data, scene_manager, is_preview=False):
 
     visual_items, debug_items = [], []
 
+    # Enhanced mechanism data with dialog alignment info
+    enhanced_layer_data = layer_data.copy()
+    enhanced_layer_data["dialog_aligned"] = True  # Flag to use dialog-consistent rendering
+
     # Map recommendation dialog types to visual implementations
     if mech_type in ["4-Bar Linkage", "4_bar_linkage"] or original_json_type == "4-bar Coupler":
         visual_items, debug_items = linkage_visual.create(
-            layer_data, scene_manager, transform, is_preview
+            enhanced_layer_data, scene_manager, transform, is_preview
         )
     elif mech_type in ["Cam & Follower", "cam"] or original_json_type in [
         "Cam-Follower",
         "Cam Follower",
     ]:
         visual_items, debug_items = cam_visual.create(
-            layer_data, scene_manager, transform, is_preview
+            enhanced_layer_data, scene_manager, transform, is_preview
         )
     elif mech_type in [
         "Gears (Simple Pair)",
@@ -33,21 +38,21 @@ def create(layer_data, scene_manager, is_preview=False):
         "planetary_gear",
     ] or original_json_type in ["Simple Gear", "Gear Contact", "Planetary Gear"]:
         visual_items, debug_items = gear_visual.create(
-            layer_data, scene_manager, transform, is_preview
+            enhanced_layer_data, scene_manager, transform, is_preview
         )
     elif mech_type in ["Belt", "belt", "belt_pulley"] or original_json_type in [
         "Belt System",
         "Pulley System",
     ]:
         visual_items, debug_items = belt_visual.create(
-            layer_data, scene_manager, transform, is_preview
+            enhanced_layer_data, scene_manager, transform, is_preview
         )
     elif mech_type in ["Spring", "spring", "spring_damper"] or original_json_type in [
         "Spring System",
         "Damper System",
     ]:
         visual_items, debug_items = spring_visual.create(
-            layer_data, scene_manager, transform, is_preview
+            enhanced_layer_data, scene_manager, transform, is_preview
         )
 
     return visual_items, debug_items
