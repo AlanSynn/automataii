@@ -2761,6 +2761,14 @@ class MechanismDesignTab(QWidget):
                 self.mechanism_scene.removeItem(item)
         self.path_visual_items.clear()
 
+        # Clear existing control point items
+        if hasattr(self, 'control_point_items'):
+            for part_name, control_points in self.control_point_items.items():
+                for control_point in control_points:
+                    if control_point.scene():
+                        self.mechanism_scene.removeItem(control_point)
+            self.control_point_items.clear()
+
         # Calculate combined bounds of all paths to set scene rect properly
         combined_bounds = None
 
@@ -2793,6 +2801,9 @@ class MechanismDesignTab(QWidget):
                 self.path_visual_items[part_name] = path_item
                 paths_added += 1
 
+                # Add control points for each path
+                self._add_control_points_for_path(part_name, path)
+
                 logging.debug(f"[MECHANISM TAB] Path item scene position: {path_item.scenePos()}")
                 logging.debug(f"[MECHANISM TAB] Path item bounding rect: {path_item.boundingRect()}")
             else:
@@ -2803,6 +2814,46 @@ class MechanismDesignTab(QWidget):
         # Debug scene bounds
         scene_rect = self.mechanism_scene.itemsBoundingRect()
         logging.debug(f"[MECHANISM TAB] Scene bounding rect after adding paths: {scene_rect}")
+
+    def _add_control_points_for_path(self, part_name: str, path: QPainterPath):
+        """Add control points (blue dots) for a motion path"""
+        if not path or path.isEmpty():
+            return
+            
+        # Store control point items for this path
+        control_point_items = []
+        
+        # Sample points along the path to create control points
+        # For a more detailed display, we can sample more points
+        total_length = path.length()
+        if total_length > 0:
+            num_points = min(20, max(5, int(total_length / 50)))  # Adaptive point count
+            
+            for i in range(num_points + 1):  # +1 to include the end point
+                t = i / num_points if num_points > 0 else 0
+                point = path.pointAtPercent(t)
+                
+                # Create a blue control point
+                control_point = QGraphicsEllipseItem(-4, -4, 8, 8)  # 8x8 pixel circle
+                control_point.setPos(point)
+                control_point.setBrush(QBrush(QColor(0, 100, 255)))  # Blue color
+                control_point.setPen(QPen(QColor(0, 50, 200), 1))  # Darker blue border
+                control_point.setZValue(Z_MOTION_PATH_LINE + 1)  # Above the path
+                
+                # Make it visible
+                control_point.setVisible(True)
+                control_point.setEnabled(True)
+                
+                # Add to scene
+                self.mechanism_scene.addItem(control_point)
+                control_point_items.append(control_point)
+        
+        # Store control points with path name for cleanup
+        if not hasattr(self, 'control_point_items'):
+            self.control_point_items = {}
+        self.control_point_items[part_name] = control_point_items
+        
+        logging.debug(f"[MECHANISM TAB] Added {len(control_point_items)} control points for {part_name}")
 
     def _add_test_path_for_debugging(self):
         """Add a simple test path to verify the scene is working."""
@@ -3870,6 +3921,12 @@ class MechanismDesignTab(QWidget):
         # Data synchronization is now handled by MainWindow before activate_tab is called
         # Just update the layers list with current data
         self._update_mechanism_layers_list()
+        
+        # CRITICAL: Update all button states when tab is activated
+        self._update_recommendation_button_state()
+        self._update_parametric_button_state()
+        self._update_blueprint_button_state()
+        self._update_animation_button_states()
 
     def showEvent(self, event):
         """Handle widget show event for additional safety."""
