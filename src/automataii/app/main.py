@@ -92,9 +92,9 @@ def main():
     AppConfig.initialize()
 
     # Log important paths for debugging
-    logging.info(f"Project root: {get_project_root()}")
-    logging.info(f"Base path: {get_base_path()}")
-    logging.info(f"Current working directory: {os.getcwd()}")
+    logging.debug(f"Project root: {get_project_root()}")
+    logging.debug(f"Base path: {get_base_path()}")
+    logging.debug(f"Current working directory: {os.getcwd()}")
 
     # Setup dependency injection container - CRITICAL INTEGRATION!
     logging.info("Setting up dependency injection container...")

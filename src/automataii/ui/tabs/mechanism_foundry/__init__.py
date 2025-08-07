@@ -1,21 +1,22 @@
 """
 Mechanism Foundry - Interactive Educational Mechanism Dictionary
 
-A hierarchical learning system for understanding mechanical systems through
-progressive exploration and hands-on interaction.
+A unified, interactive learning system for understanding mechanical systems through
+hands-on interaction and exploration.
 
 Architecture:
-- Level 1: Category Hub - Visual entry point with mechanism categories
-- Level 2: Mechanism Index - Master-detail browsing within categories  
-- Level 3: Mechanism Workshop - Focused learning workspace
+- A single, immersive workshop view (`MechanismFoundryTab`) provides all functionality,
+  including mechanism selection, parametric controls, and real-time analysis.
+- This replaces the previous hierarchical, multi-level navigation system.
 
 Components:
-- foundry_tab.py: Main entry widget
-- components/: Reusable widgets (cards, controls, navigation)
-- views/: Main pages (category hub, mechanism workshop)
-- panels/: Workshop content (overview, playground, analysis)
+- foundry_tab.py: Main entry widget and the core of the user experience.
+- hci/: Advanced human-computer interaction components (controls, physics interaction).
+- panels/: Reusable UI panels for controls and analysis.
+- views/: (Legacy) Previously contained different views, now consolidated.
 """
 
 from .foundry_tab import MechanismFoundryTab
+from .enhanced_macanism_tab import EnhancedMacanismTab
 
-__all__ = ['MechanismFoundryTab']
+__all__ = ['MechanismFoundryTab', 'EnhancedMacanismTab']

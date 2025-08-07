@@ -20,7 +20,7 @@ import math
 import time
 from typing import Optional, Dict, List, Tuple, Any, Protocol
 from dataclasses import dataclass
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QFrame,
@@ -35,39 +35,42 @@ from PyQt6.QtGui import (
     QPainterPath, QTransform
 )
 
-from .panels.unified_visualization import UnifiedMechanismRenderer, RenderSettings, GridSettings
+from .hci.unified_visualization import UnifiedMechanismRenderer, RenderSettings, GridSettings
 from .hci.physics_interaction import PhysicsInteractionLayer, InteractionMode
 from .hci.parametric_controls import ParametricControlPanel, ParameterState, ParameterType
 
 
-@dataclass
 class MacanismStyleConfig:
     """Configuration for macanism-style visual design"""
-    # Professional color palette
-    background_color: QColor = QColor(250, 250, 250)  # Clean white
-    primary_accent: QColor = QColor(0, 123, 255)      # Professional blue
-    secondary_accent: QColor = QColor(108, 117, 125)   # Neutral gray
-    success_color: QColor = QColor(40, 167, 69)       # Success green
-    warning_color: QColor = QColor(255, 193, 7)       # Warning amber
-    danger_color: QColor = QColor(220, 53, 69)        # Error red
     
-    # Grid system (matching macanism)
-    grid_major_size: float = 100.0   # Major grid lines every 100px
-    grid_minor_size: float = 20.0    # Minor grid lines every 20px
-    grid_show_measurements: bool = True
-    grid_show_origin: bool = True
+    def __init__(self):
+        # Professional color palette
+        self.background_color = QColor(250, 250, 250)  # Clean white
+        self.primary_accent = QColor(0, 123, 255)      # Professional blue
+        self.secondary_accent = QColor(108, 117, 125)   # Neutral gray
+        self.success_color = QColor(40, 167, 69)       # Success green
+        self.warning_color = QColor(255, 193, 7)       # Warning amber
+        self.danger_color = QColor(220, 53, 69)        # Error red
+        
+        # Grid system (matching macanism)
+        self.grid_major_size = 100.0   # Major grid lines every 100px
+        self.grid_minor_size = 20.0    # Minor grid lines every 20px
+        self.grid_show_measurements = True
+        self.grid_show_origin = True
+        
+        # Typography
+        self.header_font_size = 18
+        self.body_font_size = 14
+        self.small_font_size = 12
+        
+        # Performance settings
+        self.target_fps = 60
+        self.adaptive_quality = True
+        self.physics_update_rate = 120  # Hz
+        
+        self._setup_derived_settings()
     
-    # Typography
-    header_font_size: int = 18
-    body_font_size: int = 14
-    small_font_size: int = 12
-    
-    # Performance settings
-    target_fps: int = 60
-    adaptive_quality: bool = True
-    physics_update_rate: int = 120  # Hz
-    
-    def __post_init__(self):
+    def _setup_derived_settings(self):
         """Initialize derived colors and settings"""
         # Create grid settings
         self.grid_settings = GridSettings(
@@ -202,7 +205,7 @@ class PhysicsThread(QThread):
         }
 
 
-class MacanismStyleTab(QWidget, ABC):
+class MacanismStyleTab(QWidget):
     """
     Abstract base class for mechanism tabs with macanism-style architecture.
     
@@ -239,11 +242,435 @@ class MacanismStyleTab(QWidget, ABC):
         # Core components
         self.unified_renderer: Optional[UnifiedMechanismRenderer] = None
         self.physics_layer: Optional[PhysicsInteractionLayer] = None
-        self.parameter_panel: Optional[ParametricControlPanel] = None
+        self.parametric_controls: Optional[ParametricControlPanel] = None
         
         # Performance system
         self.performance_monitor = PerformanceMonitor(self.config.target_fps)
         self.physics_thread: Optional[PhysicsThread] = None
         
         # Animation system
-        self.animation_timer = QTimer()\n        self.animation_timer.timeout.connect(self._update_animations)\n        \n        # Current state\n        self.current_mechanism_id: Optional[str] = None\n        self.current_mechanism_data: Dict[str, Any] = {}\n        self.is_initialized = False\n        \n        # UI components (will be set by subclasses)\n        self.main_splitter: Optional[QSplitter] = None\n        self.visualization_container: Optional[QFrame] = None\n        self.control_container: Optional[QFrame] = None\n        \n        self.setup_universal_architecture()\n        \n    def setup_universal_architecture(self):\n        \"\"\"Setup the universal macanism-style architecture\"\"\"\n        # Main layout\n        self.main_layout = QVBoxLayout(self)\n        self.main_layout.setContentsMargins(0, 0, 0, 0)\n        self.main_layout.setSpacing(0)\n        \n        # Status bar for performance and information\n        self.status_bar = self._create_status_bar()\n        \n        # Main content area\n        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)\n        self.main_splitter.setStyleSheet(self._get_splitter_stylesheet())\n        \n        # Visualization area (left side)\n        self.visualization_container = self._create_visualization_container()\n        self.main_splitter.addWidget(self.visualization_container)\n        \n        # Control area (right side)  \n        self.control_container = self._create_control_container()\n        self.main_splitter.addWidget(self.control_container)\n        \n        # Set initial splitter proportions (75% visualization, 25% controls)\n        self.main_splitter.setSizes([800, 300])\n        \n        # Add to main layout\n        self.main_layout.addWidget(self.main_splitter)\n        self.main_layout.addWidget(self.status_bar)\n        \n        # Initialize core components\n        self._initialize_core_components()\n        \n        # Setup tab-specific UI (implemented by subclasses)\n        self.setup_tab_specific_ui()\n        \n        # Start performance monitoring\n        self._start_performance_monitoring()\n        \n        self.is_initialized = True\n        \n    def _create_status_bar(self) -> QFrame:\n        \"\"\"Create professional status bar with performance metrics\"\"\"\n        status_frame = QFrame()\n        status_frame.setFixedHeight(24)\n        status_frame.setStyleSheet(\"\"\"\n            QFrame {\n                background-color: #f8f9fa;\n                border-top: 1px solid #dee2e6;\n            }\n        \"\"\")\n        \n        status_layout = QHBoxLayout(status_frame)\n        status_layout.setContentsMargins(8, 2, 8, 2)\n        status_layout.setSpacing(16)\n        \n        # Performance indicator\n        self.fps_label = QLabel(\"FPS: --\")\n        self.fps_label.setStyleSheet(\"color: #6c757d; font-size: 11px;\")\n        \n        # Quality indicator\n        self.quality_label = QLabel(\"Quality: 100%\")\n        self.quality_label.setStyleSheet(\"color: #6c757d; font-size: 11px;\")\n        \n        # Status message\n        self.status_message = QLabel(\"Ready\")\n        self.status_message.setStyleSheet(\"color: #495057; font-size: 11px;\")\n        \n        status_layout.addWidget(self.status_message)\n        status_layout.addStretch()\n        status_layout.addWidget(self.quality_label)\n        status_layout.addWidget(self.fps_label)\n        \n        return status_frame\n        \n    def _create_visualization_container(self) -> QFrame:\n        \"\"\"Create container for visualization components\"\"\"\n        container = QFrame()\n        container.setStyleSheet(\"\"\"\n            QFrame {\n                background-color: #fafafa;\n                border: 1px solid #dee2e6;\n                border-radius: 8px;\n            }\n        \"\"\")\n        \n        # Layout will be set up by subclasses\n        return container\n        \n    def _create_control_container(self) -> QFrame:\n        \"\"\"Create container for control components\"\"\"\n        container = QFrame()\n        container.setStyleSheet(\"\"\"\n            QFrame {\n                background-color: #f8f9fa;\n                border: 1px solid #dee2e6;\n                border-radius: 8px;\n            }\n        \"\"\")\n        \n        # Layout will be set up by subclasses\n        return container\n        \n    def _initialize_core_components(self):\n        \"\"\"Initialize the core macanism-style components\"\"\"\n        # Unified renderer with macanism styling\n        self.unified_renderer = UnifiedMechanismRenderer(self.config.render_settings)\n        \n        # Physics interaction layer\n        self.physics_layer = PhysicsInteractionLayer()\n        self.physics_layer.componentGrabbed.connect(self._on_component_grabbed)\n        self.physics_layer.componentDragged.connect(self._on_component_dragged)\n        self.physics_layer.componentReleased.connect(self._on_component_released)\n        \n        # Parameter control panel\n        self.parameter_panel = ParametricControlPanel()\n        self.parameter_panel.parameterChanged.connect(self._on_parameter_changed)\n        self.parameter_panel.configurationChanged.connect(self._on_configuration_changed)\n        \n        # Physics thread for smooth calculations\n        self.physics_thread = PhysicsThread(self.config.physics_update_rate)\n        self.physics_thread.physicsUpdated.connect(self._on_physics_updated)\n        \n    def _start_performance_monitoring(self):\n        \"\"\"Start the performance monitoring and animation system\"\"\"\n        # Start animation timer\n        target_interval = int(1000 / self.config.target_fps)  # ms\n        self.animation_timer.start(target_interval)\n        \n        # Start physics thread\n        if self.physics_thread:\n            self.physics_thread.start()\n            \n    def _update_animations(self):\n        \"\"\"Update animations and performance metrics\"\"\"\n        if not self.is_initialized:\n            return\n            \n        # Performance monitoring\n        self.performance_monitor.frame_start()\n        \n        # Update mechanism animations\n        if self.current_mechanism_data:\n            self._update_mechanism_animation()\n            \n        # Update UI components\n        self._update_ui_components()\n        \n        # Performance monitoring\n        self.performance_monitor.frame_end()\n        \n        # Update status bar\n        self._update_status_bar()\n        \n    def _update_mechanism_animation(self):\n        \"\"\"Update mechanism animation based on current state\"\"\"\n        # Animation logic specific to mechanism type\n        # This would be customized by subclasses\n        pass\n        \n    def _update_ui_components(self):\n        \"\"\"Update UI components with performance optimization\"\"\"\n        quality = self.performance_monitor.get_quality_settings()\n        \n        # Update renderer with quality settings\n        if self.unified_renderer:\n            # Adjust rendering quality based on performance\n            self.unified_renderer.settings.grid.show_grid = quality['grid_detail_level'] > 0.3\n            \n        # Update physics layer\n        if self.physics_layer:\n            # Adjust interaction sensitivity based on performance\n            pass\n            \n    def _update_status_bar(self):\n        \"\"\"Update status bar with current metrics\"\"\"\n        # FPS display\n        fps = self.performance_monitor.current_fps\n        if fps > 55:\n            color = \"#28a745\"  # Green\n        elif fps > 30:\n            color = \"#ffc107\"  # Yellow\n        else:\n            color = \"#dc3545\"  # Red\n            \n        self.fps_label.setText(f\"FPS: {fps:.1f}\")\n        self.fps_label.setStyleSheet(f\"color: {color}; font-size: 11px;\")\n        \n        # Quality display\n        quality = int(self.performance_monitor.quality_level * 100)\n        self.quality_label.setText(f\"Quality: {quality}%\")\n        \n    def _get_splitter_stylesheet(self) -> str:\n        \"\"\"Get stylesheet for the main splitter\"\"\"\n        return \"\"\"\n            QSplitter::handle {\n                background-color: #0d6efd;\n                width: 3px;\n                border-radius: 1px;\n            }\n            QSplitter::handle:hover {\n                background-color: #0b5ed7;\n            }\n        \"\"\"\n        \n    # Event handlers for universal component integration\n    def _on_component_grabbed(self, component_id: str, position: QPointF):\n        \"\"\"Handle component grab events\"\"\"\n        event_data = {\n            'component_id': component_id,\n            'position': (position.x(), position.y()),\n            'timestamp': time.time()\n        }\n        self.mechanismInteractionEvent.emit(\n            self.current_mechanism_id or \"\", \"component_grabbed\", event_data\n        )\n        \n    def _on_component_dragged(self, component_id: str, position: QPointF, physics_data: Dict):\n        \"\"\"Handle component drag events\"\"\"\n        event_data = {\n            'component_id': component_id,\n            'position': (position.x(), position.y()),\n            'physics': physics_data,\n            'timestamp': time.time()\n        }\n        self.mechanismInteractionEvent.emit(\n            self.current_mechanism_id or \"\", \"component_dragged\", event_data\n        )\n        \n    def _on_component_released(self, component_id: str, position: QPointF):\n        \"\"\"Handle component release events\"\"\"\n        event_data = {\n            'component_id': component_id,\n            'position': (position.x(), position.y()),\n            'timestamp': time.time()\n        }\n        self.mechanismInteractionEvent.emit(\n            self.current_mechanism_id or \"\", \"component_released\", event_data\n        )\n        \n    def _on_parameter_changed(self, param_name: str, value: float):\n        \"\"\"Handle parameter change events\"\"\"\n        if self.current_mechanism_id:\n            self.mechanismParameterChanged.emit(self.current_mechanism_id, param_name, value)\n            \n        # Update mechanism with new parameter\n        self._update_mechanism_parameters({param_name: value})\n        \n    def _on_configuration_changed(self, config: Dict[str, float]):\n        \"\"\"Handle full configuration change events\"\"\"\n        self._update_mechanism_parameters(config)\n        \n    def _on_physics_updated(self, physics_state: Dict[str, Any]):\n        \"\"\"Handle physics state updates from background thread\"\"\"\n        # Update visualization with new physics state\n        if self.unified_renderer:\n            self.unified_renderer.update_physics_data(\n                physics_state.get('forces', {}),\n                physics_state.get('velocities', {}),\n                physics_state.get('constraints', [])\n            )\n            \n    def _update_mechanism_parameters(self, parameters: Dict[str, float]):\n        \"\"\"Update mechanism with new parameters\"\"\"\n        # Update current mechanism data\n        if 'parameters' not in self.current_mechanism_data:\n            self.current_mechanism_data['parameters'] = {}\n            \n        self.current_mechanism_data['parameters'].update(parameters)\n        \n        # Send to physics thread\n        if self.physics_thread:\n            self.physics_thread.set_mechanism_data(self.current_mechanism_data)\n            \n    # Public interface methods\n    def select_mechanism(self, mechanism_id: str):\n        \"\"\"Select and display a mechanism\"\"\"\n        # Get mechanism data (implemented by subclasses)\n        mechanism_data = self.create_mechanism_data(mechanism_id)\n        \n        if mechanism_data:\n            self.current_mechanism_id = mechanism_id\n            self.current_mechanism_data = mechanism_data\n            \n            # Update all components\n            self._update_all_components(mechanism_data)\n            \n            # Trigger mechanism selection event\n            self.mechanismSelected.emit(mechanism_id, mechanism_data)\n            \n            # Handle mechanism-specific selection logic\n            self.handle_mechanism_selection(mechanism_id, mechanism_data)\n            \n    def _update_all_components(self, mechanism_data: Dict[str, Any]):\n        \"\"\"Update all components with new mechanism data\"\"\"\n        # Update renderer\n        if self.unified_renderer:\n            # Set renderer viewport if not already set\n            if hasattr(self, 'visualization_container'):\n                self.unified_renderer.set_viewport(QRectF(self.visualization_container.rect()))\n                \n        # Update physics layer\n        if self.physics_layer:\n            # Setup physics for new mechanism\n            pass\n            \n        # Update parameter panel\n        if self.parameter_panel and 'parameters' in mechanism_data:\n            self._setup_parameter_controls(mechanism_data['parameters'])\n            \n        # Update physics thread\n        if self.physics_thread:\n            self.physics_thread.set_mechanism_data(mechanism_data)\n            \n        # Update status\n        self.status_message.setText(f\"Loaded: {mechanism_data.get('name', mechanism_id)}\")\n        \n    def _setup_parameter_controls(self, parameter_definitions: Dict[str, Any]):\n        \"\"\"Setup parameter controls based on mechanism definition\"\"\"\n        # Clear existing parameters\n        # (This would need more sophisticated state management in practice)\n        \n        # Add parameter groups\n        for group_name, params in parameter_definitions.items():\n            if isinstance(params, dict):\n                parameter_states = []\n                \n                for param_name, param_config in params.items():\n                    # Create parameter state\n                    param_state = ParameterState(\n                        name=param_name,\n                        value=param_config.get('default', 0.0),\n                        parameter_type=ParameterType(param_config.get('type', 'length')),\n                        constraint=self._create_parameter_constraint(param_config)\n                    )\n                    parameter_states.append(param_state)\n                    \n                # Add to parameter panel\n                self.parameter_panel.add_parameter_group(group_name, parameter_states)\n                \n    def _create_parameter_constraint(self, param_config: Dict[str, Any]):\n        \"\"\"Create parameter constraint from configuration\"\"\"\n        from .hci.parametric_controls import ParameterConstraint\n        \n        return ParameterConstraint(\n            min_value=param_config.get('min', 0.0),\n            max_value=param_config.get('max', 100.0),\n            step_size=param_config.get('step', 0.1),\n            preferred_range=(param_config.get('pref_min', 0.0), param_config.get('pref_max', 100.0))\n        )\n        \n    def get_current_mechanism_data(self) -> Dict[str, Any]:\n        \"\"\"Get current mechanism data\"\"\"\n        return self.current_mechanism_data.copy()\n        \n    def get_performance_metrics(self) -> Dict[str, float]:\n        \"\"\"Get current performance metrics\"\"\"\n        return {\n            'fps': self.performance_monitor.current_fps,\n            'quality': self.performance_monitor.quality_level,\n            'dropped_frames': self.performance_monitor.dropped_frames\n        }\n        \n    def cleanup(self):\n        \"\"\"Clean up resources when tab is closed\"\"\"\n        # Stop animation timer\n        if self.animation_timer.isActive():\n            self.animation_timer.stop()\n            \n        # Stop physics thread\n        if self.physics_thread and self.physics_thread.isRunning():\n            self.physics_thread.stop()\n            \n    # Abstract methods that must be implemented by subclasses\n    @abstractmethod\n    def setup_tab_specific_ui(self):\n        \"\"\"Setup tab-specific UI components\"\"\"\n        pass\n        \n    @abstractmethod  \n    def create_mechanism_data(self, mechanism_id: str) -> Dict[str, Any]:\n        \"\"\"Create mechanism data for simulation\"\"\"\n        pass\n        \n    @abstractmethod\n    def handle_mechanism_selection(self, mechanism_id: str, mechanism_data: Dict[str, Any]):\n        \"\"\"Handle mechanism selection events\"\"\"\n        pass\n        \n    @abstractmethod\n    def get_educational_content(self, mechanism_id: str) -> Dict[str, Any]:\n        \"\"\"Get educational content for a mechanism\"\"\"\n        pass\n        \n    # Optional methods that can be overridden\n    def on_tab_activated(self):\n        \"\"\"Called when tab becomes active\"\"\"\n        # Resume animations\n        if not self.animation_timer.isActive():\n            self.animation_timer.start()\n            \n    def on_tab_deactivated(self):\n        \"\"\"Called when tab becomes inactive\"\"\"\n        # Pause animations to save CPU\n        if self.animation_timer.isActive():\n            self.animation_timer.stop()\n            \n    def closeEvent(self, event):\n        \"\"\"Handle tab close event\"\"\"\n        self.cleanup()\n        super().closeEvent(event)"
+        self.animation_timer = QTimer()
+        self.animation_timer.timeout.connect(self._update_animations)
+        
+        # Current state
+        self.current_mechanism_id: Optional[str] = None
+        self.current_mechanism_data: Dict[str, Any] = {}
+        self.is_initialized = False
+        
+        # UI components (will be set by subclasses)
+        self.main_splitter: Optional[QSplitter] = None
+        self.visualization_container: Optional[QFrame] = None
+        self.control_container: Optional[QFrame] = None
+        
+        self.setup_universal_architecture()
+        
+    def setup_universal_architecture(self):
+        """Setup the universal macanism-style architecture"""
+        # Main layout
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        
+        # Status bar for performance and information
+        self.status_bar = self._create_status_bar()
+        
+        # Main content area  
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setStyleSheet(self._get_splitter_stylesheet())
+        
+        # Visualization area (left side)
+        self.visualization_container = self._create_visualization_container()
+        self.main_splitter.addWidget(self.visualization_container)
+        
+        # Control area (right side)
+        self.control_container = self._create_control_container()
+        self.main_splitter.addWidget(self.control_container)
+        
+        # Set initial splitter proportions (75% visualization, 25% controls)
+        self.main_splitter.setSizes([800, 300])
+        
+        # Add to main layout
+        self.main_layout.addWidget(self.main_splitter)
+        self.main_layout.addWidget(self.status_bar)
+        
+        # Initialize core components
+        self._initialize_core_components()
+        
+        # Setup tab-specific UI (implemented by subclasses)
+        self.setup_tab_specific_ui()
+        
+        # Start performance monitoring
+        self._start_performance_monitoring()
+        
+        self.is_initialized = True
+        
+    def _create_status_bar(self) -> QFrame:
+        """Create professional status bar with performance metrics"""
+        status_frame = QFrame()
+        status_frame.setFixedHeight(24)
+        status_frame.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border-top: 1px solid #dee2e6;
+            }
+        """)
+        
+        status_layout = QHBoxLayout(status_frame)
+        status_layout.setContentsMargins(8, 2, 8, 2)
+        status_layout.setSpacing(16)
+        
+        # Performance indicator
+        self.fps_label = QLabel("FPS: --")
+        self.fps_label.setStyleSheet("color: #6c757d; font-size: 11px;")
+        
+        # Quality indicator
+        self.quality_label = QLabel("Quality: 100%")
+        self.quality_label.setStyleSheet("color: #6c757d; font-size: 11px;")
+        
+        # Status message
+        self.status_message = QLabel("Ready")
+        self.status_message.setStyleSheet("color: #495057; font-size: 11px;")
+        
+        status_layout.addWidget(self.status_message)
+        status_layout.addStretch()
+        status_layout.addWidget(self.quality_label)
+        status_layout.addWidget(self.fps_label)
+        
+        return status_frame
+        
+    def _create_visualization_container(self) -> QFrame:
+        """Create container for visualization components"""
+        container = QFrame()
+        container.setStyleSheet("""
+            QFrame {
+                background-color: #fafafa;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+            }
+        """)
+        
+        # Layout will be set up by subclasses
+        return container
+        
+    def _create_control_container(self) -> QFrame:
+        """Create container for control components"""
+        container = QFrame()
+        container.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+            }
+        """)
+        
+        # Layout will be set up by subclasses
+        return container
+        
+    def _initialize_core_components(self):
+        """Initialize the core macanism-style components"""
+        # Unified renderer with macanism styling
+        self.unified_renderer = UnifiedMechanismRenderer(self.config.render_settings)
+        
+        # Physics interaction layer
+        self.physics_layer = PhysicsInteractionLayer()
+        self.physics_layer.componentGrabbed.connect(self._on_component_grabbed)
+        self.physics_layer.componentDragged.connect(self._on_component_dragged)
+        self.physics_layer.componentReleased.connect(self._on_component_released)
+        
+        # Parameter control panel
+        self.parameter_panel = ParametricControlPanel()
+        self.parameter_panel.parameterChanged.connect(self._on_parameter_changed)
+        self.parameter_panel.configurationChanged.connect(self._on_configuration_changed)
+        
+        # Physics thread for smooth calculations
+        self.physics_thread = PhysicsThread(self.config.physics_update_rate)
+        self.physics_thread.physicsUpdated.connect(self._on_physics_updated)
+        
+    def _start_performance_monitoring(self):
+        """Start the performance monitoring and animation system"""
+        # Start animation timer
+        target_interval = int(1000 / self.config.target_fps)  # ms
+        self.animation_timer.start(target_interval)
+        
+        # Start physics thread
+        if self.physics_thread:
+            self.physics_thread.start()
+            
+    def _update_animations(self):
+        """Update animations and performance metrics"""
+        if not self.is_initialized:
+            return
+            
+        # Performance monitoring
+        self.performance_monitor.frame_start()
+        
+        # Update mechanism animations
+        if self.current_mechanism_data:
+            self._update_mechanism_animation()
+            
+        # Update UI components
+        self._update_ui_components()
+        
+        # Performance monitoring
+        self.performance_monitor.frame_end()
+        
+        # Update status bar
+        self._update_status_bar()
+        
+    def _update_mechanism_animation(self):
+        """Update mechanism animation based on current state"""
+        # Animation logic specific to mechanism type
+        # This would be customized by subclasses
+        pass
+        
+    def _update_ui_components(self):
+        """Update UI components with performance optimization"""
+        quality = self.performance_monitor.get_quality_settings()
+        
+        # Update renderer with quality settings
+        if self.unified_renderer:
+            # Adjust rendering quality based on performance
+            self.unified_renderer.settings.grid.show_grid = quality['grid_detail_level'] > 0.3
+            
+        # Update physics layer
+        if self.physics_layer:
+            # Adjust interaction sensitivity based on performance
+            pass
+            
+    def _update_status_bar(self):
+        """Update status bar with current metrics"""
+        # FPS display
+        fps = self.performance_monitor.current_fps
+        if fps > 55:
+            color = "#28a745"  # Green
+        elif fps > 30:
+            color = "#ffc107"  # Yellow
+        else:
+            color = "#dc3545"  # Red
+            
+        self.fps_label.setText(f"FPS: {fps:.1f}")
+        self.fps_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+        
+        # Quality display
+        quality = int(self.performance_monitor.quality_level * 100)
+        self.quality_label.setText(f"Quality: {quality}%")
+        
+    def _get_splitter_stylesheet(self) -> str:
+        """Get stylesheet for the main splitter"""
+        return """
+            QSplitter::handle {
+                background-color: #0d6efd;
+                width: 3px;
+                border-radius: 1px;
+            }
+            QSplitter::handle:hover {
+                background-color: #0b5ed7;
+            }
+        """
+        
+    # Event handlers for universal component integration
+    def _on_component_grabbed(self, component_id: str, position: QPointF):
+        """Handle component grab events"""
+        event_data = {
+            'component_id': component_id,
+            'position': (position.x(), position.y()),
+            'timestamp': time.time()
+        }
+        self.mechanismInteractionEvent.emit(
+            self.current_mechanism_id or "", "component_grabbed", event_data
+        )
+        
+    def _on_component_dragged(self, component_id: str, position: QPointF, physics_data: Dict):
+        """Handle component drag events"""
+        event_data = {
+            'component_id': component_id,
+            'position': (position.x(), position.y()),
+            'physics': physics_data,
+            'timestamp': time.time()
+        }
+        self.mechanismInteractionEvent.emit(
+            self.current_mechanism_id or "", "component_dragged", event_data
+        )
+        
+    def _on_component_released(self, component_id: str, position: QPointF):
+        """Handle component release events"""
+        event_data = {
+            'component_id': component_id,
+            'position': (position.x(), position.y()),
+            'timestamp': time.time()
+        }
+        self.mechanismInteractionEvent.emit(
+            self.current_mechanism_id or "", "component_released", event_data
+        )
+        
+    def _on_parameter_changed(self, param_name: str, value: float):
+        """Handle parameter change events"""
+        if self.current_mechanism_id:
+            self.mechanismParameterChanged.emit(self.current_mechanism_id, param_name, value)
+            
+        # Update mechanism with new parameter
+        self._update_mechanism_parameters({param_name: value})
+        
+    def _on_configuration_changed(self, config: Dict[str, float]):
+        """Handle full configuration change events"""
+        self._update_mechanism_parameters(config)
+        
+    def _on_physics_updated(self, physics_state: Dict[str, Any]):
+        """Handle physics state updates from background thread"""
+        # Update visualization with new physics state
+        if self.unified_renderer:
+            self.unified_renderer.update_physics_data(
+                physics_state.get('forces', {}),
+                physics_state.get('velocities', {}),
+                physics_state.get('constraints', [])
+            )
+            
+    def _update_mechanism_parameters(self, parameters: Dict[str, float]):
+        """Update mechanism with new parameters"""
+        # Update current mechanism data
+        if 'parameters' not in self.current_mechanism_data:
+            self.current_mechanism_data['parameters'] = {}
+            
+        self.current_mechanism_data['parameters'].update(parameters)
+        
+        # Send to physics thread
+        if self.physics_thread:
+            self.physics_thread.set_mechanism_data(self.current_mechanism_data)
+            
+    # Public interface methods
+    def select_mechanism(self, mechanism_id: str):
+        """Select and display a mechanism"""
+        # Get mechanism data (implemented by subclasses)
+        mechanism_data = self.create_mechanism_data(mechanism_id)
+        
+        if mechanism_data:
+            self.current_mechanism_id = mechanism_id
+            self.current_mechanism_data = mechanism_data
+            
+            # Update all components
+            self._update_all_components(mechanism_data)
+            
+            # Trigger mechanism selection event
+            self.mechanismSelected.emit(mechanism_id, mechanism_data)
+            
+            # Handle mechanism-specific selection logic
+            self.handle_mechanism_selection(mechanism_id, mechanism_data)
+            
+    def _update_all_components(self, mechanism_data: Dict[str, Any]):
+        """Update all components with new mechanism data"""
+        # Update renderer
+        if self.unified_renderer:
+            # Set renderer viewport if not already set
+            if hasattr(self, 'visualization_container'):
+                self.unified_renderer.set_viewport(QRectF(self.visualization_container.rect()))
+                
+        # Update physics layer
+        if self.physics_layer:
+            # Setup physics for new mechanism
+            pass
+            
+        # Update parameter panel
+        if self.parameter_panel and 'parameters' in mechanism_data:
+            self._setup_parameter_controls(mechanism_data['parameters'])
+            
+        # Update physics thread
+        if self.physics_thread:
+            self.physics_thread.set_mechanism_data(mechanism_data)
+            
+        # Update status
+        self.status_message.setText(f"Loaded: {mechanism_data.get('name', mechanism_id)}")
+        
+    def _setup_parameter_controls(self, parameter_definitions: Dict[str, Any]):
+        """Setup parameter controls based on mechanism definition"""
+        # Clear existing parameters
+        # (This would need more sophisticated state management in practice)
+        
+        # Add parameter groups
+        for group_name, params in parameter_definitions.items():
+            if isinstance(params, dict):
+                parameter_states = []
+                
+                for param_name, param_config in params.items():
+                    # Create parameter state
+                    param_state = ParameterState(
+                        name=param_name,
+                        value=param_config.get('default', 0.0),
+                        parameter_type=ParameterType(param_config.get('type', 'length')),
+                        constraint=self._create_parameter_constraint(param_config)
+                    )
+                    parameter_states.append(param_state)
+                    
+                # Add to parameter panel
+                self.parameter_panel.add_parameter_group(group_name, parameter_states)
+                
+    def _create_parameter_constraint(self, param_config: Dict[str, Any]):
+        """Create parameter constraint from configuration"""
+        from .hci.parametric_controls import ParameterConstraint
+        
+        return ParameterConstraint(
+            min_value=param_config.get('min', 0.0),
+            max_value=param_config.get('max', 100.0),
+            step_size=param_config.get('step', 0.1),
+            preferred_range=(param_config.get('pref_min', 0.0), param_config.get('pref_max', 100.0))
+        )
+        
+    def get_current_mechanism_data(self) -> Dict[str, Any]:
+        """Get current mechanism data"""
+        return self.current_mechanism_data.copy()
+        
+    def get_performance_metrics(self) -> Dict[str, float]:
+        """Get current performance metrics"""
+        return {
+            'fps': self.performance_monitor.current_fps,
+            'quality': self.performance_monitor.quality_level,
+            'dropped_frames': self.performance_monitor.dropped_frames
+        }
+        
+    def cleanup(self):
+        """Clean up resources when tab is closed"""
+        # Stop animation timer
+        if self.animation_timer.isActive():
+            self.animation_timer.stop()
+            
+        # Stop physics thread
+        if self.physics_thread and self.physics_thread.isRunning():
+            self.physics_thread.stop()
+            
+    # Abstract methods that must be implemented by subclasses
+    @abstractmethod
+    def setup_tab_specific_ui(self):
+        """Setup tab-specific UI components"""
+        pass
+        
+    @abstractmethod
+    def create_mechanism_data(self, mechanism_id: str) -> Dict[str, Any]:
+        """Create mechanism data for simulation"""
+        pass
+        
+    @abstractmethod
+    def handle_mechanism_selection(self, mechanism_id: str, mechanism_data: Dict[str, Any]):
+        """Handle mechanism selection events"""
+        pass
+        
+    @abstractmethod
+    def get_educational_content(self, mechanism_id: str) -> Dict[str, Any]:
+        """Get educational content for a mechanism"""
+        pass
+        
+    # Optional methods that can be overridden
+    def on_tab_activated(self):
+        """Called when tab becomes active"""
+        # Resume animations
+        if not self.animation_timer.isActive():
+            self.animation_timer.start()
+            
+    def on_tab_deactivated(self):
+        """Called when tab becomes inactive"""
+        # Pause animations to save CPU
+        if self.animation_timer.isActive():
+            self.animation_timer.stop()
+            
+    def closeEvent(self, event):
+        """Handle tab close event"""
+        self.cleanup()
+        super().closeEvent(event)

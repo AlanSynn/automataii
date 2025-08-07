@@ -23,19 +23,10 @@ __author__ = "Mechanism Foundry HCI Team"
 
 from .physics_interaction import PhysicsInteractionLayer, HapticFeedbackEngine
 from .parametric_controls import ParametricControlPanel, RealTimeSlider
-from .challenge_system import ChallengeManager, SkillTreeVisualization
-from .visual_effects import VisualEffectsRenderer, MicroAnimations
-from .measurement_tools import MeasurementToolkit, InteractiveCaliper
 
 __all__ = [
     'PhysicsInteractionLayer',
     'HapticFeedbackEngine', 
     'ParametricControlPanel',
-    'RealTimeSlider',
-    'ChallengeManager',
-    'SkillTreeVisualization',
-    'VisualEffectsRenderer',
-    'MicroAnimations',
-    'MeasurementToolkit',
-    'InteractiveCaliper'
+    'RealTimeSlider'
 ]

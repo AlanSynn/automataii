@@ -28,7 +28,7 @@ from automataii.ui.tabs.editor.tab import EditorTab
 from automataii.ui.tabs.image_processing import ImageProcessingTab
 from automataii.ui.tabs.landing import LandingTab
 from automataii.ui.tabs.mechanism_design.tab import MechanismDesignTab
-from automataii.ui.tabs.mechanism_foundry.foundry_tab import MechanismFoundryTab
+from automataii.ui.tabs.mechanism_foundry import MechanismFoundryTab, EnhancedMacanismTab
 from automataii.ui.tabs.options import OptionsTab
 from automataii.ui.views.editor.view import EditorView
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
@@ -57,7 +57,7 @@ class AutomataDesigner(QMainWindow):
 
         # Initialize event bus integration
         self.event_bus = get_global_event_bus()
-        
+
         # Get services from DI container
         if container:
             self.motion_path_service = get_service(MotionPathService)
@@ -99,7 +99,7 @@ class AutomataDesigner(QMainWindow):
         self._create_menus()
         self._create_toolbar()
         self._connect_signals()
-        
+
         # Apply design system stylesheet
         self._apply_design_system()
 
@@ -113,14 +113,8 @@ class AutomataDesigner(QMainWindow):
         self.image_proc_tab = ImageProcessingTab(self)
         self.editor_tab = EditorTab(self)
         self.mechanism_design_tab = MechanismDesignTab(self)
-        print("MainWindow: Creating MechanismFoundryTab...")
-        try:
-            self.mechanism_foundry_tab = MechanismFoundryTab(self)
-            print("MainWindow: MechanismFoundryTab created successfully")
-        except Exception as e:
-            print(f"MainWindow: Failed to create MechanismFoundryTab: {e}")
-            import traceback
-            traceback.print_exc()
+        self.mechanism_foundry_tab = MechanismFoundryTab(self)
+        self.enhanced_mechanism_tab = EnhancedMacanismTab(self)
         self.options_tab = OptionsTab(self)
 
     def _init_ui_layout(self):
@@ -136,7 +130,8 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.addTab(self.image_proc_tab, "Character Selection")
         self.tab_widget.addTab(self.editor_tab, "Path Editor")
         self.tab_widget.addTab(self.mechanism_design_tab, "Mechanism Design")
-        self.tab_widget.addTab(self.mechanism_foundry_tab, "🏭 Foundry")
+        self.tab_widget.addTab(self.mechanism_foundry_tab, "Foundry")
+        self.tab_widget.addTab(self.enhanced_mechanism_tab, "Interactive Mechanism")
         if not self.experiment_mode:
             self.tab_widget.addTab(self.options_tab, "Options")
 
@@ -270,7 +265,7 @@ class AutomataDesigner(QMainWindow):
         self.skeleton_manager.load_skeleton_from_dict(
             skeleton_data, source_format="auto"
         )
-        
+
         # Auto-switch to editor tab after skeleton is loaded
         self.switch_to_editor_tab()
 
@@ -319,13 +314,13 @@ class AutomataDesigner(QMainWindow):
             self.image_proc_tab.on_parts_loaded_in_editor(True)
         except Exception as e:
             logging.error(f"Error notifying image proc tab: {e}")
-            
+
         try:
             logging.info("MainWindow: Updating status bar")
             self.statusBar().showMessage(f"Project loaded: {project_dir}")
         except Exception as e:
             logging.error(f"Error updating status bar: {e}")
-            
+
         try:
             logging.info("MainWindow: Updating action manager")
             self.action_manager.update_actions_for_project_state(True)
@@ -545,7 +540,7 @@ class AutomataDesigner(QMainWindow):
         """Apply the design system stylesheet"""
         self.setStyleSheet(design_system.get_stylesheet())
         logging.info("Applied design system stylesheet")
-    
+
     def _apply_theme(self, theme_name: str):
         """Apply theme using the design system"""
         theme_mode = ThemeMode.DARK if theme_name == "dark" else ThemeMode.LIGHT

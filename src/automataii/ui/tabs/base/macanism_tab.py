@@ -11,7 +11,7 @@ simulation systems across multiple tabs with consistent:
 """
 
 import time
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, ABCMeta
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
@@ -19,16 +19,14 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QSplitter
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QPainter, QResizeEvent
 
-from ...mechanism_foundry.panels.unified_visualization import (
+from ..mechanism_foundry.hci.unified_visualization import (
     UnifiedMechanismRenderer, RenderSettings, GridSettings
 )
-from ...mechanism_foundry.panels.interactive_mechanism import (
-    InteractiveMechanismRenderer, PhysicsEngine
-)
-from ...mechanism_foundry.hci.physics_interaction import (
+from automataii.ui.tabs.mechanism_foundry.hci.physics_interaction import (
     PhysicsInteractionLayer, InteractionMode
 )
-from ...mechanism_foundry.hci.parametric_controls import (
+from automataii.services.mechanism_service import MechanismService
+from automataii.ui.tabs.mechanism_foundry.hci.parametric_controls import (
     ParametricControlPanel, ParameterState, ParameterType, ParameterConstraint
 )
 
@@ -58,7 +56,10 @@ class MacanismConfig:
     enable_occlusion_culling: bool = True
 
 
-class MacanismStyleTab(QWidget, ABC):
+class CombinedMeta(type(QWidget), ABCMeta):
+    pass
+
+class MacanismStyleTab(QWidget, ABC, metaclass=CombinedMeta):
     """
     Universal base class for macanism-style mechanism tabs.
     
@@ -89,9 +90,9 @@ class MacanismStyleTab(QWidget, ABC):
         self.config = config or MacanismConfig()
         
         # Core components
+        self.mechanism_service = MechanismService()
         self.unified_renderer: Optional[UnifiedMechanismRenderer] = None
-        self.interactive_renderer: Optional[InteractiveMechanismRenderer] = None
-        self.physics_interaction: Optional[PhysicsInteractionLayer] = None
+        self.interactive_renderer: Optional[PhysicsInteractionLayer] = None
         self.parametric_controls: Optional[ParametricControlPanel] = None
         
         # State management
@@ -105,6 +106,13 @@ class MacanismStyleTab(QWidget, ABC):
         self.frame_times: List[float] = []
         self.last_frame_time = time.time()
         
+        self.physics_engine: Optional[MechanismService] = None
+
+        # Animation state
+        self.animation_timer = QTimer()
+        self.animation_timer.timeout.connect(self.drive_animation)
+        self.animation_angle = 0.0
+        
         # Initialize the tab
         self.initialize_tab()
         
@@ -112,22 +120,16 @@ class MacanismStyleTab(QWidget, ABC):
         """Initialize the universal tab architecture"""
         # Setup core components
         self.setup_unified_renderer()
-        self.setup_physics_system()
+        # self.setup_physics_system()  <-- This is now handled by the subclass
         self.setup_interaction_layer()
         self.setup_parametric_controls()
         
-        # Create UI layout
-        self.create_tab_layout()
-        
-        # Connect signals
-        self.connect_component_signals()
+        # Let subclass create the layout and connect signals
+        self.setup_mechanism_specific_components()
         
         # Start performance monitoring
         if self.config.target_fps > 0:
             self.performance_timer.start(1000)  # Update every second
-            
-        # Let subclass perform custom initialization
-        self.setup_mechanism_specific_components()
         
     def setup_unified_renderer(self):
         """Setup the unified macanism-style renderer"""
@@ -147,12 +149,11 @@ class MacanismStyleTab(QWidget, ABC):
         
     def setup_physics_system(self):
         """Setup high-fidelity physics simulation"""
-        self.physics_engine = PhysicsEngine()
-        self.physics_engine.constraint_iterations = self.config.constraint_iterations
+        self.mechanism_service = MechanismService()
         
         # Create interactive renderer with physics
-        self.interactive_renderer = InteractiveMechanismRenderer(self)
-        self.interactive_renderer.physics = self.physics_engine
+        self.interactive_renderer = PhysicsInteractionLayer(self)
+        self.interactive_renderer.mechanism_service = self.mechanism_service
         
         # Configure visualization options
         self.interactive_renderer.show_forces = self.config.show_force_vectors
@@ -174,59 +175,7 @@ class MacanismStyleTab(QWidget, ABC):
             
         self.parametric_controls = ParametricControlPanel(self)
         
-    def create_tab_layout(self):
-        """Create the universal tab layout structure"""
-        # Main horizontal splitter
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_splitter.setChildrenCollapsible(False)
-        
-        # Left panel for controls (if parametric controls enabled)
-        if self.parametric_controls:
-            main_splitter.addWidget(self.parametric_controls)
-            main_splitter.setSizes([300, 800])  # 300px for controls, rest for visualization
-        
-        # Central visualization area
-        visualization_widget = self.create_visualization_widget()
-        main_splitter.addWidget(visualization_widget)
-        
-        # Main layout
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(main_splitter)
-        
-    def create_visualization_widget(self) -> QWidget:
-        """Create the central visualization widget"""
-        # Container for interactive renderer and physics interaction layer
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        if self.interactive_renderer:
-            layout.addWidget(self.interactive_renderer)
-            
-        # Overlay physics interaction layer if enabled
-        if self.physics_interaction:
-            # The physics interaction layer will be overlaid on the renderer
-            pass
-            
-        return container
-        
-    def connect_component_signals(self):
-        """Connect signals between components"""
-        # Interactive renderer signals
-        if self.interactive_renderer:
-            self.interactive_renderer.parameterChanged.connect(self.on_parameter_changed)
-            
-        # Parametric controls signals
-        if self.parametric_controls:
-            self.parametric_controls.parameterChanged.connect(self.on_parameter_changed)
-            self.parametric_controls.configurationChanged.connect(self.on_configuration_changed)
-            
-        # Physics interaction signals
-        if self.physics_interaction:
-            self.physics_interaction.componentGrabbed.connect(self.on_component_grabbed)
-            self.physics_interaction.componentDragged.connect(self.on_component_dragged)
-            self.physics_interaction.componentReleased.connect(self.on_component_released)
+    
             
     def set_mechanism(self, mechanism_data: Dict[str, Any]):
         """Set the mechanism data for visualization and interaction"""

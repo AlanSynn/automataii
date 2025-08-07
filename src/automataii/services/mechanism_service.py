@@ -360,7 +360,7 @@ class MechanismService(QObject):
         """
         self._animation_speed = max(0.1, min(10.0, speed_multiplier))
     
-    def get_animation_speed(self) -> float:
+    def get_animation_speed(self, mechanism_id: Optional[str] = None) -> float:
         """Get current animation speed multiplier."""
         return self._animation_speed
     
