@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QToolTip,
     QGraphicsView,
     QGraphicsScene,
+    QGraphicsEllipseItem,
     QToolBar,
     QPushButton,
     QScrollArea,
@@ -89,6 +90,43 @@ class ForceVector:
         return (self.magnitude * math.cos(self.angle), self.magnitude * math.sin(self.angle))
 
 
+class DraggablePointHandle(QGraphicsEllipseItem):
+    """Minimal draggable handle for parametric editing."""
+
+    def __init__(self, center: QPointF, radius: float, item_id: str,
+                 on_move=None, on_release=None, parent=None):
+        super().__init__(-radius, -radius, radius * 2, radius * 2, parent)
+        self.setBrush(QBrush(QColor(255, 0, 0, 180)))
+        self.setPen(QPen(QColor(200, 0, 0), 1.5))
+        self.setZValue(10_000)
+        self.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
+        self.setPos(center)
+        self._dragging = False
+        self._on_move = on_move
+        self._on_release = on_release
+        self._id = item_id
+
+    def id(self) -> str:
+        return self._id
+
+    def mousePressEvent(self, event):
+        self._dragging = True
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        if self._dragging and self._on_move:
+            self._on_move(self, self.pos())
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self._dragging = False
+        if self._on_release:
+            self._on_release(self, self.pos())
+
+
 class InteractiveMechanismWidget(QGraphicsView):
     """
     Interactive mechanism visualization widget with force display - OPTIMIZED VERSION
@@ -141,6 +179,10 @@ class InteractiveMechanismWidget(QGraphicsView):
         self.dragging_handle = None
         self.hover_component = None
         self.selected_components = set()
+
+        # Parametric handles
+        self.parametric_handles: dict[str, DraggablePointHandle] = {}
+        self.show_parametric_handles = True
 
         # Animation - optimized to 45 FPS
         self.animation_timer = QTimer()
@@ -272,6 +314,9 @@ class InteractiveMechanismWidget(QGraphicsView):
         if self.show_motion_trail:
             self._draw_motion_trail_optimized()
 
+        # Update or create parametric handles after drawing
+        self._ensure_parametric_handles()
+
     def _clear_mechanism_items(self):
         """Clear only mechanism-related items, keeping persistent force vectors"""
         # Remove old mechanism items (links, joints, etc.)
@@ -314,20 +359,29 @@ class InteractiveMechanismWidget(QGraphicsView):
             }
 
         # Calculate positions
-        ground_link = self.mechanism_params["ground_link"]
         input_link = self.mechanism_params["input_link"]
         coupler_link = self.mechanism_params["coupler_link"]
         output_link = self.mechanism_params["output_link"]
         input_angle = math.radians(self.mechanism_params["input_angle"])
 
-        # Joint positions
-        O1 = QPointF(-ground_link / 2, 0)
-        O4 = QPointF(ground_link / 2, 0)
+        # Joint positions with optional custom anchors
+        if "ground_pivot1" in self.mechanism_params and "ground_pivot2" in self.mechanism_params:
+            gp1 = self.mechanism_params["ground_pivot1"]
+            gp2 = self.mechanism_params["ground_pivot2"]
+            O1 = gp1 if isinstance(gp1, QPointF) else QPointF(gp1[0], gp1[1])
+            O4 = gp2 if isinstance(gp2, QPointF) else QPointF(gp2[0], gp2[1])
+            ground_link = math.hypot(O4.x() - O1.x(), O4.y() - O1.y())
+            self.mechanism_params["ground_link"] = ground_link
+        else:
+            ground_link = self.mechanism_params["ground_link"]
+            O1 = QPointF(-ground_link / 2, 0)
+            O4 = QPointF(ground_link / 2, 0)
 
         # Moving joint A (input link endpoint)
+        A_dir = math.atan2(O4.y() - O1.y(), O4.x() - O1.x())
         A = QPointF(
-            O1.x() + input_link * math.cos(input_angle),
-            O1.y() + input_link * math.sin(input_angle)
+            O1.x() + input_link * math.cos(input_angle + A_dir),
+            O1.y() + input_link * math.sin(input_angle + A_dir)
         )
 
         # Calculate joint B position using accurate kinematics
@@ -1533,8 +1587,14 @@ class InteractiveMechanismWidget(QGraphicsView):
 
         # Gear centers positioned for proper meshing
         center_distance = gear1_radius + gear2_radius + 2  # Small clearance
-        gear1_center = QPointF(-center_distance / 2, 0)
-        gear2_center = QPointF(center_distance / 2, 0)
+        if "gear1_center" in self.mechanism_params and "gear2_center" in self.mechanism_params:
+            g1 = self.mechanism_params["gear1_center"]
+            g2 = self.mechanism_params["gear2_center"]
+            gear1_center = g1 if isinstance(g1, QPointF) else QPointF(g1[0], g1[1])
+            gear2_center = g2 if isinstance(g2, QPointF) else QPointF(g2[0], g2[1])
+        else:
+            gear1_center = QPointF(-center_distance / 2, 0)
+            gear2_center = QPointF(center_distance / 2, 0)
 
         # Calculate gear rotations with accurate speed ratio
         gear_ratio = gear1_teeth / gear2_teeth  # Speed ratio (inverse of radius ratio)
@@ -1578,6 +1638,187 @@ class InteractiveMechanismWidget(QGraphicsView):
             gear1_center, gear2_center, contact_point,
             gear1_radius, gear2_radius, gear_ratio
         )
+
+        # Persist centers for handle use
+        self.mechanism_params["gear1_center"] = gear1_center
+        self.mechanism_params["gear2_center"] = gear2_center
+
+    def _ensure_parametric_handles(self):
+        """Create/update parametric handles for current mechanism."""
+        # Toggle visibility quickly
+        if hasattr(self, "parametric_handles"):
+            for h in self.parametric_handles.values():
+                h.setVisible(self.show_parametric_handles)
+
+        if not getattr(self, "show_parametric_handles", True):
+            return
+
+        if self.mechanism_type == "four_bar":
+            self._ensure_four_bar_handles()
+        elif self.mechanism_type == "gear_train":
+            self._ensure_gear_handles()
+        elif self.mechanism_type == "slider_crank":
+            self._ensure_slider_crank_handles()
+        elif self.mechanism_type == "cam_follower":
+            self._ensure_cam_follower_handles()
+        elif self.mechanism_type == "scotch_yoke":
+            self._ensure_scotch_yoke_handles()
+
+    def _ensure_four_bar_handles(self):
+        # Current anchors
+        if "ground_pivot1" in self.mechanism_params and "ground_pivot2" in self.mechanism_params:
+            gp1 = self.mechanism_params["ground_pivot1"]
+            gp2 = self.mechanism_params["ground_pivot2"]
+            O1 = gp1 if isinstance(gp1, QPointF) else QPointF(gp1[0], gp1[1])
+            O4 = gp2 if isinstance(gp2, QPointF) else QPointF(gp2[0], gp2[1])
+        else:
+            gl = self.mechanism_params.get("ground_link", 150)
+            O1 = QPointF(-gl / 2, 0)
+            O4 = QPointF(gl / 2, 0)
+
+        def on_move_o1(_, pos: QPointF):
+            self.mechanism_params["ground_pivot1"] = QPointF(pos.x(), pos.y())
+            gp2 = self.mechanism_params.get("ground_pivot2", O4)
+            gp2 = gp2 if isinstance(gp2, QPointF) else QPointF(gp2[0], gp2[1])
+            self.mechanism_params["ground_link"] = math.hypot(gp2.x() - pos.x(), gp2.y() - pos.y())
+            self.draw_mechanism()
+
+        def on_move_o4(_, pos: QPointF):
+            self.mechanism_params["ground_pivot2"] = QPointF(pos.x(), pos.y())
+            gp1 = self.mechanism_params.get("ground_pivot1", O1)
+            gp1 = gp1 if isinstance(gp1, QPointF) else QPointF(gp1[0], gp1[1])
+            self.mechanism_params["ground_link"] = math.hypot(pos.x() - gp1.x(), pos.y() - gp1.y())
+            self.draw_mechanism()
+
+        if "anchor_O1" not in self.parametric_handles:
+            h = DraggablePointHandle(O1, 6, "anchor_O1", on_move=on_move_o1)
+            self.parametric_handles["anchor_O1"] = h
+            self.scene.addItem(h)
+        if "anchor_O4" not in self.parametric_handles:
+            h = DraggablePointHandle(O4, 6, "anchor_O4", on_move=on_move_o4)
+            self.parametric_handles["anchor_O4"] = h
+            self.scene.addItem(h)
+
+        if not self.parametric_handles["anchor_O1"].isSelected():
+            self.parametric_handles["anchor_O1"].setPos(O1)
+        if not self.parametric_handles["anchor_O4"].isSelected():
+            self.parametric_handles["anchor_O4"].setPos(O4)
+
+    def _ensure_gear_handles(self):
+        g1 = self.mechanism_params.get("gear1_center")
+        g2 = self.mechanism_params.get("gear2_center")
+        if g1 is None or g2 is None:
+            t1 = self.mechanism_params.get("gear1_teeth", 24)
+            t2 = self.mechanism_params.get("gear2_teeth", 36)
+            pitch = self.mechanism_params.get("tooth_pitch", 8.0)
+            r1 = (t1 * pitch) / (2 * math.pi)
+            r2 = (t2 * pitch) / (2 * math.pi)
+            d = r1 + r2 + 2
+            g1 = QPointF(-d / 2, 0)
+            g2 = QPointF(d / 2, 0)
+        else:
+            g1 = g1 if isinstance(g1, QPointF) else QPointF(g1[0], g1[1])
+            g2 = g2 if isinstance(g2, QPointF) else QPointF(g2[0], g2[1])
+
+        t1 = self.mechanism_params.get("gear1_teeth", 24)
+        t2 = self.mechanism_params.get("gear2_teeth", 36)
+        pitch = self.mechanism_params.get("tooth_pitch", 8.0)
+        r1 = (t1 * pitch) / (2 * math.pi)
+        r2 = (t2 * pitch) / (2 * math.pi)
+        target_dist = r1 + r2 + 2
+
+        def on_move_g1(_, pos: QPointF):
+            prev = self.mechanism_params.get("gear1_center", g1)
+            prev = prev if isinstance(prev, QPointF) else QPointF(prev[0], prev[1])
+            dx, dy = pos.x() - prev.x(), pos.y() - prev.y()
+            new_g1 = QPointF(pos.x(), pos.y())
+            cur_g2 = self.mechanism_params.get("gear2_center", g2)
+            cur_g2 = cur_g2 if isinstance(cur_g2, QPointF) else QPointF(cur_g2[0], cur_g2[1])
+            new_g2 = QPointF(cur_g2.x() + dx, cur_g2.y() + dy)
+            self.mechanism_params["gear1_center"] = new_g1
+            self.mechanism_params["gear2_center"] = new_g2
+            self.draw_mechanism()
+
+        def on_move_g2(_, pos: QPointF):
+            cur_g1 = self.mechanism_params.get("gear1_center", g1)
+            cur_g1 = cur_g1 if isinstance(cur_g1, QPointF) else QPointF(cur_g1[0], cur_g1[1])
+            vx, vy = pos.x() - cur_g1.x(), pos.y() - cur_g1.y()
+            dist = math.hypot(vx, vy)
+            if dist < 1e-6:
+                vx, vy, dist = target_dist, 0.0, target_dist
+            s = target_dist / dist
+            new_g2 = QPointF(cur_g1.x() + vx * s, cur_g1.y() + vy * s)
+            self.mechanism_params["gear2_center"] = new_g2
+            self.draw_mechanism()
+
+        if "gear1_handle" not in self.parametric_handles:
+            h = DraggablePointHandle(g1, 6, "gear1_handle", on_move=on_move_g1)
+            self.parametric_handles["gear1_handle"] = h
+            self.scene.addItem(h)
+        if "gear2_handle" not in self.parametric_handles:
+            h = DraggablePointHandle(g2, 6, "gear2_handle", on_move=on_move_g2)
+            self.parametric_handles["gear2_handle"] = h
+            self.scene.addItem(h)
+
+        if not self.parametric_handles["gear1_handle"].isSelected():
+            self.parametric_handles["gear1_handle"].setPos(g1)
+        if not self.parametric_handles["gear2_handle"].isSelected():
+            self.parametric_handles["gear2_handle"].setPos(g2)
+
+    def _ensure_slider_crank_handles(self):
+        # Pivot handle O1
+        pivot = self.mechanism_params.get("pivot")
+        if pivot is None:
+            pivot = QPointF(-50, 0)
+        else:
+            pivot = pivot if isinstance(pivot, QPointF) else QPointF(pivot[0], pivot[1])
+
+        def on_move_pivot(_, pos: QPointF):
+            self.mechanism_params["pivot"] = QPointF(pos.x(), pos.y())
+            self.draw_mechanism()
+
+        if "slider_pivot" not in self.parametric_handles:
+            h = DraggablePointHandle(pivot, 6, "slider_pivot", on_move=on_move_pivot)
+            self.parametric_handles["slider_pivot"] = h
+            self.scene.addItem(h)
+        if not self.parametric_handles["slider_pivot"].isSelected():
+            self.parametric_handles["slider_pivot"].setPos(pivot)
+
+    def _ensure_cam_follower_handles(self):
+        cam_center = self.mechanism_params.get("cam_center")
+        if cam_center is None:
+            cam_center = QPointF(0, 0)
+        else:
+            cam_center = cam_center if isinstance(cam_center, QPointF) else QPointF(cam_center[0], cam_center[1])
+
+        def on_move_cam(_, pos: QPointF):
+            self.mechanism_params["cam_center"] = QPointF(pos.x(), pos.y())
+            self.draw_mechanism()
+
+        if "cam_center_handle" not in self.parametric_handles:
+            h = DraggablePointHandle(cam_center, 6, "cam_center_handle", on_move=on_move_cam)
+            self.parametric_handles["cam_center_handle"] = h
+            self.scene.addItem(h)
+        if not self.parametric_handles["cam_center_handle"].isSelected():
+            self.parametric_handles["cam_center_handle"].setPos(cam_center)
+
+    def _ensure_scotch_yoke_handles(self):
+        crank_center = self.mechanism_params.get("crank_center")
+        if crank_center is None:
+            crank_center = QPointF(-100, 0)
+        else:
+            crank_center = crank_center if isinstance(crank_center, QPointF) else QPointF(crank_center[0], crank_center[1])
+
+        def on_move_crank_center(_, pos: QPointF):
+            self.mechanism_params["crank_center"] = QPointF(pos.x(), pos.y())
+            self.draw_mechanism()
+
+        if "sy_crank_center" not in self.parametric_handles:
+            h = DraggablePointHandle(crank_center, 6, "sy_crank_center", on_move=on_move_crank_center)
+            self.parametric_handles["sy_crank_center"] = h
+            self.scene.addItem(h)
+        if not self.parametric_handles["sy_crank_center"].isSelected():
+            self.parametric_handles["sy_crank_center"].setPos(crank_center)
 
     def _draw_accurate_gear(self, center, radius, teeth, angle, is_drive):
         """Draw a gear with accurate tooth profile"""
@@ -2871,6 +3112,12 @@ class InteractiveMechanismWidget(QGraphicsView):
             self.show_safety_zones = not self.show_safety_zones
             print(f"Safety zones: {'ON' if self.show_safety_zones else 'OFF'}")
             self.draw_mechanism()
+
+        elif event.key() == Qt.Key.Key_A:
+            # Toggle parametric handles
+            self.show_parametric_handles = not self.show_parametric_handles
+            for h in self.parametric_handles.values():
+                h.setVisible(self.show_parametric_handles)
 
         elif event.key() == Qt.Key.Key_D:
             # D key: Move to danger zone (for educational purposes)
