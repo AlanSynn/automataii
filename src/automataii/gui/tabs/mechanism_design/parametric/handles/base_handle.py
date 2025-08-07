@@ -4,7 +4,7 @@ Base Interactive Handle for Parametric Design
 Provides foundation for all draggable mechanism manipulation handles.
 Implements Observer pattern for parameter updates and visual feedback.
 
-Author: AI Engineering Assistant  
+Author: AI Engineering Assistant
 Architecture: Jeff Dean Performance + Kent Beck Simplicity + Rob Pike Clarity
 """
 
@@ -27,10 +27,10 @@ from PyQt6.QtWidgets import (
 class BaseHandle(QGraphicsEllipseItem):
     """
     Base class for all interactive mechanism manipulation handles.
-    
+
     Features:
     - Drag and drop manipulation
-    - Visual feedback (hover, active, disabled states)  
+    - Visual feedback (hover, active, disabled states)
     - Parameter update notifications
     - Constraint validation integration
     - Performance-optimized event handling
@@ -57,7 +57,7 @@ class BaseHandle(QGraphicsEllipseItem):
                  parent=None):
         """
         Initialize interactive handle.
-        
+
         Args:
             mechanism_id: Unique mechanism identifier
             param_name: Parameter name this handle controls
@@ -86,7 +86,8 @@ class BaseHandle(QGraphicsEllipseItem):
         self.setPos(initial_position)
 
         # Enable ALL necessary interaction flags
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        # CRITICAL: Don't use ItemIsMovable as it conflicts with our custom dragging
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
@@ -121,35 +122,47 @@ class BaseHandle(QGraphicsEllipseItem):
         if not self._is_enabled:
             color = self.COLOR_DISABLED
             radius = self.HANDLE_RADIUS
+            opacity = 0.5
         elif self._is_dragging:
             color = self.COLOR_ACTIVE
             radius = self.ACTIVE_RADIUS
+            opacity = 1.0
+            # Make dragging handles much more prominent
+            self.setZValue(1000000)  # Bring to front
         elif self._is_hovered:
             color = self.COLOR_HOVER
             radius = self.HOVER_RADIUS
+            opacity = 0.9
         else:
             color = self.COLOR_NORMAL
             radius = self.HANDLE_RADIUS
+            opacity = 0.8
+            self.setZValue(999999)  # High but not maximum
 
         # Update geometry
         self.setRect(-radius, -radius, radius * 2, radius * 2)
 
-        # Update pen and brush
-        pen = QPen(color.darker(120), 2.0)
-        brush = QBrush(color.lighter(110))
+        # Update pen and brush with enhanced visibility
+        if self._is_dragging:
+            # Extra thick border when dragging
+            pen = QPen(color.darker(150), 4.0)
+            brush = QBrush(color)
+        else:
+            pen = QPen(color.darker(120), 2.0)
+            brush = QBrush(color.lighter(110))
 
         self.setPen(pen)
         self.setBrush(brush)
+        self.setOpacity(opacity)
 
-        # Add subtle shadow effect when active
-        if self._is_dragging:
-            shadow_pen = QPen(QColor(0, 0, 0, 100), 1.0)
-            # Note: Shadow implementation would require additional graphics items
+        # Force update
+        self.update()
 
     def setEnabled(self, enabled: bool):
         """Enable or disable handle interaction."""
         self._is_enabled = enabled
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, enabled)
+        # Don't set ItemIsMovable as we handle movement ourselves
+        # self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, enabled)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, enabled)
         self._update_visual_state()
 
@@ -183,28 +196,40 @@ class BaseHandle(QGraphicsEllipseItem):
 
         if not self._is_enabled or event.button() != Qt.MouseButton.LeftButton:
             logging.info(f"[HANDLE] ❌ Ignoring press - enabled:{self._is_enabled} button:{event.button()}")
+            event.ignore()
             return
 
+        # CRITICAL: Accept the event to receive move events
+        event.accept()
+        
         self._is_dragging = True
-        self._drag_start_pos = event.pos()
+        self._drag_start_pos = event.scenePos()  # Use scenePos instead of pos
         self._initial_param_value = self.get_current_parameter_value()
 
         self._update_visual_state()
-        logging.info(f"[HANDLE] ✅ Started dragging {self.param_name}")
+        logging.info(f"[HANDLE] ✅ Started dragging {self.param_name} from {self._drag_start_pos}")
 
         # Capture parameter state for potential undo
         self._capture_initial_state()
 
-        super().mousePressEvent(event)
-        logging.debug(f"Started dragging {self.param_name} handle")
+        # Don't call super() as it might interfere with our dragging
+        # super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
         """Handle mouse move - update parameter during drag."""
+        logging.info(f"[HANDLE BASE] mouseMoveEvent called for {self.param_name}, dragging={self._is_dragging}")
+        
         if not self._is_dragging or not self._is_enabled:
+            logging.info(f"[HANDLE BASE] Not processing move: dragging={self._is_dragging}, enabled={self._is_enabled}")
             return
 
+        # CRITICAL: Move handle to new position
+        new_pos = event.scenePos()
+        self.setPos(new_pos)
+        logging.info(f"[HANDLE BASE] Moved {self.param_name} to {new_pos}")
+
         # Calculate new parameter value based on position change
-        new_value = self._calculate_parameter_from_position(event.scenePos())
+        new_value = self._calculate_parameter_from_position(new_pos)
 
         # Validate against constraints
         if self.constraint_validator:
@@ -220,22 +245,26 @@ class BaseHandle(QGraphicsEllipseItem):
                 self.parameter_changed_callback(self.mechanism_id, self.param_name, new_value)
             self._apply_parameter_change(new_value)
 
-        super().mouseMoveEvent(event)
+        # Don't call super() as we handle everything ourselves
+        # super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         """Handle mouse release - finish drag operation."""
         if not self._is_dragging:
+            event.ignore()
             return
 
+        event.accept()
         self._is_dragging = False
         self._update_visual_state()
 
         # Finalize parameter change
         final_value = self.get_current_parameter_value()
-        logging.info(f"[HANDLE] Finished dragging {self.param_name}: {final_value}")
+        final_pos = self.pos()
+        logging.info(f"[HANDLE] ✅ Finished dragging {self.param_name}: value={final_value}, pos={final_pos}")
 
-        super().mouseReleaseEvent(event)
-        logging.debug(f"Finished dragging {self.param_name} handle: {final_value}")
+        # Don't call super() as it might interfere
+        # super().mouseReleaseEvent(event)
 
     def _show_constraint_feedback(self):
         """Show visual feedback for constraint violations."""
@@ -254,10 +283,10 @@ class BaseHandle(QGraphicsEllipseItem):
     def _calculate_parameter_from_position(self, scene_pos: QPointF) -> Any:
         """
         Calculate parameter value from handle position.
-        
+
         Args:
             scene_pos: Current handle position in scene coordinates
-            
+
         Returns:
             New parameter value based on position
         """
@@ -267,7 +296,7 @@ class BaseHandle(QGraphicsEllipseItem):
     def _apply_parameter_change(self, new_value: Any):
         """
         Apply parameter change to mechanism.
-        
+
         Args:
             new_value: New parameter value to apply
         """
@@ -277,7 +306,7 @@ class BaseHandle(QGraphicsEllipseItem):
     def get_current_parameter_value(self) -> Any:
         """
         Get current parameter value from mechanism.
-        
+
         Returns:
             Current parameter value
         """

@@ -40,6 +40,7 @@ from automataii.utils.paths import get_project_root, resolve_path
 # Parametric Design System (ULTRATHINK Architecture)
 try:
     from .mechanism_design.parametric import AnchorHandle, BaseHandle, ParameterController
+    from .mechanism_design.parametric.handles.draggable_handle import DraggableHandle
     PARAMETRIC_AVAILABLE = True
 except ImportError as e:
     logging.warning(f"Parametric design system not available: {e}")
@@ -4930,27 +4931,31 @@ class MechanismDesignTab(QWidget):
             for anchor_name, anchor_pos in anchor_positions.items():
                 logging.info(f"[PARAMETRIC] Creating handle for {anchor_name} at {anchor_pos}")
 
-                anchor_handle = AnchorHandle(
-                    mechanism_id=mechanism_id,
-                    anchor_name=anchor_name,
-                    initial_position=anchor_pos,
-                    mechanism_data=layer_data,
-                    update_callback=self._on_anchor_moved,
-                    constraint_validator=self._validate_anchor_constraints,
+                # ULTRATHINK Solution: Use new DraggableHandle
+                def make_callback(name):
+                    return lambda handle_id, pos: self._on_anchor_moved(name, pos)
+                
+                anchor_handle = DraggableHandle(
+                    handle_id=f"{mechanism_id}_{anchor_name}",
+                    initial_pos=anchor_pos,
+                    update_callback=make_callback(anchor_name),
                     parent=None
                 )
-
+                
                 # Add to scene and register with controller
                 self.mechanism_scene.addItem(anchor_handle)
                 handle_id = self.parametric_controller.register_handle(anchor_handle)
                 handles.append(anchor_handle)
 
+                # DraggableHandle handles all its own configuration internally
+                # No additional setup needed!
+
                 # VERIFY handle is actually in scene
                 scene_items = self.mechanism_scene.items()
                 handle_in_scene = anchor_handle in scene_items
 
-                logging.info(f"[PARAMETRIC] ✅ Created {anchor_name} handle at {anchor_pos}")
-                logging.info(f"[PARAMETRIC] Handle in scene: {handle_in_scene}, Total scene items: {len(scene_items)}")
+                logging.info(f"[PARAMETRIC] 🔥 Handle {anchor_name} created at {anchor_pos}, in scene: {handle_in_scene}")
+                logging.info(f"[PARAMETRIC] Handle flags: {anchor_handle.flags()}")
                 logging.info(f"[PARAMETRIC] Handle Z-value: {anchor_handle.zValue()}, Visible: {anchor_handle.isVisible()}")
                 logging.info(f"[PARAMETRIC] Handle bounds: {anchor_handle.boundingRect()}")
                 logging.info(f"[PARAMETRIC] Handle scene pos: {anchor_handle.scenePos()}")
@@ -5027,67 +5032,44 @@ class MechanismDesignTab(QWidget):
             new_position: New position in scene coordinates
         """
         try:
-            logging.info(f"[PARAMETRIC] Anchor {anchor_name} moved to {new_position}")
+            logging.info(f"[PARAMETRIC] 🔥 ANCHOR MOVED: {anchor_name} -> {new_position}")
 
             # Find which mechanism this anchor belongs to and update its visuals immediately
+            found_mechanism = False
             for mechanism_id, layer_data in self.mechanism_layers.items():
                 key_points = layer_data.get("key_points", {})
+                logging.info(f"[PARAMETRIC] Checking mechanism {mechanism_id}, has {list(key_points.keys())}")
+                
                 if anchor_name in key_points:
-                    # Convert scene position back to mechanism coordinates
-                    # We need to inverse the transformation
-                    scene_pos_array = np.array([new_position.x(), new_position.y()])
-
-                    # Get transformation parameters to inverse the transform
-                    transform_params = layer_data.get("transform_params", {})
-                    if transform_params:
-                        # Inverse transformation: scene -> mechanism coordinates
-                        center = np.array(transform_params.get("center", [0, 0]))
-                        scale = transform_params.get("scale", 1.0)
-                        rotation_angle = transform_params.get("rotation", 0.0)
-
-                        # Get user path properties
-                        target_path = layer_data.get("generated_path")
-                        if target_path:
-                            user_path_np = utils_qpainterpath_to_numpy_array(target_path)
-                            if user_path_np is not None and len(user_path_np) > 0:
-                                user_center = np.mean(user_path_np, axis=0)
-                                user_bbox = np.max(user_path_np, axis=0) - np.min(user_path_np, axis=0)
-                                user_scale = np.max(user_bbox) / 2.0 if np.max(user_bbox) > 0 else 100.0
-
-                                # Inverse transformation
-                                # 1. Transform from user space to normalized space
-                                p_user_space = (scene_pos_array - user_center) / user_scale
-
-                                # 2. Inverse rotation
-                                inv_rotation_matrix = np.array([
-                                    [np.cos(-rotation_angle), -np.sin(-rotation_angle)],
-                                    [np.sin(-rotation_angle), np.cos(-rotation_angle)]
-                                ])
-                                p_rotated_back = p_user_space @ inv_rotation_matrix.T
-
-                                # 3. Scale back up and add center
-                                mechanism_pos = p_rotated_back * scale + center
-
-                                # Update the key_points data with mechanism coordinates
-                                key_points[anchor_name] = [float(mechanism_pos[0]), float(mechanism_pos[1])]
-                                logging.info(f"[PARAMETRIC] Converted scene pos {new_position} to mechanism coords: {mechanism_pos}")
-                            else:
-                                # Fallback if transform fails
-                                key_points[anchor_name] = [new_position.x(), new_position.y()]
-                        else:
-                            # Fallback if no path
-                            key_points[anchor_name] = [new_position.x(), new_position.y()]
+                    found_mechanism = True
+                    logging.info(f"[PARAMETRIC] 🎯 Found anchor {anchor_name} in mechanism {mechanism_id}")
+                    
+                    # Update the anchor position in mechanism data
+                    old_pos = key_points[anchor_name]
+                    key_points[anchor_name] = [new_position.x(), new_position.y()]
+                    logging.info(f"[PARAMETRIC] ✅ Updated {anchor_name}: {old_pos} -> [{new_position.x()}, {new_position.y()}]")
+                    
+                    # CRITICAL: Trigger immediate mechanism update with new anchor position
+                    if layer_data.get("type") == "4_bar_linkage":
+                        logging.info(f"[PARAMETRIC] 🔧 Updating 4-bar linkage {mechanism_id}")
+                        self._update_4bar_linkage_realtime(mechanism_id, layer_data)
                     else:
-                        # No transform params, use direct position
-                        key_points[anchor_name] = [new_position.x(), new_position.y()]
-
-                    # Trigger immediate visual update
-                    self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
-                    logging.info(f"[PARAMETRIC] Updated mechanism {mechanism_id} visuals")
+                        logging.warning(f"[PARAMETRIC] ❓ Unknown mechanism type: {layer_data.get('type')}")
+                    
+                    # Force view update
+                    self.mechanism_view.update()
+                    
+                    logging.info(f"[PARAMETRIC] ✅ Completed mechanism {mechanism_id} update")
                     break
+            
+            if not found_mechanism:
+                logging.error(f"[PARAMETRIC] ❌ Could not find mechanism for anchor {anchor_name}")
+                logging.error(f"[PARAMETRIC] Available mechanisms: {list(self.mechanism_layers.keys())}")
 
         except Exception as e:
-            logging.error(f"Failed to handle anchor movement: {e}")
+            logging.error(f"❌ Failed to handle anchor movement: {e}")
+            import traceback
+            logging.error(f"❌ Traceback: {traceback.format_exc()}")
 
     def _validate_anchor_constraints(self, param_name: str, new_value: Any) -> Any:
         """
@@ -5123,6 +5105,323 @@ class MechanismDesignTab(QWidget):
 
         except Exception as e:
             logging.error(f"Failed to update mechanism {mechanism_id}: {e}")
+
+    def _smart_adjust_4bar_links(self, p1: np.ndarray, p2: np.ndarray, l2: float, l3: float, l4: float) -> tuple[float, float, float]:
+        """
+        ULTRATHINK: Smart auto-adjustment for invalid 4-bar configurations.
+        
+        When anchor points are moved too far, automatically adjust link lengths
+        to maintain a valid, functional 4-bar linkage while preserving motion characteristics.
+        
+        Strategy:
+        1. Maintain l2 (input crank) - this defines the input motion
+        2. Scale l3 and l4 proportionally to bridge the new distance
+        3. Ensure Grashof condition for continuous rotation if possible
+        
+        Args:
+            p1, p2: Anchor positions
+            l2, l3, l4: Current link lengths
+            
+        Returns:
+            Tuple of (adjusted_l2, adjusted_l3, adjusted_l4)
+        """
+        try:
+            # Calculate current ground distance
+            l1_new = np.linalg.norm(p2 - p1)
+            
+            logging.info(f"[SMART-ADJUST] 🧠 Auto-adjusting 4-bar: l1_new={l1_new:.1f}, l2={l2:.1f}, l3={l3:.1f}, l4={l4:.1f}")
+            
+            # Check if current configuration is valid
+            current_total = l2 + l3 + l4
+            if l1_new <= current_total and abs(l2 - (l3 + l4)) <= l1_new and abs(l3 - (l2 + l4)) <= l1_new and abs(l4 - (l2 + l3)) <= l1_new:
+                logging.info(f"[SMART-ADJUST] ✅ Current configuration is already valid")
+                return l2, l3, l4
+            
+            # STRATEGY 1: Keep l2 (input crank), scale l3 and l4 proportionally
+            # Minimum viable total for the other links
+            min_needed = l1_new + 10  # Small safety margin
+            
+            if current_total < min_needed:
+                # Need to scale up l3 and l4
+                scale_factor = min_needed / (l3 + l4)
+                l3_new = l3 * scale_factor
+                l4_new = l4 * scale_factor
+                
+                logging.info(f"[SMART-ADJUST] 📈 Scaling up: scale={scale_factor:.2f}, l3: {l3:.1f}→{l3_new:.1f}, l4: {l4:.1f}→{l4_new:.1f}")
+                
+            else:
+                # Configuration might work, but let's ensure Grashof condition
+                # For continuous rotation: s + l ≤ p + q (where s=shortest, l=longest)
+                links = [l1_new, l2, l3, l4]
+                links_sorted = sorted(links)
+                s, p, q, l_max = links_sorted
+                
+                if s + l_max > p + q + 5:  # Small tolerance
+                    # Violation - adjust to make it barely work
+                    # Strategy: slightly increase the middle links
+                    excess = (s + l_max) - (p + q) + 10  # Extra margin
+                    
+                    # Distribute excess to l3 and l4
+                    l3_new = l3 + excess * 0.6  # 60% to coupler
+                    l4_new = l4 + excess * 0.4  # 40% to output
+                    
+                    logging.info(f"[SMART-ADJUST] ⚖️ Grashof fix: excess={excess:.1f}, l3: {l3:.1f}→{l3_new:.1f}, l4: {l4:.1f}→{l4_new:.1f}")
+                    
+                else:
+                    l3_new = l3
+                    l4_new = l4
+                    logging.info(f"[SMART-ADJUST] ✅ Grashof condition satisfied")
+            
+            # STRATEGY 2: Alternative - smart proportional adjustment
+            # If the above doesn't work, use proportional scaling of all non-ground links
+            links_adjusted = [l1_new, l2, l3_new, l4_new]
+            links_sorted = sorted(links_adjusted)
+            s, p, q, l_max = links_sorted
+            
+            # Final validation
+            if s + l_max > p + q + 2:
+                # Still invalid - use emergency proportional scaling
+                total_non_ground = l2 + l3_new + l4_new
+                required_total = l1_new + 20  # Generous margin
+                
+                if total_non_ground < required_total:
+                    emergency_scale = required_total / total_non_ground
+                    l2_new = l2 * emergency_scale
+                    l3_new = l3_new * emergency_scale  
+                    l4_new = l4_new * emergency_scale
+                    
+                    logging.info(f"[SMART-ADJUST] 🚨 Emergency scaling: {emergency_scale:.2f}, l2: {l2:.1f}→{l2_new:.1f}")
+                else:
+                    l2_new = l2
+                    
+            else:
+                l2_new = l2
+            
+            logging.info(f"[SMART-ADJUST] 🎯 Final adjusted links: l2={l2_new:.1f}, l3={l3_new:.1f}, l4={l4_new:.1f}")
+            return l2_new, l3_new, l4_new
+            
+        except Exception as e:
+            logging.error(f"[SMART-ADJUST] ❌ Auto-adjustment failed: {e}")
+            # Fallback: simple proportional scaling
+            scale = max(1.5, (np.linalg.norm(p2 - p1) + 50) / (l2 + l3 + l4))
+            return l2 * scale, l3 * scale, l4 * scale
+
+    def _update_4bar_linkage_realtime(self, mechanism_id: str, layer_data: dict[str, Any]):
+        """
+        Update 4-bar linkage mechanism in real-time during parametric manipulation.
+        
+        Args:
+            mechanism_id: Mechanism ID
+            layer_data: Updated mechanism data
+        """
+        try:
+            logging.info(f"[4BAR] 🔧 Starting real-time update for {mechanism_id}")
+            
+            # Get anchor positions from key_points (these are now in scene coordinates)
+            key_points = layer_data.get("key_points", {})
+            logging.info(f"[4BAR] Key points: {list(key_points.keys())}")
+            
+            if "ground_pivot_1" in key_points and "ground_pivot_2" in key_points:
+                p1_coords = key_points["ground_pivot_1"]
+                p2_coords = key_points["ground_pivot_2"]
+                
+                p1 = np.array([p1_coords[0], p1_coords[1]])
+                p2 = np.array([p2_coords[0], p2_coords[1]])
+                
+                logging.info(f"[4BAR] Anchor positions: p1={p1}, p2={p2}")
+                
+                # Get mechanism parameters
+                params = layer_data.get("params", {})
+                l2 = params.get("l2", 100.0)  # Input link length
+                l3 = params.get("l3", 120.0)  # Coupler link length  
+                l4 = params.get("l4", 80.0)   # Output link length
+                
+                logging.info(f"[4BAR] Link lengths: l2={l2}, l3={l3}, l4={l4}")
+                
+                # Calculate ground link length from current positions
+                l1 = np.linalg.norm(p2 - p1)
+                params["l1"] = l1  # Update ground link length
+                
+                logging.info(f"[4BAR] Calculated ground link: l1={l1}")
+                
+                # Calculate 4-bar linkage positions using current time/angle
+                current_time = getattr(self, '_current_animation_time', 0.0)
+                
+                # Store current time if not set
+                if not hasattr(self, '_current_animation_time'):
+                    self._current_animation_time = 0.0
+                    current_time = 0.0
+                
+                # Calculate positions for current configuration
+                try:
+                    # Input angle (theta1)
+                    theta1 = current_time
+                    
+                    # Calculate position of point p3 (end of input link)
+                    p3 = p1 + l2 * np.array([np.cos(theta1), np.sin(theta1)])
+                    
+                    # Calculate position of point p4 using circle intersection
+                    # p4 is at distance l3 from p3 and distance l4 from p2
+                    d = np.linalg.norm(p2 - p3)
+                    
+                    # CHECK AND AUTO-ADJUST invalid configurations
+                    needs_adjustment = False
+                    original_l2, original_l3, original_l4 = l2, l3, l4
+                    
+                    # Check basic reachability
+                    if not (d > 0 and d <= (l3 + l4) and abs(l3 - l4) <= d):
+                        logging.warning(f"[SMART-ADJUST] 🔧 Invalid configuration detected - auto-adjusting...")
+                        l2, l3, l4 = self._smart_adjust_4bar_links(p1, p2, l2, l3, l4)
+                        needs_adjustment = True
+                        
+                        # Update parameters in layer_data
+                        params["l2"] = l2
+                        params["l3"] = l3  
+                        params["l4"] = l4
+                        
+                        # Recalculate with new link lengths
+                        d = np.linalg.norm(p2 - p3)
+                        
+                        logging.info(f"[SMART-ADJUST] ✨ Adjusted links: l2: {original_l2:.1f}→{l2:.1f}, l3: {original_l3:.1f}→{l3:.1f}, l4: {original_l4:.1f}→{l4:.1f}")
+                    
+                    if d > 0 and d <= (l3 + l4) and abs(l3 - l4) <= d:
+                        # Valid configuration - calculate p4
+                        a = (l3**2 - l4**2 + d**2) / (2 * d)
+                        h = math.sqrt(max(0, l3**2 - a**2))
+                        
+                        p3_p2_unit = (p2 - p3) / d
+                        midpoint = p3 + a * p3_p2_unit
+                        p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
+                        
+                        # NUCLEAR OPTION: Always recreate visual items for guaranteed update
+                        logging.info(f"[4BAR] 💥 NUCLEAR OPTION: Recreating ALL visual items")
+                        self._recreate_4bar_visuals(mechanism_id, layer_data, p1, p2, p3, p4)
+                                
+                        logging.info(f"[4BAR] ✅ Updated 4-bar linkage positions: p1={p1}, p2={p2}, p3={p3}, p4={p4}")
+                        
+                        # Show adjustment notification if links were modified
+                        if needs_adjustment:
+                            logging.info(f"[SMART-ADJUST] 🎉 Successfully auto-adjusted mechanism to fit new anchor positions!")
+                                
+                    else:
+                        # Even after adjustment, still invalid - show the mechanism anyway but with visual indication
+                        logging.warning(f"[4BAR] ⚠️ Configuration still problematic after adjustment: d={d}, l3={l3}, l4={l4}")
+                        logging.info(f"[4BAR] 💪 Showing stretched/approximate mechanism anyway...")
+                        
+                        # Calculate approximate positions - stretch the links if needed
+                        if d > 0:
+                            # Simple linear interpolation for impossible configurations
+                            stretch_factor = d / (l3 + l4) if (l3 + l4) > 0 else 1.5
+                            l3_stretched = l3 * stretch_factor * 0.6
+                            l4_stretched = l4 * stretch_factor * 0.4
+                            
+                            # Calculate approximate p4 position
+                            direction_3_to_2 = (p2 - p3) / d if d > 0 else np.array([1, 0])
+                            p4 = p3 + l3_stretched * direction_3_to_2
+                            
+                            logging.info(f"[4BAR] 🔧 Using stretched configuration: l3_stretch={l3_stretched:.1f}, l4_stretch={l4_stretched:.1f}")
+                            
+                            # NUCLEAR OPTION: Show the stretched mechanism with special styling
+                            self._recreate_4bar_visuals(mechanism_id, layer_data, p1, p2, p3, p4, is_stretched=True)
+                        
+                        logging.warning(f"[4BAR] ⚠️ Displayed approximate/stretched mechanism")
+                        
+                except Exception as calc_e:
+                    logging.error(f"[PARAMETRIC] Failed to calculate 4-bar positions: {calc_e}")
+                
+                # CRITICAL: Force complete scene and view update
+                logging.info(f"[4BAR] Forcing scene and view update...")
+                self.mechanism_scene.update()
+                self.mechanism_view.update()
+                self.mechanism_view.viewport().update()
+                
+            else:
+                logging.warning(f"[4BAR] ❌ Missing ground pivot positions for {mechanism_id}")
+                
+        except Exception as e:
+            logging.error(f"❌ Failed to update 4-bar linkage in real-time: {e}")
+            import traceback
+            logging.error(f"❌ Traceback: {traceback.format_exc()}")
+    
+    def _recreate_4bar_visuals(self, mechanism_id: str, layer_data: dict[str, Any], p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray, is_stretched: bool = False):
+        """
+        NUCLEAR OPTION: Completely recreate 4-bar linkage visuals from scratch.
+        
+        Args:
+            mechanism_id: Mechanism ID
+            layer_data: Mechanism data
+            p1, p2, p3, p4: Joint positions
+        """
+        try:
+            logging.info(f"[RECREATE] 💥 NUCLEAR RECREATION of 4-bar visuals for {mechanism_id}")
+            logging.info(f"[RECREATE] Positions: p1={p1}, p2={p2}, p3={p3}, p4={p4}")
+            
+            # STEP 1: BRUTALLY remove ALL old items
+            old_items = layer_data.get("visual_items", [])
+            logging.info(f"[RECREATE] Removing {len(old_items)} old visual items")
+            
+            for i, item in enumerate(old_items):
+                try:
+                    if item and hasattr(item, 'scene') and item.scene():
+                        self.mechanism_scene.removeItem(item)
+                        logging.info(f"[RECREATE] ✅ Removed old item {i}")
+                    else:
+                        logging.info(f"[RECREATE] ⚠️ Item {i} already removed or invalid")
+                except Exception as e:
+                    logging.warning(f"[RECREATE] Failed to remove item {i}: {e}")
+            
+            # STEP 2: Create completely NEW visual items with BRIGHT colors
+            visual_items = []
+            
+            # Use VERY BRIGHT colors to make sure we can see changes
+            link_pen = QPen(QColor("#FF0000"), 5)  # BRIGHT RED, THICK
+            
+            logging.info(f"[RECREATE] Creating input link: ({p1[0]:.1f},{p1[1]:.1f}) -> ({p3[0]:.1f},{p3[1]:.1f})")
+            input_link = self.mechanism_scene.addLine(
+                QLineF(QPointF(p1[0], p1[1]), QPointF(p3[0], p3[1])),
+                link_pen
+            )
+            visual_items.append(input_link)
+            
+            logging.info(f"[RECREATE] Creating coupler link: ({p3[0]:.1f},{p3[1]:.1f}) -> ({p4[0]:.1f},{p4[1]:.1f})")
+            coupler_link = self.mechanism_scene.addLine(
+                QLineF(QPointF(p3[0], p3[1]), QPointF(p4[0], p4[1])),
+                QPen(QColor("#00FF00"), 5)  # BRIGHT GREEN, THICK
+            )
+            visual_items.append(coupler_link)
+            
+            logging.info(f"[RECREATE] Creating output link: ({p4[0]:.1f},{p4[1]:.1f}) -> ({p2[0]:.1f},{p2[1]:.1f})")
+            output_link = self.mechanism_scene.addLine(
+                QLineF(QPointF(p4[0], p4[1]), QPointF(p2[0], p2[1])),
+                QPen(QColor("#0000FF"), 5)  # BRIGHT BLUE, THICK
+            )
+            visual_items.append(output_link)
+            
+            logging.info(f"[RECREATE] Creating ground link: ({p1[0]:.1f},{p1[1]:.1f}) -> ({p2[0]:.1f},{p2[1]:.1f})")
+            ground_pen = QPen(QColor("#FFFF00"), 5)  # BRIGHT YELLOW, THICK
+            ground_pen.setStyle(Qt.PenStyle.DashLine)
+            ground_link = self.mechanism_scene.addLine(
+                QLineF(QPointF(p1[0], p1[1]), QPointF(p2[0], p2[1])),
+                ground_pen
+            )
+            visual_items.append(ground_link)
+            
+            # STEP 3: Store new visual items and FORCE maximum visibility
+            layer_data["visual_items"] = visual_items
+            
+            # Set maximum Z-value for all new items
+            for i, item in enumerate(visual_items):
+                item.setZValue(100000 + i)  # High Z-value to appear on top
+                item.show()  # Force show
+                item.setVisible(True)  # Force visible
+                logging.info(f"[RECREATE] ✅ Set item {i} visible with Z={item.zValue()}")
+            
+            logging.info(f"[RECREATE] 🚀 Successfully created {len(visual_items)} BRIGHT new visual items!")
+            
+        except Exception as e:
+            logging.error(f"❌ Failed to recreate 4-bar visuals: {e}")
+            import traceback
+            logging.error(f"❌ Traceback: {traceback.format_exc()}")
 
     @pyqtSlot(str)
     def _on_parametric_visual_refresh(self, mechanism_id: str):
@@ -5242,10 +5541,15 @@ class MechanismDesignTab(QWidget):
         try:
             # Get the transformation function for this mechanism
             to_scene_coords = self._get_scene_transform_function(layer_data)
+            logging.info(f"[PARAMETRIC] to_scene_coords function: {to_scene_coords is not None}")
 
             # First try key_points if available
             key_points = layer_data.get("key_points", {})
+            logging.info(f"[PARAMETRIC] key_points available: {list(key_points.keys()) if key_points else 'None'}")
+            logging.info(f"[PARAMETRIC] Will use transform: {key_points and to_scene_coords}")
+
             if key_points and to_scene_coords:
+                logging.info("[PARAMETRIC] Using key_points with scene transform")
                 for anchor_name in ["ground_pivot_1", "ground_pivot_2"]:
                     if anchor_name in key_points:
                         pos_data = key_points[anchor_name]
@@ -5253,6 +5557,13 @@ class MechanismDesignTab(QWidget):
                         scene_pos = to_scene_coords(np.array(pos_data))
                         anchor_positions[anchor_name] = scene_pos
                         logging.info(f"[PARAMETRIC] Found {anchor_name} in key_points: {pos_data} -> scene: {scene_pos}")
+            elif key_points and not to_scene_coords:
+                logging.warning("[PARAMETRIC] key_points available but no transform function - using raw positions")
+                for anchor_name in ["ground_pivot_1", "ground_pivot_2"]:
+                    if anchor_name in key_points:
+                        pos_data = key_points[anchor_name]
+                        anchor_positions[anchor_name] = QPointF(pos_data[0], pos_data[1])
+                        logging.info(f"[PARAMETRIC] Found {anchor_name} in key_points (no transform): {pos_data}")
 
             # Fallback: use simulation data if key_points not available
             if not anchor_positions:

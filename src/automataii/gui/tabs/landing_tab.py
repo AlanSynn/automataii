@@ -286,17 +286,11 @@ class LandingTab(QWidget):
             if example_dir.exists():
                 logging.info(f"Looking for example images in: {example_dir}")
                 for format_pattern in supported_formats:
-                    # Get direct images in examples directory
+                    # Get direct images in examples directory only (not recursive)
                     for img_path in example_dir.glob(format_pattern):
                         if img_path.is_file():
                             image_paths.append(img_path)
                             logging.debug(f"Found example image: {img_path}")
-
-                    # Also check one level deep for character folders
-                    for img_path in example_dir.glob(f"*/{format_pattern}"):
-                        if img_path.is_file() and "character_data" not in str(img_path):
-                            image_paths.append(img_path)
-                            logging.debug(f"Found example image in subfolder: {img_path}")
 
         # Remove duplicates and sort
         image_paths = sorted(list(set(image_paths)))

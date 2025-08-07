@@ -140,18 +140,8 @@ class AnchorHandle(BaseHandle):
         Returns:
             Current anchor position as QPointF
         """
-        try:
-            key_points = self.mechanism_data.get("key_points", {})
-            if key_points and self.anchor_name in key_points:
-                pos_data = key_points[self.anchor_name]
-                return QPointF(pos_data[0], pos_data[1])
-            else:
-                # Fallback to current handle position
-                return self.pos()
-
-        except Exception as e:
-            logging.warning(f"Could not get current anchor position: {e}")
-            return self.pos()
+        # For anchors, the parameter value IS the position
+        return self.pos()
 
     def _validate_anchor_constraints(self, new_position: QPointF) -> tuple[bool, str]:
         """
@@ -252,9 +242,11 @@ class AnchorHandle(BaseHandle):
         Override mouse move to include anchor-specific constraint validation.
         """
         if not self._is_dragging or not self._is_enabled:
+            logging.info(f"[ANCHOR] ❌ Not dragging or not enabled: dragging={self._is_dragging}, enabled={self._is_enabled}")
             return
 
         new_position = event.scenePos()
+        logging.info(f"[ANCHOR] 🎯 Mouse move to {new_position} for {self.anchor_name}")
 
         # Validate anchor-specific constraints
         is_valid, error_msg = self._validate_anchor_constraints(new_position)
@@ -266,10 +258,20 @@ class AnchorHandle(BaseHandle):
             return  # Don't move if constraints violated
 
         # Update position immediately for visual feedback
+        old_pos = self.pos()
         self.setPos(new_position)
+        actual_pos = self.pos()
+        logging.info(f"[ANCHOR] ✅ Moved {self.anchor_name} from {old_pos} to {new_position}, actual: {actual_pos}")
 
-        # Call parent implementation for standard handling
-        super().mouseMoveEvent(event)
+        # CRITICAL: Call the update callback immediately to trigger mechanism update
+        if hasattr(self, 'update_callback') and self.update_callback:
+            self.update_callback(new_position)
+            logging.info(f"[ANCHOR] 🔥 Called update callback for {self.anchor_name} at {new_position}")
+        else:
+            logging.warning(f"[ANCHOR] ⚠️ No update_callback for {self.anchor_name}")
+
+        # Don't call super() as it may reset position
+        # super().mouseMoveEvent(event)
 
     def get_anchor_name(self) -> str:
         """Get the anchor name (ground_pivot_1 or ground_pivot_2)."""
