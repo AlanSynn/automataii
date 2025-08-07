@@ -141,6 +141,7 @@ class EditorView(QGraphicsView):
         self.current_target_item_for_path = (
             None  # CharacterPartItem for which path is being defined
         )
+        self.current_path_is_closed = True  # Default to closed path
 
         # Old motion path attributes (to be phased out or repurposed if needed)
         # self._motion_path = QPainterPath() # No longer primary storage here
@@ -497,7 +498,7 @@ class EditorView(QGraphicsView):
         scene_pos = self.mapToScene(event.pos())
 
         # --- Panning --- (Middle button, Alt+Left, or Right button)
-        if (event.button() == Qt.MouseButton.MiddleButton or 
+        if (event.button() == Qt.MouseButton.MiddleButton or
             event.button() == Qt.MouseButton.RightButton or
             (event.button() == Qt.MouseButton.LeftButton
              and event.modifiers() & Qt.KeyboardModifier.AltModifier)):
@@ -625,9 +626,9 @@ class EditorView(QGraphicsView):
                         super().mouseReleaseEvent(event)  # Call base before returning
                         return
 
-                    # Create the final closed spline path
+                    # Create the final spline path (open or closed based on user selection)
                     final_path_data = self._create_spline_path(
-                        points_for_spline, closed_loop=True, tension=0.5
+                        points_for_spline, closed_loop=self.current_path_is_closed, tension=0.5
                     )
 
                     final_path_item = QGraphicsPathItem()
@@ -678,8 +679,9 @@ class EditorView(QGraphicsView):
                     # Emit the RESAMPLED points for external handling (e.g., by IKManager)
                     # as these are the points that define the final visual shape.
                     self.freehandPathCompleted.emit(points_for_spline)
+                    path_type_str = "closed" if self.current_path_is_closed else "open"
                     logging.debug(
-                        f"Completed and finalized closed spline motion path with {len(points_for_spline)} points (resampled from {num_original_points})."
+                        f"Completed and finalized {path_type_str} spline motion path with {len(points_for_spline)} points (resampled from {num_original_points})."
                     )
 
                     # Clear the red dashed preview path
@@ -710,7 +712,7 @@ class EditorView(QGraphicsView):
             # 🔧 IMPROVED PANNING: Direct view transform for smooth panning feel
             delta = event.pos() - self._pan_start_pos
             self._pan_start_pos = event.pos()
-            
+
             # Apply translation directly to the view transform
             current_transform = self.transform()
             current_transform.translate(delta.x() * self._pan_sensitivity, delta.y() * self._pan_sensitivity)
@@ -943,7 +945,7 @@ class EditorView(QGraphicsView):
 
     # --- Motion Path Definition --- #
 
-    def start_define_motion_path(self, target_item: CharacterPartItem | None):
+    def start_define_motion_path(self, target_item: CharacterPartItem | None, is_closed: bool = True):
         """Starts the freehand motion path definition mode."""
         # For the new IK system, target_item might be None if AutomataDesigner
         # is managing the selected component via sim_selected_component_key.
@@ -988,6 +990,7 @@ class EditorView(QGraphicsView):
             logging.warning("⚠️  PATH CLEAR: No target_item or selected_part_name available for path clearing")
 
         self.current_target_item_for_path = target_item  # Can be None
+        self.current_path_is_closed = is_closed  # Store path type preference
         self.current_freehand_path = QPainterPath()
         self.current_freehand_path_item = None
         self.set_mode("define_motion_path")
@@ -1305,46 +1308,46 @@ class EditorView(QGraphicsView):
         self.scene().update()  # Update scene once after all items are processed
 
     def _validate_skeleton_length_preservation(
-        self, 
-        part_item: CharacterPartItem, 
-        new_anchor_pos: QPointF, 
+        self,
+        part_item: CharacterPartItem,
+        new_anchor_pos: QPointF,
         joint_data: dict[str, dict[str, Any]]
     ) -> bool:
         """
         Validates that applying a new position won't violate skeleton bone length constraints.
-        
+
         Args:
             part_item: The part being moved
             new_anchor_pos: Proposed new anchor position (currently unused in basic implementation)
             joint_data: Current joint data with positions
-            
+
         Returns:
             True if the new position preserves skeleton constraints, False otherwise
         """
         # Define bone length tolerance (matching FABRIK solver constraint)
         MAX_BONE_LENGTH_DEVIATION = 0.01  # 1% tolerance for floating point precision
-        
+
         # Check if this part is connected to other joints in a bone chain
         connected_joints = self._get_connected_joints_for_part(part_item, joint_data)
-        
+
         for parent_joint_id, child_joint_id, expected_length in connected_joints:
             # Get current positions
             parent_data = joint_data.get(parent_joint_id)
             child_data = joint_data.get(child_joint_id)
-            
+
             if not parent_data or not child_data:
                 continue
-                
+
             parent_pos = parent_data.get("scene_position")
             child_pos = child_data.get("scene_position")
-            
+
             if not isinstance(parent_pos, QPointF) or not isinstance(child_pos, QPointF):
                 continue
-            
+
             # Calculate current bone length
             from PyQt6.QtCore import QLineF
             current_length = QLineF(parent_pos, child_pos).length()
-            
+
             # Check if length deviation exceeds tolerance
             if expected_length > 0:
                 length_deviation = abs(current_length - expected_length) / expected_length
@@ -1355,60 +1358,60 @@ class EditorView(QGraphicsView):
                         f"deviation={length_deviation:.3f} > {MAX_BONE_LENGTH_DEVIATION}"
                     )
                     return False
-        
+
         # If we reach here, all bone lengths are within tolerance
         return True
 
     def _get_connected_joints_for_part(
-        self, 
-        part_item: CharacterPartItem, 
+        self,
+        part_item: CharacterPartItem,
         joint_data: dict[str, dict[str, Any]]
     ) -> list[tuple[str, str, float]]:
         """
         Get the bone connections (parent-child joint pairs) that this part participates in.
-        
+
         Returns:
             List of tuples: (parent_joint_id, child_joint_id, expected_bone_length)
         """
         connections = []
-        
+
         # This is a simplified implementation - in a full system, you'd want to:
         # 1. Get the original bone lengths from the IK system initialization
         # 2. Track which parts correspond to which bones in the skeleton
         # 3. Use a proper skeleton hierarchy to find connections
-        
-        # For now, we'll do basic validation by checking if this part has 
+
+        # For now, we'll do basic validation by checking if this part has
         # joint relationships defined in the current animation data
         part_anchor_joint = part_item.anchor_joint_id
         if not part_anchor_joint:
             return connections
-            
+
         # Map original joint name to standardized ID
         standardized_joint_id = self._joint_map_original_to_std.get(part_anchor_joint)
         if not standardized_joint_id or standardized_joint_id not in joint_data:
             return connections
-            
+
         # For this simplified fix, we'll assume bone lengths should remain constant
         # A more complete implementation would maintain a bone length database
         # from the initial skeleton setup
-        
+
         # Basic bone length estimation from current positions
         # This is not ideal but provides basic protection against extreme violations
         for other_joint_id, other_data in joint_data.items():
             if other_joint_id == standardized_joint_id:
                 continue
-                
+
             other_pos = other_data.get("scene_position")
             current_pos = joint_data[standardized_joint_id].get("scene_position")
-            
+
             if isinstance(other_pos, QPointF) and isinstance(current_pos, QPointF):
                 from PyQt6.QtCore import QLineF
                 distance = QLineF(current_pos, other_pos).length()
-                
+
                 # Only consider reasonable bone lengths (not too short or too long)
                 if 20 < distance < 200:  # Reasonable pixel distance for character parts
                     connections.append((standardized_joint_id, other_joint_id, distance))
-        
+
         return connections
 
     def set_selected_part(
@@ -1685,7 +1688,7 @@ class EditorView(QGraphicsView):
 
     def get_camera_state(self) -> dict[str, Any]:
         """Get current camera state including transform and center position.
-        
+
         Returns:
             Dict containing:
                 - transform: QTransform matrix
@@ -1703,7 +1706,7 @@ class EditorView(QGraphicsView):
 
     def set_camera_state(self, state: dict[str, Any]):
         """Set camera state from a previously saved state.
-        
+
         Args:
             state: Dict containing transform, center, and zoom_level
         """
@@ -1754,4 +1757,3 @@ class EditorView(QGraphicsView):
         """Handle resize events to reposition hover controls."""
         super().resizeEvent(event)
         self._position_hover_controls()
-
