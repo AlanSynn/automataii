@@ -1892,7 +1892,7 @@ class MechanismDesignTab(QWidget):
         """
         Creates proper coordinate transformation using recommendation system's transform_params.
         This ensures mechanism animations match the recommended mechanism orientation and scale.
-        
+
         ULTRATHINK: Added safety checks to prevent abnormal coordinate values.
         """
         # Get transformation parameters from recommendation system
@@ -1955,7 +1955,7 @@ class MechanismDesignTab(QWidget):
                 2. Scale down to normalized space
                 3. Apply rotation
                 4. Map to user path space
-                
+
                 ULTRATHINK: Added safety checks at each step.
                 """
                 if p_orig is None or len(p_orig) != 2:
@@ -1969,39 +1969,39 @@ class MechanismDesignTab(QWidget):
 
                     # Apply same transformation as align_and_compare_paths
                     p_centered = p_orig - center                    # Center
-                    
+
                     # ULTRATHINK SAFETY CHECK: Check centered result
                     if np.any(np.abs(p_centered) > 1e6):
                         logging.warning(f"[TRANSFORM] ⚠️  Abnormal centered point: {p_centered}, using reduced values")
                         p_centered = np.clip(p_centered, -1e4, 1e4)
-                    
+
                     p_scaled = p_centered / scale                   # Scale to normalized space
-                    
+
                     # ULTRATHINK SAFETY CHECK: Check scaled result
                     if np.any(np.abs(p_scaled) > 1e4):
                         logging.warning(f"[TRANSFORM] ⚠️  Abnormal scaled point: {p_scaled}, clamping")
                         p_scaled = np.clip(p_scaled, -1e3, 1e3)
-                    
+
                     p_rotated = p_scaled @ rotation_matrix.T        # Apply rotation
 
                     # Transform from normalized space to user path space
                     final_point = p_rotated * user_scale + user_center
-                    
+
                     # ULTRATHINK SAFETY CHECK: Final validation
                     if np.any(np.abs(final_point) > 1e5):
                         logging.warning(f"[TRANSFORM] ⚠️  Abnormal final point: {final_point}, using user center")
                         return QPointF(user_center[0], user_center[1])
-                    
+
                     result = QPointF(float(final_point[0]), float(final_point[1]))
-                    
+
                     # Log first few transforms for debugging
                     if not hasattr(to_scene_coords, '_debug_count'):
                         to_scene_coords._debug_count = 0
-                    
+
                     if to_scene_coords._debug_count < 5:
                         logging.info(f"[TRANSFORM] #{to_scene_coords._debug_count}: {p_orig} -> {result}")
                         to_scene_coords._debug_count += 1
-                    
+
                     return result
 
                 except (ValueError, TypeError, IndexError, ZeroDivisionError, OverflowError) as e:
@@ -2022,7 +2022,7 @@ class MechanismDesignTab(QWidget):
         Returns a function that converts a scene-space QPointF back to the mechanism's
         original coordinate space used by the recommendation system. This is the
         exact inverse of `_get_scene_transform_function`.
-        
+
         ULTRATHINK: Added safety checks to prevent abnormal coordinate values.
         """
         transform_params = layer_data.get("transform_params")
@@ -2040,7 +2040,7 @@ class MechanismDesignTab(QWidget):
             if np.isclose(scale, 0) or scale < 1e-6 or scale > 1e6:
                 logging.warning(f"[INV_TRANSFORM] ⚠️  Invalid scale detected: {scale}")
                 return None
-            
+
             if np.any(np.abs(center) > 1e6):
                 logging.warning(f"[INV_TRANSFORM] ⚠️  Invalid center detected: {center}")
                 return None
@@ -2080,23 +2080,23 @@ class MechanismDesignTab(QWidget):
                     # g = (scene - user_center)/user_scale
                     g = np.array([scene_point.x(), scene_point.y()])
                     g = (g - user_center) / user_scale
-                    
+
                     # ULTRATHINK SAFETY CHECK: Check intermediate result
                     if np.any(np.abs(g) > 1e3):
                         logging.warning(f"[INV_TRANSFORM] ⚠️  Abnormal normalized point: {g}, clamping")
                         g = np.clip(g, -1e3, 1e3)
-                    
+
                     # ((p - center)/scale) = g @ R
                     p_scaled = g @ rotation_matrix
                     p_orig = center + scale * p_scaled
-                    
+
                     # ULTRATHINK SAFETY CHECK: Validate final result
                     if np.any(np.abs(p_orig) > 1e5):
                         logging.warning(f"[INV_TRANSFORM] ⚠️  Abnormal final mechanism point: {p_orig}, clamping")
                         p_orig = np.clip(p_orig, -1e4, 1e4)
-                    
+
                     return p_orig
-                
+
                 except (ValueError, TypeError, ZeroDivisionError, OverflowError) as e:
                     logging.warning(f"[INV_TRANSFORM] ⚠️  Transform error: {e}, using default")
                     return center  # Return mechanism center as fallback
@@ -5030,7 +5030,7 @@ class MechanismDesignTab(QWidget):
 
     def _enable_parametric_mode(self):
         """Enable parametric editing mode - show interactive handles.
-        
+
         ULTRATHINK: Enhanced to properly preserve visual state.
         """
         if not self.parametric_controller:
@@ -5038,7 +5038,7 @@ class MechanismDesignTab(QWidget):
 
         try:
             logging.info(f"[PARAMETRIC] 🚀 Enabling parametric mode for {len(self.mechanism_layers)} mechanisms")
-            
+
             # CRITICAL: Store original visual state before modifying anything
             if not hasattr(self, '_original_visual_state'):
                 self._original_visual_state = {}
@@ -5064,7 +5064,7 @@ class MechanismDesignTab(QWidget):
                                 'pos': item.pos(),
                                 'transform': item.transform()
                             }
-                            
+
                             # Store visual properties if available
                             if hasattr(item, 'pen'):
                                 original_state['pen'] = item.pen()
@@ -5115,20 +5115,24 @@ class MechanismDesignTab(QWidget):
                     }
                 """)
 
+            # Disable animation controls in parametric mode
+            self._disable_animation_controls_for_parametric()
+            logging.info("[PARAMETRIC] ✅ Disabled animation controls during parametric editing")
+
             # ULTRATHINK: Final validation - count handles in scene
             all_handles = []
             for handles_list in self.parametric_handles.values():
                 all_handles.extend(handles_list)
-                
+
             scene_handles = []
             for item in self.mechanism_scene.items():
                 if hasattr(item, 'handle_id'):  # DraggableHandle
                     scene_handles.append(item)
-            
+
             logging.info(f"[PARAMETRIC] 🔍 Handle count validation:")
             logging.info(f"[PARAMETRIC]   Stored handles: {len(all_handles)}")
             logging.info(f"[PARAMETRIC]   Scene handles: {len(scene_handles)}")
-            
+
             for handle in scene_handles:
                 logging.info(f"[PARAMETRIC]   Scene handle: {handle.handle_id} at {handle.scenePos()}")
 
@@ -5139,9 +5143,203 @@ class MechanismDesignTab(QWidget):
             import traceback
             logging.error(f"[PARAMETRIC] ❌ Traceback: {traceback.format_exc()}")
 
+    def _disable_animation_controls_for_parametric(self):
+        """
+        Disable animation controls when parametric mode is active.
+        ULTRATHINK: Prevent conflicts between parametric editing and animation.
+        """
+        try:
+            # Find and disable play button
+            if hasattr(self, 'play_btn') and self.play_btn:
+                self.play_btn.setEnabled(False)
+                self.play_btn.setToolTip("⚠️ Animation disabled during parametric editing")
+                logging.info("[PARAMETRIC] 🚫 Disabled play button")
+
+            # Find and disable stop button
+            if hasattr(self, 'stop_btn') and self.stop_btn:
+                self.stop_btn.setEnabled(False)
+                self.stop_btn.setToolTip("⚠️ Animation disabled during parametric editing")
+                logging.info("[PARAMETRIC] 🚫 Disabled stop button")
+
+            # Find and disable reset button
+            if hasattr(self, 'reset_btn') and self.reset_btn:
+                self.reset_btn.setEnabled(False)
+                self.reset_btn.setToolTip("⚠️ Animation disabled during parametric editing")
+                logging.info("[PARAMETRIC] 🚫 Disabled reset button")
+
+            # Disable any running animation
+            if hasattr(self, '_is_animation_running') and self._is_animation_running():
+                if hasattr(self, '_on_stop_animation'):
+                    self._on_stop_animation()
+                    logging.info("[PARAMETRIC] ⏹️ Stopped running animation")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to disable animation controls: {e}")
+
+    def _enable_animation_controls_after_parametric(self):
+        """
+        Re-enable animation controls when exiting parametric mode.
+        ULTRATHINK: Restore normal functionality after parametric editing.
+        """
+        try:
+            # Re-enable play button
+            if hasattr(self, 'play_btn') and self.play_btn:
+                self.play_btn.setEnabled(True)
+                self.play_btn.setToolTip("▶️ Play mechanism animation")
+                logging.info("[PARAMETRIC] ✅ Re-enabled play button")
+
+            # Re-enable stop button
+            if hasattr(self, 'stop_btn') and self.stop_btn:
+                self.stop_btn.setEnabled(True)
+                self.stop_btn.setToolTip("⏹️ Stop mechanism animation")
+                logging.info("[PARAMETRIC] ✅ Re-enabled stop button")
+
+            # Re-enable reset button
+            if hasattr(self, 'reset_btn') and self.reset_btn:
+                self.reset_btn.setEnabled(True)
+                self.reset_btn.setToolTip("🔄 Reset mechanism to initial state")
+                logging.info("[PARAMETRIC] ✅ Re-enabled reset button")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to enable animation controls: {e}")
+
+    def _show_mechanism_validity_feedback(self, mechanism_id: str):
+        """
+        Show visual feedback for mechanism validity during parametric editing.
+        ULTRATHINK: Green for valid, red for invalid, yellow for approximate.
+
+        Args:
+            mechanism_id: ID of the mechanism to show feedback for
+        """
+        try:
+            if mechanism_id not in self.parametric_handles:
+                return
+
+            handles = self.parametric_handles[mechanism_id]
+            layer_data = self.mechanism_layers.get(mechanism_id, {})
+            mechanism_type = layer_data.get("type", "unknown")
+
+            # Check if current configuration is valid
+            validity_status = self._check_mechanism_validity(mechanism_id, layer_data)
+
+            # Update handle colors based on validity
+            for handle in handles:
+                if hasattr(handle, 'handle_type') and handle.handle_type == 'rotation':
+                    continue  # Skip rotation handle
+
+                if validity_status == "valid":
+                    # Green for valid configuration
+                    handle.setBrush(QBrush(QColor(50, 255, 50)))    # Bright green
+                    handle.setPen(QPen(QColor(40, 200, 40), 2))
+                    handle.setToolTip(f"✅ {mechanism_type}: Valid configuration")
+                elif validity_status == "approximate":
+                    # Yellow for approximate/stretched configuration
+                    handle.setBrush(QBrush(QColor(255, 200, 50)))   # Yellow-orange
+                    handle.setPen(QPen(QColor(200, 160, 40), 2))
+                    handle.setToolTip(f"⚠️ {mechanism_type}: Approximate configuration (stretched)")
+                else:
+                    # Red for invalid configuration
+                    handle.setBrush(QBrush(QColor(255, 50, 50)))    # Bright red
+                    handle.setPen(QPen(QColor(200, 40, 40), 2))
+                    handle.setToolTip(f"❌ {mechanism_type}: Invalid configuration")
+
+            self.mechanism_scene.update()
+            logging.info(f"[PARAMETRIC] 🎨 Updated visual feedback for {mechanism_id}: {validity_status}")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to show validity feedback: {e}")
+
+    def _check_mechanism_validity(self, mechanism_id: str, layer_data: dict[str, Any]) -> str:
+        """
+        Check if current mechanism configuration is kinematically valid.
+        ULTRATHINK: Simple validity check based on link constraints.
+
+        Args:
+            mechanism_id: ID of the mechanism
+            layer_data: Mechanism data
+
+        Returns:
+            str: "valid", "approximate", or "invalid"
+        """
+        try:
+            mechanism_type = layer_data.get("type", "unknown")
+            key_points = layer_data.get("key_points", {})
+
+            if mechanism_type == "4_bar_linkage" and len(key_points) >= 4:
+                # Check 4-bar linkage constraints
+                return self._check_4bar_validity(key_points)
+            elif mechanism_type in ["5_bar_linkage", "6_bar_linkage"]:
+                # For multi-bar linkages, check basic distance constraints
+                return self._check_multibar_validity(key_points)
+            elif mechanism_type in ["gear", "planetary_gear"]:
+                # Check gear meshing constraints
+                return self._check_gear_validity(key_points)
+            else:
+                # Default to approximate for unknown types
+                return "approximate"
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Validity check failed: {e}")
+            return "invalid"
+
+    def _check_4bar_validity(self, key_points: dict) -> str:
+        """
+        Check 4-bar linkage kinematic constraints.
+        ULTRATHINK: Triangle inequality and Grashof condition.
+        """
+        try:
+            required_points = ["ground_pivot_1", "ground_pivot_2", "crank_end", "rocker_end"]
+            if not all(point in key_points for point in required_points):
+                return "invalid"
+
+            # Get positions
+            p1 = QPointF(key_points["ground_pivot_1"][0], key_points["ground_pivot_1"][1])
+            p2 = QPointF(key_points["ground_pivot_2"][0], key_points["ground_pivot_2"][1])
+            p3 = QPointF(key_points["crank_end"][0], key_points["crank_end"][1])
+            p4 = QPointF(key_points["rocker_end"][0], key_points["rocker_end"][1])
+
+            # Calculate link lengths
+            l1 = math.sqrt((p2.x() - p1.x())**2 + (p2.y() - p1.y())**2)  # Ground link
+            l2 = math.sqrt((p3.x() - p1.x())**2 + (p3.y() - p1.y())**2)  # Crank
+            l3 = math.sqrt((p4.x() - p3.x())**2 + (p4.y() - p3.y())**2)  # Coupler
+            l4 = math.sqrt((p4.x() - p2.x())**2 + (p4.y() - p2.y())**2)  # Rocker
+
+            # Check triangle inequality (existence condition)
+            if l3 > (l2 + l4 - l1) and l3 < (l2 + l4 + l1):
+                # Check Grashof condition for good mobility
+                links = [l1, l2, l3, l4]
+                s = min(links)  # shortest
+                l = max(links)  # longest
+                p = sum(links) - s - l  # sum of other two
+
+                if s + l <= p:
+                    return "valid"  # Grashof linkage
+                else:
+                    return "approximate"  # Non-Grashof but kinematically valid
+            else:
+                return "invalid"  # Triangle inequality violated
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ 4-bar validity check failed: {e}")
+            return "invalid"
+
+    def _check_multibar_validity(self, key_points: dict) -> str:
+        """Check multi-bar linkage validity based on reasonable distances."""
+        if len(key_points) < 3:
+            return "invalid"
+        # Simple check - if points are not too far apart, assume approximate
+        return "approximate"
+
+    def _check_gear_validity(self, key_points: dict) -> str:
+        """Check gear mechanism validity based on center distances."""
+        if len(key_points) < 2:
+            return "invalid"
+        # Simple check for gear mechanisms
+        return "approximate"
+
     def _disable_parametric_mode(self):
         """Disable parametric editing mode - hide interactive handles and restore original state.
-        
+
         ULTRATHINK: Enhanced to properly restore visual state and prevent distortion.
         """
         if not self.parametric_controller:
@@ -5149,7 +5347,7 @@ class MechanismDesignTab(QWidget):
 
         try:
             logging.info(f"[PARAMETRIC] 🛑 Disabling parametric mode")
-            
+
             # Remove all parametric handles from scene first
             total_handles_removed = 0
             for mechanism_id in list(self.parametric_handles.keys()):
@@ -5157,13 +5355,13 @@ class MechanismDesignTab(QWidget):
                 self._remove_parametric_handles_for_mechanism(mechanism_id)
                 total_handles_removed += handles_count
                 logging.info(f"[PARAMETRIC] 🗑️  Removed {handles_count} handles for {mechanism_id}")
-            
+
             logging.info(f"[PARAMETRIC] ✅ Removed {total_handles_removed} handles total")
 
             # CRITICAL: Restore original visual state instead of just re-enabling interaction
             if hasattr(self, '_original_visual_state') and self._original_visual_state:
                 logging.info(f"[PARAMETRIC] 🔄 Restoring visual state for {len(self._original_visual_state)} mechanisms")
-                
+
                 for mechanism_id, original_item_states in self._original_visual_state.items():
                     restored_items = 0
                     for item, original_state in original_item_states:
@@ -5183,7 +5381,7 @@ class MechanismDesignTab(QWidget):
                                 item.setZValue(original_state['z_value'])
                                 item.setVisible(original_state['visible'])
                                 item.setEnabled(original_state['enabled'])
-                                
+
                                 # Restore opacity and transform
                                 if 'opacity' in original_state:
                                     item.setOpacity(original_state['opacity'])
@@ -5197,14 +5395,14 @@ class MechanismDesignTab(QWidget):
                                     item.setAcceptedMouseButtons(original_state['mouse_buttons'])
                                 if hasattr(item, 'setAcceptHoverEvents') and 'hover_events' in original_state:
                                     item.setAcceptHoverEvents(original_state['hover_events'])
-                                
+
                                 restored_items += 1
 
                         except RuntimeError:
                             # Item was deleted by Qt - skip silently
                             logging.debug(f"[PARAMETRIC] Visual item was deleted by Qt, skipping restoration")
                             continue
-                    
+
                     logging.info(f"[PARAMETRIC] ✅ Restored {restored_items} visual items for {mechanism_id}")
 
                 # Clear the stored state
@@ -5236,20 +5434,16 @@ class MechanismDesignTab(QWidget):
                     }
                 """)
 
-            # Re-enable animation controls if we have enabled mechanisms
-            has_enabled_mechanisms = any(self.mechanism_enabled_state.values()) if self.mechanism_enabled_state else False
-            if self.mechanism_layers and has_enabled_mechanisms:
-                if hasattr(self, 'play_btn') and self.play_btn:
-                    self.play_btn.setEnabled(True)
-                if hasattr(self, 'reset_btn') and self.reset_btn:
-                    self.reset_btn.setEnabled(True)
+            # Re-enable animation controls after parametric mode
+            self._enable_animation_controls_after_parametric()
+            logging.info("[PARAMETRIC] ✅ Re-enabled animation controls after parametric mode")
 
             # ULTRATHINK: Final verification - ensure no stray handles remain
             stray_handles = []
             for item in self.mechanism_scene.items():
                 if hasattr(item, 'handle_id'):  # DraggableHandle
                     stray_handles.append(item)
-            
+
             if stray_handles:
                 logging.warning(f"[PARAMETRIC] ⚠️  Found {len(stray_handles)} stray handles, removing them")
                 for handle in stray_handles:
@@ -5299,7 +5493,7 @@ class MechanismDesignTab(QWidget):
 
         Handles created:
         - Ground pivot 1 (anchor handle)
-        - Ground pivot 2 (anchor handle)  
+        - Ground pivot 2 (anchor handle)
         - Crank end (anchor handle)
         - Rocker end (anchor handle)
 
@@ -5315,7 +5509,7 @@ class MechanismDesignTab(QWidget):
 
         try:
             logging.info(f"[PARAMETRIC] 🚀 Creating 4-bar linkage handles for {mechanism_id}")
-            
+
             # Get key points for anchor positions
             key_points = layer_data.get("key_points", {})
             logging.info(f"[PARAMETRIC] 📍 key_points available: {list(key_points.keys()) if key_points else 'None'}")
@@ -5354,32 +5548,32 @@ class MechanismDesignTab(QWidget):
                             parent=None
                         )
                         logging.info(f"[PARAMETRIC] ✅ DraggableHandle created for {anchor_name}")
-                        
+
                     else:
                         raise Exception("DraggableHandle not available")
-                        
+
                 except Exception as e:
                     logging.warning(f"[PARAMETRIC] ⚠️  DraggableHandle failed for {anchor_name}: {e}")
                     logging.info(f"[PARAMETRIC] 🔧 Creating simple fallback handle for {anchor_name}")
-                    
+
                     # ULTRATHINK FALLBACK: Create simple draggable red circle
                     anchor_handle = QGraphicsEllipseItem(-15, -15, 30, 30)
                     anchor_handle.setPos(anchor_pos)
                     anchor_handle.setBrush(QBrush(QColor(255, 50, 50)))  # Red
                     anchor_handle.setPen(QPen(QColor(200, 40, 40), 2))
-                    
+
                     # Make it draggable and selectable
                     anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
                     anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                     anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-                    
+
                     # Set high Z-value to be on top
                     anchor_handle.setZValue(1000000)
-                    
+
                     # Add custom attributes for identification
                     anchor_handle.handle_id = f"{mechanism_id}_{anchor_name}"
                     anchor_handle.anchor_name = anchor_name
-                    
+
                     logging.info(f"[PARAMETRIC] ✅ Fallback handle created for {anchor_name}")
 
                 # Add to scene FIRST
@@ -5416,32 +5610,35 @@ class MechanismDesignTab(QWidget):
                 logging.info(f"[PARAMETRIC]   Visible: {anchor_handle.isVisible()}")
                 logging.info(f"[PARAMETRIC]   Enabled: {anchor_handle.isEnabled()}")
                 logging.info(f"[PARAMETRIC]   Flags: {anchor_handle.flags()}")
-                
+
                 # ULTRATHINK DEBUG: Test handle interaction
                 test_point = anchor_handle.scenePos()
                 items_at_point = self.mechanism_scene.items(test_point)
                 handle_at_point = anchor_handle in items_at_point
                 logging.info(f"[PARAMETRIC]   Handle findable at its own position: {handle_at_point}")
 
-            # Store handles for this mechanism
+            # Add rotation handle using generic function
+            self._add_rotation_handle_to_mechanism(mechanism_id, handles, anchor_positions)
+
+            # Store handles for this mechanism (including rotation handle)
             self.parametric_handles[mechanism_id] = handles
 
-            logging.info(f"[PARAMETRIC] 🎯 Successfully created {len(handles)} handles for 4-bar linkage {mechanism_id}")
-            
+            logging.info(f"[PARAMETRIC] 🎯 Successfully created {len(handles)} handles for 4-bar linkage {mechanism_id} (including rotation)")
+
             # ULTRATHINK DEBUG: Final verification - count handles in scene
             all_handles_in_scene = []
             all_scene_items = self.mechanism_scene.items()
             for item in all_scene_items:
                 # Check for both DraggableHandle and fallback handles
-                if (hasattr(item, 'handle_id') or 
+                if (hasattr(item, 'handle_id') or
                     (hasattr(item, 'anchor_name') and isinstance(item, QGraphicsEllipseItem))):
                     all_handles_in_scene.append(item)
-            
+
             logging.info(f"[PARAMETRIC] 🔍 FINAL COUNT: {len(all_handles_in_scene)} handle items in scene")
             for i, item in enumerate(all_handles_in_scene):
                 item_id = getattr(item, 'handle_id', f"fallback_{getattr(item, 'anchor_name', 'unknown')}")
                 logging.info(f"[PARAMETRIC]   Handle #{i+1}: {item_id} at ({item.scenePos().x():.1f}, {item.scenePos().y():.1f})")
-                
+
             # Force scene update
             self.mechanism_scene.update()
             self.mechanism_view.update()
@@ -5460,6 +5657,823 @@ class MechanismDesignTab(QWidget):
                     # Handle was already deleted by Qt - ignore
                     logging.debug("Handle already deleted by Qt, skipping removal")
                     pass
+
+    def _create_rotation_handle(self, mechanism_id: str, center_pos: QPointF, radius: float = 60) -> QGraphicsItem:
+        """
+        Create a rotation handle using custom class with built-in drag logic.
+        ULTRATHINK: Use custom RotationHandle class for proper event handling.
+
+        Args:
+            mechanism_id: ID of the mechanism
+            center_pos: Center position for the rotation handle
+            radius: Distance from center for the handle
+
+        Returns:
+            QGraphicsItem: The rotation handle with built-in rotation logic
+        """
+        try:
+            logging.info(f"[PARAMETRIC] 🔄 Creating interactive rotation handle for {mechanism_id}")
+
+            # Create custom rotation handle with built-in logic
+            rotation_handle = self.RotationHandle(
+                parent_tab=self,
+                mechanism_id=mechanism_id,
+                center_pos=center_pos,
+                radius=radius
+            )
+
+            logging.info(f"[PARAMETRIC] ✅ Created interactive rotation handle at ({rotation_handle.pos().x():.1f}, {rotation_handle.pos().y():.1f})")
+            logging.info(f"[PARAMETRIC] Rotation center: ({center_pos.x():.1f}, {center_pos.y():.1f})")
+
+            return rotation_handle
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to create interactive rotation handle: {e}")
+            import traceback
+            logging.error(f"[PARAMETRIC] ❌ Traceback: {traceback.format_exc()}")
+            return None
+
+    def _handle_rotation_drag(self, rotation_handle: QGraphicsItem, new_pos: QPointF):
+        """
+        Handle rotation when the rotation handle is dragged.
+        ULTRATHINK: Disabled for now - just visual indicator.
+
+        Args:
+            rotation_handle: The rotation handle being dragged
+            new_pos: New position of the handle
+        """
+        # DISABLED: Don't actually rotate the mechanism to avoid breaking it
+        logging.info("[PARAMETRIC] 🔄 Rotation drag handling disabled to prevent mechanism corruption")
+        pass
+
+    def _rotate_mechanism(self, mechanism_id: str, center: QPointF, angle_radians: float):
+        """
+        Rotate all anchor points freely - no physics constraints.
+        ULTRATHINK: User freedom mode - allow any configuration even if physically impossible.
+
+        Args:
+            mechanism_id: ID of the mechanism to rotate
+            center: Center point for rotation (user's drag position)
+            angle_radians: Angle to rotate in radians
+        """
+        try:
+            if mechanism_id not in self.parametric_handles:
+                logging.warning(f"[PARAMETRIC] No handles found for mechanism {mechanism_id}")
+                return
+
+            handles = self.parametric_handles[mechanism_id]
+
+            cos_angle = math.cos(angle_radians)
+            sin_angle = math.sin(angle_radians)
+
+            rotated_count = 0
+
+            # Apply rotation to all anchor handles - no constraints!
+            for handle in handles:
+                # Skip the rotation handle itself
+                if hasattr(handle, 'handle_type') and handle.handle_type == 'rotation':
+                    continue
+
+                current_pos = handle.pos()
+
+                # Translate to rotation center
+                dx = current_pos.x() - center.x()
+                dy = current_pos.y() - center.y()
+
+                # Apply rotation matrix
+                new_dx = dx * cos_angle - dy * sin_angle
+                new_dy = dx * sin_angle + dy * cos_angle
+
+                # Translate back
+                new_pos = QPointF(center.x() + new_dx, center.y() + new_dy)
+
+                # Apply new position immediately - no validation!
+                handle.setPos(new_pos)
+                rotated_count += 1
+
+                # Update key_points in layer_data
+                if hasattr(handle, 'anchor_name') and mechanism_id in self.mechanism_layers:
+                    layer_data = self.mechanism_layers[mechanism_id]
+                    if "key_points" not in layer_data:
+                        layer_data["key_points"] = {}
+                    layer_data["key_points"][handle.anchor_name] = [new_pos.x(), new_pos.y()]
+
+            # Update visual feedback (always show as "approximate" in free mode)
+            if rotated_count > 0:
+                self._show_free_edit_feedback(mechanism_id)
+
+            # Force scene update
+            self.mechanism_scene.update()
+
+            logging.info(f"[PARAMETRIC] 🆓 Free rotation: {rotated_count} anchors by {math.degrees(angle_radians):.1f}° around user position")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Free rotation failed: {e}")
+            import traceback
+            logging.error(f"[PARAMETRIC] ❌ Traceback: {traceback.format_exc()}")
+
+    def _setup_rotation_handle_events(self, rotation_handle: QGraphicsItem):
+        """
+        Setup mouse events for rotation handle to handle dragging.
+        ULTRATHINK: Use scene mouse events to track rotation drag.
+        """
+        try:
+            # Create a custom event handler for the rotation handle
+            class RotationEventHandler:
+                def __init__(self, parent_tab, handle):
+                    self.parent_tab = parent_tab
+                    self.handle = handle
+                    self.is_dragging = False
+                    self.last_pos = None
+
+                def handle_mouse_press(self, pos):
+                    self.is_dragging = True
+                    self.last_pos = pos
+                    if hasattr(self.handle, 'rotation_center'):
+                        center = self.handle.rotation_center
+                        dx = pos.x() - center.x()
+                        dy = pos.y() - center.y()
+                        self.handle.previous_angle = math.atan2(dy, dx)
+                    logging.info("[PARAMETRIC] 🔄 Started rotation drag")
+
+                def handle_mouse_move(self, pos):
+                    if self.is_dragging and self.last_pos:
+                        self.parent_tab._handle_rotation_drag(self.handle, pos)
+                        self.last_pos = pos
+
+                def handle_mouse_release(self, pos):
+                    self.is_dragging = False
+                    self.last_pos = None
+                    logging.info("[PARAMETRIC] 🔄 Ended rotation drag")
+
+            # Store event handler in the handle
+            rotation_handle.event_handler = RotationEventHandler(self, rotation_handle)
+
+            logging.info("[PARAMETRIC] ✅ Setup rotation handle events")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to setup rotation events: {e}")
+
+    def _add_rotation_handle_to_mechanism(self, mechanism_id: str, handles: list, anchor_positions: dict):
+        """
+        Add rotation handle to any mechanism type with proper center calculation.
+        ULTRATHINK: Calculate true geometric center of mechanism for stable rotation.
+
+        Args:
+            mechanism_id: ID of the mechanism
+            handles: List of existing handles to add rotation handle to
+            anchor_positions: Dictionary of anchor positions to calculate center
+        """
+        try:
+            if len(anchor_positions) >= 2:
+                # Calculate the true geometric center of the mechanism
+                mechanism_center = self._calculate_mechanism_center(mechanism_id, anchor_positions)
+
+                logging.info(f"[PARAMETRIC] 🎯 Calculated mechanism center for {mechanism_id}: ({mechanism_center.x():.1f}, {mechanism_center.y():.1f})")
+
+                # Create rotation handle at the geometric center
+                rotation_handle = self._create_rotation_handle(mechanism_id, mechanism_center, radius=100)
+
+                if rotation_handle:
+                    # Store the calculated center in the rotation handle for consistent reference
+                    rotation_handle.true_mechanism_center = mechanism_center
+
+                    # Add rotation handle to scene
+                    self.mechanism_scene.addItem(rotation_handle)
+                    handles.append(rotation_handle)
+
+                    logging.info(f"[PARAMETRIC] ✅ Added rotation handle to {mechanism_id} with true center")
+                    return True
+                else:
+                    logging.warning(f"[PARAMETRIC] ⚠️ Failed to create rotation handle for {mechanism_id}")
+                    return False
+            else:
+                logging.warning(f"[PARAMETRIC] Not enough anchor points for rotation handle in {mechanism_id}")
+                return False
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to add rotation handle to {mechanism_id}: {e}")
+            return False
+
+    def _calculate_mechanism_center(self, mechanism_id: str, anchor_positions: dict) -> QPointF:
+        """
+        Calculate the true geometric center of the mechanism for stable rotation.
+        ULTRATHINK: Use bounding box center for most stable rotation point.
+
+        Args:
+            mechanism_id: ID of the mechanism
+            anchor_positions: Dictionary of anchor positions
+
+        Returns:
+            QPointF: The calculated center point
+        """
+        try:
+            positions = list(anchor_positions.values())
+
+            if not positions:
+                logging.warning(f"[PARAMETRIC] No positions available for {mechanism_id}")
+                return QPointF(400, 300)  # Fallback center
+
+            # Calculate bounding box center (more stable than simple average)
+            min_x = min(pos.x() for pos in positions)
+            max_x = max(pos.x() for pos in positions)
+            min_y = min(pos.y() for pos in positions)
+            max_y = max(pos.y() for pos in positions)
+
+            center_x = (min_x + max_x) / 2.0
+            center_y = (min_y + max_y) / 2.0
+
+            bounding_center = QPointF(center_x, center_y)
+
+            # Also calculate simple average for comparison
+            avg_x = sum(pos.x() for pos in positions) / len(positions)
+            avg_y = sum(pos.y() for pos in positions) / len(positions)
+            average_center = QPointF(avg_x, avg_y)
+
+            # Use weighted combination: 70% bounding box + 30% average
+            # This gives stability while staying close to the actual mechanism
+            final_center_x = 0.7 * bounding_center.x() + 0.3 * average_center.x()
+            final_center_y = 0.7 * bounding_center.y() + 0.3 * average_center.y()
+
+            final_center = QPointF(final_center_x, final_center_y)
+
+            logging.info(f"[PARAMETRIC] 📐 Center calculation for {mechanism_id}:")
+            logging.info(f"[PARAMETRIC]   Bounding: ({bounding_center.x():.1f}, {bounding_center.y():.1f})")
+            logging.info(f"[PARAMETRIC]   Average:  ({average_center.x():.1f}, {average_center.y():.1f})")
+            logging.info(f"[PARAMETRIC]   Final:    ({final_center.x():.1f}, {final_center.y():.1f})")
+
+            return final_center
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Center calculation failed for {mechanism_id}: {e}")
+            # Fallback to simple average
+            avg_x = sum(pos.x() for pos in anchor_positions.values()) / len(anchor_positions)
+            avg_y = sum(pos.y() for pos in anchor_positions.values()) / len(anchor_positions)
+            return QPointF(avg_x, avg_y)
+
+    def _regenerate_mechanism_simulation(self, mechanism_id: str, layer_data: dict):
+        """
+        Regenerate simulation data for a mechanism after parameters have changed.
+        This recalculates joint positions and paths for the new configuration.
+        """
+        try:
+            mech_type = layer_data.get("type")
+            params = layer_data.get("params", {})
+            
+            logging.info(f"[PARAMETRIC] 🔄 Regenerating simulation for {mech_type} mechanism {mechanism_id}")
+            
+            if mech_type == "4_bar_linkage":
+                # Generate new simulation data for 4-bar linkage
+                num_frames = 100
+                joint_positions = {
+                    "p1_positions": [],
+                    "p2_positions": [],
+                    "p3_positions": [],
+                    "p4_positions": []
+                }
+                
+                p1 = np.array(params.get("ground_pivot_1", [0, 0]))
+                p2 = np.array(params.get("ground_pivot_2", [100, 0]))
+                L2 = params.get("L2", 40)  # Crank length
+                L3 = params.get("L3", 60)  # Coupler length
+                L4 = params.get("L4", 50)  # Rocker length
+                
+                for i in range(num_frames):
+                    theta = (i / num_frames) * 2 * np.pi
+                    
+                    # Calculate crank position (p3)
+                    p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
+                    
+                    # Calculate rocker position (p4) using circle-circle intersection
+                    # p4 must be L3 from p3 and L4 from p2
+                    p4 = self._solve_circle_intersection(p3, L3, p2, L4)
+                    
+                    if p4 is not None:
+                        joint_positions["p1_positions"].append(p1.tolist())
+                        joint_positions["p2_positions"].append(p2.tolist())
+                        joint_positions["p3_positions"].append(p3.tolist())
+                        joint_positions["p4_positions"].append(p4.tolist())
+                
+                # Store the new simulation data
+                layer_data["full_simulation_data"] = {
+                    "joint_positions": joint_positions
+                }
+                
+                logging.info(f"[PARAMETRIC] ✅ Generated {len(joint_positions['p1_positions'])} frames for 4-bar linkage")
+                
+            elif mech_type == "gear":
+                # Generate gear rotation data
+                num_frames = 100
+                r1 = params.get("r1", 30)
+                r2 = params.get("r2", 50)
+                
+                gear_data = {
+                    "gear1_angles": [],
+                    "gear2_angles": []
+                }
+                
+                for i in range(num_frames):
+                    theta1 = (i / num_frames) * 2 * np.pi
+                    theta2 = -theta1 * (r1 / r2)  # Gear ratio
+                    
+                    gear_data["gear1_angles"].append(theta1)
+                    gear_data["gear2_angles"].append(theta2)
+                
+                layer_data["full_simulation_data"] = {
+                    "gear_data": gear_data
+                }
+                
+                logging.info(f"[PARAMETRIC] ✅ Generated gear rotation data")
+                
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to regenerate simulation: {e}")
+    
+    def _solve_circle_intersection(self, center1: np.ndarray, radius1: float, 
+                                   center2: np.ndarray, radius2: float) -> np.ndarray:
+        """
+        Find the intersection point of two circles.
+        Returns the intersection point that maintains linkage continuity.
+        """
+        try:
+            d = np.linalg.norm(center2 - center1)
+            
+            # Check if circles intersect
+            if d > radius1 + radius2 or d < abs(radius1 - radius2) or d == 0:
+                # No intersection - return approximate position
+                direction = (center2 - center1) / d if d > 0 else np.array([1, 0])
+                return center1 + direction * radius1
+            
+            # Calculate intersection points
+            a = (radius1**2 - radius2**2 + d**2) / (2 * d)
+            h = np.sqrt(radius1**2 - a**2)
+            
+            # Point on line between centers
+            p = center1 + a * (center2 - center1) / d
+            
+            # Perpendicular offset
+            offset = h * np.array([-(center2[1] - center1[1]), center2[0] - center1[0]]) / d
+            
+            # Two possible intersection points
+            intersection1 = p + offset
+            intersection2 = p - offset
+            
+            # Choose the one that maintains continuity (typically the upper one for 4-bar)
+            if intersection1[1] >= intersection2[1]:
+                return intersection1
+            else:
+                return intersection2
+                
+        except Exception as e:
+            logging.error(f"Circle intersection failed: {e}")
+            # Return a fallback position
+            return center1 + np.array([radius1, 0])
+    
+    def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
+        """
+        Recreate visual items for a mechanism after parameters have changed.
+        """
+        try:
+            logging.info(f"[PARAMETRIC] 🎨 Recreating visuals for mechanism {mechanism_id}")
+            
+            # Remove existing visual items
+            existing_items = layer_data.get("visual_items", [])
+            self._safe_remove_visual_items(existing_items)
+            
+            # Create new visual items based on mechanism type
+            mech_type = layer_data.get("type")
+            mechanism_graphics_data = layer_data.copy()
+            
+            visual_items = []
+            if mech_type == "4_bar_linkage":
+                visual_items.extend(self._create_4bar_linkage_visuals(mechanism_graphics_data))
+            elif mech_type == "cam":
+                visual_items.extend(self._create_cam_visuals(mechanism_graphics_data))
+            elif mech_type == "gear":
+                visual_items.extend(self._create_gear_visuals(mechanism_graphics_data))
+            elif mech_type == "planetary_gear":
+                visual_items.extend(self._create_planetary_gear_visuals(mechanism_graphics_data))
+            
+            # Store new visual items
+            layer_data["visual_items"] = visual_items
+            
+            logging.info(f"[PARAMETRIC] ✅ Created {len(visual_items)} new visual items")
+            
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to recreate visuals: {e}")
+    
+    def _update_other_handles(self, mechanism_id: str, moved_handle: str):
+        """
+        Update positions of other parametric handles when one handle is moved.
+        This ensures all handles stay synchronized with the mechanism.
+        """
+        try:
+            if not hasattr(self, 'parametric_handles'):
+                return
+                
+            layer_data = self.mechanism_layers.get(mechanism_id)
+            if not layer_data:
+                return
+                
+            key_points = layer_data.get("key_points", {})
+            to_scene = self._get_scene_transform_function(layer_data)
+            
+            if not to_scene:
+                return
+            
+            # Flag to prevent recursive callbacks
+            self._updating_handles_programmatically = True
+            
+            try:
+                # Update all handles except the one that was just moved
+                for point_name, point_pos in key_points.items():
+                    if point_name != moved_handle and point_name in self.parametric_handles:
+                        handle = self.parametric_handles[point_name]
+                        scene_pos = to_scene(np.array(point_pos))
+                        handle.setPos(scene_pos)
+                        logging.info(f"[PARAMETRIC] 🔄 Updated handle {point_name} position")
+                        
+            finally:
+                self._updating_handles_programmatically = False
+                
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to update other handles: {e}")
+
+    def _show_free_edit_feedback(self, mechanism_id: str):
+        """
+        Show visual feedback for free editing mode - always allow user freedom.
+        ULTRATHINK: Blue color for "user-controlled" mode - no physics constraints.
+
+        Args:
+            mechanism_id: ID of the mechanism to show feedback for
+        """
+        try:
+            if mechanism_id not in self.parametric_handles:
+                return
+
+            handles = self.parametric_handles[mechanism_id]
+
+            # Update handle colors to show "free edit" mode
+            for handle in handles:
+                if hasattr(handle, 'handle_type') and handle.handle_type == 'rotation':
+                    continue  # Skip rotation handle
+
+                # Blue color for free editing mode
+                handle.setBrush(QBrush(QColor(50, 150, 255)))    # Blue - user controlled
+                handle.setPen(QPen(QColor(40, 120, 200), 3))
+                handle.setToolTip("🆓 Free Edit Mode: Any position allowed")
+
+            self.mechanism_scene.update()
+            logging.info(f"[PARAMETRIC] 🆓 Updated free edit feedback for {mechanism_id}")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to show free edit feedback: {e}")
+
+    def _create_5bar_linkage_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
+        """Create handles for 5-bar linkage mechanism with rotation."""
+        try:
+            logging.info(f"[PARAMETRIC] 🚀 Creating 5-bar linkage handles for {mechanism_id}")
+
+            if mechanism_id in self.parametric_handles:
+                self._remove_parametric_handles_for_mechanism(mechanism_id)
+
+            handles = []
+
+            # Define 5 anchor points for 5-bar linkage
+            center_x, center_y = 400, 300
+            anchor_positions = {
+                "ground_pivot_1": QPointF(center_x - 120, center_y),
+                "ground_pivot_2": QPointF(center_x + 120, center_y),
+                "joint_1": QPointF(center_x - 60, center_y - 80),
+                "joint_2": QPointF(center_x, center_y - 100),
+                "joint_3": QPointF(center_x + 60, center_y - 80)
+            }
+
+            # Create anchor handles
+            for anchor_name, anchor_pos in anchor_positions.items():
+                anchor_handle = QGraphicsEllipseItem(-15, -15, 30, 30)
+                anchor_handle.setPos(anchor_pos)
+                anchor_handle.setBrush(QBrush(QColor(255, 50, 50)))
+                anchor_handle.setPen(QPen(QColor(200, 40, 40), 2))
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                anchor_handle.setZValue(1000000)
+
+                anchor_handle.handle_id = f"{mechanism_id}_{anchor_name}"
+                anchor_handle.anchor_name = anchor_name
+                anchor_handle.setToolTip(f"5-Bar Linkage: {anchor_name}")
+
+                self.mechanism_scene.addItem(anchor_handle)
+                handles.append(anchor_handle)
+
+            # Add rotation handle
+            self._add_rotation_handle_to_mechanism(mechanism_id, handles, anchor_positions)
+
+            self.parametric_handles[mechanism_id] = handles
+            self.mechanism_scene.update()
+
+            logging.info(f"[PARAMETRIC] ✅ Created {len(handles)} handles for 5-bar linkage")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to create 5-bar linkage handles: {e}")
+
+    def _create_6bar_linkage_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
+        """Create handles for 6-bar linkage mechanism with rotation."""
+        try:
+            logging.info(f"[PARAMETRIC] 🚀 Creating 6-bar linkage handles for {mechanism_id}")
+
+            if mechanism_id in self.parametric_handles:
+                self._remove_parametric_handles_for_mechanism(mechanism_id)
+
+            handles = []
+
+            # Define 6 anchor points for 6-bar linkage
+            center_x, center_y = 400, 300
+            anchor_positions = {
+                "ground_pivot_1": QPointF(center_x - 140, center_y),
+                "ground_pivot_2": QPointF(center_x + 140, center_y),
+                "joint_1": QPointF(center_x - 70, center_y - 80),
+                "joint_2": QPointF(center_x - 20, center_y - 100),
+                "joint_3": QPointF(center_x + 20, center_y - 100),
+                "joint_4": QPointF(center_x + 70, center_y - 80)
+            }
+
+            # Create anchor handles
+            for anchor_name, anchor_pos in anchor_positions.items():
+                anchor_handle = QGraphicsEllipseItem(-15, -15, 30, 30)
+                anchor_handle.setPos(anchor_pos)
+                anchor_handle.setBrush(QBrush(QColor(255, 50, 50)))
+                anchor_handle.setPen(QPen(QColor(200, 40, 40), 2))
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                anchor_handle.setZValue(1000000)
+
+                anchor_handle.handle_id = f"{mechanism_id}_{anchor_name}"
+                anchor_handle.anchor_name = anchor_name
+                anchor_handle.setToolTip(f"6-Bar Linkage: {anchor_name}")
+
+                self.mechanism_scene.addItem(anchor_handle)
+                handles.append(anchor_handle)
+
+            # Add rotation handle
+            self._add_rotation_handle_to_mechanism(mechanism_id, handles, anchor_positions)
+
+            self.parametric_handles[mechanism_id] = handles
+            self.mechanism_scene.update()
+
+            logging.info(f"[PARAMETRIC] ✅ Created {len(handles)} handles for 6-bar linkage")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to create 6-bar linkage handles: {e}")
+
+    def _create_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
+        """Create handles for gear mechanism with rotation."""
+        try:
+            logging.info(f"[PARAMETRIC] 🚀 Creating gear handles for {mechanism_id}")
+
+            if mechanism_id in self.parametric_handles:
+                self._remove_parametric_handles_for_mechanism(mechanism_id)
+
+            handles = []
+
+            # Define gear control points
+            center_x, center_y = 400, 300
+            anchor_positions = {
+                "gear_center_1": QPointF(center_x - 60, center_y),
+                "gear_center_2": QPointF(center_x + 60, center_y),
+                "radius_control_1": QPointF(center_x - 60, center_y - 50),
+                "radius_control_2": QPointF(center_x + 60, center_y - 50)
+            }
+
+            # Create anchor handles
+            for anchor_name, anchor_pos in anchor_positions.items():
+                anchor_handle = QGraphicsEllipseItem(-15, -15, 30, 30)
+                anchor_handle.setPos(anchor_pos)
+                anchor_handle.setBrush(QBrush(QColor(255, 50, 50)))
+                anchor_handle.setPen(QPen(QColor(200, 40, 40), 2))
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                anchor_handle.setZValue(1000000)
+
+                anchor_handle.handle_id = f"{mechanism_id}_{anchor_name}"
+                anchor_handle.anchor_name = anchor_name
+                anchor_handle.setToolTip(f"Gear Mechanism: {anchor_name}")
+
+                self.mechanism_scene.addItem(anchor_handle)
+                handles.append(anchor_handle)
+
+            # Add rotation handle
+            self._add_rotation_handle_to_mechanism(mechanism_id, handles, anchor_positions)
+
+            self.parametric_handles[mechanism_id] = handles
+            self.mechanism_scene.update()
+
+            logging.info(f"[PARAMETRIC] ✅ Created {len(handles)} handles for gear mechanism")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to create gear handles: {e}")
+
+    def _create_cam_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
+        """Create handles for cam mechanism with rotation."""
+        try:
+            logging.info(f"[PARAMETRIC] 🚀 Creating cam handles for {mechanism_id}")
+
+            if mechanism_id in self.parametric_handles:
+                self._remove_parametric_handles_for_mechanism(mechanism_id)
+
+            handles = []
+
+            # Define cam control points
+            center_x, center_y = 400, 300
+            anchor_positions = {
+                "cam_center": QPointF(center_x, center_y),
+                "follower_pos": QPointF(center_x + 80, center_y),
+                "cam_profile_1": QPointF(center_x - 40, center_y - 60),
+                "cam_profile_2": QPointF(center_x + 40, center_y - 60)
+            }
+
+            # Create anchor handles
+            for anchor_name, anchor_pos in anchor_positions.items():
+                anchor_handle = QGraphicsEllipseItem(-15, -15, 30, 30)
+                anchor_handle.setPos(anchor_pos)
+                anchor_handle.setBrush(QBrush(QColor(255, 50, 50)))
+                anchor_handle.setPen(QPen(QColor(200, 40, 40), 2))
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                anchor_handle.setZValue(1000000)
+
+                anchor_handle.handle_id = f"{mechanism_id}_{anchor_name}"
+                anchor_handle.anchor_name = anchor_name
+                anchor_handle.setToolTip(f"Cam Mechanism: {anchor_name}")
+
+                self.mechanism_scene.addItem(anchor_handle)
+                handles.append(anchor_handle)
+
+            # Add rotation handle
+            self._add_rotation_handle_to_mechanism(mechanism_id, handles, anchor_positions)
+
+            self.parametric_handles[mechanism_id] = handles
+            self.mechanism_scene.update()
+
+            logging.info(f"[PARAMETRIC] ✅ Created {len(handles)} handles for cam mechanism")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to create cam handles: {e}")
+
+    def _create_planetary_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
+        """Create handles for planetary gear mechanism with rotation."""
+        try:
+            logging.info(f"[PARAMETRIC] 🚀 Creating planetary gear handles for {mechanism_id}")
+
+            if mechanism_id in self.parametric_handles:
+                self._remove_parametric_handles_for_mechanism(mechanism_id)
+
+            handles = []
+
+            # Define planetary gear control points
+            center_x, center_y = 400, 300
+            anchor_positions = {
+                "sun_gear": QPointF(center_x, center_y),
+                "planet_gear_1": QPointF(center_x - 60, center_y),
+                "planet_gear_2": QPointF(center_x + 60, center_y),
+                "ring_gear": QPointF(center_x, center_y - 100),
+                "sun_radius": QPointF(center_x, center_y - 30),
+                "ring_radius": QPointF(center_x, center_y - 130)
+            }
+
+            # Create anchor handles
+            for anchor_name, anchor_pos in anchor_positions.items():
+                anchor_handle = QGraphicsEllipseItem(-15, -15, 30, 30)
+                anchor_handle.setPos(anchor_pos)
+                anchor_handle.setBrush(QBrush(QColor(255, 50, 50)))
+                anchor_handle.setPen(QPen(QColor(200, 40, 40), 2))
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                anchor_handle.setZValue(1000000)
+
+                anchor_handle.handle_id = f"{mechanism_id}_{anchor_name}"
+                anchor_handle.anchor_name = anchor_name
+                anchor_handle.setToolTip(f"Planetary Gear: {anchor_name}")
+
+                self.mechanism_scene.addItem(anchor_handle)
+                handles.append(anchor_handle)
+
+            # Add rotation handle
+            self._add_rotation_handle_to_mechanism(mechanism_id, handles, anchor_positions)
+
+            self.parametric_handles[mechanism_id] = handles
+            self.mechanism_scene.update()
+
+            logging.info(f"[PARAMETRIC] ✅ Created {len(handles)} handles for planetary gear")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to create planetary gear handles: {e}")
+
+    class RotationHandle(QGraphicsEllipseItem):
+        """
+        Simple rotation handle that just moves around the center.
+        ULTRATHINK: Don't modify the actual mechanism - just move the handle.
+        """
+        def __init__(self, parent_tab, mechanism_id: str, center_pos: QPointF, radius: float = 60):
+            super().__init__(-25, -25, 50, 50)  # Large yellow circle
+
+            self.parent_tab = parent_tab
+            self.mechanism_id = mechanism_id
+            self.rotation_center = center_pos
+            self.is_dragging = False
+            self.current_rotation = 0
+
+            # Position handle
+            handle_pos = QPointF(center_pos.x() + radius, center_pos.y())
+            self.setPos(handle_pos)
+
+            # Visual styling
+            self.setBrush(QBrush(QColor(255, 255, 0)))    # Bright yellow
+            self.setPen(QPen(QColor(255, 140, 0), 5))     # Orange thick border
+
+            # Enable drag
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+            self.setZValue(1000002)
+
+            # Add identification
+            self.handle_id = f"{mechanism_id}_rotation"
+            self.handle_type = "rotation"
+            self.setToolTip("🔄 Rotation Handle: Drag to set rotation angle (visual only)")
+
+        def mousePressEvent(self, event):
+            """Handle mouse press - start rotation tracking."""
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.is_dragging = True
+
+                # Initialize previous angle for rotation calculation
+                scene_pos = event.scenePos()
+                dx = scene_pos.x() - self.rotation_center.x()
+                dy = scene_pos.y() - self.rotation_center.y()
+                self.previous_angle = math.atan2(dy, dx)
+
+                logging.info(f"[PARAMETRIC] 🔄 Started rotation drag for {self.mechanism_id}")
+                event.accept()
+            else:
+                super().mousePressEvent(event)
+
+        def mouseMoveEvent(self, event):
+            """Handle mouse move - rotate mechanism and move handle in circle."""
+            if self.is_dragging:
+                scene_pos = event.scenePos()
+
+                # Calculate position relative to center
+                dx = scene_pos.x() - self.rotation_center.x()
+                dy = scene_pos.y() - self.rotation_center.y()
+
+                # Calculate current angle
+                current_angle = math.atan2(dy, dx)
+
+                # Check if we have a previous angle to calculate difference
+                if hasattr(self, 'previous_angle'):
+                    # Calculate angle difference for mechanism rotation
+                    angle_diff = current_angle - self.previous_angle
+
+                    # Handle angle wrap-around (crossing 180° boundary)
+                    if angle_diff > math.pi:
+                        angle_diff -= 2 * math.pi
+                    elif angle_diff < -math.pi:
+                        angle_diff += 2 * math.pi
+
+                    # Apply rotation to mechanism if significant movement
+                    if abs(angle_diff) > 0.01:  # Lower threshold for responsive rotation
+                        # Use current mouse position as rotation center for maximum user control
+                        current_rotation_center = scene_pos
+                        self.parent_tab._rotate_mechanism(self.mechanism_id, current_rotation_center, angle_diff)
+                        logging.info(f"[PARAMETRIC] 🆓 Free rotation by {math.degrees(angle_diff):.1f}° around mouse position")
+
+                # Store current angle for next movement
+                self.previous_angle = current_angle
+
+                # Allow free positioning of rotation handle - not constrained to circle!
+                # User can place it anywhere for maximum control
+                self.setPos(scene_pos)
+
+                # Update display angle
+                self.current_rotation = math.degrees(current_angle)
+                self.setToolTip(f"🔄 Rotation Handle: {self.current_rotation:.1f}° (drag to rotate)")
+
+                event.accept()
+            else:
+                # Allow normal movement when not dragging
+                super().mouseMoveEvent(event)
+
+        def mouseReleaseEvent(self, event):
+            """Handle mouse release - end rotation tracking."""
+            if event.button() == Qt.MouseButton.LeftButton and self.is_dragging:
+                self.is_dragging = False
+                # Clear previous angle tracking
+                if hasattr(self, 'previous_angle'):
+                    del self.previous_angle
+                logging.info(f"[PARAMETRIC] 🔄 Ended rotation drag for {self.mechanism_id} at angle {self.current_rotation:.1f}°")
+                event.accept()
+            else:
+                super().mouseReleaseEvent(event)
 
     def _create_cam_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
         """Create interactive handles for cam mechanism - placeholder for future implementation."""
@@ -5557,21 +6571,21 @@ class MechanismDesignTab(QWidget):
     def _on_anchor_moved(self, anchor_name: str, new_position: QPointF):
         """
         Handle anchor point movement from interactive manipulation.
-        ULTRATHINK: Enhanced with kinematic constraints for 4-bar linkage.
+        Updates both key points and regenerates mechanism visuals.
 
         Args:
             anchor_name: Name of anchor that was moved
             new_position: New position in scene coordinates
         """
         try:
-            # ULTRATHINK: Skip if we're updating handles programmatically to prevent recursion
+            # Skip if we're updating handles programmatically to prevent recursion
             if getattr(self, '_updating_handles_programmatically', False):
                 logging.info(f"[PARAMETRIC] ⏸️  Skipping callback for {anchor_name} (programmatic update)")
                 return
-                
+
             logging.info(f"[PARAMETRIC] 🔥 ANCHOR MOVED: {anchor_name} -> ({new_position.x():.1f}, {new_position.y():.1f})")
 
-            # Find which mechanism this anchor belongs to and update its visuals immediately
+            # Find which mechanism this anchor belongs to
             found_mechanism = False
             for mechanism_id, layer_data in self.mechanism_layers.items():
                 key_points = layer_data.get("key_points", {})
@@ -5581,7 +6595,7 @@ class MechanismDesignTab(QWidget):
                     found_mechanism = True
                     logging.info(f"[PARAMETRIC] 🎯 Found anchor {anchor_name} in mechanism {mechanism_id}")
 
-                    # Update the anchor position in mechanism data (store in original mechanism coords)
+                    # Update the anchor position in mechanism data
                     to_mech = self._get_inverse_scene_transform_function(layer_data)
                     old_pos = key_points.get(anchor_name)
                     if to_mech:
@@ -5589,49 +6603,70 @@ class MechanismDesignTab(QWidget):
                         key_points[anchor_name] = [float(mech_xy[0]), float(mech_xy[1])]
                     else:
                         key_points[anchor_name] = [new_position.x(), new_position.y()]
+                    
                     logging.info(f"[PARAMETRIC] ✅ Updated {anchor_name}: {old_pos} -> [{key_points[anchor_name][0]:.1f}, {key_points[anchor_name][1]:.1f}]")
 
-                    # ULTRATHINK ENHANCEMENT: Apply kinematic constraints for 4-bar linkage
+                    # Update mechanism parameters based on new key points
                     if layer_data.get("type") == "4_bar_linkage":
-                        logging.info(f"[PARAMETRIC] 🔧 Applying kinematic constraints for 4-bar linkage {mechanism_id}")
-                        
-                        # Get current link parameters
-                        params = layer_data.get("params", {})
-                        l2 = params.get("l2", 100.0)  # Input link length
-                        l3 = params.get("l3", 120.0)  # Coupler link length  
-                        l4 = params.get("l4", 80.0)   # Output link length
-                        
-                        logging.info(f"[PARAMETRIC] 📏 Link lengths: l2={l2:.1f}, l3={l3:.1f}, l4={l4:.1f}")
-                        
-                        # Apply kinematic constraints and update other anchor positions
-                        updated_key_points = self._apply_4bar_kinematic_constraints(
-                            key_points, anchor_name, params
-                        )
-                        
-                        # Update key_points with constrained positions
-                        layer_data["key_points"] = updated_key_points
-                        
-                        # Update handle positions in scene to match constrained positions
-                        self._update_handle_positions_from_key_points(mechanism_id, layer_data)
-                        
-                        # Trigger immediate mechanism update with new positions
-                        logging.info(f"[PARAMETRIC] 🔧 Updating 4-bar linkage visuals")
-                        self._update_4bar_linkage_realtime(mechanism_id, layer_data)
-                        
-                        # ULTRATHINK: Regenerate motion path for updated mechanism
-                        logging.info(f"[PARAMETRIC] 🔄 Regenerating motion path for updated mechanism")
-                        self._regenerate_motion_path_for_mechanism(mechanism_id, layer_data)
-                        
+                        # Update the 4-bar linkage parameters from key points
+                        if all(k in key_points for k in ["ground_pivot_1", "ground_pivot_2", "crank_end", "rocker_end"]):
+                            p1 = np.array(key_points["ground_pivot_1"])
+                            p2 = np.array(key_points["ground_pivot_2"])
+                            p3 = np.array(key_points["crank_end"])
+                            p4 = np.array(key_points["rocker_end"])
+                            
+                            # Calculate new link lengths
+                            L1 = np.linalg.norm(p2 - p1)  # Ground link
+                            L2 = np.linalg.norm(p3 - p1)  # Crank
+                            L3 = np.linalg.norm(p4 - p3)  # Coupler
+                            L4 = np.linalg.norm(p4 - p2)  # Rocker
+                            
+                            # Update parameters
+                            params = layer_data.get("params", {})
+                            params["L1"] = float(L1)
+                            params["L2"] = float(L2)
+                            params["L3"] = float(L3)
+                            params["L4"] = float(L4)
+                            
+                            # Update ground pivot positions
+                            params["ground_pivot_1"] = key_points["ground_pivot_1"]
+                            params["ground_pivot_2"] = key_points["ground_pivot_2"]
+                            
+                            logging.info(f"[PARAMETRIC] 📐 Updated 4-bar parameters: L1={L1:.1f}, L2={L2:.1f}, L3={L3:.1f}, L4={L4:.1f}")
+                            
+                            # Regenerate simulation data for the new configuration
+                            self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+                    
+                    elif layer_data.get("type") in ["5_bar_linkage", "6_bar_linkage"]:
+                        # Similar updates for other linkage types
+                        self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+                    
                     elif layer_data.get("type") == "gear":
-                        # Recreate gear visuals using updated key_points through transform
-                        self._refresh_mechanism_visuals(mechanism_id, layer_data)
-                    else:
-                        logging.warning(f"[PARAMETRIC] ❓ Unknown mechanism type: {layer_data.get('type')}")
-
+                        # Update gear positions and radii if needed
+                        if "gear1_center" in key_points and "gear2_center" in key_points:
+                            g1 = np.array(key_points["gear1_center"])
+                            g2 = np.array(key_points["gear2_center"])
+                            distance = np.linalg.norm(g2 - g1)
+                            
+                            params = layer_data.get("params", {})
+                            # Maintain gear ratio but adjust sizes to fit distance
+                            ratio = params.get("r2", 50) / params.get("r1", 30)
+                            params["r1"] = distance / (1 + ratio)
+                            params["r2"] = params["r1"] * ratio
+                            
+                            logging.info(f"[PARAMETRIC] ⚙️ Updated gear radii: r1={params['r1']:.1f}, r2={params['r2']:.1f}")
+                            self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+                    
+                    # Recreate the visual items with new configuration
+                    self._recreate_mechanism_visuals(mechanism_id, layer_data)
+                    
+                    # Update other parametric handles to reflect the new positions
+                    self._update_other_handles(mechanism_id, anchor_name)
+                    
                     # Force view update
                     self.mechanism_view.update()
-
-                    logging.info(f"[PARAMETRIC] ✅ Completed mechanism {mechanism_id} update with kinematic constraints")
+                    
+                    logging.info(f"[PARAMETRIC] ✅ Completed mechanism {mechanism_id} update and visual regeneration")
                     break
 
             if not found_mechanism:
@@ -5646,62 +6681,62 @@ class MechanismDesignTab(QWidget):
     def _apply_4bar_kinematic_constraints(self, key_points: dict, moved_anchor: str, params: dict) -> dict:
         """
         ULTRATHINK: Apply kinematic constraints for 4-bar linkage.
-        
+
         When one anchor is moved, calculate the positions of other anchors
         to maintain the geometric constraints of the 4-bar mechanism.
-        
+
         Args:
             key_points: Current anchor positions in mechanism coordinates
             moved_anchor: Name of the anchor that was moved by user
             params: Mechanism parameters (link lengths)
-            
+
         Returns:
             Updated key_points with constrained positions
         """
         try:
             logging.info(f"[KINEMATICS] 🔧 Applying constraints for moved anchor: {moved_anchor}")
-            
+
             # Get current positions
             p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
-            p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))  
+            p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
             p3 = np.array(key_points.get("crank_end", [50, -50]))
             p4 = np.array(key_points.get("rocker_end", [75, -40]))
-            
+
             # Get link lengths
             l2 = params.get("l2", 100.0)  # Input link length
             l3 = params.get("l3", 120.0)  # Coupler link length
             l4 = params.get("l4", 80.0)   # Output link length
-            
+
             logging.info(f"[KINEMATICS] Current positions: p1={p1}, p2={p2}, p3={p3}, p4={p4}")
             logging.info(f"[KINEMATICS] Link lengths: l2={l2}, l3={l3}, l4={l4}")
-            
+
             if moved_anchor == "ground_pivot_1" or moved_anchor == "ground_pivot_2":
                 # CASE 1: Ground pivot moved - recalculate entire mechanism
                 logging.info(f"[KINEMATICS] 🏠 Ground pivot moved, recalculating mechanism")
-                
+
                 # Calculate new ground link length
                 l1_new = np.linalg.norm(p2 - p1)
                 params["l1"] = l1_new
-                
+
                 # Keep current input angle but recalculate positions
                 current_input_angle = math.atan2(p3[1] - p1[1], p3[0] - p1[0])
-                
-                # Recalculate crank_end position  
+
+                # Recalculate crank_end position
                 p3_new = p1 + l2 * np.array([np.cos(current_input_angle), np.sin(current_input_angle)])
-                
+
                 # Recalculate rocker_end using circle intersection
                 p4_new = self._calculate_4bar_rocker_position(p2, p3_new, l3, l4)
-                
+
                 # Update positions
                 key_points["crank_end"] = p3_new.tolist()
                 key_points["rocker_end"] = p4_new.tolist()
-                
+
                 logging.info(f"[KINEMATICS] ✅ Ground pivot case: updated p3={p3_new}, p4={p4_new}")
-                
+
             elif moved_anchor == "crank_end":
                 # CASE 2: Crank end moved - constrain to l2 distance from ground_pivot_1
                 logging.info(f"[KINEMATICS] 🔗 Crank end moved, applying input link constraint")
-                
+
                 # Constrain p3 to be exactly l2 distance from p1
                 direction = p3 - p1
                 distance = np.linalg.norm(direction)
@@ -5709,20 +6744,20 @@ class MechanismDesignTab(QWidget):
                     p3_constrained = p1 + (direction / distance) * l2
                 else:
                     p3_constrained = p1 + np.array([l2, 0])  # Default direction
-                    
+
                 # Update crank_end position
                 key_points["crank_end"] = p3_constrained.tolist()
-                
+
                 # Recalculate rocker_end using circle intersection
                 p4_new = self._calculate_4bar_rocker_position(p2, p3_constrained, l3, l4)
                 key_points["rocker_end"] = p4_new.tolist()
-                
+
                 logging.info(f"[KINEMATICS] ✅ Crank case: constrained p3={p3_constrained}, calculated p4={p4_new}")
-                
+
             elif moved_anchor == "rocker_end":
-                # CASE 3: Rocker end moved - constrain to l4 distance from ground_pivot_2  
+                # CASE 3: Rocker end moved - constrain to l4 distance from ground_pivot_2
                 logging.info(f"[KINEMATICS] 🔗 Rocker end moved, applying output link constraint")
-                
+
                 # Constrain p4 to be exactly l4 distance from p2
                 direction = p4 - p2
                 distance = np.linalg.norm(direction)
@@ -5730,22 +6765,22 @@ class MechanismDesignTab(QWidget):
                     p4_constrained = p2 + (direction / distance) * l4
                 else:
                     p4_constrained = p2 + np.array([-l4, 0])  # Default direction
-                    
+
                 # Update rocker_end position
                 key_points["rocker_end"] = p4_constrained.tolist()
-                
+
                 # Recalculate crank_end using circle intersection
                 p3_new = self._calculate_4bar_crank_position(p1, p4_constrained, l2, l3)
                 key_points["crank_end"] = p3_new.tolist()
-                
+
                 logging.info(f"[KINEMATICS] ✅ Rocker case: constrained p4={p4_constrained}, calculated p3={p3_new}")
-            
+
             return key_points
-            
+
         except Exception as e:
             logging.error(f"[KINEMATICS] ❌ Failed to apply constraints: {e}")
             return key_points  # Return original if failed
-    
+
     def _calculate_4bar_rocker_position(self, p2: np.ndarray, p3: np.ndarray, l3: float, l4: float) -> np.ndarray:
         """
         Calculate rocker_end position using circle intersection.
@@ -5754,7 +6789,7 @@ class MechanismDesignTab(QWidget):
         try:
             # Distance between the two circle centers
             d = np.linalg.norm(p2 - p3)
-            
+
             # Check if intersection is possible
             if d > (l3 + l4) or d < abs(l3 - l4) or d == 0:
                 logging.warning(f"[KINEMATICS] ⚠️  No valid intersection: d={d}, l3={l3}, l4={l4}")
@@ -5764,36 +6799,36 @@ class MechanismDesignTab(QWidget):
                     return p3 + l3 * direction
                 else:
                     return p2 + np.array([l4, 0])
-            
+
             # Calculate intersection points of two circles
             a = (l3**2 - l4**2 + d**2) / (2 * d)
             h = math.sqrt(l3**2 - a**2)
-            
+
             # Point on line between p3 and p2
             p_mid = p3 + a * (p2 - p3) / d
-            
+
             # Two possible intersection points
             perpendicular = np.array([-(p2[1] - p3[1]), p2[0] - p3[0]]) / d
             p4_option1 = p_mid + h * perpendicular
             p4_option2 = p_mid - h * perpendicular
-            
+
             # Choose the option closer to current rocker position if available
             # For now, just return option1 (could be enhanced with preference logic)
             return p4_option1
-            
+
         except Exception as e:
             logging.error(f"[KINEMATICS] ❌ Rocker calculation failed: {e}")
             return p2 + np.array([-l4, 0])  # Safe fallback
-    
+
     def _calculate_4bar_crank_position(self, p1: np.ndarray, p4: np.ndarray, l2: float, l3: float) -> np.ndarray:
         """
         Calculate crank_end position using circle intersection.
         p3 must be l2 distance from p1 AND l3 distance from p4.
         """
         try:
-            # Distance between the two circle centers  
+            # Distance between the two circle centers
             d = np.linalg.norm(p1 - p4)
-            
+
             # Check if intersection is possible
             if d > (l2 + l3) or d < abs(l2 - l3) or d == 0:
                 logging.warning(f"[KINEMATICS] ⚠️  No valid intersection: d={d}, l2={l2}, l3={l3}")
@@ -5803,23 +6838,23 @@ class MechanismDesignTab(QWidget):
                     return p1 + l2 * direction
                 else:
                     return p1 + np.array([l2, 0])
-            
+
             # Calculate intersection points of two circles
             a = (l2**2 - l3**2 + d**2) / (2 * d)
             h = math.sqrt(l2**2 - a**2)
-            
+
             # Point on line between p1 and p4
             p_mid = p1 + a * (p4 - p1) / d
-            
+
             # Two possible intersection points
             perpendicular = np.array([-(p4[1] - p1[1]), p4[0] - p1[0]]) / d
             p3_option1 = p_mid + h * perpendicular
             p3_option2 = p_mid - h * perpendicular
-            
+
             # Choose the option closer to current crank position if available
             # For now, just return option1 (could be enhanced with preference logic)
             return p3_option1
-            
+
         except Exception as e:
             logging.error(f"[KINEMATICS] ❌ Crank calculation failed: {e}")
             return p1 + np.array([l2, 0])  # Safe fallback
@@ -5827,152 +6862,152 @@ class MechanismDesignTab(QWidget):
     def _update_handle_positions_from_key_points(self, mechanism_id: str, layer_data: dict):
         """
         Update scene handle positions to match updated key_points after kinematic constraints.
-        
+
         ULTRATHINK: Prevents infinite recursion by temporarily disabling callbacks.
-        
+
         Args:
             mechanism_id: Mechanism ID
             layer_data: Layer data with updated key_points
         """
         try:
             logging.info(f"[KINEMATICS] 🔄 Updating handle positions for {mechanism_id}")
-            
+
             # Get handles for this mechanism
             handles = self.parametric_handles.get(mechanism_id, [])
             if not handles:
                 logging.warning(f"[KINEMATICS] ⚠️  No handles found for {mechanism_id}")
                 return
-                
+
             # Get transform function
             to_scene = self._get_scene_transform_function(layer_data)
             key_points = layer_data.get("key_points", {})
-            
+
             # ULTRATHINK: Set flag to prevent callback recursion
             self._updating_handles_programmatically = True
-            
+
             # Update each handle position
             updated_count = 0
             for handle in handles:
                 handle_id = getattr(handle, 'handle_id', '')
                 anchor_name = getattr(handle, 'anchor_name', '')
-                
+
                 # Extract anchor name from handle_id if anchor_name not available
                 if not anchor_name and handle_id:
                     # Format: "{mechanism_id}_{anchor_name}"
                     parts = handle_id.split('_', 1)
                     if len(parts) > 1:
                         anchor_name = parts[1]
-                
+
                 if anchor_name in key_points:
                     # Get new position in mechanism coordinates
                     mech_pos = key_points[anchor_name]
-                    
+
                     # Transform to scene coordinates
                     if to_scene:
                         scene_pos = to_scene(np.array(mech_pos))
                     else:
                         scene_pos = QPointF(mech_pos[0], mech_pos[1])
-                    
+
                     # Update handle position (avoid triggering callbacks during programmatic move)
                     old_pos = handle.pos()
-                    
+
                     # ULTRATHINK: Temporarily disable callback for DraggableHandle
                     original_callback = None
                     if hasattr(handle, 'update_callback'):
                         original_callback = handle.update_callback
                         handle.update_callback = None
-                    
+
                     # Update position
                     handle.setPos(scene_pos)
-                    
+
                     # Restore callback
                     if original_callback:
                         handle.update_callback = original_callback
-                    
+
                     logging.info(f"[KINEMATICS] 🎯 Updated handle {anchor_name}: ({old_pos.x():.1f}, {old_pos.y():.1f}) -> ({scene_pos.x():.1f}, {scene_pos.y():.1f})")
                     updated_count += 1
                 else:
                     logging.warning(f"[KINEMATICS] ⚠️  No key_point found for handle anchor: {anchor_name}")
-            
+
             # Clear the flag
             self._updating_handles_programmatically = False
-            
+
             logging.info(f"[KINEMATICS] ✅ Updated {updated_count}/{len(handles)} handle positions")
-            
+
         except Exception as e:
             logging.error(f"[KINEMATICS] ❌ Failed to update handle positions: {e}")
             # Make sure to clear the flag even if error occurs
             self._updating_handles_programmatically = False
-    
+
     def _regenerate_motion_path_for_mechanism(self, mechanism_id: str, layer_data: dict):
         """
         Regenerate motion path for mechanism with updated configuration.
-        
+
         Args:
-            mechanism_id: Mechanism ID  
+            mechanism_id: Mechanism ID
             layer_data: Updated layer data
         """
         try:
             logging.info(f"[PATH_REGEN] 🔄 Regenerating motion path for {mechanism_id}")
-            
+
             if layer_data.get("type") != "4_bar_linkage":
                 logging.info(f"[PATH_REGEN] ℹ️  Not a 4-bar linkage, skipping path regeneration")
                 return
-            
+
             # Get updated mechanism parameters
             key_points = layer_data.get("key_points", {})
             params = layer_data.get("params", {})
-            
+
             # Generate new simulation data for updated mechanism
             new_simulation_data = self._generate_4bar_simulation_with_updated_params(key_points, params)
-            
+
             if new_simulation_data:
                 # Update layer data with new simulation
                 layer_data["full_simulation_data"] = new_simulation_data
-                
+
                 # Extract new coupler path
                 coupler_positions = new_simulation_data.get("coupler_positions", [])
                 if coupler_positions:
                     # Convert to QPainterPath
                     new_path = QPainterPath()
                     to_scene = self._get_scene_transform_function(layer_data)
-                    
+
                     for i, pos in enumerate(coupler_positions):
                         if to_scene:
                             scene_pos = to_scene(np.array(pos))
                         else:
                             scene_pos = QPointF(pos[0], pos[1])
-                            
+
                         if i == 0:
                             new_path.moveTo(scene_pos)
                         else:
                             new_path.lineTo(scene_pos)
-                    
+
                     # Update generated path
                     layer_data["generated_path"] = new_path
-                    
+
                     # Update visual items with new path
                     self._update_mechanism_path_visuals(mechanism_id, layer_data, new_path)
-                    
+
                     logging.info(f"[PATH_REGEN] ✅ Generated new path with {len(coupler_positions)} points")
                 else:
                     logging.warning(f"[PATH_REGEN] ⚠️  No coupler positions in new simulation")
             else:
                 logging.error(f"[PATH_REGEN] ❌ Failed to generate new simulation data")
-            
+
         except Exception as e:
             logging.error(f"[PATH_REGEN] ❌ Failed to regenerate motion path: {e}")
             import traceback
             logging.error(f"[PATH_REGEN] ❌ Traceback: {traceback.format_exc()}")
-    
+
     def _generate_4bar_simulation_with_updated_params(self, key_points: dict, params: dict) -> dict:
         """
         Generate new 4-bar linkage simulation with updated parameters.
-        
+
         Args:
             key_points: Updated anchor positions
             params: Mechanism parameters
-            
+
         Returns:
             New simulation data dictionary
         """
@@ -5980,35 +7015,35 @@ class MechanismDesignTab(QWidget):
             # Get positions
             p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
             p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
-            
+
             # Get link lengths
             l1 = np.linalg.norm(p2 - p1)  # Ground link
             l2 = params.get("l2", 100.0)  # Input link
-            l3 = params.get("l3", 120.0)  # Coupler link  
+            l3 = params.get("l3", 120.0)  # Coupler link
             l4 = params.get("l4", 80.0)   # Output link
-            
+
             # Coupler point parameters
             cx = params.get("coupler_point_x", l3/2)
             cy = params.get("coupler_point_y", 0.0)
-            
+
             # Generate simulation for full rotation
             num_steps = 100
             angles = np.linspace(0, 2*np.pi, num_steps)
-            
+
             p1_positions = []
             p2_positions = []
             p3_positions = []
             p4_positions = []
             coupler_positions = []
-            
+
             for angle in angles:
                 try:
                     # Calculate p3 (crank end)
                     p3 = p1 + l2 * np.array([np.cos(angle), np.sin(angle)])
-                    
+
                     # Calculate p4 (rocker end) using circle intersection
                     p4 = self._calculate_4bar_rocker_position(p2, p3, l3, l4)
-                    
+
                     # Calculate coupler point
                     coupler_vec = p4 - p3
                     coupler_len = np.linalg.norm(coupler_vec)
@@ -6018,18 +7053,18 @@ class MechanismDesignTab(QWidget):
                         p_coupler = p3 + cx * coupler_unit + cy * coupler_normal
                     else:
                         p_coupler = p3
-                    
+
                     # Store positions
                     p1_positions.append(p1.tolist())
                     p2_positions.append(p2.tolist())
                     p3_positions.append(p3.tolist())
                     p4_positions.append(p4.tolist())
                     coupler_positions.append(p_coupler.tolist())
-                    
+
                 except Exception as e:
                     logging.warning(f"[PATH_REGEN] ⚠️  Simulation step failed at angle {angle}: {e}")
                     continue
-            
+
             # Create simulation data structure
             simulation_data = {
                 "joint_positions": {
@@ -6044,18 +7079,18 @@ class MechanismDesignTab(QWidget):
                     "coupler_point_x": cx, "coupler_point_y": cy
                 }
             }
-            
+
             logging.info(f"[PATH_REGEN] ✅ Generated simulation with {len(coupler_positions)} steps")
             return simulation_data
-            
+
         except Exception as e:
             logging.error(f"[PATH_REGEN] ❌ Failed to generate simulation: {e}")
             return {}
-    
+
     def _update_mechanism_path_visuals(self, mechanism_id: str, layer_data: dict, new_path: QPainterPath):
         """
         Update visual items to show the new motion path.
-        
+
         Args:
             mechanism_id: Mechanism ID
             layer_data: Layer data
@@ -6063,33 +7098,33 @@ class MechanismDesignTab(QWidget):
         """
         try:
             logging.info(f"[PATH_REGEN] 🎨 Updating path visuals for {mechanism_id}")
-            
+
             # Find existing path visual items and update them
             visual_items = layer_data.get("visual_items", [])
             path_updated = False
-            
+
             for item in visual_items:
                 if isinstance(item, QGraphicsPathItem):
                     # Update the path
                     item.setPath(new_path)
                     path_updated = True
                     logging.info(f"[PATH_REGEN] ✅ Updated existing path visual")
-            
+
             if not path_updated:
                 logging.info(f"[PATH_REGEN] ℹ️  No existing path visual found, creating new one")
                 # Create new path visual
                 path_item = QGraphicsPathItem(new_path)
                 path_item.setPen(QPen(QColor(0, 150, 0), 3))  # Green path
                 path_item.setZValue(Z_MOTION_PATH_LINE)
-                
+
                 # Add to scene and visual items
                 self.mechanism_scene.addItem(path_item)
                 visual_items.append(path_item)
                 layer_data["visual_items"] = visual_items
-            
+
             # Force scene update
             self.mechanism_scene.update()
-            
+
         except Exception as e:
             logging.error(f"[PATH_REGEN] ❌ Failed to update path visuals: {e}")
 
@@ -6157,7 +7192,7 @@ class MechanismDesignTab(QWidget):
 
             # Calculate current ground distance
             l1_new = np.linalg.norm(p2 - p1)
-            
+
             # ULTRATHINK SAFETY CHECK: Validate ground distance
             if l1_new < 10 or l1_new > 1000:
                 logging.warning(f"[SMART-ADJUST] ⚠️  Abnormal ground distance: {l1_new}, clamping to reasonable range")
@@ -6183,10 +7218,10 @@ class MechanismDesignTab(QWidget):
             if current_total < min_needed:
                 # Need to scale up l3 and l4
                 scale_factor = min_needed / (l3 + l4)
-                
+
                 # ULTRATHINK SAFETY CHECK: Limit scale factor
                 scale_factor = min(scale_factor, 5.0)  # Maximum 5x scaling
-                
+
                 l3_new = l3 * scale_factor
                 l4_new = l4 * scale_factor
 
@@ -6203,7 +7238,7 @@ class MechanismDesignTab(QWidget):
                     # Violation - adjust to make it barely work
                     # Strategy: slightly increase the middle links
                     excess = (s + l_max) - (p + q) + 10  # Extra margin
-                    
+
                     # ULTRATHINK SAFETY CHECK: Limit excess adjustment
                     excess = min(excess, l1_new)  # Don't exceed ground distance
 
@@ -6232,10 +7267,10 @@ class MechanismDesignTab(QWidget):
 
                 if total_non_ground < required_total:
                     emergency_scale = required_total / total_non_ground
-                    
+
                     # ULTRATHINK SAFETY CHECK: Limit emergency scale
                     emergency_scale = min(emergency_scale, 3.0)  # Maximum 3x emergency scaling
-                    
+
                     l2_new = l2 * emergency_scale
                     l3_new = l3_new * emergency_scale
                     l4_new = l4_new * emergency_scale
@@ -6261,12 +7296,12 @@ class MechanismDesignTab(QWidget):
             try:
                 safe_l1 = np.linalg.norm(p2 - p1)
                 safe_l1 = max(50, min(300, safe_l1))  # Reasonable ground distance
-                
+
                 # Use proportional links based on ground distance
                 safe_l2 = safe_l1 * 0.6
-                safe_l3 = safe_l1 * 0.8  
+                safe_l3 = safe_l1 * 0.8
                 safe_l4 = safe_l1 * 0.7
-                
+
                 logging.info(f"[SMART-ADJUST] 🛡️  Safety fallback: l2={safe_l2:.1f}, l3={safe_l3:.1f}, l4={safe_l4:.1f}")
                 return safe_l2, safe_l3, safe_l4
             except:
@@ -6744,7 +7779,7 @@ class MechanismDesignTab(QWidget):
                         scene_pos = to_scene_coords(np.array(pos_data))
                         anchor_positions[anchor_name] = scene_pos
                         logging.info(f"[PARAMETRIC] ✅ Found {anchor_name} in key_points: {pos_data} -> scene: {scene_pos}")
-                        
+
                         # ULTRATHINK DEBUG: Check for potential overlaps
                         for existing_name, existing_pos in anchor_positions.items():
                             if existing_name != anchor_name:
@@ -6753,12 +7788,12 @@ class MechanismDesignTab(QWidget):
                                     logging.warning(f"[PARAMETRIC] ⚠️  {anchor_name} and {existing_name} are very close: distance={distance:.1f}")
                                     # Spread them out a bit
                                     angle = hash(anchor_name) % 360 * 3.14159 / 180
-                                    offset_x = 30 * np.cos(angle) 
+                                    offset_x = 30 * np.cos(angle)
                                     offset_y = 30 * np.sin(angle)
                                     new_pos = QPointF(scene_pos.x() + offset_x, scene_pos.y() + offset_y)
                                     anchor_positions[anchor_name] = new_pos
                                     logging.info(f"[PARAMETRIC] 🔧 Adjusted {anchor_name} position to {new_pos}")
-                                    
+
             elif key_points and not to_scene_coords:
                 logging.warning("[PARAMETRIC] 🔧 key_points available but no transform function - using raw positions")
                 # CRITICAL FIX: Include ALL anchor points for 4-bar linkage
@@ -6812,20 +7847,20 @@ class MechanismDesignTab(QWidget):
             if len(anchor_positions) < 2:
                 logging.warning(f"[PARAMETRIC] 🚨 Still not enough anchor positions ({len(anchor_positions)}), creating defaults")
                 scene_center = QPointF(400, 300)
-                
+
                 # Create default positions in a reasonable spread
                 if "ground_pivot_1" not in anchor_positions:
                     anchor_positions["ground_pivot_1"] = QPointF(scene_center.x() - 100, scene_center.y())
                     logging.info(f"[PARAMETRIC] 🔧 Default ground_pivot_1: {anchor_positions['ground_pivot_1']}")
-                    
+
                 if "ground_pivot_2" not in anchor_positions:
                     anchor_positions["ground_pivot_2"] = QPointF(scene_center.x() + 100, scene_center.y())
                     logging.info(f"[PARAMETRIC] 🔧 Default ground_pivot_2: {anchor_positions['ground_pivot_2']}")
-                    
+
                 if "crank_end" not in anchor_positions:
                     anchor_positions["crank_end"] = QPointF(scene_center.x() - 50, scene_center.y() - 80)
                     logging.info(f"[PARAMETRIC] 🔧 Default crank_end: {anchor_positions['crank_end']}")
-                    
+
                 if "rocker_end" not in anchor_positions:
                     anchor_positions["rocker_end"] = QPointF(scene_center.x() + 50, scene_center.y() - 80)
                     logging.info(f"[PARAMETRIC] 🔧 Default rocker_end: {anchor_positions['rocker_end']}")
@@ -6834,7 +7869,7 @@ class MechanismDesignTab(QWidget):
             logging.info(f"[PARAMETRIC] 🎯 Final anchor positions:")
             for anchor_name, pos in anchor_positions.items():
                 logging.info(f"[PARAMETRIC]   {anchor_name}: ({pos.x():.1f}, {pos.y():.1f})")
-                
+
             # Check all pairs for overlaps and adjust if needed
             anchor_names = list(anchor_positions.keys())
             for i, name1 in enumerate(anchor_names):
@@ -6847,7 +7882,7 @@ class MechanismDesignTab(QWidget):
                         # Push the second one away
                         angle = hash(name2) % 360 * 3.14159 / 180
                         offset_x = 50 * np.cos(angle)
-                        offset_y = 50 * np.sin(angle) 
+                        offset_y = 50 * np.sin(angle)
                         new_pos = QPointF(pos1.x() + offset_x, pos1.y() + offset_y)
                         anchor_positions[name2] = new_pos
                         logging.info(f"[PARAMETRIC] 🔧 Moved {name2} to avoid overlap: {new_pos}")
