@@ -1191,3 +1191,14 @@ class ImageProcessingView(QGraphicsView):
     def reset_zoom(self):
         """Reset zoom to 100%."""
         self.resetTransform()
+
+    def zoom(self, direction: int):
+        """Zoom the view in or out based on direction.
+        
+        Args:
+            direction: Positive for zoom in, negative for zoom out
+        """
+        if direction > 0:
+            self.zoom_in()
+        elif direction < 0:
+            self.zoom_out()

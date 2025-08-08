@@ -1713,6 +1713,9 @@ class MechanismDesignTab(QWidget):
 
     def _clear_mechanism_for_part(self, part_name: str):
         """Clear mechanism for a specific part only, keeping others intact."""
+        # CRITICAL: Clear animation cache when clearing mechanism
+        self._clear_animation_cache()
+        
         mechanisms_to_remove = []
 
         # Find mechanisms for this part
@@ -2695,55 +2698,83 @@ class MechanismDesignTab(QWidget):
                             follower_y = follower_positions[frame_index]
                             follower_pos_orig = np.array([0, follower_y])
                     else:
-                        # Manual calculation using EXACT same formula as dataset
+                        # Manual calculation using CORRECTED physics formula
                         angle = time
-                        cam_offset = np.array([eccentricity, 0])  # Same as dataset
-                        rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-                        current_cam_center = rotation_matrix @ cam_offset
-                        follower_y = current_cam_center[1] + base_radius
+                        
+                        # Corrected physics: cam stays fixed, follower moves based on cam radius at contact angle
+                        lift = eccentricity * (1 + np.cos(angle + np.pi/2)) / 2
+                        cam_radius_at_angle = base_radius + lift
+                        
+                        # Cam center stays fixed at origin
+                        current_cam_center = np.array([0, 0])
+                        
+                        # Follower Y position based on cam radius (same as our corrected simulation)
+                        rod_length = 40.0
+                        follower_y = current_cam_center[1] - cam_radius_at_angle - rod_length
                         follower_pos_orig = np.array([0, follower_y])
 
-                    # Update egg-shaped cam (QGraphicsPolygonItem)
+                    # Update egg-shaped cam (QGraphicsPolygonItem) - preserve initial position
                     if len(visual_items) >= 1 and isinstance(visual_items[0], QGraphicsPolygonItem):
-                        # Create rotated egg shape profile
-                        def create_rotated_egg_profile(base_radius, eccentricity, rotation_angle):
+                        # Store initial cam center scene position on first animation frame
+                        if not hasattr(self, '_initial_cam_center_scene'):
+                            # Get current polygon center as initial position
+                            current_polygon = visual_items[0].polygon()
+                            if not current_polygon.isEmpty():
+                                polygon_rect = current_polygon.boundingRect()
+                                self._initial_cam_center_scene = QPointF(
+                                    polygon_rect.center().x(),
+                                    polygon_rect.center().y()
+                                )
+                            else:
+                                # Fallback: use transform of [0,0]
+                                self._initial_cam_center_scene = to_scene_coords_flipped(np.array([0, 0]))
+                        
+                        # Use stored initial center for animation
+                        cam_center_scene = self._initial_cam_center_scene
+                        # Use SAME egg profile generation as initial creation
+                        def create_egg_shape_profile(base_radius, eccentricity):
+                            """Create an egg-shaped cam profile using parametric equations - SAME as initial creation"""
                             points = []
                             num_points = 100
-
                             for i in range(num_points):
                                 theta = (i / num_points) * 2 * np.pi
-
-                                # Egg shape formula
-                                r = base_radius + eccentricity * np.cos(theta)
-
+                                # Proper cam profile: lift when convex part is at bottom (pushes follower up)
+                                # Using sinusoidal lift profile shifted for correct physics
+                                lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2  # Shifted for proper phase
+                                r = base_radius + lift
                                 # Convert to Cartesian coordinates
                                 x = r * np.cos(theta)
                                 y = r * np.sin(theta)
-
-                                # Apply rotation
-                                rot_matrix = np.array([
-                                    [np.cos(rotation_angle), -np.sin(rotation_angle)],
-                                    [np.sin(rotation_angle), np.cos(rotation_angle)]
-                                ])
-                                rotated_point = rot_matrix @ np.array([x, y])
-
-                                # Add cam center offset
-                                final_point = rotated_point + current_cam_center
-                                points.append(final_point)
-
+                                points.append([x, y])
                             return points
-
-                        # Create rotated egg profile
-                        angle = time
-                        egg_profile = create_rotated_egg_profile(base_radius, eccentricity, angle)
-
-                        # Transform to scene coordinates
+                        
+                        # Generate base egg profile (SAME as initial creation)
+                        egg_profile = create_egg_shape_profile(base_radius, eccentricity)
+                        
+                        # Apply rotation to each point
+                        rotation_angle = time  # Cam rotates with time
+                        cos_rot = np.cos(rotation_angle)
+                        sin_rot = np.sin(rotation_angle)
+                        
+                        # Generate rotating cam profile around FIXED initial center
                         cam_polygon_points = []
                         for point in egg_profile:
-                            scene_point = to_scene_coords_flipped(point)
-                            cam_polygon_points.append(scene_point)
+                            # Apply rotation first
+                            x, y = point[0], point[1]
+                            x_rot = x * cos_rot - y * sin_rot
+                            y_rot = x * sin_rot + y * cos_rot
+                            
+                            # Apply same scaling as initial creation (estimated from scene space)
+                            scene_scale = 2.0  # Adjust based on initial creation
+                            
+                            # Position relative to stored initial center
+                            final_point = QPointF(
+                                cam_center_scene.x() + x_rot * scene_scale,
+                                cam_center_scene.y() + y_rot * scene_scale
+                            )
+                            cam_polygon_points.append(final_point)
 
-                        # Update polygon
+                        # Update polygon (cam shape stays static, physics drives follower movement)
                         cam_polygon = QPolygonF(cam_polygon_points)
                         visual_items[0].setPolygon(cam_polygon)
 
@@ -2757,9 +2788,8 @@ class MechanismDesignTab(QWidget):
                             follower_width, follower_height
                         )
 
-                    # 캠 중심점 마커 업데이트 (visual_items[2])
+                    # 캠 중심점 마커 업데이트 (visual_items[2]) - use already calculated center
                     if len(visual_items) >= 3 and isinstance(visual_items[2], QGraphicsEllipseItem):
-                        cam_center_scene = to_scene_coords_flipped(current_cam_center)
                         visual_items[2].setRect(
                             cam_center_scene.x() - 3, cam_center_scene.y() - 3, 6, 6
                         )
@@ -4137,6 +4167,9 @@ class MechanismDesignTab(QWidget):
 
     def handle_mechanism_visuals(self, mechanism_graphics_data: dict):
         """Handle mechanism visualization data"""
+        # CRITICAL: Clear all cached animation states when mechanism changes
+        self._clear_animation_cache()
+        
         # ISSUE #9: Reset skeleton immediately when mechanism changes
         self._reset_skeleton_to_initial_state()
 
@@ -4164,6 +4197,39 @@ class MechanismDesignTab(QWidget):
 
         # Force scene update to ensure visuals are displayed
         self.mechanism_scene.update()
+
+    def _clear_animation_cache(self):
+        """Clear cached animation state variables when mechanism changes, but preserve skeleton data."""
+        # List of specific animation cache attributes to clear (mechanism-specific only)
+        animation_cache_attrs = [
+            '_initial_cam_center_scene',  # Cam animation cache
+        ]
+        
+        # Clear only animation-specific cached states, not skeleton data
+        for attr in animation_cache_attrs:
+            if hasattr(self, attr):
+                try:
+                    delattr(self, attr)
+                    logging.debug(f"[ANIMATION CACHE] Cleared animation cache: {attr}")
+                except AttributeError:
+                    pass  # Already cleared
+                    
+        # Also clear any additional _animation_ or _cam_ prefixed caches
+        all_attrs = [attr for attr in dir(self) if 
+                     attr.startswith('_animation_') or 
+                     attr.startswith('_cam_') or
+                     attr.startswith('_gear_') or
+                     attr.startswith('_fourbar_')]
+        
+        for attr in all_attrs:
+            if hasattr(self, attr) and not attr.endswith('_cache'):  # Preserve important caches
+                try:
+                    delattr(self, attr)
+                    logging.debug(f"[ANIMATION CACHE] Cleared mechanism cache: {attr}")
+                except AttributeError:
+                    pass
+                    
+        logging.info("[ANIMATION CACHE] Animation cache cleared, skeleton data preserved")
 
     def _safe_remove_visual_items(self, visual_items: list):
         """Safely remove visual items from scene, handling Qt object lifecycle issues."""
@@ -4568,9 +4634,12 @@ class MechanismDesignTab(QWidget):
 
     def _on_layer_selection_changed(self):
         """Handle selection changes in the mechanism layers list."""
+        # CRITICAL: Clear animation cache when layer selection changes
+        self._clear_animation_cache()
+        
         # ISSUE #11: Reset skeleton when selection changes while preserving view
         current_view_transform = self.mechanism_view.transform()  # Save current view
-
+        
         self._reset_skeleton_to_initial_state()
 
         # Restore the view transform to maintain user's current view
@@ -4778,9 +4847,10 @@ class MechanismDesignTab(QWidget):
             for i in range(num_points):
                 theta = (i / num_points) * 2 * np.pi
 
-                # Egg shape formula: combine circle with eccentricity modulation
-                # r = base_radius + eccentricity * cos(theta) for egg shape
-                r = base_radius + eccentricity * np.cos(theta)
+                # Proper cam profile: lift when convex part is at bottom (pushes follower up)
+                # Using sinusoidal lift profile shifted for correct physics
+                lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2  # Shifted for proper phase
+                r = base_radius + lift
 
                 # Convert to Cartesian coordinates
                 x = r * np.cos(theta)
@@ -4791,48 +4861,103 @@ class MechanismDesignTab(QWidget):
             return points
 
         # CAM should be at bottom with follower above (gravity physics)
-        # No Y-flip needed, just position cam at bottom
-        initial_cam_center = np.array([eccentricity, 0])  # CAM center
+        # Position cam at origin for proper coordinate transformation
+        initial_cam_center = np.array([0, 0])  # CAM center at origin
+        print(f"[CAM DEBUG] Cam center positioned at: {initial_cam_center}")
 
         # Place follower ABOVE cam center (negative Y is up in scene coordinates)
         # Follower is at cam_top - rod_length
         initial_follower_y = initial_cam_center[1] - (base_radius + follower_rod_length)
         follower_pos_orig = np.array([initial_cam_center[0], initial_follower_y])
 
-        # Create egg-shaped cam profile
+        # Create egg-shaped cam profile with debugging
         egg_profile = create_egg_shape_profile(base_radius, eccentricity)
+        
+        # Debug: Check profile generation
+        print(f"[CAM DEBUG] Generated {len(egg_profile)} cam profile points")
+        if egg_profile:
+            x_vals = [p[0] for p in egg_profile]
+            y_vals = [p[1] for p in egg_profile]
+            print(f"[CAM DEBUG] Profile X range: {min(x_vals):.1f} to {max(x_vals):.1f}")
+            print(f"[CAM DEBUG] Profile Y range: {min(y_vals):.1f} to {max(y_vals):.1f}")
+
+        # Use the SAME transformation as recommendation dialog for consistency
+        # This ensures cam coordinates match exactly with the recommendation system
+        
+        # Get user path information for proper scaling (same as recommendation dialog)
+        if hasattr(self, 'path_data') and self.selected_part_name in self.path_data:
+            user_path = self.path_data[self.selected_part_name]
+            # Convert QPainterPath to numpy for analysis
+            user_points = []
+            for i in range(user_path.elementCount()):
+                element = user_path.elementAt(i)
+                user_points.append([element.x, element.y])
+            
+            if user_points:
+                user_points_np = np.array(user_points)
+                user_center = np.mean(user_points_np, axis=0)
+                user_bbox = np.max(user_points_np, axis=0) - np.min(user_points_np, axis=0)
+                user_scale = np.max(user_bbox) if np.max(user_bbox) > 0 else 100
+                
+                print(f"[CAM DEBUG] User path center: {user_center}, scale: {user_scale}")
+                
+                # Transform function that matches recommendation dialog exactly
+                def cam_to_scene_coords(p_orig: np.ndarray) -> QPointF:
+                    # Apply same transformation as recommendation dialog
+                    p_centered = p_orig - np.array([0, 0])  # Cam center at origin
+                    p_scaled = p_centered * (user_scale / 100.0)  # Scale to match user path
+                    p_final = p_scaled + user_center
+                    return QPointF(float(p_final[0]), float(p_final[1]))
+            else:
+                # Fallback to simple transformation
+                def cam_to_scene_coords(p_orig: np.ndarray) -> QPointF:
+                    return QPointF(float(p_orig[0] * 2 + 300), float(p_orig[1] * 2 + 300))
+        else:
+            # Fallback transformation
+            def cam_to_scene_coords(p_orig: np.ndarray) -> QPointF:
+                return QPointF(float(p_orig[0] * 2 + 300), float(p_orig[1] * 2 + 300))
+
+        # Transform key points to scene coordinates
+        rotation_center_scene = cam_to_scene_coords(np.array([0, 0]))
+        follower_scene = cam_to_scene_coords(follower_pos_orig)
+        cam_center_scene = cam_to_scene_coords(initial_cam_center)
 
         # Transform egg profile points to scene coordinates
         cam_polygon_points = []
         for point in egg_profile:
-            # Offset by initial cam center
+            # Offset by initial cam center and transform
             point_offset = np.array(point) + initial_cam_center
-            # Transform to scene coordinates (no Y-flip, cam at bottom)
-            scene_point = to_scene_coords(point_offset)
+            scene_point = cam_to_scene_coords(point_offset)
             cam_polygon_points.append(scene_point)
 
         # Create QPolygonF from points
         cam_polygon = QPolygonF(cam_polygon_points)
-
-        # Transform key points to scene coordinates
-        rotation_center_orig = np.array([0, 0])  # Rotation center at origin
-        rotation_center_scene = to_scene_coords(rotation_center_orig)
-        follower_scene = to_scene_coords(follower_pos_orig)
-        cam_center_scene = to_scene_coords(initial_cam_center)
+        
+        # Debug: Check scene transformation
+        if cam_polygon_points:
+            scene_x_vals = [p.x() for p in cam_polygon_points]
+            scene_y_vals = [p.y() for p in cam_polygon_points]
+            print(f"[CAM DEBUG] Scene X range: {min(scene_x_vals):.1f} to {max(scene_x_vals):.1f}")
+            print(f"[CAM DEBUG] Scene Y range: {min(scene_y_vals):.1f} to {max(scene_y_vals):.1f}")
+            print(f"[CAM DEBUG] Cam center scene: ({cam_center_scene.x():.1f}, {cam_center_scene.y():.1f})")
+        else:
+            print("[CAM DEBUG] ERROR: No cam polygon points generated!")
 
         visual_items = []
 
         # Create egg-shaped cam
         cam_color = QColor("#4682b4")  # SteelBlue
 
-        # Create polygon item for egg-shaped cam
+        # Create polygon item for egg-shaped cam with enhanced visibility
         cam_body = QGraphicsPolygonItem(cam_polygon)
-        cam_body.setPen(QPen(cam_color, 4))
-        cam_body.setBrush(QBrush(cam_color.lighter(130)))
+        cam_body.setPen(QPen(cam_color, 6))  # Thicker border
+        cam_body.setBrush(QBrush(cam_color.lighter(150)))  # Lighter fill
         cam_body.setZValue(15)  # Above parts (Z_PART_DEFAULT = 10)
-        cam_body.setOpacity(0.7)
+        cam_body.setOpacity(1.0)  # Full opacity for visibility
         self.mechanism_scene.addItem(cam_body)
         visual_items.append(cam_body)
+        
+        print(f"[CAM DEBUG] Added cam body to scene with {len(cam_polygon_points)} points")
 
         # 데이터셋과 동일한 팔로워 생성 (직사각형)
         follower_color = QColor("#ff7f50")
@@ -6440,10 +6565,11 @@ class MechanismDesignTab(QWidget):
                 logging.info(f"[PARAMETRIC] ✅ Generated {len(joint_positions['p1_positions'])} frames for 6-bar linkage")
 
             elif mech_type == "cam":
-                # Generate cam mechanism data
+                # Generate cam mechanism data with correct physics
                 num_frames = 100
                 base_radius = params.get("base_radius", 25.0)
                 eccentricity = params.get("eccentricity", 10.0)
+                rod_length = params.get("follower_rod_length", 40.0)
 
                 # Update from key_points if available
                 key_points = layer_data.get("key_points", {})
@@ -6458,15 +6584,21 @@ class MechanismDesignTab(QWidget):
                 }
 
                 for i in range(num_frames):
+                    # Cam rotates in place at cam_center_base
                     angle = (i / num_frames) * 2 * np.pi
-                    cam_offset = np.array([eccentricity, 0])
-                    rotation_matrix = np.array([
-                        [np.cos(angle), -np.sin(angle)],
-                        [np.sin(angle), np.cos(angle)]
-                    ])
-                    current_cam_center = cam_center_base + rotation_matrix @ cam_offset
-                    follower_y = current_cam_center[1] + base_radius
-
+                    
+                    # Calculate cam radius at this rotation angle using our corrected egg shape
+                    # Proper cam profile: lift when convex part is at bottom (pushes follower up)
+                    lift = eccentricity * (1 + np.cos(angle + np.pi/2)) / 2  # Shifted for proper phase
+                    cam_radius_at_angle = base_radius + lift
+                    
+                    # Cam center stays fixed (cam rotates in place)
+                    current_cam_center = cam_center_base
+                    
+                    # Follower rides on top of cam at the contact point
+                    # The follower's Y position is cam center Y + cam radius + rod length offset
+                    follower_y = current_cam_center[1] - cam_radius_at_angle - rod_length
+                    
                     cam_data["cam_centers"].append(current_cam_center.tolist())
                     cam_data["follower_y_positions"].append(follower_y)
 

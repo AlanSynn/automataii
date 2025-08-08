@@ -58,36 +58,38 @@ class Cam(BaseMechanism):
         max_dist_to_center = 0.0
 
         if base_radius_override is not None:
-            # Generate a simple eccentric cam for preview or default
-            # For simplicity, let's make it a circle offset from cam_center
-            # This part is more for placeholder/preview generation
-            eccentricity = base_radius_override * 0.4  # Example eccentricity
-            actual_cam_radius = base_radius_override - eccentricity
-
-            # Cam profile is a circle of actual_cam_radius, whose center is offset by eccentricity
-            # For the QPainterPath returned (if not dict), it should be relative to cam_center_scene (0,0) effectively
-            # So, the path is drawn at (eccentricity, 0) rotated if angle, then addEllipse...
-            # This needs to be thought through more carefully if this function is the sole source of this shape.
-            # For now, let's assume the preview data for cam includes specific base_radius, eccentric_radius, angle.
-            # This function, if base_radius_override is used, will create a simple circular cam for that base radius.
-            cam_profile_path.addEllipse(
-                QRectF(
-                    -base_radius_override,
-                    -base_radius_override,
-                    base_radius_override * 2,
-                    base_radius_override * 2,
-                )
-            )
-            min_dist_to_center = base_radius_override
-            max_dist_to_center = base_radius_override
-            # Add points for dict if needed
+            # Generate a proper egg-shaped cam for preview/default with correct physics
+            # The cam should have high points that push the follower UP and low points that let it fall DOWN
+            base_radius = base_radius_override
+            lift_amount = base_radius * 0.4  # 40% lift variation
+            
+            # Create proper cam profile: higher radius at bottom pushes follower up
+            # Using a sinusoidal lift profile for smooth motion
             for i in range(num_samples):
-                angle = 2 * math.pi * i / num_samples
+                theta = 2 * math.pi * i / num_samples
+                
+                # Lift profile: maximum lift when cam's high point is at bottom (theta=3π/2)
+                # This creates the physics where cam pushes follower UP when convex part is below
+                lift = lift_amount * (1 + math.cos(theta + math.pi/2)) / 2  # Shifted cosine for proper phase
+                cam_radius = base_radius + lift
+                
+                # Generate cam profile point
                 pt = QPointF(
-                    base_radius_override * math.cos(angle),
-                    base_radius_override * math.sin(angle),
+                    cam_radius * math.cos(theta),
+                    cam_radius * math.sin(theta),
                 )
+                
+                if i == 0:
+                    cam_profile_path.moveTo(pt)
+                else:
+                    cam_profile_path.lineTo(pt)
+                    
                 cam_profile_points_world.append(pt + cam_center_scene)
+                
+                min_dist_to_center = min(min_dist_to_center, cam_radius)
+                max_dist_to_center = max(max_dist_to_center, cam_radius)
+
+            cam_profile_path.closeSubpath()
 
         elif follower_path_points:
             # Actual cam generation from follower path
@@ -200,22 +202,23 @@ class Cam(BaseMechanism):
             return {
                 "type": "Cam & Follower",
                 "cam_center_scene": [cam_center_scene.x(), cam_center_scene.y()],
-                "profile_path_qt": cam_profile_path,  # This is the PITCH CURVE relative to (0,0)
+                "profile_path_qt": cam_profile_path,  # This is the CAM PROFILE relative to (0,0)
                 "profile_points_world": [
                     [p.x(), p.y()] for p in cam_profile_points_world
-                ],  # Pitch curve points in world coords
+                ],  # Cam profile points in world coords
                 "follower_radius": follower_radius,
                 "base_radius": preview_base_radius,  # Effective base radius for preview
-                "eccentric_radius": preview_eccentric_radius,  # Effective eccentricity for preview
-                "angle_offset_rad": math.pi / 4,  # Placeholder for preview angle
-                "min_dist_pitch_curve_to_center": (
-                    min_dist_to_center if min_dist_to_center != float("inf") else 0
+                "eccentricity": preview_eccentric_radius,  # Effective eccentricity for preview
+                "lift_amount": preview_eccentric_radius,  # Added lift amount for physics
+                "angle_offset_rad": 0,  # Start with no offset for proper orientation
+                "min_radius": (
+                    min_dist_to_center if min_dist_to_center != float("inf") else preview_base_radius
                 ),
-                "max_dist_pitch_curve_to_center": max_dist_to_center,
+                "max_radius": max_dist_to_center if max_dist_to_center > 0 else preview_base_radius + preview_eccentric_radius,
                 "description": (
-                    "Generated from follower path"
-                    if follower_path_points
-                    else "Default eccentric cam"
+                    "Generated cam with proper lift profile"
+                    if base_radius_override is not None
+                    else "Generated from follower path"
                 ),
             }
         else:

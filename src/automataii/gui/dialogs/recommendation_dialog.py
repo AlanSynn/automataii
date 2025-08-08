@@ -368,12 +368,15 @@ class MechanismPreviewWidget(QGraphicsView):
 
         to_screen_coords = lambda p: to_screen_coords_func(p, transform)
 
-        # Create egg-shaped cam profile centered at cam_center
+        # Create proper egg-shaped cam profile centered at cam_center
+        # Physics: cam's high points push follower UP, low points let it fall DOWN
         cam_path = QPainterPath()
         for i in range(101):
             theta = 2 * np.pi * i / 100
-            # Egg: r = base_radius + eccentricity * cos(theta)
-            effective_radius = base_radius + eccentricity * np.cos(theta)
+            # Proper cam profile: lift when convex part is at bottom (pushes follower up)
+            # Using sinusoidal lift profile shifted for correct physics
+            lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2  # Shifted for proper phase
+            effective_radius = base_radius + lift
 
             p_orig = cam_center + effective_radius * np.array([np.cos(theta), np.sin(theta)])
             p_screen = to_screen_coords(p_orig)
@@ -394,7 +397,9 @@ class MechanismPreviewWidget(QGraphicsView):
         cam_path_adjusted = QPainterPath()
         for i in range(101):
             theta = 2 * np.pi * i / 100
-            effective_radius = base_radius + eccentricity * np.cos(theta)
+            # Use same proper cam profile with correct physics
+            lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2  # Shifted for proper phase
+            effective_radius = base_radius + lift
             p_orig = cam_center_adjusted + effective_radius * np.array([np.cos(theta), np.sin(theta)])
             p_screen = to_screen_coords(p_orig)
             if i == 0:
@@ -1046,11 +1051,13 @@ class MechanismRecommendationDialog(QDialog):
                     cam_center_orig = np.array([eccentricity, 0])
                     all_points.append(np.array([[0, 0]]))
 
-                # Create egg-shaped cam profile instead of circle
+                # Create proper egg-shaped cam profile with correct physics
                 thetas = np.linspace(0, 2 * np.pi, 40)  # More points for smoother egg shape
 
-                # Egg shape formula: r = base_radius + eccentricity * cos(theta)
-                radii = base_radius + eccentricity * np.cos(thetas)
+                # Proper cam profile: lift when convex part is at bottom (pushes follower up)
+                # Using sinusoidal lift profile shifted for correct physics
+                lift = eccentricity * (1 + np.cos(thetas + np.pi/2)) / 2  # Shifted for proper phase
+                radii = base_radius + lift
 
                 # Convert to Cartesian coordinates
                 cam_points_x = cam_center_orig[0] + radii * np.cos(thetas)
