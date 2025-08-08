@@ -3762,6 +3762,228 @@ class MechanismDesignTab(QWidget):
 
         return visual_items
 
+    def _create_5bar_linkage_visuals(self, mechanism_data: dict) -> list:
+        """Create visual representation for 5-bar linkage mechanism."""
+        visual_items = []
+        
+        try:
+            params = mechanism_data.get("params", {})
+            to_scene_coords = self._get_scene_transform_function(mechanism_data)
+            
+            if not to_scene_coords:
+                logging.warning("[5BAR] No scene transform available")
+                return visual_items
+            
+            # Get ground pivots
+            p1 = np.array(params.get("ground_pivot_1", [0, 0]))
+            p2 = np.array(params.get("ground_pivot_2", [100, 0]))
+            
+            # Get initial joint positions from simulation data or calculate
+            full_sim_data = mechanism_data.get("full_simulation_data", {})
+            joint_positions = full_sim_data.get("joint_positions", {})
+            
+            if joint_positions and "p3_positions" in joint_positions:
+                # Use first frame positions
+                p3 = np.array(joint_positions["p3_positions"][0])
+                p4 = np.array(joint_positions["p4_positions"][0])
+                p5 = np.array(joint_positions["p5_positions"][0])
+            else:
+                # Calculate initial positions
+                L2 = params.get("L2", 40)
+                L3 = params.get("L3", 50)
+                L4 = params.get("L4", 45)
+                L5 = params.get("L5", 55)
+                
+                p3 = p1 + np.array([L2, 0])
+                p4 = p3 + np.array([L3 * 0.7, L3 * 0.7])
+                p5 = p2 + np.array([-L5 * 0.5, L5 * 0.866])
+            
+            # Transform to scene coordinates
+            p1_scene = to_scene_coords(p1)
+            p2_scene = to_scene_coords(p2)
+            p3_scene = to_scene_coords(p3)
+            p4_scene = to_scene_coords(p4)
+            p5_scene = to_scene_coords(p5)
+            
+            # Create links
+            pen = QPen(QColor(100, 100, 200), 3)
+            
+            # Input link (p1 to p3)
+            input_link = QGraphicsLineItem(QLineF(p1_scene, p3_scene))
+            input_link.setPen(pen)
+            self.mechanism_scene.addItem(input_link)
+            visual_items.append(input_link)
+            
+            # Coupler 1 (p3 to p4)
+            coupler1 = QGraphicsLineItem(QLineF(p3_scene, p4_scene))
+            coupler1.setPen(pen)
+            self.mechanism_scene.addItem(coupler1)
+            visual_items.append(coupler1)
+            
+            # Coupler 2 (p4 to p5)
+            coupler2 = QGraphicsLineItem(QLineF(p4_scene, p5_scene))
+            coupler2.setPen(pen)
+            self.mechanism_scene.addItem(coupler2)
+            visual_items.append(coupler2)
+            
+            # Output link (p5 to p2)
+            output_link = QGraphicsLineItem(QLineF(p5_scene, p2_scene))
+            output_link.setPen(pen)
+            self.mechanism_scene.addItem(output_link)
+            visual_items.append(output_link)
+            
+            # Ground link
+            ground_pen = QPen(QColor(50, 50, 50), 4)
+            ground_link = QGraphicsLineItem(QLineF(p1_scene, p2_scene))
+            ground_link.setPen(ground_pen)
+            self.mechanism_scene.addItem(ground_link)
+            visual_items.append(ground_link)
+            
+            # Add pivot markers
+            pivot_brush = QBrush(QColor(150, 150, 255))
+            ground_pivot_brush = QBrush(QColor(80, 80, 80))
+            
+            # Ground pivots
+            for pos in [p1_scene, p2_scene]:
+                pivot = QGraphicsEllipseItem(pos.x() - 8, pos.y() - 8, 16, 16)
+                pivot.setBrush(ground_pivot_brush)
+                pivot.setPen(QPen(Qt.GlobalColor.black, 2))
+                self.mechanism_scene.addItem(pivot)
+                visual_items.append(pivot)
+            
+            # Moving joints
+            for pos in [p3_scene, p4_scene, p5_scene]:
+                pivot = QGraphicsEllipseItem(pos.x() - 6, pos.y() - 6, 12, 12)
+                pivot.setBrush(pivot_brush)
+                pivot.setPen(QPen(Qt.GlobalColor.black, 1))
+                self.mechanism_scene.addItem(pivot)
+                visual_items.append(pivot)
+            
+            logging.info(f"[5BAR] Created {len(visual_items)} visual items")
+            
+        except Exception as e:
+            logging.error(f"[5BAR] Failed to create visuals: {e}")
+        
+        return visual_items
+    
+    def _create_6bar_linkage_visuals(self, mechanism_data: dict) -> list:
+        """Create visual representation for 6-bar linkage mechanism (Stephenson Type I)."""
+        visual_items = []
+        
+        try:
+            params = mechanism_data.get("params", {})
+            to_scene_coords = self._get_scene_transform_function(mechanism_data)
+            
+            if not to_scene_coords:
+                logging.warning("[6BAR] No scene transform available")
+                return visual_items
+            
+            # Get ground pivots
+            p1 = np.array(params.get("ground_pivot_1", [0, 0]))
+            p2 = np.array(params.get("ground_pivot_2", [100, 0]))
+            p6 = np.array(params.get("ground_pivot_3", [50, -30]))
+            
+            # Get initial joint positions from simulation data or calculate
+            full_sim_data = mechanism_data.get("full_simulation_data", {})
+            joint_positions = full_sim_data.get("joint_positions", {})
+            
+            if joint_positions and "p3_positions" in joint_positions:
+                # Use first frame positions
+                p3 = np.array(joint_positions["p3_positions"][0])
+                p4 = np.array(joint_positions["p4_positions"][0])
+                p5 = np.array(joint_positions["p5_positions"][0])
+            else:
+                # Calculate initial positions
+                L2 = params.get("L2", 40)
+                L3 = params.get("L3", 60)
+                L4 = params.get("L4", 50)
+                L5 = params.get("L5", 45)
+                
+                p3 = p1 + np.array([L2, 0])
+                p4 = p2 + np.array([-L4 * 0.5, L4 * 0.866])
+                p5 = p6 + np.array([L5 * 0.7, L5 * 0.7])
+            
+            # Transform to scene coordinates
+            p1_scene = to_scene_coords(p1)
+            p2_scene = to_scene_coords(p2)
+            p3_scene = to_scene_coords(p3)
+            p4_scene = to_scene_coords(p4)
+            p5_scene = to_scene_coords(p5)
+            p6_scene = to_scene_coords(p6)
+            
+            # Create links
+            pen = QPen(QColor(150, 100, 200), 3)
+            
+            # Input link (p1 to p3)
+            input_link = QGraphicsLineItem(QLineF(p1_scene, p3_scene))
+            input_link.setPen(pen)
+            self.mechanism_scene.addItem(input_link)
+            visual_items.append(input_link)
+            
+            # Coupler (p3 to p4)
+            coupler = QGraphicsLineItem(QLineF(p3_scene, p4_scene))
+            coupler.setPen(pen)
+            self.mechanism_scene.addItem(coupler)
+            visual_items.append(coupler)
+            
+            # Rocker (p4 to p2)
+            rocker = QGraphicsLineItem(QLineF(p4_scene, p2_scene))
+            rocker.setPen(pen)
+            self.mechanism_scene.addItem(rocker)
+            visual_items.append(rocker)
+            
+            # Ternary link (p4 to p5)
+            ternary = QGraphicsLineItem(QLineF(p4_scene, p5_scene))
+            ternary.setPen(QPen(QColor(200, 150, 100), 3))
+            self.mechanism_scene.addItem(ternary)
+            visual_items.append(ternary)
+            
+            # Output link (p5 to p6)
+            output_link = QGraphicsLineItem(QLineF(p5_scene, p6_scene))
+            output_link.setPen(pen)
+            self.mechanism_scene.addItem(output_link)
+            visual_items.append(output_link)
+            
+            # Ground links
+            ground_pen = QPen(QColor(50, 50, 50), 4)
+            
+            ground1 = QGraphicsLineItem(QLineF(p1_scene, p2_scene))
+            ground1.setPen(ground_pen)
+            self.mechanism_scene.addItem(ground1)
+            visual_items.append(ground1)
+            
+            ground2 = QGraphicsLineItem(QLineF(p2_scene, p6_scene))
+            ground2.setPen(QPen(QColor(50, 50, 50), 2, Qt.PenStyle.DashLine))
+            self.mechanism_scene.addItem(ground2)
+            visual_items.append(ground2)
+            
+            # Add pivot markers
+            pivot_brush = QBrush(QColor(150, 150, 255))
+            ground_pivot_brush = QBrush(QColor(80, 80, 80))
+            
+            # Ground pivots
+            for pos in [p1_scene, p2_scene, p6_scene]:
+                pivot = QGraphicsEllipseItem(pos.x() - 8, pos.y() - 8, 16, 16)
+                pivot.setBrush(ground_pivot_brush)
+                pivot.setPen(QPen(Qt.GlobalColor.black, 2))
+                self.mechanism_scene.addItem(pivot)
+                visual_items.append(pivot)
+            
+            # Moving joints
+            for pos in [p3_scene, p4_scene, p5_scene]:
+                pivot = QGraphicsEllipseItem(pos.x() - 6, pos.y() - 6, 12, 12)
+                pivot.setBrush(pivot_brush)
+                pivot.setPen(QPen(Qt.GlobalColor.black, 1))
+                self.mechanism_scene.addItem(pivot)
+                visual_items.append(pivot)
+            
+            logging.info(f"[6BAR] Created {len(visual_items)} visual items")
+            
+        except Exception as e:
+            logging.error(f"[6BAR] Failed to create visuals: {e}")
+        
+        return visual_items
+
     def _reset_skeleton_to_initial_state(self):
         """Reset skeleton to initial state (addresses issues #9, #10, #11)."""
         logging.info("[MECHANISM TAB] === SKELETON RESET STARTED ===")
@@ -5960,12 +6182,187 @@ class MechanismDesignTab(QWidget):
                 }
                 
                 logging.info(f"[PARAMETRIC] ✅ Generated {len(joint_positions['p1_positions'])} frames for 4-bar linkage")
+            
+            elif mech_type == "5_bar_linkage":
+                # Generate new simulation data for 5-bar linkage
+                num_frames = 100
+                joint_positions = {
+                    "p1_positions": [],
+                    "p2_positions": [],
+                    "p3_positions": [],
+                    "p4_positions": [],
+                    "p5_positions": []
+                }
+                
+                # Get updated positions from key_points
+                key_points = layer_data.get("key_points", {})
+                p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
+                p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
+                
+                # Calculate link lengths from key points
+                if "joint_3" in key_points and "joint_4" in key_points and "joint_5" in key_points:
+                    p3 = np.array(key_points["joint_3"])
+                    p4 = np.array(key_points["joint_4"])
+                    p5 = np.array(key_points["joint_5"])
+                    
+                    L2 = np.linalg.norm(p3 - p1)  # Input link
+                    L3 = np.linalg.norm(p4 - p3)  # Coupler 1
+                    L4 = np.linalg.norm(p5 - p4)  # Coupler 2
+                    L5 = np.linalg.norm(p5 - p2)  # Output link
+                    
+                    params["L2"] = float(L2)
+                    params["L3"] = float(L3)
+                    params["L4"] = float(L4)
+                    params["L5"] = float(L5)
+                else:
+                    L2 = params.get("L2", 40)
+                    L3 = params.get("L3", 50)
+                    L4 = params.get("L4", 45)
+                    L5 = params.get("L5", 55)
+                
+                for i in range(num_frames):
+                    theta = (i / num_frames) * 2 * np.pi
+                    
+                    # Calculate positions for 5-bar linkage
+                    p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
+                    
+                    # Simplified 5-bar kinematics - use approximate positions
+                    p4 = p3 + L3 * np.array([np.cos(theta + 0.5), np.sin(theta + 0.5)])
+                    p5 = self._solve_circle_intersection(p4, L4, p2, L5)
+                    
+                    if p5 is not None:
+                        joint_positions["p1_positions"].append(p1.tolist())
+                        joint_positions["p2_positions"].append(p2.tolist())
+                        joint_positions["p3_positions"].append(p3.tolist())
+                        joint_positions["p4_positions"].append(p4.tolist())
+                        joint_positions["p5_positions"].append(p5.tolist())
+                
+                layer_data["full_simulation_data"] = {
+                    "joint_positions": joint_positions
+                }
+                
+                logging.info(f"[PARAMETRIC] ✅ Generated {len(joint_positions['p1_positions'])} frames for 5-bar linkage")
+            
+            elif mech_type == "6_bar_linkage":
+                # Generate new simulation data for 6-bar linkage (Stephenson Type I)
+                num_frames = 100
+                joint_positions = {
+                    "p1_positions": [],
+                    "p2_positions": [],
+                    "p3_positions": [],
+                    "p4_positions": [],
+                    "p5_positions": [],
+                    "p6_positions": []
+                }
+                
+                # Get updated positions from key_points
+                key_points = layer_data.get("key_points", {})
+                p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
+                p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
+                p6 = np.array(key_points.get("ground_pivot_3", [50, -30]))
+                
+                # Calculate link lengths
+                if all(k in key_points for k in ["joint_3", "joint_4", "joint_5"]):
+                    p3 = np.array(key_points["joint_3"])
+                    p4 = np.array(key_points["joint_4"])
+                    p5 = np.array(key_points["joint_5"])
+                    
+                    L2 = np.linalg.norm(p3 - p1)
+                    L3 = np.linalg.norm(p4 - p3)
+                    L4 = np.linalg.norm(p4 - p2)
+                    L5 = np.linalg.norm(p5 - p4)
+                    L6 = np.linalg.norm(p5 - p6)
+                    
+                    params.update({
+                        "L2": float(L2), "L3": float(L3), "L4": float(L4),
+                        "L5": float(L5), "L6": float(L6)
+                    })
+                else:
+                    L2 = params.get("L2", 40)
+                    L3 = params.get("L3", 60)
+                    L4 = params.get("L4", 50)
+                    L5 = params.get("L5", 45)
+                    L6 = params.get("L6", 55)
+                
+                for i in range(num_frames):
+                    theta = (i / num_frames) * 2 * np.pi
+                    
+                    # Calculate positions for 6-bar linkage
+                    p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
+                    p4 = self._solve_circle_intersection(p3, L3, p2, L4)
+                    
+                    if p4 is not None:
+                        p5 = self._solve_circle_intersection(p4, L5, p6, L6)
+                        if p5 is not None:
+                            joint_positions["p1_positions"].append(p1.tolist())
+                            joint_positions["p2_positions"].append(p2.tolist())
+                            joint_positions["p3_positions"].append(p3.tolist())
+                            joint_positions["p4_positions"].append(p4.tolist())
+                            joint_positions["p5_positions"].append(p5.tolist())
+                            joint_positions["p6_positions"].append(p6.tolist())
+                
+                layer_data["full_simulation_data"] = {
+                    "joint_positions": joint_positions
+                }
+                
+                logging.info(f"[PARAMETRIC] ✅ Generated {len(joint_positions['p1_positions'])} frames for 6-bar linkage")
+                
+            elif mech_type == "cam":
+                # Generate cam mechanism data
+                num_frames = 100
+                base_radius = params.get("base_radius", 25.0)
+                eccentricity = params.get("eccentricity", 10.0)
+                
+                # Update from key_points if available
+                key_points = layer_data.get("key_points", {})
+                if "cam_center" in key_points:
+                    cam_center_base = np.array(key_points["cam_center"])
+                else:
+                    cam_center_base = np.array([0, 0])
+                
+                cam_data = {
+                    "cam_centers": [],
+                    "follower_y_positions": []
+                }
+                
+                for i in range(num_frames):
+                    angle = (i / num_frames) * 2 * np.pi
+                    cam_offset = np.array([eccentricity, 0])
+                    rotation_matrix = np.array([
+                        [np.cos(angle), -np.sin(angle)],
+                        [np.sin(angle), np.cos(angle)]
+                    ])
+                    current_cam_center = cam_center_base + rotation_matrix @ cam_offset
+                    follower_y = current_cam_center[1] + base_radius
+                    
+                    cam_data["cam_centers"].append(current_cam_center.tolist())
+                    cam_data["follower_y_positions"].append(follower_y)
+                
+                layer_data["full_simulation_data"] = {
+                    "cam_data": cam_data
+                }
+                
+                logging.info(f"[PARAMETRIC] ✅ Generated cam mechanism data")
                 
             elif mech_type == "gear":
                 # Generate gear rotation data
                 num_frames = 100
                 r1 = params.get("r1", 30)
                 r2 = params.get("r2", 50)
+                
+                # Update gear positions from key_points if available
+                key_points = layer_data.get("key_points", {})
+                if "gear1_center" in key_points and "gear2_center" in key_points:
+                    g1 = np.array(key_points["gear1_center"])
+                    g2 = np.array(key_points["gear2_center"])
+                    distance = np.linalg.norm(g2 - g1)
+                    
+                    # Maintain gear ratio but adjust sizes to fit distance
+                    ratio = r2 / r1
+                    r1 = distance / (1 + ratio)
+                    r2 = r1 * ratio
+                    params["r1"] = float(r1)
+                    params["r2"] = float(r2)
                 
                 gear_data = {
                     "gear1_angles": [],
@@ -5984,6 +6381,49 @@ class MechanismDesignTab(QWidget):
                 }
                 
                 logging.info(f"[PARAMETRIC] ✅ Generated gear rotation data")
+                
+            elif mech_type == "planetary_gear":
+                # Generate planetary gear data
+                num_frames = 100
+                r_sun = params.get("r_sun", 20)
+                r_planet = params.get("r_planet", 30)
+                arm_length = params.get("arm_length", 15)
+                
+                # Update from key_points if available
+                key_points = layer_data.get("key_points", {})
+                if "sun_center" in key_points:
+                    sun_center_base = np.array(key_points["sun_center"])
+                else:
+                    sun_center_base = np.array([0, 0])
+                
+                gear_positions = {
+                    "sun_centers": [],
+                    "planet_centers": [],
+                    "tracking_points": []
+                }
+                
+                for i in range(num_frames):
+                    angle = (i / num_frames) * 2 * np.pi
+                    planet_orbital_angle = angle
+                    planet_rotation_angle = -angle * (r_sun / r_planet)
+                    
+                    sun_center = sun_center_base
+                    planet_center = sun_center + (r_sun + r_planet) * np.array([
+                        np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)
+                    ])
+                    tracking_point = planet_center + arm_length * np.array([
+                        np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)
+                    ])
+                    
+                    gear_positions["sun_centers"].append(sun_center.tolist())
+                    gear_positions["planet_centers"].append(planet_center.tolist())
+                    gear_positions["tracking_points"].append(tracking_point.tolist())
+                
+                layer_data["full_simulation_data"] = {
+                    "gear_positions": gear_positions
+                }
+                
+                logging.info(f"[PARAMETRIC] ✅ Generated planetary gear data")
                 
         except Exception as e:
             logging.error(f"[PARAMETRIC] ❌ Failed to regenerate simulation: {e}")
@@ -6046,6 +6486,10 @@ class MechanismDesignTab(QWidget):
             visual_items = []
             if mech_type == "4_bar_linkage":
                 visual_items.extend(self._create_4bar_linkage_visuals(mechanism_graphics_data))
+            elif mech_type == "5_bar_linkage":
+                visual_items.extend(self._create_5bar_linkage_visuals(mechanism_graphics_data))
+            elif mech_type == "6_bar_linkage":
+                visual_items.extend(self._create_6bar_linkage_visuals(mechanism_graphics_data))
             elif mech_type == "cam":
                 visual_items.extend(self._create_cam_visuals(mechanism_graphics_data))
             elif mech_type == "gear":
@@ -6056,7 +6500,7 @@ class MechanismDesignTab(QWidget):
             # Store new visual items
             layer_data["visual_items"] = visual_items
             
-            logging.info(f"[PARAMETRIC] ✅ Created {len(visual_items)} new visual items")
+            logging.info(f"[PARAMETRIC] ✅ Created {len(visual_items)} new visual items for {mech_type}")
             
         except Exception as e:
             logging.error(f"[PARAMETRIC] ❌ Failed to recreate visuals: {e}")
@@ -6606,8 +7050,11 @@ class MechanismDesignTab(QWidget):
                     
                     logging.info(f"[PARAMETRIC] ✅ Updated {anchor_name}: {old_pos} -> [{key_points[anchor_name][0]:.1f}, {key_points[anchor_name][1]:.1f}]")
 
+                    mech_type = layer_data.get("type")
+                    params = layer_data.get("params", {})
+                    
                     # Update mechanism parameters based on new key points
-                    if layer_data.get("type") == "4_bar_linkage":
+                    if mech_type == "4_bar_linkage":
                         # Update the 4-bar linkage parameters from key points
                         if all(k in key_points for k in ["ground_pivot_1", "ground_pivot_2", "crank_end", "rocker_end"]):
                             p1 = np.array(key_points["ground_pivot_1"])
@@ -6622,7 +7069,6 @@ class MechanismDesignTab(QWidget):
                             L4 = np.linalg.norm(p4 - p2)  # Rocker
                             
                             # Update parameters
-                            params = layer_data.get("params", {})
                             params["L1"] = float(L1)
                             params["L2"] = float(L2)
                             params["L3"] = float(L3)
@@ -6633,29 +7079,101 @@ class MechanismDesignTab(QWidget):
                             params["ground_pivot_2"] = key_points["ground_pivot_2"]
                             
                             logging.info(f"[PARAMETRIC] 📐 Updated 4-bar parameters: L1={L1:.1f}, L2={L2:.1f}, L3={L3:.1f}, L4={L4:.1f}")
+                    
+                    elif mech_type == "5_bar_linkage":
+                        # Update 5-bar linkage parameters from key points
+                        if all(k in key_points for k in ["ground_pivot_1", "ground_pivot_2"]):
+                            p1 = np.array(key_points["ground_pivot_1"])
+                            p2 = np.array(key_points["ground_pivot_2"])
+                            params["ground_pivot_1"] = key_points["ground_pivot_1"]
+                            params["ground_pivot_2"] = key_points["ground_pivot_2"]
                             
-                            # Regenerate simulation data for the new configuration
-                            self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+                            # Update link lengths if intermediate joints are available
+                            if all(k in key_points for k in ["joint_3", "joint_4", "joint_5"]):
+                                p3 = np.array(key_points["joint_3"])
+                                p4 = np.array(key_points["joint_4"])
+                                p5 = np.array(key_points["joint_5"])
+                                
+                                params["L2"] = float(np.linalg.norm(p3 - p1))  # Input link
+                                params["L3"] = float(np.linalg.norm(p4 - p3))  # Coupler 1
+                                params["L4"] = float(np.linalg.norm(p5 - p4))  # Coupler 2
+                                params["L5"] = float(np.linalg.norm(p5 - p2))  # Output link
+                                
+                                logging.info(f"[PARAMETRIC] 📐 Updated 5-bar parameters: L2-L5={params['L2']:.1f},{params['L3']:.1f},{params['L4']:.1f},{params['L5']:.1f}")
                     
-                    elif layer_data.get("type") in ["5_bar_linkage", "6_bar_linkage"]:
-                        # Similar updates for other linkage types
-                        self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+                    elif mech_type == "6_bar_linkage":
+                        # Update 6-bar linkage parameters from key points
+                        if all(k in key_points for k in ["ground_pivot_1", "ground_pivot_2", "ground_pivot_3"]):
+                            p1 = np.array(key_points["ground_pivot_1"])
+                            p2 = np.array(key_points["ground_pivot_2"])
+                            p6 = np.array(key_points["ground_pivot_3"])
+                            
+                            params["ground_pivot_1"] = key_points["ground_pivot_1"]
+                            params["ground_pivot_2"] = key_points["ground_pivot_2"]
+                            params["ground_pivot_3"] = key_points["ground_pivot_3"]
+                            
+                            # Update link lengths if intermediate joints are available
+                            if all(k in key_points for k in ["joint_3", "joint_4", "joint_5"]):
+                                p3 = np.array(key_points["joint_3"])
+                                p4 = np.array(key_points["joint_4"])
+                                p5 = np.array(key_points["joint_5"])
+                                
+                                params["L2"] = float(np.linalg.norm(p3 - p1))
+                                params["L3"] = float(np.linalg.norm(p4 - p3))
+                                params["L4"] = float(np.linalg.norm(p4 - p2))
+                                params["L5"] = float(np.linalg.norm(p5 - p4))
+                                params["L6"] = float(np.linalg.norm(p5 - p6))
+                                
+                                logging.info(f"[PARAMETRIC] 📐 Updated 6-bar parameters")
                     
-                    elif layer_data.get("type") == "gear":
+                    elif mech_type == "cam":
+                        # Update cam mechanism parameters
+                        if "cam_center" in key_points:
+                            cam_center = np.array(key_points["cam_center"])
+                            params["cam_center"] = key_points["cam_center"]
+                            
+                            # If follower position is also in key_points, update eccentricity
+                            if "follower_base" in key_points:
+                                follower = np.array(key_points["follower_base"])
+                                distance = np.linalg.norm(follower - cam_center)
+                                params["base_radius"] = max(10, distance - 20)  # Maintain minimum radius
+                                
+                                logging.info(f"[PARAMETRIC] 📐 Updated cam parameters: radius={params['base_radius']:.1f}")
+                    
+                    elif mech_type == "gear":
                         # Update gear positions and radii if needed
                         if "gear1_center" in key_points and "gear2_center" in key_points:
                             g1 = np.array(key_points["gear1_center"])
                             g2 = np.array(key_points["gear2_center"])
                             distance = np.linalg.norm(g2 - g1)
                             
-                            params = layer_data.get("params", {})
                             # Maintain gear ratio but adjust sizes to fit distance
                             ratio = params.get("r2", 50) / params.get("r1", 30)
                             params["r1"] = distance / (1 + ratio)
                             params["r2"] = params["r1"] * ratio
                             
                             logging.info(f"[PARAMETRIC] ⚙️ Updated gear radii: r1={params['r1']:.1f}, r2={params['r2']:.1f}")
-                            self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+                    
+                    elif mech_type == "planetary_gear":
+                        # Update planetary gear parameters
+                        if "sun_center" in key_points:
+                            sun_center = np.array(key_points["sun_center"])
+                            params["sun_center"] = key_points["sun_center"]
+                            
+                            # If planet position is also in key_points, update radii
+                            if "planet_center" in key_points:
+                                planet = np.array(key_points["planet_center"])
+                                orbital_radius = np.linalg.norm(planet - sun_center)
+                                
+                                # Maintain ratio but adjust sizes
+                                ratio = params.get("r_planet", 30) / params.get("r_sun", 20)
+                                params["r_sun"] = orbital_radius / (1 + ratio)
+                                params["r_planet"] = params["r_sun"] * ratio
+                                
+                                logging.info(f"[PARAMETRIC] ⚙️ Updated planetary gear: r_sun={params['r_sun']:.1f}, r_planet={params['r_planet']:.1f}")
+                    
+                    # Regenerate simulation data for the new configuration
+                    self._regenerate_mechanism_simulation(mechanism_id, layer_data)
                     
                     # Recreate the visual items with new configuration
                     self._recreate_mechanism_visuals(mechanism_id, layer_data)
@@ -6666,7 +7184,7 @@ class MechanismDesignTab(QWidget):
                     # Force view update
                     self.mechanism_view.update()
                     
-                    logging.info(f"[PARAMETRIC] ✅ Completed mechanism {mechanism_id} update and visual regeneration")
+                    logging.info(f"[PARAMETRIC] ✅ Completed {mech_type} mechanism {mechanism_id} update and visual regeneration")
                     break
 
             if not found_mechanism:
