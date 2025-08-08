@@ -1020,10 +1020,17 @@ class MechanismRecommendationDialog(QDialog):
                     cam_center_orig = np.array([eccentricity, 0])
                     all_points.append(np.array([[0, 0]]))
 
-                thetas = np.linspace(0, 2 * np.pi, 20)
-                cam_points = cam_center_orig + base_radius * np.array(
-                    [np.cos(thetas), np.sin(thetas)]
-                ).T
+                # Create egg-shaped cam profile instead of circle
+                thetas = np.linspace(0, 2 * np.pi, 40)  # More points for smoother egg shape
+                
+                # Egg shape formula: r = base_radius + eccentricity * cos(theta)
+                radii = base_radius + eccentricity * np.cos(thetas)
+                
+                # Convert to Cartesian coordinates  
+                cam_points_x = cam_center_orig[0] + radii * np.cos(thetas)
+                cam_points_y = cam_center_orig[1] + radii * np.sin(thetas)
+                
+                cam_points = np.column_stack([cam_points_x, cam_points_y])
                 all_points.append(cam_points)
 
         elif mech_type == "Gear Contact":
