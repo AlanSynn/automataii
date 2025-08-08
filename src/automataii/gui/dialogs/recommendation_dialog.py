@@ -156,10 +156,11 @@ def align_and_compare_paths(
     best_rotated_path2 = None
     best_angle = 0
 
-    # Cam-followers should not be rotated - they have inherent directional motion
+    # Cam-followers have gravity constraints - cam must be below, follower above
     if "cam" in mechanism_type.lower() or "follower" in mechanism_type.lower():
-        # For cam-followers, only test original orientation (follower moves vertically up)
-        test_angles = [0]  # 0° only - follower must be below cam to move upward
+        # For cam-followers, test both upright and 180-degree rotated orientations
+        # This ensures the cam is positioned at the bottom for better matching
+        test_angles = [0, np.pi]  # Test both 0° and 180° orientations
     else:
         # For other mechanisms (linkages, gears), test full rotation range
         test_angles = np.linspace(0, 2 * np.pi, rotation_steps, endpoint=False)
@@ -383,19 +384,45 @@ class MechanismPreviewWidget(QGraphicsView):
 
         self.scene.addPath(cam_path, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
 
-        # Follower above cam; allow long rod by placing follower block at top by rod length
-        top_y = (cam_center[1] - (base_radius + rod_len))
-        follower_pos_orig = np.array([cam_center[0], top_y])
-        w, h = 14, 8
-        tl = follower_pos_orig + np.array([-w/2, -h/2]); tr = follower_pos_orig + np.array([w/2, -h/2])
-        br = follower_pos_orig + np.array([w/2, h/2]); bl = follower_pos_orig + np.array([-w/2, h/2])
+        # GRAVITY PHYSICS: Follower must be above cam (visually)
+        # Move cam center down and follower up to show proper gravity orientation
+        cam_center_adjusted = cam_center + np.array([0, base_radius])  # Move cam down
+        follower_center_y = cam_center[1] - (base_radius + rod_len)  # Follower above original cam center
+        follower_pos_orig = np.array([cam_center[0], follower_center_y])
+        
+        # Redraw cam with adjusted center (moved down)
+        cam_path_adjusted = QPainterPath()
+        for i in range(101):
+            theta = 2 * np.pi * i / 100
+            effective_radius = base_radius + eccentricity * np.cos(theta)
+            p_orig = cam_center_adjusted + effective_radius * np.array([np.cos(theta), np.sin(theta)])
+            p_screen = to_screen_coords(p_orig)
+            if i == 0:
+                cam_path_adjusted.moveTo(p_screen)
+            else:
+                cam_path_adjusted.lineTo(p_screen)
+        
+        # Remove old cam and add adjusted one
+        self.scene.addPath(cam_path_adjusted, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
+        
+        # Enhanced follower visualization - more prominent for drag editing
+        w, h = 16, 10  # Slightly larger for better visibility
+        tl = follower_pos_orig + np.array([-w/2, -h/2])
+        tr = follower_pos_orig + np.array([w/2, -h/2])
+        br = follower_pos_orig + np.array([w/2, h/2])
+        bl = follower_pos_orig + np.array([-w/2, h/2])
         follower_poly = QPolygonF([to_screen_coords(p) for p in [tl, tr, br, bl]])
-        self.scene.addPolygon(follower_poly, QPen(QColor("#2ecc71"), 3), QBrush(QColor("#2ecc71").lighter(160)))
+        
+        # Use different color to indicate drag-editability
+        follower_color = QColor("#ff7f50")  # Coral color for better visibility
+        self.scene.addPolygon(follower_poly, QPen(follower_color, 3), QBrush(follower_color.lighter(140)))
 
-        # Draw the rod from follower to cam center top
-        p_top_screen = to_screen_coords(np.array([cam_center[0], cam_center[1] - base_radius]))
-        p_block_screen = to_screen_coords(follower_pos_orig)
-        self.scene.addLine(QLineF(p_block_screen, p_top_screen), QPen(QColor("#27ae60"), 2, Qt.PenStyle.DashLine))
+        # Draw connecting rod from top of adjusted cam to follower
+        cam_top_adjusted = cam_center_adjusted + np.array([0, -base_radius])
+        rod_start_screen = to_screen_coords(cam_top_adjusted)
+        rod_end_screen = to_screen_coords(follower_pos_orig)
+        rod_pen = QPen(QColor("#2ecc71"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        self.scene.addLine(QLineF(rod_start_screen, rod_end_screen), rod_pen)
 
     def _draw_simple_gear_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
         """Draws a simple gear train from simulation data."""

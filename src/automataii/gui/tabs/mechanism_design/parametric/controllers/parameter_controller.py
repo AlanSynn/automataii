@@ -350,8 +350,43 @@ class ParameterController(QObject):
             self.mechanism_tab._recalculate_mechanism_parameters(mechanism_id, layer_data)
 
     def _recalculate_cam_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
-        """Recalculate cam mechanism - placeholder for implementation."""
-        pass
+        """Recalculate cam mechanism with updated parameters and enforce gravity physics."""
+        try:
+            params = layer_data.get("params", {})
+            if not params:
+                return
+            
+            # Extract CAM parameters with gravity physics validation
+            base_radius = max(10.0, min(80.0, params.get("base_radius", 25.0)))  # Constrain size
+            eccentricity = max(2.0, min(30.0, params.get("eccentricity", 10.0)))  # Constrain eccentricity  
+            rod_length = max(15.0, min(150.0, params.get("follower_rod_length", 40.0)))  # Constrain rod
+            
+            # Update parameters with constrained values (gravity physics enforcement)
+            params["base_radius"] = base_radius
+            params["eccentricity"] = eccentricity  
+            params["follower_rod_length"] = rod_length
+            
+            # Calculate derived parameters for gravity-compliant CAM
+            # CAM center position with eccentricity offset
+            cam_center_x = eccentricity
+            cam_center_y = 0.0  # CAM at baseline level
+            
+            # Follower position above CAM (gravity constraint)
+            follower_y = cam_center_y - (base_radius + rod_length)  # Above CAM
+            
+            # Store calculated positions for visual updates
+            params["cam_center"] = [cam_center_x, cam_center_y]
+            params["follower_position"] = [cam_center_x, follower_y]
+            
+            logging.debug(f"[CAM_PARAM] Updated {mechanism_id}: radius={base_radius:.1f}, "
+                         f"ecc={eccentricity:.1f}, rod={rod_length:.1f}")
+            
+            # Trigger visual refresh through mechanism tab
+            if hasattr(self.mechanism_tab, '_regenerate_cam_mechanism_realtime'):
+                self.mechanism_tab._regenerate_cam_mechanism_realtime(mechanism_id, layer_data)
+                
+        except Exception as e:
+            logging.error(f"[CAM_PARAM] Failed to recalculate CAM {mechanism_id}: {e}")
 
     def _recalculate_gear_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
         """Recalculate gear mechanism - placeholder for implementation."""
