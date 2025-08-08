@@ -349,13 +349,15 @@ class MechanismPreviewWidget(QGraphicsView):
         self.scene.addEllipse(p_coupler_t.x() - 3, p_coupler_t.y() - 3, 6, 6, QPen(QColor("#ff0000")), QBrush(QColor("#ff0000")))
 
     def _draw_cam_follower_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
-        """Draws a cam and follower from simulation data using correct cam-follower relationship."""
+        """Draw a cam (egg-shape) with follower above; follower rod may be long."""
         cam_data = full_sim_data["cam_data"]
         frame_idx = 0
 
         cam_center = np.array(cam_data["cam_centers"][frame_idx])
         follower_y = cam_data["follower_y_positions"][frame_idx]
         base_radius = params.get("base_radius")
+        eccentricity = params.get("eccentricity", 0.0)
+        rod_len = params.get("follower_rod_length", 40.0)
 
         to_screen_coords_func = self._get_transform_for_sim_data(
             {"follower_path": [[0, y] for y in cam_data["follower_y_positions"]]}, "follower_path"
@@ -369,16 +371,8 @@ class MechanismPreviewWidget(QGraphicsView):
         cam_path = QPainterPath()
         for i in range(101):
             theta = 2 * np.pi * i / 100
-
-            # Egg shape: vary radius based on angle for more realistic cam profile
-            if theta <= np.pi:
-                # Top half: smaller radius (narrow part of egg)
-                radius_factor = 0.7 + 0.3 * (1 - np.cos(theta))
-            else:
-                # Bottom half: larger radius (wide part of egg)
-                radius_factor = 1.0 + 0.4 * (1 + np.cos(theta))
-
-            effective_radius = base_radius * radius_factor * 0.6  # Scale down for proper cam size
+            # Egg: r = base_radius + eccentricity * cos(theta)
+            effective_radius = base_radius + eccentricity * np.cos(theta)
 
             p_orig = cam_center + effective_radius * np.array([np.cos(theta), np.sin(theta)])
             p_screen = to_screen_coords(p_orig)
@@ -389,14 +383,19 @@ class MechanismPreviewWidget(QGraphicsView):
 
         self.scene.addPath(cam_path, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
 
-        # Follower positioned according to dataset relationship: follower_y = cam_center[1] + base_radius
-        # This means follower is above the cam center by base_radius distance
-        follower_pos_orig = np.array([0, follower_y])
-        w, h = 20, 10
-        tl = follower_pos_orig + np.array([-w/2, h/2]); tr = follower_pos_orig + np.array([w/2, h/2])
-        br = follower_pos_orig + np.array([w/2, -h/2]); bl = follower_pos_orig + np.array([-w/2, -h/2])
+        # Follower above cam; allow long rod by placing follower block at top by rod length
+        top_y = (cam_center[1] - (base_radius + rod_len))
+        follower_pos_orig = np.array([cam_center[0], top_y])
+        w, h = 14, 8
+        tl = follower_pos_orig + np.array([-w/2, -h/2]); tr = follower_pos_orig + np.array([w/2, -h/2])
+        br = follower_pos_orig + np.array([w/2, h/2]); bl = follower_pos_orig + np.array([-w/2, h/2])
         follower_poly = QPolygonF([to_screen_coords(p) for p in [tl, tr, br, bl]])
         self.scene.addPolygon(follower_poly, QPen(QColor("#2ecc71"), 3), QBrush(QColor("#2ecc71").lighter(160)))
+
+        # Draw the rod from follower to cam center top
+        p_top_screen = to_screen_coords(np.array([cam_center[0], cam_center[1] - base_radius]))
+        p_block_screen = to_screen_coords(follower_pos_orig)
+        self.scene.addLine(QLineF(p_block_screen, p_top_screen), QPen(QColor("#27ae60"), 2, Qt.PenStyle.DashLine))
 
     def _draw_simple_gear_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
         """Draws a simple gear train from simulation data."""
@@ -1022,14 +1021,14 @@ class MechanismRecommendationDialog(QDialog):
 
                 # Create egg-shaped cam profile instead of circle
                 thetas = np.linspace(0, 2 * np.pi, 40)  # More points for smoother egg shape
-                
+
                 # Egg shape formula: r = base_radius + eccentricity * cos(theta)
                 radii = base_radius + eccentricity * np.cos(thetas)
-                
-                # Convert to Cartesian coordinates  
+
+                # Convert to Cartesian coordinates
                 cam_points_x = cam_center_orig[0] + radii * np.cos(thetas)
                 cam_points_y = cam_center_orig[1] + radii * np.sin(thetas)
-                
+
                 cam_points = np.column_stack([cam_points_x, cam_points_y])
                 all_points.append(cam_points)
 

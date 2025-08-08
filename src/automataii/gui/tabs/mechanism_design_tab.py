@@ -8,6 +8,7 @@ import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
 from PyQt6.QtWidgets import (
+    QLabel,
     QDialog,
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStyle,
+    QDoubleSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -339,6 +341,21 @@ class MechanismDesignTab(QWidget):
             """)
             generation_layout.addWidget(self.parametric_edit_btn)
 
+            # Cam follower rod length control
+            cam_ctrl_layout = QHBoxLayout()
+            cam_ctrl_layout.setContentsMargins(0, 0, 0, 0)
+            cam_ctrl_layout.setSpacing(6)
+            cam_label = QLabel("Cam Rod Length")
+            cam_label.setToolTip("Follower rod length above cam (screen units)")
+            self.cam_rod_spin = QDoubleSpinBox()
+            self.cam_rod_spin.setRange(0.0, 1000.0)
+            self.cam_rod_spin.setSingleStep(5.0)
+            self.cam_rod_spin.setValue(40.0)
+            self.cam_rod_spin.setEnabled(False)
+            cam_ctrl_layout.addWidget(cam_label)
+            cam_ctrl_layout.addWidget(self.cam_rod_spin)
+            generation_layout.addLayout(cam_ctrl_layout)
+
             # Dimension Display Button
             self.show_dimensions_btn = QPushButton("📏 Show Dimensions")
             self.show_dimensions_btn.setToolTip("Display mechanism dimensions for printing")
@@ -385,6 +402,7 @@ class MechanismDesignTab(QWidget):
             self.parametric_edit_btn = None
             self.show_dimensions_btn = None
             self.export_blueprint_btn = None
+            self.cam_rod_spin = None
 
         panel_layout.addWidget(generation_group)
 
@@ -485,7 +503,6 @@ class MechanismDesignTab(QWidget):
         export_layout.addWidget(self.blueprint_btn)
 
         # Info label for single large page export
-        from PyQt6.QtWidgets import QLabel
         self.blueprint_info_label = QLabel("Exports to single large-format blueprint (1200×1600mm)")
         self.blueprint_info_label.setStyleSheet("""
             QLabel {
@@ -529,6 +546,10 @@ class MechanismDesignTab(QWidget):
                 self.show_dimensions_btn.clicked.connect(self._show_current_mechanism_dimensions)
             if self.export_blueprint_btn:
                 self.export_blueprint_btn.clicked.connect(self._export_current_mechanism_blueprint)
+
+            # Hook cam rod length change
+            if hasattr(self, 'cam_rod_spin') and self.cam_rod_spin:
+                self.cam_rod_spin.valueChanged.connect(self._on_cam_rod_length_changed)
 
     def _connect_to_ik_manager(self):
         """Connect to IK manager signals for skeleton animation."""
@@ -4760,6 +4781,7 @@ class MechanismDesignTab(QWidget):
 
         base_radius = params.get("base_radius", 25.0)
         eccentricity = params.get("eccentricity", 10.0)
+        follower_rod_length = params.get("follower_rod_length", 40.0)
 
         # Create egg-shaped cam profile
         def create_egg_shape_profile(base_radius, eccentricity):
@@ -4792,10 +4814,9 @@ class MechanismDesignTab(QWidget):
         cam_offset = np.array([eccentricity, 0])  # Same as dataset
         initial_cam_center = cam_offset  # No rotation at time=0
 
-        # Initial follower position (dataset formula: follower_y = cam_center[1] + base_radius)
-        # Y축 대칭으로 인해 follower가 cam 위에 위치하게 됨
-        initial_follower_y = initial_cam_center[1] + base_radius + eccentricity
-        follower_pos_orig = np.array([0, initial_follower_y])
+        # Place follower above cam center with adjustable rod length
+        initial_follower_y = initial_cam_center[1] - (base_radius + follower_rod_length)
+        follower_pos_orig = np.array([initial_cam_center[0], initial_follower_y])
 
         # Create egg-shaped cam profile
         egg_profile = create_egg_shape_profile(base_radius, eccentricity)
@@ -4833,8 +4854,8 @@ class MechanismDesignTab(QWidget):
         visual_items.append(cam_body)
 
         # 데이터셋과 동일한 팔로워 생성 (직사각형)
-        follower_color = QColor("#ff7f50")  # Coral - 데이터셋과 동일
-        follower_width, follower_height = 10, 20  # 데이터셋과 동일한 크기
+        follower_color = QColor("#ff7f50")
+        follower_width, follower_height = 12, 10
         follower_body = self.mechanism_scene.addRect(
             follower_scene.x() - follower_width/2, follower_scene.y() - follower_height/2,
             follower_width, follower_height,
@@ -4863,6 +4884,9 @@ class MechanismDesignTab(QWidget):
         )
         rotation_marker.setZValue(20)
         visual_items.append(rotation_marker)
+
+        # Store control back-reference for realtime update
+        mechanism_data.setdefault('params', {})['follower_rod_length'] = follower_rod_length
 
         return visual_items
 
@@ -5283,6 +5307,19 @@ class MechanismDesignTab(QWidget):
         except Exception as e:
             logging.error(f"Failed to connect parametric signals: {e}")
 
+    def _on_cam_rod_length_changed(self, value: float):
+        """Realtime update of cam follower rod length across cam mechanisms."""
+        try:
+            # Update all cam mechanisms' params and refresh visuals
+            for mech_id, layer_data in list(self.mechanism_layers.items()):
+                if layer_data.get('type') != 'cam':
+                    continue
+                layer_data.setdefault('params', {})['follower_rod_length'] = float(value)
+                # Recreate visuals to apply new rod length
+                self._recreate_mechanism_visuals(mech_id, layer_data)
+        except Exception as e:
+            logging.warning(f"Failed to update cam rod length: {e}")
+
     def toggle_parametric_mode(self, enabled: bool | None = None):
         """
         Toggle parametric editing mode on/off.
@@ -5452,6 +5489,10 @@ class MechanismDesignTab(QWidget):
             self._disable_animation_controls_for_parametric()
             logging.info("[PARAMETRIC] ✅ Disabled animation controls during parametric editing")
 
+            # Enable cam rod control when in parametric mode
+            if hasattr(self, 'cam_rod_spin') and self.cam_rod_spin:
+                self.cam_rod_spin.setEnabled(True)
+
 
             # ULTRATHINK: Final validation - count handles in scene
             all_handles = []
@@ -5536,6 +5577,10 @@ class MechanismDesignTab(QWidget):
 
         except Exception as e:
             logging.error(f"[PARAMETRIC] ❌ Failed to enable animation controls: {e}")
+        finally:
+            # Disable cam rod control when exiting parametric mode
+            if hasattr(self, 'cam_rod_spin') and self.cam_rod_spin:
+                self.cam_rod_spin.setEnabled(False)
 
     def _show_mechanism_validity_feedback(self, mechanism_id: str):
         """
@@ -8928,12 +8973,26 @@ class MechanismDesignTab(QWidget):
             # Add scale information to mechanism layers for blueprint export
             enhanced_mechanism_layers = self._enhance_mechanism_layers_with_scale_info(screen_scale_info)
 
-            # Create and use blueprint export manager with enhanced scaling
+            # Create runtime scene snapshot (PNG) of current view
+            snapshot_png_bytes = None
+            try:
+                img = self.mechanism_view.grab().toImage()
+                from PyQt6.QtCore import QBuffer, QByteArray
+                ba = QByteArray()
+                buf = QBuffer(ba)
+                buf.open(QBuffer.OpenModeFlag.WriteOnly)
+                img.save(buf, "PNG")
+                snapshot_png_bytes = bytes(ba)
+            except Exception as _:
+                snapshot_png_bytes = None
+
+            # Create and use blueprint export manager with enhanced scaling and snapshot
             export_manager = BlueprintExportManager.get_instance()
             success = export_manager.export_blueprint(
                 part_items=part_items,
                 mechanism_layers=enhanced_mechanism_layers,
-                parent_widget=self
+                parent_widget=self,
+                snapshot_png_bytes=snapshot_png_bytes
             )
 
             if success:

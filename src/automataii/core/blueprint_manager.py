@@ -20,114 +20,115 @@ from automataii.generation.multi_page_blueprint import MultiPageBlueprintManager
 class BlueprintExportManager(QObject):
     """
     Singleton manager for blueprint export functionality.
-    
+
     Coordinates the export of character parts and mechanism components
     to SVG blueprints suitable for fabrication.
-    
+
     Features:
     - Singleton pattern for centralized management
     - SVG export with file save dialog
     - Support for character parts, gears, linkages, and cams
     - Comprehensive layout with specifications
     """
-    
+
     # Singleton instance
     _instance: Optional['BlueprintExportManager'] = None
-    
+
     # Signals
     export_started = pyqtSignal()
     export_completed = pyqtSignal(bool, str)  # success, message
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        
+
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self._initialized = True
-        
+
         # Multi-page state management
         self._current_blueprint_pages = []
         self._current_page_index = 0
         self._last_export_base_path = ""
-        
+
         # Initialize mechanism generators (Factory Pattern)
         self.gear_generator = GearGenerator()
         self.linkage_generator = LinkageGenerator()
         self.cam_generator = CamGenerator()
-        
+
         self.logger.debug("BlueprintExportManager singleton initialized")
-    
+
     @classmethod
     def get_instance(cls) -> 'BlueprintExportManager':
         """Get the singleton instance."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
-    
+
     def export_blueprint(
-        self, 
-        part_items: List[Any], 
+        self,
+        part_items: List[Any],
         mechanism_layers: Optional[Dict[str, Any]] = None,
         parent_widget: Optional[QWidget] = None,
-        single_large_page: bool = True
+        single_large_page: bool = True,
+        snapshot_png_bytes: Optional[bytes] = None,
     ) -> bool:
         """
         Export blueprint with character parts and mechanisms.
-        
+
         Args:
             part_items: List of CharacterPartItem objects
             mechanism_layers: Dictionary of mechanism layer data
             parent_widget: Parent widget for dialogs
-            
+
         Returns:
             bool: True if export successful, False otherwise
         """
         try:
             self.export_started.emit()
-            
+
             # Get save file path for single large page
             file_path = self._get_save_file_path(parent_widget)
             if not file_path:
                 self.logger.debug("Export cancelled by user")
                 return False
-            
+
             # Store base path for multi-page exports
             self._last_export_base_path = file_path
-            
+
             # Create single large page blueprint
             if single_large_page:
                 # Generate single large page with all content
                 svg_content = self._generate_single_large_page_blueprint(
-                    part_items, mechanism_layers or {}
+                    part_items, mechanism_layers or {}, snapshot_png_bytes
                 )
-                
+
                 if not svg_content:
                     raise ValueError("Generated SVG content is empty")
-                
+
                 # Save single large page
                 success = self._save_svg_file(svg_content, file_path)
-                
+
                 if success:
                     self.logger.info(f"Large-format blueprint saved to {file_path}")
                     self.export_completed.emit(True, f"Blueprint exported successfully")
                 else:
                     self.logger.error("Failed to save SVG file")
                     self.export_completed.emit(False, "Failed to save SVG file")
-            
+
             return success
-            
+
         except Exception as e:
             self.logger.error(f"Blueprint export failed: {e}")
             self.export_completed.emit(False, f"Export failed: {str(e)}")
             return False
-    
+
     def _get_save_file_path(self, parent_widget: Optional[QWidget]) -> Optional[str]:
         """Get save file path from user using file dialog."""
         try:
@@ -141,7 +142,7 @@ class BlueprintExportManager(QObject):
         except Exception as e:
             self.logger.error(f"File dialog error: {e}")
             return None
-    
+
     def _get_save_directory_path(self, parent_widget: Optional[QWidget]) -> Optional[str]:
         """Get save directory path from user using directory dialog."""
         try:
@@ -155,82 +156,94 @@ class BlueprintExportManager(QObject):
         except Exception as e:
             self.logger.error(f"Directory dialog error: {e}")
             return None
-    
+
     def _save_svg_file(self, svg_content: str, file_path: str) -> bool:
         """Save SVG content to file."""
         try:
             # Ensure directory exists
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            
+
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(svg_content)
-            
+
             return True
         except Exception as e:
             self.logger.error(f"Failed to save SVG file: {e}")
             return False
-    
+
     def generate_gear_svg(self, gear_data: Dict[str, Any]) -> str:
         """Generate SVG for gear mechanism."""
         return self.gear_generator.generate_svg(gear_data)
-    
+
     def generate_linkage_svg(self, linkage_data: Dict[str, Any]) -> str:
         """Generate SVG for linkage mechanism."""
         return self.linkage_generator.generate_svg(linkage_data)
-    
+
     def generate_cam_svg(self, cam_data: Dict[str, Any]) -> str:
         """Generate SVG for cam mechanism."""
         return self.cam_generator.generate_svg(cam_data)
-    
-    def _generate_single_large_page_blueprint(self, part_items: List[Any], 
-                                              mechanism_layers: Dict[str, Any]) -> str:
+
+    def _generate_single_large_page_blueprint(self, part_items: List[Any],
+                                              mechanism_layers: Dict[str, Any],
+                                              snapshot_png_bytes: Optional[bytes] = None) -> str:
         """Generate single large-format blueprint with all content."""
         from automataii.generation.blueprint import generate_single_large_blueprint
-        
+
         # Use large page dimensions (A0+ size for plenty of space)
         page_width_mm = 1200.0  # Generous width
         page_height_mm = 1600.0  # Generous height
-        
+
         # Use optimizer for layout with generous spacing
         optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
         layout_items, _, _ = optimizer.optimize_blueprint_layout(
             part_items, mechanism_layers
         )
-        
+
         # Log mechanism processing for debugging
         self.logger.info(f"Processing {len(mechanism_layers)} mechanisms for large blueprint")
         for mech_id, mech_data in mechanism_layers.items():
             mech_type = mech_data.get('type', 'unknown')
             self.logger.debug(f"Mechanism {mech_id}: type={mech_type}")
-        
+
         # Generate the large-format blueprint
+        # Prepare snapshot data URI if provided
+        snapshot_data_uri = None
+        if snapshot_png_bytes:
+            try:
+                import base64
+                b64 = base64.b64encode(snapshot_png_bytes).decode('ascii')
+                snapshot_data_uri = f"data:image/png;base64,{b64}"
+            except Exception as _:
+                snapshot_data_uri = None
+
         svg_content = generate_single_large_blueprint(
             layout_items,
             page_width_mm,
             page_height_mm,
             title="Automataii Complete Manufacturing Blueprint",
-            scale_info="30cm Character Height Standard"
+            scale_info="30cm Character Height Standard",
+            snapshot_data_uri=snapshot_data_uri
         )
-        
+
         return svg_content
-    
+
     def export_next_page(self, parent_widget: Optional[QWidget] = None) -> bool:
         """
         Export the next page in the multi-page blueprint sequence.
-        
+
         Args:
             parent_widget: Parent widget for dialogs
-            
+
         Returns:
             bool: True if next page exported successfully, False if no more pages
         """
         if not hasattr(self, '_current_blueprint_pages') or not self._current_blueprint_pages:
             self.logger.warning("No multi-page blueprint in progress")
             return False
-        
+
         # Move to next page
         self._current_page_index += 1
-        
+
         if self._current_page_index >= len(self._current_blueprint_pages):
             self.logger.info("All pages exported. Multi-page blueprint complete.")
             self.export_completed.emit(True, "All blueprint pages exported successfully!")
@@ -238,13 +251,13 @@ class BlueprintExportManager(QObject):
             self._current_blueprint_pages = []
             self._current_page_index = 0
             return False
-        
+
         try:
             # Generate current page SVG
             svg_generator = MultiPageSVGGenerator()
             current_page = self._current_blueprint_pages[self._current_page_index]
             page_svg = svg_generator._generate_page_svg(current_page)
-            
+
             # Add navigation info
             total_pages = len(self._current_blueprint_pages)
             current_num = self._current_page_index + 1
@@ -252,9 +265,9 @@ class BlueprintExportManager(QObject):
 <!-- Current: {current_page.title} -->
 <!-- Progress: {current_num}/{total_pages} pages -->
 '''
-            
+
             svg_content = navigation_info + page_svg
-            
+
             # Determine file path for this page
             if self._last_export_base_path:
                 base_path = self._last_export_base_path.replace('.svg', '')
@@ -262,10 +275,10 @@ class BlueprintExportManager(QObject):
             else:
                 # Use default naming if no previous path
                 page_file_path = f"blueprint_page_{current_num:02d}_{current_page.content_type}.svg"
-            
+
             # Save page
             success = self._save_svg_file(svg_content, page_file_path)
-            
+
             if success:
                 remaining_pages = total_pages - current_num
                 self.logger.info(f"Exported page {current_num} of {total_pages}: {current_page.title}")
@@ -278,16 +291,16 @@ class BlueprintExportManager(QObject):
                 self.logger.error(f"Failed to save page {current_num}")
                 self.export_completed.emit(False, f"Failed to save page {current_num}")
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"Error exporting next page: {e}")
             self.export_completed.emit(False, f"Error exporting next page: {str(e)}")
             return False
-    
+
     def get_blueprint_progress(self) -> Dict[str, Any]:
         """
         Get current progress information for multi-page blueprint.
-        
+
         Returns:
             Dictionary with progress information
         """
@@ -298,10 +311,10 @@ class BlueprintExportManager(QObject):
                 'total_pages': 0,
                 'progress_text': 'No multi-page blueprint active'
             }
-        
+
         current_page = self._current_page_index + 1
         total_pages = len(self._current_blueprint_pages)
-        
+
         return {
             'has_pages': True,
             'current_page': current_page,
@@ -317,42 +330,42 @@ class OptimizedBlueprintBuilder:
     Optimized Blueprint Builder with professional layout and scaling
     Uses the new BlueprintLayoutOptimizer for intelligent placement
     """
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        
+
     def build_optimized_blueprint(self, layout_items: List[Any], total_width_mm: float, total_height_mm: float) -> str:
         """
         Build optimized blueprint with proper layout and scaling
-        
+
         Args:
             layout_items: List of optimally placed layout items
             total_width_mm: Total blueprint width in millimeters
             total_height_mm: Total blueprint height in millimeters
-            
+
         Returns:
             Complete SVG blueprint string
         """
         # Add title block space
         title_height = 60
         content_y_offset = title_height + 20
-        
+
         # Calculate final dimensions
         final_width = max(600, total_width_mm + 40)  # Minimum width with margins
         final_height = total_height_mm + content_y_offset + 40  # Add title and bottom margin
-        
+
         # Generate title block
         title_block = self._generate_title_block(final_width)
-        
+
         # Generate optimized content
         content_svg = self._generate_optimized_content(layout_items, content_y_offset)
-        
+
         # Generate specifications section
         specs_svg = self._generate_specifications_section(final_width, final_height - 100)
-        
+
         # Combine all sections
         svg_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="{final_width:.1f}" height="{final_height:.1f}" 
+<svg width="{final_width:.1f}" height="{final_height:.1f}"
      xmlns="http://www.w3.org/2000/svg" version="1.1">
   <defs>
     <style>
@@ -375,21 +388,21 @@ class OptimizedBlueprintBuilder:
       .debug-overlay {{ opacity: 0.7; }}
     </style>
   </defs>
-  
+
   <!-- Blueprint Border -->
-  <rect x="5" y="5" width="{final_width-10:.1f}" height="{final_height-10:.1f}" 
+  <rect x="5" y="5" width="{final_width-10:.1f}" height="{final_height-10:.1f}"
         fill="none" stroke="black" stroke-width="2"/>
-  
+
   <!-- Title Block -->
   {title_block}
-  
+
   <!-- Optimized Content -->
   {content_svg}
-  
+
   <!-- Specifications -->
   {specs_svg}
 </svg>'''
-        
+
         # Validate SVG
         try:
             import xml.etree.ElementTree as ET
@@ -398,14 +411,14 @@ class OptimizedBlueprintBuilder:
         except ET.ParseError as e:
             self.logger.error(f"Generated SVG is not well-formed: {e}")
             return self._generate_error_svg(str(e))
-        
+
         return svg_content
-    
+
     def _generate_title_block(self, width: float) -> str:
         """Generate professional title block"""
         return f'''
         <g id="title-block">
-            <rect x="10" y="10" width="{width-20:.1f}" height="50" 
+            <rect x="10" y="10" width="{width-20:.1f}" height="50"
                   fill="#f8f8f8" stroke="black" stroke-width="2"/>
             <text x="20" y="30" class="section-title" font-size="16">
                 Automataii Manufacturing Blueprint - Optimized Layout
@@ -421,18 +434,18 @@ class OptimizedBlueprintBuilder:
             </text>
         </g>
         '''
-    
+
     def _generate_optimized_content(self, layout_items: List[Any], y_offset: float) -> str:
         """Generate optimized content with proper positioning"""
         if not layout_items:
             return '<text x="50" y="100" class="manufacturing-note">No items to display</text>'
-        
+
         content_groups = []
-        
+
         # Group items by type for better organization
         parts = [item for item in layout_items if item.item_type == 'part']
         mechanisms = [item for item in layout_items if item.item_type == 'mechanism']
-        
+
         # Add parts section
         if parts:
             parts_svg = f'''
@@ -443,7 +456,7 @@ class OptimizedBlueprintBuilder:
                 </text>
                 <g transform="translate(0,25)">
             '''
-            
+
             for item in parts:
                 item_svg = f'''
                     <g transform="translate({item.bounds.x:.1f},{item.bounds.y:.1f})">
@@ -451,17 +464,17 @@ class OptimizedBlueprintBuilder:
                     </g>
                 '''
                 parts_svg += item_svg
-            
+
             parts_svg += '''    </g>
             </g>'''
             content_groups.append(parts_svg)
-        
+
         # Add mechanisms section
         if mechanisms:
             # Calculate mechanisms section Y position
             max_part_y = max((item.bounds.y + item.bounds.height for item in parts), default=0)
             mechanisms_y = max_part_y + 50  # Space between sections
-            
+
             mechanisms_svg = f'''
             <g id="mechanisms-section" transform="translate(0,{y_offset + mechanisms_y})">
                 <text x="20" y="0" class="section-title">Mechanisms ({len(mechanisms)} total)</text>
@@ -470,7 +483,7 @@ class OptimizedBlueprintBuilder:
                 </text>
                 <g transform="translate(0,25)">
             '''
-            
+
             for item in mechanisms:
                 item_svg = f'''
                     <g transform="translate({item.bounds.x:.1f},{item.bounds.y - mechanisms_y:.1f})">
@@ -478,18 +491,18 @@ class OptimizedBlueprintBuilder:
                     </g>
                 '''
                 mechanisms_svg += item_svg
-            
+
             mechanisms_svg += '''    </g>
             </g>'''
             content_groups.append(mechanisms_svg)
-        
+
         return '\n'.join(content_groups)
-    
+
     def _generate_specifications_section(self, width: float, y_pos: float) -> str:
         """Generate specifications section"""
         return f'''
         <g id="specifications" transform="translate(0,{y_pos})">
-            <rect x="10" y="0" width="{width-20:.1f}" height="80" 
+            <rect x="10" y="0" width="{width-20:.1f}" height="80"
                   fill="#f0f0f0" stroke="black" stroke-width="1"/>
             <text x="20" y="20" class="section-title">Manufacturing Specifications</text>
             <text x="20" y="35" class="manufacturing-note">
@@ -503,12 +516,12 @@ class OptimizedBlueprintBuilder:
             </text>
         </g>
         '''
-    
+
     def _get_timestamp(self) -> str:
         """Get current timestamp for title block"""
         import datetime
         return datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    
+
     def _generate_error_svg(self, error_msg: str) -> str:
         """Generate error SVG when optimization fails"""
         return f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -529,15 +542,15 @@ class OptimizedBlueprintBuilder:
 class BlueprintBuilder:
     """
     Builder pattern for constructing complex blueprint layouts.
-    
+
     Builds comprehensive SVG blueprints with multiple sections:
     - Title block
-    - Character parts section  
+    - Character parts section
     - Mechanisms section (gears, linkages, cams)
     - Specifications section
     - Fabrication notes section
     """
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.sections: List[str] = []
@@ -546,7 +559,7 @@ class BlueprintBuilder:
         self.current_y = 50  # Start with title block space
         self.padding = 20
         self.section_spacing = 40
-        
+
     def add_title_block(self) -> 'BlueprintBuilder':
         """Add title block to blueprint."""
         title_svg = f'''
@@ -560,17 +573,17 @@ class BlueprintBuilder:
         self.sections.append(title_svg)
         self.current_y += 100
         return self
-    
+
     def add_character_parts_section(self, part_items: List[Any]) -> 'BlueprintBuilder':
         """Add character parts section to blueprint."""
         if not part_items:
             return self
-        
+
         self.logger.debug(f"Adding {len(part_items)} character parts to blueprint")
-        
+
         # Generate detailed parts content (no SVG wrapper)
         parts_content = generate_detailed_part_content(part_items, self.padding)
-        
+
         if parts_content:
             # Wrap in section group with title
             section_svg = f'''
@@ -584,49 +597,49 @@ class BlueprintBuilder:
             '''
             self.sections.append(section_svg)
             self.current_y += 400  # More space for detailed parts
-        
+
         return self
-    
+
     def add_mechanisms_section(self, mechanism_layers: Dict[str, Any], export_manager: BlueprintExportManager) -> 'BlueprintBuilder':
         """Add mechanisms section to blueprint with debug validation."""
         if not mechanism_layers:
             self.logger.warning("No mechanism layers provided to blueprint")
             return self
-        
+
         self.logger.info(f"Adding {len(mechanism_layers)} mechanisms to blueprint with debug validation")
-        
+
         # Initialize debug renderer
         debug_renderer = MechanismDebugRenderer()
-        
+
         # Debug mechanism data before processing
         debug_reports = debug_renderer.debug_mechanism_transforms(mechanism_layers)
-        
+
         # Log debug summary
         debug_summary = debug_renderer.generate_debug_report()
         self.logger.debug(f"Mechanism debug report:\n{debug_summary}")
-        
+
         # Check for critical issues
         problematic_mechanisms = debug_renderer.get_problematic_mechanisms()
         if problematic_mechanisms:
             self.logger.warning(f"Found {len(problematic_mechanisms)} mechanisms with issues")
             for prob_mech in problematic_mechanisms:
                 self.logger.warning(f"Mechanism {prob_mech.mechanism_id}: {len(prob_mech.errors)} errors")
-        
+
         # Start mechanisms section
         section_svg = f'''
         <g id="mechanisms" transform="translate(0,{self.current_y})">
             <text x="20" y="0" font-family="Arial" font-size="14" font-weight="bold">Mechanisms ({len(mechanism_layers)} total)</text>
             <text x="20" y="15" font-family="Arial" font-size="10">Debug: {len(problematic_mechanisms)} issues found</text>
         '''
-        
+
         mech_y = 40  # Start below title and debug info
         successful_mechanisms = 0
-        
+
         for mech_id, layer_data in mechanism_layers.items():
             try:
                 mechanism_type = layer_data.get('mechanism_type', 'unknown')
                 self.logger.debug(f"Processing mechanism {mech_id} of type {mechanism_type}")
-                
+
                 # Generate mechanism-specific SVG with error handling
                 mech_svg = ""
                 if mechanism_type == 'gear':
@@ -638,7 +651,7 @@ class BlueprintBuilder:
                 else:
                     self.logger.warning(f"Unknown mechanism type: {mechanism_type}")
                     mech_svg = self._generate_placeholder_mechanism_svg(mech_id, mechanism_type, mech_y)
-                
+
                 # Validate generated SVG
                 if not mech_svg or not mech_svg.strip():
                     self.logger.warning(f"Empty SVG generated for mechanism {mech_id}")
@@ -652,45 +665,45 @@ class BlueprintBuilder:
                         self.logger.debug(f"Successfully processed mechanism {mech_id}")
                     else:
                         self.logger.warning(f"No bounding box calculated for mechanism {mech_id}")
-                
+
                 # Add mechanism to section with proper positioning
                 position = layer_data.get('position', [0, 0])
                 x_offset = float(position[0]) if len(position) > 0 else 0
                 y_offset = float(position[1]) if len(position) > 1 else 0
-                
+
                 # Apply reasonable position constraints
                 x_offset = max(-200, min(600, x_offset))  # Constrain to reasonable bounds
                 y_offset = max(0, min(200, y_offset))
-                
+
                 section_svg += f'''
             <g id="mechanism-{mech_id}" transform="translate({x_offset},{mech_y + y_offset})">
                 <!-- Mechanism: {mech_id} ({mechanism_type}) -->
                 {mech_svg}
             </g>
                 '''
-                
+
                 mech_y += 200  # More space between mechanisms for debug info
-                
+
             except Exception as e:
                 self.logger.error(f"Error processing mechanism {mech_id}: {e}")
                 error_svg = self._generate_error_mechanism_svg(mech_id, str(e), mech_y)
                 section_svg += f'<g transform="translate(0,{mech_y})">{error_svg}</g>'
                 mech_y += 100
-        
+
         # Add summary information
         section_svg += f'''
             <text x="20" y="{mech_y + 20}" font-family="Arial" font-size="10" fill="green">
                 Successfully processed: {successful_mechanisms}/{len(mechanism_layers)} mechanisms
             </text>
         '''
-        
+
         section_svg += '</g>'
         self.sections.append(section_svg)
         self.current_y += mech_y + 60  # Account for summary text
-        
+
         self.logger.info(f"Mechanisms section completed: {successful_mechanisms}/{len(mechanism_layers)} successful")
         return self
-    
+
     def _generate_placeholder_mechanism_svg(self, mech_id: str, mechanism_type: str, y_pos: float) -> str:
         """Generate placeholder SVG for unknown mechanism types"""
         return f'''
@@ -707,7 +720,7 @@ class BlueprintBuilder:
             </text>
         </g>
         '''
-    
+
     def _generate_error_mechanism_svg(self, mech_id: str, error_msg: str, y_pos: float) -> str:
         """Generate error SVG for failed mechanisms"""
         return f'''
@@ -727,7 +740,7 @@ class BlueprintBuilder:
             </text>
         </g>
         '''
-    
+
     def add_specifications_section(self) -> 'BlueprintBuilder':
         """Add specifications section to blueprint."""
         specs_svg = f'''
@@ -742,7 +755,7 @@ class BlueprintBuilder:
         self.sections.append(specs_svg)
         self.current_y += 90
         return self
-    
+
     def add_fabrication_notes_section(self) -> 'BlueprintBuilder':
         """Add fabrication notes section to blueprint."""
         notes_svg = f'''
@@ -757,55 +770,55 @@ class BlueprintBuilder:
         self.sections.append(notes_svg)
         self.current_y += 90
         return self
-    
+
     def _escape_xml_text(self, text: str) -> str:
         """Escape special XML characters in text content."""
         if not isinstance(text, str):
             text = str(text)
-        
+
         # Replace XML special characters
         text = text.replace('&', '&amp;')
         text = text.replace('<', '&lt;')
         text = text.replace('>', '&gt;')
         text = text.replace('"', '&quot;')
         text = text.replace("'", '&apos;')
-        
+
         return text
-    
+
     def build(self) -> str:
         """Build final SVG blueprint."""
         if not self.sections:
             self.logger.warning("No sections added to blueprint")
             return ""
-        
+
         # Add title block if not already added
         if not any('title-block' in section for section in self.sections):
             self.add_title_block()
-        
+
         # Calculate final dimensions
         self.total_width = 800  # Fixed width for standard blueprint
         self.total_height = self.current_y + self.padding
-        
+
         # Clean and combine all sections
         cleaned_sections = []
         for section in self.sections:
             # Comprehensive cleanup of potential XML issues
             cleaned_section = section
-            
+
             # Fix common XML entity issues
             cleaned_section = cleaned_section.replace('& ', '&amp; ')
             cleaned_section = cleaned_section.replace(' & ', ' &amp; ')
-            
+
             # Fix any unescaped ampersands not part of entities
             import re
             # Replace & that are not part of valid XML entities
             cleaned_section = re.sub(r'&(?!(?:amp|lt|gt|quot|apos);)', '&amp;', cleaned_section)
-            
+
             cleaned_sections.append(cleaned_section)
-        
+
         # Combine all sections
         svg_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="{self.total_width}" height="{self.total_height}" 
+<svg width="{self.total_width}" height="{self.total_height}"
      xmlns="http://www.w3.org/2000/svg" version="1.1">
   <defs>
     <style>
@@ -826,15 +839,15 @@ class BlueprintBuilder:
       .manufacturing-notes {{ font-size: 7px; }}
     </style>
   </defs>
-  
+
   <!-- Blueprint Border -->
-  <rect x="5" y="5" width="{self.total_width-10}" height="{self.total_height-10}" 
+  <rect x="5" y="5" width="{self.total_width-10}" height="{self.total_height-10}"
         fill="none" stroke="black" stroke-width="2"/>
-  
+
   <!-- Blueprint Content -->
   {chr(10).join(cleaned_sections)}
 </svg>'''
-        
+
         # Validate the SVG is well-formed XML
         try:
             import xml.etree.ElementTree as ET
@@ -854,5 +867,5 @@ class BlueprintBuilder:
   <text x="300" y="220" font-family="Arial" font-size="9" text-anchor="middle">This is likely due to special characters in mechanism data.</text>
   <text x="300" y="240" font-family="Arial" font-size="9" text-anchor="middle">Check mechanism definitions and part names for XML-incompatible characters.</text>
 </svg>'''
-        
+
         return svg_content

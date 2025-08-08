@@ -402,6 +402,26 @@ class EnhancedMechanismProcessor:
                 base_svg = self._generate_4bar_from_keypoints_svg(mech_data, bounds)
             except Exception:
                 base_svg = None
+        elif mechanism_type in ['5_bar_linkage', '6_bar_linkage'] and isinstance(mech_data.get('key_points'), dict):
+            try:
+                base_svg = self._generate_multibar_from_keypoints_svg(mech_data, bounds)
+            except Exception:
+                base_svg = None
+        elif mechanism_type == 'gear':
+            try:
+                base_svg = self._generate_gears_from_params_svg(mech_data, bounds)
+            except Exception:
+                base_svg = None
+        elif mechanism_type == 'planetary_gear':
+            try:
+                base_svg = self._generate_planetary_gear_from_params_svg(mech_data, bounds)
+            except Exception:
+                base_svg = None
+        elif mechanism_type == 'cam':
+            try:
+                base_svg = self._generate_cam_from_params_svg(mech_data, bounds)
+            except Exception:
+                base_svg = None
         if not base_svg:
             # Fallback to standard representation
             base_svg = self._generate_standard_mechanism_svg(mech_id, mechanism_type, bounds)
@@ -598,6 +618,227 @@ class EnhancedMechanismProcessor:
         </g>'''
 
         return '<g>' + ''.join(parts) + legend + '</g>'
+
+    def _generate_multibar_from_keypoints_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+        """Generic N-bar (5/6-bar) linkage from key_points with readable bars and joints."""
+        kp = mech_data.get('key_points', {})
+        factor = float(mech_data.get('total_scale_factor', 1.0))
+
+        # Collect joints if present
+        names_order = [
+            'ground_pivot_1', 'joint_3', 'joint_4', 'joint_5', 'ground_pivot_2'
+        ]
+        pts_mm = []
+        for name in names_order:
+            if name in kp:
+                x, y = kp[name]
+                pts_mm.append((float(x) * factor, float(y) * factor, name))
+
+        if len(pts_mm) < 3:
+            return ''
+
+        xs = [p[0] for p in pts_mm]
+        ys = [p[1] for p in pts_mm]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        width = max(10.0, max_x - min_x)
+        height = max(10.0, max_y - min_y)
+
+        margin = 8.0
+        avail_w = max(10.0, bounds.width - 2 * margin)
+        avail_h = max(10.0, bounds.height - 2 * margin)
+        scale = min(1.0, avail_w / width, avail_h / height)
+
+        def pack_xy(x, y):
+            return (x - min_x) * scale + margin, (y - min_y) * scale + margin
+
+        # Colors per link segment for readability
+        colors = ['#e74c3c', '#27ae60', '#2980b9', '#8e44ad']
+
+        parts = []
+        # Draw segments
+        for i in range(len(pts_mm) - 1):
+            (x1, y1, _), (x2, y2, _) = pts_mm[i], pts_mm[i + 1]
+            px1, py1 = pack_xy(x1, y1)
+            px2, py2 = pack_xy(x2, y2)
+            color = colors[i % len(colors)]
+            parts.append(
+                f'<line x1="{px1:.1f}" y1="{py1:.1f}" x2="{px2:.1f}" y2="{py2:.1f}" '
+                f'stroke="{color}" stroke-width="2"/>'
+            )
+
+        # Draw joints and labels
+        for (x, y, name) in pts_mm:
+            px, py = pack_xy(x, y)
+            parts.append(f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3" fill="none" stroke="#333" stroke-width="1.2"/>')
+            parts.append(f'<text x="{px:.1f}" y="{py-7:.1f}" class="mechanism-label" font-size="7" text-anchor="middle">{name}</text>')
+
+        return '<g>' + ''.join(parts) + '</g>'
+
+    def _mm_params(self, mech_data: Dict[str, Any], names: list[str]) -> Dict[str, float]:
+        """Helper to fetch parameter values in mm from real_world_params or by scaling params."""
+        mm = {}
+        rwp = mech_data.get('real_world_params', {})
+        if rwp:
+            for n in names:
+                if n in rwp:
+                    mm[n] = float(rwp[n])
+        if not mm:
+            factor = float(mech_data.get('total_scale_factor', 1.0))
+            params = mech_data.get('params', {})
+            for n in names:
+                base = n.replace('_mm', '')
+                if base in params:
+                    mm[n] = float(params[base]) * factor
+        return mm
+
+    def _generate_gears_from_params_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+        """Two-gear mesh from params with clear circles and labels."""
+        mm = self._mm_params(mech_data, ['r1_mm', 'r2_mm'])
+        r1 = mm.get('r1_mm', 30.0)
+        r2 = mm.get('r2_mm', 20.0)
+
+        # Centers from key_points if available, else place side-by-side at distance r1+r2
+        kp = mech_data.get('key_points', {})
+        factor = float(mech_data.get('total_scale_factor', 1.0))
+        if 'gear1_center' in kp and 'gear2_center' in kp:
+            x1, y1 = kp['gear1_center']
+            x2, y2 = kp['gear2_center']
+            c1 = (float(x1) * factor, float(y1) * factor)
+            c2 = (float(x2) * factor, float(y2) * factor)
+        else:
+            c1 = (0.0, 0.0)
+            c2 = (r1 + r2, 0.0)
+
+        xs = [c1[0] - r1, c1[0] + r1, c2[0] - r2, c2[0] + r2]
+        ys = [c1[1] - r1, c1[1] + r1, c2[1] - r2, c2[1] + r2]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        width = max(10.0, max_x - min_x)
+        height = max(10.0, max_y - min_y)
+
+        margin = 8.0
+        avail_w = max(10.0, bounds.width - 2 * margin)
+        avail_h = max(10.0, bounds.height - 2 * margin)
+        scale = min(1.0, avail_w / width, avail_h / height)
+
+        def pack(pt):
+            return (pt[0] - min_x) * scale + margin, (pt[1] - min_y) * scale + margin
+
+        c1p = pack(c1)
+        c2p = pack(c2)
+        r1p = r1 * scale
+        r2p = r2 * scale
+
+        parts = []
+        for (cx, cy, r, name, color) in [
+            (c1p[0], c1p[1], r1p, 'Gear 1', '#2c3e50'),
+            (c2p[0], c2p[1], r2p, 'Gear 2', '#8e44ad'),
+        ]:
+            parts.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="none" stroke="{color}" stroke-width="1.5"/>')
+            parts.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r/3:.1f}" fill="none" stroke="#444" stroke-width="1"/>')
+            parts.append(f'<text x="{cx:.1f}" y="{cy - r - 8:.1f}" class="mechanism-label" font-size="8" text-anchor="middle">{name}</text>')
+
+        # Mesh line for reference
+        parts.append(f'<line x1="{c1p[0]:.1f}" y1="{c1p[1]:.1f}" x2="{c2p[0]:.1f}" y2="{c2p[1]:.1f}" stroke="#aaa" stroke-width="0.8" stroke-dasharray="3,3"/>')
+
+        return '<g>' + ''.join(parts) + '</g>'
+
+    def _generate_planetary_gear_from_params_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+        """Planetary gear (sun + planet) from params with clear circles and labels."""
+        mm = self._mm_params(mech_data, ['r_sun_mm', 'r_planet_mm'])
+        rs = mm.get('r_sun_mm', 20.0)
+        rp = mm.get('r_planet_mm', 12.0)
+
+        kp = mech_data.get('key_points', {})
+        factor = float(mech_data.get('total_scale_factor', 1.0))
+        if 'sun_center' in kp and 'planet_center' in kp:
+            sx, sy = kp['sun_center']
+            px, py = kp['planet_center']
+            cs = (float(sx) * factor, float(sy) * factor)
+            cp = (float(px) * factor, float(py) * factor)
+        else:
+            cs = (0.0, 0.0)
+            cp = (rs + rp, 0.0)
+
+        xs = [cs[0] - rs, cs[0] + rs, cp[0] - rp, cp[0] + rp]
+        ys = [cs[1] - rs, cs[1] + rs, cp[1] - rp, cp[1] + rp]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        width = max(10.0, max_x - min_x)
+        height = max(10.0, max_y - min_y)
+
+        margin = 8.0
+        avail_w = max(10.0, bounds.width - 2 * margin)
+        avail_h = max(10.0, bounds.height - 2 * margin)
+        scale = min(1.0, avail_w / width, avail_h / height)
+
+        def pack(pt):
+            return (pt[0] - min_x) * scale + margin, (pt[1] - min_y) * scale + margin
+
+        csp = pack(cs)
+        cpp = pack(cp)
+        rsp = rs * scale
+        rpp = rp * scale
+
+        parts = []
+        parts.append(f'<circle cx="{csp[0]:.1f}" cy="{csp[1]:.1f}" r="{rsp:.1f}" fill="none" stroke="#2c3e50" stroke-width="1.5"/>')
+        parts.append(f'<circle cx="{cpp[0]:.1f}" cy="{cpp[1]:.1f}" r="{rpp:.1f}" fill="none" stroke="#16a085" stroke-width="1.5"/>')
+        parts.append(f'<text x="{csp[0]:.1f}" y="{csp[1] - rsp - 8:.1f}" class="mechanism-label" font-size="8" text-anchor="middle">Sun</text>')
+        parts.append(f'<text x="{cpp[0]:.1f}" y="{cpp[1] - rpp - 8:.1f}" class="mechanism-label" font-size="8" text-anchor="middle">Planet</text>')
+        parts.append(f'<line x1="{csp[0]:.1f}" y1="{csp[1]:.1f}" x2="{cpp[0]:.1f}" y2="{cpp[1]:.1f}" stroke="#aaa" stroke-width="0.8" stroke-dasharray="3,3"/>')
+
+        return '<g>' + ''.join(parts) + '</g>'
+
+    def _generate_cam_from_params_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+        """Cam from params with egg-shape and top follower using long rod semantics."""
+        mm = self._mm_params(mech_data, ['base_radius_mm', 'eccentricity_mm'])
+        r = mm.get('base_radius_mm', 25.0)
+        e = mm.get('eccentricity_mm', 5.0)
+        rod_len = float(mech_data.get('params', {}).get('follower_rod_length', 40.0)) * float(mech_data.get('total_scale_factor', 1.0))
+
+        kp = mech_data.get('key_points', {})
+        factor = float(mech_data.get('total_scale_factor', 1.0))
+        if 'cam_center' in kp:
+            cx, cy = kp['cam_center']
+            center = (float(cx) * factor, float(cy) * factor)
+        else:
+            center = (r + 10.0, r + 10.0)
+
+        # Rough egg outline: ellipse approximating eccentric cam (rx=r+e, ry=r)
+        min_x = center[0] - (r + e)
+        max_x = center[0] + (r + e)
+        min_y = center[1] - r
+        max_y = center[1] + r
+        width = max(10.0, max_x - min_x)
+        height = max(10.0, max_y - min_y)
+
+        margin = 8.0
+        avail_w = max(10.0, bounds.width - 2 * margin)
+        avail_h = max(10.0, bounds.height - 2 * margin)
+        scale = min(1.0, avail_w / width, avail_h / height)
+
+        def pack_xy(x, y):
+            return (x - min_x) * scale + margin, (y - min_y) * scale + margin
+
+        cxp, cyp = pack_xy(*center)
+        rxp = (r + e) * scale
+        ryp = r * scale
+
+        parts = []
+        parts.append(f'<ellipse cx="{cxp:.1f}" cy="{cyp:.1f}" rx="{rxp:.1f}" ry="{ryp:.1f}" fill="none" stroke="#2c3e50" stroke-width="1.5"/>')
+        parts.append(f'<circle cx="{cxp:.1f}" cy="{cyp:.1f}" r="{2:.1f}" fill="#2c3e50"/>')
+        # Follower above cam (rod can be long). Place guide vertically above center.
+        fx = cxp
+        fy_top = cyp - (ryp + rod_len)
+        parts.append(f'<line x1="{fx:.1f}" y1="{fy_top:.1f}" x2="{fx:.1f}" y2="{cyp - ryp:.1f}" stroke="#aaa" stroke-width="0.8" stroke-dasharray="3,3"/>')
+        # Follower block at top
+        parts.append(f'<rect x="{fx-6:.1f}" y="{fy_top-4:.1f}" width="12" height="8" fill="#27ae60" stroke="#1e8449" stroke-width="1"/>')
+        # Rod line
+        parts.append(f'<line x1="{fx:.1f}" y1="{fy_top:.1f}" x2="{fx:.1f}" y2="{cyp - ryp:.1f}" stroke="#27ae60" stroke-width="1" stroke-dasharray="3,2"/>')
+        parts.append(f'<text x="{cxp:.1f}" y="{cyp - ryp - 10:.1f}" class="mechanism-label" font-size="8" text-anchor="middle">Cam (Egg)</text>')
+
+        return '<g>' + ''.join(parts) + '</g>'
 
     def _generate_parameter_annotations(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
         """

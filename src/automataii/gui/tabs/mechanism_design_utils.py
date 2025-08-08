@@ -10,11 +10,11 @@ from PyQt6.QtGui import QPainterPath
 
 def qpainterpath_to_numpy_array(path: QPainterPath, num_points: int = 100) -> np.ndarray | None:
     """Convert QPainterPath to numpy array of points.
-    
+
     Args:
         path: QPainterPath to convert
         num_points: Number of points to extract (not used in current implementation)
-        
+
     Returns:
         numpy array of shape (n, 2) containing x, y coordinates, or None if path is empty
     """
@@ -26,11 +26,11 @@ def qpainterpath_to_numpy_array(path: QPainterPath, num_points: int = 100) -> np
 
 def convert_json_params_to_internal(mechanism_type: str, json_params: dict) -> dict:
     """Convert parameters from JSON format to internal format.
-    
+
     Args:
         mechanism_type: Type of mechanism (e.g., "4-Bar", "Cam", "Gear", "Planetary Gear")
         json_params: Parameters in JSON format
-        
+
     Returns:
         Parameters converted to internal format
     """
@@ -56,6 +56,8 @@ def convert_json_params_to_internal(mechanism_type: str, json_params: dict) -> d
         params = {
             "base_radius": json_params.get("base_radius", 25.0),
             "eccentricity": json_params.get("eccentricity", 10.0),
+            # Allow visually long follower using a connecting rod
+            "follower_rod_length": json_params.get("follower_rod_length", 40.0),
         }
         return params
 
