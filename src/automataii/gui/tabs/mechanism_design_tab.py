@@ -8,6 +8,7 @@ import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
 from PyQt6.QtWidgets import (
+    QApplication,
     QLabel,
     QDialog,
     QGraphicsEllipseItem,
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QProgressDialog,
     QScrollArea,
     QSizePolicy,
     QStyle,
@@ -9147,76 +9149,144 @@ class MechanismDesignTab(QWidget):
 
 
     def _on_export_blueprint(self):
-        """Handle blueprint export button click with proper screen-to-blueprint scaling."""
+        """Handle advanced blueprint export with part decomposition options."""
         try:
-            from automataii.core.blueprint_manager import BlueprintExportManager
-
-            # Get current editor items (character parts) for export
-            part_items = list(self.current_editor_items.values()) if self.current_editor_items else []
-
-            if not part_items:
-                QMessageBox.information(
-                    self,
-                    "Blueprint Export",
-                    "No character parts available for export.\nPlease load a character first."
-                )
-                return
-
-            # CRITICAL: Calculate accurate screen-to-blueprint scale ratios
-            screen_scale_info = self._calculate_screen_to_blueprint_scale()
-
-            # Add scale information to mechanism layers for blueprint export
-            enhanced_mechanism_layers = self._enhance_mechanism_layers_with_scale_info(screen_scale_info)
-
-            # Create runtime scene snapshot (PNG) of current view
-            snapshot_png_bytes = None
-            try:
-                img = self.mechanism_view.grab().toImage()
-                from PyQt6.QtCore import QBuffer, QByteArray
-                ba = QByteArray()
-                buf = QBuffer(ba)
-                buf.open(QBuffer.OpenModeFlag.WriteOnly)
-                img.save(buf, "PNG")
-                snapshot_png_bytes = bytes(ba)
-            except Exception as _:
-                snapshot_png_bytes = None
-
-            # Create and use blueprint export manager with enhanced scaling and snapshot
-            export_manager = BlueprintExportManager.get_instance()
-            success = export_manager.export_blueprint(
-                part_items=part_items,
-                mechanism_layers=enhanced_mechanism_layers,
-                parent_widget=self,
-                snapshot_png_bytes=snapshot_png_bytes
-            )
-
-            if success:
-                QMessageBox.information(
-                    self,
-                    "Blueprint Export Complete",
-                    f"Blueprint exported with accurate scaling!\n"
-                    f"Screen Scale: {screen_scale_info['pixels_per_mm']:.2f} pixels/mm\n"
-                    f"Character Height: {screen_scale_info['character_height_mm']:.0f}mm"
-                )
-            else:
+            from automataii.gui.dialogs.blueprint_export_dialog import BlueprintExportDialog
+            from automataii.generation.advanced_blueprint_exporter import AdvancedBlueprintExporter
+            
+            # Prepare mechanism data for export
+            mechanism_data = {
+                "mechanisms": []
+            }
+            
+            # Convert mechanism layers to export format
+            for mechanism_id, layer_data in self.mechanism_layers.items():
+                mech_export_data = {
+                    "mechanism_id": mechanism_id,
+                    "type": layer_data.get("type", "unknown"),
+                    "params": layer_data.get("params", {}),
+                    "full_simulation_data": layer_data.get("full_simulation_data", {})
+                }
+                mechanism_data["mechanisms"].append(mech_export_data)
+            
+            # Prepare character data
+            character_data = {
+                "parts": {}
+            }
+            
+            if self.current_editor_items:
+                for part_name, part_item in self.current_editor_items.items():
+                    character_data["parts"][part_name] = {
+                        "type": "character_part",
+                        "item": part_item
+                    }
+            
+            # Check if we have content to export
+            if not mechanism_data["mechanisms"] and not character_data["parts"]:
                 QMessageBox.warning(
                     self,
-                    "Blueprint Export Failed",
-                    "Failed to export blueprint. Please check the logs for details."
+                    "Blueprint Export",
+                    "No mechanisms or character parts available for export.\n"
+                    "Please create some mechanisms or load character parts first."
                 )
-
-        except ImportError:
+                return
+            
+            # Show advanced export dialog
+            dialog = BlueprintExportDialog(mechanism_data, self)
+            
+            def on_export_requested(export_config):
+                """Handle export request from dialog."""
+                try:
+                    # Show progress dialog
+                    progress_dialog = QProgressDialog("Preparing blueprint export...", "Cancel", 0, 100, self)
+                    progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+                    progress_dialog.setMinimumDuration(0)
+                    progress_dialog.show()
+                    
+                    # Create advanced exporter
+                    exporter = AdvancedBlueprintExporter()
+                    
+                    # Connect progress signals
+                    def update_progress(percent, message):
+                        progress_dialog.setValue(percent)
+                        progress_dialog.setLabelText(message)
+                        QApplication.processEvents()
+                        
+                        if progress_dialog.wasCanceled():
+                            return
+                    
+                    def on_export_completed(success, message):
+                        progress_dialog.close()
+                        
+                        if success:
+                            QMessageBox.information(
+                                self,
+                                "Blueprint Export Complete",
+                                f"Blueprint exported successfully!\n\n{message}\n\n"
+                                f"Character Height: {export_config.get('character_height_mm', 'Unknown')}mm\n"
+                                f"Scale Factor: {export_config.get('scale_factor', 1.0):.1f}×\n"
+                                f"Format: {'Multi-page' if export_config.get('multi_page') else 'Single page'}"
+                            )
+                        else:
+                            QMessageBox.critical(
+                                self,
+                                "Blueprint Export Failed",
+                                f"Blueprint export failed:\n\n{message}"
+                            )
+                    
+                    def on_page_generated(page_number, page_title):
+                        update_progress(
+                            60 + (page_number * 5),  # Rough progress estimation
+                            f"Generated: {page_title}"
+                        )
+                    
+                    # Connect signals
+                    exporter.export_progress.connect(update_progress)
+                    exporter.export_completed.connect(on_export_completed)
+                    exporter.page_generated.connect(on_page_generated)
+                    
+                    # Start export
+                    update_progress(10, "Starting export...")
+                    success = exporter.export_blueprint(mechanism_data, character_data, export_config)
+                    
+                    if not success and progress_dialog.isVisible():
+                        progress_dialog.close()
+                        QMessageBox.warning(
+                            self,
+                            "Export Failed",
+                            "Blueprint export failed. Check the console for details."
+                        )
+                    
+                except Exception as e:
+                    if 'progress_dialog' in locals():
+                        progress_dialog.close()
+                    
+                    logging.error(f"[BLUEPRINT] Export error: {e}")
+                    QMessageBox.critical(
+                        self,
+                        "Export Error",
+                        f"An error occurred during export:\n\n{str(e)}"
+                    )
+            
+            # Connect dialog signal and show
+            dialog.export_requested.connect(on_export_requested)
+            dialog.exec()
+            
+        except ImportError as e:
+            logging.error(f"[BLUEPRINT] Import error: {e}")
             QMessageBox.critical(
                 self,
                 "Blueprint Export Error",
-                "Blueprint export functionality is not available.\nPlease ensure all required modules are installed."
+                "Advanced blueprint export functionality is not available.\n"
+                "Some required modules may be missing.\n\n"
+                f"Error: {str(e)}"
             )
         except Exception as e:
-            logging.error(f"Blueprint export failed: {e}")
+            logging.error(f"[BLUEPRINT] Unexpected error: {e}")
             QMessageBox.critical(
                 self,
                 "Blueprint Export Error",
-                f"An error occurred during blueprint export:\n{str(e)}"
+                f"An unexpected error occurred:\n\n{str(e)}"
             )
 
 
