@@ -188,7 +188,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self.update_animation)
         self.animation_angle = 30.0  # Start at 30 degrees - safe position for four-bar mechanisms
-        self.animation_speed = 0.75  # Reduced to 1/4 speed for better control and visibility
+        self.animation_speed = 2.0  # Smooth animation speed (2 degrees per frame)
 
         # Safety zone system (replacing physics violation system)
         self.safety_status = "safe"  # "safe", "warning", "danger"
@@ -320,24 +320,38 @@ class InteractiveMechanismWidget(QGraphicsView):
     def _clear_mechanism_items(self):
         """Clear only mechanism-related items, keeping persistent force vectors"""
         # Remove old mechanism items (links, joints, etc.)
-        for item in self.mechanism_items.values():
-            if hasattr(item, '__iter__') and not isinstance(item, str):
-                for sub_item in item:
-                    if sub_item and sub_item.scene():
-                        self.scene.removeItem(sub_item)
-            else:
-                if item and item.scene():
-                    self.scene.removeItem(item)
+        for key, item in list(self.mechanism_items.items()):
+            try:
+                if hasattr(item, '__iter__') and not isinstance(item, str):
+                    # Handle lists/collections of items
+                    for sub_item in item:
+                        if sub_item and hasattr(sub_item, 'scene') and sub_item.scene():
+                            self.scene.removeItem(sub_item)
+                else:
+                    # Handle single items
+                    if item and hasattr(item, 'scene') and item.scene():
+                        self.scene.removeItem(item)
+            except RuntimeError:
+                # Item might have been deleted already
+                pass
 
         # Clear old force items (but preserve persistent force vectors)
-        for item in self.force_items:
-            if item and item.scene():
-                self.scene.removeItem(item)
+        for item in list(self.force_items):
+            try:
+                if item and hasattr(item, 'scene') and item.scene():
+                    self.scene.removeItem(item)
+            except RuntimeError:
+                # Item might have been deleted already
+                pass
 
         # Remove trail items
-        for item in self.trail_items:
-            if item and item.scene():
-                self.scene.removeItem(item)
+        for item in list(self.trail_items):
+            try:
+                if item and hasattr(item, 'scene') and item.scene():
+                    self.scene.removeItem(item)
+            except RuntimeError:
+                # Item might have been deleted already
+                pass
 
         # Clear the collections
         self.mechanism_items.clear()
@@ -377,11 +391,10 @@ class InteractiveMechanismWidget(QGraphicsView):
             O1 = QPointF(-ground_link / 2, 0)
             O4 = QPointF(ground_link / 2, 0)
 
-        # Moving joint A (input link endpoint)
-        A_dir = math.atan2(O4.y() - O1.y(), O4.x() - O1.x())
+        # Moving joint A (input link endpoint) - FIXED: removed incorrect angle offset
         A = QPointF(
-            O1.x() + input_link * math.cos(input_angle + A_dir),
-            O1.y() + input_link * math.sin(input_angle + A_dir)
+            O1.x() + input_link * math.cos(input_angle),
+            O1.y() + input_link * math.sin(input_angle)
         )
 
         # Calculate joint B position using accurate kinematics
@@ -400,15 +413,19 @@ class InteractiveMechanismWidget(QGraphicsView):
         output_stress = 0.2 * math.sin(output_angle * 1.5)
 
         # Draw links with optimized rendering
-        self._draw_link_optimized(O1, A, "input_link", stress=input_stress)
-        self._draw_link_optimized(A, B, "coupler_link", stress=coupler_stress)
-        self._draw_link_optimized(B, O4, "output_link", stress=output_stress)
+        self._draw_link_optimized(O1, A, "link_O1A", stress=input_stress)
+        self._draw_link_optimized(A, B, "link_AB", stress=coupler_stress)
+        self._draw_link_optimized(B, O4, "link_BO4", stress=output_stress)
 
         # Draw joints with simplified representation
         self._draw_joint_optimized(O1, "O1", is_fixed=True)
         self._draw_joint_optimized(O4, "O4", is_fixed=True)
         self._draw_joint_optimized(A, "A", is_fixed=False)
         self._draw_joint_optimized(B, "B", is_fixed=False)
+
+        # Store joint positions for animation updates
+        self.mechanism_items["joint_A"] = A
+        self.mechanism_items["joint_B"] = B
 
         # Calculate forces for four-bar mechanism
         self._calculate_four_bar_forces_optimized(O1, A, B, O4)
@@ -535,7 +552,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             self.mechanism_items[joint_id + "_label"] = text
 
     def _solve_four_bar_output_angle_fast(self, ground, input_l, coupler, output, input_angle):
-        """Accurate and robust four-bar kinematics with error handling"""
+        """Accurate and robust four-bar kinematics with improved branch selection"""
         try:
             # Link lengths
             r1 = ground  # ground link
@@ -552,81 +569,115 @@ class InteractiveMechanismWidget(QGraphicsView):
 
             # Position of ground joint O4
             O4x = r1
-            O4y = 0
+            O4y =0
 
             # Distance from A to O4
             L = math.sqrt((O4x - Ax)**2 + (O4y - Ay)**2)
 
-            # Check if configuration is geometrically possible
+            # Check if configuration is geometrically possible (Grashof condition)
             if L > (r3 + r4) or L < abs(r3 - r4):
                 # Return last valid angle if configuration is impossible
                 if hasattr(self, '_last_output_angle'):
                     return self._last_output_angle
                 else:
                     # Fallback for first calculation
-                    return -input_angle * 0.5
+                    return -input_angle * 0.3
 
-            # Calculate output angle using cosine rule
-            cos_angle_B = (r3*r3 + r4*r4 - L*L) / (2*r3*r4)
-            cos_angle_B = max(-1.0, min(1.0, cos_angle_B))  # Strict clamping
-
+            # Calculate output angle using vector approach
+            # Vector from O4 to A
+            vec_O4A_x = Ax - O4x
+            vec_O4A_y = Ay - O4y
+            
             # Angle from O4 to A
-            alpha = math.atan2(Ay - O4y, Ax - O4x)
-
-            # Angle from O4 to B (two possible solutions)
+            alpha = math.atan2(vec_O4A_y, vec_O4A_x)
+            
+            # Use cosine rule to find angle at joint B
             try:
-                beta_numerator = r4*r4 + L*L - r3*r3
-                beta_denominator = 2*r4*L
-
-                if abs(beta_denominator) < 1e-10:  # Avoid division by zero
-                    beta = 0
-                else:
-                    cos_beta = beta_numerator / beta_denominator
-                    cos_beta = max(-1.0, min(1.0, cos_beta))  # Clamp
-                    beta = math.acos(cos_beta)
-
+                cos_gamma = (r3*r3 + r4*r4 - L*L) / (2*r3*r4)
+                cos_gamma = max(-1.0, min(1.0, cos_gamma))  # Clamp to valid range
+                gamma = math.acos(cos_gamma)
             except (ValueError, ZeroDivisionError):
-                # Numerical issue - use fallback
+                gamma = 0
+
+            # Use cosine rule to find angle from O4-A line to O4-B line
+            try:
+                cos_beta = (r4*r4 + L*L - r3*r3) / (2*r4*L)
+                cos_beta = max(-1.0, min(1.0, cos_beta))  # Clamp to valid range
+                beta = math.acos(cos_beta)
+            except (ValueError, ZeroDivisionError):
                 beta = 0
 
-            # Two possible solutions
-            theta4_1 = alpha + beta
-            theta4_2 = alpha - beta
+            # Two possible solutions for the output angle
+            theta4_1 = alpha + beta  # "Open" configuration
+            theta4_2 = alpha - beta  # "Closed" configuration
 
-            # Choose solution based on continuity and mechanism type
-            if hasattr(self, '_last_output_angle'):
-                # Calculate differences, handling angle wrapping
-                diff1 = theta4_1 - self._last_output_angle
-                diff2 = theta4_2 - self._last_output_angle
-
-                # Normalize differences to [-π, π]
-                while diff1 > math.pi:
-                    diff1 -= 2*math.pi
-                while diff1 < -math.pi:
-                    diff1 += 2*math.pi
-                while diff2 > math.pi:
-                    diff2 -= 2*math.pi
-                while diff2 < -math.pi:
-                    diff2 += 2*math.pi
-
-                # Choose solution with smaller angular change
-                theta4 = theta4_1 if abs(diff1) < abs(diff2) else theta4_2
-
-                # Additional continuity check - if change is too large, mechanism might be in trouble
-                if abs(theta4 - self._last_output_angle) > math.pi/2:
-                    # Large jump detected - possible singular position
-                    print(f"Warning: Large angular jump detected ({abs(theta4 - self._last_output_angle):.2f} rad)")
-                    # Keep using the last valid angle to avoid jumps
-                    theta4 = self._last_output_angle
-
-            else:
-                # First calculation - choose based on typical four-bar behavior
-                # For most four-bar linkages, we want the solution that keeps the output link
-                # in a reasonable range
+            # Initialize branch selection for first calculation
+            if not hasattr(self, '_assembly_mode'):
+                # Choose initial assembly mode based on mechanism geometry
+                # For typical four-bar linkages, prefer the configuration that keeps
+                # the output link in the lower half-plane initially
+                test_B1_y = O4y + r4 * math.sin(theta4_1)
+                test_B2_y = O4y + r4 * math.sin(theta4_2)
+                
+                # Choose the solution that starts with output link pointing down or right
                 if abs(theta4_1) < abs(theta4_2):
+                    self._assembly_mode = 1  # Use theta4_1 (open)
+                    theta4 = theta4_1
+                else:
+                    self._assembly_mode = 2  # Use theta4_2 (closed)  
+                    theta4 = theta4_2
+                    
+                print(f"Four-bar mechanism initialized in assembly mode {self._assembly_mode}")
+            else:
+                # Use consistent assembly mode
+                if self._assembly_mode == 1:
                     theta4 = theta4_1
                 else:
                     theta4 = theta4_2
+                
+                # Check for branch switching - only switch if absolutely necessary
+                if hasattr(self, '_last_output_angle'):
+                    current_diff = abs(theta4 - self._last_output_angle)
+                    
+                    # Normalize the difference to handle angle wrapping
+                    while current_diff > math.pi:
+                        current_diff -= 2*math.pi
+                    current_diff = abs(current_diff)
+                    
+                    # If current branch gives a huge jump, try the other branch
+                    if current_diff > math.pi/3:  # 60 degrees threshold
+                        # Try the other branch
+                        alternative_theta4 = theta4_2 if self._assembly_mode == 1 else theta4_1
+                        alternative_diff = abs(alternative_theta4 - self._last_output_angle)
+                        
+                        # Normalize alternative difference
+                        while alternative_diff > math.pi:
+                            alternative_diff -= 2*math.pi
+                        alternative_diff = abs(alternative_diff)
+                        
+                        # Switch branch only if alternative is significantly better
+                        if alternative_diff < current_diff / 2:
+                            self._assembly_mode = 2 if self._assembly_mode == 1 else 1
+                            theta4 = alternative_theta4
+                            print(f"Four-bar mechanism switched to assembly mode {self._assembly_mode}")
+
+            # Additional smoothing for very large jumps
+            if hasattr(self, '_last_output_angle'):
+                angular_change = theta4 - self._last_output_angle
+                
+                # Normalize to [-π, π]
+                while angular_change > math.pi:
+                    angular_change -= 2*math.pi
+                while angular_change < -math.pi:
+                    angular_change += 2*math.pi
+                
+                # Limit the maximum change per frame to prevent jumps
+                max_change = math.pi / 8  # 22.5 degrees max per frame
+                if abs(angular_change) > max_change:
+                    if angular_change > 0:
+                        theta4 = self._last_output_angle + max_change
+                    else:
+                        theta4 = self._last_output_angle - max_change
 
             # Store for next iteration
             self._last_output_angle = theta4
@@ -634,7 +685,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             # Validate the result
             if math.isnan(theta4) or math.isinf(theta4):
                 print("Warning: Invalid angle calculated, using fallback")
-                return self._last_output_angle if hasattr(self, '_last_output_angle') else 0
+                return getattr(self, '_last_output_angle', 0)
 
             return theta4
 
@@ -2655,39 +2706,95 @@ class InteractiveMechanismWidget(QGraphicsView):
 
     def clear_all_mechanism_graphics(self):
         """Comprehensive clearing of all mechanism-related graphics"""
-        # Clear persistent force vectors
+        # Clear persistent force vectors first
         self.clear_persistent_force_vectors()
 
         # Clear current forces data
         if hasattr(self, 'current_forces'):
             self.current_forces.clear()
 
-        # Clear mechanism items more thoroughly
+        # Clear mechanism items (this includes joints, links, labels)
         self._clear_mechanism_items()
 
-        # Clear any remaining graphics by type
-        all_items = self.scene.items()
-        items_to_remove = []
+        # Clear safety zone items
+        if hasattr(self, 'safety_zone_items'):
+            for item in self.safety_zone_items:
+                if item and item.scene():
+                    self.scene.removeItem(item)
+            self.safety_zone_items.clear()
 
+        # Clear diagnostic items
+        if hasattr(self, 'diagnostic_items'):
+            for item in self.diagnostic_items:
+                if item and item.scene():
+                    self.scene.removeItem(item)
+            self.diagnostic_items.clear()
+
+        # Clear parametric handles
+        if hasattr(self, 'parametric_handles'):
+            for handle in self.parametric_handles.values():
+                if handle and handle.scene():
+                    self.scene.removeItem(handle)
+            self.parametric_handles.clear()
+
+        # Clear safety status text
+        if hasattr(self, 'safety_status_text') and self.safety_status_text:
+            if self.safety_status_text.scene():
+                self.scene.removeItem(self.safety_status_text)
+            self.safety_status_text = None
+
+        # Clear physics status text
+        if hasattr(self, 'physics_status_text') and self.physics_status_text:
+            if self.physics_status_text.scene():
+                self.scene.removeItem(self.physics_status_text)
+            self.physics_status_text = None
+
+        # FINAL CLEANUP: Remove any remaining mechanism-specific graphics
+        # This is a safety net for items that might not be tracked in collections
+        all_items = self.scene.items().copy()  # Make a copy to avoid modification during iteration
+        
         for item in all_items:
-            # Skip grid items and background
+            # Always preserve grid items
             if hasattr(item, 'data') and item.data(0) == 'grid':
                 continue
-            if hasattr(item, 'data') and item.data(0) == 'background':
-                continue
+            
+            # Check if item has mechanism-related data
+            should_remove = False
+            if hasattr(item, 'data') and item.data(0):
+                data = str(item.data(0))
+                # Remove items with mechanism component identifiers
+                if any(identifier in data.lower() for identifier in [
+                    'joint', 'link', 'gear', 'cam', 'crank', 'slider', 'yoke',
+                    'o1', 'o4', 'a', 'b', 'c', 'f', 'g1', 'g2', 'o', 'p',
+                    'hatch', 'label', 'force', 'vector'
+                ]):
+                    should_remove = True
+            
+            # Also check item type for common graphics elements (but preserve grid)
+            if not should_remove:
+                item_type = type(item).__name__.lower()
+                if any(t in item_type for t in ['ellipse', 'line', 'polygon', 'text', 'path']):
+                    # Only remove if it's not a grid item
+                    if not (hasattr(item, 'data') and item.data(0) == 'grid'):
+                        should_remove = True
+            
+            # Remove the item if it should be removed
+            if should_remove:
+                try:
+                    if item.scene():
+                        self.scene.removeItem(item)
+                except RuntimeError:
+                    # Item might have been deleted already
+                    pass
 
-            # Remove mechanism-related items
-            item_type = type(item).__name__
-            if any(keyword in item_type.lower() for keyword in ['line', 'ellipse', 'polygon', 'text', 'path']):
-                items_to_remove.append(item)
-
-        # Remove collected items
-        for item in items_to_remove:
-            try:
-                if item.scene():
-                    self.scene.removeItem(item)
-            except:
-                pass
+        # CRITICAL: Reset physics state to prevent solver issues
+        if hasattr(self, '_last_output_angle'):
+            delattr(self, '_last_output_angle')
+        if hasattr(self, '_assembly_mode'):
+            delattr(self, '_assembly_mode')
+            
+        # Clear motion trail
+        self.motion_trail.clear()
 
     def _draw_force_vector_simple(self, force: ForceVector):
         """Enhanced force vector drawing for better visibility"""
@@ -2807,38 +2914,73 @@ class InteractiveMechanismWidget(QGraphicsView):
             self._update_scotch_yoke_positions()
 
     def _update_four_bar_positions(self):
-        """Update only four-bar linkage positions"""
+        """Update only four-bar linkage positions for smooth animation"""
         # Get current parameters
-        a = self.mechanism_params.get("ground_link", 150)
-        b = self.mechanism_params.get("input_link", 80)
-        c = self.mechanism_params.get("coupler_link", 120)
-        d = self.mechanism_params.get("output_link", 100)
+        ground_link = self.mechanism_params.get("ground_link", 150)
+        input_link = self.mechanism_params.get("input_link", 80)
+        coupler_link = self.mechanism_params.get("coupler_link", 120)
+        output_link = self.mechanism_params.get("output_link", 100)
 
-        # Joint positions
-        O1 = QPointF(-a/2, 0)
-        O4 = QPointF(a/2, 0)
+        # Fixed joint positions
+        O1 = QPointF(-ground_link/2, 0)
+        O4 = QPointF(ground_link/2, 0)
 
+        # Calculate input link position
         input_angle = math.radians(self.animation_angle)
-        A = QPointF(O1.x() + b * math.cos(input_angle), O1.y() + b * math.sin(input_angle))
+        A = QPointF(
+            O1.x() + input_link * math.cos(input_angle),
+            O1.y() + input_link * math.sin(input_angle)
+        )
 
         # Solve for output angle using accurate vector loop method
-        output_angle = self._solve_four_bar_output_angle_fast(a, b, c, d, input_angle)
-        B = QPointF(O4.x() + d * math.cos(output_angle), O4.y() + d * math.sin(output_angle))
+        output_angle = self._solve_four_bar_output_angle_fast(
+            ground_link, input_link, coupler_link, output_link, input_angle
+        )
+        B = QPointF(
+            O4.x() + output_link * math.cos(output_angle),
+            O4.y() + output_link * math.sin(output_angle)
+        )
 
-        # Update existing items positions if they exist
+        # Update existing link line positions if they exist
         if "link_O1A" in self.mechanism_items and self.mechanism_items["link_O1A"]:
-            # Update line positions for links
-            self.mechanism_items["link_O1A"].setLine(O1.x(), O1.y(), A.x(), A.y())
-            self.mechanism_items["link_AB"].setLine(A.x(), A.y(), B.x(), B.y())
-            self.mechanism_items["link_BO4"].setLine(B.x(), B.y(), O4.x(), O4.y())
+            try:
+                # Update line positions for links
+                if hasattr(self.mechanism_items["link_O1A"], 'setLine'):
+                    self.mechanism_items["link_O1A"].setLine(O1.x(), O1.y(), A.x(), A.y())
+                if "link_AB" in self.mechanism_items and hasattr(self.mechanism_items["link_AB"], 'setLine'):
+                    self.mechanism_items["link_AB"].setLine(A.x(), A.y(), B.x(), B.y())
+                if "link_BO4" in self.mechanism_items and hasattr(self.mechanism_items["link_BO4"], 'setLine'):
+                    self.mechanism_items["link_BO4"].setLine(B.x(), B.y(), O4.x(), O4.y())
+            except (KeyError, AttributeError) as e:
+                # If items don't exist or don't have expected methods, redraw
+                print(f"Error updating positions: {e}")
+                self.draw_mechanism()
+                return
 
-            # Update joint positions
-            if "joint_A" in self.mechanism_items:
-                joint_A = self.mechanism_items["joint_A"]
-                joint_A.setPos(A.x() - 6, A.y() - 6)
-            if "joint_B" in self.mechanism_items:
-                joint_B = self.mechanism_items["joint_B"]
-                joint_B.setPos(B.x() - 6, B.y() - 6)
+        # Update joint visual positions
+        if "A" in self.mechanism_items:
+            joint_items = self.mechanism_items["A"]
+            if isinstance(joint_items, list) and len(joint_items) > 0:
+                # The first item is usually the main joint circle
+                joint_items[0].setPos(A.x() - 6, A.y() - 6)
+                # Update inner circle if it exists
+                if len(joint_items) > 1:
+                    joint_items[1].setPos(A.x() - 2.4, A.y() - 2.4)
+
+        if "B" in self.mechanism_items:
+            joint_items = self.mechanism_items["B"]
+            if isinstance(joint_items, list) and len(joint_items) > 0:
+                joint_items[0].setPos(B.x() - 6, B.y() - 6)
+                if len(joint_items) > 1:
+                    joint_items[1].setPos(B.x() - 2.4, B.y() - 2.4)
+
+        # Update motion trail if enabled
+        if self.show_motion_trail:
+            self.motion_trail.append(B)
+            if len(self.motion_trail) > self.max_trail_points:
+                self.motion_trail.pop(0)
+            # Redraw trail
+            self._draw_motion_trail_optimized()
 
     def _update_slider_crank_positions(self):
         """Update only slider-crank positions"""
@@ -3633,6 +3775,36 @@ class EnhancedMacanismTab(QWidget):
         }
 
         mechanism_key = type_map.get(mechanism_type, "four_bar")
+        print(f"DEBUG: Switching mechanism from {self.mechanism_widget.mechanism_type} to {mechanism_key}")
+        
+        # Stop animation during mechanism switch
+        was_animating = self.mechanism_widget.animation_timer.isActive()
+        if was_animating:
+            self.mechanism_widget.stop_animation()
+        
+        # COMPLETE STATE RESET
+        # 1. Clear all graphics
+        self.mechanism_widget.clear_all_mechanism_graphics()
+        
+        # 2. Reset physics state
+        self.mechanism_widget.physics_error_count = 0
+        self.mechanism_widget.safety_status = "safe"
+        self.mechanism_widget.safety_message = ""
+        
+        # 3. Reset animation state
+        self.mechanism_widget.animation_angle = 30.0  # Safe starting position
+        
+        # 4. Clear any cached physics data
+        if hasattr(self.mechanism_widget, '_last_output_angle'):
+            delattr(self.mechanism_widget, '_last_output_angle')
+        if hasattr(self.mechanism_widget, 'last_valid_angle'):
+            self.mechanism_widget.last_valid_angle = None
+            
+        # 5. Force scene update to ensure clearing is applied
+        self.mechanism_widget.scene.update()
+        
+        # Now set the new mechanism type
+        old_type = self.mechanism_widget.mechanism_type
         self.mechanism_widget.mechanism_type = mechanism_key
 
         # Update parameters based on mechanism type
@@ -3641,10 +3813,22 @@ class EnhancedMacanismTab(QWidget):
         # Update educational content
         self._update_educational_content(mechanism_key)
 
-        # Clear everything completely before switching mechanism
-        self.mechanism_widget.motion_trail.clear()
-        self.mechanism_widget.clear_all_mechanism_graphics()
-        self.mechanism_widget.draw_mechanism()
+        # Redraw the mechanism with new parameters
+        try:
+            self.mechanism_widget.draw_mechanism()
+        except Exception as e:
+            print(f"Error drawing new mechanism: {e}")
+            # Fallback to previous mechanism type if drawing fails
+            self.mechanism_widget.mechanism_type = old_type
+            self.mechanism_widget.draw_mechanism()
+        
+        # Restart animation if it was running, but with a small delay to let drawing complete
+        if was_animating:
+            # Use a timer to restart animation after a brief delay
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(100, self.mechanism_widget.start_animation)
+        
+        print(f"DEBUG: Mechanism switch to {mechanism_key} completed")
 
     def _update_parameters_for_mechanism(self, mechanism_type: str):
         """Update parameter controls based on mechanism type"""
