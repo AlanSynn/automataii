@@ -362,13 +362,13 @@ class InteractiveMechanismWidget(QGraphicsView):
 
     def _draw_four_bar_mechanism_optimized(self):
         """Optimized four-bar linkage drawing with proper force calculation"""
-        # Default parameters if not set
+        # Updated default parameters to match image settings
         if not self.mechanism_params:
             self.mechanism_params = {
-                "ground_link": 150,
-                "input_link": 80,
-                "coupler_link": 120,
-                "output_link": 100,
+                "ground_link": 150,      # Ground Link: 150
+                "input_link": 40,        # Input Link: 40  
+                "coupler_link": 120,     # Coupler Link: 120
+                "output_link": 130,      # Output Link: 130
                 "input_angle": self.animation_angle,
             }
 
@@ -391,7 +391,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             O1 = QPointF(-ground_link / 2, 0)
             O4 = QPointF(ground_link / 2, 0)
 
-        # Moving joint A (input link endpoint) - FIXED: removed incorrect angle offset
+        # Moving joint A (input link endpoint)
         A = QPointF(
             O1.x() + input_link * math.cos(input_angle),
             O1.y() + input_link * math.sin(input_angle)
@@ -776,46 +776,145 @@ class InteractiveMechanismWidget(QGraphicsView):
             return "warning", f"Calculation error: {str(e)}"
 
     def _evaluate_four_bar_safety(self, ground, input_l, coupler, output, input_angle):
-        """Evaluate four-bar mechanism safety with detailed feedback"""
-        # Check Grashof criterion
-        links = [ground, input_l, coupler, output]
-        links.sort()
-        s, p, q, l = links  # shortest, two middle, longest
-
-        grashof_ratio = (s + l) / (p + q)
-
-        # Position calculations for current angle
-        Ax = input_l * math.cos(input_angle)
-        Ay = input_l * math.sin(input_angle)
-        L = math.sqrt((ground - Ax)**2 + (0 - Ay)**2)
-
-        # Check triangle constraints
-        max_reach = coupler + output
-        min_reach = abs(coupler - output)
-        reach_ratio = L / max_reach if max_reach > 0 else 0
-
-        # Evaluate safety zones
-        if grashof_ratio > 1.05:  # Clearly violates Grashof
-            return "danger", f"Grashof violation: ratio {grashof_ratio:.2f} > 1.0 (no continuous rotation)"
-        elif grashof_ratio > 1.02:  # Close to violation
-            return "warning", f"Near Grashof limit: ratio {grashof_ratio:.2f} (may have dead positions)"
-        elif L > max_reach:
-            return "danger", f"Links cannot reach: distance {L:.1f} > max reach {max_reach:.1f}"
-        elif L > max_reach * 0.95:  # Very close to limit
-            return "warning", f"Near reach limit: distance {L:.1f}, max reach {max_reach:.1f}"
-        elif L < min_reach:
-            return "danger", f"Links too close: distance {L:.1f} < min reach {min_reach:.1f}"
-        elif L < min_reach * 1.05:  # Close to minimum
-            return "warning", f"Near minimum reach: distance {L:.1f}, min reach {min_reach:.1f}"
-        else:
-            # Check for approaching singular positions
-            cos_angle_B = (coupler*coupler + output*output - L*L) / (2*coupler*output)
-            if abs(cos_angle_B) > 0.98:  # Very close to ±1
-                return "warning", f"Approaching singular position (cos = {cos_angle_B:.3f})"
-            elif reach_ratio > 0.9:  # High stress region
-                return "warning", f"High stress region (reach ratio: {reach_ratio:.2f})"
+        """Comprehensive four-bar mechanism safety evaluation using mechanical engineering principles"""
+        try:
+            # Link identification for Grashof analysis
+            links = [(ground, 'ground'), (input_l, 'input'), (coupler, 'coupler'), (output, 'output')]
+            link_lengths = [ground, input_l, coupler, output]
+            sorted_links = sorted(link_lengths)
+            s, p, q, l = sorted_links  # shortest, intermediate, intermediate, longest
+            
+            # Grashof criterion: s + l ≤ p + q
+            grashof_sum = s + l
+            middle_sum = p + q
+            grashof_condition = grashof_sum <= middle_sum
+            grashof_ratio = grashof_sum / middle_sum if middle_sum > 0 else float('inf')
+            
+            # Identify mechanism type based on which link is shortest
+            shortest_link = min(links, key=lambda x: x[0])
+            mechanism_class = "Unknown"
+            
+            if grashof_condition:
+                if shortest_link[1] == 'ground':
+                    mechanism_class = "Double-Crank (Class III)"
+                    motion_type = "Both input and output can rotate 360°"
+                elif shortest_link[1] in ['input', 'output']:
+                    mechanism_class = "Crank-Rocker (Class I)"
+                    motion_type = "Input rotates 360°, output rocks"
+                else:  # coupler is shortest
+                    mechanism_class = "Double-Rocker (Class II)"
+                    motion_type = "Both input and output rock"
             else:
-                return "safe", f"Optimal operation (Grashof: {grashof_ratio:.2f}, reach: {reach_ratio:.2f})"
+                mechanism_class = "Triple-Rocker (Class IV)"
+                motion_type = "All links rock, no continuous rotation"
+            
+            # Current position analysis
+            O1 = (-ground/2, 0)
+            O4 = (ground/2, 0)
+            A = (O1[0] + input_l * math.cos(input_angle), O1[1] + input_l * math.sin(input_angle))
+            
+            # Distance from A to O4
+            distance_AO4 = math.sqrt((A[0] - O4[0])**2 + (A[1] - O4[1])**2)
+            
+            # Triangle feasibility check
+            max_reach_AB = coupler + output  # Maximum distance between A and B
+            min_reach_AB = abs(coupler - output)  # Minimum distance between A and B
+            
+            # Transmission angle calculation (angle between coupler and output links)
+            if distance_AO4 <= max_reach_AB and distance_AO4 >= min_reach_AB:
+                # Calculate output angle
+                try:
+                    cos_beta = (output*output + distance_AO4*distance_AO4 - coupler*coupler) / (2*output*distance_AO4)
+                    cos_beta = max(-1.0, min(1.0, cos_beta))
+                    
+                    cos_gamma = (coupler*coupler + output*output - distance_AO4*distance_AO4) / (2*coupler*output)
+                    cos_gamma = max(-1.0, min(1.0, cos_gamma))
+                    
+                    transmission_angle = math.degrees(math.acos(abs(cos_gamma)))
+                    transmission_quality = "excellent" if 40 <= transmission_angle <= 140 else \
+                                         "good" if 30 <= transmission_angle <= 150 else \
+                                         "poor" if 20 <= transmission_angle <= 160 else "critical"
+                except:
+                    transmission_angle = 90
+                    transmission_quality = "unknown"
+            else:
+                transmission_angle = 0
+                transmission_quality = "impossible"
+            
+            # Design quality assessment
+            link_ratio_quality = "excellent"
+            quality_messages = []
+            
+            # Check for extreme link ratios (poor design practice)
+            max_ratio = max(link_lengths) / min(link_lengths) if min(link_lengths) > 0 else float('inf')
+            if max_ratio > 10:
+                link_ratio_quality = "poor"
+                quality_messages.append(f"Extreme link ratio: {max_ratio:.1f}:1")
+            elif max_ratio > 6:
+                link_ratio_quality = "fair"
+                quality_messages.append(f"High link ratio: {max_ratio:.1f}:1")
+                
+            # Check for very small input link (difficult to manufacture/control)
+            if input_l < ground * 0.1:
+                quality_messages.append("Very small input link")
+                if link_ratio_quality == "excellent":
+                    link_ratio_quality = "fair"
+            
+            # Overall safety evaluation
+            safety_status = "safe"
+            safety_message = f"{mechanism_class}"
+            
+            if not grashof_condition:
+                if grashof_ratio > 1.1:
+                    safety_status = "danger"
+                    safety_message = f"No continuous rotation possible (Grashof ratio: {grashof_ratio:.2f})"
+                else:
+                    safety_status = "warning"  
+                    safety_message = f"Limited motion, no continuous rotation (Grashof ratio: {grashof_ratio:.2f})"
+                    
+            elif distance_AO4 > max_reach_AB:
+                safety_status = "danger"
+                safety_message = f"Links cannot reach current position (distance: {distance_AO4:.1f} > max: {max_reach_AB:.1f})"
+                
+            elif distance_AO4 < min_reach_AB:
+                safety_status = "danger"
+                safety_message = f"Links interference (distance: {distance_AO4:.1f} < min: {min_reach_AB:.1f})"
+                
+            elif transmission_quality == "critical":
+                safety_status = "danger"
+                safety_message = f"Critical transmission angle: {transmission_angle:.1f}° (force transmission very poor)"
+                
+            elif transmission_quality == "poor":
+                safety_status = "warning"
+                safety_message = f"Poor transmission angle: {transmission_angle:.1f}° (low force efficiency)"
+                
+            elif distance_AO4 > max_reach_AB * 0.95:
+                safety_status = "warning"  
+                safety_message = f"Near reach limit - approaching singular position"
+                
+            elif distance_AO4 < min_reach_AB * 1.05:
+                safety_status = "warning"
+                safety_message = f"Near interference - approaching singular position"
+                
+            elif link_ratio_quality == "poor":
+                safety_status = "warning"
+                safety_message = f"{mechanism_class} - Design quality: {link_ratio_quality}"
+                
+            else:
+                # Excellent condition
+                if transmission_quality == "excellent":
+                    safety_message = f"{mechanism_class} - Optimal design (T.A.: {transmission_angle:.1f}°)"
+                else:
+                    safety_message = f"{mechanism_class} - Good design (T.A.: {transmission_angle:.1f}°)"
+            
+            # Add quality notes if any
+            if quality_messages and safety_status == "safe":
+                safety_message += f" - Note: {', '.join(quality_messages)}"
+                
+            return safety_status, safety_message
+            
+        except Exception as e:
+            return "danger", f"Safety evaluation error: {str(e)}"
 
     def _evaluate_slider_crank_safety(self, crank_length, rod_length, crank_angle):
         """Evaluate slider-crank mechanism safety"""
@@ -848,72 +947,142 @@ class InteractiveMechanismWidget(QGraphicsView):
             self._draw_slider_crank_safety_zones()
 
     def _draw_four_bar_safety_zones(self):
-        """Draw safety zones for four-bar mechanism"""
+        """Draw comprehensive safety zones for four-bar mechanism based on mechanical engineering principles"""
         if not self.mechanism_params:
             return
 
         ground_link = self.mechanism_params.get("ground_link", 150)
-        input_link = self.mechanism_params.get("input_link", 80)
+        input_link = self.mechanism_params.get("input_link", 40)
         coupler_link = self.mechanism_params.get("coupler_link", 120)
-        output_link = self.mechanism_params.get("output_link", 100)
+        output_link = self.mechanism_params.get("output_link", 130)
 
-        # Draw reachable area (safe zone)
+        # Fixed joint positions
         O1 = QPointF(-ground_link / 2, 0)
         O4 = QPointF(ground_link / 2, 0)
 
-        # Maximum and minimum reach circles from O4
-        max_reach = coupler_link + output_link
-        min_reach = abs(coupler_link - output_link)
+        # Calculate reachability limits
+        max_reach = coupler_link + output_link  # Maximum distance between A and B
+        min_reach = abs(coupler_link - output_link)  # Minimum distance between A and B
+        
+        # Input link creates a circle of possible positions for point A
+        input_circle_radius = input_link
+        
+        # For each point on the input circle, check if mechanism can be assembled
+        # SAFE ZONE: Positions where transmission angle is optimal (40° ≤ T.A. ≤ 140°)
+        # CAUTION ZONE: Acceptable transmission angles (20° ≤ T.A. ≤ 160°)
+        # UNREACHABLE ZONE: Geometrically impossible or very poor transmission angles
 
-        # Safe zone (green circle)
-        safe_pen = QPen(QColor(0, 200, 0, 100), 2, Qt.PenStyle.DashLine)
-        safe_brush = QBrush(QColor(0, 255, 0, 20))
-        safe_circle = self.scene.addEllipse(
-            O4.x() - max_reach * 0.9, O4.y() - max_reach * 0.9,
-            max_reach * 0.9 * 2, max_reach * 0.9 * 2,
+        # Draw SAFE ZONE (green) - optimal operation region
+        safe_inner_radius = min_reach * 1.1  # Avoid interference region
+        safe_outer_radius = max_reach * 0.85  # Stay away from extreme reach
+        
+        safe_pen = QPen(QColor(0, 180, 0, 120), 3, Qt.PenStyle.DashLine)
+        safe_brush = QBrush(QColor(50, 255, 50, 30))
+        
+        # Draw safe zone as ring around O4
+        safe_outer = self.scene.addEllipse(
+            O4.x() - safe_outer_radius, O4.y() - safe_outer_radius,
+            safe_outer_radius * 2, safe_outer_radius * 2,
             safe_pen, safe_brush
         )
-        safe_circle.setZValue(-50)
-        self.safety_zone_items.append(safe_circle)
+        safe_outer.setZValue(-52)
+        self.safety_zone_items.append(safe_outer)
+        
+        # Remove inner part of safe zone if there's a minimum reach
+        if min_reach > 10:  # Only if there's significant minimum reach
+            safe_inner = self.scene.addEllipse(
+                O4.x() - safe_inner_radius, O4.y() - safe_inner_radius,
+                safe_inner_radius * 2, safe_inner_radius * 2,
+                QPen(Qt.PenStyle.NoPen), QBrush(QColor(255, 255, 255, 100))
+            )
+            safe_inner.setZValue(-51)
+            self.safety_zone_items.append(safe_inner)
 
-        # Warning zone (yellow ring)
-        warning_pen = QPen(QColor(255, 165, 0, 120), 2, Qt.PenStyle.DashLine)
-        warning_brush = QBrush(QColor(255, 255, 0, 20))
-        warning_outer = self.scene.addEllipse(
-            O4.x() - max_reach, O4.y() - max_reach,
-            max_reach * 2, max_reach * 2,
-            warning_pen, warning_brush
+        # Draw CAUTION ZONE (yellow) - acceptable operation
+        caution_pen = QPen(QColor(255, 180, 0, 150), 2, Qt.PenStyle.DashLine)
+        caution_brush = QBrush(QColor(255, 255, 0, 25))
+        
+        # Outer caution zone
+        caution_outer = self.scene.addEllipse(
+            O4.x() - max_reach * 0.98, O4.y() - max_reach * 0.98,
+            max_reach * 0.98 * 2, max_reach * 0.98 * 2,
+            caution_pen, caution_brush
         )
-        warning_outer.setZValue(-51)
-        self.safety_zone_items.append(warning_outer)
+        caution_outer.setZValue(-53)
+        self.safety_zone_items.append(caution_outer)
+        
+        # Inner caution zone (near interference)
+        if min_reach > 5:
+            caution_inner = self.scene.addEllipse(
+                O4.x() - min_reach * 1.05, O4.y() - min_reach * 1.05,
+                min_reach * 1.05 * 2, min_reach * 1.05 * 2,
+                caution_pen, caution_brush
+            )
+            caution_inner.setZValue(-53)
+            self.safety_zone_items.append(caution_inner)
 
-        # Danger zone (red area - unreachable)
-        danger_pen = QPen(QColor(255, 0, 0, 100), 2, Qt.PenStyle.SolidLine)
-        # Draw danger indicators at the edge
-        for angle in range(0, 360, 45):
+        # Draw UNREACHABLE ZONE markers (red)
+        unreachable_pen = QPen(QColor(220, 20, 20, 180), 3, Qt.PenStyle.SolidLine)
+        unreachable_brush = QBrush(QColor(255, 0, 0, 40))
+        
+        # Outer unreachable zone  
+        unreachable_outer = self.scene.addEllipse(
+            O4.x() - max_reach * 1.15, O4.y() - max_reach * 1.15,
+            max_reach * 1.15 * 2, max_reach * 1.15 * 2,
+            unreachable_pen, QBrush(Qt.BrushStyle.NoBrush)
+        )
+        unreachable_outer.setZValue(-54)
+        self.safety_zone_items.append(unreachable_outer)
+        
+        # Add "UNREACHABLE" markers around the outer boundary
+        for angle in range(0, 360, 60):
             rad = math.radians(angle)
-            x = O4.x() + max_reach * 1.2 * math.cos(rad)
-            y = O4.y() + max_reach * 1.2 * math.sin(rad)
-            danger_marker = self.scene.addEllipse(x-5, y-5, 10, 10, danger_pen, QBrush(QColor(255, 0, 0, 100)))
-            danger_marker.setZValue(-49)
-            self.safety_zone_items.append(danger_marker)
+            x = O4.x() + max_reach * 1.25 * math.cos(rad)
+            y = O4.y() + max_reach * 1.25 * math.sin(rad)
+            
+            marker = self.scene.addEllipse(
+                x - 8, y - 8, 16, 16,
+                QPen(QColor(200, 0, 0), 2),
+                QBrush(QColor(255, 100, 100, 150))
+            )
+            marker.setZValue(-48)
+            self.safety_zone_items.append(marker)
 
-        # Current input link position indicator
+        # Draw current mechanism position indicator
         current_angle = math.radians(self.animation_angle)
         current_A = QPointF(
             O1.x() + input_link * math.cos(current_angle),
             O1.y() + input_link * math.sin(current_angle)
         )
+        
+        # Calculate current output position
+        try:
+            output_angle = self._solve_four_bar_output_angle_fast(
+                ground_link, input_link, coupler_link, output_link, current_angle
+            )
+            current_B = QPointF(
+                O4.x() + output_link * math.cos(output_angle),
+                O4.y() + output_link * math.sin(output_angle)
+            )
+            
+            # Draw current coupler line (shows current reach)
+            coupler_line = self.scene.addLine(
+                current_A.x(), current_A.y(), current_B.x(), current_B.y(),
+                QPen(QColor(100, 100, 255, 200), 3, Qt.PenStyle.SolidLine)
+            )
+            coupler_line.setZValue(-47)
+            self.safety_zone_items.append(coupler_line)
+            
+        except:
+            # If calculation fails, just show the reach requirement
+            reach_line = self.scene.addLine(
+                current_A.x(), current_A.y(), O4.x(), O4.y(),
+                QPen(QColor(150, 150, 150, 150), 2, Qt.PenStyle.DotLine)
+            )
+            reach_line.setZValue(-48)
+            self.safety_zone_items.append(reach_line)
 
-        # Draw line from current position to O4 to show current reach requirement
-        reach_line = self.scene.addLine(
-            current_A.x(), current_A.y(), O4.x(), O4.y(),
-            QPen(QColor(100, 100, 100, 150), 2, Qt.PenStyle.DotLine)
-        )
-        reach_line.setZValue(-48)
-        self.safety_zone_items.append(reach_line)
-
-        # Add zone labels
+        # Add zone labels with improved descriptions
         self._add_safety_zone_labels()
 
     def _draw_slider_crank_safety_zones(self):
@@ -969,27 +1138,45 @@ class InteractiveMechanismWidget(QGraphicsView):
         self.safety_zone_items.append(stress_indicator)
 
     def _add_safety_zone_labels(self):
-        """Add educational labels to safety zones"""
-        # Safe zone label
-        safe_label = self.scene.addText("SAFE ZONE", QFont("Arial", 10, QFont.Weight.Bold))
-        safe_label.setDefaultTextColor(QColor(0, 150, 0, 180))
-        safe_label.setPos(50, -120)
+        """Add educational labels to safety zones with mechanical engineering context"""
+        # Safe zone label - optimal transmission angle region
+        safe_label = self.scene.addText("SAFE ZONE", QFont("Arial", 11, QFont.Weight.Bold))
+        safe_label.setDefaultTextColor(QColor(0, 150, 0, 200))
+        safe_label.setPos(40, -100)
         safe_label.setZValue(-45)
         self.safety_zone_items.append(safe_label)
+        
+        safe_desc = self.scene.addText("Optimal transmission angles\n40° ≤ T.A. ≤ 140°", QFont("Arial", 8))
+        safe_desc.setDefaultTextColor(QColor(0, 120, 0, 180))
+        safe_desc.setPos(45, -80)
+        safe_desc.setZValue(-45)
+        self.safety_zone_items.append(safe_desc)
 
-        # Warning zone label
-        warning_label = self.scene.addText("CAUTION", QFont("Arial", 9))
-        warning_label.setDefaultTextColor(QColor(255, 140, 0, 180))
-        warning_label.setPos(120, -80)
-        warning_label.setZValue(-45)
-        self.safety_zone_items.append(warning_label)
+        # Caution zone label - acceptable but suboptimal
+        caution_label = self.scene.addText("CAUTION", QFont("Arial", 10, QFont.Weight.Bold))
+        caution_label.setDefaultTextColor(QColor(255, 140, 0, 200))
+        caution_label.setPos(100, -60)
+        caution_label.setZValue(-45)
+        self.safety_zone_items.append(caution_label)
+        
+        caution_desc = self.scene.addText("Acceptable transmission\nApproaching limits", QFont("Arial", 8))
+        caution_desc.setDefaultTextColor(QColor(200, 120, 0, 180))
+        caution_desc.setPos(100, -45)
+        caution_desc.setZValue(-45)
+        self.safety_zone_items.append(caution_desc)
 
-        # Danger markers label
-        danger_label = self.scene.addText("UNREACHABLE", QFont("Arial", 8))
-        danger_label.setDefaultTextColor(QColor(200, 0, 0, 180))
-        danger_label.setPos(150, -50)
-        danger_label.setZValue(-45)
-        self.safety_zone_items.append(danger_label)
+        # Unreachable zone label
+        unreachable_label = self.scene.addText("UNREACHABLE", QFont("Arial", 10, QFont.Weight.Bold))
+        unreachable_label.setDefaultTextColor(QColor(200, 0, 0, 200))
+        unreachable_label.setPos(140, -25)
+        unreachable_label.setZValue(-45)
+        self.safety_zone_items.append(unreachable_label)
+        
+        unreachable_desc = self.scene.addText("Geometric impossibility\nPoor force transmission", QFont("Arial", 8))
+        unreachable_desc.setDefaultTextColor(QColor(180, 0, 0, 180))
+        unreachable_desc.setPos(140, -10)
+        unreachable_desc.setZValue(-45)
+        self.safety_zone_items.append(unreachable_desc)
 
     def _update_safety_status_display(self):
         """Update the safety status display"""
@@ -3466,7 +3653,7 @@ class EnhancedMacanismTab(QWidget):
         type_layout.addWidget(type_combo)
         content_layout.addWidget(type_group)
 
-        # Parameter controls group
+        # Parameter controls group - START WITH UPDATED FOUR-BAR PARAMETERS (default)
         params_group = QGroupBox("Parameters")
         params_group.setStyleSheet("""
             QGroupBox {
@@ -3484,20 +3671,15 @@ class EnhancedMacanismTab(QWidget):
                 padding: 0 4px 0 4px;
             }
         """)
+        # Create layout with updated four-bar parameters matching the image
         params_layout = QVBoxLayout(params_group)
         params_layout.setContentsMargins(10, 10, 10, 8)
 
-        # Ground link
-        self._add_parameter_slider(params_layout, "Ground Link", 50, 200, 150)
-
-        # Input link
-        self._add_parameter_slider(params_layout, "Input Link", 30, 120, 80)
-
-        # Coupler link
-        self._add_parameter_slider(params_layout, "Coupler Link", 50, 150, 120)
-
-        # Output link
-        self._add_parameter_slider(params_layout, "Output Link", 40, 130, 100)
+        # Updated default four-bar parameters to match the image with expanded ranges
+        self._add_parameter_slider(params_layout, "Ground Link", 30, 300, 150)      # Default: 150, Range: 30-300
+        self._add_parameter_slider(params_layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150  
+        self._add_parameter_slider(params_layout, "Coupler Link", 20, 250, 120)     # Default: 120, Range: 20-250
+        self._add_parameter_slider(params_layout, "Output Link", 20, 250, 130)      # Default: 130, Range: 20-250
 
         content_layout.addWidget(params_group)
 
@@ -3857,33 +4039,34 @@ class EnhancedMacanismTab(QWidget):
         else:
             layout = QVBoxLayout(params_group)
 
-        # Add mechanism-specific parameters with proper mapping
+        # Add mechanism-specific parameters with proper mapping and expanded ranges
         if mechanism_type == "four_bar":
-            self._add_parameter_slider(layout, "Ground Link", 50, 200, 150)
-            self._add_parameter_slider(layout, "Input Link", 30, 120, 80)
-            self._add_parameter_slider(layout, "Coupler Link", 50, 150, 120)
-            self._add_parameter_slider(layout, "Output Link", 40, 130, 100)
+            # Updated defaults to match the image and expanded ranges for better control
+            self._add_parameter_slider(layout, "Ground Link", 30, 300, 150)      # Default: 150, Range: 30-300
+            self._add_parameter_slider(layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150  
+            self._add_parameter_slider(layout, "Coupler Link", 20, 250, 120)     # Default: 120, Range: 20-250
+            self._add_parameter_slider(layout, "Output Link", 20, 250, 130)      # Default: 130, Range: 20-250
 
         elif mechanism_type == "slider_crank":
-            self._add_parameter_slider(layout, "Crank Length", 40, 120, 80)
-            self._add_parameter_slider(layout, "Rod Length", 80, 200, 140)
-            self._add_parameter_slider(layout, "Gas Pressure (kPa)", 100, 1000, 500)
+            self._add_parameter_slider(layout, "Crank Length", 20, 150, 80)
+            self._add_parameter_slider(layout, "Rod Length", 60, 300, 140)
+            self._add_parameter_slider(layout, "Gas Pressure (kPa)", 50, 2000, 500)
 
         elif mechanism_type == "cam_follower":
-            self._add_parameter_slider(layout, "Cam Radius", 30, 100, 60)
-            self._add_parameter_slider(layout, "Cam Offset", 10, 40, 20)
-            self._add_parameter_slider(layout, "Follower Length", 50, 150, 100)
-            self._add_parameter_slider(layout, "Spring Force (N)", 100, 1000, 300)
+            self._add_parameter_slider(layout, "Cam Radius", 20, 150, 60)
+            self._add_parameter_slider(layout, "Cam Offset", 5, 60, 20)
+            self._add_parameter_slider(layout, "Follower Length", 30, 200, 100)
+            self._add_parameter_slider(layout, "Spring Force (N)", 50, 2000, 300)
 
         elif mechanism_type == "gear_train":
-            self._add_parameter_slider(layout, "Drive Gear Teeth", 12, 60, 24)
-            self._add_parameter_slider(layout, "Driven Gear Teeth", 12, 60, 36)
-            self._add_parameter_slider(layout, "Input Torque (Nm)", 50, 500, 200)
+            self._add_parameter_slider(layout, "Drive Gear Teeth", 8, 100, 24)
+            self._add_parameter_slider(layout, "Driven Gear Teeth", 8, 100, 36)
+            self._add_parameter_slider(layout, "Input Torque (Nm)", 10, 1000, 200)
 
         elif mechanism_type == "scotch_yoke":
-            self._add_parameter_slider(layout, "Crank Radius", 30, 100, 60)
-            self._add_parameter_slider(layout, "Yoke Mass (kg)", 1, 20, 5)
-            self._add_parameter_slider(layout, "Applied Force (N)", 100, 1000, 400)
+            self._add_parameter_slider(layout, "Crank Radius", 15, 150, 60)
+            self._add_parameter_slider(layout, "Yoke Mass (kg)", 0.5, 50, 5)
+            self._add_parameter_slider(layout, "Applied Force (N)", 50, 2000, 400)
 
         # Force layout update
         params_group.updateGeometry()
