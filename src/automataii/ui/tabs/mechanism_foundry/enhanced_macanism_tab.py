@@ -38,6 +38,7 @@ from PyQt6.QtCore import (
     Qt,
     QTimer,
     QPointF,
+    QRectF,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
@@ -188,7 +189,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         self.animation_timer = QTimer()
         self.animation_timer.timeout.connect(self.update_animation)
         self.animation_angle = 30.0  # Start at 30 degrees - safe position for four-bar mechanisms
-        self.animation_speed = 2.0  # Smooth animation speed (2 degrees per frame)
+        self.animation_speed = 4.0  # Faster animation speed (4 degrees per frame)
 
         # Safety zone system (replacing physics violation system)
         self.safety_status = "safe"  # "safe", "warning", "danger"
@@ -295,6 +296,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             self._draw_safety_zones()
 
         # Draw mechanism based on type
+        print(f"DEBUG: Drawing mechanism type: {self.mechanism_type}")
         if self.mechanism_type == "four_bar":
             self._draw_four_bar_mechanism_optimized()
         elif self.mechanism_type == "slider_crank":
@@ -302,9 +304,10 @@ class InteractiveMechanismWidget(QGraphicsView):
         elif self.mechanism_type == "cam_follower":
             self._draw_cam_follower_mechanism_optimized()
         elif self.mechanism_type == "gear_train":
+            print("DEBUG: About to draw gear train...")
             self._draw_gear_train_mechanism_optimized()
-        elif self.mechanism_type == "scotch_yoke":
-            self._draw_scotch_yoke_mechanism_optimized()
+            print("DEBUG: Gear train drawn")
+
 
         # Draw forces if enabled (persistent vectors - no more blinking!)
         if self.show_forces:
@@ -362,6 +365,7 @@ class InteractiveMechanismWidget(QGraphicsView):
 
     def _draw_four_bar_mechanism_optimized(self):
         """Optimized four-bar linkage drawing with proper force calculation"""
+        print(f"DEBUG: _draw_four_bar_mechanism_optimized called! mechanism_type={self.mechanism_type}")
         # Updated default parameters to match image settings
         if not self.mechanism_params:
             self.mechanism_params = {
@@ -767,7 +771,7 @@ class InteractiveMechanismWidget(QGraphicsView):
                 )
 
             # Other mechanisms are generally always safe for educational purposes
-            elif self.mechanism_type in ["cam_follower", "gear_train", "scotch_yoke"]:
+            elif self.mechanism_type in ["cam_follower", "gear_train"]:
                 return "safe", "Mechanism operating normally"
 
             return "safe", "Unknown mechanism type"
@@ -945,6 +949,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             self._draw_four_bar_safety_zones()
         elif self.mechanism_type == "slider_crank":
             self._draw_slider_crank_safety_zones()
+        # No safety zones for gear_train or cam_follower
 
     def _draw_four_bar_safety_zones(self):
         """Draw comprehensive safety zones for four-bar mechanism based on mechanical engineering principles"""
@@ -1813,73 +1818,81 @@ class InteractiveMechanismWidget(QGraphicsView):
         }
 
     def _draw_gear_train_mechanism_optimized(self):
-        """Accurate gear train with proper gear ratios and tooth engagement"""
-        # Get parameters
-        gear1_teeth = self.mechanism_params.get("gear1_teeth", 24)
-        gear2_teeth = self.mechanism_params.get("gear2_teeth", 36)
+        """Gear train with physically plausible pitch meshing and rotation."""
+        print(f"DEBUG: _draw_gear_train_mechanism_optimized called! mechanism_type={self.mechanism_type}")
 
-        # Calculate gear radii based on teeth (using standard tooth pitch)
-        tooth_pitch = 8.0  # mm per tooth (standard)
-        gear1_radius = (gear1_teeth * tooth_pitch) / (2 * math.pi)
-        gear2_radius = (gear2_teeth * tooth_pitch) / (2 * math.pi)
+        # Teeth and pitch parameters
+        z1 = int(self.mechanism_params.get("gear1_teeth", 24))
+        z2 = int(self.mechanism_params.get("gear2_teeth", 36))
+        circular_pitch = float(self.mechanism_params.get("tooth_pitch", 8.0))  # length per tooth
+        module = circular_pitch / math.pi  # m = p/π
 
-        # Gear centers positioned for proper meshing
-        center_distance = gear1_radius + gear2_radius + 2  # Small clearance
-        if "gear1_center" in self.mechanism_params and "gear2_center" in self.mechanism_params:
-            g1 = self.mechanism_params["gear1_center"]
-            g2 = self.mechanism_params["gear2_center"]
-            gear1_center = g1 if isinstance(g1, QPointF) else QPointF(g1[0], g1[1])
-            gear2_center = g2 if isinstance(g2, QPointF) else QPointF(g2[0], g2[1])
+        # Pitch radii
+        r1 = 0.5 * module * z1
+        r2 = 0.5 * module * z2
+
+        # Centers: respect stored centers if present, but enforce correct distance (r1+r2)
+        c1 = self.mechanism_params.get("gear1_center")
+        c2 = self.mechanism_params.get("gear2_center")
+        if c1 is None or c2 is None:
+            gear1_center = QPointF(-r1, 0)
+            gear2_center = QPointF(+r2, 0)
         else:
-            gear1_center = QPointF(-center_distance / 2, 0)
-            gear2_center = QPointF(center_distance / 2, 0)
+            gear1_center = c1 if isinstance(c1, QPointF) else QPointF(c1[0], c1[1])
+            gear2_center = c2 if isinstance(c2, QPointF) else QPointF(c2[0], c2[1])
+            vx, vy = gear2_center.x() - gear1_center.x(), gear2_center.y() - gear1_center.y()
+            dist = math.hypot(vx, vy)
+            target = r1 + r2
+            if dist < 1e-6:
+                gear2_center = QPointF(gear1_center.x() + target, gear1_center.y())
+            else:
+                s = target / dist
+                gear2_center = QPointF(gear1_center.x() + vx * s, gear1_center.y() + vy * s)
 
-        # Calculate gear rotations with accurate speed ratio
-        gear_ratio = gear1_teeth / gear2_teeth  # Speed ratio (inverse of radius ratio)
+        # Rotation relationship
         gear1_angle = math.radians(self.animation_angle)
-        gear2_angle = -gear1_angle * gear_ratio  # Opposite direction, scaled speed
+        ratio = z1 / z2
+        gear2_angle = -gear1_angle * ratio
 
-        # Draw gear 1 (drive gear)
-        self._draw_accurate_gear(gear1_center, gear1_radius, gear1_teeth, gear1_angle, True)
+        # Draw gears using pitch radii and module-based tooth geometry
+        self._draw_simple_gear_with_teeth(gear1_center, r1, z1, gear1_angle, True, "DRIVE")
+        self._draw_simple_gear_with_teeth(gear2_center, r2, z2, gear2_angle, False, "DRIVEN")
 
-        # Draw gear 2 (driven gear)
-        self._draw_accurate_gear(gear2_center, gear2_radius, gear2_teeth, gear2_angle, False)
+        # Meshing point on pitch circles along line of centers
+        vx, vy = gear2_center.x() - gear1_center.x(), gear2_center.y() - gear1_center.y()
+        dist = math.hypot(vx, vy) or 1.0
+        ux, uy = vx / dist, vy / dist
+        mesh_x = gear1_center.x() + ux * r1
+        mesh_y = gear1_center.y() + uy * r1
 
-        # Draw gear engagement/contact point
-        contact_point = QPointF(
-            (gear1_center.x() + gear2_center.x()) / 2,
-            0  # Contact along line of centers
+        mesh_point = self.scene.addEllipse(
+            mesh_x - 6, mesh_y - 6, 12, 12,
+            QPen(QColor(255, 50, 50), 3),
+            QBrush(QColor(255, 100, 100))
         )
+        mesh_point.setZValue(10)
+        self.mechanism_items["mesh_point"] = mesh_point
 
-        # Small circle to show contact point
-        contact_circle = self.scene.addEllipse(
-            contact_point.x() - 3, contact_point.y() - 3, 6, 6,
-            QPen(QColor(255, 100, 100), 2),
-            QBrush(QColor(255, 150, 150))
-        )
-        self.mechanism_items["contact_point"] = contact_circle
+        mesh_label = self.scene.addText("MESH", QFont("Arial", 10, QFont.Weight.Bold))
+        mesh_label.setPos(mesh_x - 15, mesh_y - 30)
+        mesh_label.setDefaultTextColor(QColor(255, 0, 0))
+        self.mechanism_items["mesh_label"] = mesh_label
 
-        # Draw center lines
-        center_line = self.scene.addLine(
-            gear1_center.x(), gear1_center.y(),
-            gear2_center.x(), gear2_center.y(),
-            QPen(QColor(150, 150, 150), 1, Qt.PenStyle.DashLine)
-        )
-        self.mechanism_items["center_line"] = center_line
+        # Rotation arrows (use pitch radii for placement)
+        self._draw_simple_rotation_arrow(gear1_center, r1, gear1_angle, QColor(0, 100, 200), "INPUT", True)
+        self._draw_simple_rotation_arrow(gear2_center, r2, gear2_angle, QColor(200, 100, 0), "OUTPUT", False)
 
-        # Draw joints
-        self._draw_joint_optimized(gear1_center, "G1", is_fixed=True)
-        self._draw_joint_optimized(gear2_center, "G2", is_fixed=True)
+        # Info text
+        info = self.scene.addText(f"RATIO {z1}:{z2} = {ratio:.2f}:1")
+        info.setPos(-100, 150)
+        info.setDefaultTextColor(QColor(100, 100, 100))
+        self.mechanism_items["info"] = info
 
-        # Calculate and store gear forces
-        self._calculate_gear_train_forces_accurate(
-            gear1_center, gear2_center, contact_point,
-            gear1_radius, gear2_radius, gear_ratio
-        )
-
-        # Persist centers for handle use
+        # Persist for later interactions
         self.mechanism_params["gear1_center"] = gear1_center
         self.mechanism_params["gear2_center"] = gear2_center
+        self.mechanism_params["gear1_pitch_radius"] = r1
+        self.mechanism_params["gear2_pitch_radius"] = r2
 
     def _ensure_parametric_handles(self):
         """Create/update parametric handles for current mechanism."""
@@ -1899,8 +1912,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             self._ensure_slider_crank_handles()
         elif self.mechanism_type == "cam_follower":
             self._ensure_cam_follower_handles()
-        elif self.mechanism_type == "scotch_yoke":
-            self._ensure_scotch_yoke_handles()
+
 
     def _ensure_four_bar_handles(self):
         # Current anchors
@@ -1951,9 +1963,10 @@ class InteractiveMechanismWidget(QGraphicsView):
             pitch = self.mechanism_params.get("tooth_pitch", 8.0)
             r1 = (t1 * pitch) / (2 * math.pi)
             r2 = (t2 * pitch) / (2 * math.pi)
-            d = r1 + r2 + 2
-            g1 = QPointF(-d / 2, 0)
-            g2 = QPointF(d / 2, 0)
+            d = r1 + r2
+            # Place so pitch point is near origin, preserving asymmetry if radii differ
+            g1 = QPointF(-r1, 0)
+            g2 = QPointF(+r2, 0)
         else:
             g1 = g1 if isinstance(g1, QPointF) else QPointF(g1[0], g1[1])
             g2 = g2 if isinstance(g2, QPointF) else QPointF(g2[0], g2[1])
@@ -1963,7 +1976,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         pitch = self.mechanism_params.get("tooth_pitch", 8.0)
         r1 = (t1 * pitch) / (2 * math.pi)
         r2 = (t2 * pitch) / (2 * math.pi)
-        target_dist = r1 + r2 + 2
+        target_dist = r1 + r2
 
         def on_move_g1(_, pos: QPointF):
             prev = self.mechanism_params.get("gear1_center", g1)
@@ -2040,59 +2053,168 @@ class InteractiveMechanismWidget(QGraphicsView):
         if not self.parametric_handles["cam_center_handle"].isSelected():
             self.parametric_handles["cam_center_handle"].setPos(cam_center)
 
-    def _ensure_scotch_yoke_handles(self):
-        crank_center = self.mechanism_params.get("crank_center")
-        if crank_center is None:
-            crank_center = QPointF(-100, 0)
-        else:
-            crank_center = crank_center if isinstance(crank_center, QPointF) else QPointF(crank_center[0], crank_center[1])
-
-        def on_move_crank_center(_, pos: QPointF):
+    def on_move_crank_center(_, pos: QPointF):
             self.mechanism_params["crank_center"] = QPointF(pos.x(), pos.y())
             self.draw_mechanism()
 
-        if "sy_crank_center" not in self.parametric_handles:
-            h = DraggablePointHandle(crank_center, 6, "sy_crank_center", on_move=on_move_crank_center)
-            self.parametric_handles["sy_crank_center"] = h
-            self.scene.addItem(h)
-        if not self.parametric_handles["sy_crank_center"].isSelected():
-            self.parametric_handles["sy_crank_center"].setPos(crank_center)
 
-    def _draw_accurate_gear(self, center, radius, teeth, angle, is_drive):
-        """Draw a gear with accurate tooth profile"""
-        # Main gear circle
-        gear_color = QColor(180, 180, 180) if is_drive else QColor(160, 160, 160)
+
+
+    def _draw_simple_gear_with_teeth(self, center, pitch_radius, teeth, angle, is_drive, label):
+        """Draw gear with realistic tooth proportions based on pitch radius."""
+        # Gear colors
+        if is_drive:
+            gear_color = QColor(90, 90, 95)
+            tooth_color = QColor(70, 70, 75)
+        else:
+            gear_color = QColor(130, 130, 135)
+            tooth_color = QColor(110, 110, 115)
+        
+        # Use actual teeth count
+        actual_teeth = teeth
+        tooth_angle = 2 * math.pi / actual_teeth
+
+        # Derive geometry from module
+        circular_pitch = float(self.mechanism_params.get("tooth_pitch", 8.0))
+        module = circular_pitch / math.pi
+        addendum = module
+        dedendum = 1.25 * module
+
+        pr = float(pitch_radius)
+        tip_radius = max(pr + addendum, pr + 1.0)
+        root_radius = max(pr - dedendum, max(4.0, pr * 0.5))
+        
+        # Main gear body (root circle)
         gear_circle = self.scene.addEllipse(
-            center.x() - radius, center.y() - radius,
-            radius * 2, radius * 2,
-            QPen(gear_color.darker(120), 2),
+            center.x() - root_radius, center.y() - root_radius,
+            root_radius * 2, root_radius * 2,
+            QPen(gear_color.darker(130), 2),
             QBrush(gear_color)
         )
+        
+        # Draw realistic trapezoid teeth
+        teeth_path = QPainterPath()
+        
+        for i in range(actual_teeth):
+            current_angle = angle + i * tooth_angle
+            tooth_width_angle = tooth_angle * 0.4  # Tooth takes 40% of space
+            
+            # Create trapezoid tooth shape
+            # Bottom left
+            angle1 = current_angle - tooth_width_angle/2
+            x1 = center.x() + root_radius * math.cos(angle1)
+            y1 = center.y() + root_radius * math.sin(angle1)
+            
+            # Top left (narrower)
+            angle2 = current_angle - tooth_width_angle/3
+            x2 = center.x() + tip_radius * math.cos(angle2)
+            y2 = center.y() + tip_radius * math.sin(angle2)
+            
+            # Top right (narrower)
+            angle3 = current_angle + tooth_width_angle/3
+            x3 = center.x() + tip_radius * math.cos(angle3)
+            y3 = center.y() + tip_radius * math.sin(angle3)
+            
+            # Bottom right
+            angle4 = current_angle + tooth_width_angle/2
+            x4 = center.x() + root_radius * math.cos(angle4)
+            y4 = center.y() + root_radius * math.sin(angle4)
+            
+            # Create trapezoid polygon for this tooth
+            tooth_points = [
+                QPointF(x1, y1),  # Bottom left
+                QPointF(x2, y2),  # Top left
+                QPointF(x3, y3),  # Top right
+                QPointF(x4, y4)   # Bottom right
+            ]
+            
+            tooth_polygon = QPolygonF(tooth_points)
+            teeth_path.addPolygon(tooth_polygon)
+        
+        # Draw ALL teeth as single item for performance
+        teeth_item = self.scene.addPath(
+            teeth_path, 
+            QPen(tooth_color.darker(120), 1), 
+            QBrush(tooth_color.lighter(110))
+        )
+        
+        # Pitch circle (reference line where gears mesh)
+        pitch_circle = self.scene.addEllipse(
+            center.x() - pr, center.y() - pr,
+            pr * 2, pr * 2,
+            QPen(QColor(200, 200, 200, 100), 1, Qt.PenStyle.DotLine),
+            QBrush(Qt.BrushStyle.NoBrush)
+        )
+        
+        # Center hub
+        hub_radius = tip_radius * 0.2
+        hub = self.scene.addEllipse(
+            center.x() - hub_radius, center.y() - hub_radius,
+            hub_radius * 2, hub_radius * 2,
+            QPen(gear_color.darker(160), 2),
+            QBrush(gear_color.darker(110))
+        )
+        
+        # Center axis
+        axis_radius = tip_radius * 0.05
+        axis = self.scene.addEllipse(
+            center.x() - axis_radius, center.y() - axis_radius,
+            axis_radius * 2, axis_radius * 2,
+            QPen(Qt.PenStyle.NoPen),
+            QBrush(QColor(30, 30, 30))
+        )
+        
+        # Gear label with tooth count
+        text = self.scene.addText(f"{label}\n({teeth}T)", QFont("Arial", 11, QFont.Weight.Bold))
+        text.setPos(center.x() - 25, center.y() - tip_radius - 50)
+        text.setDefaultTextColor(QColor(80, 80, 80))
+        
+        # Store items
+        gear_name = "gear1" if is_drive else "gear2" 
+        self.mechanism_items[f"{gear_name}"] = gear_circle
+        self.mechanism_items[f"{gear_name}_teeth"] = teeth_item
+        self.mechanism_items[f"{gear_name}_pitch"] = pitch_circle
+        self.mechanism_items[f"{gear_name}_hub"] = hub
+        self.mechanism_items[f"{gear_name}_axis"] = axis
+        self.mechanism_items[f"{gear_name}_label"] = text
 
-        # Draw gear teeth (simplified as rectangles on circumference)
-        tooth_angle = 2 * math.pi / teeth
-        tooth_height = radius * 0.15  # Tooth height as fraction of radius
-
-        for i in range(teeth):
-            tooth_angle_pos = angle + i * tooth_angle
-
-            # Tooth tip position
-            tooth_tip_x = center.x() + (radius + tooth_height) * math.cos(tooth_angle_pos)
-            tooth_tip_y = center.y() + (radius + tooth_height) * math.sin(tooth_angle_pos)
-
-            # Draw tooth as small line
-            tooth_base_x = center.x() + radius * math.cos(tooth_angle_pos)
-            tooth_base_y = center.y() + radius * math.sin(tooth_angle_pos)
-
-            tooth_line = self.scene.addLine(
-                tooth_base_x, tooth_base_y,
-                tooth_tip_x, tooth_tip_y,
-                QPen(gear_color.darker(140), 1.5)
-            )
-
-        # Store gear items
-        gear_name = "gear1" if is_drive else "gear2"
-        self.mechanism_items[gear_name] = gear_circle
+    def _draw_simple_rotation_arrow(self, center, radius, angle, color, direction_label, clockwise):
+        """Ultra-simple rotation arrow - just one line with arrowhead"""
+        arrow_length = 40
+        arrow_angle = angle + (math.pi/3 if clockwise else -math.pi/3)
+        
+        # Start and end points
+        start_x = center.x() + (radius + 15) * math.cos(arrow_angle)
+        start_y = center.y() + (radius + 15) * math.sin(arrow_angle) 
+        end_x = start_x + arrow_length * math.cos(arrow_angle)
+        end_y = start_y + arrow_length * math.sin(arrow_angle)
+        
+        # Single arrow line
+        arrow = self.scene.addLine(start_x, start_y, end_x, end_y, QPen(color, 3))
+        
+        # Simple arrowhead - just two short lines
+        head_angle1 = arrow_angle + 2.8
+        head_angle2 = arrow_angle - 2.8
+        head_len = 8
+        
+        head1 = self.scene.addLine(
+            end_x, end_y,
+            end_x - head_len * math.cos(head_angle1), 
+            end_y - head_len * math.sin(head_angle1),
+            QPen(color, 3)
+        )
+        head2 = self.scene.addLine(
+            end_x, end_y,
+            end_x - head_len * math.cos(head_angle2),
+            end_y - head_len * math.sin(head_angle2), 
+            QPen(color, 3)
+        )
+        
+        # Store minimal items
+        arrow_name = "input_arrow" if clockwise else "output_arrow"
+        self.mechanism_items[f"{arrow_name}"] = arrow
+        self.mechanism_items[f"{arrow_name}_h1"] = head1
+        self.mechanism_items[f"{arrow_name}_h2"] = head2
 
     def _calculate_gear_train_forces_accurate(self, gear1_center, gear2_center, contact_point,
                                              gear1_radius, gear2_radius, gear_ratio):
@@ -2161,108 +2283,6 @@ class InteractiveMechanismWidget(QGraphicsView):
 
         self.mechanism_items[f"gear_{center.x()}"] = [gear_circle, indicator_line]
 
-    def _draw_scotch_yoke_mechanism_optimized(self):
-        """Accurate scotch yoke mechanism with proper harmonic motion"""
-        # Get parameters
-        crank_radius = self.mechanism_params.get("crank_radius", 60)
-        yoke_mass = self.mechanism_params.get("yoke_mass", 5)  # kg
-
-        crank_center = QPointF(-100, 0)
-        crank_angle = math.radians(self.animation_angle)
-
-        # Crank pin position (rotates in circle)
-        pin_position = QPointF(
-            crank_center.x() + crank_radius * math.cos(crank_angle),
-            crank_center.y() + crank_radius * math.sin(crank_angle)
-        )
-
-        # Draw crank arm
-        crank_stress = abs(math.sin(crank_angle)) * 0.5
-        self._draw_link_optimized(crank_center, pin_position, "crank_arm", stress=crank_stress)
-
-        # Draw crank pin
-        pin_circle = self.scene.addEllipse(
-            pin_position.x() - 8, pin_position.y() - 8, 16, 16,
-            QPen(QColor(200, 100, 100), 2),
-            QBrush(QColor(220, 150, 150))
-        )
-        self.mechanism_items["crank_pin"] = pin_circle
-
-        # Yoke position - pin moves in vertical slot, yoke moves horizontally
-        # This is the key insight: scotch yoke converts rotation to pure harmonic motion
-        yoke_displacement = crank_radius * math.cos(crank_angle)  # Harmonic displacement
-        yoke_center = QPointF(50 + yoke_displacement, 0)
-
-        # Draw yoke body (rectangular block)
-        yoke_width = 60
-        yoke_height = 30
-        yoke_rect = self.scene.addRect(
-            yoke_center.x() - yoke_width/2, yoke_center.y() - yoke_height/2,
-            yoke_width, yoke_height,
-            QPen(QColor(100, 150, 200), 2),
-            QBrush(QColor(150, 180, 220))
-        )
-        self.mechanism_items["yoke"] = yoke_rect
-
-        # Draw vertical slot in yoke where pin moves
-        slot_width = 20
-        slot_height = yoke_height + 10
-        slot_rect = self.scene.addRect(
-            yoke_center.x() - slot_width/2, yoke_center.y() - slot_height/2,
-            slot_width, slot_height,
-            QPen(QColor(80, 80, 80), 1),
-            QBrush(QColor(240, 240, 240))  # Light background
-        )
-        self.mechanism_items["yoke_slot"] = slot_rect
-
-        # Draw connecting rod from pin to yoke (vertical motion only)
-        connecting_point = QPointF(yoke_center.x(), pin_position.y())
-
-        # Horizontal connection from pin to yoke center line
-        horizontal_connection = self.scene.addLine(
-            pin_position.x(), pin_position.y(),
-            yoke_center.x(), pin_position.y(),
-            QPen(QColor(120, 120, 120), 3, Qt.PenStyle.DashLine)
-        )
-        self.mechanism_items["connection"] = horizontal_connection
-
-        # Draw yoke guide rails
-        rail_length = 200
-        rail_y_offset = 40
-
-        # Upper rail
-        upper_rail = self.scene.addLine(
-            -50, rail_y_offset, rail_length - 50, rail_y_offset,
-            QPen(QColor(140, 140, 140), 4)
-        )
-        self.mechanism_items["upper_rail"] = upper_rail
-
-        # Lower rail
-        lower_rail = self.scene.addLine(
-            -50, -rail_y_offset, rail_length - 50, -rail_y_offset,
-            QPen(QColor(140, 140, 140), 4)
-        )
-        self.mechanism_items["lower_rail"] = lower_rail
-
-        # Draw motion indicator arrow
-        velocity = -crank_radius * math.radians(self.animation_speed) * math.sin(crank_angle)
-        if abs(velocity) > 0.1:
-            arrow_length = min(abs(velocity) * 2, 30)
-            arrow_direction = 1 if velocity > 0 else -1
-
-            arrow_end = QPointF(yoke_center.x() + arrow_direction * arrow_length, yoke_center.y())
-            self._draw_velocity_arrow(yoke_center, arrow_end, f"v={abs(velocity):.1f}")
-
-        # Draw joints
-        self._draw_joint_optimized(crank_center, "O", is_fixed=True)
-        self._draw_joint_optimized(pin_position, "P", is_fixed=False)
-
-        # Calculate and store forces
-        self._calculate_scotch_yoke_forces_accurate(
-            crank_center, pin_position, yoke_center,
-            crank_angle, crank_radius, yoke_mass
-        )
-
     def _draw_velocity_arrow(self, start, end, label):
         """Draw velocity arrow with label"""
         # Arrow line
@@ -2300,50 +2320,6 @@ class InteractiveMechanismWidget(QGraphicsView):
         self.mechanism_items["velocity_arrow"] = arrow_line
         self.mechanism_items["velocity_head"] = arrow_head_item
         self.mechanism_items["velocity_label"] = text_item
-
-    def _calculate_scotch_yoke_forces_accurate(self, crank_center, pin_position, yoke_center,
-                                              crank_angle, crank_radius, yoke_mass):
-        """Calculate accurate forces for scotch yoke mechanism"""
-        # Kinematics
-        omega = math.radians(self.animation_speed)  # rad/s
-
-        # Position, velocity, acceleration (harmonic motion)
-        displacement = crank_radius * math.cos(crank_angle)
-        velocity = -crank_radius * omega * math.sin(crank_angle)
-        acceleration = -crank_radius * omega**2 * math.cos(crank_angle)
-
-        # Forces
-        applied_force = self.mechanism_params.get("applied_force", 400)  # N
-        inertia_force = yoke_mass * acceleration  # F = ma
-        total_force = applied_force + inertia_force
-
-        # Crank pin force (perpendicular to crank arm)
-        pin_force_angle = crank_angle + math.pi / 2
-        pin_force_magnitude = abs(total_force / math.sin(crank_angle)) if abs(math.sin(crank_angle)) > 0.1 else total_force
-
-        pin_force_vector = QPointF(
-            pin_force_magnitude * math.cos(pin_force_angle) * 0.01,  # Scale for display
-            pin_force_magnitude * math.sin(pin_force_angle) * 0.01
-        )
-
-        # Store forces for display
-        self.current_forces = {
-            "applied": {
-                "position": yoke_center,
-                "force": QPointF(applied_force * 0.01, 0),
-                "label": f"Applied: {applied_force:.0f}N"
-            },
-            "inertia": {
-                "position": yoke_center,
-                "force": QPointF(-inertia_force * 0.01, 0),
-                "label": f"Inertia: {abs(inertia_force):.0f}N"
-            },
-            "pin": {
-                "position": pin_position,
-                "force": pin_force_vector,
-                "label": f"Pin: {pin_force_magnitude:.0f}N"
-            }
-        }
 
     def _calculate_four_bar_forces_optimized(self, O1: QPointF, A: QPointF, B: QPointF, O4: QPointF):
         """Simplified force calculation for performance"""
@@ -2620,98 +2596,6 @@ class InteractiveMechanismWidget(QGraphicsView):
         }
         self.force_calculated.emit(force_data)
 
-    def _calculate_scotch_yoke_forces(self, crank_center: QPointF, pin_pos: QPointF, yoke_center: QPointF, rod_end: QPointF, crank_angle: float):
-        """Calculate forces in scotch yoke mechanism"""
-        self.forces.clear()
-
-        # Input torque on crank
-        torque_magnitude = 30 + 12 * abs(math.sin(crank_angle * 1.5))
-        torque_angle = crank_angle + math.pi/2
-        crank_torque = ForceVector(
-            position=pin_pos,
-            magnitude=torque_magnitude,
-            angle=torque_angle,
-            force_type=ForceType.APPLIED,
-            label="T_crank"
-        )
-        self.forces.append(crank_torque)
-
-        # Vertical constraint force from pin on yoke
-        pin_vertical_force = abs(60 * math.sin(crank_angle))  # Harmonic force
-        if abs(math.sin(crank_angle)) > 0.05:
-            pin_force_angle = math.pi/2 if math.sin(crank_angle) > 0 else -math.pi/2
-            pin_force = ForceVector(
-                position=pin_pos,
-                magnitude=pin_vertical_force,
-                angle=pin_force_angle,
-                force_type=ForceType.CONSTRAINT,
-                label="F_pin"
-            )
-            self.forces.append(pin_force)
-
-        # Horizontal output force
-        horizontal_force = 40 * abs(math.cos(crank_angle))
-        if abs(math.cos(crank_angle)) > 0.05:
-            horizontal_angle = 0 if math.cos(crank_angle) > 0 else math.pi
-            output_force = ForceVector(
-                position=rod_end,
-                magnitude=horizontal_force,
-                angle=horizontal_angle,
-                force_type=ForceType.APPLIED,
-                label="F_output"
-            )
-            self.forces.append(output_force)
-
-        # Inertia force on yoke (harmonic motion)
-        yoke_velocity = 60 * math.cos(crank_angle)  # Velocity is derivative of position
-        yoke_acceleration = -60 * math.sin(crank_angle)  # Acceleration is derivative of velocity
-        inertia_magnitude = abs(yoke_acceleration) * 0.3  # Mass factor
-        if inertia_magnitude > 1:
-            inertia_angle = 0 if yoke_acceleration > 0 else math.pi
-            inertia_force = ForceVector(
-                position=yoke_center,
-                magnitude=inertia_magnitude,
-                angle=inertia_angle,
-                force_type=ForceType.APPLIED,
-                label="F_inertia"
-            )
-            self.forces.append(inertia_force)
-
-        # Guide reaction forces (normal to motion)
-        guide_reaction = 15 + 10 * abs(math.sin(crank_angle))
-        if abs(pin_pos.y()) > 2:  # Only when there's significant vertical displacement
-            guide_angle = -math.pi/2 if pin_pos.y() > 0 else math.pi/2
-            guide_force_upper = ForceVector(
-                position=QPointF(yoke_center.x(), yoke_center.y() + 15),
-                magnitude=guide_reaction,
-                angle=guide_angle,
-                force_type=ForceType.REACTION,
-                label="R_guide"
-            )
-            self.forces.append(guide_force_upper)
-
-        # Bearing reaction at crank center
-        bearing_magnitude = 25 + 8 * abs(math.cos(crank_angle))
-        bearing_angle = crank_angle + math.pi + 0.2
-        bearing_force = ForceVector(
-            position=crank_center,
-            magnitude=bearing_magnitude,
-            angle=bearing_angle,
-            force_type=ForceType.REACTION,
-            label="R_bearing"
-        )
-        self.forces.append(bearing_force)
-
-        # Emit force data
-        force_data = {
-            "crank_torque": torque_magnitude,
-            "pin_force": pin_vertical_force,
-            "output_force": horizontal_force if abs(math.cos(crank_angle)) > 0.05 else 0,
-            "inertia_force": inertia_magnitude if inertia_magnitude > 1 else 0,
-            "guide_reaction": guide_reaction if abs(pin_pos.y()) > 2 else 0
-        }
-        self.force_calculated.emit(force_data)
-
     def _draw_force_vectors_optimized(self):
         """Optimized force vector drawing with persistent arrows"""
         # Initialize persistent force vectors if needed
@@ -2936,44 +2820,6 @@ class InteractiveMechanismWidget(QGraphicsView):
                 self.scene.removeItem(self.physics_status_text)
             self.physics_status_text = None
 
-        # FINAL CLEANUP: Remove any remaining mechanism-specific graphics
-        # This is a safety net for items that might not be tracked in collections
-        all_items = self.scene.items().copy()  # Make a copy to avoid modification during iteration
-        
-        for item in all_items:
-            # Always preserve grid items
-            if hasattr(item, 'data') and item.data(0) == 'grid':
-                continue
-            
-            # Check if item has mechanism-related data
-            should_remove = False
-            if hasattr(item, 'data') and item.data(0):
-                data = str(item.data(0))
-                # Remove items with mechanism component identifiers
-                if any(identifier in data.lower() for identifier in [
-                    'joint', 'link', 'gear', 'cam', 'crank', 'slider', 'yoke',
-                    'o1', 'o4', 'a', 'b', 'c', 'f', 'g1', 'g2', 'o', 'p',
-                    'hatch', 'label', 'force', 'vector'
-                ]):
-                    should_remove = True
-            
-            # Also check item type for common graphics elements (but preserve grid)
-            if not should_remove:
-                item_type = type(item).__name__.lower()
-                if any(t in item_type for t in ['ellipse', 'line', 'polygon', 'text', 'path']):
-                    # Only remove if it's not a grid item
-                    if not (hasattr(item, 'data') and item.data(0) == 'grid'):
-                        should_remove = True
-            
-            # Remove the item if it should be removed
-            if should_remove:
-                try:
-                    if item.scene():
-                        self.scene.removeItem(item)
-                except RuntimeError:
-                    # Item might have been deleted already
-                    pass
-
         # CRITICAL: Reset physics state to prevent solver issues
         if hasattr(self, '_last_output_angle'):
             delattr(self, '_last_output_angle')
@@ -3057,35 +2903,23 @@ class InteractiveMechanismWidget(QGraphicsView):
             self.trail_items.append(line)
 
     def update_animation(self):
-        """Smooth animation update with reduced blinking"""
-        # Update angle smoothly
+        """Ultra-optimized animation update for gear train"""
+        # Update angle
         self.animation_angle += self.animation_speed
         if self.animation_angle >= 360:
             self.animation_angle -= 360
 
         self.mechanism_params["input_angle"] = self.animation_angle
 
-        # Evaluate safety status
-        self.safety_status, self.safety_message = self._evaluate_mechanism_safety()
-
-        # Only redraw if parameters have changed or safety status changed
-        # This reduces blinking significantly
-        current_params_hash = hash(tuple(sorted(self.mechanism_params.items())))
-        if (current_params_hash != getattr(self, '_last_params_hash', None) or
-            self.safety_status != getattr(self, '_last_safety_status', None)):
-
-            # Draw mechanism with optimized rendering
-            self.draw_mechanism()
-
-            # Update safety status display
-            self._update_safety_status_display()
-
-            # Cache current state
-            self._last_params_hash = current_params_hash
-            self._last_safety_status = self.safety_status
+        # PERFORMANCE: Skip heavy operations for gear train
+        if self.mechanism_type == "gear_train":
+            # Only redraw every 3rd frame for gears (they're circular, less noticeable)
+            self.frame_count += 1
+            if self.frame_count % 3 == 0:
+                self.draw_mechanism()
         else:
-            # Just update positions without full redraw - smoother animation
-            self._update_mechanism_positions_only()
+            # Full redraw for other mechanisms that need precision
+            self.draw_mechanism()
 
     def _update_mechanism_positions_only(self):
         """Update only positions without full redraw to reduce blinking"""
@@ -3097,8 +2931,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             self._update_cam_follower_positions()
         elif self.mechanism_type == "gear_train":
             self._update_gear_train_positions()
-        elif self.mechanism_type == "scotch_yoke":
-            self._update_scotch_yoke_positions()
+
 
     def _update_four_bar_positions(self):
         """Update only four-bar linkage positions for smooth animation"""
@@ -3238,49 +3071,29 @@ class InteractiveMechanismWidget(QGraphicsView):
 
     def _update_gear_train_positions(self):
         """Update only gear train positions"""
-        gear1_radius = self.mechanism_params.get("gear1_radius", 50)
-        gear2_radius = self.mechanism_params.get("gear2_radius", 30)
-
-        gear1_center = QPointF(-60, 0)
-        gear2_center = QPointF(60, 0)
+        z1 = int(self.mechanism_params.get("gear1_teeth", 24))
+        z2 = int(self.mechanism_params.get("gear2_teeth", 36))
+        gear1_center = self.mechanism_params.get("gear1_center", QPointF(-60, 0))
+        gear2_center = self.mechanism_params.get("gear2_center", QPointF(60, 0))
+        gear1_center = gear1_center if isinstance(gear1_center, QPointF) else QPointF(gear1_center[0], gear1_center[1])
+        gear2_center = gear2_center if isinstance(gear2_center, QPointF) else QPointF(gear2_center[0], gear2_center[1])
 
         # Gear rotation with proper speed ratio
-        gear_ratio = gear1_radius / gear2_radius
         gear1_angle = math.radians(self.animation_angle)
-        gear2_angle = -gear1_angle * gear_ratio  # Opposite direction, scaled speed
+        gear2_angle = -gear1_angle * (z1 / z2)
 
         # Update gear rotations (if we have rotation indicators)
         # For now, just update any rotating elements
         pass
 
-    def _update_scotch_yoke_positions(self):
-        """Update only scotch yoke positions"""
-        crank_radius = self.mechanism_params.get("crank_radius", 60)
-
-        crank_center = QPointF(-100, 0)
-        crank_angle = math.radians(self.animation_angle)
-
-        # Crank pin position
-        pin_position = QPointF(
-            crank_center.x() + crank_radius * math.cos(crank_angle),
-            crank_center.y() + crank_radius * math.sin(crank_angle)
-        )
-
-        # Yoke position (horizontal displacement only)
-        yoke_center = QPointF(pin_position.x() + 100, 0)
-
-        # Update positions
-        if "crank_pin" in self.mechanism_items:
-            pin = self.mechanism_items["crank_pin"]
-            pin.setRect(pin_position.x() - 8, pin_position.y() - 8, 16, 16)
-
-        if "yoke" in self.mechanism_items:
-            yoke = self.mechanism_items["yoke"]
-            yoke.setRect(yoke_center.x() - 30, yoke_center.y() - 15, 60, 30)
-
     def start_animation(self):
-        """Start mechanism animation at optimized 45 FPS for performance/quality balance"""
-        self.animation_timer.start(16)  # ~60 FPS - smooth high-quality animation
+        """Start mechanism animation at optimized frame rate"""
+        if self.mechanism_type == "gear_train":
+            # Slower frame rate for gear train to reduce graphics load
+            self.animation_timer.start(33)  # 30 FPS for gears
+        else:
+            # Standard frame rate for other mechanisms
+            self.animation_timer.start(22)  # 45 FPS for others  # ~60 FPS - smooth high-quality animation
 
     def stop_animation(self):
         """Stop mechanism animation"""
@@ -3360,15 +3173,6 @@ class InteractiveMechanismWidget(QGraphicsView):
                     "Automotive transmissions",
                     "Industrial gearboxes",
                     "Power tools"
-                ]
-            },
-            "scotch_yoke": {
-                "title": "Scotch Yoke Mechanism",
-                "description": "Converts rotational motion to perfect harmonic linear motion. Produces sinusoidal displacement patterns.",
-                "applications": [
-                    "Steam engine crossheads",
-                    "Control valve actuators",
-                    "Testing machines"
                 ]
             }
         }
@@ -3646,11 +3450,13 @@ class EnhancedMacanismTab(QWidget):
             "Four-Bar Linkage",
             "Slider-Crank",
             "Cam-Follower",
-            "Gear Train",
-            "Scotch Yoke"
+            "Gear Train"
         ])
         type_combo.currentTextChanged.connect(self._on_mechanism_changed)
         type_layout.addWidget(type_combo)
+        
+        # Store reference for later use
+        self.mechanism_type_combo = type_combo
         content_layout.addWidget(type_group)
 
         # Parameter controls group - START WITH UPDATED FOUR-BAR PARAMETERS (default)
@@ -3953,64 +3759,107 @@ class EnhancedMacanismTab(QWidget):
             "Slider-Crank": "slider_crank",
             "Cam-Follower": "cam_follower",
             "Gear Train": "gear_train",
-            "Scotch Yoke": "scotch_yoke",
+
         }
 
         mechanism_key = type_map.get(mechanism_type, "four_bar")
-        print(f"DEBUG: Switching mechanism from {self.mechanism_widget.mechanism_type} to {mechanism_key}")
+        print(f"DEBUG: Switching mechanism UI from {mechanism_type} to {mechanism_key}")
+        print(f"DEBUG: Current mechanism_widget.mechanism_type = {self.mechanism_widget.mechanism_type}")
         
         # Stop animation during mechanism switch
         was_animating = self.mechanism_widget.animation_timer.isActive()
         if was_animating:
             self.mechanism_widget.stop_animation()
         
-        # COMPLETE STATE RESET
-        # 1. Clear all graphics
+        # STEP 1: Clear parameters FIRST to avoid lingering UI
+        print("DEBUG: Clearing old parameter UI...")
+        self._update_parameters_for_mechanism(mechanism_key)
+        
+        # STEP 2: Process events to ensure UI clearing is complete
+        from PyQt6.QtCore import QCoreApplication
+        QCoreApplication.processEvents()
+        
+        # STEP 3: Clear all graphics
+        print("DEBUG: Clearing mechanism graphics...")
         self.mechanism_widget.clear_all_mechanism_graphics()
         
-        # 2. Reset physics state
+        # STEP 4: Reset physics state
         self.mechanism_widget.physics_error_count = 0
         self.mechanism_widget.safety_status = "safe"
         self.mechanism_widget.safety_message = ""
         
-        # 3. Reset animation state
+        # STEP 5: Reset animation state
         self.mechanism_widget.animation_angle = 30.0  # Safe starting position
         
-        # 4. Clear any cached physics data
+        # STEP 6: Clear any cached physics data
         if hasattr(self.mechanism_widget, '_last_output_angle'):
             delattr(self.mechanism_widget, '_last_output_angle')
         if hasattr(self.mechanism_widget, 'last_valid_angle'):
             self.mechanism_widget.last_valid_angle = None
+        if hasattr(self.mechanism_widget, '_assembly_mode'):
+            delattr(self.mechanism_widget, '_assembly_mode')
             
-        # 5. Force scene update to ensure clearing is applied
-        self.mechanism_widget.scene.update()
-        
-        # Now set the new mechanism type
+        # STEP 7: Set the new mechanism type
         old_type = self.mechanism_widget.mechanism_type
         self.mechanism_widget.mechanism_type = mechanism_key
+        print(f"DEBUG: Set mechanism type to {mechanism_key}")
+        
+        # STEP 7.5: Initialize mechanism parameters for the new type
+        if mechanism_key == "gear_train":
+            self.mechanism_widget.mechanism_params = {
+                "gear1_teeth": 12,  # Match the slider default
+                "gear2_teeth": 18,  # Match the slider default
+                "input_torque": 200,
+                "input_angle": self.mechanism_widget.animation_angle
+            }
+            # Increase animation speed for gear train
+            self.mechanism_widget.animation_speed = 5.0  # Faster for gears
+        elif mechanism_key == "four_bar":
+            self.mechanism_widget.mechanism_params = {
+                "ground_link": 150,
+                "input_link": 40,
+                "coupler_link": 120,
+                "output_link": 130,
+                "input_angle": self.mechanism_widget.animation_angle
+            }
+        elif mechanism_key == "slider_crank":
+            self.mechanism_widget.mechanism_params = {
+                "crank_length": 80,
+                "rod_length": 140,
+                "gas_pressure": 500,
+                "input_angle": self.mechanism_widget.animation_angle
+            }
+        elif mechanism_key == "cam_follower":
+            self.mechanism_widget.mechanism_params = {
+                "cam_radius": 60,
+                "cam_offset": 20,
+                "follower_length": 100,
+                "spring_constant": 300,
+                "input_angle": self.mechanism_widget.animation_angle
+            }
 
-        # Update parameters based on mechanism type
-        self._update_parameters_for_mechanism(mechanism_key)
-
-        # Update educational content
+        # STEP 8: Update educational content
         self._update_educational_content(mechanism_key)
 
-        # Redraw the mechanism with new parameters
+        # STEP 9: Redraw the mechanism with new parameters
+        print("DEBUG: Drawing new mechanism...")
         try:
             self.mechanism_widget.draw_mechanism()
         except Exception as e:
             print(f"Error drawing new mechanism: {e}")
-            # Fallback to previous mechanism type if drawing fails
-            self.mechanism_widget.mechanism_type = old_type
-            self.mechanism_widget.draw_mechanism()
+            print(f"ERROR: Failed to draw {mechanism_key}, keeping it anyway to avoid infinite loop")
+            # Don't fallback - that causes more problems
         
-        # Restart animation if it was running, but with a small delay to let drawing complete
+        # STEP 10: Force scene update
+        self.mechanism_widget.scene.update()
+        
+        # STEP 11: Restart animation if it was running
         if was_animating:
             # Use a timer to restart animation after a brief delay
             from PyQt6.QtCore import QTimer
-            QTimer.singleShot(100, self.mechanism_widget.start_animation)
+            QTimer.singleShot(200, self.mechanism_widget.start_animation)
         
-        print(f"DEBUG: Mechanism switch to {mechanism_key} completed")
+        print(f"DEBUG: Mechanism switch to {mechanism_key} completed successfully")
 
     def _update_parameters_for_mechanism(self, mechanism_type: str):
         """Update parameter controls based on mechanism type"""
@@ -4028,16 +3877,35 @@ class EnhancedMacanismTab(QWidget):
             print(f"Warning: Could not find Parameters group box. Found groups: {[g.title() for g in all_group_boxes]}")
             return
 
-        # Clear the existing layout
+        # COMPLETE WIDGET CLEANUP: Find and remove ALL child widgets recursively
+        # This is necessary because we have nested layouts
+        all_widgets = params_group.findChildren(QWidget)
+        for widget in all_widgets:
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
+        
+        # Process events to ensure widgets are fully removed
+        from PyQt6.QtCore import QCoreApplication
+        QCoreApplication.processEvents()
+        
+        # Get or create layout
         layout = params_group.layout()
         if layout:
-            # Remove all widgets from layout
+            # Clear the layout structure
             while layout.count():
-                child = layout.takeAt(0)
-                if child.widget():
-                    child.widget().deleteLater()
+                item = layout.takeAt(0)
+                if item:
+                    # Don't need to handle widgets here since we already deleted them all above
+                    pass
         else:
-            layout = QVBoxLayout(params_group)
+            # Create new layout if none exists
+            layout = QVBoxLayout()
+            params_group.setLayout(layout)
+        
+        # Configure the layout
+        layout.setContentsMargins(10, 10, 10, 8)
+        layout.setSpacing(5)
 
         # Add mechanism-specific parameters with proper mapping and expanded ranges
         if mechanism_type == "four_bar":
@@ -4059,18 +3927,22 @@ class EnhancedMacanismTab(QWidget):
             self._add_parameter_slider(layout, "Spring Force (N)", 50, 2000, 300)
 
         elif mechanism_type == "gear_train":
-            self._add_parameter_slider(layout, "Drive Gear Teeth", 8, 100, 24)
-            self._add_parameter_slider(layout, "Driven Gear Teeth", 8, 100, 36)
+            self._add_parameter_slider(layout, "Drive Gear Teeth", 8, 24, 12)      # Realistic range: 8-24
+            self._add_parameter_slider(layout, "Driven Gear Teeth", 8, 24, 18)     # Realistic range: 8-24  
             self._add_parameter_slider(layout, "Input Torque (Nm)", 10, 1000, 200)
 
-        elif mechanism_type == "scotch_yoke":
-            self._add_parameter_slider(layout, "Crank Radius", 15, 150, 60)
-            self._add_parameter_slider(layout, "Yoke Mass (kg)", 0.5, 50, 5)
-            self._add_parameter_slider(layout, "Applied Force (N)", 50, 2000, 400)
 
-        # Force layout update
+
+        # Force immediate layout update and repaint
         params_group.updateGeometry()
+        params_group.update()
+        params_group.repaint()
+        self.control_panel.updateGeometry()
         self.control_panel.update()
+        self.control_panel.repaint()
+        
+        # Process events to ensure UI updates are applied immediately
+        QCoreApplication.processEvents()
 
     def _on_parameter_changed(self, param_name: str, value: int):
         """Handle parameter slider change with comprehensive mapping"""
@@ -4191,9 +4063,7 @@ class EnhancedMacanismTab(QWidget):
                 # For cam-follower, MA varies with cam profile
                 return f"{1 + abs(math.sin(angle)):.2f}"
 
-            elif mechanism_type == "scotch_yoke":
-                # For scotch yoke, pure harmonic motion
-                return f"{abs(math.cos(angle)):.2f}"
+
 
         except Exception as e:
             print(f"Error calculating MA: {e}")
