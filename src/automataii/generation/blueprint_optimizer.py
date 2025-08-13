@@ -280,21 +280,39 @@ class EnhancedMechanismProcessor:
         try:
             mechanism_type = mech_data.get('type', 'unknown')  # Fixed: GUI uses 'type' not 'mechanism_type'
 
+            # Enhanced logging for debugging dimension flow
+            self.logger.info(f"[MECHANISM] Processing {mech_id} (type: {mechanism_type})")
+            self.logger.info(f"[MECHANISM] Input data keys: {list(mech_data.keys())}")
+            
+            # Log raw parameters
+            raw_params = mech_data.get('params', {})
+            self.logger.info(f"[MECHANISM] Raw params: {raw_params}")
+
             # CRITICAL: Use real-world scaling if available from screen calculations
             if 'real_world_params' in mech_data and 'total_scale_factor' in mech_data:
                 # Use actual screen-to-blueprint scaling
                 real_world_params = mech_data['real_world_params']
                 scale_factor = mech_data['total_scale_factor']
 
+                self.logger.info(f"[MECHANISM] Using screen-calculated scaling:")
+                self.logger.info(f"[MECHANISM]   Scale factor: {scale_factor:.3f}")
+                self.logger.info(f"[MECHANISM]   Real-world params: {real_world_params}")
+
                 # Calculate actual mechanism dimensions from real parameters
                 actual_width, actual_height = self._calculate_mechanism_dimensions_from_params(
                     real_world_params, mechanism_type
                 )
 
-                self.logger.info(f"Using screen-calculated dimensions for {mech_id}: "
+                self.logger.info(f"[MECHANISM] Calculated dimensions for {mech_id}: "
                                f"{actual_width:.1f}x{actual_height:.1f}mm (scale: {scale_factor:.3f})")
             else:
                 # Fallback to standard sizes
+                self.logger.warning(f"[MECHANISM] No screen scale data for {mech_id}, using standard sizes")
+                if 'real_world_params' not in mech_data:
+                    self.logger.warning(f"[MECHANISM]   Missing: real_world_params")
+                if 'total_scale_factor' not in mech_data:
+                    self.logger.warning(f"[MECHANISM]   Missing: total_scale_factor")
+                
                 standard_size = self.standard_mechanism_sizes.get(
                     mechanism_type,
                     {'width': 60, 'height': 60}  # Default size
@@ -305,8 +323,8 @@ class EnhancedMechanismProcessor:
                 actual_width = standard_size['width'] * scale
                 actual_height = standard_size['height'] * scale
 
-                self.logger.debug(f"Using standard dimensions for {mech_id}: "
-                                f"{actual_width:.1f}x{actual_height:.1f}mm")
+                self.logger.info(f"[MECHANISM] Using standard dimensions for {mech_id}: "
+                                f"{actual_width:.1f}x{actual_height:.1f}mm (from standard: {standard_size})")
 
             # Create scaled bounds
             bounds = ScaledBounds(
@@ -315,6 +333,8 @@ class EnhancedMechanismProcessor:
                 width=actual_width,
                 height=actual_height
             )
+
+            self.logger.info(f"[MECHANISM] Final bounds for {mech_id}: {bounds.width:.1f}x{bounds.height:.1f}mm")
 
             # Generate mechanism SVG content with enhanced scaling information
             svg_content = self._generate_mechanism_svg(mech_id, mech_data, bounds)
@@ -328,11 +348,13 @@ class EnhancedMechanismProcessor:
                 priority=2  # Mechanisms get medium priority
             )
 
-            self.logger.debug(f"Processed mechanism {mech_id}: {actual_width:.1f}x{actual_height:.1f}mm")
+            self.logger.info(f"[MECHANISM] Successfully processed {mech_id}: {actual_width:.1f}x{actual_height:.1f}mm")
             return layout_item
 
         except Exception as e:
-            self.logger.error(f"Error processing mechanism {mech_id}: {e}")
+            self.logger.error(f"[MECHANISM] Error processing mechanism {mech_id}: {e}")
+            import traceback
+            self.logger.error(f"[MECHANISM] Traceback: {traceback.format_exc()}")
             return None
 
     def _calculate_mechanism_dimensions_from_params(self, real_world_params: Dict[str, Any], mechanism_type: str) -> Tuple[float, float]:
@@ -475,16 +497,24 @@ class EnhancedMechanismProcessor:
         # Calculate mechanism name for display
         mechanism_name = mech_data.get('part_name', mech_id)
 
+        # Enhanced visual patterns and gradients for better texture appearance
+        mechanism_patterns = self._generate_mechanism_patterns(mech_id, mechanism_type, bounds)
+
         # Wrap in positioned group with anti-overlap labeling and scale information
         positioned_svg = f'''
         <g class="mechanism-{mechanism_type}" data-id="{mech_id}">
             <title>{mech_id} ({mechanism_type}) - Screen-Scaled Blueprint</title>
 
+            <!-- Enhanced visual patterns for texture-like appearance -->
+            <defs>
+                {mechanism_patterns}
+            </defs>
+
             <!-- Mechanism background for visibility with text space -->
             <rect x="-5" y="-5" width="{bounds.width + 10:.1f}" height="{total_bounds_height + 10:.1f}"
                   fill="#f9f9f9" stroke="#ddd" stroke-width="0.5" rx="3"/>
 
-            <!-- Mechanism content -->
+            <!-- Mechanism content with enhanced visuals -->
             <g transform="translate(5,5)">
                 {base_svg}
             </g>
@@ -522,6 +552,73 @@ class EnhancedMechanismProcessor:
         '''
 
         return positioned_svg
+
+    def _generate_mechanism_patterns(self, mech_id: str, mechanism_type: str, bounds: ScaledBounds) -> str:
+        """Generate enhanced visual patterns and textures for mechanisms to improve blueprint appearance"""
+        patterns = []
+        
+        try:
+            # Create unique pattern IDs for this mechanism
+            pattern_id = f"pattern-{mech_id}-{mechanism_type}"
+            gradient_id = f"gradient-{mech_id}-{mechanism_type}"
+            
+            # Mechanism-specific patterns for enhanced visual appearance
+            if mechanism_type == 'gear':
+                # Gear tooth pattern with gradient
+                patterns.append(f'''
+                <pattern id="{pattern_id}" patternUnits="userSpaceOnUse" width="8" height="8">
+                    <rect width="8" height="8" fill="#f0f0f0"/>
+                    <circle cx="4" cy="4" r="1.5" fill="#333" opacity="0.3"/>
+                </pattern>
+                <linearGradient id="{gradient_id}" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#e8e8e8;stop-opacity:1" />
+                    <stop offset="50%" style="stop-color:#d0d0d0;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#c0c0c0;stop-opacity:1" />
+                </linearGradient>''')
+            
+            elif mechanism_type == '4_bar_linkage':
+                # Linkage pattern with metallic appearance
+                patterns.append(f'''
+                <pattern id="{pattern_id}" patternUnits="userSpaceOnUse" width="12" height="4">
+                    <rect width="12" height="4" fill="#e5e5e5"/>
+                    <line x1="0" y1="2" x2="12" y2="2" stroke="#999" stroke-width="0.5"/>
+                </pattern>
+                <linearGradient id="{gradient_id}" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#f5f5f5;stop-opacity:1" />
+                    <stop offset="50%" style="stop-color:#ddd;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#bbb;stop-opacity:1" />
+                </linearGradient>''')
+            
+            elif mechanism_type == 'cam':
+                # Cam surface pattern with texture
+                patterns.append(f'''
+                <pattern id="{pattern_id}" patternUnits="userSpaceOnUse" width="6" height="6">
+                    <rect width="6" height="6" fill="#f8f8f8"/>
+                    <path d="M0,3 Q3,0 6,3 Q3,6 0,3" fill="none" stroke="#ccc" stroke-width="0.5"/>
+                </pattern>
+                <radialGradient id="{gradient_id}" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" style="stop-color:#f0f0f0;stop-opacity:1" />
+                    <stop offset="70%" style="stop-color:#e0e0e0;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#d0d0d0;stop-opacity:1" />
+                </radialGradient>''')
+            
+            else:
+                # Generic mechanism pattern
+                patterns.append(f'''
+                <pattern id="{pattern_id}" patternUnits="userSpaceOnUse" width="10" height="10">
+                    <rect width="10" height="10" fill="#f5f5f5"/>
+                    <rect x="2" y="2" width="6" height="6" fill="none" stroke="#ddd" stroke-width="0.5"/>
+                </pattern>
+                <linearGradient id="{gradient_id}" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#f0f0f0;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#e0e0e0;stop-opacity:1" />
+                </linearGradient>''')
+        
+        except Exception as e:
+            self.logger.warning(f"Failed to generate patterns for {mechanism_type}: {e}")
+            return ""
+        
+        return '\n'.join(patterns)
 
     def _generate_4bar_from_keypoints_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
         """Clone on-screen 4-bar geometry using key_points for crystal-clear bars and labels."""
@@ -961,40 +1058,103 @@ class EnhancedMechanismProcessor:
             return self._generate_generic_mechanism_svg(mech_id, mechanism_type, bounds)
 
     def _generate_gear_svg(self, bounds: ScaledBounds) -> str:
-        """Generate standard gear representation"""
+        """Generate enhanced gear representation with patterns and textures"""
         cx, cy = bounds.width/2, bounds.height/2
         radius = min(bounds.width, bounds.height) / 2 - 5
-
+        
+        # Enhanced gear with patterns
         return f'''
+        <!-- Main gear body with gradient fill -->
         <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius:.1f}"
-                fill="none" stroke="black" stroke-width="1.5"/>
+                fill="url(#gradient-gear)" stroke="#2c3e50" stroke-width="1.5"/>
+        
+        <!-- Inner hub -->
         <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius/3:.1f}"
-                fill="none" stroke="black" stroke-width="1"/>
-        <!-- Gear teeth representation -->
+                fill="url(#pattern-gear)" stroke="#34495e" stroke-width="1"/>
+        
+        <!-- Gear teeth representation with enhanced detail -->
         <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius+2:.1f}"
-                fill="none" stroke="black" stroke-width="0.5" stroke-dasharray="3,2"/>
+                fill="none" stroke="#2c3e50" stroke-width="0.8" stroke-dasharray="2,1"/>
+        
+        <!-- Center hole -->
+        <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius/8:.1f}"
+                fill="#fff" stroke="#555" stroke-width="0.5"/>
+        
+        <!-- Keyway indicator -->
+        <rect x="{cx-1:.1f}" y="{cy-radius/8:.1f}" width="2" height="{radius/4:.1f}"
+              fill="#555"/>
         '''
 
     def _generate_linkage_svg(self, bounds: ScaledBounds) -> str:
-        """Generate standard linkage representation"""
+        """Generate enhanced linkage representation with metallic appearance"""
+        link_height = 12
+        y_center = bounds.height/2
+        
+        # Enhanced linkage with gradient and pattern
         return f'''
-        <rect x="5" y="{bounds.height/2-5:.1f}" width="{bounds.width-10:.1f}" height="10"
-              fill="none" stroke="black" stroke-width="1.5"/>
-        <circle cx="10" cy="{bounds.height/2:.1f}" r="4"
-                fill="none" stroke="black" stroke-width="1"/>
-        <circle cx="{bounds.width-10:.1f}" cy="{bounds.height/2:.1f}" r="4"
-                fill="none" stroke="black" stroke-width="1"/>
+        <!-- Main linkage bar with gradient -->
+        <rect x="5" y="{y_center-link_height/2:.1f}" width="{bounds.width-10:.1f}" height="{link_height}"
+              fill="url(#gradient-4_bar_linkage)" stroke="#34495e" stroke-width="1.5" rx="2"/>
+        
+        <!-- Pattern overlay for texture -->
+        <rect x="5" y="{y_center-link_height/2:.1f}" width="{bounds.width-10:.1f}" height="{link_height}"
+              fill="url(#pattern-4_bar_linkage)" opacity="0.3" rx="2"/>
+        
+        <!-- Left joint with enhanced detail -->
+        <circle cx="10" cy="{y_center:.1f}" r="5"
+                fill="url(#gradient-4_bar_linkage)" stroke="#2c3e50" stroke-width="1.2"/>
+        <circle cx="10" cy="{y_center:.1f}" r="2"
+                fill="#fff" stroke="#555" stroke-width="0.5"/>
+        
+        <!-- Right joint with enhanced detail -->
+        <circle cx="{bounds.width-10:.1f}" cy="{y_center:.1f}" r="5"
+                fill="url(#gradient-4_bar_linkage)" stroke="#2c3e50" stroke-width="1.2"/>
+        <circle cx="{bounds.width-10:.1f}" cy="{y_center:.1f}" r="2"
+                fill="#fff" stroke="#555" stroke-width="0.5"/>
+        
+        <!-- Center reinforcement -->
+        <rect x="{bounds.width/2-10:.1f}" y="{y_center-2:.1f}" width="20" height="4"
+              fill="none" stroke="#7f8c8d" stroke-width="0.8" stroke-dasharray="2,2"/>
         '''
 
     def _generate_cam_svg(self, bounds: ScaledBounds) -> str:
-        """Generate standard cam representation"""
+        """Generate enhanced cam representation with surface texture"""
         cx, cy = bounds.width/2, bounds.height/2
-
+        rx, ry = bounds.width/2-5, bounds.height/2-5
+        
+        # Enhanced cam with surface patterns
         return f'''
-        <ellipse cx="{cx:.1f}" cy="{cy:.1f}" rx="{bounds.width/2-5:.1f}" ry="{bounds.height/2-5:.1f}"
-                 fill="none" stroke="black" stroke-width="1.5"/>
-        <circle cx="{cx:.1f}" cy="{cy:.1f}" r="3"
-                fill="black"/>
+        <!-- Main cam body with radial gradient -->
+        <ellipse cx="{cx:.1f}" cy="{cy:.1f}" rx="{rx:.1f}" ry="{ry:.1f}"
+                 fill="url(#gradient-cam)" stroke="#2c3e50" stroke-width="1.5"/>
+        
+        <!-- Surface texture pattern -->
+        <ellipse cx="{cx:.1f}" cy="{cy:.1f}" rx="{rx:.1f}" ry="{ry:.1f}"
+                 fill="url(#pattern-cam)" opacity="0.4"/>
+        
+        <!-- Center shaft -->
+        <circle cx="{cx:.1f}" cy="{cy:.1f}" r="4"
+                fill="#34495e" stroke="#2c3e50" stroke-width="1"/>
+        
+        <!-- Center hole -->
+        <circle cx="{cx:.1f}" cy="{cy:.1f}" r="2"
+                fill="#fff" stroke="#555" stroke-width="0.5"/>
+        
+        <!-- Cam profile indicators -->
+        <ellipse cx="{cx:.1f}" cy="{cy:.1f}" rx="{rx*0.7:.1f}" ry="{ry*0.7:.1f}"
+                 fill="none" stroke="#7f8c8d" stroke-width="0.5" stroke-dasharray="1,1"/>
+        
+        <!-- Direction of rotation arrow -->
+        <path d="M{cx+rx*0.5:.1f},{cy:.1f} Q{cx+rx*0.3:.1f},{cy-10:.1f} {cx:.1f},{cy-10:.1f}"
+              fill="none" stroke="#e74c3c" stroke-width="1" marker-end="url(#arrowhead)"/>
+        
+        <!-- Arrow marker definition -->
+        <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                    refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#e74c3c"/>
+            </marker>
+        </defs>
         '''
 
     def _generate_pulley_svg(self, bounds: ScaledBounds) -> str:

@@ -44,7 +44,12 @@ class BlueprintExporter:
             blueprint_manager = BlueprintExportManager.get_instance()
 
             part_items = self._collect_part_items()
-            mechanism_layers = self._get_mechanism_layers() or {}
+            mechanism_layers_raw = self._get_mechanism_layers() or {}
+
+            # CRITICAL FIX: Apply scale enhancement before optimization
+            logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale for all mechanisms...")
+            screen_scale_info = self.calculate_screen_to_blueprint_scale()
+            mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
 
             if not part_items and not mechanism_layers:
                 QMessageBox.warning(
@@ -54,6 +59,11 @@ class BlueprintExporter:
                     "Please create some mechanisms or load character parts first.",
                 )
                 return
+
+            # Log scale factor information for debugging
+            for mech_id, mech_data in mechanism_layers.items():
+                scale_factor = mech_data.get('total_scale_factor', 'N/A')
+                logging.info(f"[BLUEPRINT] Enhanced mechanism {mech_id}: scale_factor={scale_factor}")
 
             logging.info(
                 f"[BLUEPRINT] Legacy export: {len(part_items)} parts, {len(mechanism_layers)} mechanisms"
@@ -74,7 +84,9 @@ class BlueprintExporter:
                     "Blueprint Export Complete",
                     "Blueprint exported successfully using the legacy system!\n\n"
                     f"Parts: {len(part_items)}\n"
-                    f"Mechanisms: {len(mechanism_layers)}\n\n"
+                    f"Mechanisms: {len(mechanism_layers)}\n"
+                    f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n\n"
+                    "Fixed: Now uses screen-calculated dimensions instead of defaults.\n"
                     "The blueprint uses the original large-format layout\n"
                     "with proper part outlines and mechanism details.",
                 )
@@ -123,8 +135,19 @@ class BlueprintExporter:
 
             blueprint_manager = BlueprintExportManager.get_instance()
 
-            mechanism_layers = {mechanism_id: layer_data}
+            # CRITICAL FIX: Apply scale enhancement before optimization
+            logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale...")
+            screen_scale_info = self.calculate_screen_to_blueprint_scale()
+            
+            mechanism_layers_raw = {mechanism_id: layer_data}
+            mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
+            # Filter to only the requested mechanism
+            mechanism_layers = {mechanism_id: mechanism_layers.get(mechanism_id, layer_data)}
+            
             part_items = self._collect_part_items()
+
+            logging.info(f"[BLUEPRINT] Scale enhanced mechanism data: "
+                        f"total_scale_factor={mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A')}")
 
             if filename:
                 from automataii.generation.blueprint import generate_single_large_blueprint
@@ -141,7 +164,7 @@ class BlueprintExporter:
                     page_width_mm,
                     page_height_mm,
                     title=f"Mechanism Blueprint - {layer_data.get('type', 'Unknown')}",
-                    scale_info="Legacy Blueprint System",
+                    scale_info=f"Screen-to-Blueprint Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel",
                     snapshot_data_uri=None,
                 )
 
@@ -155,8 +178,9 @@ class BlueprintExporter:
                     "Export Successful",
                     f"Blueprint exported using legacy system:\n{filename}\n\n"
                     f"Mechanism: {layer_data.get('type', 'Unknown')}\n"
-                    f"Parts included: {len(part_items)}\n\n"
-                    "Legacy blueprint with proper scaling and layout.",
+                    f"Parts included: {len(part_items)}\n"
+                    f"Scale Factor: {mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A'):.3f}\n\n"
+                    "Fixed: Now uses screen-calculated dimensions instead of defaults.",
                 )
             else:
                 success = blueprint_manager.export_blueprint(

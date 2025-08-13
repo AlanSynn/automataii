@@ -5267,6 +5267,31 @@ class MechanismDesignTab(QWidget):
             self.mechanism_trace_paths[mechanism_id] = path
             self.mechanism_trace_items[mechanism_id].setPath(path)
 
+    def _clear_mechanism_trace(self, mechanism_id: str):
+        """Clear trace path for a specific mechanism to prevent old paths from persisting."""
+        try:
+            # Remove trace visual item from scene
+            if mechanism_id in self.mechanism_trace_items:
+                trace_item = self.mechanism_trace_items[mechanism_id]
+                if trace_item and hasattr(trace_item, 'scene') and trace_item.scene():
+                    self.mechanism_scene.removeItem(trace_item)
+                del self.mechanism_trace_items[mechanism_id]
+                logging.debug(f"[PARAMETRIC] 🧹 Cleared trace visual item for {mechanism_id}")
+
+            # Clear trace data
+            if mechanism_id in self.mechanism_trace_points:
+                del self.mechanism_trace_points[mechanism_id]
+                logging.debug(f"[PARAMETRIC] 🧹 Cleared trace points for {mechanism_id}")
+
+            if mechanism_id in self.mechanism_trace_paths:
+                del self.mechanism_trace_paths[mechanism_id]
+                logging.debug(f"[PARAMETRIC] 🧹 Cleared trace paths for {mechanism_id}")
+
+            logging.info(f"[PARAMETRIC] ✅ Successfully cleared all traces for {mechanism_id}")
+
+        except Exception as e:
+            logging.error(f"[PARAMETRIC] ❌ Failed to clear mechanism trace for {mechanism_id}: {e}")
+
     def _generate_joint_motion_path(self, layer_data: dict, joint_id: str) -> QPainterPath | None:
         """Generate a motion path specifically for a skeleton joint using mechanism calculations."""
         joint_motion_path = QPainterPath()
@@ -5520,6 +5545,11 @@ class MechanismDesignTab(QWidget):
 
         try:
             logging.info(f"[PARAMETRIC] 🚀 Enabling parametric mode for {len(self.mechanism_layers)} mechanisms")
+
+            # CRITICAL FIX: Clear all mechanism traces when entering parametric mode to prevent old red paths from persisting
+            logging.info("[PARAMETRIC] 🧹 Clearing all existing mechanism traces")
+            for mechanism_id in list(self.mechanism_layers.keys()):
+                self._clear_mechanism_trace(mechanism_id)
 
             # CRITICAL: Store original visual state before modifying anything
             if not hasattr(self, '_original_visual_state'):
@@ -5841,6 +5871,11 @@ class MechanismDesignTab(QWidget):
                 logging.info(f"[PARAMETRIC] 🗑️  Removed {handles_count} handles for {mechanism_id}")
 
             logging.info(f"[PARAMETRIC] ✅ Removed {total_handles_removed} handles total")
+
+            # CRITICAL FIX: Clear all mechanism traces when exiting parametric mode for clean state
+            logging.info("[PARAMETRIC] 🧹 Clearing all mechanism traces on exit")
+            for mechanism_id in list(self.mechanism_layers.keys()):
+                self._clear_mechanism_trace(mechanism_id)
 
             # CRITICAL: Restore original visual state instead of just re-enabling interaction
             if hasattr(self, '_original_visual_state') and self._original_visual_state:
@@ -6412,6 +6447,9 @@ class MechanismDesignTab(QWidget):
             params = layer_data.get("params", {})
 
             logging.info(f"[PARAMETRIC] 🔄 Regenerating simulation for {mech_type} mechanism {mechanism_id}")
+
+            # CRITICAL FIX: Clear existing mechanism traces to prevent old red paths from persisting
+            self._clear_mechanism_trace(mechanism_id)
 
             if mech_type == "4_bar_linkage":
                 # Generate new simulation data for 4-bar linkage
