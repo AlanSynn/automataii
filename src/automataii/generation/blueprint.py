@@ -20,10 +20,23 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
     # Start building SVG content
     svg_parts = []
 
-    # SVG header with large dimensions
+    # Collect all clip path definitions from parts
+    clip_definitions = []
+    for item in layout_items:
+        if hasattr(item, 'svg_content') and 'data-clip-def=' in item.svg_content:
+            import html
+            # Extract clip definition from data attribute
+            start = item.svg_content.find('data-clip-def="') + len('data-clip-def="')
+            end = item.svg_content.find('"', start)
+            if start > len('data-clip-def="') - 1 and end > start:
+                clip_def_encoded = item.svg_content[start:end]
+                clip_def = html.unescape(clip_def_encoded)
+                clip_definitions.append(f'    {clip_def}')
+
+    # SVG header with large dimensions and consolidated defs
     svg_header = f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg width="{page_width_mm}" height="{page_height_mm}"
-     xmlns="http://www.w3.org/2000/svg" version="1.1">
+     xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1">
   <defs>
     <style>
       .blueprint-text {{ font-family: Arial, sans-serif; }}
@@ -43,6 +56,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
       .spring-mechanism {{ }}
       .damper-mechanism {{ }}
     </style>
+{chr(10).join(clip_definitions) if clip_definitions else ""}
   </defs>
 
   <!-- Page Border -->
@@ -108,9 +122,17 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
                 parts_y += max_row_height + spacing
                 max_row_height = 0
 
-            # Add part with its original SVG content
+            # Add part with its original SVG content (cleaned of data attributes)
+            clean_svg_content = item.svg_content
+            # Remove the data-clip-def attribute since we've moved the definitions to the main defs section
+            if 'data-clip-def=' in clean_svg_content:
+                start = clean_svg_content.find(' data-clip-def="')
+                if start >= 0:
+                    end = clean_svg_content.find('"', start + len(' data-clip-def="')) + 1
+                    clean_svg_content = clean_svg_content[:start] + clean_svg_content[end:]
+            
             svg_parts.append(f'<g transform="translate({parts_x},{parts_y})">')
-            svg_parts.append(item.svg_content)
+            svg_parts.append(clean_svg_content)
             svg_parts.append('</g>')
 
             # Update position for next item

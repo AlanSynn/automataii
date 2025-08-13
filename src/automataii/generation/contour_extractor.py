@@ -299,29 +299,55 @@ class PNGBlueprintProcessor:
             if not hasattr(part_item, 'part_info') or not part_item.part_info:
                 logging.warning("Part item has no part_info")
                 return None
-                
-            # Handle different part_info formats
+
+            # Discover project_dir if available on the item
+            project_dir = None
+            try:
+                if hasattr(part_item, 'project_dir') and part_item.project_dir:
+                    project_dir = Path(part_item.project_dir)
+            except Exception:
+                project_dir = None
+
+            # Resolve image path robustly (mirror CharacterPartItem logic)
+            png_path_str: Optional[str] = None
             if hasattr(part_item.part_info, 'image_path'):
-                png_path = part_item.part_info.image_path
+                raw_path = part_item.part_info.image_path
             elif isinstance(part_item.part_info, dict):
-                png_path = part_item.part_info.get('image_path')
+                raw_path = part_item.part_info.get('image_path')
             else:
                 logging.warning(f"Unknown part_info format: {type(part_item.part_info)}")
-                return None
-                
-            if not png_path or not os.path.exists(png_path):
-                logging.warning(f"PNG file not found: {png_path}")
+                raw_path = None
+
+            # 1) Absolute path if valid
+            if raw_path and Path(raw_path).is_absolute() and Path(raw_path).exists():
+                png_path_str = raw_path
+            # 2) Relative to project_dir
+            elif raw_path and project_dir and (project_dir / raw_path).exists():
+                png_path_str = str(project_dir / raw_path)
+            # 3) Fallback: project_dir/name.png
+            elif project_dir and hasattr(part_item.part_info, 'name'):
+                fallback = project_dir / f"{part_item.part_info.name}.png"
+                if fallback.exists():
+                    png_path_str = str(fallback)
+
+            if not png_path_str or not os.path.exists(png_path_str):
+                logging.warning(f"PNG file not found for part '{getattr(part_item.part_info, 'name', 'unknown')}': {png_path_str}")
                 return None
                 
             # Extract contours from PNG
-            contours = self.extractor.extract_manufacturing_contours(png_path)
+            contours = self.extractor.extract_manufacturing_contours(png_path_str)
             
             if not contours:
                 logging.warning(f"No contours extracted from {png_path}")
                 return None
                 
-            # Return the largest contour (main part shape)
+            # Return the largest contour (main part shape) and attach source image path
             largest_contour = max(contours, key=lambda c: c.area)
+            # Attach source image path for downstream texture embedding
+            try:
+                setattr(largest_contour, 'source_image_path', png_path_str)
+            except Exception:
+                pass
             return largest_contour
             
         except Exception as e:

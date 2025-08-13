@@ -16,7 +16,6 @@ Components:
 - views/: (Legacy) Previously contained different views, now consolidated.
 """
 
-from .foundry_tab import MechanismFoundryTab
 from .enhanced_macanism_tab import EnhancedMacanismTab
 
-__all__ = ['MechanismFoundryTab', 'EnhancedMacanismTab']
+__all__ = ['EnhancedMacanismTab']

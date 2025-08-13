@@ -106,6 +106,13 @@ class ScaleNormalizer:
         scaled_contour.perimeter = contour.perimeter * scale_factor
         scaled_contour.bounding_rect = (int(new_x), int(new_y), int(new_w), int(new_h))
 
+        # Preserve source image path for texture embedding if available
+        try:
+            if hasattr(contour, 'source_image_path'):
+                setattr(scaled_contour, 'source_image_path', getattr(contour, 'source_image_path'))
+        except Exception:
+            pass
+
         return scaled_contour
 
     def _scale_svg_path(self, svg_path: str, scale_factor: float) -> str:
@@ -1163,42 +1170,87 @@ class BlueprintLayoutOptimizer:
         return layout_items
 
     def _generate_scaled_part_svg(self, scaled_contour: Any, part_name: str, bounds: ScaledBounds) -> str:
-        """Generate SVG content for scaled part"""
+        """Generate SVG content for scaled part with texture image clipped to contour."""
 
-        return f'''
-        <g class="scaled-part" data-name="{part_name}">
-            <!-- Scaled part outline -->
-            <path d="{scaled_contour.svg_path}" class="part-outline"/>
+        # Offset the path so top-left of bounding rect is at (0,0)
+        try:
+            from automataii.generation.contour_extractor import AdvancedContourExtractor
+            extractor = AdvancedContourExtractor()
+            x, y, w, h = scaled_contour.bounding_rect
+            offset_path = extractor._apply_offset_to_path(scaled_contour.svg_path, -float(x), -float(y))
+        except Exception:
+            # Fallback to original path and zeroed rect if bounding data missing
+            offset_path = scaled_contour.svg_path
+            x, y, w, h = 0.0, 0.0, bounds.width, bounds.height
 
-            <!-- Manufacturing cutting path -->
-            <path d="{scaled_contour.svg_path}" class="cutting-path"/>
+        # Prepare image data URI if available
+        image_href = None
+        try:
+            if hasattr(scaled_contour, 'source_image_path') and scaled_contour.source_image_path:
+                import base64
+                with open(scaled_contour.source_image_path, 'rb') as f:
+                    b64 = base64.b64encode(f.read()).decode('ascii')
+                    # Infer mime type simply by extension
+                    ext = str(scaled_contour.source_image_path).lower()
+                    mime = 'image/png' if ext.endswith('.png') else 'image/jpeg' if ext.endswith(('.jpg', '.jpeg')) else 'image/*'
+                    image_href = f"data:{mime};base64,{b64}"
+        except Exception:
+            image_href = None
 
-            <!-- Part label -->
-            <text x="{bounds.width/2:.1f}" y="-8"
-                  class="part-label" text-anchor="middle">{part_name}</text>
+        # Unique clipPath id - store for later defs collection
+        import uuid as _uuid
+        clip_id = f"clip-{_uuid.uuid4().hex[:8]}"
+        
+        # Store clip path definition for collection by parent
+        clip_def = f'<clipPath id="{clip_id}"><path d="{offset_path}" /></clipPath>'
+        
+        # Build SVG group with image and outline (no nested defs)
+        parts = []
+        parts.append(f'<g class="scaled-part" data-name="{part_name}" data-clip-def="{clip_def.replace('"', '&quot;')}">')
 
-            <!-- Dimensions -->
-            <g class="dimensions">
-                <!-- Width dimension -->
-                <line x1="0" y1="{bounds.height + 12:.1f}"
-                      x2="{bounds.width:.1f}" y2="{bounds.height + 12:.1f}"
-                      class="dimension-line"/>
-                <text x="{bounds.width/2:.1f}" y="{bounds.height + 22:.1f}"
-                      class="dimension-text" text-anchor="middle">{bounds.width:.0f}mm</text>
+        # Embedded texture image clipped to contour
+        if image_href:
+            # Use both href and xlink:href for maximum compatibility
+            parts.append(
+                f'  <image href="{image_href}" xlink:href="{image_href}" x="0" y="0" '
+                f'width="{w:.1f}" height="{h:.1f}" preserveAspectRatio="none" clip-path="url(#{clip_id})" />'
+            )
+            try:
+                self.logger.debug(f"[BLUEPRINT] Embedded texture for part '{part_name}' from {getattr(scaled_contour, 'source_image_path', 'unknown')}")
+            except Exception:
+                pass
+        else:
+            try:
+                self.logger.warning(f"[BLUEPRINT] No texture found for part '{part_name}' (no image href)")
+            except Exception:
+                pass
 
-                <!-- Height dimension -->
-                <line x1="-12" y1="0" x2="-12" y2="{bounds.height:.1f}"
-                      class="dimension-line"/>
-                <text x="-15" y="{bounds.height/2:.1f}"
-                      class="dimension-text" text-anchor="middle"
-                      transform="rotate(-90, -15, {bounds.height/2:.1f})">
-                      {bounds.height:.0f}mm</text>
-            </g>
+        # Outline and cutting path on top
+        parts.append(f'  <path d="{offset_path}" class="part-outline"/>')
+        parts.append(f'  <path d="{offset_path}" class="cutting-path"/>')
 
-            <!-- Manufacturing notes -->
-            <text x="0" y="{bounds.height + 40:.1f}"
-                  class="manufacturing-note" font-size="6">
-                  Scaled Area: {scaled_contour.area:.0f}mm² | Perimeter: {scaled_contour.perimeter:.0f}mm
-            </text>
-        </g>
-        '''
+        # Part label
+        parts.append(
+            f'  <text x="{w/2:.1f}" y="-8" class="part-label" text-anchor="middle">{part_name}</text>'
+        )
+
+        # Dimensions and manufacturing notes
+        parts.append('  <g class="dimensions">')
+        parts.append(
+            f'    <line x1="0" y1="{h + 12:.1f}" x2="{w:.1f}" y2="{h + 12:.1f}" class="dimension-line"/>'
+        )
+        parts.append(
+            f'    <text x="{w/2:.1f}" y="{h + 22:.1f}" class="dimension-text" text-anchor="middle">{w:.0f}mm</text>'
+        )
+        parts.append(
+            f'    <line x1="-12" y1="0" x2="-12" y2="{h:.1f}" class="dimension-line"/>'
+        )
+        parts.append(
+            f'    <text x="-15" y="{h/2:.1f}" class="dimension-text" text-anchor="middle" '
+            f'transform="rotate(-90, -15, {h/2:.1f})">{h:.0f}mm</text>'
+        )
+        parts.append('  </g>')
+        parts.append(f'  <text x="0" y="{h + 40:.1f}" class="manufacturing-note" font-size="6">Scaled Area: {scaled_contour.area:.0f}mm² | Perimeter: {scaled_contour.perimeter:.0f}mm</text>')
+        parts.append('</g>')
+
+        return '\n'.join(parts)
