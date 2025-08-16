@@ -10,12 +10,41 @@ from .contour_extractor import PNGBlueprintProcessor, AdvancedContourExtractor
 
 def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
                                    title="Manufacturing Blueprint", scale_info="",
-                                   snapshot_data_uri: str | None = None):
+                                   snapshot_data_uri: str | None = None, unit_system: str = "metric"):
     """
     Generate a single large-format blueprint with all content.
     Uses generous spacing to ensure all parts and mechanisms are clearly visible.
+    
+    Args:
+        layout_items: List of LayoutItem objects
+        page_width_mm: Page width in millimeters
+        page_height_mm: Page height in millimeters
+        title: Blueprint title
+        scale_info: Scale information text
+        snapshot_data_uri: Optional snapshot image data URI
+        unit_system: "metric" for mm, "imperial" for inches
+    
+    Returns:
+        SVG string containing the complete blueprint
     """
     logger = logging.getLogger(__name__)
+
+    # Unit conversion functions
+    def format_dimension(value_mm: float) -> str:
+        if unit_system == "imperial":
+            inches = value_mm / 25.4
+            if inches < 1.0:
+                return f"{inches * 1000:.0f} mil"  # thousandths of inch
+            elif inches < 12.0:
+                return f"{inches:.2f}\""
+            else:
+                feet = inches / 12.0
+                return f"{feet:.2f}'"
+        else:
+            return f"{value_mm:.1f}mm"
+
+    def get_unit_label() -> str:
+        return "Imperial" if unit_system == "imperial" else "Metric"
 
     # Start building SVG content
     svg_parts = []
@@ -55,6 +84,9 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
       .belt-mechanism {{ }}
       .spring-mechanism {{ }}
       .damper-mechanism {{ }}
+      .parameter-text {{ font-family: Arial, sans-serif; font-size: 8px; fill: #222; }}
+      .parameter-header {{ font-family: Arial, sans-serif; font-size: 9px; font-weight: bold; fill: #333; }}
+      .unit-info {{ font-family: Arial, sans-serif; font-size: 6px; fill: #888; font-style: italic; }}
     </style>
 {chr(10).join(clip_definitions) if clip_definitions else ""}
   </defs>
@@ -65,10 +97,11 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
 
   <!-- Title Block -->
   <g id="title-block">
-    <rect x="20" y="20" width="{page_width_mm - 40}" height="80"
+    <rect x="20" y="20" width="{page_width_mm - 40}" height="90"
           fill="#f8f8f8" stroke="black" stroke-width="2"/>
     <text x="40" y="50" class="section-title" font-size="24">{title}</text>
     <text x="40" y="75" class="blueprint-text" font-size="14">{scale_info}</text>
+    <text x="40" y="95" class="blueprint-text" font-size="12">Units: {get_unit_label()}</text>
     <text x="{page_width_mm - 40}" y="50" class="blueprint-text" font-size="12" text-anchor="end">
       Generated: {get_timestamp()}
     </text>
@@ -80,7 +113,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
     svg_parts.append(svg_header)
 
     # Main content area with generous spacing
-    content_y = 120  # Start below title block
+    content_y = 130  # Start below title block (increased for unit info)
     margin_x = 50
     spacing = 40  # Very generous spacing between items
 
@@ -107,7 +140,10 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
     if part_items:
         svg_parts.append(f'<g id="parts-section" transform="translate({margin_x},{content_y})">')
         svg_parts.append('<text x="0" y="0" class="section-title">Character Parts</text>')
-        svg_parts.append('<text x="0" y="25" class="manufacturing-note">Cut on RED lines | Material: 3mm Plywood/Acrylic</text>')
+        material_info = "Cut on RED lines | Material: 3mm Plywood/Acrylic"
+        if unit_system == "imperial":
+            material_info = "Cut on RED lines | Material: 1/8\" Plywood/Acrylic"
+        svg_parts.append(f'<text x="0" y="25" class="manufacturing-note">{material_info}</text>')
 
         # Arrange parts in a grid with generous spacing
         parts_y = 40
@@ -175,14 +211,14 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
 
         svg_parts.append('</g>')
 
-    # Add footer
+    # Add footer with unit information
     footer_y = page_height_mm - 60
     svg_parts.append(f'''
   <g id="footer">
     <line x1="20" y1="{footer_y}" x2="{page_width_mm - 20}" y2="{footer_y}"
           stroke="black" stroke-width="1"/>
     <text x="40" y="{footer_y + 20}" class="manufacturing-note">
-      Manufacturing Blueprint | All content on single page | {len(layout_items)} items total
+      Manufacturing Blueprint ({get_unit_label()} Units) | All content on single page | {len(layout_items)} items total
     </text>
     <text x="{page_width_mm - 40}" y="{footer_y + 20}" class="manufacturing-note" text-anchor="end">
       Automataii Manufacturing System
@@ -191,6 +227,315 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
 </svg>''')
 
     return ''.join(svg_parts)
+
+def generate_multi_page_blueprint(layout_items, 
+                                  title="Manufacturing Blueprint",
+                                  scale_info="",
+                                  snapshot_data_uri: str | None = None,
+                                  unit_system: str = "metric"):
+    """
+    Generate multi-page blueprint with each part on a separate letter-size page.
+    
+    Args:
+        layout_items: List of LayoutItem objects
+        title: Blueprint title
+        scale_info: Scale information text
+        snapshot_data_uri: Optional snapshot image
+        unit_system: "metric" for mm, "imperial" for inches
+        
+    Returns:
+        List of SVG strings, one per page
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Letter size in mm: 8.5" x 11" = 215.9mm x 279.4mm
+    page_width_mm = 215.9
+    page_height_mm = 279.4
+    margin_mm = 20.0
+    content_width = page_width_mm - (2 * margin_mm)
+    content_height = page_height_mm - (2 * margin_mm)
+    
+    # Separate parts and mechanisms
+    part_items = [item for item in layout_items if item.item_type == 'part']
+    mechanism_items = [item for item in layout_items if item.item_type == 'mechanism']
+    
+    logger.info(f"[MULTIPAGE] Generating {len(part_items)} part pages + {len(mechanism_items)} mechanism pages")
+    
+    pages = []
+    page_num = 1
+    
+    # Generate one page per part
+    for item in part_items:
+        page_svg = _generate_single_part_page(
+            item, page_num, len(part_items) + len(mechanism_items),
+            page_width_mm, page_height_mm, margin_mm,
+            title, scale_info, snapshot_data_uri if page_num == 1 else None,
+            unit_system
+        )
+        pages.append(page_svg)
+        page_num += 1
+        logger.info(f"[MULTIPAGE] Generated page {page_num-1} for part: {item.name}")
+    
+    # Generate one page per mechanism
+    for item in mechanism_items:
+        page_svg = _generate_single_mechanism_page(
+            item, page_num, len(part_items) + len(mechanism_items),
+            page_width_mm, page_height_mm, margin_mm,
+            title, scale_info, None, unit_system
+        )
+        pages.append(page_svg)
+        page_num += 1
+        logger.info(f"[MULTIPAGE] Generated page {page_num-1} for mechanism: {item.name}")
+    
+    logger.info(f"[MULTIPAGE] Complete: {len(pages)} pages generated")
+    return pages
+
+
+def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_height_mm, margin_mm, title, scale_info, snapshot_data_uri, unit_system="metric"):
+    """Generate a single page for one character part"""
+    
+    content_width = page_width_mm - (2 * margin_mm)
+    content_height = page_height_mm - (2 * margin_mm)
+    
+    # Unit conversion function
+    def format_dimension(value_mm: float) -> str:
+        if unit_system == "imperial":
+            inches = value_mm / 25.4
+            if inches < 1.0:
+                return f"{inches * 1000:.0f} mil"
+            elif inches < 12.0:
+                return f"{inches:.2f}\""
+            else:
+                feet = inches / 12.0
+                return f"{feet:.2f}'"
+        else:
+            return f"{value_mm:.1f}mm"
+    
+    def get_unit_label() -> str:
+        return "Imperial" if unit_system == "imperial" else "Metric"
+    
+    # Calculate scaling to fit part on page
+    available_width = content_width * 0.8  # Leave some margins
+    available_height = content_height * 0.6  # Leave space for title and annotations
+    
+    scale_x = available_width / item.bounds.width if item.bounds.width > 0 else 1.0
+    scale_y = available_height / item.bounds.height if item.bounds.height > 0 else 1.0
+    page_scale = min(scale_x, scale_y, 1.0)  # Don't scale up, only down if needed
+    
+    # Center the part on the page
+    scaled_width = item.bounds.width * page_scale
+    scaled_height = item.bounds.height * page_scale
+    part_x = margin_mm + (content_width - scaled_width) / 2
+    part_y = margin_mm + 80 + (available_height - scaled_height) / 2  # 80mm for header
+    
+    # Extract clip definitions from the item's SVG content
+    clip_definitions = []
+    clean_svg_content = item.svg_content
+    if 'data-clip-def=' in item.svg_content:
+        import html
+        start = item.svg_content.find('data-clip-def="') + len('data-clip-def="')
+        end = item.svg_content.find('"', start)
+        if start > len('data-clip-def="') - 1 and end > start:
+            clip_def_encoded = item.svg_content[start:end]
+            clip_def = html.unescape(clip_def_encoded)
+            clip_definitions.append(f'    {clip_def}')
+            
+            # Remove the data attribute from content
+            attr_start = item.svg_content.find(' data-clip-def="')
+            attr_end = item.svg_content.find('"', attr_start + len(' data-clip-def="')) + 1
+            clean_svg_content = item.svg_content[:attr_start] + item.svg_content[attr_end:]
+    
+    # Material specifications based on unit system
+    material_info = "Material: 3mm Plywood/Acrylic | Cut on RED dashed lines"
+    if unit_system == "imperial":
+        material_info = "Material: 1/8\" Plywood/Acrylic | Cut on RED dashed lines"
+    
+    # Generate page SVG
+    page_svg = f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="{page_width_mm}" height="{page_height_mm}"
+     xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1">
+  <defs>
+    <style>
+      .blueprint-text {{ font-family: Arial, sans-serif; }}
+      .page-title {{ font-size: 16px; font-weight: bold; }}
+      .part-title {{ font-size: 20px; font-weight: bold; }}
+      .part-outline {{ fill: none; stroke: black; stroke-width: 2.0; }}
+      .part-label {{ font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; }}
+      .dimension-line {{ stroke: #666; stroke-width: 0.75; stroke-dasharray: 3,3; }}
+      .dimension-text {{ font-family: Arial, sans-serif; font-size: 10px; fill: #333; }}
+      .cutting-path {{ stroke: red; stroke-width: 0.5; stroke-dasharray: 2,2; fill: none; }}
+      .manufacturing-note {{ font-family: Arial, sans-serif; font-size: 9px; fill: #555; }}
+      .unit-info {{ font-family: Arial, sans-serif; font-size: 6px; fill: #888; font-style: italic; }}
+    </style>
+{chr(10).join(clip_definitions) if clip_definitions else ""}
+  </defs>
+
+  <!-- Page Border -->
+  <rect x="{margin_mm/2}" y="{margin_mm/2}" width="{page_width_mm - margin_mm}" height="{page_height_mm - margin_mm}"
+        fill="none" stroke="black" stroke-width="1"/>
+
+  <!-- Header -->
+  <g id="header">
+    <text x="{margin_mm}" y="{margin_mm + 20}" class="page-title">{title}</text>
+    <text x="{margin_mm}" y="{margin_mm + 35}" class="blueprint-text" font-size="12">{scale_info}</text>
+    <text x="{margin_mm}" y="{margin_mm + 50}" class="unit-info">Units: {get_unit_label()}</text>
+    <text x="{page_width_mm - margin_mm}" y="{margin_mm + 20}" class="blueprint-text" font-size="10" text-anchor="end">
+      Page {page_num} of {total_pages}
+    </text>
+    <text x="{page_width_mm - margin_mm}" y="{margin_mm + 35}" class="blueprint-text" font-size="10" text-anchor="end">
+      Generated: {get_timestamp()}
+    </text>
+  </g>
+
+  <!-- Part Title -->
+  <text x="{page_width_mm/2}" y="{margin_mm + 70}" class="part-title" text-anchor="middle">{item.name}</text>
+
+  <!-- Part Content (scaled and centered) -->
+  <g transform="translate({part_x:.1f},{part_y:.1f}) scale({page_scale:.3f})">
+    {clean_svg_content}
+  </g>
+
+  <!-- Manufacturing Information -->
+  <g id="manufacturing-info">
+    <text x="{margin_mm}" y="{page_height_mm - 75}" class="manufacturing-note">
+      Actual Size: {format_dimension(item.bounds.width)} × {format_dimension(item.bounds.height)}
+    </text>
+    <text x="{margin_mm}" y="{page_height_mm - 60}" class="manufacturing-note">
+      Page Scale: {page_scale:.1%} (1:{1/page_scale:.1f})
+    </text>
+    <text x="{margin_mm}" y="{page_height_mm - 45}" class="manufacturing-note">
+      {material_info}
+    </text>
+    <text x="{margin_mm}" y="{page_height_mm - 30}" class="manufacturing-note">
+      Units: {get_unit_label()} | Precision manufacturing dimensions
+    </text>
+  </g>
+
+  <!-- Footer -->
+  <line x1="{margin_mm}" y1="{page_height_mm - 15}" x2="{page_width_mm - margin_mm}" y2="{page_height_mm - 15}"
+        stroke="black" stroke-width="0.5"/>
+  <text x="{page_width_mm/2}" y="{page_height_mm - 5}" class="blueprint-text" font-size="8" text-anchor="middle">
+    Automataii Manufacturing System - Part Blueprint
+  </text>
+</svg>'''
+
+    return page_svg
+
+
+def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, page_height_mm, margin_mm, title, scale_info, snapshot_data_uri, unit_system="metric"):
+    """Generate a single page for one mechanism with enhanced details"""
+    
+    content_width = page_width_mm - (2 * margin_mm)
+    content_height = page_height_mm - (2 * margin_mm)
+    
+    # Unit conversion function
+    def format_dimension(value_mm: float) -> str:
+        if unit_system == "imperial":
+            inches = value_mm / 25.4
+            if inches < 1.0:
+                return f"{inches * 1000:.0f} mil"
+            elif inches < 12.0:
+                return f"{inches:.2f}\""
+            else:
+                feet = inches / 12.0
+                return f"{feet:.2f}'"
+        else:
+            return f"{value_mm:.1f}mm"
+    
+    def get_unit_label() -> str:
+        return "Imperial" if unit_system == "imperial" else "Metric"
+    
+    # Calculate scaling to fit mechanism on page
+    available_width = content_width * 0.8
+    available_height = content_height * 0.6
+    
+    scale_x = available_width / item.bounds.width if item.bounds.width > 0 else 1.0
+    scale_y = available_height / item.bounds.height if item.bounds.height > 0 else 1.0
+    page_scale = min(scale_x, scale_y, 2.0)  # Allow up to 2x scaling for small mechanisms
+    
+    # Center the mechanism on the page
+    scaled_width = item.bounds.width * page_scale
+    scaled_height = item.bounds.height * page_scale
+    mech_x = margin_mm + (content_width - scaled_width) / 2
+    mech_y = margin_mm + 80 + (available_height - scaled_height) / 2
+    
+    # Material specifications based on unit system
+    material_info = "Material: Steel/Aluminum bars and joints"
+    if unit_system == "imperial":
+        material_info = "Material: Steel/Aluminum bars and joints (standard/imperial sizes)"
+    
+    # Generate page SVG with enhanced mechanism visualization
+    page_svg = f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="{page_width_mm}" height="{page_height_mm}"
+     xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1">
+  <defs>
+    <style>
+      .blueprint-text {{ font-family: Arial, sans-serif; }}
+      .page-title {{ font-size: 16px; font-weight: bold; }}
+      .mechanism-title {{ font-size: 20px; font-weight: bold; }}
+      .dimension-line {{ stroke: #666; stroke-width: 0.75; stroke-dasharray: 3,3; }}
+      .dimension-text {{ font-family: Arial, sans-serif; font-size: 10px; fill: #333; }}
+      .manufacturing-note {{ font-family: Arial, sans-serif; font-size: 9px; fill: #555; }}
+      .mechanism-label {{ font-family: Arial, sans-serif; font-size: 12px; font-weight: bold; }}
+      .parameter-text {{ font-family: Arial, sans-serif; font-size: 8px; fill: #222; }}
+      .parameter-header {{ font-family: Arial, sans-serif; font-size: 9px; font-weight: bold; fill: #333; }}
+      .unit-info {{ font-family: Arial, sans-serif; font-size: 6px; fill: #888; font-style: italic; }}
+    </style>
+  </defs>
+
+  <!-- Page Border -->
+  <rect x="{margin_mm/2}" y="{margin_mm/2}" width="{page_width_mm - margin_mm}" height="{page_height_mm - margin_mm}"
+        fill="none" stroke="black" stroke-width="1"/>
+
+  <!-- Header -->
+  <g id="header">
+    <text x="{margin_mm}" y="{margin_mm + 20}" class="page-title">{title} - Mechanism</text>
+    <text x="{margin_mm}" y="{margin_mm + 35}" class="blueprint-text" font-size="12">{scale_info}</text>
+    <text x="{margin_mm}" y="{margin_mm + 50}" class="unit-info">Units: {get_unit_label()}</text>
+    <text x="{page_width_mm - margin_mm}" y="{margin_mm + 20}" class="blueprint-text" font-size="10" text-anchor="end">
+      Page {page_num} of {total_pages}
+    </text>
+    <text x="{page_width_mm - margin_mm}" y="{margin_mm + 35}" class="blueprint-text" font-size="10" text-anchor="end">
+      Generated: {get_timestamp()}
+    </text>
+  </g>
+
+  <!-- Mechanism Title -->
+  <text x="{page_width_mm/2}" y="{margin_mm + 70}" class="mechanism-title" text-anchor="middle">{item.name}</text>
+
+  <!-- Mechanism Content (scaled and centered) -->
+  <g transform="translate({mech_x:.1f},{mech_y:.1f}) scale({page_scale:.3f})">
+    {item.svg_content}
+  </g>
+
+  <!-- Manufacturing Information -->
+  <g id="manufacturing-info">
+    <text x="{margin_mm}" y="{page_height_mm - 90}" class="manufacturing-note">
+      Mechanism Dimensions: {format_dimension(item.bounds.width)} × {format_dimension(item.bounds.height)}
+    </text>
+    <text x="{margin_mm}" y="{page_height_mm - 75}" class="manufacturing-note">
+      Page Scale: {page_scale:.1%} (1:{1/page_scale:.1f})
+    </text>
+    <text x="{margin_mm}" y="{page_height_mm - 60}" class="manufacturing-note">
+      {material_info}
+    </text>
+    <text x="{margin_mm}" y="{page_height_mm - 45}" class="manufacturing-note">
+      Assembly: Follow joint positions and link dimensions precisely
+    </text>
+    <text x="{margin_mm}" y="{page_height_mm - 30}" class="manufacturing-note">
+      Units: {get_unit_label()} | Precision mechanism dimensions
+    </text>
+  </g>
+
+  <!-- Footer -->
+  <line x1="{margin_mm}" y1="{page_height_mm - 15}" x2="{page_width_mm - margin_mm}" y2="{page_height_mm - 15}"
+        stroke="black" stroke-width="0.5"/>
+  <text x="{page_width_mm/2}" y="{page_height_mm - 5}" class="blueprint-text" font-size="8" text-anchor="middle">
+    Automataii Manufacturing System - Mechanism Blueprint
+  </text>
+</svg>'''
+
+    return page_svg
 
 
 def get_timestamp():

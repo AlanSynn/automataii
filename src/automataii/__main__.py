@@ -55,6 +55,9 @@ def main():
     parser.add_argument(
         "--experiment", action="store_true", help="Enable experimental mode (hides Options tab)."
     )
+    parser.add_argument(
+        "--editing", action="store_true", help="Enable interactive segmentation editing mode."
+    )
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.debug else logging.INFO
@@ -105,7 +108,11 @@ def main():
         logging.info("Auto-updater not available")
 
     logging.info("Creating main window...")
-    main_window = AutomataDesigner(debug_mode=args.debug, experiment_mode=args.experiment)
+    main_window = AutomataDesigner(
+        debug_mode=args.debug, 
+        experiment_mode=args.experiment,
+        editing_mode=args.editing
+    )
 
     # Pass updater to main window if available
     if updater and hasattr(main_window, 'set_updater'):

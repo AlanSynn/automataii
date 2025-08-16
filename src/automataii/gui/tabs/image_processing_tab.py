@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QGraphicsScene,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -34,9 +35,10 @@ class ImageProcessingTab(QWidget):
     skeleton_updated = pyqtSignal(dict)
     request_editor_tab_switch = pyqtSignal()
 
-    def __init__(self, main_window, parent=None):
+    def __init__(self, main_window, parent=None, editing_mode: bool = False):
         super().__init__(parent)
         self.main_window = main_window
+        self.editing_mode = editing_mode
 
         self.input_image_path: str | None = None
         self.character_dir: str | None = None
@@ -74,6 +76,23 @@ class ImageProcessingTab(QWidget):
         panel_layout.addWidget(input_group)
 
         panel_layout.addWidget(self.processing_steps_group)
+        
+        # Add Manual Segmentation Editing group when in editing mode
+        if self.editing_mode:
+            editing_group = QGroupBox("Manual Editing")
+            editing_layout = QVBoxLayout(editing_group)
+            editing_layout.setSpacing(10)
+            
+            # Manual Segmentation Editing button (same style as other buttons)
+            self.manual_segmentation_btn = QPushButton("Manual Segmentation Editing")
+            self.manual_segmentation_btn.setToolTip(
+                "Open interactive editor to manually define body part boundaries by clicking"
+            )
+            self.manual_segmentation_btn.clicked.connect(self.open_manual_segmentation_editor)
+            self.manual_segmentation_btn.setEnabled(False)  # Enabled when image is loaded
+            editing_layout.addWidget(self.manual_segmentation_btn)
+            
+            panel_layout.addWidget(editing_group)
 
         view_controls_group = QGroupBox("View Controls")
         view_controls_group.setStyleSheet("""
@@ -287,6 +306,11 @@ class ImageProcessingTab(QWidget):
             return
         if self.image_proc_view.load_image(filepath):
             self.input_image_path = filepath
+            
+            # Enable manual segmentation editing button if in editing mode
+            if self.editing_mode and hasattr(self, 'manual_segmentation_btn'):
+                self.manual_segmentation_btn.setEnabled(True)
+                
             # Try to infer character_dir if not set, or if new image is in a different place
             potential_char_dir = os.path.dirname(filepath)
             # A simple heuristic: if a 'character_data' or 'output' subdir exists, or parts_info.json, assume it's a root
@@ -325,6 +349,197 @@ class ImageProcessingTab(QWidget):
                     )
         else:
             QMessageBox.warning(self, "Load Error", f"Could not load image: {filepath}")
+
+    def open_manual_segmentation_editor(self):
+        """Open interactive manual segmentation editor"""
+        if not self.input_image_path:
+            QMessageBox.warning(
+                self, "No Image", "Please load an image first before opening the manual editor."
+            )
+            return
+            
+        try:
+            from automataii.gui.interactive_segmentation_editor import InteractiveSegmentationEditor
+            
+            # Create dialog
+            editor_dialog = InteractiveSegmentationEditor(
+                image_path=self.input_image_path,
+                skeleton_data=self.skeleton_data,
+                parent=self
+            )
+            
+            # Show dialog and handle result
+            if editor_dialog.exec() == QDialog.DialogCode.Accepted:
+                # Get the edited segmentation results
+                edited_results = editor_dialog.get_segmentation_results()
+                
+                if edited_results:
+                    # Apply the manually edited segmentation results
+                    self._apply_manual_segmentation_results(edited_results)
+                    self.main_window.statusBar().showMessage("Manual segmentation applied successfully!")
+                else:
+                    self.main_window.statusBar().showMessage("No segmentation changes were made.")
+            else:
+                self.main_window.statusBar().showMessage("Manual segmentation editing cancelled.")
+                
+        except ImportError as e:
+            QMessageBox.critical(
+                self, "Import Error", 
+                f"Could not load interactive segmentation editor: {e}\n\n"
+                "Make sure all required dependencies are installed."
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Editor Error", 
+                f"Error opening manual segmentation editor: {e}"
+            )
+    
+    def _apply_manual_segmentation_results(self, segmentation_results):
+        """Apply manually edited segmentation results to the current workflow"""
+        try:
+            # Save the manual segmentation results
+            if self.character_dir:
+                output_dir = os.path.join(self.character_dir, "manual_segmentation")
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Save individual part masks
+                for part_name, mask_data in segmentation_results.items():
+                    if mask_data is not None and len(mask_data) > 0:
+                        mask_path = os.path.join(output_dir, f"{part_name}_mask.png")
+                        cv2.imwrite(mask_path, mask_data)
+                
+                # Update the current workflow with manual results
+                self.current_annotation_results = segmentation_results
+                
+                # Trigger parts generation with manual data
+                self._generate_parts_from_manual_segmentation(segmentation_results)
+                
+                QMessageBox.information(
+                    self, "Success", 
+                    f"Manual segmentation results saved to:\n{output_dir}"
+                )
+            else:
+                QMessageBox.warning(
+                    self, "No Directory", 
+                    "No character directory set. Results were not saved."
+                )
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Apply Error", 
+                f"Error applying manual segmentation results: {e}"
+            )
+    
+    def _generate_parts_from_manual_segmentation(self, segmentation_results):
+        """Generate body parts from manual segmentation results"""
+        try:
+            # Create body parts using manual segmentation masks
+            # This integrates with the existing parts generation workflow
+            
+            if not self.character_dir or not self.input_image_path:
+                return
+                
+            # Create character data structure
+            char_data = {
+                "width": 0,  # Will be set from image
+                "height": 0,
+                "parts": {},
+                "skeleton": self.skeleton_data.get("skeleton", []) if self.skeleton_data else [],
+                "joint_map": {}
+            }
+            
+            # Load original image to get dimensions
+            import cv2
+            original_image = cv2.imread(self.input_image_path, cv2.IMREAD_UNCHANGED)
+            if original_image is not None:
+                char_data["height"], char_data["width"] = original_image.shape[:2]
+            
+            # Process each part from manual segmentation
+            for part_name, mask_data in segmentation_results.items():
+                if mask_data is not None and len(mask_data) > 0:
+                    # Extract part information from mask
+                    part_info = self._extract_part_info_from_mask(
+                        part_name, mask_data, original_image
+                    )
+                    if part_info:
+                        char_data["parts"][part_name] = part_info
+            
+            # Emit signal to main window
+            if char_data["parts"]:
+                self.parts_generated.emit(char_data, self.character_dir)
+                self.main_window.statusBar().showMessage(
+                    f"Generated {len(char_data['parts'])} body parts from manual segmentation"
+                )
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Generation Error", 
+                f"Error generating parts from manual segmentation: {e}"
+            )
+    
+    def _extract_part_info_from_mask(self, part_name: str, mask: any, original_image: any) -> dict:
+        """Extract part information from a segmentation mask"""
+        try:
+            import cv2
+            import numpy as np
+            
+            # Find bounding box of the mask
+            if hasattr(mask, 'shape'):
+                # mask is numpy array
+                mask_array = mask
+            else:
+                # Convert to numpy array if needed
+                mask_array = np.array(mask)
+            
+            # Find non-zero pixels
+            coords = np.column_stack(np.where(mask_array > 0))
+            if len(coords) == 0:
+                return None
+                
+            # Calculate bounding box
+            y_min, x_min = coords.min(axis=0)
+            y_max, x_max = coords.max(axis=0)
+            
+            roi_width = x_max - x_min + 1
+            roi_height = y_max - y_min + 1
+            
+            # Extract part texture from original image
+            if original_image is not None:
+                part_texture = original_image[y_min:y_max+1, x_min:x_max+1]
+                part_mask_roi = mask_array[y_min:y_max+1, x_min:x_max+1]
+                
+                # Create RGBA image with transparency
+                if len(part_texture.shape) == 3:
+                    part_rgba = cv2.cvtColor(part_texture, cv2.COLOR_BGR2BGRA)
+                else:
+                    part_rgba = cv2.cvtColor(part_texture, cv2.COLOR_GRAY2BGRA)
+                
+                # Apply mask as alpha channel
+                part_rgba[:, :, 3] = part_mask_roi
+                
+                # Save part image
+                if self.character_dir:
+                    parts_dir = os.path.join(self.character_dir, "manual_parts")
+                    os.makedirs(parts_dir, exist_ok=True)
+                    part_image_path = os.path.join(parts_dir, f"{part_name}.png")
+                    cv2.imwrite(part_image_path, part_rgba)
+            
+            # Create part info structure
+            part_info = {
+                "name": part_name,
+                "roi": [float(x_min), float(y_min), float(roi_width), float(roi_height)],
+                "image_path": f"manual_parts/{part_name}.png",
+                "local_pivot_offset": [float(roi_width / 2), float(roi_height / 2)],
+                "z_value": 0.0,
+                "fixed": False,
+                "fill_color": "rgba(128,128,128,0.5)"
+            }
+            
+            return part_info
+            
+        except Exception as e:
+            print(f"Error extracting part info for {part_name}: {e}")
+            return None
 
     def _load_image_from_path(self, image_path: str):
         """Load an image directly from a given path (used by landing tab)."""
@@ -610,6 +825,17 @@ class ImageProcessingTab(QWidget):
         try:
             bpe_output_dir = Path(self.current_temp_char_dir) / "bpe_output"
             bpe_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy original image as texture and image.png to preserve original quality
+            import shutil
+            if self.input_image_path:
+                # Copy as texture.png (used by some parts of the system)
+                processed_texture_path = Path(self.current_temp_char_dir) / "texture.png"
+                shutil.copy2(self.input_image_path, processed_texture_path)
+                
+                # Copy as image.png (the main original image used by BodyPartsExtractor)
+                original_image_path = Path(self.current_temp_char_dir) / "image.png"
+                shutil.copy2(self.input_image_path, original_image_path)
 
             self.body_parts_extractor = BodyPartsExtractor(
                 char_dir=str(

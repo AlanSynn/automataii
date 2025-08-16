@@ -68,11 +68,12 @@ class AutomataDesigner(QMainWindow):
     simulation, and blueprint generation.
     """
 
-    def __init__(self, parent: QWidget | None = None, debug_mode: bool = False, experiment_mode: bool = False):
+    def __init__(self, parent: QWidget | None = None, debug_mode: bool = False, experiment_mode: bool = False, editing_mode: bool = False):
         super().__init__(parent)
         self.debug_mode = debug_mode
         self.experiment_mode = experiment_mode
-        logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}")
+        self.editing_mode = editing_mode
+        logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}, Editing mode: {self.editing_mode}")
         self.resize(1200, 680)
         self.setMinimumHeight(600)
         logging.info("Initializing AutomataDesigner...")
@@ -178,6 +179,18 @@ class AutomataDesigner(QMainWindow):
                 }
             """)
             self.statusBar().addPermanentWidget(experiment_label)
+            
+        if self.editing_mode:
+            # Add permanent editing mode indicator to status bar
+            editing_label = QLabel("✏️ Editing Mode")
+            editing_label.setStyleSheet("""
+                QLabel {
+                    color: #e63946;
+                    font-weight: bold;
+                    padding: 2px 8px;
+                }
+            """)
+            self.statusBar().addPermanentWidget(editing_label)
 
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
@@ -219,7 +232,7 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.addTab(self.landing_tab, welcome_title)
 
         # --- Tab 1: Image Processing ---
-        self.image_proc_tab = ImageProcessingTab(self)
+        self.image_proc_tab = ImageProcessingTab(self, editing_mode=self.editing_mode)
         character_title = "2. Character Selection" if self.experiment_mode else "Character Selection"
         self.tab_widget.addTab(self.image_proc_tab, character_title)
 

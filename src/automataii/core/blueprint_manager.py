@@ -78,6 +78,7 @@ class BlueprintExportManager(QObject):
         parent_widget: Optional[QWidget] = None,
         single_large_page: bool = True,
         snapshot_png_bytes: Optional[bytes] = None,
+        unit_system: str = "metric",
     ) -> bool:
         """
         Export blueprint with character parts and mechanisms.
@@ -86,6 +87,9 @@ class BlueprintExportManager(QObject):
             part_items: List of CharacterPartItem objects
             mechanism_layers: Dictionary of mechanism layer data
             parent_widget: Parent widget for dialogs
+            single_large_page: Whether to create a single large page or multi-page
+            snapshot_png_bytes: Optional snapshot data
+            unit_system: "metric" for mm, "imperial" for inches
 
         Returns:
             bool: True if export successful, False otherwise
@@ -106,7 +110,7 @@ class BlueprintExportManager(QObject):
             if single_large_page:
                 # Generate single large page with all content
                 svg_content = self._generate_single_large_page_blueprint(
-                    part_items, mechanism_layers or {}, snapshot_png_bytes
+                    part_items, mechanism_layers or {}, snapshot_png_bytes, unit_system
                 )
 
                 if not svg_content:
@@ -116,8 +120,9 @@ class BlueprintExportManager(QObject):
                 success = self._save_svg_file(svg_content, file_path)
 
                 if success:
-                    self.logger.info(f"Large-format blueprint saved to {file_path}")
-                    self.export_completed.emit(True, f"Blueprint exported successfully")
+                    unit_label = "Imperial" if unit_system == "imperial" else "Metric"
+                    self.logger.info(f"Large-format blueprint ({unit_label}) saved to {file_path}")
+                    self.export_completed.emit(True, f"Blueprint exported successfully ({unit_label} units)")
                 else:
                     self.logger.error("Failed to save SVG file")
                     self.export_completed.emit(False, "Failed to save SVG file")
@@ -183,49 +188,59 @@ class BlueprintExportManager(QObject):
         """Generate SVG for cam mechanism."""
         return self.cam_generator.generate_svg(cam_data)
 
-    def _generate_single_large_page_blueprint(self, part_items: List[Any],
-                                              mechanism_layers: Dict[str, Any],
-                                              snapshot_png_bytes: Optional[bytes] = None) -> str:
-        """Generate single large-format blueprint with all content."""
-        from automataii.generation.blueprint import generate_single_large_blueprint
+    def _generate_single_large_page_blueprint(
+        self, part_items: List[Any], mechanism_layers: Dict[str, Any], snapshot_png_bytes: Optional[bytes] = None, unit_system: str = "metric"
+    ) -> str:
+        """
+        Generate single large page blueprint SVG with all parts and mechanisms.
+        
+        Args:
+            part_items: List of part items to include
+            mechanism_layers: Dictionary of mechanism data
+            snapshot_png_bytes: Optional snapshot image data
+            unit_system: "metric" for mm, "imperial" for inches
+            
+        Returns:
+            SVG string for the complete blueprint
+        """
+        try:
+            from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
+            from automataii.generation.blueprint import generate_single_large_blueprint
 
-        # Use large page dimensions (A0+ size for plenty of space)
-        page_width_mm = 1200.0  # Generous width
-        page_height_mm = 1600.0  # Generous height
+            # Optimize layout with enhanced mechanism processing
+            optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+            layout_items, total_width_mm, total_height_mm = optimizer.optimize_blueprint_layout(
+                part_items, mechanism_layers, unit_system
+            )
 
-        # Use optimizer for layout with generous spacing
-        optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
-        layout_items, _, _ = optimizer.optimize_blueprint_layout(
-            part_items, mechanism_layers
-        )
+            if not layout_items:
+                self.logger.warning("No layout items generated - creating minimal blueprint")
+                return '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg"><text x="50" y="150">No items to export</text></svg>'
 
-        # Log mechanism processing for debugging
-        self.logger.info(f"Processing {len(mechanism_layers)} mechanisms for large blueprint")
-        for mech_id, mech_data in mechanism_layers.items():
-            mech_type = mech_data.get('type', 'unknown')
-            self.logger.debug(f"Mechanism {mech_id}: type={mech_type}")
-
-        # Generate the large-format blueprint
-        # Prepare snapshot data URI if provided
-        snapshot_data_uri = None
-        if snapshot_png_bytes:
-            try:
+            # Convert snapshot to data URI if provided
+            snapshot_data_uri = None
+            if snapshot_png_bytes:
                 import base64
-                b64 = base64.b64encode(snapshot_png_bytes).decode('ascii')
-                snapshot_data_uri = f"data:image/png;base64,{b64}"
-            except Exception as _:
-                snapshot_data_uri = None
+                snapshot_data_uri = f"data:image/png;base64,{base64.b64encode(snapshot_png_bytes).decode()}"
 
-        svg_content = generate_single_large_blueprint(
-            layout_items,
-            page_width_mm,
-            page_height_mm,
-            title="Automataii Complete Manufacturing Blueprint",
-            scale_info="30cm Character Height Standard",
-            snapshot_data_uri=snapshot_data_uri
-        )
+            # Generate blueprint with proper scaling and unit system
+            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
+            svg_content = generate_single_large_blueprint(
+                layout_items,
+                max(total_width_mm, 800),  # Minimum width
+                max(total_height_mm, 600),  # Minimum height  
+                title=f"Character Manufacturing Blueprint ({unit_label})",
+                scale_info=f"Character Height: 300mm | Units: {unit_label}",
+                snapshot_data_uri=snapshot_data_uri,
+                unit_system=unit_system,
+            )
 
-        return svg_content
+            self.logger.info(f"Generated blueprint: {len(layout_items)} items, {total_width_mm:.0f}x{total_height_mm:.0f}mm, units: {unit_system}")
+            return svg_content
+
+        except Exception as e:
+            self.logger.error(f"Error generating single large page blueprint: {e}")
+            return ""
 
     def export_next_page(self, parent_widget: Optional[QWidget] = None) -> bool:
         """

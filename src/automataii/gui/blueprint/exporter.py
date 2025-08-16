@@ -38,8 +38,56 @@ class BlueprintExporter:
         """Export all parts and mechanisms using the legacy simple system."""
         try:
             from automataii.core.blueprint_manager import BlueprintExportManager
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup, QPushButton, QDialogButtonBox
 
             logging.info("[BLUEPRINT] Using legacy simple blueprint export system")
+
+            # Show unit system selection dialog
+            unit_dialog = QDialog(self._parent)
+            unit_dialog.setWindowTitle("Select Unit System")
+            unit_dialog.setModal(True)
+            unit_dialog.resize(350, 200)
+            
+            layout = QVBoxLayout()
+            
+            # Title
+            title_label = QLabel("Choose the unit system for your blueprint:")
+            title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+            layout.addWidget(title_label)
+            
+            # Unit options
+            unit_group = QButtonGroup()
+            
+            metric_radio = QRadioButton("Metric (millimeters)")
+            metric_radio.setToolTip("Dimensions will be shown in millimeters (mm)")
+            metric_radio.setChecked(True)  # Default to metric
+            unit_group.addButton(metric_radio, 0)
+            layout.addWidget(metric_radio)
+            
+            imperial_radio = QRadioButton("Imperial (inches/feet)")
+            imperial_radio.setToolTip("Dimensions will be shown in inches and feet")
+            unit_group.addButton(imperial_radio, 1)
+            layout.addWidget(imperial_radio)
+            
+            # Info text
+            info_label = QLabel("\nMetric is recommended for precision manufacturing.\nImperial can be useful for woodworking projects.")
+            info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
+            layout.addWidget(info_label)
+            
+            # Dialog buttons
+            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            button_box.accepted.connect(unit_dialog.accept)
+            button_box.rejected.connect(unit_dialog.reject)
+            layout.addWidget(button_box)
+            
+            unit_dialog.setLayout(layout)
+            
+            if unit_dialog.exec() != QDialog.DialogCode.Accepted:
+                return  # User cancelled
+            
+            # Get selected unit system
+            unit_system = "imperial" if imperial_radio.isChecked() else "metric"
+            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
 
             blueprint_manager = BlueprintExportManager.get_instance()
 
@@ -52,6 +100,7 @@ class BlueprintExporter:
             mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
 
             if not part_items and not mechanism_layers:
+                from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
                     self._parent,
                     "Blueprint Export",
@@ -66,7 +115,7 @@ class BlueprintExporter:
                 logging.info(f"[BLUEPRINT] Enhanced mechanism {mech_id}: scale_factor={scale_factor}")
 
             logging.info(
-                f"[BLUEPRINT] Legacy export: {len(part_items)} parts, {len(mechanism_layers)} mechanisms"
+                f"[BLUEPRINT] Legacy export: {len(part_items)} parts, {len(mechanism_layers)} mechanisms, unit_system={unit_system}"
             )
 
             success = blueprint_manager.export_blueprint(
@@ -75,23 +124,27 @@ class BlueprintExporter:
                 parent_widget=self._parent,
                 single_large_page=True,
                 snapshot_png_bytes=None,
+                unit_system=unit_system,  # Pass unit system to blueprint manager
             )
 
             if success:
                 logging.info("[BLUEPRINT] Legacy blueprint export successful")
+                from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.information(
                     self._parent,
                     "Blueprint Export Complete",
-                    "Blueprint exported successfully using the legacy system!\n\n"
+                    f"Blueprint exported successfully using the legacy system!\n\n"
                     f"Parts: {len(part_items)}\n"
                     f"Mechanisms: {len(mechanism_layers)}\n"
-                    f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n\n"
+                    f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n"
+                    f"Units: {unit_label}\n\n"
                     "Fixed: Now uses screen-calculated dimensions instead of defaults.\n"
                     "The blueprint uses the original large-format layout\n"
                     "with proper part outlines and mechanism details.",
                 )
             else:
                 logging.warning("[BLUEPRINT] Legacy blueprint export failed")
+                from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
                     self._parent,
                     "Blueprint Export Failed",
@@ -101,6 +154,7 @@ class BlueprintExporter:
 
         except ImportError as e:
             logging.error(f"[BLUEPRINT] Legacy import error: {e}")
+            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
                 self._parent,
                 "Blueprint Export Error",
@@ -110,6 +164,7 @@ class BlueprintExporter:
             )
         except Exception as e:
             logging.error(f"[BLUEPRINT] Legacy unexpected error: {e}")
+            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
                 self._parent,
                 "Blueprint Export Error",
@@ -123,6 +178,8 @@ class BlueprintExporter:
         legacy layout/generation. Otherwise delegates to the manager's dialog.
         """
         try:
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QButtonGroup, QDialogButtonBox
+            
             logging.info(f"[BLUEPRINT] Exporting mechanism {mechanism_id} using legacy system")
 
             mechanism_layers_all = self._get_mechanism_layers()
@@ -130,6 +187,42 @@ class BlueprintExporter:
             if not layer_data:
                 logging.error(f"[BLUEPRINT] No mechanism found with ID {mechanism_id}")
                 return
+
+            # Show unit system selection dialog
+            unit_dialog = QDialog(self._parent)
+            unit_dialog.setWindowTitle("Select Unit System")
+            unit_dialog.setModal(True)
+            unit_dialog.resize(300, 150)
+            
+            layout = QVBoxLayout()
+            
+            title_label = QLabel("Choose the unit system for your mechanism blueprint:")
+            title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+            layout.addWidget(title_label)
+            
+            unit_group = QButtonGroup()
+            
+            metric_radio = QRadioButton("Metric (millimeters)")
+            metric_radio.setChecked(True)
+            unit_group.addButton(metric_radio, 0)
+            layout.addWidget(metric_radio)
+            
+            imperial_radio = QRadioButton("Imperial (inches/feet)")
+            unit_group.addButton(imperial_radio, 1)
+            layout.addWidget(imperial_radio)
+            
+            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            button_box.accepted.connect(unit_dialog.accept)
+            button_box.rejected.connect(unit_dialog.reject)
+            layout.addWidget(button_box)
+            
+            unit_dialog.setLayout(layout)
+            
+            if unit_dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            
+            unit_system = "imperial" if imperial_radio.isChecked() else "metric"
+            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
 
             from automataii.core.blueprint_manager import BlueprintExportManager
 
@@ -152,9 +245,10 @@ class BlueprintExporter:
             if filename:
                 from automataii.generation.blueprint import generate_single_large_blueprint
                 from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
+                import os
 
                 optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
-                layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers)
+                layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers, unit_system)
 
                 page_width_mm = 800.0
                 page_height_mm = 600.0
@@ -166,6 +260,7 @@ class BlueprintExporter:
                     title=f"Mechanism Blueprint - {layer_data.get('type', 'Unknown')}",
                     scale_info=f"Screen-to-Blueprint Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel",
                     snapshot_data_uri=None,
+                    unit_system=unit_system,
                 )
 
                 os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
@@ -173,13 +268,15 @@ class BlueprintExporter:
                     f.write(svg_content)
 
                 logging.info(f"[BLUEPRINT] Blueprint exported to {filename}")
+                from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.information(
                     self._parent,
                     "Export Successful",
                     f"Blueprint exported using legacy system:\n{filename}\n\n"
                     f"Mechanism: {layer_data.get('type', 'Unknown')}\n"
                     f"Parts included: {len(part_items)}\n"
-                    f"Scale Factor: {mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A'):.3f}\n\n"
+                    f"Scale Factor: {mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A'):.3f}\n"
+                    f"Units: {unit_label}\n\n"
                     "Fixed: Now uses screen-calculated dimensions instead of defaults.",
                 )
             else:
@@ -189,6 +286,7 @@ class BlueprintExporter:
                     parent_widget=self._parent,
                     single_large_page=True,
                     snapshot_png_bytes=None,
+                    unit_system=unit_system,
                 )
 
                 if success:
@@ -202,8 +300,140 @@ class BlueprintExporter:
 
         except Exception as e:
             logging.error(f"[BLUEPRINT] Failed to export blueprint for mechanism {mechanism_id}: {e}")
+            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
                 self._parent, "Export Failed", f"Failed to export blueprint using legacy system:\n{str(e)}"
+            )
+
+    def export_all_multipage(self) -> None:
+        """Export all parts and mechanisms as multi-page letter-size blueprints."""
+        try:
+            from automataii.core.blueprint_manager import BlueprintExportManager
+            from automataii.generation.blueprint import generate_multi_page_blueprint
+            from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QButtonGroup, QDialogButtonBox
+
+            logging.info("[BLUEPRINT] Using multi-page blueprint export system")
+
+            # Show unit system selection dialog
+            unit_dialog = QDialog(self._parent)
+            unit_dialog.setWindowTitle("Select Unit System")
+            unit_dialog.setModal(True)
+            unit_dialog.resize(350, 200)
+            
+            layout = QVBoxLayout()
+            
+            title_label = QLabel("Choose the unit system for your multi-page blueprint:")
+            title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+            layout.addWidget(title_label)
+            
+            unit_group = QButtonGroup()
+            
+            metric_radio = QRadioButton("Metric (millimeters)")
+            metric_radio.setToolTip("Dimensions will be shown in millimeters (mm)")
+            metric_radio.setChecked(True)
+            unit_group.addButton(metric_radio, 0)
+            layout.addWidget(metric_radio)
+            
+            imperial_radio = QRadioButton("Imperial (inches/feet)")
+            imperial_radio.setToolTip("Dimensions will be shown in inches and feet")
+            unit_group.addButton(imperial_radio, 1)
+            layout.addWidget(imperial_radio)
+            
+            info_label = QLabel("\nEach part/mechanism will be on a separate letter-size page.\nMetric is recommended for precision manufacturing.")
+            info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
+            layout.addWidget(info_label)
+            
+            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            button_box.accepted.connect(unit_dialog.accept)
+            button_box.rejected.connect(unit_dialog.reject)
+            layout.addWidget(button_box)
+            
+            unit_dialog.setLayout(layout)
+            
+            if unit_dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            
+            unit_system = "imperial" if imperial_radio.isChecked() else "metric"
+            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
+
+            part_items = self._collect_part_items()
+            mechanism_layers_raw = self._get_mechanism_layers() or {}
+
+            # Apply scale enhancement before optimization
+            logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale for multi-page export...")
+            screen_scale_info = self.calculate_screen_to_blueprint_scale()
+            mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
+
+            if not part_items and not mechanism_layers:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self._parent,
+                    "Multi-page Blueprint Export",
+                    "No mechanisms or character parts available for export.\n"
+                    "Please create some mechanisms or load character parts first.",
+                )
+                return
+
+            # Generate optimized layout items
+            optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+            layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers, unit_system)
+
+            # Generate multi-page blueprint
+            pages = generate_multi_page_blueprint(
+                layout_items,
+                title="Character Manufacturing Blueprint",
+                scale_info=f"Character Height: 300mm | Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel",
+                snapshot_data_uri=None,
+                unit_system=unit_system
+            )
+
+            # Save each page as a separate file
+            from PyQt6.QtWidgets import QFileDialog
+            import os
+
+            # Ask user for output directory
+            output_dir = QFileDialog.getExistingDirectory(
+                self._parent,
+                "Select Directory for Multi-page Blueprint",
+                "",
+                QFileDialog.Option.ShowDirsOnly
+            )
+
+            if not output_dir:
+                return
+
+            saved_files = []
+            for i, page_svg in enumerate(pages, 1):
+                filename = os.path.join(output_dir, f"blueprint_page_{i:02d}.svg")
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(page_svg)
+                saved_files.append(filename)
+
+            logging.info(f"[BLUEPRINT] Multi-page export successful: {len(pages)} pages")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self._parent,
+                "Multi-page Blueprint Export Complete",
+                f"Successfully exported {len(pages)} blueprint pages!\n\n"
+                f"Parts: {len([item for item in layout_items if item.item_type == 'part'])}\n"
+                f"Mechanisms: {len([item for item in layout_items if item.item_type == 'mechanism'])}\n"
+                f"Character Height: 300mm\n"
+                f"Page Size: Letter (8.5\" × 11\")\n"
+                f"Units: {unit_label}\n\n"
+                f"Files saved to:\n{output_dir}\n\n"
+                "Each part/mechanism is on a separate page for optimal printing.",
+            )
+
+        except Exception as e:
+            logging.error(f"[BLUEPRINT] Multi-page export failed: {e}")
+            import traceback
+            logging.error(f"[BLUEPRINT] Traceback: {traceback.format_exc()}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self._parent,
+                "Multi-page Export Error",
+                f"Multi-page blueprint export failed:\n\n{str(e)}\n\nCheck console for details.",
             )
 
     def show_mechanism_dimensions(self, mechanism_id: str) -> None:
