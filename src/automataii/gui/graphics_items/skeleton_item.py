@@ -1,9 +1,16 @@
 import logging
+import math
 from typing import Any, Optional
 
-from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
-from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
+from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
+from PyQt6.QtWidgets import (
+    QGraphicsEllipseItem,
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsObject,
+    QGraphicsPolygonItem,
+)
 
 from automataii.config.z_indices import (
     Z_SKELETON_BONES,
@@ -13,10 +20,14 @@ from automataii.config.z_indices import (
 )
 
 
-class SkeletonGraphicsItem(QGraphicsItem):
+class SkeletonGraphicsItem(QGraphicsObject):
     """
-    A QGraphicsItem to display a character's skeleton (joints and bones).
+    A QGraphicsObject to display a character's skeleton (joints and bones).
+    Changed to QGraphicsObject to support signals.
     """
+
+    # Signal emitted when a joint is clicked (joint_id, new_bend_direction)
+    joint_clicked = pyqtSignal(str, float)
 
     JOINT_RADIUS = 5
     BONE_PEN_WIDTH = 2
@@ -41,22 +52,28 @@ class SkeletonGraphicsItem(QGraphicsItem):
         super().__init__(parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        
+
         # Store mechanism mode for Z-value configuration
         self.mechanism_mode = mechanism_mode
-        
+
         # Configure Z-values based on mode
         if mechanism_mode:
             self.bone_z_value = Z_SKELETON_MECHANISM_BONES
             self.joint_z_value = Z_SKELETON_MECHANISM_JOINTS
         else:
-            self.bone_z_value = Z_SKELETON_BONES  
+            self.bone_z_value = Z_SKELETON_BONES
             self.joint_z_value = Z_SKELETON_JOINTS
 
         self._joint_items: dict[
             str, QGraphicsEllipseItem
         ] = {}  # joint_id -> QGraphicsEllipseItem
         self._bone_items: list[QGraphicsLineItem] = []
+        self._bend_arrows: dict[
+            str, QGraphicsPolygonItem
+        ] = {}  # joint_id -> arrow polygon
+        self._joint_bend_directions: dict[
+            str, float
+        ] = {}  # joint_id -> bend direction (1.0 or -1.0)
 
         # Cache of the original structural data for rebuilding/updating bones
         self._joints_data_cache: list[dict[str, Any]] = []
@@ -77,8 +94,12 @@ class SkeletonGraphicsItem(QGraphicsItem):
                 self.scene().removeItem(item)
             for item in self._bone_items:
                 self.scene().removeItem(item)
+            for item in self._bend_arrows.values():
+                self.scene().removeItem(item)
         self._joint_items.clear()
         self._bone_items.clear()
+        self._bend_arrows.clear()
+        self._joint_bend_directions.clear()
 
     def load_skeleton_data(
         self, skeleton_data: list[dict[str, Any]], hierarchy: dict[str, list[str]]
@@ -135,6 +156,10 @@ class SkeletonGraphicsItem(QGraphicsItem):
                     f"SkeletonItem:load_skeleton_data - Position data for joint '{joint_id}' is not QPointF or list/tuple [x,y]: {pos_data}. Using (0,0)."
                 )
 
+            # Get bend direction (default to 1.0 if not specified)
+            bend_direction = joint_info.get("bend_direction", 1.0)
+            self._joint_bend_directions[joint_id] = bend_direction
+
             # Cache the processed joint info
             self._joints_data_cache.append(
                 {
@@ -142,7 +167,8 @@ class SkeletonGraphicsItem(QGraphicsItem):
                     "position": position,  # Store the QPointF
                     "parent": joint_info.get("parent"),  # Store original parent ID
                     "name": joint_info.get("name", joint_id),
-                    "color": joint_info.get("color", "red"),  # Default color
+                    "color": joint_info.get("color", "blue"),  # Default color blue
+                    "bend_direction": bend_direction,
                 }
             )
             temp_joint_positions[joint_id] = position
@@ -156,29 +182,24 @@ class SkeletonGraphicsItem(QGraphicsItem):
                 parent=self,  # Add as child of SkeletonGraphicsItem
             )
             joint_item.setPos(position)
-            joint_color_str = joint_info.get("color", "red")
-            try:
-                joint_color = QColor(joint_color_str)
-                if not joint_color.isValid():
-                    logging.warning(
-                        f"SkeletonItem: Invalid color string '{joint_color_str}' for joint '{joint_id}'. Defaulting to red."
-                    )
-                    joint_color = QColor("red")
-            except Exception:
-                logging.warning(
-                    f"SkeletonItem: Exception parsing color '{joint_color_str}' for joint '{joint_id}'. Defaulting to red."
-                )
-                joint_color = QColor("red")
+
+            # Set color based on bend direction (only for elbow/knee joints)
+            if bend_direction is not None and bend_direction < 0:
+                joint_color = QColor("green")  # Green for inverted
+            else:
+                joint_color = QColor("blue")  # Blue for default or joints without bend direction
 
             joint_item.setBrush(QBrush(joint_color))
             joint_item.setPen(QPen(Qt.GlobalColor.black, 1))
             joint_item.setZValue(self.joint_z_value)  # Use configured Z-value
+            joint_item.setData(0, joint_id)  # Store joint_id in the item's data
             self._joint_items[joint_id] = joint_item
 
         logging.debug(
             f"SkeletonItem:load_skeleton_data - Created {len(self._joint_items)} joint items."
         )
         self._update_bone_lines()  # Create bones based on the newly loaded joints and hierarchy
+        self._update_bend_arrows()  # Create bend direction arrows
         self.update()  # Recalculate bounding rect and trigger repaint
 
     def set_animated_pose(self, joint_positions: dict[str, tuple[float, float]]):
@@ -215,6 +236,7 @@ class SkeletonGraphicsItem(QGraphicsItem):
 
         if updated_any_joint:
             self._update_bone_lines()  # Rebuild bones based on new joint positions
+            self._update_bend_arrows()  # Update bend direction arrows
             self.update()  # Ensure repaint and bounding box update
         else:
             logging.debug(
@@ -358,3 +380,162 @@ class SkeletonGraphicsItem(QGraphicsItem):
     def get_all_joint_positions(self) -> dict[str, QPointF]:
         """Returns a dictionary of all current joint positions {id: QPointF}."""
         return {id: item.pos() for id, item in self._joint_items.items()}
+
+    def _update_bend_arrows(self):
+        """Update bend direction arrows for joints that have children."""
+        # Clear existing arrows
+        if self.scene():
+            for arrow in self._bend_arrows.values():
+                if arrow.scene():
+                    self.scene().removeItem(arrow)
+        self._bend_arrows.clear()
+
+        if not self._hierarchy_cache:
+            return
+
+        # Create arrows only for elbow/knee joints that have children
+        for parent_id, child_ids in self._hierarchy_cache.items():
+            if not child_ids or parent_id not in self._joint_items:
+                continue
+
+            # Only show bend arrows for elbow/knee joints
+            if 'elbow' not in parent_id.lower() and 'knee' not in parent_id.lower():
+                continue
+
+            parent_item = self._joint_items[parent_id]
+            parent_pos = parent_item.pos()
+
+            # Calculate average direction to children
+            avg_direction = QPointF(0, 0)
+            valid_children = 0
+
+            for child_id in child_ids:
+                if child_id in self._joint_items:
+                    child_pos = self._joint_items[child_id].pos()
+                    direction = child_pos - parent_pos
+                    if direction.manhattanLength() > 0.001:  # Avoid zero-length vectors
+                        avg_direction += direction
+                        valid_children += 1
+
+            if valid_children == 0:
+                continue
+
+            # Normalize average direction
+            avg_direction /= valid_children
+            length = math.sqrt(avg_direction.x()**2 + avg_direction.y()**2)
+            if length < 0.001:
+                continue
+
+            avg_direction /= length
+
+            # Get bend direction for this joint (default to 1.0 for elbow/knee)
+            bend_dir = self._joint_bend_directions.get(parent_id, 1.0)
+
+            # Calculate perpendicular direction (for bend)
+            perp_direction = QPointF(-avg_direction.y(), avg_direction.x()) * bend_dir
+
+            # Create arrow polygon
+            arrow_length = 20
+            arrow_width = 8
+
+            # Arrow tip position
+            arrow_tip = parent_pos + perp_direction * arrow_length
+
+            # Arrow base positions
+            base_direction = perp_direction * (arrow_length - arrow_width)
+            side_direction = avg_direction * (arrow_width / 2)
+
+            arrow_base1 = parent_pos + base_direction + side_direction
+            arrow_base2 = parent_pos + base_direction - side_direction
+
+            # Create polygon
+            arrow_polygon = QPolygonF([parent_pos, arrow_base1, arrow_tip, arrow_base2])
+            arrow_item = QGraphicsPolygonItem(arrow_polygon, parent=self)
+
+            # Set arrow appearance
+            if bend_dir < 0:
+                arrow_color = QColor(0, 200, 0, 150)  # Green for inverted
+            else:
+                arrow_color = QColor(0, 100, 200, 150)  # Blue for default
+
+            arrow_item.setBrush(QBrush(arrow_color))
+            arrow_item.setPen(QPen(Qt.GlobalColor.darkGray, 1))
+            arrow_item.setZValue(self.joint_z_value - 1)  # Slightly below joints
+
+            self._bend_arrows[parent_id] = arrow_item
+
+    def mousePressEvent(self, event):
+        """Handle mouse press events on joints."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Find which joint was clicked
+            click_pos = event.pos()
+
+            for joint_id, joint_item in self._joint_items.items():
+                joint_pos = joint_item.pos()
+                # Check if click is within joint circle
+                distance = math.sqrt(
+                    (click_pos.x() - joint_pos.x())**2 +
+                    (click_pos.y() - joint_pos.y())**2
+                )
+
+                if distance <= self.JOINT_RADIUS:
+                    # Only allow toggling bend direction for elbow/knee joints
+                    if 'elbow' in joint_id.lower() or 'knee' in joint_id.lower():
+                        # Toggle bend direction
+                        current_dir = self._joint_bend_directions.get(joint_id, 1.0)
+                        new_dir = -current_dir
+                        self._joint_bend_directions[joint_id] = new_dir
+
+                        # Update joint color
+                        if new_dir < 0:
+                            joint_color = QColor("green")  # Green for inverted
+                        else:
+                            joint_color = QColor("blue")  # Blue for default
+
+                        joint_item.setBrush(QBrush(joint_color))
+
+                        # Update cached data
+                        for cached_joint in self._joints_data_cache:
+                            if cached_joint["id"] == joint_id:
+                                cached_joint["bend_direction"] = new_dir
+                                break
+
+                        # Update arrows
+                        self._update_bend_arrows()
+
+                        # Emit signal
+                        self.joint_clicked.emit(joint_id, new_dir)
+
+                        logging.info(f"Joint '{joint_id}' bend direction changed to {new_dir}")
+                    else:
+                        logging.debug(f"Joint '{joint_id}' is not an elbow/knee joint, ignoring bend direction toggle")
+
+                    event.accept()
+                    return
+
+        # Call parent implementation
+        super().mousePressEvent(event)
+
+    def set_joint_bend_direction(self, joint_id: str, direction: float):
+        """Set the bend direction for a specific joint."""
+        if joint_id in self._joint_items:
+            self._joint_bend_directions[joint_id] = direction
+
+            # Update joint color
+            joint_item = self._joint_items[joint_id]
+            if direction < 0:
+                joint_color = QColor("green")  # Green for inverted
+            else:
+                joint_color = QColor("blue")  # Blue for default
+
+            joint_item.setBrush(QBrush(joint_color))
+
+            # Update cached data
+            for cached_joint in self._joints_data_cache:
+                if cached_joint["id"] == joint_id:
+                    cached_joint["bend_direction"] = direction
+                    break
+
+            # Update arrows
+            self._update_bend_arrows()
+            self.update()

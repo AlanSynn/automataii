@@ -1,8 +1,9 @@
 import json  # Add json import
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np  # Add numpy import
-from PyQt6.QtCore import QLineF, QPointF, QRectF, QSize, Qt
+from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
 from PyQt6.QtCore import pyqtSignal as Signal
 from PyQt6.QtGui import (
     QBrush,
@@ -392,7 +393,7 @@ class MechanismPreviewWidget(QGraphicsView):
         cam_center_adjusted = cam_center + np.array([0, base_radius])  # Move cam down
         follower_center_y = cam_center[1] - (base_radius + rod_len)  # Follower above original cam center
         follower_pos_orig = np.array([cam_center[0], follower_center_y])
-        
+
         # Redraw cam with adjusted center (moved down)
         cam_path_adjusted = QPainterPath()
         for i in range(101):
@@ -406,10 +407,10 @@ class MechanismPreviewWidget(QGraphicsView):
                 cam_path_adjusted.moveTo(p_screen)
             else:
                 cam_path_adjusted.lineTo(p_screen)
-        
+
         # Remove old cam and add adjusted one
         self.scene.addPath(cam_path_adjusted, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
-        
+
         # Enhanced follower visualization - more prominent for drag editing
         w, h = 16, 10  # Slightly larger for better visibility
         tl = follower_pos_orig + np.array([-w/2, -h/2])
@@ -417,7 +418,7 @@ class MechanismPreviewWidget(QGraphicsView):
         br = follower_pos_orig + np.array([w/2, h/2])
         bl = follower_pos_orig + np.array([-w/2, h/2])
         follower_poly = QPolygonF([to_screen_coords(p) for p in [tl, tr, br, bl]])
-        
+
         # Use different color to indicate drag-editability
         follower_color = QColor("#ff7f50")  # Coral color for better visibility
         self.scene.addPolygon(follower_poly, QPen(follower_color, 3), QBrush(follower_color.lighter(140)))

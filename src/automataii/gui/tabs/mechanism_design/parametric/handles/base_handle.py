@@ -201,7 +201,7 @@ class BaseHandle(QGraphicsEllipseItem):
 
         # CRITICAL: Accept the event to receive move events
         event.accept()
-        
+
         self._is_dragging = True
         self._drag_start_pos = event.scenePos()  # Use scenePos instead of pos
         self._initial_param_value = self.get_current_parameter_value()
@@ -218,7 +218,7 @@ class BaseHandle(QGraphicsEllipseItem):
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
         """Handle mouse move - update parameter during drag."""
         logging.info(f"[HANDLE BASE] mouseMoveEvent called for {self.param_name}, dragging={self._is_dragging}")
-        
+
         if not self._is_dragging or not self._is_enabled:
             logging.info(f"[HANDLE BASE] Not processing move: dragging={self._is_dragging}, enabled={self._is_enabled}")
             return

@@ -21,12 +21,12 @@ Components:
 __version__ = "1.0.0"
 __author__ = "Mechanism Foundry HCI Team"
 
-from .physics_interaction import PhysicsInteractionLayer, HapticFeedbackEngine
 from .parametric_controls import ParametricControlPanel, RealTimeSlider
+from .physics_interaction import HapticFeedbackEngine, PhysicsInteractionLayer
 
 __all__ = [
     'PhysicsInteractionLayer',
-    'HapticFeedbackEngine', 
+    'HapticFeedbackEngine',
     'ParametricControlPanel',
     'RealTimeSlider'
 ]

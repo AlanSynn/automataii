@@ -13,7 +13,6 @@ import cv2
 import numpy as np
 import yaml
 from scipy import ndimage
-from skimage import measure
 
 try:
     import onnxruntime as ort
@@ -249,7 +248,7 @@ def segment(img: np.ndarray) -> np.ndarray:
     """Robust segmentation for both photos and line art"""
     # Check if image has alpha channel
     has_alpha = img.shape[2] == 4 if len(img.shape) == 3 else False
-    
+
     if has_alpha:
         # Use alpha channel if available
         alpha = img[:, :, 3]
@@ -257,15 +256,15 @@ def segment(img: np.ndarray) -> np.ndarray:
         if np.max(alpha) > 0 and np.std(alpha) > 10:
             mask = alpha.copy()
             mask = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)[1]
-            
+
             # Clean up the mask
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-            
+
             # Fill holes
             mask_filled = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
-            
+
             # Use largest component
             contours, _ = cv2.findContours(mask_filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
@@ -273,43 +272,43 @@ def segment(img: np.ndarray) -> np.ndarray:
                 mask = np.zeros_like(mask)
                 cv2.drawContours(mask, [largest], -1, 255, -1)
                 return mask
-    
+
     # Fallback to content-based segmentation
     if len(img.shape) == 3:
         # Convert to grayscale
         gray = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY) if img.shape[2] >= 3 else img[:, :, 0]
     else:
         gray = img
-    
+
     # Check for line art characteristics
     h, w = gray.shape[:2]
     white_pixels = np.sum(gray > 240)
     total_pixels = gray.size
     white_percentage = (white_pixels / total_pixels) * 100
-    
+
     if white_percentage > 40:  # Likely line art with white background
         # For line art, we need to find the drawing and fill it
         # Invert to make lines white
         _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
-        
+
         # Use morphology to connect broken lines
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
-        
+
         # Find all contours (both external and internal)
         contours, hierarchy = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        
+
         if contours:
             # Create a mask with all contours filled
             mask = np.zeros((h, w), dtype=np.uint8)
-            
+
             # Find the bounding contour (outermost shape)
             # This is typically the character outline
             areas = [cv2.contourArea(c) for c in contours]
             if areas:
                 # Get contours sorted by area
                 sorted_indices = np.argsort(areas)[::-1]
-                
+
                 # Take the largest contour that's not the entire image
                 image_area = h * w
                 for idx in sorted_indices:
@@ -317,7 +316,7 @@ def segment(img: np.ndarray) -> np.ndarray:
                     if area < image_area * 0.9:  # Not the entire image
                         # Draw this contour and fill it
                         cv2.drawContours(mask, [contours[idx]], -1, 255, -1)
-                        
+
                         # Also fill any child contours (holes inside)
                         if hierarchy is not None:
                             # Fill all children
@@ -326,27 +325,27 @@ def segment(img: np.ndarray) -> np.ndarray:
                                 cv2.drawContours(mask, [contours[child_idx]], -1, 255, -1)
                                 child_idx = hierarchy[0][child_idx][0]  # Next sibling
                         break
-            
+
             # Fill any remaining holes
             mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
-            
+
             return mask
     else:
         # Photo or dark background - use adaptive threshold
         binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 115, 8)
-        
+
         # Morphological operations to clean up
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=2)
         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-    
+
     # Remove border pixels and flood fill from edges
     h, w = binary.shape[:2]
     mask = np.zeros([h+2, w+2], np.uint8)
     mask[1:-1, 1:-1] = binary.copy()
-    
+
     im_floodfill = binary.copy()
-    
+
     # Flood fill from edges
     for x in range(0, w-1, 10):
         cv2.floodFill(im_floodfill, mask, (x, 0), 0)
@@ -354,23 +353,23 @@ def segment(img: np.ndarray) -> np.ndarray:
     for y in range(0, h-1, 10):
         cv2.floodFill(im_floodfill, mask, (0, y), 0)
         cv2.floodFill(im_floodfill, mask, (w-1, y), 0)
-    
+
     # Find largest connected component
     contours, _ = cv2.findContours(im_floodfill, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+
     if not contours:
         # If no contours found, return a filled rectangle
         mask = np.ones((h, w), dtype=np.uint8) * 255
         return mask
-    
+
     # Get the largest contour
     largest_contour = max(contours, key=cv2.contourArea)
     mask = np.zeros((h, w), dtype=np.uint8)
     cv2.drawContours(mask, [largest_contour], -1, 255, -1)
-    
+
     # Fill holes
     mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
-    
+
     return mask
 
 
@@ -504,7 +503,7 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
         mask = segment(cropped)
         mask_path = outdir / "mask.png"
         cv2.imwrite(str(mask_path), mask)
-        
+
         # Convert texture to BGRA and apply mask to alpha
         if cropped.shape[2] == 4:
             # Already has alpha channel
@@ -517,7 +516,7 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
             texture = cv2.cvtColor(cropped, cv2.COLOR_BGR2BGRA)
             # Use mask as alpha
             texture[:, :, 3] = mask
-            
+
         texture_path = outdir / "texture.png"
         cv2.imwrite(str(texture_path), texture)
 

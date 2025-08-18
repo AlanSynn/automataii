@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any
 
 # from PyQt6.QtCore import QPointF # Common import, might be needed by subclasses
 
@@ -15,7 +15,7 @@ class BaseMechanism(ABC):
         self.mechanism_type = mechanism_type
 
     @abstractmethod
-    def generate(self, **kwargs) -> Optional[Dict[str, Any]]:
+    def generate(self, **kwargs) -> dict[str, Any] | None:
         """
         Generates and returns the data dictionary for the specific mechanism.
         All specific mechanism generator classes must implement this method.
@@ -28,7 +28,7 @@ class BaseMechanism(ABC):
         """
         pass
 
-    def get_description(self) -> Dict[str, str]:
+    def get_description(self) -> dict[str, str]:
         """
         Returns a basic description of the mechanism instance.
         """

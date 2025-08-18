@@ -1,8 +1,9 @@
 import logging
-from PyQt6.QtWidgets import QGraphicsItem
-from PyQt6.QtGui import QPainterPath, QTransform, QPolygonF
+
 from PyQt6.QtCore import QPointF, QRectF
-from .contour_extractor import PNGBlueprintProcessor, AdvancedContourExtractor
+from PyQt6.QtGui import QPainterPath, QPolygonF, QTransform
+
+from .contour_extractor import AdvancedContourExtractor, PNGBlueprintProcessor
 
 # Placeholder import for CharacterPartItem if type hinting is desired
 # from ..gui.part_item import CharacterPartItem
@@ -166,7 +167,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
                 if start >= 0:
                     end = clean_svg_content.find('"', start + len(' data-clip-def="')) + 1
                     clean_svg_content = clean_svg_content[:start] + clean_svg_content[end:]
-            
+
             svg_parts.append(f'<g transform="translate({parts_x},{parts_y})">')
             svg_parts.append(clean_svg_content)
             svg_parts.append('</g>')
@@ -228,7 +229,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
 
     return ''.join(svg_parts)
 
-def generate_multi_page_blueprint(layout_items, 
+def generate_multi_page_blueprint(layout_items,
                                   title="Manufacturing Blueprint",
                                   scale_info="",
                                   snapshot_data_uri: str | None = None,
@@ -247,23 +248,23 @@ def generate_multi_page_blueprint(layout_items,
         List of SVG strings, one per page
     """
     logger = logging.getLogger(__name__)
-    
+
     # Letter size in mm: 8.5" x 11" = 215.9mm x 279.4mm
     page_width_mm = 215.9
     page_height_mm = 279.4
     margin_mm = 20.0
     content_width = page_width_mm - (2 * margin_mm)
     content_height = page_height_mm - (2 * margin_mm)
-    
+
     # Separate parts and mechanisms
     part_items = [item for item in layout_items if item.item_type == 'part']
     mechanism_items = [item for item in layout_items if item.item_type == 'mechanism']
-    
+
     logger.info(f"[MULTIPAGE] Generating {len(part_items)} part pages + {len(mechanism_items)} mechanism pages")
-    
+
     pages = []
     page_num = 1
-    
+
     # Generate one page per part
     for item in part_items:
         page_svg = _generate_single_part_page(
@@ -275,7 +276,7 @@ def generate_multi_page_blueprint(layout_items,
         pages.append(page_svg)
         page_num += 1
         logger.info(f"[MULTIPAGE] Generated page {page_num-1} for part: {item.name}")
-    
+
     # Generate one page per mechanism
     for item in mechanism_items:
         page_svg = _generate_single_mechanism_page(
@@ -286,17 +287,17 @@ def generate_multi_page_blueprint(layout_items,
         pages.append(page_svg)
         page_num += 1
         logger.info(f"[MULTIPAGE] Generated page {page_num-1} for mechanism: {item.name}")
-    
+
     logger.info(f"[MULTIPAGE] Complete: {len(pages)} pages generated")
     return pages
 
 
 def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_height_mm, margin_mm, title, scale_info, snapshot_data_uri, unit_system="metric"):
     """Generate a single page for one character part"""
-    
+
     content_width = page_width_mm - (2 * margin_mm)
     content_height = page_height_mm - (2 * margin_mm)
-    
+
     # Unit conversion function
     def format_dimension(value_mm: float) -> str:
         if unit_system == "imperial":
@@ -310,24 +311,24 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
                 return f"{feet:.2f}'"
         else:
             return f"{value_mm:.1f}mm"
-    
+
     def get_unit_label() -> str:
         return "Imperial" if unit_system == "imperial" else "Metric"
-    
+
     # Calculate scaling to fit part on page
     available_width = content_width * 0.8  # Leave some margins
     available_height = content_height * 0.6  # Leave space for title and annotations
-    
+
     scale_x = available_width / item.bounds.width if item.bounds.width > 0 else 1.0
     scale_y = available_height / item.bounds.height if item.bounds.height > 0 else 1.0
     page_scale = min(scale_x, scale_y, 1.0)  # Don't scale up, only down if needed
-    
+
     # Center the part on the page
     scaled_width = item.bounds.width * page_scale
     scaled_height = item.bounds.height * page_scale
     part_x = margin_mm + (content_width - scaled_width) / 2
     part_y = margin_mm + 80 + (available_height - scaled_height) / 2  # 80mm for header
-    
+
     # Extract clip definitions from the item's SVG content
     clip_definitions = []
     clean_svg_content = item.svg_content
@@ -339,17 +340,17 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
             clip_def_encoded = item.svg_content[start:end]
             clip_def = html.unescape(clip_def_encoded)
             clip_definitions.append(f'    {clip_def}')
-            
+
             # Remove the data attribute from content
             attr_start = item.svg_content.find(' data-clip-def="')
             attr_end = item.svg_content.find('"', attr_start + len(' data-clip-def="')) + 1
             clean_svg_content = item.svg_content[:attr_start] + item.svg_content[attr_end:]
-    
+
     # Material specifications based on unit system
     material_info = "Material: 3mm Plywood/Acrylic | Cut on RED dashed lines"
     if unit_system == "imperial":
         material_info = "Material: 1/8\" Plywood/Acrylic | Cut on RED dashed lines"
-    
+
     # Generate page SVG
     page_svg = f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg width="{page_width_mm}" height="{page_height_mm}"
@@ -424,10 +425,10 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
 
 def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, page_height_mm, margin_mm, title, scale_info, snapshot_data_uri, unit_system="metric"):
     """Generate a single page for one mechanism with enhanced details"""
-    
+
     content_width = page_width_mm - (2 * margin_mm)
     content_height = page_height_mm - (2 * margin_mm)
-    
+
     # Unit conversion function
     def format_dimension(value_mm: float) -> str:
         if unit_system == "imperial":
@@ -441,29 +442,29 @@ def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, 
                 return f"{feet:.2f}'"
         else:
             return f"{value_mm:.1f}mm"
-    
+
     def get_unit_label() -> str:
         return "Imperial" if unit_system == "imperial" else "Metric"
-    
+
     # Calculate scaling to fit mechanism on page
     available_width = content_width * 0.8
     available_height = content_height * 0.6
-    
+
     scale_x = available_width / item.bounds.width if item.bounds.width > 0 else 1.0
     scale_y = available_height / item.bounds.height if item.bounds.height > 0 else 1.0
     page_scale = min(scale_x, scale_y, 2.0)  # Allow up to 2x scaling for small mechanisms
-    
+
     # Center the mechanism on the page
     scaled_width = item.bounds.width * page_scale
     scaled_height = item.bounds.height * page_scale
     mech_x = margin_mm + (content_width - scaled_width) / 2
     mech_y = margin_mm + 80 + (available_height - scaled_height) / 2
-    
+
     # Material specifications based on unit system
     material_info = "Material: Steel/Aluminum bars and joints"
     if unit_system == "imperial":
         material_info = "Material: Steel/Aluminum bars and joints (standard/imperial sizes)"
-    
+
     # Generate page SVG with enhanced mechanism visualization
     page_svg = f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg width="{page_width_mm}" height="{page_height_mm}"
@@ -567,7 +568,7 @@ def generate_detailed_part_content(part_items: list, padding: float = 20.0) -> s
             manufacturing_contour = png_processor.process_part_png(item)
 
             if not manufacturing_contour:
-                logging.warning(f"Skipping item: No manufacturing contour extracted from PNG")
+                logging.warning("Skipping item: No manufacturing contour extracted from PNG")
                 # Fallback to original method if PNG extraction fails
                 fallback_svg = _create_fallback_part_svg(item, current_x, current_y, padding)
                 if fallback_svg:
@@ -749,7 +750,6 @@ def _create_manufacturing_part_svg(manufacturing_contour, x_offset: float, y_off
     cx, cy, width, height = manufacturing_contour.bounding_rect
 
     # Apply offset to SVG path
-    from .contour_extractor import AdvancedContourExtractor
     extractor = AdvancedContourExtractor()
     offset_path = extractor._apply_offset_to_path(
         manufacturing_contour.svg_path,

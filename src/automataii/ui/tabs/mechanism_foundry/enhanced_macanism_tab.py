@@ -16,41 +16,39 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
-from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QSplitter,
-    QGroupBox,
-    QLabel,
-    QSlider,
-    QComboBox,
-    QToolTip,
-    QGraphicsView,
-    QGraphicsScene,
-    QGraphicsEllipseItem,
-    QToolBar,
-    QPushButton,
-    QScrollArea,
-    QFrame,
-)
 from PyQt6.QtCore import (
+    QPointF,
     Qt,
     QTimer,
-    QPointF,
-    QRectF,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QPainter,
-    QPen,
+    QAction,
     QBrush,
     QColor,
-    QPainterPath,
-    QPolygonF,
     QFont,
-    QAction,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
     QTransform,
+)
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QGraphicsEllipseItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QSlider,
+    QSplitter,
+    QToolBar,
+    QToolTip,
+    QVBoxLayout,
+    QWidget,
 )
 
 
@@ -370,7 +368,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         if not self.mechanism_params:
             self.mechanism_params = {
                 "ground_link": 150,      # Ground Link: 150
-                "input_link": 40,        # Input Link: 40  
+                "input_link": 40,        # Input Link: 40
                 "coupler_link": 120,     # Coupler Link: 120
                 "output_link": 130,      # Output Link: 130
                 "input_angle": self.animation_angle,
@@ -591,10 +589,10 @@ class InteractiveMechanismWidget(QGraphicsView):
             # Vector from O4 to A
             vec_O4A_x = Ax - O4x
             vec_O4A_y = Ay - O4y
-            
+
             # Angle from O4 to A
             alpha = math.atan2(vec_O4A_y, vec_O4A_x)
-            
+
             # Use cosine rule to find angle at joint B
             try:
                 cos_gamma = (r3*r3 + r4*r4 - L*L) / (2*r3*r4)
@@ -622,15 +620,15 @@ class InteractiveMechanismWidget(QGraphicsView):
                 # the output link in the lower half-plane initially
                 test_B1_y = O4y + r4 * math.sin(theta4_1)
                 test_B2_y = O4y + r4 * math.sin(theta4_2)
-                
+
                 # Choose the solution that starts with output link pointing down or right
                 if abs(theta4_1) < abs(theta4_2):
                     self._assembly_mode = 1  # Use theta4_1 (open)
                     theta4 = theta4_1
                 else:
-                    self._assembly_mode = 2  # Use theta4_2 (closed)  
+                    self._assembly_mode = 2  # Use theta4_2 (closed)
                     theta4 = theta4_2
-                    
+
                 print(f"Four-bar mechanism initialized in assembly mode {self._assembly_mode}")
             else:
                 # Use consistent assembly mode
@@ -638,27 +636,27 @@ class InteractiveMechanismWidget(QGraphicsView):
                     theta4 = theta4_1
                 else:
                     theta4 = theta4_2
-                
+
                 # Check for branch switching - only switch if absolutely necessary
                 if hasattr(self, '_last_output_angle'):
                     current_diff = abs(theta4 - self._last_output_angle)
-                    
+
                     # Normalize the difference to handle angle wrapping
                     while current_diff > math.pi:
                         current_diff -= 2*math.pi
                     current_diff = abs(current_diff)
-                    
+
                     # If current branch gives a huge jump, try the other branch
                     if current_diff > math.pi/3:  # 60 degrees threshold
                         # Try the other branch
                         alternative_theta4 = theta4_2 if self._assembly_mode == 1 else theta4_1
                         alternative_diff = abs(alternative_theta4 - self._last_output_angle)
-                        
+
                         # Normalize alternative difference
                         while alternative_diff > math.pi:
                             alternative_diff -= 2*math.pi
                         alternative_diff = abs(alternative_diff)
-                        
+
                         # Switch branch only if alternative is significantly better
                         if alternative_diff < current_diff / 2:
                             self._assembly_mode = 2 if self._assembly_mode == 1 else 1
@@ -668,13 +666,13 @@ class InteractiveMechanismWidget(QGraphicsView):
             # Additional smoothing for very large jumps
             if hasattr(self, '_last_output_angle'):
                 angular_change = theta4 - self._last_output_angle
-                
+
                 # Normalize to [-π, π]
                 while angular_change > math.pi:
                     angular_change -= 2*math.pi
                 while angular_change < -math.pi:
                     angular_change += 2*math.pi
-                
+
                 # Limit the maximum change per frame to prevent jumps
                 max_change = math.pi / 8  # 22.5 degrees max per frame
                 if abs(angular_change) > max_change:
@@ -787,17 +785,17 @@ class InteractiveMechanismWidget(QGraphicsView):
             link_lengths = [ground, input_l, coupler, output]
             sorted_links = sorted(link_lengths)
             s, p, q, l = sorted_links  # shortest, intermediate, intermediate, longest
-            
+
             # Grashof criterion: s + l ≤ p + q
             grashof_sum = s + l
             middle_sum = p + q
             grashof_condition = grashof_sum <= middle_sum
             grashof_ratio = grashof_sum / middle_sum if middle_sum > 0 else float('inf')
-            
+
             # Identify mechanism type based on which link is shortest
             shortest_link = min(links, key=lambda x: x[0])
             mechanism_class = "Unknown"
-            
+
             if grashof_condition:
                 if shortest_link[1] == 'ground':
                     mechanism_class = "Double-Crank (Class III)"
@@ -811,29 +809,29 @@ class InteractiveMechanismWidget(QGraphicsView):
             else:
                 mechanism_class = "Triple-Rocker (Class IV)"
                 motion_type = "All links rock, no continuous rotation"
-            
+
             # Current position analysis
             O1 = (-ground/2, 0)
             O4 = (ground/2, 0)
             A = (O1[0] + input_l * math.cos(input_angle), O1[1] + input_l * math.sin(input_angle))
-            
+
             # Distance from A to O4
             distance_AO4 = math.sqrt((A[0] - O4[0])**2 + (A[1] - O4[1])**2)
-            
+
             # Triangle feasibility check
             max_reach_AB = coupler + output  # Maximum distance between A and B
             min_reach_AB = abs(coupler - output)  # Minimum distance between A and B
-            
+
             # Transmission angle calculation (angle between coupler and output links)
             if distance_AO4 <= max_reach_AB and distance_AO4 >= min_reach_AB:
                 # Calculate output angle
                 try:
                     cos_beta = (output*output + distance_AO4*distance_AO4 - coupler*coupler) / (2*output*distance_AO4)
                     cos_beta = max(-1.0, min(1.0, cos_beta))
-                    
+
                     cos_gamma = (coupler*coupler + output*output - distance_AO4*distance_AO4) / (2*coupler*output)
                     cos_gamma = max(-1.0, min(1.0, cos_gamma))
-                    
+
                     transmission_angle = math.degrees(math.acos(abs(cos_gamma)))
                     transmission_quality = "excellent" if 40 <= transmission_angle <= 140 else \
                                          "good" if 30 <= transmission_angle <= 150 else \
@@ -844,11 +842,11 @@ class InteractiveMechanismWidget(QGraphicsView):
             else:
                 transmission_angle = 0
                 transmission_quality = "impossible"
-            
+
             # Design quality assessment
             link_ratio_quality = "excellent"
             quality_messages = []
-            
+
             # Check for extreme link ratios (poor design practice)
             max_ratio = max(link_lengths) / min(link_lengths) if min(link_lengths) > 0 else float('inf')
             if max_ratio > 10:
@@ -857,66 +855,66 @@ class InteractiveMechanismWidget(QGraphicsView):
             elif max_ratio > 6:
                 link_ratio_quality = "fair"
                 quality_messages.append(f"High link ratio: {max_ratio:.1f}:1")
-                
+
             # Check for very small input link (difficult to manufacture/control)
             if input_l < ground * 0.1:
                 quality_messages.append("Very small input link")
                 if link_ratio_quality == "excellent":
                     link_ratio_quality = "fair"
-            
+
             # Overall safety evaluation
             safety_status = "safe"
             safety_message = f"{mechanism_class}"
-            
+
             if not grashof_condition:
                 if grashof_ratio > 1.1:
                     safety_status = "danger"
                     safety_message = f"No continuous rotation possible (Grashof ratio: {grashof_ratio:.2f})"
                 else:
-                    safety_status = "warning"  
+                    safety_status = "warning"
                     safety_message = f"Limited motion, no continuous rotation (Grashof ratio: {grashof_ratio:.2f})"
-                    
+
             elif distance_AO4 > max_reach_AB:
                 safety_status = "danger"
                 safety_message = f"Links cannot reach current position (distance: {distance_AO4:.1f} > max: {max_reach_AB:.1f})"
-                
+
             elif distance_AO4 < min_reach_AB:
                 safety_status = "danger"
                 safety_message = f"Links interference (distance: {distance_AO4:.1f} < min: {min_reach_AB:.1f})"
-                
+
             elif transmission_quality == "critical":
                 safety_status = "danger"
                 safety_message = f"Critical transmission angle: {transmission_angle:.1f}° (force transmission very poor)"
-                
+
             elif transmission_quality == "poor":
                 safety_status = "warning"
                 safety_message = f"Poor transmission angle: {transmission_angle:.1f}° (low force efficiency)"
-                
+
             elif distance_AO4 > max_reach_AB * 0.95:
-                safety_status = "warning"  
-                safety_message = f"Near reach limit - approaching singular position"
-                
+                safety_status = "warning"
+                safety_message = "Near reach limit - approaching singular position"
+
             elif distance_AO4 < min_reach_AB * 1.05:
                 safety_status = "warning"
-                safety_message = f"Near interference - approaching singular position"
-                
+                safety_message = "Near interference - approaching singular position"
+
             elif link_ratio_quality == "poor":
                 safety_status = "warning"
                 safety_message = f"{mechanism_class} - Design quality: {link_ratio_quality}"
-                
+
             else:
                 # Excellent condition
                 if transmission_quality == "excellent":
                     safety_message = f"{mechanism_class} - Optimal design (T.A.: {transmission_angle:.1f}°)"
                 else:
                     safety_message = f"{mechanism_class} - Good design (T.A.: {transmission_angle:.1f}°)"
-            
+
             # Add quality notes if any
             if quality_messages and safety_status == "safe":
                 safety_message += f" - Note: {', '.join(quality_messages)}"
-                
+
             return safety_status, safety_message
-            
+
         except Exception as e:
             return "danger", f"Safety evaluation error: {str(e)}"
 
@@ -968,10 +966,10 @@ class InteractiveMechanismWidget(QGraphicsView):
         # Calculate reachability limits
         max_reach = coupler_link + output_link  # Maximum distance between A and B
         min_reach = abs(coupler_link - output_link)  # Minimum distance between A and B
-        
+
         # Input link creates a circle of possible positions for point A
         input_circle_radius = input_link
-        
+
         # For each point on the input circle, check if mechanism can be assembled
         # SAFE ZONE: Positions where transmission angle is optimal (40° ≤ T.A. ≤ 140°)
         # CAUTION ZONE: Acceptable transmission angles (20° ≤ T.A. ≤ 160°)
@@ -980,10 +978,10 @@ class InteractiveMechanismWidget(QGraphicsView):
         # Draw SAFE ZONE (green) - optimal operation region
         safe_inner_radius = min_reach * 1.1  # Avoid interference region
         safe_outer_radius = max_reach * 0.85  # Stay away from extreme reach
-        
+
         safe_pen = QPen(QColor(0, 180, 0, 120), 3, Qt.PenStyle.DashLine)
         safe_brush = QBrush(QColor(50, 255, 50, 30))
-        
+
         # Draw safe zone as ring around O4
         safe_outer = self.scene.addEllipse(
             O4.x() - safe_outer_radius, O4.y() - safe_outer_radius,
@@ -992,7 +990,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         )
         safe_outer.setZValue(-52)
         self.safety_zone_items.append(safe_outer)
-        
+
         # Remove inner part of safe zone if there's a minimum reach
         if min_reach > 10:  # Only if there's significant minimum reach
             safe_inner = self.scene.addEllipse(
@@ -1006,7 +1004,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         # Draw CAUTION ZONE (yellow) - acceptable operation
         caution_pen = QPen(QColor(255, 180, 0, 150), 2, Qt.PenStyle.DashLine)
         caution_brush = QBrush(QColor(255, 255, 0, 25))
-        
+
         # Outer caution zone
         caution_outer = self.scene.addEllipse(
             O4.x() - max_reach * 0.98, O4.y() - max_reach * 0.98,
@@ -1015,7 +1013,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         )
         caution_outer.setZValue(-53)
         self.safety_zone_items.append(caution_outer)
-        
+
         # Inner caution zone (near interference)
         if min_reach > 5:
             caution_inner = self.scene.addEllipse(
@@ -1029,8 +1027,8 @@ class InteractiveMechanismWidget(QGraphicsView):
         # Draw UNREACHABLE ZONE markers (red)
         unreachable_pen = QPen(QColor(220, 20, 20, 180), 3, Qt.PenStyle.SolidLine)
         unreachable_brush = QBrush(QColor(255, 0, 0, 40))
-        
-        # Outer unreachable zone  
+
+        # Outer unreachable zone
         unreachable_outer = self.scene.addEllipse(
             O4.x() - max_reach * 1.15, O4.y() - max_reach * 1.15,
             max_reach * 1.15 * 2, max_reach * 1.15 * 2,
@@ -1038,13 +1036,13 @@ class InteractiveMechanismWidget(QGraphicsView):
         )
         unreachable_outer.setZValue(-54)
         self.safety_zone_items.append(unreachable_outer)
-        
+
         # Add "UNREACHABLE" markers around the outer boundary
         for angle in range(0, 360, 60):
             rad = math.radians(angle)
             x = O4.x() + max_reach * 1.25 * math.cos(rad)
             y = O4.y() + max_reach * 1.25 * math.sin(rad)
-            
+
             marker = self.scene.addEllipse(
                 x - 8, y - 8, 16, 16,
                 QPen(QColor(200, 0, 0), 2),
@@ -1059,7 +1057,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             O1.x() + input_link * math.cos(current_angle),
             O1.y() + input_link * math.sin(current_angle)
         )
-        
+
         # Calculate current output position
         try:
             output_angle = self._solve_four_bar_output_angle_fast(
@@ -1069,7 +1067,7 @@ class InteractiveMechanismWidget(QGraphicsView):
                 O4.x() + output_link * math.cos(output_angle),
                 O4.y() + output_link * math.sin(output_angle)
             )
-            
+
             # Draw current coupler line (shows current reach)
             coupler_line = self.scene.addLine(
                 current_A.x(), current_A.y(), current_B.x(), current_B.y(),
@@ -1077,7 +1075,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             )
             coupler_line.setZValue(-47)
             self.safety_zone_items.append(coupler_line)
-            
+
         except:
             # If calculation fails, just show the reach requirement
             reach_line = self.scene.addLine(
@@ -1150,7 +1148,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         safe_label.setPos(40, -100)
         safe_label.setZValue(-45)
         self.safety_zone_items.append(safe_label)
-        
+
         safe_desc = self.scene.addText("Optimal transmission angles\n40° ≤ T.A. ≤ 140°", QFont("Arial", 8))
         safe_desc.setDefaultTextColor(QColor(0, 120, 0, 180))
         safe_desc.setPos(45, -80)
@@ -1163,7 +1161,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         caution_label.setPos(100, -60)
         caution_label.setZValue(-45)
         self.safety_zone_items.append(caution_label)
-        
+
         caution_desc = self.scene.addText("Acceptable transmission\nApproaching limits", QFont("Arial", 8))
         caution_desc.setDefaultTextColor(QColor(200, 120, 0, 180))
         caution_desc.setPos(100, -45)
@@ -1176,7 +1174,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         unreachable_label.setPos(140, -25)
         unreachable_label.setZValue(-45)
         self.safety_zone_items.append(unreachable_label)
-        
+
         unreachable_desc = self.scene.addText("Geometric impossibility\nPoor force transmission", QFont("Arial", 8))
         unreachable_desc.setDefaultTextColor(QColor(180, 0, 0, 180))
         unreachable_desc.setPos(140, -10)
@@ -2069,7 +2067,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         else:
             gear_color = QColor(130, 130, 135)
             tooth_color = QColor(110, 110, 115)
-        
+
         # Use actual teeth count
         actual_teeth = teeth
         tooth_angle = 2 * math.pi / actual_teeth
@@ -2083,7 +2081,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         pr = float(pitch_radius)
         tip_radius = max(pr + addendum, pr + 1.0)
         root_radius = max(pr - dedendum, max(4.0, pr * 0.5))
-        
+
         # Main gear body (root circle)
         gear_circle = self.scene.addEllipse(
             center.x() - root_radius, center.y() - root_radius,
@@ -2091,35 +2089,35 @@ class InteractiveMechanismWidget(QGraphicsView):
             QPen(gear_color.darker(130), 2),
             QBrush(gear_color)
         )
-        
+
         # Draw realistic trapezoid teeth
         teeth_path = QPainterPath()
-        
+
         for i in range(actual_teeth):
             current_angle = angle + i * tooth_angle
             tooth_width_angle = tooth_angle * 0.4  # Tooth takes 40% of space
-            
+
             # Create trapezoid tooth shape
             # Bottom left
             angle1 = current_angle - tooth_width_angle/2
             x1 = center.x() + root_radius * math.cos(angle1)
             y1 = center.y() + root_radius * math.sin(angle1)
-            
+
             # Top left (narrower)
             angle2 = current_angle - tooth_width_angle/3
             x2 = center.x() + tip_radius * math.cos(angle2)
             y2 = center.y() + tip_radius * math.sin(angle2)
-            
+
             # Top right (narrower)
             angle3 = current_angle + tooth_width_angle/3
             x3 = center.x() + tip_radius * math.cos(angle3)
             y3 = center.y() + tip_radius * math.sin(angle3)
-            
+
             # Bottom right
             angle4 = current_angle + tooth_width_angle/2
             x4 = center.x() + root_radius * math.cos(angle4)
             y4 = center.y() + root_radius * math.sin(angle4)
-            
+
             # Create trapezoid polygon for this tooth
             tooth_points = [
                 QPointF(x1, y1),  # Bottom left
@@ -2127,17 +2125,17 @@ class InteractiveMechanismWidget(QGraphicsView):
                 QPointF(x3, y3),  # Top right
                 QPointF(x4, y4)   # Bottom right
             ]
-            
+
             tooth_polygon = QPolygonF(tooth_points)
             teeth_path.addPolygon(tooth_polygon)
-        
+
         # Draw ALL teeth as single item for performance
         teeth_item = self.scene.addPath(
-            teeth_path, 
-            QPen(tooth_color.darker(120), 1), 
+            teeth_path,
+            QPen(tooth_color.darker(120), 1),
             QBrush(tooth_color.lighter(110))
         )
-        
+
         # Pitch circle (reference line where gears mesh)
         pitch_circle = self.scene.addEllipse(
             center.x() - pr, center.y() - pr,
@@ -2145,7 +2143,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             QPen(QColor(200, 200, 200, 100), 1, Qt.PenStyle.DotLine),
             QBrush(Qt.BrushStyle.NoBrush)
         )
-        
+
         # Center hub
         hub_radius = tip_radius * 0.2
         hub = self.scene.addEllipse(
@@ -2154,7 +2152,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             QPen(gear_color.darker(160), 2),
             QBrush(gear_color.darker(110))
         )
-        
+
         # Center axis
         axis_radius = tip_radius * 0.05
         axis = self.scene.addEllipse(
@@ -2163,14 +2161,14 @@ class InteractiveMechanismWidget(QGraphicsView):
             QPen(Qt.PenStyle.NoPen),
             QBrush(QColor(30, 30, 30))
         )
-        
+
         # Gear label with tooth count
         text = self.scene.addText(f"{label}\n({teeth}T)", QFont("Arial", 11, QFont.Weight.Bold))
         text.setPos(center.x() - 25, center.y() - tip_radius - 50)
         text.setDefaultTextColor(QColor(80, 80, 80))
-        
+
         # Store items
-        gear_name = "gear1" if is_drive else "gear2" 
+        gear_name = "gear1" if is_drive else "gear2"
         self.mechanism_items[f"{gear_name}"] = gear_circle
         self.mechanism_items[f"{gear_name}_teeth"] = teeth_item
         self.mechanism_items[f"{gear_name}_pitch"] = pitch_circle
@@ -2182,34 +2180,34 @@ class InteractiveMechanismWidget(QGraphicsView):
         """Ultra-simple rotation arrow - just one line with arrowhead"""
         arrow_length = 40
         arrow_angle = angle + (math.pi/3 if clockwise else -math.pi/3)
-        
+
         # Start and end points
         start_x = center.x() + (radius + 15) * math.cos(arrow_angle)
-        start_y = center.y() + (radius + 15) * math.sin(arrow_angle) 
+        start_y = center.y() + (radius + 15) * math.sin(arrow_angle)
         end_x = start_x + arrow_length * math.cos(arrow_angle)
         end_y = start_y + arrow_length * math.sin(arrow_angle)
-        
+
         # Single arrow line
         arrow = self.scene.addLine(start_x, start_y, end_x, end_y, QPen(color, 3))
-        
+
         # Simple arrowhead - just two short lines
         head_angle1 = arrow_angle + 2.8
         head_angle2 = arrow_angle - 2.8
         head_len = 8
-        
+
         head1 = self.scene.addLine(
             end_x, end_y,
-            end_x - head_len * math.cos(head_angle1), 
+            end_x - head_len * math.cos(head_angle1),
             end_y - head_len * math.sin(head_angle1),
             QPen(color, 3)
         )
         head2 = self.scene.addLine(
             end_x, end_y,
             end_x - head_len * math.cos(head_angle2),
-            end_y - head_len * math.sin(head_angle2), 
+            end_y - head_len * math.sin(head_angle2),
             QPen(color, 3)
         )
-        
+
         # Store minimal items
         arrow_name = "input_arrow" if clockwise else "output_arrow"
         self.mechanism_items[f"{arrow_name}"] = arrow
@@ -2825,7 +2823,7 @@ class InteractiveMechanismWidget(QGraphicsView):
             delattr(self, '_last_output_angle')
         if hasattr(self, '_assembly_mode'):
             delattr(self, '_assembly_mode')
-            
+
         # Clear motion trail
         self.motion_trail.clear()
 
@@ -3454,7 +3452,7 @@ class EnhancedMacanismTab(QWidget):
         ])
         type_combo.currentTextChanged.connect(self._on_mechanism_changed)
         type_layout.addWidget(type_combo)
-        
+
         # Store reference for later use
         self.mechanism_type_combo = type_combo
         content_layout.addWidget(type_group)
@@ -3483,7 +3481,7 @@ class EnhancedMacanismTab(QWidget):
 
         # Updated default four-bar parameters to match the image with expanded ranges
         self._add_parameter_slider(params_layout, "Ground Link", 30, 300, 150)      # Default: 150, Range: 30-300
-        self._add_parameter_slider(params_layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150  
+        self._add_parameter_slider(params_layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150
         self._add_parameter_slider(params_layout, "Coupler Link", 20, 250, 120)     # Default: 120, Range: 20-250
         self._add_parameter_slider(params_layout, "Output Link", 20, 250, 130)      # Default: 130, Range: 20-250
 
@@ -3765,32 +3763,32 @@ class EnhancedMacanismTab(QWidget):
         mechanism_key = type_map.get(mechanism_type, "four_bar")
         print(f"DEBUG: Switching mechanism UI from {mechanism_type} to {mechanism_key}")
         print(f"DEBUG: Current mechanism_widget.mechanism_type = {self.mechanism_widget.mechanism_type}")
-        
+
         # Stop animation during mechanism switch
         was_animating = self.mechanism_widget.animation_timer.isActive()
         if was_animating:
             self.mechanism_widget.stop_animation()
-        
+
         # STEP 1: Clear parameters FIRST to avoid lingering UI
         print("DEBUG: Clearing old parameter UI...")
         self._update_parameters_for_mechanism(mechanism_key)
-        
+
         # STEP 2: Process events to ensure UI clearing is complete
         from PyQt6.QtCore import QCoreApplication
         QCoreApplication.processEvents()
-        
+
         # STEP 3: Clear all graphics
         print("DEBUG: Clearing mechanism graphics...")
         self.mechanism_widget.clear_all_mechanism_graphics()
-        
+
         # STEP 4: Reset physics state
         self.mechanism_widget.physics_error_count = 0
         self.mechanism_widget.safety_status = "safe"
         self.mechanism_widget.safety_message = ""
-        
+
         # STEP 5: Reset animation state
         self.mechanism_widget.animation_angle = 30.0  # Safe starting position
-        
+
         # STEP 6: Clear any cached physics data
         if hasattr(self.mechanism_widget, '_last_output_angle'):
             delattr(self.mechanism_widget, '_last_output_angle')
@@ -3798,12 +3796,12 @@ class EnhancedMacanismTab(QWidget):
             self.mechanism_widget.last_valid_angle = None
         if hasattr(self.mechanism_widget, '_assembly_mode'):
             delattr(self.mechanism_widget, '_assembly_mode')
-            
+
         # STEP 7: Set the new mechanism type
         old_type = self.mechanism_widget.mechanism_type
         self.mechanism_widget.mechanism_type = mechanism_key
         print(f"DEBUG: Set mechanism type to {mechanism_key}")
-        
+
         # STEP 7.5: Initialize mechanism parameters for the new type
         if mechanism_key == "gear_train":
             self.mechanism_widget.mechanism_params = {
@@ -3849,16 +3847,16 @@ class EnhancedMacanismTab(QWidget):
             print(f"Error drawing new mechanism: {e}")
             print(f"ERROR: Failed to draw {mechanism_key}, keeping it anyway to avoid infinite loop")
             # Don't fallback - that causes more problems
-        
+
         # STEP 10: Force scene update
         self.mechanism_widget.scene.update()
-        
+
         # STEP 11: Restart animation if it was running
         if was_animating:
             # Use a timer to restart animation after a brief delay
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(200, self.mechanism_widget.start_animation)
-        
+
         print(f"DEBUG: Mechanism switch to {mechanism_key} completed successfully")
 
     def _update_parameters_for_mechanism(self, mechanism_type: str):
@@ -3884,11 +3882,11 @@ class EnhancedMacanismTab(QWidget):
             widget.hide()
             widget.setParent(None)
             widget.deleteLater()
-        
+
         # Process events to ensure widgets are fully removed
         from PyQt6.QtCore import QCoreApplication
         QCoreApplication.processEvents()
-        
+
         # Get or create layout
         layout = params_group.layout()
         if layout:
@@ -3902,7 +3900,7 @@ class EnhancedMacanismTab(QWidget):
             # Create new layout if none exists
             layout = QVBoxLayout()
             params_group.setLayout(layout)
-        
+
         # Configure the layout
         layout.setContentsMargins(10, 10, 10, 8)
         layout.setSpacing(5)
@@ -3911,7 +3909,7 @@ class EnhancedMacanismTab(QWidget):
         if mechanism_type == "four_bar":
             # Updated defaults to match the image and expanded ranges for better control
             self._add_parameter_slider(layout, "Ground Link", 30, 300, 150)      # Default: 150, Range: 30-300
-            self._add_parameter_slider(layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150  
+            self._add_parameter_slider(layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150
             self._add_parameter_slider(layout, "Coupler Link", 20, 250, 120)     # Default: 120, Range: 20-250
             self._add_parameter_slider(layout, "Output Link", 20, 250, 130)      # Default: 130, Range: 20-250
 
@@ -3928,7 +3926,7 @@ class EnhancedMacanismTab(QWidget):
 
         elif mechanism_type == "gear_train":
             self._add_parameter_slider(layout, "Drive Gear Teeth", 8, 24, 12)      # Realistic range: 8-24
-            self._add_parameter_slider(layout, "Driven Gear Teeth", 8, 24, 18)     # Realistic range: 8-24  
+            self._add_parameter_slider(layout, "Driven Gear Teeth", 8, 24, 18)     # Realistic range: 8-24
             self._add_parameter_slider(layout, "Input Torque (Nm)", 10, 1000, 200)
 
 
@@ -3940,7 +3938,7 @@ class EnhancedMacanismTab(QWidget):
         self.control_panel.updateGeometry()
         self.control_panel.update()
         self.control_panel.repaint()
-        
+
         # Process events to ensure UI updates are applied immediately
         QCoreApplication.processEvents()
 

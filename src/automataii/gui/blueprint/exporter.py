@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 from PyQt6.QtCore import QPointF
@@ -22,9 +22,9 @@ class BlueprintExporter:
         *,
         parent: QWidget,
         mechanism_view: Any,
-        get_mechanism_layers: Callable[[], Dict[str, Any]],
-        get_current_editor_items: Callable[[], Dict[str, Any]],
-        get_scene_transform_function: Callable[[Dict[str, Any]], Optional[Callable[[np.ndarray], QPointF]]],
+        get_mechanism_layers: Callable[[], dict[str, Any]],
+        get_current_editor_items: Callable[[], dict[str, Any]],
+        get_scene_transform_function: Callable[[dict[str, Any]], Callable[[np.ndarray], QPointF] | None],
     ) -> None:
         self._parent = parent
         self._mechanism_view = mechanism_view
@@ -37,8 +37,18 @@ class BlueprintExporter:
     def export_all(self) -> None:
         """Export all parts and mechanisms using the legacy simple system."""
         try:
+            from PyQt6.QtWidgets import (
+                QButtonGroup,
+                QDialog,
+                QDialogButtonBox,
+                QHBoxLayout,
+                QLabel,
+                QPushButton,
+                QRadioButton,
+                QVBoxLayout,
+            )
+
             from automataii.core.blueprint_manager import BlueprintExportManager
-            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QRadioButton, QButtonGroup, QPushButton, QDialogButtonBox
 
             logging.info("[BLUEPRINT] Using legacy simple blueprint export system")
 
@@ -47,44 +57,44 @@ class BlueprintExporter:
             unit_dialog.setWindowTitle("Select Unit System")
             unit_dialog.setModal(True)
             unit_dialog.resize(350, 200)
-            
+
             layout = QVBoxLayout()
-            
+
             # Title
             title_label = QLabel("Choose the unit system for your blueprint:")
             title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
             layout.addWidget(title_label)
-            
+
             # Unit options
             unit_group = QButtonGroup()
-            
+
             metric_radio = QRadioButton("Metric (millimeters)")
             metric_radio.setToolTip("Dimensions will be shown in millimeters (mm)")
             metric_radio.setChecked(True)  # Default to metric
             unit_group.addButton(metric_radio, 0)
             layout.addWidget(metric_radio)
-            
+
             imperial_radio = QRadioButton("Imperial (inches/feet)")
             imperial_radio.setToolTip("Dimensions will be shown in inches and feet")
             unit_group.addButton(imperial_radio, 1)
             layout.addWidget(imperial_radio)
-            
+
             # Info text
             info_label = QLabel("\nMetric is recommended for precision manufacturing.\nImperial can be useful for woodworking projects.")
             info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
             layout.addWidget(info_label)
-            
+
             # Dialog buttons
             button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
             button_box.accepted.connect(unit_dialog.accept)
             button_box.rejected.connect(unit_dialog.reject)
             layout.addWidget(button_box)
-            
+
             unit_dialog.setLayout(layout)
-            
+
             if unit_dialog.exec() != QDialog.DialogCode.Accepted:
                 return  # User cancelled
-            
+
             # Get selected unit system
             unit_system = "imperial" if imperial_radio.isChecked() else "metric"
             unit_label = "Imperial" if unit_system == "imperial" else "Metric"
@@ -178,8 +188,15 @@ class BlueprintExporter:
         legacy layout/generation. Otherwise delegates to the manager's dialog.
         """
         try:
-            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QButtonGroup, QDialogButtonBox
-            
+            from PyQt6.QtWidgets import (
+                QButtonGroup,
+                QDialog,
+                QDialogButtonBox,
+                QLabel,
+                QRadioButton,
+                QVBoxLayout,
+            )
+
             logging.info(f"[BLUEPRINT] Exporting mechanism {mechanism_id} using legacy system")
 
             mechanism_layers_all = self._get_mechanism_layers()
@@ -193,34 +210,34 @@ class BlueprintExporter:
             unit_dialog.setWindowTitle("Select Unit System")
             unit_dialog.setModal(True)
             unit_dialog.resize(300, 150)
-            
+
             layout = QVBoxLayout()
-            
+
             title_label = QLabel("Choose the unit system for your mechanism blueprint:")
             title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
             layout.addWidget(title_label)
-            
+
             unit_group = QButtonGroup()
-            
+
             metric_radio = QRadioButton("Metric (millimeters)")
             metric_radio.setChecked(True)
             unit_group.addButton(metric_radio, 0)
             layout.addWidget(metric_radio)
-            
+
             imperial_radio = QRadioButton("Imperial (inches/feet)")
             unit_group.addButton(imperial_radio, 1)
             layout.addWidget(imperial_radio)
-            
+
             button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
             button_box.accepted.connect(unit_dialog.accept)
             button_box.rejected.connect(unit_dialog.reject)
             layout.addWidget(button_box)
-            
+
             unit_dialog.setLayout(layout)
-            
+
             if unit_dialog.exec() != QDialog.DialogCode.Accepted:
                 return
-            
+
             unit_system = "imperial" if imperial_radio.isChecked() else "metric"
             unit_label = "Imperial" if unit_system == "imperial" else "Metric"
 
@@ -231,21 +248,22 @@ class BlueprintExporter:
             # CRITICAL FIX: Apply scale enhancement before optimization
             logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale...")
             screen_scale_info = self.calculate_screen_to_blueprint_scale()
-            
+
             mechanism_layers_raw = {mechanism_id: layer_data}
             mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
             # Filter to only the requested mechanism
             mechanism_layers = {mechanism_id: mechanism_layers.get(mechanism_id, layer_data)}
-            
+
             part_items = self._collect_part_items()
 
             logging.info(f"[BLUEPRINT] Scale enhanced mechanism data: "
                         f"total_scale_factor={mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A')}")
 
             if filename:
+                import os
+
                 from automataii.generation.blueprint import generate_single_large_blueprint
                 from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
-                import os
 
                 optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
                 layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers, unit_system)
@@ -308,10 +326,17 @@ class BlueprintExporter:
     def export_all_multipage(self) -> None:
         """Export all parts and mechanisms as multi-page letter-size blueprints."""
         try:
-            from automataii.core.blueprint_manager import BlueprintExportManager
+            from PyQt6.QtWidgets import (
+                QButtonGroup,
+                QDialog,
+                QDialogButtonBox,
+                QLabel,
+                QRadioButton,
+                QVBoxLayout,
+            )
+
             from automataii.generation.blueprint import generate_multi_page_blueprint
             from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
-            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QButtonGroup, QDialogButtonBox
 
             logging.info("[BLUEPRINT] Using multi-page blueprint export system")
 
@@ -320,40 +345,40 @@ class BlueprintExporter:
             unit_dialog.setWindowTitle("Select Unit System")
             unit_dialog.setModal(True)
             unit_dialog.resize(350, 200)
-            
+
             layout = QVBoxLayout()
-            
+
             title_label = QLabel("Choose the unit system for your multi-page blueprint:")
             title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
             layout.addWidget(title_label)
-            
+
             unit_group = QButtonGroup()
-            
+
             metric_radio = QRadioButton("Metric (millimeters)")
             metric_radio.setToolTip("Dimensions will be shown in millimeters (mm)")
             metric_radio.setChecked(True)
             unit_group.addButton(metric_radio, 0)
             layout.addWidget(metric_radio)
-            
+
             imperial_radio = QRadioButton("Imperial (inches/feet)")
             imperial_radio.setToolTip("Dimensions will be shown in inches and feet")
             unit_group.addButton(imperial_radio, 1)
             layout.addWidget(imperial_radio)
-            
+
             info_label = QLabel("\nEach part/mechanism will be on a separate letter-size page.\nMetric is recommended for precision manufacturing.")
             info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
             layout.addWidget(info_label)
-            
+
             button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
             button_box.accepted.connect(unit_dialog.accept)
             button_box.rejected.connect(unit_dialog.reject)
             layout.addWidget(button_box)
-            
+
             unit_dialog.setLayout(layout)
-            
+
             if unit_dialog.exec() != QDialog.DialogCode.Accepted:
                 return
-            
+
             unit_system = "imperial" if imperial_radio.isChecked() else "metric"
             unit_label = "Imperial" if unit_system == "imperial" else "Metric"
 
@@ -389,8 +414,9 @@ class BlueprintExporter:
             )
 
             # Save each page as a separate file
-            from PyQt6.QtWidgets import QFileDialog
             import os
+
+            from PyQt6.QtWidgets import QFileDialog
 
             # Ask user for output directory
             output_dir = QFileDialog.getExistingDirectory(
@@ -525,7 +551,7 @@ class BlueprintExporter:
         mechanism_id = next(iter(mechanism_layers.keys()))
         self.show_mechanism_dimensions(mechanism_id)
 
-    def calculate_screen_to_blueprint_scale(self) -> Dict[str, Any]:
+    def calculate_screen_to_blueprint_scale(self) -> dict[str, Any]:
         """Calculate screen-to-blueprint scale info based on the current view."""
         try:
             view_rect = self._mechanism_view.viewport().rect()
@@ -571,7 +597,7 @@ class BlueprintExporter:
                 pixels_per_mm = 1.0 / mm_per_pixel
                 actual_character_height_mm = target_character_height_mm
 
-            mechanism_scale_factors: Dict[str, float] = {}
+            mechanism_scale_factors: dict[str, float] = {}
             mechanism_layers = self._get_mechanism_layers() or {}
             for mech_id, layer_data in mechanism_layers.items():
                 transform_func = self._get_scene_transform_function(layer_data)
@@ -589,7 +615,7 @@ class BlueprintExporter:
                     except Exception:
                         mechanism_scale_factors[mech_id] = 1.0
 
-            scale_info: Dict[str, Any] = {
+            scale_info: dict[str, Any] = {
                 "pixels_per_mm": pixels_per_mm,
                 "mm_per_pixel": mm_per_pixel,
                 "pixels_per_scene_unit": pixels_per_scene_unit,
@@ -620,9 +646,9 @@ class BlueprintExporter:
                 "target_character_height_mm": 300.0,
             }
 
-    def enhance_mechanism_layers_with_scale_info(self, screen_scale_info: Dict[str, Any]) -> Dict[str, Any]:
+    def enhance_mechanism_layers_with_scale_info(self, screen_scale_info: dict[str, Any]) -> dict[str, Any]:
         """Attach scale info and real-world params to each mechanism layer."""
-        enhanced_layers: Dict[str, Any] = {}
+        enhanced_layers: dict[str, Any] = {}
 
         try:
             mechanism_layers = self._get_mechanism_layers() or {}
@@ -656,9 +682,9 @@ class BlueprintExporter:
 
         return enhanced_layers
 
-    def calculate_real_world_mechanism_params(self, params: Dict[str, Any], scale_factor: float, mech_type: str) -> Dict[str, Any]:
+    def calculate_real_world_mechanism_params(self, params: dict[str, Any], scale_factor: float, mech_type: str) -> dict[str, Any]:
         """Convert mechanism params to mm using total scale factor."""
-        real_world_params: Dict[str, Any] = {}
+        real_world_params: dict[str, Any] = {}
         try:
             if mech_type == "4_bar_linkage":
                 for param_name in ["l1", "l2", "l3", "l4"]:
@@ -693,7 +719,7 @@ class BlueprintExporter:
 
         return real_world_params
 
-    def generate_blueprint_instructions(self, mech_type: str, params: Dict[str, Any], scale_factor: float) -> str:
+    def generate_blueprint_instructions(self, mech_type: str, params: dict[str, Any], scale_factor: float) -> str:
         """Generate printable assembly instructions text for the mechanism."""
         instructions = "=== CONSTRUCTION INSTRUCTIONS ===\n\n"
         mm_per_inch = 25.4
@@ -746,10 +772,10 @@ class BlueprintExporter:
             instructions += "- 2 shafts and bearings\n"
             instructions += "- Mounting plate\n\n"
             instructions += "Gear Specifications:\n"
-            instructions += f"Gear 1:\n"
+            instructions += "Gear 1:\n"
             instructions += f"  - Pitch diameter: {2*r1:.1f} mm\n"
             instructions += f"  - Estimated teeth: {teeth1}\n"
-            instructions += f"Gear 2:\n"
+            instructions += "Gear 2:\n"
             instructions += f"  - Pitch diameter: {2*r2:.1f} mm\n"
             instructions += f"  - Estimated teeth: {teeth2}\n"
             instructions += f"Center distance: {r1 + r2:.1f} mm\n\n"

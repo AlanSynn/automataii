@@ -3,18 +3,19 @@
 
 import logging
 import os
-from typing import Dict, List, Optional, Any
-from PyQt6.QtWidgets import QFileDialog, QWidget, QMessageBox
-from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QPainterPath
+from typing import Any, Dict, List, Optional, Tuple
 
-from automataii.generation.blueprint import generate_blueprint_svg, generate_detailed_part_content
+from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtWidgets import QFileDialog, QWidget
+
+from automataii.generation.blueprint import generate_detailed_part_content
+from automataii.generation.cam import CamGenerator
 from automataii.generation.gear import GearGenerator
 from automataii.generation.linkage import LinkageGenerator
-from automataii.generation.cam import CamGenerator
 from automataii.generation.mechanism_debug import MechanismDebugRenderer
-from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
-from automataii.generation.multi_page_blueprint import MultiPageBlueprintManager, MultiPageSVGGenerator
+from automataii.generation.multi_page_blueprint import (
+    MultiPageSVGGenerator,
+)
 
 
 class BlueprintExportManager(QObject):
@@ -73,11 +74,11 @@ class BlueprintExportManager(QObject):
 
     def export_blueprint(
         self,
-        part_items: List[Any],
-        mechanism_layers: Optional[Dict[str, Any]] = None,
-        parent_widget: Optional[QWidget] = None,
+        part_items: list[Any],
+        mechanism_layers: dict[str, Any] | None = None,
+        parent_widget: QWidget | None = None,
         single_large_page: bool = True,
-        snapshot_png_bytes: Optional[bytes] = None,
+        snapshot_png_bytes: bytes | None = None,
         unit_system: str = "metric",
     ) -> bool:
         """
@@ -134,7 +135,7 @@ class BlueprintExportManager(QObject):
             self.export_completed.emit(False, f"Export failed: {str(e)}")
             return False
 
-    def _get_save_file_path(self, parent_widget: Optional[QWidget]) -> Optional[str]:
+    def _get_save_file_path(self, parent_widget: QWidget | None) -> str | None:
         """Get save file path from user using file dialog."""
         try:
             file_path, _ = QFileDialog.getSaveFileName(
@@ -148,7 +149,7 @@ class BlueprintExportManager(QObject):
             self.logger.error(f"File dialog error: {e}")
             return None
 
-    def _get_save_directory_path(self, parent_widget: Optional[QWidget]) -> Optional[str]:
+    def _get_save_directory_path(self, parent_widget: QWidget | None) -> str | None:
         """Get save directory path from user using directory dialog."""
         try:
             directory_path = QFileDialog.getExistingDirectory(
@@ -176,15 +177,15 @@ class BlueprintExportManager(QObject):
             self.logger.error(f"Failed to save SVG file: {e}")
             return False
 
-    def generate_gear_svg(self, gear_data: Dict[str, Any]) -> str:
+    def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
         """Generate SVG for gear mechanism."""
         return self.gear_generator.generate_svg(gear_data)
 
-    def generate_linkage_svg(self, linkage_data: Dict[str, Any]) -> str:
+    def generate_linkage_svg(self, linkage_data: dict[str, Any]) -> str:
         """Generate SVG for linkage mechanism."""
         return self.linkage_generator.generate_svg(linkage_data)
 
-    def generate_cam_svg(self, cam_data: Dict[str, Any]) -> str:
+    def generate_cam_svg(self, cam_data: dict[str, Any]) -> str:
         """Generate SVG for cam mechanism."""
         return self.cam_generator.generate_svg(cam_data)
 
@@ -207,11 +208,19 @@ class BlueprintExportManager(QObject):
             from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
             from automataii.generation.blueprint import generate_single_large_blueprint
 
+            self.logger.info(f"Starting blueprint generation with {len(part_items)} parts and {len(mechanism_layers)} mechanisms")
+            
+            # Log mechanism details
+            for mech_id, mech_data in mechanism_layers.items():
+                self.logger.info(f"Mechanism {mech_id}: type={mech_data.get('type', 'unknown')}, has_params={bool(mech_data.get('params'))}, has_scale={bool(mech_data.get('total_scale_factor'))}")
+
             # Optimize layout with enhanced mechanism processing
             optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
             layout_items, total_width_mm, total_height_mm = optimizer.optimize_blueprint_layout(
                 part_items, mechanism_layers, unit_system
             )
+
+            self.logger.info(f"Layout optimization complete: {len(layout_items)} items, {total_width_mm:.1f}x{total_height_mm:.1f}mm")
 
             if not layout_items:
                 self.logger.warning("No layout items generated - creating minimal blueprint")
@@ -240,9 +249,11 @@ class BlueprintExportManager(QObject):
 
         except Exception as e:
             self.logger.error(f"Error generating single large page blueprint: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
             return ""
 
-    def export_next_page(self, parent_widget: Optional[QWidget] = None) -> bool:
+    def export_next_page(self, parent_widget: QWidget | None = None) -> bool:
         """
         Export the next page in the multi-page blueprint sequence.
 
@@ -312,7 +323,7 @@ class BlueprintExportManager(QObject):
             self.export_completed.emit(False, f"Error exporting next page: {str(e)}")
             return False
 
-    def get_blueprint_progress(self) -> Dict[str, Any]:
+    def get_blueprint_progress(self) -> dict[str, Any]:
         """
         Get current progress information for multi-page blueprint.
 
@@ -349,7 +360,7 @@ class OptimizedBlueprintBuilder:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    def build_optimized_blueprint(self, layout_items: List[Any], total_width_mm: float, total_height_mm: float) -> str:
+    def build_optimized_blueprint(self, layout_items: list[Any], total_width_mm: float, total_height_mm: float) -> str:
         """
         Build optimized blueprint with proper layout and scaling
 
@@ -450,7 +461,7 @@ class OptimizedBlueprintBuilder:
         </g>
         '''
 
-    def _generate_optimized_content(self, layout_items: List[Any], y_offset: float) -> str:
+    def _generate_optimized_content(self, layout_items: list[Any], y_offset: float) -> str:
         """Generate optimized content with proper positioning"""
         if not layout_items:
             return '<text x="50" y="100" class="manufacturing-note">No items to display</text>'
@@ -568,7 +579,7 @@ class BlueprintBuilder:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.sections: List[str] = []
+        self.sections: list[str] = []
         self.total_width = 0
         self.total_height = 0
         self.current_y = 50  # Start with title block space
@@ -577,7 +588,7 @@ class BlueprintBuilder:
 
     def add_title_block(self) -> 'BlueprintBuilder':
         """Add title block to blueprint."""
-        title_svg = f'''
+        title_svg = '''
         <g id="title-block">
             <rect x="10" y="10" width="300" height="80" fill="none" stroke="black" stroke-width="2"/>
             <text x="20" y="35" font-family="Arial" font-size="16" font-weight="bold">Automataii Blueprint</text>
@@ -589,7 +600,7 @@ class BlueprintBuilder:
         self.current_y += 100
         return self
 
-    def add_character_parts_section(self, part_items: List[Any]) -> 'BlueprintBuilder':
+    def add_character_parts_section(self, part_items: list[Any]) -> 'BlueprintBuilder':
         """Add character parts section to blueprint."""
         if not part_items:
             return self
@@ -615,7 +626,7 @@ class BlueprintBuilder:
 
         return self
 
-    def add_mechanisms_section(self, mechanism_layers: Dict[str, Any], export_manager: BlueprintExportManager) -> 'BlueprintBuilder':
+    def add_mechanisms_section(self, mechanism_layers: dict[str, Any], export_manager: BlueprintExportManager) -> 'BlueprintBuilder':
         """Add mechanisms section to blueprint with debug validation."""
         if not mechanism_layers:
             self.logger.warning("No mechanism layers provided to blueprint")

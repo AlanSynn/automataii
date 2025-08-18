@@ -182,12 +182,12 @@ class MechanismDesignTab(QWidget):
         if self.parametric_controller:
             self._connect_parametric_signals()
 
-        # Load generated paths
-        generated_paths_file = resolve_path("src/automataii/kinematics/generated_mechanism_paths.json")
+        # Load generated paths (support both dev and bundled layouts)
+        generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
         # Initialize with empty QPainterPath since no user path is drawn yet
         empty_path = QPainterPath()
         self.recommendation_dialog = MechanismRecommendationDialog(empty_path, generated_paths_file, parent=self)
-        self.recommendation_dialog.mechanism_selected.connect(self.handle_mechanism_visuals)
+        self.recommendation_dialog.mechanism_selected.connect(self._handle_recommendation_selection)
 
 
         self.generated_paths = self.load_generated_paths(generated_paths_file)
@@ -523,6 +523,9 @@ class MechanismDesignTab(QWidget):
         self.mechanism_layers_list.itemSelectionChanged.connect(self._on_layer_selection_changed)
         self.mechanism_layers_list.itemClicked.connect(self._on_layer_item_clicked)
 
+        # Connect EditorView's joint_bend_direction_changed signal
+        if hasattr(self.mechanism_view, 'joint_bend_direction_changed'):
+            self.mechanism_view.joint_bend_direction_changed.connect(self._handle_joint_bend_direction_changed)
 
         # Blueprint Export signal
         if self.blueprint_btn:
@@ -538,6 +541,43 @@ class MechanismDesignTab(QWidget):
             if self.export_blueprint_btn:
                 self.export_blueprint_btn.clicked.connect(self._export_current_mechanism_blueprint)
 
+    def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
+        """Handle joint bend direction change from EditorView."""
+        logging.info(f"MechanismDesignTab: Joint '{joint_id}' bend direction changed to {new_direction}")
+
+        # Update skeleton manager if available
+        if hasattr(self.main_window, 'skeleton_manager') and self.main_window.skeleton_manager:
+            self.main_window.skeleton_manager.set_joint_bend_direction(joint_id, new_direction)
+            logging.info("MechanismDesignTab: Updated bend direction in skeleton_manager")
+
+    def on_skeleton_manager_updated(self, skeleton_data: dict | None):
+        """Handle skeleton updates from skeleton_manager (for bend_direction sync)."""
+        if not skeleton_data:
+            return
+
+        logging.info("MechanismDesignTab: Received skeleton update from skeleton_manager")
+
+        # Update skeleton visualization with new bend_direction values
+        if hasattr(self.mechanism_view, 'skeleton_graphics_item') and self.mechanism_view.skeleton_graphics_item:
+            try:
+                # Check if skeleton graphics item is valid
+                _ = self.mechanism_view.skeleton_graphics_item.boundingRect()
+
+                # Update bend directions in the skeleton graphics item
+                joints_dict = skeleton_data.get("joints", {})
+                for joint_id, joint_data in joints_dict.items():
+                    bend_dir = joint_data.get("bend_direction")
+                    if bend_dir is not None and ('elbow' in joint_id or 'knee' in joint_id):
+                        self.mechanism_view.skeleton_graphics_item.set_joint_bend_direction(joint_id, bend_dir)
+                        logging.info(f"MechanismDesignTab: Updated bend_direction for '{joint_id}' to {bend_dir}")
+
+                # Update the visual
+                self.mechanism_view.skeleton_graphics_item.update()
+
+            except RuntimeError:
+                # Skeleton item was deleted, will be recreated on next update
+                pass
+
 
     def _connect_to_ik_manager(self):
         """Connect to IK manager signals for skeleton animation."""
@@ -547,6 +587,15 @@ class MechanismDesignTab(QWidget):
                 self.main_window.ik_manager.skeleton_pose_updated.connect(self.on_skeleton_updated)
             except Exception as e:
                 logging.warning(f"Failed to connect to IK manager: {e}")
+
+        # Also connect to skeleton_manager for bend_direction updates
+        if hasattr(self.main_window, 'skeleton_manager') and self.main_window.skeleton_manager:
+            try:
+                # Connect to skeleton_manager updates to sync bend_direction changes
+                self.main_window.skeleton_manager.skeleton_updated.connect(self.on_skeleton_manager_updated)
+                logging.info("MechanismDesignTab: Connected to skeleton_manager for bend_direction updates")
+            except Exception as e:
+                logging.warning(f"Failed to connect to skeleton_manager: {e}")
 
     def set_path_data_from_editor(self, path_data: dict[str, QPainterPath]):
         """Receive path data from editor tab"""
@@ -1608,10 +1657,10 @@ class MechanismDesignTab(QWidget):
         target_path = enabled_parts_with_paths[target_part_name]
         self.selected_part_name = target_part_name
 
-        import os
-        generated_paths_file = os.path.join(get_project_root(), "src", "automataii", "kinematics", "generated_mechanism_paths.json")
+        from automataii.utils.paths import resolve_path
+        generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
 
-        if not os.path.exists(generated_paths_file):
+        if not generated_paths_file.exists():
             QMessageBox.critical(self, "Error", "Generated mechanism paths file not found.")
             return
 
@@ -1628,6 +1677,132 @@ class MechanismDesignTab(QWidget):
         """Handle mechanism preview selection from dialog."""
         # Temporarily show the mechanism in the view
         self._preview_mechanism(mechanism_data)
+
+    def _get_character_position(self):
+        """Get the character's position for mechanism placement."""
+        if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+            joints = self._initial_skeleton_data_cache.get("joints", {})
+            if joints:
+                # Look specifically for foot joints
+                foot_joints = []
+                lowest_y = float('-inf')
+                
+                for joint_id, joint_data in joints.items():
+                    pos = joint_data.get("position", [0, 0])
+                    # Check if this is likely a foot joint (lowest joints)
+                    if "foot" in joint_id.lower() or "ankle" in joint_id.lower():
+                        foot_joints.append(pos)
+                    # Track the lowest Y position
+                    if pos[1] > lowest_y:  # In Qt, y increases downward
+                        lowest_y = pos[1]
+                
+                # If we found foot joints, use their average X
+                if foot_joints:
+                    avg_x = sum(pos[0] for pos in foot_joints) / len(foot_joints)
+                    avg_y = sum(pos[1] for pos in foot_joints) / len(foot_joints)
+                    # CAM should be directly below feet
+                    return [avg_x, avg_y + 50]  # Place CAM 50 units below feet
+                
+                # Otherwise, find the lowest joints (likely feet)
+                lowest_joints = []
+                for joint_id, joint_data in joints.items():
+                    pos = joint_data.get("position", [0, 0])
+                    # Consider joints near the lowest position as feet
+                    if abs(pos[1] - lowest_y) < 20:  # Within 20 units of lowest
+                        lowest_joints.append(pos)
+                
+                if lowest_joints:
+                    # Average X position of lowest joints
+                    avg_x = sum(pos[0] for pos in lowest_joints) / len(lowest_joints)
+                    # CAM below the lowest point
+                    return [avg_x, lowest_y + 50]
+        
+        # Fallback to center position
+        return [300, 400]
+    
+    def _handle_recommendation_selection(self, mechanism_data: dict[str, Any]):
+        """Handle mechanism selection from recommendation dialog.
+        Converts the recommendation data format to the format expected by handle_mechanism_visuals."""
+
+        # Extract mechanism type and map it to internal type
+        mechanism_type_value = mechanism_data.get('type', 'Unknown')
+        mechanism_type_mapping = {
+            "4-Bar Linkage": "4_bar_linkage",
+            "4-bar Coupler": "4_bar_linkage",
+            "Cam & Follower": "cam",
+            "Cam-Follower": "cam",
+            "Gears (Simple Pair)": "gear",
+            "Gear Contact": "gear",
+            "Simple Gear": "gear",
+            "Planetary Gear": "planetary_gear",
+        }
+        internal_type = mechanism_type_mapping.get(mechanism_type_value, "4_bar_linkage")
+
+        # Generate unique mechanism ID
+        import uuid
+        mechanism_id = str(uuid.uuid4())
+
+        # Convert recommendation data to the format expected by handle_mechanism_visuals
+        graphics_data = {
+            "mechanism_id": mechanism_id,
+            "mechanism_type": internal_type,
+            "params": mechanism_data.get("parameters", {}),
+            "transform_params": mechanism_data.get("transform_params"),
+            "generated_path": QPainterPath(),  # Will be populated from path_coordinates
+            "visualization_params": mechanism_data.get("visualization_params"),
+            "full_simulation_data": mechanism_data.get("full_simulation_data", {}),
+            "key_points": mechanism_data.get("key_points", {}),
+            "name": mechanism_data.get("name", f"{mechanism_type_value} Mechanism"),
+            "type": mechanism_type_value
+        }
+
+        # Convert path coordinates to QPainterPath if available
+        path_coords = mechanism_data.get("path_coordinates")
+        if path_coords and isinstance(path_coords, list) and len(path_coords) > 0:
+            path = QPainterPath()
+            path.moveTo(path_coords[0][0], path_coords[0][1])
+            for coord in path_coords[1:]:
+                path.lineTo(coord[0], coord[1])
+            graphics_data["generated_path"] = path
+
+        # Create mechanism layer data
+        layer_data = {
+            "id": mechanism_id,
+            "name": graphics_data["name"],
+            "type": internal_type,
+            "params": graphics_data["params"],
+            "transform_params": graphics_data["transform_params"],
+            "generated_path": graphics_data["generated_path"],
+            "visualization_params": graphics_data["visualization_params"],
+            "full_simulation_data": graphics_data["full_simulation_data"],
+            "key_points": graphics_data["key_points"],
+            "visual_items": []
+        }
+
+        # Add scaling factors for CAM mechanisms
+        # TODO: Calculate based on character size (see CAM_DECOUPLING_ANALYSIS.md)
+        if internal_type == "cam":
+            # Adjust scaling for better visibility near character
+            layer_data["cam_scale_factor"] = 0.3  # Larger CAM for visibility
+            layer_data["rod_length_multiplier"] = 0.8  # Shorter rod to reach feet
+            
+            # Set CAM position based on character
+            char_pos = self._get_character_position()
+            layer_data["cam_position"] = char_pos
+            
+            # Create custom transform for CAM placement
+            if not graphics_data.get("transform_params"):
+                graphics_data["transform_params"] = {
+                    "center": [0, 0],
+                    "scale": 1.0,
+                    "rotation": 0
+                }
+
+        # Add mechanism layer
+        self._add_mechanism_layer(graphics_data["name"], layer_data)
+
+        # Handle visual creation
+        self.handle_mechanism_visuals(graphics_data)
 
     def _preview_mechanism(self, mechanism_data: dict[str, Any]):
         """Preview a mechanism without adding it to the layers."""
@@ -2667,15 +2842,30 @@ class MechanismDesignTab(QWidget):
                 params = layer_data.get("params", {})
                 base_radius = params.get("base_radius", 25.0)
                 eccentricity = params.get("eccentricity", 10.0)
+
+                # Get scaling factors from layer data (set during visual creation)
+                cam_scale_factor = layer_data.get('cam_scale_factor', 1.5)
+                rod_length_multiplier = layer_data.get('rod_length_multiplier', 0.8)
+
+                # Apply scaling to match visual creation
+                scaled_base_radius = base_radius * cam_scale_factor
+                scaled_eccentricity = eccentricity * cam_scale_factor
+                scaled_rod_length = params.get("follower_rod_length", 40.0) * rod_length_multiplier
+
                 full_sim_data = layer_data.get("full_simulation_data", {})
                 cam_data = full_sim_data.get("cam_data", {})
-                
+
                 # CRITICAL FIX: Always use the stored transform function from visual creation
                 cam_to_scene_coords = layer_data.get('cam_transform_function')
                 if not cam_to_scene_coords:
                     logging.warning("[CAM_ANIMATION] No stored transform function, creating fallback")
-                    # Fallback transform - same as visual creation
-                    cam_to_scene_coords = lambda p: QPointF(float(p[0] * 2 + 300), float(p[1] * 2 + 300))
+                    # Get character position for fallback
+                    character_position = layer_data.get('cam_position', self._get_character_position())
+                    # Fallback transform - position at character feet
+                    cam_to_scene_coords = lambda p: QPointF(
+                        float(p[0] + character_position[0]), 
+                        float(p[1] + character_position[1])
+                    ) if len(p) == 2 else QPointF(character_position[0], character_position[1])
 
                 # Calculate cam position and rotation
                 if cam_data and "cam_centers" in cam_data and "follower_y_positions" in cam_data:
@@ -2694,12 +2884,11 @@ class MechanismDesignTab(QWidget):
                     # Manual calculation - keep cam center fixed, move follower
                     angle = time
                     current_cam_center = np.array([0, 0])
-                    
-                    # Calculate follower position based on cam profile
-                    lift = eccentricity * (1 + np.cos(angle + np.pi/2)) / 2
-                    cam_radius_at_angle = base_radius + lift
-                    rod_length = params.get("follower_rod_length", 40.0)
-                    follower_y = current_cam_center[1] - cam_radius_at_angle - rod_length
+
+                    # Calculate follower position based on scaled cam profile
+                    lift = scaled_eccentricity * (1 + np.cos(angle)) / 2  # Egg shape formula
+                    cam_radius_at_angle = scaled_base_radius + lift
+                    follower_y = current_cam_center[1] - cam_radius_at_angle - scaled_rod_length
                     follower_pos_orig = np.array([0, follower_y])
 
                 # Update egg-shaped cam with rotation
@@ -2710,14 +2899,15 @@ class MechanismDesignTab(QWidget):
                         num_points = 100
                         for i in range(num_points):
                             theta = (i / num_points) * 2 * np.pi
-                            lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2
+                            lift = eccentricity * (1 + np.cos(theta)) / 2  # Egg shape
                             r = base_radius + lift
                             x = r * np.cos(theta)
                             y = r * np.sin(theta)
                             points.append([x, y])
                         return points
 
-                    egg_profile = create_egg_shape_profile(base_radius, eccentricity)
+                    # Use scaled dimensions for animation
+                    egg_profile = create_egg_shape_profile(scaled_base_radius, scaled_eccentricity)
 
                     # Apply rotation
                     rotation_angle = time
@@ -2731,7 +2921,7 @@ class MechanismDesignTab(QWidget):
                         x, y = point[0], point[1]
                         x_rot = x * cos_rot - y * sin_rot
                         y_rot = x * sin_rot + y * cos_rot
-                        
+
                         # Position relative to cam center and transform to scene
                         rotated_point = np.array([x_rot, y_rot]) + current_cam_center
                         scene_point = cam_to_scene_coords(rotated_point)
@@ -2742,28 +2932,30 @@ class MechanismDesignTab(QWidget):
                         cam_polygon = QPolygonF(cam_polygon_points)
                         visual_items[0].setPolygon(cam_polygon)
 
-                # Update follower position
+                # Update follower position with proportional size
                 if len(visual_items) >= 2 and isinstance(visual_items[1], QGraphicsRectItem):
                     follower_scene = cam_to_scene_coords(follower_pos_orig)
-                    follower_width, follower_height = 12, 10
+                    follower_width, follower_height = 20, 15  # Larger for visibility
                     visual_items[1].setRect(
                         follower_scene.x() - follower_width/2,
                         follower_scene.y() - follower_height/2,
                         follower_width, follower_height
                     )
 
-                # Update cam center marker
+                # Update cam center marker with smaller size
                 if len(visual_items) >= 3 and isinstance(visual_items[2], QGraphicsEllipseItem):
                     cam_center_scene = cam_to_scene_coords(current_cam_center)
                     visual_items[2].setRect(
-                        cam_center_scene.x() - 4, cam_center_scene.y() - 4, 8, 8
+                        cam_center_scene.x() - 3, cam_center_scene.y() - 3, 6, 6
                     )
-                
-                # Update rod connection line
+
+                # Update rod connection line (connect from top of cam to follower)
                 if len(visual_items) >= 4 and isinstance(visual_items[3], QGraphicsLineItem):
                     follower_scene = cam_to_scene_coords(follower_pos_orig)
-                    cam_center_scene = cam_to_scene_coords(current_cam_center)
-                    visual_items[3].setLine(QLineF(cam_center_scene, follower_scene))
+                    # Connect from top of cam to follower
+                    cam_top_orig = current_cam_center + np.array([0, -scaled_base_radius])
+                    cam_top_scene = cam_to_scene_coords(cam_top_orig)
+                    visual_items[3].setLine(QLineF(cam_top_scene, follower_scene))
 
                 return
 
@@ -2793,7 +2985,7 @@ class MechanismDesignTab(QWidget):
                             normalized_time = (time / (2 * np.pi)) % 1.0  # Get fractional part for frame lookup
                             frame_index = int(normalized_time * (num_frames - 1))
                             frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
-                            
+
                             # Get base angle from frame and add full rotations
                             full_rotations = int(time / (2 * np.pi))  # Number of complete rotations
                             theta1 = gear1_angles[frame_index] + full_rotations * 2 * np.pi
@@ -4787,12 +4979,24 @@ class MechanismDesignTab(QWidget):
         to_scene_coords = self._get_scene_transform_function(mechanism_data)
         params = mechanism_data.get("params", {})
 
-        if not to_scene_coords or not params:
+        if not params:
             return []
 
+        # Adjusted parameters for more realistic CAM size
+        # CAM should be smaller, rod should be longer for realistic appearance
         base_radius = params.get("base_radius", 25.0)
         eccentricity = params.get("eccentricity", 10.0)
         follower_rod_length = params.get("follower_rod_length", 40.0)
+
+        # Scale CAM appropriately for character interaction
+        # Make CAM visible and proportional to character
+        cam_scale_factor = 1.5  # Make CAM 150% of original size for visibility
+        rod_length_multiplier = 0.8  # Shorter rod to keep follower at foot level
+
+        # Apply scaling
+        scaled_base_radius = base_radius * cam_scale_factor
+        scaled_eccentricity = eccentricity * cam_scale_factor
+        scaled_rod_length = follower_rod_length * rod_length_multiplier
 
         # Create egg-shaped cam profile
         def create_egg_shape_profile(base_radius, eccentricity):
@@ -4803,9 +5007,10 @@ class MechanismDesignTab(QWidget):
             for i in range(num_points):
                 theta = (i / num_points) * 2 * np.pi
 
-                # Proper cam profile: lift when convex part is at bottom (pushes follower up)
-                # Using sinusoidal lift profile shifted for correct physics
-                lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2  # Shifted for proper phase
+                # Create egg shape: one end more pointed than the other
+                # The egg is wider at bottom (theta = π/2) and narrower at top (theta = 3π/2)
+                # This creates proper egg shape with follower riding on the surface
+                lift = eccentricity * (1 + np.cos(theta)) / 2  # Maximum at theta=0 (right side)
                 r = base_radius + lift
 
                 # Convert to Cartesian coordinates
@@ -4816,31 +5021,41 @@ class MechanismDesignTab(QWidget):
 
             return points
 
+        # Get character position for CAM placement
+        character_position = self._get_character_position()
+        
         # CAM is positioned at bottom with follower above (gravity physics)
         # Position cam at origin for proper coordinate transformation
         cam_center_orig = np.array([0, 0])  # CAM center at origin
-        
-        # Place follower ABOVE cam center (negative Y is up in scene coordinates)
-        # Follower is at cam_top - rod_length
-        follower_y_orig = cam_center_orig[1] - (base_radius + follower_rod_length)
+
+        # Place follower ABOVE cam center
+        # Follower should be at foot level, so calculate based on that
+        follower_y_orig = cam_center_orig[1] - (scaled_base_radius + scaled_rod_length)
         follower_pos_orig = np.array([cam_center_orig[0], follower_y_orig])
 
-        # Create egg-shaped cam profile
-        egg_profile = create_egg_shape_profile(base_radius, eccentricity)
+        # Create egg-shaped cam profile with scaled dimensions
+        egg_profile = create_egg_shape_profile(scaled_base_radius, scaled_eccentricity)
 
-        # CRITICAL: Create consistent transformation function for both visuals and handles
-        # Always use the scene transform function for cam mechanism
-        to_scene_coords = self._get_scene_transform_function(mechanism_data)
-        
-        if to_scene_coords:
-            # Use the standard transform function
-            cam_to_scene_coords = to_scene_coords
-        else:
-            # Fallback - position cam visibly in scene
-            cam_to_scene_coords = lambda p: QPointF(float(p[0] * 3 + 400), float(p[1] * 3 + 300))
-        
-        # Store for consistency between visual creation and animation
+        # Create custom transformation for CAM positioning
+        # CAM should be positioned directly at character feet position
+        def cam_to_scene_coords(p):
+            """Transform CAM coordinates to scene, placing CAM at character feet."""
+            if len(p) != 2:
+                return QPointF(character_position[0], character_position[1])
+            
+            # Transform point relative to character position
+            # Y coordinate: character_position[1] is already at feet + offset
+            # CAM should be centered at this position
+            return QPointF(
+                float(p[0] + character_position[0]),
+                float(p[1] + character_position[1])
+            )
+
+        # Store scaling factors for consistency in animation and parametric editing
+        mechanism_data['cam_scale_factor'] = cam_scale_factor
+        mechanism_data['rod_length_multiplier'] = rod_length_multiplier
         mechanism_data['cam_transform_function'] = cam_to_scene_coords
+        mechanism_data['cam_position'] = character_position  # Store for animation
 
         # Transform key points to scene coordinates
         cam_center_scene = cam_to_scene_coords(cam_center_orig)
@@ -4862,7 +5077,7 @@ class MechanismDesignTab(QWidget):
         # Create egg-shaped cam body with enhanced visibility
         cam_color = QColor("#2196f3")  # Modern blue
         cam_body = QGraphicsPolygonItem(cam_polygon)
-        cam_body.setPen(QPen(cam_color.darker(120), 6))  # Thicker border for better visibility
+        cam_body.setPen(QPen(cam_color.darker(120), 3))  # Thinner border for smaller cam
         cam_body.setBrush(QBrush(cam_color.lighter(130)))
         cam_body.setZValue(15)  # Above parts
         cam_body.setOpacity(1.0)  # Full opacity for visibility
@@ -4870,28 +5085,31 @@ class MechanismDesignTab(QWidget):
         self.mechanism_scene.addItem(cam_body)
         visual_items.append(cam_body)
         logging.info(f"[CAM_VISUALS] Created cam body at center {cam_center_scene.x():.1f}, {cam_center_scene.y():.1f}")
+        logging.info(f"[CAM_VISUALS] Character position: {character_position}")
+        logging.info(f"[CAM_VISUALS] Scaled CAM: base_radius={scaled_base_radius:.1f}, eccentricity={scaled_eccentricity:.1f}")
 
-        # Create follower rod with enhanced visibility
+        # Create follower with appropriate size
         follower_color = QColor("#ff9800")  # Orange
-        follower_width, follower_height = 16, 12  # Larger for better visibility
+        follower_width, follower_height = 20, 15  # Larger for visibility
         follower_body = QGraphicsRectItem(
-            follower_scene.x() - follower_width/2, 
+            follower_scene.x() - follower_width/2,
             follower_scene.y() - follower_height/2,
-            follower_width, 
+            follower_width,
             follower_height
         )
-        follower_body.setPen(QPen(follower_color.darker(120), 3))
+        follower_body.setPen(QPen(follower_color.darker(120), 2))
         follower_body.setBrush(QBrush(follower_color))
         follower_body.setZValue(16)  # Above cam
         follower_body.setToolTip("Follower - Moves up/down as cam rotates")
         self.mechanism_scene.addItem(follower_body)
         visual_items.append(follower_body)
         logging.info(f"[CAM_VISUALS] Created follower at {follower_scene.x():.1f}, {follower_scene.y():.1f}")
+        logging.info(f"[CAM_VISUALS] Rod length: {scaled_rod_length:.1f}")
 
         # Create cam center marker (rotation point)
         cam_center_color = QColor("#f44336")  # Red for rotation center
         cam_center_marker = QGraphicsEllipseItem(
-            cam_center_scene.x() - 4, cam_center_scene.y() - 4, 8, 8
+            cam_center_scene.x() - 5, cam_center_scene.y() - 5, 10, 10
         )
         cam_center_marker.setPen(QPen(cam_center_color.darker(150), 2))
         cam_center_marker.setBrush(QBrush(cam_center_color))
@@ -4901,19 +5119,18 @@ class MechanismDesignTab(QWidget):
         visual_items.append(cam_center_marker)
 
         # Create follower rod line to show connection
-        rod_line = QGraphicsLineItem(QLineF(cam_center_scene, follower_scene))
-        rod_pen = QPen(QColor("#757575"), 2, Qt.PenStyle.DashLine)  # Dashed gray line
-        rod_line.setPen(rod_pen)
-        rod_line.setZValue(14)  # Below other elements
-        rod_line.setToolTip("Rod connection - Shows follower movement")
-        self.mechanism_scene.addItem(rod_line)
-        visual_items.append(rod_line)
+        rod_pen = QPen(QColor("#9e9e9e"), 3, Qt.PenStyle.DashLine)  # Gray dashed line, thicker
+        follower_rod = QGraphicsLineItem(
+            cam_center_scene.x(), cam_center_scene.y(),
+            follower_scene.x(), follower_scene.y()
+        )
+        follower_rod.setPen(rod_pen)
+        follower_rod.setZValue(14)  # Below cam but above parts
+        follower_rod.setToolTip("Connecting Rod")
+        self.mechanism_scene.addItem(follower_rod)
+        visual_items.append(follower_rod)
 
-        # Store key positions for handle consistency
-        mechanism_data.setdefault('key_points', {})['cam_center'] = [cam_center_scene.x(), cam_center_scene.y()]
-        mechanism_data.setdefault('key_points', {})['follower_position'] = [follower_scene.x(), follower_scene.y()]
-
-        logging.info(f"[CAM_VISUALS] Created {len(visual_items)} visual items for cam mechanism")
+        # Return visual items
         return visual_items
 
     def _create_gear_visuals(self, mechanism_data: dict) -> list[QGraphicsItem]:
@@ -7021,7 +7238,7 @@ class MechanismDesignTab(QWidget):
         """Create interactive handles for cam mechanism - allows editing cam location, rod length, and eccentricity."""
         try:
             logging.info(f"[CAM_HANDLES] Creating parametric handles for {mechanism_id}")
-            
+
             params = layer_data.get("params", {})
             if not params:
                 logging.warning(f"[CAM_HANDLES] Missing params for {mechanism_id}")
@@ -7032,78 +7249,133 @@ class MechanismDesignTab(QWidget):
             eccentricity = params.get("eccentricity", 10.0)
             rod_length = params.get("follower_rod_length", 40.0)
 
+            # Get scaling factors (consistent with visual creation)
+            cam_scale_factor = layer_data.get('cam_scale_factor', 1.5)
+            rod_length_multiplier = layer_data.get('rod_length_multiplier', 0.8)
+
+            # Apply scaling to match visual appearance
+            scaled_base_radius = base_radius * cam_scale_factor
+            scaled_eccentricity = eccentricity * cam_scale_factor
+            scaled_rod_length = rod_length * rod_length_multiplier
+
             # Use the stored transform function from visual creation for consistency
             cam_to_scene_coords = layer_data.get('cam_transform_function')
             if not cam_to_scene_coords:
                 # Create fallback transform if not available
-                to_scene_coords = self._get_scene_transform_function(layer_data)
-                if to_scene_coords:
-                    cam_to_scene_coords = to_scene_coords
-                else:
-                    cam_to_scene_coords = lambda p: QPointF(float(p[0] * 3 + 400), float(p[1] * 3 + 300))
+                character_position = layer_data.get('cam_position', self._get_character_position())
+                cam_to_scene_coords = lambda p: QPointF(
+                    float(p[0] + character_position[0]), 
+                    float(p[1] + character_position[1])
+                ) if len(p) == 2 else QPointF(character_position[0], character_position[1])
                 layer_data['cam_transform_function'] = cam_to_scene_coords
 
-            # Calculate handle positions using same coordinate system as visuals
+            # Calculate handle positions using scaled dimensions
             cam_center_orig = np.array([0.0, 0.0])  # CAM center at origin
             cam_center_scene = cam_to_scene_coords(cam_center_orig)
 
-            # Rod length handle: positioned above cam center
-            rod_handle_orig = np.array([0.0, -(base_radius + rod_length)])
+            # 1. CAM Center Handle - moves entire mechanism
+            center_handle_pos = cam_center_scene
+
+            # 2. Rod Length Handle - positioned at follower (above cam)
+            rod_handle_orig = np.array([0.0, -(scaled_base_radius + scaled_rod_length)])
             rod_handle_pos = cam_to_scene_coords(rod_handle_orig)
 
-            # Eccentricity handle: positioned to show cam size/eccentricity
-            ecc_handle_orig = np.array([base_radius + eccentricity, 0.0])
-            ecc_handle_pos = cam_to_scene_coords(ecc_handle_orig)
+            # 3. CAM Shape Handle - positioned at cam edge (rightmost point for eccentricity)
+            shape_handle_orig = np.array([scaled_base_radius + scaled_eccentricity, 0.0])
+            shape_handle_pos = cam_to_scene_coords(shape_handle_orig)
 
-            # Cam location handle: allows moving the entire cam mechanism
-            location_handle_pos = cam_center_scene
-
-            def on_location_handle_move(handle_id: str, new_pos: QPointF):
-                """Handle cam center location changes"""
+            def on_center_handle_move(handle_id: str, new_pos: QPointF):
+                """Handle 1: Move entire CAM mechanism"""
                 try:
-                    # This would require updating the transform function itself
-                    # For now, we'll log the change
-                    logging.info(f"[CAM_HANDLES] Cam location moved to ({new_pos.x():.1f}, {new_pos.y():.1f})")
-                    # TODO: Implement cam relocation by updating transform offsets
+                    # Calculate offset from original position
+                    current_position = layer_data.get('cam_position', self._get_character_position())
+                    offset_x = new_pos.x() - cam_center_scene.x()
+                    offset_y = new_pos.y() - cam_center_scene.y()
+                    
+                    # Update cam position
+                    new_position = [
+                        current_position[0] + offset_x,
+                        current_position[1] + offset_y
+                    ]
+                    layer_data['cam_position'] = new_position
+                    
+                    # Create new transform function with updated position
+                    def new_cam_to_scene_coords(p):
+                        if len(p) != 2:
+                            return QPointF(new_position[0], new_position[1])
+                        return QPointF(
+                            float(p[0] + new_position[0]),
+                            float(p[1] + new_position[1])
+                        )
+                    
+                    layer_data['cam_transform_function'] = new_cam_to_scene_coords
+                    
+                    logging.info(f"[CAM_HANDLES] Moved entire CAM to ({new_position[0]:.1f}, {new_position[1]:.1f})")
+                    
+                    # Regenerate visuals with new position
+                    self._regenerate_cam_visuals_with_params(mechanism_id, layer_data)
+                    
+                    # Update handles positions
+                    self._update_cam_handle_positions(mechanism_id, layer_data)
+                    
                 except Exception as e:
-                    logging.error(f"[CAM_HANDLES] Error updating cam location: {e}")
+                    logging.error(f"[CAM_HANDLES] Error moving cam: {e}")
 
             def on_rod_handle_move(handle_id: str, new_pos: QPointF):
-                """Handle rod length changes"""
+                """Handle 2: Adjust rod length (follower position)"""
                 try:
                     # Calculate new rod length based on vertical distance from cam center
                     delta_y = cam_center_scene.y() - new_pos.y()
-                    new_rod_length = max(10.0, min(100.0, delta_y - base_radius))
+                    
+                    # The follower should be above cam, so delta_y should be positive
+                    # Account for the cam radius when calculating rod length
+                    new_scaled_rod_length = max(10.0, delta_y - scaled_base_radius)
+                    
+                    # Convert back to unscaled rod length
+                    new_rod_length = new_scaled_rod_length / rod_length_multiplier
+                    
+                    # Limit rod length to reasonable range
+                    new_rod_length = max(20.0, min(100.0, new_rod_length))
 
-                    logging.info(f"[CAM_HANDLES] Rod length changed to {new_rod_length:.1f}")
+                    logging.info(f"[CAM_HANDLES] Rod length changed to {new_rod_length:.1f} (scaled: {new_scaled_rod_length:.1f})")
 
-                    # Update mechanism parameters
+                    # Update mechanism parameters with unscaled value
                     if mechanism_id in self.mechanism_layers:
                         layer = self.mechanism_layers[mechanism_id]
                         layer.setdefault("params", {})["follower_rod_length"] = new_rod_length
 
                         # Regenerate visuals with updated parameters
                         self._regenerate_cam_visuals_with_params(mechanism_id, layer)
+                        
+                        # Update handle positions
+                        self._update_cam_handle_positions(mechanism_id, layer)
 
                 except Exception as e:
                     logging.error(f"[CAM_HANDLES] Error updating rod length: {e}")
 
-            def on_eccentricity_handle_move(handle_id: str, new_pos: QPointF):
-                """Handle eccentricity and base radius changes"""
+            def on_shape_handle_move(handle_id: str, new_pos: QPointF):
+                """Handle 3: Adjust cam size and shape (base radius and eccentricity)"""
                 try:
-                    # Calculate new parameters based on distance from cam center
+                    # Calculate distance from cam center to determine size
                     delta_x = new_pos.x() - cam_center_scene.x()
                     delta_y = new_pos.y() - cam_center_scene.y()
                     distance = math.sqrt(delta_x*delta_x + delta_y*delta_y)
                     
-                    # Transform back to mechanism coordinates to get proper scaling
-                    distance_factor = distance / 100.0  # Normalize to reasonable range
-                    new_base_radius = max(15.0, min(40.0, distance_factor * 30.0))
-                    new_eccentricity = max(5.0, min(25.0, distance_factor * 15.0))
+                    # The distance represents the maximum radius (base_radius + eccentricity)
+                    # We'll maintain a ratio between base radius and eccentricity
+                    max_radius = distance / cam_scale_factor  # Convert to unscaled
+                    
+                    # Set eccentricity as ~30% of base radius for good egg shape
+                    new_base_radius = max_radius * 0.77  # base is 77% of max
+                    new_eccentricity = max_radius * 0.23  # eccentricity is 23% of max
+                    
+                    # Apply reasonable limits
+                    new_base_radius = max(15.0, min(50.0, new_base_radius))
+                    new_eccentricity = max(5.0, min(20.0, new_eccentricity))
 
-                    logging.info(f"[CAM_HANDLES] Cam size: base_radius={new_base_radius:.1f}, eccentricity={new_eccentricity:.1f}")
+                    logging.info(f"[CAM_HANDLES] Cam shape: base_radius={new_base_radius:.1f}, eccentricity={new_eccentricity:.1f}")
 
-                    # Update mechanism parameters
+                    # Update mechanism parameters with unscaled values
                     if mechanism_id in self.mechanism_layers:
                         layer = self.mechanism_layers[mechanism_id]
                         layer.setdefault("params", {})["base_radius"] = new_base_radius
@@ -7111,36 +7383,45 @@ class MechanismDesignTab(QWidget):
 
                         # Regenerate visuals with updated parameters
                         self._regenerate_cam_visuals_with_params(mechanism_id, layer)
+                        
+                        # Update handle positions
+                        self._update_cam_handle_positions(mechanism_id, layer)
 
                 except Exception as e:
-                    logging.error(f"[CAM_HANDLES] Error updating cam eccentricity: {e}")
+                    logging.error(f"[CAM_HANDLES] Error updating cam shape: {e}")
 
             # Create draggable handles using DraggableHandle class
-            location_handle = DraggableHandle(f"{mechanism_id}_cam_location", location_handle_pos, on_location_handle_move)
-            location_handle.setToolTip("Drag to move cam location")
-            location_handle.setBrush(QBrush(QColor("#2196f3")))  # Blue for location
+            # 1. Center handle (blue) - moves entire mechanism
+            center_handle = DraggableHandle(f"{mechanism_id}_cam_center", center_handle_pos, on_center_handle_move)
+            center_handle.setToolTip("Drag to move entire CAM mechanism")
+            center_handle.setBrush(QBrush(QColor("#2196f3")))  # Blue
+            center_handle.setPen(QPen(QColor("#1976d2"), 2))
             
+            # 2. Rod handle (orange) - adjusts rod length
             rod_handle = DraggableHandle(f"{mechanism_id}_rod_length", rod_handle_pos, on_rod_handle_move)
-            rod_handle.setToolTip("Drag to adjust follower rod length")
-            rod_handle.setBrush(QBrush(QColor("#ff9800")))  # Orange for rod
+            rod_handle.setToolTip("Drag to adjust rod length")
+            rod_handle.setBrush(QBrush(QColor("#ff9800")))  # Orange
+            rod_handle.setPen(QPen(QColor("#f57c00"), 2))
             
-            ecc_handle = DraggableHandle(f"{mechanism_id}_eccentricity", ecc_handle_pos, on_eccentricity_handle_move)
-            ecc_handle.setToolTip("Drag to adjust cam size and eccentricity")
-            ecc_handle.setBrush(QBrush(QColor("#4caf50")))  # Green for eccentricity
+            # 3. Shape handle (green) - adjusts cam size/shape
+            shape_handle = DraggableHandle(f"{mechanism_id}_cam_shape", shape_handle_pos, on_shape_handle_move)
+            shape_handle.setToolTip("Drag to adjust CAM size and shape")
+            shape_handle.setBrush(QBrush(QColor("#4caf50")))  # Green
+            shape_handle.setPen(QPen(QColor("#388e3c"), 2))
 
             # Add handles to scene and track them
-            self.mechanism_scene.addItem(location_handle)
+            self.mechanism_scene.addItem(center_handle)
             self.mechanism_scene.addItem(rod_handle)
-            self.mechanism_scene.addItem(ecc_handle)
+            self.mechanism_scene.addItem(shape_handle)
 
             if mechanism_id not in self.parametric_handles:
                 self.parametric_handles[mechanism_id] = []
-            self.parametric_handles[mechanism_id] = [location_handle, rod_handle, ecc_handle]
+            self.parametric_handles[mechanism_id] = [center_handle, rod_handle, shape_handle]
 
             logging.info(f"[CAM_HANDLES] Created 3 parametric handles for {mechanism_id}")
-            logging.info(f"[CAM_HANDLES] Location: ({location_handle_pos.x():.1f}, {location_handle_pos.y():.1f})")
-            logging.info(f"[CAM_HANDLES] Rod: ({rod_handle_pos.x():.1f}, {rod_handle_pos.y():.1f})")
-            logging.info(f"[CAM_HANDLES] Eccentricity: ({ecc_handle_pos.x():.1f}, {ecc_handle_pos.y():.1f})")
+            logging.info(f"[CAM_HANDLES] Center (blue): ({center_handle_pos.x():.1f}, {center_handle_pos.y():.1f}) - Move entire mechanism")
+            logging.info(f"[CAM_HANDLES] Rod (orange): ({rod_handle_pos.x():.1f}, {rod_handle_pos.y():.1f}) - Adjust rod length")
+            logging.info(f"[CAM_HANDLES] Shape (green): ({shape_handle_pos.x():.1f}, {shape_handle_pos.y():.1f}) - Adjust size/shape")
 
         except Exception as e:
             logging.error(f"[CAM_HANDLES] Failed to create cam handles: {e}")
@@ -7153,15 +7434,71 @@ class MechanismDesignTab(QWidget):
             for item in visual_items:
                 if item and item.scene():
                     self.mechanism_scene.removeItem(item)
-            
+
             # Create new visual items with updated parameters
             new_visual_items = self._create_cam_visuals(layer_data)
             layer_data["visual_items"] = new_visual_items
-            
+
             logging.info(f"[CAM_HANDLES] Regenerated {len(new_visual_items)} cam visual items")
-            
+
         except Exception as e:
             logging.error(f"[CAM_HANDLES] Error regenerating cam visuals: {e}")
+
+    def _update_cam_handle_positions(self, mechanism_id: str, layer_data: dict):
+        """Update cam handle positions after parameter changes."""
+        try:
+            if mechanism_id not in self.parametric_handles:
+                return
+                
+            handles = self.parametric_handles[mechanism_id]
+            if len(handles) != 3:
+                return
+                
+            # Get current parameters
+            params = layer_data.get("params", {})
+            base_radius = params.get("base_radius", 25.0)
+            eccentricity = params.get("eccentricity", 10.0)
+            rod_length = params.get("follower_rod_length", 40.0)
+            
+            # Get scaling factors
+            cam_scale_factor = layer_data.get('cam_scale_factor', 1.5)
+            rod_length_multiplier = layer_data.get('rod_length_multiplier', 0.8)
+            
+            # Apply scaling
+            scaled_base_radius = base_radius * cam_scale_factor
+            scaled_eccentricity = eccentricity * cam_scale_factor
+            scaled_rod_length = rod_length * rod_length_multiplier
+            
+            # Get transform function
+            cam_to_scene_coords = layer_data.get('cam_transform_function')
+            if not cam_to_scene_coords:
+                character_position = layer_data.get('cam_position', self._get_character_position())
+                cam_to_scene_coords = lambda p: QPointF(
+                    float(p[0] + character_position[0]), 
+                    float(p[1] + character_position[1])
+                ) if len(p) == 2 else QPointF(character_position[0], character_position[1])
+            
+            # Calculate new positions
+            cam_center_orig = np.array([0.0, 0.0])
+            cam_center_scene = cam_to_scene_coords(cam_center_orig)
+            
+            rod_handle_orig = np.array([0.0, -(scaled_base_radius + scaled_rod_length)])
+            rod_handle_pos = cam_to_scene_coords(rod_handle_orig)
+            
+            shape_handle_orig = np.array([scaled_base_radius + scaled_eccentricity, 0.0])
+            shape_handle_pos = cam_to_scene_coords(shape_handle_orig)
+            
+            # Update handle positions
+            center_handle, rod_handle, shape_handle = handles
+            
+            center_handle.setPos(cam_center_scene)
+            rod_handle.setPos(rod_handle_pos)
+            shape_handle.setPos(shape_handle_pos)
+            
+            logging.info(f"[CAM_HANDLES] Updated handle positions for {mechanism_id}")
+            
+        except Exception as e:
+            logging.error(f"[CAM_HANDLES] Error updating handle positions: {e}")
 
     def _create_planetary_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
         """Create handles for planetary gear mechanism with rotation."""
@@ -7364,7 +7701,7 @@ class MechanismDesignTab(QWidget):
             params = layer_data.get("params", {})
             r1 = params.get("r1", 30)
             r2 = params.get("r2", 50)
-            
+
             if not to_scene:
                 logging.warning(f"[GEAR_HANDLES] No transform function for {mechanism_id}")
                 return
@@ -8722,45 +9059,45 @@ class MechanismDesignTab(QWidget):
                 return
 
             mechanism_type = layer_data.get("type")
-            
+
             # Get updated anchor positions based on mechanism type
             anchor_positions = self._get_anchor_positions_for_mechanism(layer_data)
-            
+
             logging.info(f"[HANDLE_UPDATE] Updating {len(handles)} handles for {mechanism_type} mechanism")
-            
+
             # Update each handle's position based on its ID
             for handle in handles:
                 handle_id = getattr(handle, 'handle_id', None)
                 if not handle_id:
                     continue
-                    
+
                 new_pos = None
-                
+
                 # Map handle IDs to anchor positions based on mechanism type
                 if mechanism_type == "cam":
                     if "rod_length" in handle_id:
                         new_pos = anchor_positions.get("cam_rod_length")
                     elif "cam_size" in handle_id:
                         new_pos = anchor_positions.get("cam_size")
-                        
+
                 elif mechanism_type == "gear":
                     if "gear1_center" in handle_id:
                         new_pos = anchor_positions.get("gear1_center")
                     elif "gear2_center" in handle_id:
                         new_pos = anchor_positions.get("gear2_center")
-                        
+
                 elif mechanism_type == "planetary_gear":
                     if "sun_center" in handle_id:
                         new_pos = anchor_positions.get("sun_center")
                     elif "planet_center" in handle_id:
                         new_pos = anchor_positions.get("planet_center")
-                        
+
                 elif mechanism_type == "4_bar_linkage":
                     # Original 4-bar logic
                     anchor_name = getattr(handle, 'anchor_name', None)
                     if anchor_name and anchor_name in anchor_positions:
                         new_pos = anchor_positions[anchor_name]
-                
+
                 # Update handle position if we found a match
                 if new_pos:
                     handle.setPos(new_pos)
@@ -8798,14 +9135,14 @@ class MechanismDesignTab(QWidget):
         try:
             # Get the transformation function for this mechanism
             to_scene_coords = self._get_scene_transform_function(layer_data)
-            
+
             if mechanism_type == "cam":
                 # Handle CAM mechanism anchor positions
                 params = layer_data.get("params", {})
                 base_radius = params.get("base_radius", 25.0)
                 eccentricity = params.get("eccentricity", 10.0)
                 rod_length = params.get("follower_rod_length", 40.0)
-                
+
                 # Use stored transform function if available
                 if 'cam_transform_function' in layer_data:
                     cam_to_scene_coords = layer_data['cam_transform_function']
@@ -8815,67 +9152,67 @@ class MechanismDesignTab(QWidget):
                     # Fallback transform
                     def cam_to_scene_coords(p_orig: np.ndarray) -> QPointF:
                         return QPointF(float(p_orig[0] * 2 + 300), float(p_orig[1] * 2 + 300))
-                
+
                 # Calculate handle positions (same as in _create_cam_handles)
                 cam_center_orig = np.array([0.0, 0.0])
                 rod_handle_orig = np.array([0.0, -(base_radius + rod_length)])
                 size_handle_orig = np.array([base_radius + eccentricity, 0.0])
-                
+
                 # Transform to scene coordinates
                 anchor_positions["cam_rod_length"] = cam_to_scene_coords(rod_handle_orig)
                 anchor_positions["cam_size"] = cam_to_scene_coords(size_handle_orig)
-                
+
                 logging.info(f"[CAM_ANCHORS] Rod handle: {anchor_positions['cam_rod_length']}")
                 logging.info(f"[CAM_ANCHORS] Size handle: {anchor_positions['cam_size']}")
-                
+
             elif mechanism_type == "gear":
                 # Handle GEAR mechanism anchor positions
                 params = layer_data.get("params", {})
                 r1 = params.get("r1", 30)
                 r2 = params.get("r2", 50)
                 distance = r1 + r2
-                
+
                 gear1_center_orig = np.array([0, 0])
                 gear2_center_orig = np.array([distance, 0])
-                
+
                 # Check for stored positions
                 key_points = layer_data.get("key_points", {})
                 if "gear1_center" in key_points:
                     gear1_center_orig = np.array(key_points["gear1_center"])
                 if "gear2_center" in key_points:
                     gear2_center_orig = np.array(key_points["gear2_center"])
-                
+
                 if to_scene_coords:
                     anchor_positions["gear1_center"] = to_scene_coords(gear1_center_orig)
                     anchor_positions["gear2_center"] = to_scene_coords(gear2_center_orig)
                 else:
                     anchor_positions["gear1_center"] = QPointF(gear1_center_orig[0], gear1_center_orig[1])
                     anchor_positions["gear2_center"] = QPointF(gear2_center_orig[0], gear2_center_orig[1])
-                    
+
             elif mechanism_type == "planetary_gear":
                 # Handle PLANETARY GEAR mechanism anchor positions
                 params = layer_data.get("params", {})
                 r_sun = params.get("r_sun", 20)
                 r_planet = params.get("r_planet", 30)
-                
+
                 # Check for simulation data or key points
                 full_sim_data = layer_data.get("full_simulation_data", {})
                 gear_positions = full_sim_data.get("gear_positions", {})
-                
+
                 if gear_positions and "sun_centers" in gear_positions:
                     sun_center_orig = np.array(gear_positions["sun_centers"][0])
                     planet_center_orig = np.array(gear_positions["planet_centers"][0])
                 else:
                     sun_center_orig = np.array([0, 0])
                     planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([1, 0])
-                
+
                 if to_scene_coords:
                     anchor_positions["sun_center"] = to_scene_coords(sun_center_orig)
                     anchor_positions["planet_center"] = to_scene_coords(planet_center_orig)
                 else:
                     anchor_positions["sun_center"] = QPointF(sun_center_orig[0], sun_center_orig[1])
                     anchor_positions["planet_center"] = QPointF(planet_center_orig[0], planet_center_orig[1])
-                    
+
             elif mechanism_type == "4_bar_linkage":
                 # Existing 4-bar linkage logic
                 key_points = layer_data.get("key_points", {})
@@ -8929,7 +9266,7 @@ class MechanismDesignTab(QWidget):
                         anchor_positions["rocker_end"] = QPointF(scene_center.x() + 50, scene_center.y() - 80)
 
             logging.info(f"[ANCHORS] Generated {len(anchor_positions)} anchor positions for {mechanism_type}")
-            
+
         except Exception as e:
             logging.error(f"Failed to get anchor positions for {mechanism_type}: {e}")
 

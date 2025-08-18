@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from typing import Dict
 from enum import Enum
+
 import numpy as np
 
 
@@ -22,7 +22,7 @@ class MotionCurve:
 @dataclass
 class MechanismCandidate:
     mechanism_type: MechanismType
-    parameters: Dict[str, float]
+    parameters: dict[str, float]
     motion_curve: MotionCurve
     similarity_score: float
     transform_matrix: np.ndarray

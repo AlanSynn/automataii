@@ -321,6 +321,11 @@ class SkeletonManager(QObject):
                 )
                 continue
 
+            # Only set bend_direction for elbow and knee joints
+            bend_dir = None
+            if 'elbow' in joint_name.lower() or 'knee' in joint_name.lower():
+                bend_dir = 1.0  # Default bend direction for middle joints
+
             std_joint = StandardizedJointModel(
                 id=joint_id,
                 name=joint_name,  # Standardized name is the AD name
@@ -329,6 +334,7 @@ class SkeletonManager(QObject):
                 label=joint_name,  # Original name is same as standardized name here
                 source_data=joint_info_raw.copy(),
                 is_locked=False,  # Default to unlocked
+                bend_direction=bend_dir,  # Only set for elbow/knee joints
             )
             std_skeleton.joints[joint_id] = std_joint
             temp_joint_name_to_id[joint_name] = joint_id
@@ -632,6 +638,66 @@ class SkeletonManager(QObject):
         if not self._standardized_skeleton_model:
             return None
         return self._standardized_skeleton_model.model_dump()
+
+    def set_joint_bend_direction(self, joint_id: str, direction: float):
+        """
+        Set the bend direction for a specific joint.
+        
+        Args:
+            joint_id: The standardized ID of the joint
+            direction: The bend direction (1.0 for default, -1.0 for inverted)
+        """
+        if not self._standardized_skeleton_model:
+            logging.warning(
+                f"SkeletonManager: Cannot set bend direction for joint '{joint_id}' - no skeleton loaded"
+            )
+            return
+
+        if joint_id in self._standardized_skeleton_model.joints:
+            self._standardized_skeleton_model.joints[joint_id].bend_direction = direction
+            logging.info(
+                f"SkeletonManager: Set bend direction for joint '{joint_id}' to {direction}"
+            )
+
+            # Emit skeleton updated signal
+            self.skeleton_updated.emit(self.get_current_skeleton_data())
+        else:
+            logging.warning(
+                f"SkeletonManager: Joint '{joint_id}' not found in skeleton model"
+            )
+
+    def get_joint_bend_direction(self, joint_id: str) -> float:
+        """
+        Get the bend direction for a specific joint.
+        
+        Args:
+            joint_id: The standardized ID of the joint
+            
+        Returns:
+            The bend direction (1.0 for default, -1.0 for inverted), or 1.0 if joint not found
+        """
+        if not self._standardized_skeleton_model:
+            return 1.0
+
+        if joint_id in self._standardized_skeleton_model.joints:
+            return self._standardized_skeleton_model.joints[joint_id].bend_direction
+
+        return 1.0
+
+    def get_all_joint_bend_directions(self) -> dict[str, float]:
+        """
+        Get bend directions for all joints.
+        
+        Returns:
+            Dictionary mapping joint IDs to their bend directions
+        """
+        if not self._standardized_skeleton_model:
+            return {}
+
+        return {
+            joint_id: joint.bend_direction
+            for joint_id, joint in self._standardized_skeleton_model.joints.items()
+        }
 
     def unlock_all_joints(self) -> bool:
         """Unlocks all joints in the skeleton.

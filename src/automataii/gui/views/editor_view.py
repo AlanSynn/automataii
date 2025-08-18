@@ -30,11 +30,10 @@ from PyQt6.QtWidgets import (
 from automataii.config.z_indices import (
     Z_MOTION_PATH_PREVIEW,
     Z_SKELETON_OVERLAY,
-    Z_SKELETON_MECHANISM_BONES,
-    Z_SKELETON_MECHANISM_JOINTS,
 )  # Added Z_SKELETON_OVERLAY and mechanism-specific Z-indices
 from automataii.gui.graphics_items.part_item import CharacterPartItem  # UPDATED
 from automataii.gui.graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
+
 # from automataii.gui.widgets.view_controls import HoverViewControls  # DISABLED
 
 TARGET_PATH_POINTS = 12
@@ -86,6 +85,9 @@ class EditorView(QGraphicsView):
     path_data_cleared_for_component = pyqtSignal(
         str
     )  # NEW: Emits component_key when its path data should be cleared
+    joint_bend_direction_changed = pyqtSignal(
+        str, float
+    )  # Emits joint_id and new bend_direction when a joint's bend direction is changed
 
     def __init__(self, scene, parent_window=None, mechanism_mode=False):
         super().__init__(scene, parent_window)
@@ -1185,16 +1187,29 @@ class EditorView(QGraphicsView):
             )
             self.scene().addItem(self.skeleton_graphics_item)
             self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY)
+
+            # Connect the joint_clicked signal
+            self.skeleton_graphics_item.joint_clicked.connect(self._handle_joint_bend_direction_changed)
         else:
             logging.debug(
                 "EditorView: visualize_skeleton - Updating existing SkeletonGraphicsItem."
             )
+            # Disconnect existing signal connections to avoid duplicates
+            try:
+                self.skeleton_graphics_item.joint_clicked.disconnect()
+            except:
+                pass  # No connections to disconnect
+
             # Call load_skeleton_data with both skeleton_data and hierarchy_data
             self.skeleton_graphics_item.load_skeleton_data(
                 skeleton_data, hierarchy_data
             )
 
-        self.scene().update()  # Trigger a repaint of the scene
+            # Reconnect the signal
+            self.skeleton_graphics_item.joint_clicked.connect(self._handle_joint_bend_direction_changed)
+            logging.debug("EditorView: Reconnected joint_clicked signal after skeleton reload")
+
+        self.scene().update()  # Trigger a repaint of the scene  # Trigger a repaint of the scene
 
     def update_skeleton_animation(
         self, animated_joint_positions: dict[str, tuple[float, float]]
@@ -1757,3 +1772,13 @@ class EditorView(QGraphicsView):
         """Handle resize events to reposition hover controls."""
         super().resizeEvent(event)
         self._position_hover_controls()
+
+    def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
+        """Handle joint bend direction change from SkeletonGraphicsItem."""
+        logging.info(f"EditorView: Joint '{joint_id}' bend direction changed to {new_direction}")
+
+        # Emit signal to notify EditorTab and other components
+        self.joint_bend_direction_changed.emit(joint_id, new_direction)
+
+        # Update the scene
+        self.scene().update()

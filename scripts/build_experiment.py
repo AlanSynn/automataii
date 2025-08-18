@@ -17,16 +17,24 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Build experiment version of Automataii"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Build Automataii (experiment mode)')
+    parser.add_argument('--fast', action='store_true', help='Faster build: skip --clean and disable UPX')
+    parser.add_argument('--skip-clean', action='store_true', help='Do not remove dist/ before build')
+    args = parser.parse_args()
+
     project_root = Path(__file__).parent.parent
     os.chdir(project_root)
 
     logger.info("Building Automataii in experiment mode...")
 
-    # Clean previous builds
+    # Clean previous builds unless fast/skip-clean
     dist_dir = project_root / "dist"
-    if dist_dir.exists():
-        logger.info("Cleaning previous builds...")
-        shutil.rmtree(dist_dir)
+    if not args.fast and not args.skip_clean:
+        if dist_dir.exists():
+            logger.info("Cleaning previous builds (dist/)...")
+            shutil.rmtree(dist_dir)
 
     # Create entry script that automatically enables experiment mode
     entry_script_content = '''#!/usr/bin/env python3
@@ -53,11 +61,17 @@ if __name__ == "__main__":
     try:
         # Build using the experiment spec file
         spec_file = project_root / "automataii-experiment.spec"
-        cmd = [sys.executable, "-m", "PyInstaller", str(spec_file),
-               "--clean", "--noconfirm"]
+        cmd = [sys.executable, "-m", "PyInstaller", str(spec_file), "--noconfirm"]
+        if args.fast:
+            # Faster: keep caches and skip binary compression
+            cmd.append("--noupx")
+        else:
+            # Thorough rebuild each time
+            cmd.append("--clean")
 
         logger.info(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        # Stream PyInstaller output directly for better progress visibility and less overhead
+        result = subprocess.run(cmd, check=True)
 
         if result.returncode == 0:
             logger.info("✓ Build completed successfully!")
@@ -71,13 +85,10 @@ if __name__ == "__main__":
             return True
         else:
             logger.error(f"Build failed with return code: {result.returncode}")
-            logger.error(f"STDERR: {result.stderr}")
             return False
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Build failed: {e}")
-        logger.error(f"STDOUT: {e.stdout}")
-        logger.error(f"STDERR: {e.stderr}")
         return False
 
     except Exception as e:

@@ -28,6 +28,10 @@ class StandardizedJointModel(BaseModel):
         False,
         description="Whether this joint is locked/fixed and should not be moved during IK solving.",
     )
+    bend_direction: float | None = Field(
+        None,
+        description="Bend direction for middle joints (elbow/knee). 1.0 for default direction, -1.0 for inverted. Only applicable to elbow and knee joints.",
+    )
     # Children will be derived and stored in the main skeleton model's hierarchy for clarity
 
 

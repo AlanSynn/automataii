@@ -279,12 +279,16 @@ torchserve/logs/
 
 *.mp4
 *.gif
+# Do not ignore images that are part of the application resources
 *.png
 *.jpg
 *.jpeg
 *.webp
 *.heic
 *.heif
+!resources/**
+!src/examples/**
+!src/automataii/gui/resources/**
 
 *.mov
 *.avi
@@ -294,7 +298,10 @@ torchserve/logs/
 *.m4v
 *.mpg
 
+# Do not ignore JSONs that are required at runtime
 *.json
+!src/automataii/kinematics/generated_mechanism_paths.json
+!resources/**/*.json
 *.pth
 *.pt
 *.pth.tar

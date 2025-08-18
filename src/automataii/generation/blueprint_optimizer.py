@@ -9,9 +9,11 @@ Inspired by: Knuth's TeX Layout + Catmull's Graphics + Sutherland's Systems
 
 import logging
 import math
-from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
+
 from automataii.generation.contour_extractor import ManufacturingContour
+
 
 @dataclass
 class ScaledBounds:
@@ -24,7 +26,7 @@ class ScaledBounds:
     def area(self) -> float:
         return self.width * self.height
 
-    def center(self) -> Tuple[float, float]:
+    def center(self) -> tuple[float, float]:
         return (self.x + self.width / 2, self.y + self.height / 2)
 
     def overlaps_with(self, other: 'ScaledBounds', margin: float = 5.0) -> bool:
@@ -109,7 +111,7 @@ class ScaleNormalizer:
         # Preserve source image path for texture embedding if available
         try:
             if hasattr(contour, 'source_image_path'):
-                setattr(scaled_contour, 'source_image_path', getattr(contour, 'source_image_path'))
+                scaled_contour.source_image_path = contour.source_image_path
         except Exception:
             pass
 
@@ -131,7 +133,7 @@ class ScaleNormalizer:
 
         return scaled_path
 
-    def get_scaled_bounds(self, original_bounds: Tuple[int, int, int, int], scale_factor: float) -> ScaledBounds:
+    def get_scaled_bounds(self, original_bounds: tuple[int, int, int, int], scale_factor: float) -> ScaledBounds:
         """Convert pixel bounds to scaled real-world bounds"""
         x, y, w, h = original_bounds
         return ScaledBounds(
@@ -160,7 +162,7 @@ class SmartLayoutManager:
         self.padding_mm = padding_mm
         self.logger = logging.getLogger(__name__)
 
-    def calculate_optimal_layout(self, items: List[LayoutItem]) -> List[LayoutItem]:
+    def calculate_optimal_layout(self, items: list[LayoutItem]) -> list[LayoutItem]:
         """
         Calculate optimal non-overlapping layout for all items
 
@@ -224,14 +226,14 @@ class SmartLayoutManager:
         self.logger.info(f"Successfully laid out {len(placed_items)} items")
         return placed_items
 
-    def _has_overlaps(self, bounds: ScaledBounds, placed_items: List[LayoutItem]) -> bool:
+    def _has_overlaps(self, bounds: ScaledBounds, placed_items: list[LayoutItem]) -> bool:
         """Check if bounds overlap with any placed items"""
         for item in placed_items:
             if bounds.overlaps_with(item.bounds, self.padding_mm):
                 return True
         return False
 
-    def calculate_total_dimensions(self, items: List[LayoutItem]) -> Tuple[float, float]:
+    def calculate_total_dimensions(self, items: list[LayoutItem]) -> tuple[float, float]:
         """Calculate total blueprint dimensions from placed items"""
         if not items:
             return (self.page_width_mm, 400.0)  # Default size
@@ -243,6 +245,33 @@ class SmartLayoutManager:
         total_height = max_y + self.padding_mm
 
         return (total_width, total_height)
+
+    def optimize_layout(self, items: list[LayoutItem], target_page_width_mm: float, target_page_height_mm: float) -> tuple[list[LayoutItem], float, float]:
+        """
+        Optimize layout of items and return positioned items with total dimensions
+        
+        Args:
+            items: List of items to lay out
+            target_page_width_mm: Target page width in mm
+            target_page_height_mm: Target page height in mm
+            
+        Returns:
+            Tuple of (positioned_items, total_width_mm, total_height_mm)
+        """
+        # Update page width if different from default
+        self.page_width_mm = target_page_width_mm
+
+        # Calculate optimal layout
+        positioned_items = self.calculate_optimal_layout(items)
+
+        # Calculate total dimensions
+        total_width, total_height = self.calculate_total_dimensions(positioned_items)
+
+        # Ensure minimum dimensions
+        total_width = max(total_width, target_page_width_mm)
+        total_height = max(total_height, target_page_height_mm)
+
+        return positioned_items, total_width, total_height
 
 
 class EnhancedMechanismProcessor:
@@ -266,7 +295,7 @@ class EnhancedMechanismProcessor:
             'damper': {'width': 30, 'height': 60}
         }
 
-    def process_mechanism(self, mech_id: str, mech_data: Dict[str, Any], unit_system: str = "metric") -> Optional[LayoutItem]:
+    def process_mechanism(self, mech_id: str, mech_data: dict[str, Any], unit_system: str = "metric") -> LayoutItem | None:
         """
         Process a mechanism into a layout item with proper scaling
 
@@ -280,6 +309,9 @@ class EnhancedMechanismProcessor:
         """
         try:
             mechanism_type = mech_data.get('type', 'unknown')  # Fixed: GUI uses 'type' not 'mechanism_type'
+            
+            self.logger.info(f"[MECHANISM] Processing {mech_id}: type={mechanism_type}")
+            self.logger.info(f"[MECHANISM]   Keys in mech_data: {list(mech_data.keys())}")
 
             # Enhanced mechanism processing with scale data
             if 'total_scale_factor' in mech_data and 'real_world_params' in mech_data:
@@ -300,10 +332,10 @@ class EnhancedMechanismProcessor:
                 # Fallback to standard sizes
                 self.logger.warning(f"[MECHANISM] No screen scale data for {mech_id}, using standard sizes")
                 if 'real_world_params' not in mech_data:
-                    self.logger.warning(f"[MECHANISM]   Missing: real_world_params")
+                    self.logger.warning("[MECHANISM]   Missing: real_world_params")
                 if 'total_scale_factor' not in mech_data:
-                    self.logger.warning(f"[MECHANISM]   Missing: total_scale_factor")
-                
+                    self.logger.warning("[MECHANISM]   Missing: total_scale_factor")
+
                 standard_size = self.standard_mechanism_sizes.get(
                     mechanism_type,
                     {'width': 60, 'height': 60}  # Default size
@@ -329,6 +361,9 @@ class EnhancedMechanismProcessor:
 
             # Generate mechanism SVG content with enhanced scaling information and unit system
             svg_content = self._generate_mechanism_svg(mech_id, mech_data, bounds, unit_system)
+            
+            # Log first 200 chars of SVG for debugging
+            self.logger.info(f"[MECHANISM] Generated SVG for {mech_id} (first 200 chars): {svg_content[:200] if svg_content else 'EMPTY'}")
 
             # Create layout item
             layout_item = LayoutItem(
@@ -348,7 +383,7 @@ class EnhancedMechanismProcessor:
             self.logger.error(f"[MECHANISM] Traceback: {traceback.format_exc()}")
             return None
 
-    def _calculate_mechanism_dimensions_from_params(self, real_world_params: Dict[str, Any], mechanism_type: str) -> Tuple[float, float]:
+    def _calculate_mechanism_dimensions_from_params(self, real_world_params: dict[str, Any], mechanism_type: str) -> tuple[float, float]:
         """
         Calculate mechanism bounding box dimensions from real-world parameters.
 
@@ -410,7 +445,7 @@ class EnhancedMechanismProcessor:
             # Return reasonable defaults
             return 80.0, 60.0
 
-    def _generate_mechanism_svg(self, mech_id: str, mech_data: Dict[str, Any], bounds: ScaledBounds, unit_system: str = "metric") -> str:
+    def _generate_mechanism_svg(self, mech_id: str, mech_data: dict[str, Any], bounds: ScaledBounds, unit_system: str = "metric") -> str:
         """Generate SVG content for mechanism with enhanced support for all types"""
 
         mechanism_type = mech_data.get('type', 'unknown')  # Fixed: GUI uses 'type' not 'mechanism_type'
@@ -531,12 +566,12 @@ class EnhancedMechanismProcessor:
     def _generate_mechanism_patterns(self, mech_id: str, mechanism_type: str, bounds: ScaledBounds) -> str:
         """Generate enhanced visual patterns and textures for mechanisms to improve blueprint appearance"""
         patterns = []
-        
+
         try:
             # Create unique pattern IDs for this mechanism
             pattern_id = f"pattern-{mech_id}-{mechanism_type}"
             gradient_id = f"gradient-{mech_id}-{mechanism_type}"
-            
+
             # Mechanism-specific patterns for enhanced visual appearance
             if mechanism_type == 'gear':
                 # Gear tooth pattern with gradient
@@ -550,7 +585,7 @@ class EnhancedMechanismProcessor:
                     <stop offset="50%" style="stop-color:#d0d0d0;stop-opacity:1" />
                     <stop offset="100%" style="stop-color:#c0c0c0;stop-opacity:1" />
                 </linearGradient>''')
-            
+
             elif mechanism_type == '4_bar_linkage':
                 # Linkage pattern with metallic appearance
                 patterns.append(f'''
@@ -563,7 +598,7 @@ class EnhancedMechanismProcessor:
                     <stop offset="50%" style="stop-color:#ddd;stop-opacity:1" />
                     <stop offset="100%" style="stop-color:#bbb;stop-opacity:1" />
                 </linearGradient>''')
-            
+
             elif mechanism_type == 'cam':
                 # Cam surface pattern with texture
                 patterns.append(f'''
@@ -576,7 +611,7 @@ class EnhancedMechanismProcessor:
                     <stop offset="70%" style="stop-color:#e0e0e0;stop-opacity:1" />
                     <stop offset="100%" style="stop-color:#d0d0d0;stop-opacity:1" />
                 </radialGradient>''')
-            
+
             else:
                 # Generic mechanism pattern
                 patterns.append(f'''
@@ -588,14 +623,14 @@ class EnhancedMechanismProcessor:
                     <stop offset="0%" style="stop-color:#f0f0f0;stop-opacity:1" />
                     <stop offset="100%" style="stop-color:#e0e0e0;stop-opacity:1" />
                 </linearGradient>''')
-        
+
         except Exception as e:
             self.logger.warning(f"Failed to generate patterns for {mechanism_type}: {e}")
             return ""
-        
+
         return '\n'.join(patterns)
 
-    def _generate_4bar_from_keypoints_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+    def _generate_4bar_from_keypoints_svg(self, mech_data: dict[str, Any], bounds: ScaledBounds) -> str:
         """Generate detailed 4-bar linkage with proper thickness, holes, and manufacturing details."""
         kp = mech_data.get('key_points', {})
         factor = float(mech_data.get('total_scale_factor', 1.0))
@@ -604,7 +639,7 @@ class EnhancedMechanismProcessor:
         if not all(name in kp for name in required):
             return self._generate_standard_mechanism_svg(mech_data.get('id', 'mech'), '4_bar_linkage', bounds)
 
-        def to_mm(name: str) -> Tuple[float, float]:
+        def to_mm(name: str) -> tuple[float, float]:
             x, y = kp[name]
             return float(x) * factor, float(y) * factor
 
@@ -629,7 +664,7 @@ class EnhancedMechanismProcessor:
         # Uniform scale to fit drawing if oversized
         scale = min(1.0, avail_w / width if width > 0 else 1.0, avail_h / height if height > 0 else 1.0)
 
-        def pack(pt: Tuple[float, float]) -> Tuple[float, float]:
+        def pack(pt: tuple[float, float]) -> tuple[float, float]:
             px = (pt[0] - min_x) * scale + margin
             py = (pt[1] - min_y) * scale + margin
             return px, py
@@ -642,9 +677,9 @@ class EnhancedMechanismProcessor:
         # Enhanced colors and manufacturing parameters
         color_ground = "#2c3e50"
         color_crank = "#e74c3c"    # red
-        color_coupler = "#27ae60"  # green  
+        color_coupler = "#27ae60"  # green
         color_rocker = "#2980b9"   # blue
-        
+
         # Manufacturing specifications
         link_thickness = 6.0 * scale  # 6mm thick bars
         hole_radius = 2.5 * scale    # 5mm diameter holes
@@ -653,24 +688,24 @@ class EnhancedMechanismProcessor:
         def manufacturing_link(x1, y1, x2, y2, color, name, length_mm):
             """Generate a manufacturing-ready link with thickness and holes"""
             import math
-            
+
             # Calculate link angle and dimensions
             dx = x2 - x1
             dy = y2 - y1
             angle = math.atan2(dy, dx)
             length_scaled = math.sqrt(dx*dx + dy*dy)
-            
+
             # Link outline (rectangular with rounded ends)
             half_thick = link_thickness / 2
             cos_a = math.cos(angle)
             sin_a = math.sin(angle)
-            
+
             # Corner points of the rectangular link
             p1 = (x1 + half_thick * sin_a, y1 - half_thick * cos_a)  # top-left
             p2 = (x1 - half_thick * sin_a, y1 + half_thick * cos_a)  # bottom-left
             p3 = (x2 - half_thick * sin_a, y2 + half_thick * cos_a)  # bottom-right
             p4 = (x2 + half_thick * sin_a, y2 - half_thick * cos_a)  # top-right
-            
+
             # Generate link as rounded rectangle
             link_path = f'''
             <!-- {name} link body with thickness -->
@@ -704,7 +739,7 @@ class EnhancedMechanismProcessor:
             return link_path
 
         # Generate gradients for manufacturing appearance
-        gradients = f'''
+        gradients = '''
         <defs>
             <linearGradient id="gradient-Ground" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" style="stop-color:#34495e;stop-opacity:1"/>
@@ -730,8 +765,7 @@ class EnhancedMechanismProcessor:
         '''
 
         # Dimension calculations using real mm (unscaled by fit)
-        import math
-        def dist_mm(p_mm: Tuple[float, float], q_mm: Tuple[float, float]) -> float:
+        def dist_mm(p_mm: tuple[float, float], q_mm: tuple[float, float]) -> float:
             dx = p_mm[0] - q_mm[0]
             dy = p_mm[1] - q_mm[1]
             return math.hypot(dx, dy)
@@ -759,7 +793,7 @@ class EnhancedMechanismProcessor:
                     fill="none" stroke="#fff" stroke-width="1"/>
             <text x="{O1p[0]:.1f}" y="{O1p[1] + 25:.1f}" class="manufacturing-note" 
                   font-size="6" text-anchor="middle" fill="#333">Ground Pivot 1</text>''',
-            
+
             f'''<!-- Ground pivot 2 with mounting base -->
             <circle cx="{O2p[0]:.1f}" cy="{O2p[1]:.1f}" r="{joint_radius * 1.5:.1f}" 
                     fill="#34495e" stroke="#2c3e50" stroke-width="2"/>
@@ -767,7 +801,7 @@ class EnhancedMechanismProcessor:
                     fill="none" stroke="#fff" stroke-width="1"/>
             <text x="{O2p[0]:.1f}" y="{O2p[1] + 25:.1f}" class="manufacturing-note" 
                   font-size="6" text-anchor="middle" fill="#333">Ground Pivot 2</text>''',
-            
+
             f'''<!-- Moving joints -->
             <circle cx="{Ap[0]:.1f}" cy="{Ap[1]:.1f}" r="{joint_radius:.1f}" 
                     fill="#f39c12" stroke="#e67e22" stroke-width="1.5"/>
@@ -811,7 +845,7 @@ class EnhancedMechanismProcessor:
 
         return ''.join(parts)
 
-    def _generate_multibar_from_keypoints_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+    def _generate_multibar_from_keypoints_svg(self, mech_data: dict[str, Any], bounds: ScaledBounds) -> str:
         """Generic N-bar (5/6-bar) linkage from key_points with readable bars and joints."""
         kp = mech_data.get('key_points', {})
         factor = float(mech_data.get('total_scale_factor', 1.0))
@@ -867,7 +901,7 @@ class EnhancedMechanismProcessor:
 
         return '<g>' + ''.join(parts) + '</g>'
 
-    def _mm_params(self, mech_data: Dict[str, Any], names: list[str]) -> Dict[str, float]:
+    def _mm_params(self, mech_data: dict[str, Any], names: list[str]) -> dict[str, float]:
         """Helper to fetch parameter values in mm from real_world_params or by scaling params."""
         mm = {}
         rwp = mech_data.get('real_world_params', {})
@@ -884,7 +918,7 @@ class EnhancedMechanismProcessor:
                     mm[n] = float(params[base]) * factor
         return mm
 
-    def _generate_gears_from_params_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+    def _generate_gears_from_params_svg(self, mech_data: dict[str, Any], bounds: ScaledBounds) -> str:
         """Enhanced two-gear mesh with manufacturing specifications, tooth details, and mounting holes."""
         mm = self._mm_params(mech_data, ['r1_mm', 'r2_mm'])
         r1 = mm.get('r1_mm', 30.0)
@@ -930,7 +964,6 @@ class EnhancedMechanismProcessor:
         mounting_holes = 4  # Number of mounting holes
 
         # Calculate gear specifications
-        import math
         module = 2.0  # Standard gear module in mm
         teeth1 = max(int(2 * r1 / module), 8)  # Minimum 8 teeth
         teeth2 = max(int(2 * r2 / module), 8)  # Minimum 8 teeth
@@ -940,7 +973,7 @@ class EnhancedMechanismProcessor:
         parts = []
 
         # Generate enhanced gradients for metallic appearance
-        parts.append(f'''
+        parts.append('''
         <defs>
             <linearGradient id="gear-gradient-1" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" style="stop-color:#e8f4f8;stop-opacity:1"/>
@@ -963,7 +996,7 @@ class EnhancedMechanismProcessor:
 
         # Generate detailed gear 1
         gear1_svg = self._generate_detailed_gear(
-            c1p, r1p, teeth1, pitch_diameter1, hub_ratio, keyway_width, 
+            c1p, r1p, teeth1, pitch_diameter1, hub_ratio, keyway_width,
             shaft_diameter, tooth_height, mounting_holes, "gear-gradient-1", "Gear 1", r1
         )
         parts.append(gear1_svg)
@@ -988,7 +1021,7 @@ class EnhancedMechanismProcessor:
 
         # Gear ratio calculation and display
         gear_ratio = r1 / r2 if r2 > 0 else 1.0
-        
+
         # Manufacturing specifications panel
         spec_panel = f'''
         <g class="gear-manufacturing-specs">
@@ -1035,23 +1068,22 @@ class EnhancedMechanismProcessor:
             </text>
         </g>
         '''
-        
+
         parts.append(spec_panel)
 
         return ''.join(parts)
 
-    def _generate_detailed_gear(self, center, radius, teeth, pitch_diameter, hub_ratio, 
+    def _generate_detailed_gear(self, center, radius, teeth, pitch_diameter, hub_ratio,
                                keyway_width, shaft_diameter, tooth_height, mounting_holes,
                                gradient_id, gear_name, actual_radius_mm):
         """Generate a detailed gear with teeth, hub, keyway, and mounting holes"""
-        import math
-        
+
         cx, cy = center
         hub_radius = radius * hub_ratio
         shaft_radius = shaft_diameter / 2
-        
+
         parts = []
-        
+
         # Main gear body with realistic tooth outline
         tooth_radius = radius + tooth_height
         parts.append(f'''
@@ -1059,45 +1091,45 @@ class EnhancedMechanismProcessor:
         <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius:.1f}" 
                 fill="url(#{gradient_id})" stroke="#34495e" stroke-width="1.5"/>
         ''')
-        
+
         # Generate simplified tooth representation
         tooth_count = max(teeth, 8)
         for i in range(tooth_count):
             angle = (2 * math.pi * i) / tooth_count
             tooth_x = cx + (radius + tooth_height/2) * math.cos(angle)
             tooth_y = cy + (radius + tooth_height/2) * math.sin(angle)
-            
+
             parts.append(f'''
             <circle cx="{tooth_x:.1f}" cy="{tooth_y:.1f}" r="{tooth_height/3:.1f}" 
                     fill="#bdc3c7" stroke="#95a5a6" stroke-width="0.5"/>
             ''')
-        
+
         # Hub with mounting holes
         parts.append(f'''
         <!-- {gear_name} hub -->
         <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{hub_radius:.1f}" 
                 fill="url(#{gradient_id})" stroke="#2c3e50" stroke-width="1.2"/>
         ''')
-        
+
         # Generate mounting holes around the hub
         for i in range(mounting_holes):
             hole_angle = (2 * math.pi * i) / mounting_holes
             hole_radius = hub_radius * 0.7  # 70% of hub radius
             hole_x = cx + hole_radius * math.cos(hole_angle)
             hole_y = cy + hole_radius * math.sin(hole_angle)
-            
+
             parts.append(f'''
             <circle cx="{hole_x:.1f}" cy="{hole_y:.1f}" r="{shaft_radius*0.6:.1f}" 
                     fill="#fff" stroke="#7f8c8d" stroke-width="0.8"/>
             ''')
-        
+
         # Center shaft hole
         parts.append(f'''
         <!-- {gear_name} center shaft hole -->
         <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{shaft_radius:.1f}" 
                 fill="#fff" stroke="#2c3e50" stroke-width="1"/>
         ''')
-        
+
         # Keyway slot
         parts.append(f'''
         <!-- {gear_name} keyway -->
@@ -1105,7 +1137,7 @@ class EnhancedMechanismProcessor:
               width="{keyway_width:.1f}" height="{shaft_radius*0.6:.1f}" 
               fill="#7f8c8d"/>
         ''')
-        
+
         # Gear label with specifications
         parts.append(f'''
         <text x="{cx:.1f}" y="{cy - radius - 15:.1f}" 
@@ -1117,21 +1149,21 @@ class EnhancedMechanismProcessor:
               ⌀{actual_radius_mm*2:.1f}mm ({teeth}T)
         </text>
         ''')
-        
+
         return ''.join(parts)
 
-    def _generate_planetary_gear_from_params_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+    def _generate_planetary_gear_from_params_svg(self, mech_data: dict[str, Any], bounds: ScaledBounds) -> str:
         """Enhanced planetary gear system with sun, planets, ring gear, and carrier arm details."""
         mm = self._mm_params(mech_data, ['r_sun_mm', 'r_planet_mm'])
         rs = mm.get('r_sun_mm', 20.0)
         rp = mm.get('r_planet_mm', 12.0)
-        
+
         # Calculate ring gear radius (sun + 2*planet)
         rr = rs + 2 * rp
-        
+
         # Number of planet gears (typically 3 or 4)
         num_planets = 3
-        
+
         kp = mech_data.get('key_points', {})
         factor = float(mech_data.get('total_scale_factor', 1.0))
         if 'sun_center' in kp:
@@ -1160,14 +1192,14 @@ class EnhancedMechanismProcessor:
         rsp = rs * scale
         rpp = rp * scale
         rrp = rr * scale
-        
+
         # Planet center distance (sun radius + planet radius)
         planet_orbit_radius = (rs + rp) * scale
 
         parts = []
 
         # Enhanced gradients for planetary gear system
-        parts.append(f'''
+        parts.append('''
         <defs>
             <radialGradient id="sun-gradient" cx="50%" cy="50%" r="50%">
                 <stop offset="0%" style="stop-color:#ffeaa7;stop-opacity:1"/>
@@ -1208,14 +1240,13 @@ class EnhancedMechanismProcessor:
         ''')
 
         # Carrier arms connecting planets
-        import math
         planet_positions = []
         for i in range(num_planets):
             angle = (2 * math.pi * i) / num_planets
             px = csp[0] + planet_orbit_radius * math.cos(angle)
             py = csp[1] + planet_orbit_radius * math.sin(angle)
             planet_positions.append((px, py))
-            
+
             # Carrier arm from sun to planet
             parts.append(f'''
             <!-- Carrier arm {i+1} -->
@@ -1294,7 +1325,7 @@ class EnhancedMechanismProcessor:
         sun_teeth = max(int(2 * rs / 2), 12)  # Module 2mm
         planet_teeth = max(int(2 * rp / 2), 8)
         ring_teeth = sun_teeth + 2 * planet_teeth
-        
+
         # Planetary ratio calculation: (Ring + Sun) / Sun when ring is fixed
         planetary_ratio = (ring_teeth + sun_teeth) / sun_teeth if sun_teeth > 0 else 1.0
 
@@ -1349,7 +1380,7 @@ class EnhancedMechanismProcessor:
             </text>
         </g>
         '''
-        
+
         parts.append(spec_panel)
 
         # Component labels
@@ -1374,7 +1405,7 @@ class EnhancedMechanismProcessor:
 
         return ''.join(parts)
 
-    def _generate_cam_from_params_svg(self, mech_data: Dict[str, Any], bounds: ScaledBounds) -> str:
+    def _generate_cam_from_params_svg(self, mech_data: dict[str, Any], bounds: ScaledBounds) -> str:
         """Enhanced cam mechanism with detailed follower, guide rails, and manufacturing specifications."""
         mm = self._mm_params(mech_data, ['base_radius_mm', 'eccentricity_mm'])
         r = mm.get('base_radius_mm', 25.0)
@@ -1419,7 +1450,7 @@ class EnhancedMechanismProcessor:
         parts = []
 
         # Enhanced gradients and patterns for cam mechanism
-        parts.append(f'''
+        parts.append('''
         <defs>
             <radialGradient id="cam-gradient" cx="50%" cy="50%" r="50%">
                 <stop offset="0%" style="stop-color:#f8f9fa;stop-opacity:1"/>
@@ -1445,10 +1476,9 @@ class EnhancedMechanismProcessor:
         ''')
 
         # Main cam body with enhanced egg-shaped profile
-        import math
         cam_points = []
         num_points = 36  # More points for smoother curve
-        
+
         for i in range(num_points + 1):
             angle = (2 * math.pi * i) / num_points
             # Create egg-shaped profile with eccentricity
@@ -1456,9 +1486,9 @@ class EnhancedMechanismProcessor:
             x = cxp + radius_at_angle * scale * math.cos(angle)
             y = cyp + radius_at_angle * scale * math.sin(angle)
             cam_points.append(f"{x:.1f},{y:.1f}")
-        
+
         cam_path = "M " + " L ".join(cam_points) + " Z"
-        
+
         parts.append(f'''
         <!-- Enhanced cam body with egg profile -->
         <path d="{cam_path}" fill="url(#cam-gradient)" stroke="#2c3e50" stroke-width="1.8"/>
@@ -1479,11 +1509,11 @@ class EnhancedMechanismProcessor:
         # Enhanced follower system with guide rails
         follower_y_top = cyp - (base_r_scaled + rod_len)
         follower_y_contact = cyp - base_r_scaled - e * scale  # Contact point on cam
-        
+
         # Guide rails (vertical supports)
         guide_left = cxp - guide_width/2
         guide_right = cxp + guide_width/2
-        
+
         parts.append(f'''
         <!-- Left guide rail -->
         <rect x="{guide_left - 3:.1f}" y="{follower_y_top - 10:.1f}" 
@@ -1548,7 +1578,7 @@ class EnhancedMechanismProcessor:
 
         # Manufacturing specifications panel
         lift_angle = math.degrees(math.acos((r - e) / (r + e))) if r + e > 0 else 0
-        
+
         spec_panel = f'''
         <g class="cam-manufacturing-specs">
             <rect x="{bounds.width - 160}" y="10" width="150" height="130" 
@@ -1591,7 +1621,7 @@ class EnhancedMechanismProcessor:
             </text>
         </g>
         '''
-        
+
         parts.append(spec_panel)
 
         # Component labels
@@ -1608,7 +1638,7 @@ class EnhancedMechanismProcessor:
 
         return ''.join(parts)
 
-    def _generate_parameter_annotations(self, mech_data: Dict[str, Any], bounds: ScaledBounds, unit_system: str = "metric") -> str:
+    def _generate_parameter_annotations(self, mech_data: dict[str, Any], bounds: ScaledBounds, unit_system: str = "metric") -> str:
         """
         Generate parameter annotations for real-world mechanism dimensions.
 
@@ -1625,7 +1655,7 @@ class EnhancedMechanismProcessor:
         try:
             real_world_params = mech_data.get('real_world_params', {})
             mechanism_type = mech_data.get('type', 'unknown')
-            
+
             # Also try to get parametric editing results if available
             params = mech_data.get('params', {})
             total_scale_factor = mech_data.get('total_scale_factor', 1.0)
@@ -1657,7 +1687,7 @@ class EnhancedMechanismProcessor:
             annotation_x = bounds.width + 15
             annotation_y_start = 20
             line_height = 14  # Increased for better readability
-            
+
             # Calculate panel height based on mechanism type
             param_count = self._get_param_count_for_mechanism(mechanism_type, real_world_params)
             panel_height = max(110, 40 + (param_count * line_height) + 30)
@@ -1666,7 +1696,7 @@ class EnhancedMechanismProcessor:
             annotations.append(f'<rect x="{annotation_x - 6}" y="{annotation_y_start - 16}" '
                                f'width="180" height="{panel_height}" fill="#ffffff" stroke="#e5e5e5" '
                                f'stroke-width="0.5" rx="3"/>')
-            
+
             unit_label = "Imperial" if unit_system == "imperial" else "Metric"
             annotations.append(f'<text x="{annotation_x}\" y="{annotation_y_start}" '
                              f'class="parameter-header" font-size="9" font-weight="bold" fill="#333">'
@@ -1678,18 +1708,18 @@ class EnhancedMechanismProcessor:
             if mechanism_type == "4_bar_linkage":
                 link_params = ['l1_mm', 'l2_mm', 'l3_mm', 'l4_mm']
                 link_names = ['Ground Link', 'Crank', 'Coupler', 'Rocker']
-                
+
                 for i, param in enumerate(link_params):
                     if param in real_world_params:
                         value = real_world_params[param]
                         formatted_value = format_dimension(value)
                         link_name = link_names[i]
-                        
+
                         annotations.append(f'<text x="{annotation_x}\" y="{y_offset}" '
                                          f'class="parameter-text" font-size="8" fill="#222">'
                                          f'{link_name}: {formatted_value}</text>')
                         y_offset += line_height
-                
+
                 # Add coupler point if available
                 if 'coupler_point_x_mm' in real_world_params and 'coupler_point_y_mm' in real_world_params:
                     cp_x = format_dimension(real_world_params['coupler_point_x_mm'])
@@ -1702,28 +1732,28 @@ class EnhancedMechanismProcessor:
             elif mechanism_type == "cam":
                 cam_params = ['base_radius_mm', 'eccentricity_mm']
                 cam_names = ['Base Radius', 'Eccentricity']
-                
+
                 for i, param in enumerate(cam_params):
                     if param in real_world_params:
                         value = real_world_params[param]
                         formatted_value = format_dimension(value)
                         param_name = cam_names[i]
-                        
+
                         annotations.append(f'<text x="{annotation_x}\" y="{y_offset}" '
                                          f'class="parameter-text" font-size="8" fill="#222">'
                                          f'{param_name}: {formatted_value}</text>')
                         y_offset += line_height
-                
+
                 # Add calculated values
                 if 'base_radius_mm' in real_world_params and 'eccentricity_mm' in real_world_params:
                     max_radius = real_world_params['base_radius_mm'] + real_world_params['eccentricity_mm']
                     min_radius = real_world_params['base_radius_mm'] - real_world_params['eccentricity_mm']
-                    
+
                     annotations.append(f'<text x="{annotation_x}\" y="{y_offset}" '
                                      f'class="parameter-text" font-size="7" fill="#666">'
                                      f'Max Radius: {format_dimension(max_radius)}</text>')
                     y_offset += line_height
-                    
+
                     annotations.append(f'<text x="{annotation_x}\" y="{y_offset}" '
                                      f'class="parameter-text" font-size="7" fill="#666">'
                                      f'Min Radius: {format_dimension(min_radius)}</text>')
@@ -1732,18 +1762,18 @@ class EnhancedMechanismProcessor:
             elif mechanism_type in ["gear", "planetary_gear"]:
                 gear_params = ['r1_mm', 'r2_mm', 'r_sun_mm', 'r_planet_mm', 'arm_length_mm', 'distance_mm']
                 gear_names = ['Gear 1 Radius', 'Gear 2 Radius', 'Sun Radius', 'Planet Radius', 'Arm Length', 'Center Distance']
-                
+
                 for i, param in enumerate(gear_params):
                     if param in real_world_params:
                         value = real_world_params[param]
                         formatted_value = format_dimension(value)
                         param_name = gear_names[i]
-                        
+
                         annotations.append(f'<text x="{annotation_x}\" y="{y_offset}" '
                                          f'class="parameter-text" font-size="8" fill="#222">'
                                          f'{param_name}: {formatted_value}</text>')
                         y_offset += line_height
-                
+
                 # Add gear ratio if applicable
                 if mechanism_type == "gear" and 'r1_mm' in real_world_params and 'r2_mm' in real_world_params:
                     r1 = real_world_params['r1_mm']
@@ -1761,7 +1791,7 @@ class EnhancedMechanismProcessor:
                 annotations.append(f'<text x="{annotation_x}\" y="{y_offset + 8}" '
                                  f'class="scale-info" font-size="6" fill="#666" font-style="italic">'
                                  f'Scale Factor: {scale_factor:.3f} mm/px</text>')
-            
+
             # Add unit system note
             annotations.append(f'<text x="{annotation_x}\" y="{annotation_y_start + panel_height - 8}" '
                              f'class="unit-info" font-size="6" fill="#888" font-style="italic">'
@@ -1775,8 +1805,8 @@ class EnhancedMechanismProcessor:
             return ""
 
         return '\n'.join(annotations)
-        
-    def _get_param_count_for_mechanism(self, mechanism_type: str, real_world_params: Dict[str, Any]) -> int:
+
+    def _get_param_count_for_mechanism(self, mechanism_type: str, real_world_params: dict[str, Any]) -> int:
         """Count the number of parameters that will be displayed for a mechanism type."""
         if mechanism_type == "4_bar_linkage":
             count = 4  # l1, l2, l3, l4
@@ -1789,17 +1819,17 @@ class EnhancedMechanismProcessor:
                 count += 2  # max_radius, min_radius
             return count
         elif mechanism_type in ["gear", "planetary_gear"]:
-            count = len([p for p in ['r1_mm', 'r2_mm', 'r_sun_mm', 'r_planet_mm', 'arm_length_mm', 'distance_mm'] 
+            count = len([p for p in ['r1_mm', 'r2_mm', 'r_sun_mm', 'r_planet_mm', 'arm_length_mm', 'distance_mm']
                         if p in real_world_params])
             if mechanism_type == "gear" and 'r1_mm' in real_world_params and 'r2_mm' in real_world_params:
                 count += 1  # gear ratio
             return count
         return 3  # default
-        
-    def _calculate_real_world_params_from_params(self, params: Dict[str, Any], scale_factor: float, mech_type: str) -> Dict[str, Any]:
+
+    def _calculate_real_world_params_from_params(self, params: dict[str, Any], scale_factor: float, mech_type: str) -> dict[str, Any]:
         """Calculate real-world parameters from current mechanism params and scale factor."""
         real_world_params = {}
-        
+
         try:
             if mech_type == "4_bar_linkage":
                 for param_name in ["l1", "l2", "l3", "l4"]:
@@ -1808,24 +1838,24 @@ class EnhancedMechanismProcessor:
                 for param_name in ["coupler_point_x", "coupler_point_y"]:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
-                        
+
             elif mech_type == "cam":
                 for param_name in ["base_radius", "eccentricity"]:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
-                        
+
             elif mech_type in ["gear", "planetary_gear"]:
                 for param_name in ["r1", "r2", "r_sun", "r_planet", "arm_length", "distance", "tracking_radius"]:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
-            
+
             real_world_params["scale_factor_used"] = scale_factor
             real_world_params["mechanism_type"] = mech_type
-            
+
         except Exception as e:
             self.logger.warning(f"Error calculating real-world params for {mech_type}: {e}")
             real_world_params = {"scale_factor_used": scale_factor, "mechanism_type": mech_type}
-            
+
         return real_world_params
 
     def _generate_standard_mechanism_svg(self, mech_id: str, mechanism_type: str, bounds: ScaledBounds) -> str:
@@ -1861,11 +1891,11 @@ class EnhancedMechanismProcessor:
         """Generate enhanced standard gear representation with manufacturing details"""
         cx, cy = bounds.width/2, bounds.height/2
         radius = min(bounds.width, bounds.height) / 2 - 5
-        
+
         hub_radius = radius * 0.4
         shaft_radius = radius * 0.15
         keyway_width = shaft_radius * 0.4
-        
+
         # Enhanced gear with manufacturing features
         return f'''
         <!-- Gear gradients for metallic appearance -->
@@ -1908,7 +1938,7 @@ class EnhancedMechanismProcessor:
         """Generate enhanced linkage representation with metallic appearance"""
         link_height = 12
         y_center = bounds.height/2
-        
+
         # Enhanced linkage with gradient and pattern
         return f'''
         <!-- Main linkage bar with gradient -->
@@ -1940,7 +1970,7 @@ class EnhancedMechanismProcessor:
         """Generate enhanced standard cam representation with follower details"""
         cx, cy = bounds.width/2, bounds.height/2
         rx, ry = bounds.width/2-5, bounds.height/2-5
-        
+
         # Enhanced cam with follower system
         return f'''
         <!-- Cam gradients -->
@@ -1995,10 +2025,10 @@ class EnhancedMechanismProcessor:
         """Generate enhanced pulley representation with belt groove and mounting"""
         cx, cy = bounds.width/2, bounds.height/2
         radius = min(bounds.width, bounds.height) / 2 - 3
-        
+
         groove_width = radius * 0.2
         hub_radius = radius * 0.5
-        
+
         return f'''
         <!-- Pulley gradients -->
         <defs>
@@ -2099,12 +2129,13 @@ class BlueprintLayoutOptimizer:
     """
 
     def __init__(self, target_character_height_mm: float = 300.0):
+        self.target_character_height_mm = target_character_height_mm
         self.scale_normalizer = ScaleNormalizer(target_character_height_mm)
         self.layout_manager = SmartLayoutManager()
         self.mechanism_processor = EnhancedMechanismProcessor(self.scale_normalizer)
         self.logger = logging.getLogger(__name__)
 
-    def optimize_blueprint_layout(self, part_items: List[Any], mechanism_layers: Dict[str, Any], unit_system: str = "metric") -> Tuple[List[LayoutItem], float, float]:
+    def optimize_blueprint_layout(self, part_items: list[Any], mechanism_layers: dict[str, Any], unit_system: str = "metric") -> tuple[list[LayoutItem], float, float]:
         """
         Optimize layout of parts and mechanisms for blueprint generation
         
@@ -2116,47 +2147,40 @@ class BlueprintLayoutOptimizer:
         Returns:
             Tuple of (layout_items, total_width_mm, total_height_mm)
         """
-        
-        # Scale normalizer for consistent character height
-        normalizer = ScaleNormalizer(target_character_height_mm=self.target_character_height_mm)
-        
-        # Layout manager for intelligent positioning
-        layout_manager = SmartLayoutManager()
-        
-        # Mechanism processor for enhanced mechanism support
-        mechanism_processor = EnhancedMechanismProcessor()
-        
-        layout_items: List[LayoutItem] = []
-        
+
+        layout_items: list[LayoutItem] = []
+
         # Process character parts first
         if part_items:
             self.logger.info(f"Processing {len(part_items)} character parts...")
-            for part_item in part_items:
-                try:
-                    # Process part using existing logic with normalization
-                    # This would use the existing part processing logic
-                    pass  # Simplified for now
-                except Exception as e:
-                    self.logger.warning(f"Failed to process part: {e}")
-        
+            try:
+                # Use the _process_character_parts method to actually process the parts
+                part_layout_items = self._process_character_parts(part_items)
+                layout_items.extend(part_layout_items)
+                self.logger.info(f"Successfully processed {len(part_layout_items)} parts")
+            except Exception as e:
+                self.logger.error(f"Failed to process parts: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+
         # Process mechanisms with enhanced scaling
         if mechanism_layers:
             self.logger.info(f"Processing {len(mechanism_layers)} mechanisms with unit system: {unit_system}...")
             for mech_id, mech_data in mechanism_layers.items():
                 try:
-                    layout_item = mechanism_processor.process_mechanism(mech_id, mech_data, unit_system)
+                    layout_item = self.mechanism_processor.process_mechanism(mech_id, mech_data, unit_system)
                     if layout_item:
                         layout_items.append(layout_item)
                         self.logger.debug(f"Added mechanism layout item: {mech_id}")
                 except Exception as e:
                     self.logger.warning(f"Failed to process mechanism {mech_id}: {e}")
-        
+
         # Optimize layout positioning
         if layout_items:
             self.logger.info(f"Optimizing layout for {len(layout_items)} items...")
-            optimized_items, total_width, total_height = layout_manager.optimize_layout(
-                layout_items, 
-                target_page_width_mm=800, 
+            optimized_items, total_width, total_height = self.layout_manager.optimize_layout(
+                layout_items,
+                target_page_width_mm=800,
                 target_page_height_mm=600
             )
             return optimized_items, total_width, total_height
@@ -2164,7 +2188,7 @@ class BlueprintLayoutOptimizer:
             self.logger.warning("No layout items to optimize")
             return [], 0.0, 0.0
 
-    def _process_character_parts(self, part_items: List[Any]) -> List[LayoutItem]:
+    def _process_character_parts(self, part_items: list[Any]) -> list[LayoutItem]:
         """Process character parts with TOTAL CHARACTER HEIGHT scaling (not individual parts)"""
         from automataii.generation.contour_extractor import PNGBlueprintProcessor
 
@@ -2174,14 +2198,14 @@ class BlueprintLayoutOptimizer:
         total_character_height = 0
         total_character_width = 0
         all_contours = []
-        
+
         # First pass: collect all contours and calculate total character bounds
         for item in part_items:
             processor = PNGBlueprintProcessor()
             contour = processor.process_part_png(item)
             if contour:
                 all_contours.append((item, contour))
-        
+
         if all_contours:
             # Calculate total character bounding box
             all_bounds = [contour.bounding_rect for _, contour in all_contours]
@@ -2189,20 +2213,20 @@ class BlueprintLayoutOptimizer:
             max_x = max(x + w for x, y, w, h in all_bounds)
             min_y = min(y for x, y, w, h in all_bounds)
             max_y = max(y + h for x, y, w, h in all_bounds)
-            
+
             total_character_height = max_y - min_y
             total_character_width = max_x - min_x
-            
+
             self.logger.info(f"[CHARACTER] Total character dimensions: {total_character_width}x{total_character_height} pixels")
             self.logger.info(f"[CHARACTER] Target: {self.scale_normalizer.target_height_mm}mm character height")
-            
+
             # Scale factor based on TOTAL CHARACTER HEIGHT
             scale_factor = self.scale_normalizer.calculate_scale_factor(total_character_height)
-            
+
             # Calculate actual character dimensions after scaling
             actual_character_height = total_character_height * scale_factor
             actual_character_width = total_character_width * scale_factor
-            
+
             self.logger.info(f"[CHARACTER] Scale factor: {scale_factor:.3f} mm/pixel")
             self.logger.info(f"[CHARACTER] Final character: {actual_character_width:.1f}x{actual_character_height:.1f}mm")
         else:
@@ -2234,14 +2258,14 @@ class BlueprintLayoutOptimizer:
             )
 
             layout_items.append(layout_item)
-            
+
             # Enhanced logging showing part size relative to character
             part_height_percent = (h / actual_character_height) * 100 if actual_character_height > 0 else 0
             self.logger.info(f"[CHARACTER] Part '{part_name}': {w:.1f}×{h:.1f}mm ({part_height_percent:.1f}% of character height)")
 
         return layout_items
 
-    def _process_mechanisms(self, mechanism_data: Dict[str, Any]) -> List[LayoutItem]:
+    def _process_mechanisms(self, mechanism_data: dict[str, Any]) -> list[LayoutItem]:
         """Process mechanisms with enhanced support"""
         layout_items = []
 
@@ -2283,10 +2307,10 @@ class BlueprintLayoutOptimizer:
         # Unique clipPath id - store for later defs collection
         import uuid as _uuid
         clip_id = f"clip-{_uuid.uuid4().hex[:8]}"
-        
+
         # Store clip path definition for collection by parent
         clip_def = f'<clipPath id="{clip_id}"><path d="{offset_path}" /></clipPath>'
-        
+
         # Build SVG group with image and outline (no nested defs)
         parts = []
         parts.append(f'<g class="scaled-part" data-name="{part_name}" data-clip-def="{clip_def.replace('"', '&quot;')}">')

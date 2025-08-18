@@ -24,15 +24,12 @@ a = Analysis(
     binaries=[],
     datas=[
         ('models/onnx', 'models/onnx'),
-        ('src/automataii/gui/resources', 'automataii/gui/resources'),
         ('src/automataii/gui/fonts', 'automataii/gui/fonts'),
+        ('config', 'config'),
         ('src/automataii/kinematics/generated_mechanism_paths.json', 'automataii/kinematics'),
-        ('src/automataii/macanism/appearance.json', 'automataii/macanism'),
         ('src/automataii/modules', 'automataii/modules'),
         # Only include root-level images from examples directory
-        ('src/examples/*.png', 'examples'),
-        ('src/examples/*.jpg', 'examples'),
-        ('src/examples/*.jpeg', 'examples'),
+        ('src/examples/*.png', 'examples/'),
         ('resources/', 'resources/'),
     ],
     hiddenimports=[

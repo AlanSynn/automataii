@@ -112,6 +112,11 @@ class EditorTab(QWidget):
         )
         # self.editor_view.part_item_moved.connect(self._handle_part_item_moved_from_view) # Deferred
 
+        # Connect joint bend direction change signal
+        self.editor_view.joint_bend_direction_changed.connect(
+            self._handle_joint_bend_direction_changed
+        )
+
     def _init_ui(self):
         layout = QHBoxLayout(self)
 
@@ -272,7 +277,7 @@ class EditorTab(QWidget):
         self.clear_motion_path_btn.setStyleSheet(motion_path_button_style.replace("#a7c7e7", "#e7a7a7"))
 
         # Path type selection (Open/Closed)
-        from PyQt6.QtWidgets import QRadioButton, QButtonGroup
+        from PyQt6.QtWidgets import QButtonGroup, QRadioButton
 
         path_type_layout = QHBoxLayout()
         path_type_layout.setSpacing(10)
@@ -1249,6 +1254,7 @@ class EditorTab(QWidget):
                                 "parent": joint_model_dict.get("parent_id"),
                                 "color": joint_model_dict.get("color", "blue"),
                                 "label": joint_model_dict.get("label"),
+                                "bend_direction": joint_model_dict.get("bend_direction", 1.0),  # Add bend direction
                             }
                         )
 
@@ -2037,3 +2043,43 @@ class EditorTab(QWidget):
                 if hasattr(item, 'motion_path') and item.motion_path and not item.motion_path.isEmpty():
                     return True
         return False
+
+    def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
+        """Handle joint bend direction change from EditorView."""
+        logging.info(f"EditorTab: Joint '{joint_id}' bend direction changed to {new_direction}")
+
+        # More detailed debug logging
+        if not hasattr(self, 'main_window'):
+            logging.error("EditorTab: No main_window attribute!")
+            return
+
+        logging.info(f"EditorTab: main_window exists: {self.main_window}")
+
+        if not hasattr(self.main_window, 'skeleton_manager'):
+            logging.warning("EditorTab: main_window has no skeleton_manager attribute")
+            # List all attributes containing 'skeleton' for debugging
+            skeleton_attrs = [attr for attr in dir(self.main_window) if 'skeleton' in attr.lower()]
+            logging.info(f"EditorTab: main_window skeleton-related attributes: {skeleton_attrs}")
+            return
+
+        sm = self.main_window.skeleton_manager
+        logging.info(f"EditorTab: skeleton_manager = {sm}")
+
+        if sm is None:
+            logging.warning("EditorTab: skeleton_manager is None")
+            return
+
+        # Call set_joint_bend_direction
+        logging.info(f"EditorTab: Calling skeleton_manager.set_joint_bend_direction('{joint_id}', {new_direction})")
+        try:
+            sm.set_joint_bend_direction(joint_id, new_direction)
+            logging.info("EditorTab: Successfully called set_joint_bend_direction")
+        except Exception as e:
+            logging.error(f"EditorTab: Error calling set_joint_bend_direction: {e}", exc_info=True)
+
+        # Store in cached skeleton data if available
+        if self._initial_skeleton_data_cache and 'joints' in self._initial_skeleton_data_cache:
+            joints = self._initial_skeleton_data_cache['joints']
+            if joint_id in joints:
+                joints[joint_id]['bend_direction'] = new_direction
+                logging.info(f"EditorTab: Updated bend_direction in cached skeleton data for joint '{joint_id}'")

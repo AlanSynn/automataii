@@ -4,12 +4,10 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QFont, QPixmap
 from PyQt6.QtWidgets import (
-    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -142,10 +140,10 @@ class LandingTab(QWidget):
         self.experiment_mode = experiment_mode
 
         # Use resolve_path to find examples directory in both development and bundled environments
+        # Search both layouts: dev (src/examples) and bundled (examples)
         self.example_dirs = [
+            resolve_path("examples"),
             resolve_path("src/examples"),
-            # Add fallback paths if needed
-            get_project_root() / "src" / "examples",
         ]
 
         self.image_widgets: list[ExampleImageWidget] = []

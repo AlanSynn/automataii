@@ -9,9 +9,9 @@ Inspired by: Carmack's performance engineering and debug systems
 
 import logging
 import re
-import xml.etree.ElementTree as ET
-from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
+from typing import Any
+
 
 @dataclass
 class BoundingBox:
@@ -20,16 +20,16 @@ class BoundingBox:
     y: float
     width: float
     height: float
-    
+
     def is_valid(self) -> bool:
         """Check if bounding box is valid (positive dimensions)"""
         return self.width > 0 and self.height > 0
-    
+
     def area(self) -> float:
         """Calculate bounding box area"""
         return self.width * self.height
-    
-    def center(self) -> Tuple[float, float]:
+
+    def center(self) -> tuple[float, float]:
         """Get center point of bounding box"""
         return (self.x + self.width / 2, self.y + self.height / 2)
 
@@ -39,23 +39,23 @@ class DebugInfo:
     """Debug information for mechanism rendering"""
     mechanism_id: str
     mechanism_type: str
-    data_completeness: Dict[str, bool]
+    data_completeness: dict[str, bool]
     transform_valid: bool
     svg_generated: bool
     svg_length: int
-    bounding_box: Optional[BoundingBox]
-    errors: List[str]
-    warnings: List[str]
+    bounding_box: BoundingBox | None
+    errors: list[str]
+    warnings: list[str]
 
 
 class MechanismDebugRenderer:
     """Debug visualization for mechanism placement issues"""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.debug_reports: List[DebugInfo] = []
-        
-    def debug_mechanism_transforms(self, mechanism_data: Dict[str, Any]) -> List[DebugInfo]:
+        self.debug_reports: list[DebugInfo] = []
+
+    def debug_mechanism_transforms(self, mechanism_data: dict[str, Any]) -> list[DebugInfo]:
         """
         Validate mechanism data completeness and debug transform issues
         
@@ -66,24 +66,24 @@ class MechanismDebugRenderer:
             List of debug reports for each mechanism
         """
         debug_reports = []
-        
+
         if not mechanism_data:
             self.logger.warning("No mechanism data provided for debugging")
             return debug_reports
-            
+
         for mech_id, data in mechanism_data.items():
             debug_info = self._debug_single_mechanism(mech_id, data)
             debug_reports.append(debug_info)
-            
+
         self.debug_reports = debug_reports
         return debug_reports
-    
-    def _debug_single_mechanism(self, mech_id: str, data: Dict[str, Any]) -> DebugInfo:
+
+    def _debug_single_mechanism(self, mech_id: str, data: dict[str, Any]) -> DebugInfo:
         """Debug a single mechanism"""
-        
+
         errors = []
         warnings = []
-        
+
         # Initialize debug info
         debug_info = DebugInfo(
             mechanism_id=mech_id,
@@ -96,19 +96,19 @@ class MechanismDebugRenderer:
             errors=errors,
             warnings=warnings
         )
-        
+
         # Check data completeness
         required_fields = ['mechanism_type', 'position', 'rotation', 'scale']
         for field in required_fields:
             debug_info.data_completeness[field] = field in data
             if field not in data:
                 errors.append(f"Missing required field: {field}")
-        
+
         # Check mechanism type validity
         valid_types = ['gear', 'linkage', 'cam']
         if debug_info.mechanism_type not in valid_types:
             errors.append(f"Invalid mechanism type: {debug_info.mechanism_type}")
-        
+
         # Check position data
         position = data.get('position')
         if position:
@@ -121,7 +121,7 @@ class MechanismDebugRenderer:
                         warnings.append(f"Position coordinates seem extreme: ({x}, {y})")
                 except (ValueError, TypeError):
                     errors.append("Position coordinates must be numeric")
-        
+
         # Check rotation data
         rotation = data.get('rotation')
         if rotation is not None:
@@ -131,7 +131,7 @@ class MechanismDebugRenderer:
                     warnings.append(f"Rotation value outside normal range: {rot_val}")
             except (ValueError, TypeError):
                 errors.append("Rotation must be numeric")
-        
+
         # Check scale data
         scale = data.get('scale')
         if scale is not None:
@@ -143,52 +143,52 @@ class MechanismDebugRenderer:
                     warnings.append(f"Large scale value may cause positioning issues: {scale_val}")
             except (ValueError, TypeError):
                 errors.append("Scale must be numeric")
-        
+
         # Validate transform matrix if present
         debug_info.transform_valid = self._validate_transform_matrix(data)
-        
+
         # Test SVG generation
         try:
             svg_content = self._generate_test_svg(debug_info.mechanism_type, data)
             debug_info.svg_generated = bool(svg_content)
             debug_info.svg_length = len(svg_content) if svg_content else 0
-            
+
             if svg_content:
                 debug_info.bounding_box = self.parse_svg_bounds(svg_content)
             else:
                 errors.append("SVG generation failed - no content produced")
-                
+
         except Exception as e:
             errors.append(f"SVG generation error: {str(e)}")
-        
+
         return debug_info
-    
-    def _validate_transform_matrix(self, data: Dict[str, Any]) -> bool:
+
+    def _validate_transform_matrix(self, data: dict[str, Any]) -> bool:
         """Validate transform matrix calculations"""
         try:
             position = data.get('position', [0, 0])
             rotation = data.get('rotation', 0)
             scale = data.get('scale', 1)
-            
+
             # Basic validation
             x, y = float(position[0]), float(position[1])
             rot = float(rotation)
             sc = float(scale)
-            
+
             # Check for reasonable values
             if abs(x) > 50000 or abs(y) > 50000:
                 return False
             if sc <= 0 or sc > 100:
                 return False
-            
+
             return True
-            
+
         except (ValueError, TypeError, IndexError):
             return False
-    
-    def _generate_test_svg(self, mechanism_type: str, data: Dict[str, Any]) -> str:
+
+    def _generate_test_svg(self, mechanism_type: str, data: dict[str, Any]) -> str:
         """Generate test SVG to verify mechanism generation"""
-        
+
         # Import mechanism generators
         try:
             if mechanism_type == 'gear':
@@ -211,8 +211,8 @@ class MechanismDebugRenderer:
         except Exception as e:
             self.logger.error(f"Mechanism generator error: {e}")
             return ""
-    
-    def parse_svg_bounds(self, svg_content: str) -> Optional[BoundingBox]:
+
+    def parse_svg_bounds(self, svg_content: str) -> BoundingBox | None:
         """
         Parse SVG content and calculate actual rendering bounds
         
@@ -224,7 +224,7 @@ class MechanismDebugRenderer:
         """
         if not svg_content:
             return None
-            
+
         try:
             # Extract viewBox or width/height from SVG root
             viewbox_match = re.search(r'viewBox=["\']([\d\.\-\s]+)["\']', svg_content)
@@ -233,56 +233,56 @@ class MechanismDebugRenderer:
                 if len(coords) >= 4:
                     x, y, w, h = map(float, coords[:4])
                     return BoundingBox(x, y, w, h)
-            
+
             # Try to extract width and height attributes
             width_match = re.search(r'width=["\']([\d\.]+)["\']', svg_content)
             height_match = re.search(r'height=["\']([\d\.]+)["\']', svg_content)
-            
+
             if width_match and height_match:
                 w = float(width_match.group(1))
                 h = float(height_match.group(1))
                 return BoundingBox(0, 0, w, h)
-            
+
             # Fallback: analyze path coordinates
             return self._estimate_bounds_from_paths(svg_content)
-            
+
         except Exception as e:
             self.logger.error(f"Error parsing SVG bounds: {e}")
             return None
-    
-    def _estimate_bounds_from_paths(self, svg_content: str) -> Optional[BoundingBox]:
+
+    def _estimate_bounds_from_paths(self, svg_content: str) -> BoundingBox | None:
         """Estimate bounds by analyzing path coordinates"""
-        
+
         try:
             # Find all numeric coordinates in path data
             coords = []
-            
+
             # Match path d attributes
             path_matches = re.findall(r'd=["\']([\d\.\-\sMLCZ]+)["\']', svg_content)
             for path_data in path_matches:
                 # Extract coordinates (simple regex for basic paths)
                 numbers = re.findall(r'[\d\.\-]+', path_data)
                 coords.extend([float(n) for n in numbers])
-            
+
             # Match circle/rect coordinates
             circle_matches = re.findall(r'c[xy]=["\']([\d\.\-]+)["\']', svg_content)
             coords.extend([float(m) for m in circle_matches])
-            
+
             rect_matches = re.findall(r'[xy]=["\']([\d\.\-]+)["\']', svg_content)
             coords.extend([float(m) for m in rect_matches])
-            
+
             if coords:
                 min_coord = min(coords)
                 max_coord = max(coords)
                 size = max_coord - min_coord
                 return BoundingBox(min_coord, min_coord, size, size)
-            
+
             return None
-            
+
         except Exception as e:
             self.logger.error(f"Error estimating bounds from paths: {e}")
             return None
-    
+
     def render_mechanism_bounds(self, svg_content: str, debug_info: DebugInfo) -> str:
         """
         Render debug visualization with mechanism bounds
@@ -296,9 +296,9 @@ class MechanismDebugRenderer:
         """
         if not svg_content or not debug_info.bounding_box:
             return svg_content
-        
+
         bbox = debug_info.bounding_box
-        
+
         # Add debug overlay
         debug_overlay = f'''
     <!-- Debug Overlay for {debug_info.mechanism_id} -->
@@ -320,78 +320,78 @@ class MechanismDebugRenderer:
         </text>
     </g>
         '''
-        
+
         # Insert debug overlay before closing </svg> tag
         if '</svg>' in svg_content:
             svg_content = svg_content.replace('</svg>', debug_overlay + '\n</svg>')
         else:
             svg_content += debug_overlay
-            
+
         return svg_content
-    
+
     def generate_debug_report(self) -> str:
         """Generate comprehensive debug report"""
-        
+
         if not self.debug_reports:
             return "No debug reports available"
-        
+
         report_lines = [
             "=== MECHANISM DEBUG REPORT ===",
             f"Total mechanisms analyzed: {len(self.debug_reports)}",
             ""
         ]
-        
+
         successful_mechanisms = 0
         total_errors = 0
         total_warnings = 0
-        
+
         for debug_info in self.debug_reports:
             report_lines.append(f"Mechanism: {debug_info.mechanism_id}")
             report_lines.append(f"  Type: {debug_info.mechanism_type}")
             report_lines.append(f"  SVG Generated: {debug_info.svg_generated}")
             report_lines.append(f"  SVG Length: {debug_info.svg_length}")
-            
+
             if debug_info.bounding_box:
                 bbox = debug_info.bounding_box
                 report_lines.append(f"  Bounds: {bbox.width:.1f}x{bbox.height:.1f} at ({bbox.x:.1f}, {bbox.y:.1f})")
             else:
                 report_lines.append("  Bounds: Not available")
-            
+
             # Data completeness
             missing_fields = [k for k, v in debug_info.data_completeness.items() if not v]
             if missing_fields:
                 report_lines.append(f"  Missing fields: {', '.join(missing_fields)}")
-            
+
             # Errors and warnings
             if debug_info.errors:
                 report_lines.append(f"  Errors ({len(debug_info.errors)}):")
                 for error in debug_info.errors:
                     report_lines.append(f"    - {error}")
                 total_errors += len(debug_info.errors)
-            
+
             if debug_info.warnings:
                 report_lines.append(f"  Warnings ({len(debug_info.warnings)}):")
                 for warning in debug_info.warnings:
                     report_lines.append(f"    - {warning}")
                 total_warnings += len(debug_info.warnings)
-            
+
             if debug_info.svg_generated and not debug_info.errors:
                 successful_mechanisms += 1
-                
+
             report_lines.append("")
-        
+
         # Summary
         report_lines.extend([
-            f"=== SUMMARY ===",
+            "=== SUMMARY ===",
             f"Successful mechanisms: {successful_mechanisms}/{len(self.debug_reports)}",
             f"Total errors: {total_errors}",
             f"Total warnings: {total_warnings}",
             ""
         ])
-        
+
         return "\n".join(report_lines)
-    
-    def get_problematic_mechanisms(self) -> List[DebugInfo]:
+
+    def get_problematic_mechanisms(self) -> list[DebugInfo]:
         """Get list of mechanisms with issues"""
-        return [debug for debug in self.debug_reports 
+        return [debug for debug in self.debug_reports
                 if debug.errors or not debug.svg_generated or not debug.bounding_box]

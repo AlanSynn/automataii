@@ -19,6 +19,7 @@ def main():
                        default='auto', help='Target platform (auto-detect by default)')
     parser.add_argument('--sign', type=str, help='Code signing identity (macOS only)')
     parser.add_argument('--no-dmg', action='store_true', help='Skip DMG creation (macOS only)')
+    parser.add_argument('--arch', choices=['auto','arm64','x86_64'], default='auto', help='Target architecture for macOS build')
     parser.add_argument('--no-installer', action='store_true', help='Skip installer creation (Windows only)')
     parser.add_argument('--no-zsync', action='store_true', help='Skip zsync file creation (Linux only)')
     parser.add_argument('--update-url', type=str, help='Update server URL (Linux only)')
@@ -48,7 +49,8 @@ def main():
             success = builder.build(
                 sign_identity=args.sign,
                 create_dmg=not args.no_dmg,
-                experiment_mode=args.experiment
+                experiment_mode=args.experiment,
+                arch=args.arch
             )
         
         elif args.platform == 'linux':
@@ -56,16 +58,14 @@ def main():
             builder = LinuxBuilder(Path(__file__).parent.parent)
             success = builder.build(
                 update_url=args.update_url,
-                create_zsync=not args.no_zsync,
-                experiment_mode=args.experiment
+                create_zsync=not args.no_zsync
             )
         
         elif args.platform == 'windows':
             from build_windows import WindowsBuilder
             builder = WindowsBuilder(Path(__file__).parent.parent)
             success = builder.build(
-                create_installer=not args.no_installer,
-                experiment_mode=args.experiment
+                create_installer=not args.no_installer
             )
         
         else:

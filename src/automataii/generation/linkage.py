@@ -2,10 +2,9 @@
 
 import logging
 import math
-from typing import Optional, Dict, List, Any, Tuple
-from PyQt6.QtCore import QPointF, QLineF
-from PyQt6.QtGui import QPainterPath
-import numpy as np  # For more complex geometry if needed in future
+from typing import Any
+
+from PyQt6.QtCore import QPointF
 
 from .base_mechanism import BaseMechanism
 
@@ -32,9 +31,9 @@ class Linkage(BaseMechanism):
         self,
         base_pos: QPointF = QPointF(0, 0),
         scale: float = 1.0,
-        link_lengths: Optional[Dict[str, float]] = None,
+        link_lengths: dict[str, float] | None = None,
         input_angle_deg: float = 30.0,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Generates data for a representative 3-bar linkage (crank-rocker type often).
         For now, this creates a fixed geometry 3-bar linkage, not synthesized from a path.
@@ -118,9 +117,9 @@ class Linkage(BaseMechanism):
         self,
         base_pos: QPointF = QPointF(0, 0),
         scale: float = 1.0,
-        link_lengths: Optional[Dict[str, float]] = None,  # l1, l2, l3, l4 (ground)
+        link_lengths: dict[str, float] | None = None,  # l1, l2, l3, l4 (ground)
         input_angle_deg: float = 60.0,  # Angle of crank l1
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Generates data for a representative 4-bar linkage.
         Calculates positions of p1 and p2 based on input angle theta1 for crank l1.
@@ -229,7 +228,7 @@ class Linkage(BaseMechanism):
             # Could add Grashof condition info here if needed
         }
 
-    def generate(self, bar_type: str, **kwargs) -> Optional[Dict[str, Any]]:
+    def generate(self, bar_type: str, **kwargs) -> dict[str, Any] | None:
         """
         Generates linkage data based on the specified bar type.
 
@@ -334,11 +333,11 @@ if __name__ == "__main__":
 
 class LinkageGenerator:
     """Generator for linkage mechanism SVG blueprints."""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    
-    def generate_svg(self, linkage_data: Dict[str, Any]) -> str:
+
+    def generate_svg(self, linkage_data: dict[str, Any]) -> str:
         """
         Generate SVG representation of linkage mechanism for blueprints.
         
@@ -353,10 +352,10 @@ class LinkageGenerator:
             linkage_type = linkage_data.get('type', '4_bar_linkage')
             params = linkage_data.get('params', {})
             name = linkage_data.get('name', 'Linkage')
-            
+
             # Debug logging
             self.logger.debug(f"LinkageGenerator received data: type={linkage_type}, params={params}")
-            
+
             # Handle GUI format with params (l1, l2, l3, l4)
             if params and 'l1' in params:
                 # Convert from GUI format to links/joints format
@@ -364,28 +363,28 @@ class LinkageGenerator:
                 l2 = params.get('l2', 80)
                 l3 = params.get('l3', 70)
                 l4 = params.get('l4', 90)
-                
+
                 # Create links and joints from parameters - use proper 4-bar layout
                 # Position joints to form a proper 4-bar linkage
                 import math
                 theta = math.radians(45)  # Initial crank angle
-                
+
                 # Joint positions
                 O1 = [0, 0]  # Fixed pivot 1
                 O2 = [l4, 0]  # Fixed pivot 2
                 A = [l1 * math.cos(theta), l1 * math.sin(theta)]  # Crank endpoint
-                
+
                 # Calculate position B using constraint circles
                 # This is simplified - in reality would solve the constraint equations
                 B = [O2[0] - l3 * 0.7, l3 * 0.7]  # Approximation for visualization
-                
+
                 links = [
                     {'name': 'Ground', 'start': O1, 'end': O2, 'length': l4, 'width': 10},
                     {'name': 'Crank', 'start': O1, 'end': A, 'length': l1, 'width': 8},
                     {'name': 'Coupler', 'start': A, 'end': B, 'length': l2, 'width': 8},
                     {'name': 'Rocker', 'start': O2, 'end': B, 'length': l3, 'width': 8}
                 ]
-                
+
                 joints = [
                     {'name': 'O1', 'position': O1, 'type': 'revolute', 'links': ['Ground', 'Crank']},
                     {'name': 'A', 'position': A, 'type': 'revolute', 'links': ['Crank', 'Coupler']},
@@ -396,7 +395,7 @@ class LinkageGenerator:
                 # Fallback to original format
                 links = linkage_data.get('links', [])
                 joints = linkage_data.get('joints', [])
-            
+
             if not links or not joints:
                 # Generate basic 4-bar linkage if no data
                 links = [
@@ -411,18 +410,18 @@ class LinkageGenerator:
                     {'name': 'B', 'position': [90, 40], 'type': 'revolute'},
                     {'name': 'O2', 'position': [100, 0], 'type': 'revolute'}
                 ]
-            
+
             # Calculate linkage bounds for layout
             all_x = []
             all_y = []
             for link in links:
                 all_x.extend([link.get('start', [0, 0])[0], link.get('end', [50, 0])[0]])
                 all_y.extend([link.get('start', [0, 0])[1], link.get('end', [50, 0])[1]])
-            
+
             min_x, max_x = min(all_x), max(all_x)
             min_y, max_y = min(all_y), max(all_y)
             center_x, center_y = (min_x + max_x) / 2, (min_y + max_y) / 2
-            
+
             # Generate comprehensive technical drawing
             svg_content = f'''
             <g class="linkage-mechanism">
@@ -434,14 +433,14 @@ class LinkageGenerator:
                 <text x="{center_x}" y="{min_y - 10}" 
                       font-family="Arial" font-size="8" text-anchor="middle">Part No: LINK-{len(links)}BAR-001</text>
             '''
-            
+
             # Draw links with detailed specifications
             for i, link in enumerate(links):
                 start_pos = link.get('start', [0, 0])
                 end_pos = link.get('end', [50, 0])
                 length = link.get('length', 50.0)
                 width = link.get('width', 8.0)  # Link width for cutting
-                
+
                 # Calculate link angle and perpendicular offset for width
                 import math
                 dx = end_pos[0] - start_pos[0]
@@ -449,7 +448,7 @@ class LinkageGenerator:
                 angle = math.atan2(dy, dx)
                 perp_x = -math.sin(angle) * width / 2
                 perp_y = math.cos(angle) * width / 2
-                
+
                 # Draw link as rectangle for manufacturing
                 link_points = [
                     [start_pos[0] + perp_x, start_pos[1] + perp_y],
@@ -457,12 +456,12 @@ class LinkageGenerator:
                     [end_pos[0] - perp_x, end_pos[1] - perp_y],
                     [end_pos[0] + perp_x, end_pos[1] + perp_y]
                 ]
-                
+
                 path_data = f"M {link_points[0][0]:.2f},{link_points[0][1]:.2f} "
                 for point in link_points[1:]:
                     path_data += f"L {point[0]:.2f},{point[1]:.2f} "
                 path_data += "Z"
-                
+
                 svg_content += f'''
                 <!-- Link {i+1} -->
                 <g class="link-{i+1}">
@@ -493,12 +492,12 @@ class LinkageGenerator:
                     </text>
                 </g>
                 '''
-            
+
             # Draw joints with manufacturing specifications
             for i, joint in enumerate(joints):
                 pos = joint.get('position', [0, 0])
                 joint_type = joint.get('type', 'revolute')
-                
+
                 if joint_type == 'fixed':
                     # Ground joint with mounting holes
                     svg_content += f'''
@@ -536,7 +535,7 @@ class LinkageGenerator:
                         </text>
                     </g>
                     '''
-            
+
             # Add manufacturing notes with anti-overlap layout
             svg_content += f'''
             <!-- Manufacturing specifications with background -->
@@ -567,7 +566,7 @@ class LinkageGenerator:
             </g>
             '''
             return svg_content.strip()
-            
+
         except Exception as e:
             self.logger.error(f"Failed to generate linkage SVG: {e}")
-            return f'<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate linkage</text>'
+            return '<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate linkage</text>'

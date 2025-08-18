@@ -46,14 +46,14 @@ from automataii.gui.tabs.landing_tab import LandingTab
 from automataii.gui.tabs.mechanism_design_tab import MechanismDesignTab
 from automataii.gui.tabs.options_tab import OptionsTab
 
-# Import mechanism foundry tab
-from automataii.ui.tabs.mechanism_foundry import EnhancedMacanismTab
-
 # Local imports (adjust paths as needed)
 from automataii.gui.views.editor_view import EditorView  # ADD THIS IMPORT
 
 # Import IKManager
 from automataii.kinematics.ik_manager import IKManager
+
+# Import mechanism foundry tab
+from automataii.ui.tabs.mechanism_foundry import EnhancedMacanismTab
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 
 # from qframelesswindow import FramelessMainWindow
@@ -179,7 +179,7 @@ class AutomataDesigner(QMainWindow):
                 }
             """)
             self.statusBar().addPermanentWidget(experiment_label)
-            
+
         if self.editing_mode:
             # Add permanent editing mode indicator to status bar
             editing_label = QLabel("✏️ Editing Mode")

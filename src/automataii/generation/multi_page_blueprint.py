@@ -7,20 +7,20 @@ Author: Legendary CS Research Collective
 Inspired by: Knuth's multi-page algorithms + professional CAD systems
 """
 
-import logging
-import math
 import html
+import logging
 import re
-from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass
+
 from automataii.generation.blueprint_optimizer import LayoutItem, ScaledBounds
+
 
 @dataclass
 class BlueprintPage:
     """Represents a single blueprint page"""
     page_number: int
     title: str
-    items: List[LayoutItem]
+    items: list[LayoutItem]
     width_mm: float
     height_mm: float
     content_type: str  # 'parts', 'mechanisms', 'assembly', 'specifications'
@@ -30,7 +30,7 @@ class MultiPageBlueprintManager:
     Manages multi-page blueprint generation for complete documentation
     Ensures nothing gets cut off and all content is properly organized
     """
-    
+
     def __init__(self, page_width_mm: float = 600.0, page_height_mm: float = 800.0):
         """
         Initialize multi-page manager
@@ -45,8 +45,8 @@ class MultiPageBlueprintManager:
         self.specs_height_mm = 100.0
         self.content_height_mm = page_height_mm - self.title_height_mm - self.specs_height_mm - 40  # margins
         self.logger = logging.getLogger(__name__)
-        
-    def create_multi_page_blueprint(self, layout_items: List[LayoutItem]) -> List[BlueprintPage]:
+
+    def create_multi_page_blueprint(self, layout_items: list[LayoutItem]) -> list[BlueprintPage]:
         """
         Create multi-page blueprint ensuring all content is visible
         
@@ -58,50 +58,50 @@ class MultiPageBlueprintManager:
         """
         if not layout_items:
             return [self._create_empty_page()]
-        
+
         self.logger.info(f"Creating multi-page blueprint for {len(layout_items)} items")
-        
+
         # Separate items by type for better organization
         parts = [item for item in layout_items if item.item_type == 'part']
         mechanisms = [item for item in layout_items if item.item_type == 'mechanism']
-        
+
         pages = []
-        
+
         # Create parts pages
         if parts:
             parts_pages = self._create_parts_pages(parts)
             pages.extend(parts_pages)
-        
+
         # Create mechanism pages
         if mechanisms:
             mechanism_pages = self._create_mechanism_pages(mechanisms)
             pages.extend(mechanism_pages)
-        
+
         # Create assembly overview page
         if parts or mechanisms:
             assembly_page = self._create_assembly_overview_page(parts, mechanisms)
             pages.append(assembly_page)
-        
+
         # Create specifications page
         specs_page = self._create_specifications_page(len(parts), len(mechanisms))
         pages.append(specs_page)
-        
+
         self.logger.info(f"Generated {len(pages)} blueprint pages")
         return pages
-    
-    def _create_parts_pages(self, parts: List[LayoutItem]) -> List[BlueprintPage]:
+
+    def _create_parts_pages(self, parts: list[LayoutItem]) -> list[BlueprintPage]:
         """Create dedicated pages for character parts"""
         pages = []
-        
+
         # Group parts that fit on each page
         current_page_items = []
         current_y = 15.0  # Start padding
         page_number = 1
-        
+
         for part in parts:
             # Check if part fits on current page
             required_height = part.bounds.height + 60  # Extra space for dimensions and labels
-            
+
             if current_y + required_height <= self.content_height_mm:
                 # Fits on current page
                 current_page_items.append(part)
@@ -119,11 +119,11 @@ class MultiPageBlueprintManager:
                     )
                     pages.append(page)
                     page_number += 1
-                
+
                 # Start new page with current part
                 current_page_items = [part]
                 current_y = 15.0 + required_height + 20
-        
+
         # Add remaining items to final page
         if current_page_items:
             page = BlueprintPage(
@@ -135,29 +135,29 @@ class MultiPageBlueprintManager:
                 content_type='parts'
             )
             pages.append(page)
-        
+
         return pages
-    
-    def _create_mechanism_pages(self, mechanisms: List[LayoutItem]) -> List[BlueprintPage]:
+
+    def _create_mechanism_pages(self, mechanisms: list[LayoutItem]) -> list[BlueprintPage]:
         """Create dedicated pages for mechanisms"""
         pages = []
-        
+
         # Group mechanisms by type for better organization
         mechanism_groups = self._group_mechanisms_by_type(mechanisms)
-        
+
         page_number = 1
         for mech_type, mech_list in mechanism_groups.items():
             if not mech_list:
                 continue
-                
+
             # Create pages for this mechanism type
             type_pages = self._create_mechanism_type_pages(mech_type, mech_list, page_number)
             pages.extend(type_pages)
             page_number += len(type_pages)
-        
+
         return pages
-    
-    def _group_mechanisms_by_type(self, mechanisms: List[LayoutItem]) -> Dict[str, List[LayoutItem]]:
+
+    def _group_mechanisms_by_type(self, mechanisms: list[LayoutItem]) -> dict[str, list[LayoutItem]]:
         """Group mechanisms by their type for better organization"""
         groups = {
             'gears': [],
@@ -169,11 +169,11 @@ class MultiPageBlueprintManager:
             'dampers': [],
             'custom': []
         }
-        
+
         for mech in mechanisms:
             # Extract mechanism type from SVG content or name
             mech_name = mech.name.lower()
-            
+
             if 'gear' in mech_name:
                 groups['gears'].append(mech)
             elif 'linkage' in mech_name or 'link' in mech_name:
@@ -190,30 +190,30 @@ class MultiPageBlueprintManager:
                 groups['dampers'].append(mech)
             else:
                 groups['custom'].append(mech)
-        
+
         # Remove empty groups
         return {k: v for k, v in groups.items() if v}
-    
-    def _create_mechanism_type_pages(self, mech_type: str, mechanisms: List[LayoutItem], start_page: int) -> List[BlueprintPage]:
+
+    def _create_mechanism_type_pages(self, mech_type: str, mechanisms: list[LayoutItem], start_page: int) -> list[BlueprintPage]:
         """Create pages for a specific mechanism type"""
         pages = []
-        
+
         # Calculate how many mechanisms fit per page
         mechanisms_per_row = 3  # 3 mechanisms per row for readability
         mechanism_height = 120  # Standard height including labels
         rows_per_page = int(self.content_height_mm / mechanism_height)
         mechanisms_per_page = mechanisms_per_row * rows_per_page
-        
+
         page_number = start_page
-        
+
         for i in range(0, len(mechanisms), mechanisms_per_page):
             page_mechanisms = mechanisms[i:i + mechanisms_per_page]
-            
+
             # Redistribute mechanisms on this page for optimal layout
             redistributed_mechanisms = self._redistribute_mechanisms_on_page(
                 page_mechanisms, mechanisms_per_row
             )
-            
+
             page = BlueprintPage(
                 page_number=page_number,
                 title=f"{mech_type.title()} Mechanisms - Page {page_number}",
@@ -224,24 +224,24 @@ class MultiPageBlueprintManager:
             )
             pages.append(page)
             page_number += 1
-        
+
         return pages
-    
-    def _redistribute_mechanisms_on_page(self, mechanisms: List[LayoutItem], per_row: int) -> List[LayoutItem]:
+
+    def _redistribute_mechanisms_on_page(self, mechanisms: list[LayoutItem], per_row: int) -> list[LayoutItem]:
         """Redistribute mechanisms evenly on a page"""
         mechanism_width = (self.page_width_mm - 60) / per_row  # Account for margins
         mechanism_height = 120
-        
+
         redistributed = []
-        
+
         for i, mech in enumerate(mechanisms):
             row = i // per_row
             col = i % per_row
-            
+
             # Calculate new position
             new_x = 30 + col * mechanism_width  # Start margin + column spacing
             new_y = 20 + row * mechanism_height  # Top margin + row spacing
-            
+
             # Update mechanism bounds
             new_bounds = ScaledBounds(
                 x=new_x,
@@ -249,7 +249,7 @@ class MultiPageBlueprintManager:
                 width=min(mech.bounds.width, mechanism_width - 20),  # Leave some spacing
                 height=min(mech.bounds.height, mechanism_height - 20)
             )
-            
+
             # Create new layout item with updated position
             new_mech = LayoutItem(
                 name=mech.name,
@@ -258,25 +258,25 @@ class MultiPageBlueprintManager:
                 item_type=mech.item_type,
                 priority=mech.priority
             )
-            
+
             redistributed.append(new_mech)
-        
+
         return redistributed
-    
-    def _create_assembly_overview_page(self, parts: List[LayoutItem], mechanisms: List[LayoutItem]) -> BlueprintPage:
+
+    def _create_assembly_overview_page(self, parts: list[LayoutItem], mechanisms: list[LayoutItem]) -> BlueprintPage:
         """Create assembly overview page showing how parts and mechanisms connect"""
-        
+
         # Create simplified overview items
         overview_items = []
-        
+
         # Add simplified part representations
         parts_overview = self._create_parts_overview(parts)
         overview_items.extend(parts_overview)
-        
+
         # Add mechanism connection diagrams
         mechanism_overview = self._create_mechanism_overview(mechanisms)
         overview_items.extend(mechanism_overview)
-        
+
         return BlueprintPage(
             page_number=999,  # Will be renumbered
             title="Assembly Overview & Connection Diagram",
@@ -285,22 +285,22 @@ class MultiPageBlueprintManager:
             height_mm=self.page_height_mm,
             content_type='assembly'
         )
-    
-    def _create_parts_overview(self, parts: List[LayoutItem]) -> List[LayoutItem]:
+
+    def _create_parts_overview(self, parts: list[LayoutItem]) -> list[LayoutItem]:
         """Create simplified overview of all parts"""
         overview_items = []
-        
+
         # Create a grid layout for part thumbnails
         thumbnails_per_row = 4
         thumbnail_size = 80
-        
+
         for i, part in enumerate(parts):
             row = i // thumbnails_per_row
             col = i % thumbnails_per_row
-            
+
             x = 50 + col * (thumbnail_size + 20)
             y = 50 + row * (thumbnail_size + 30)
-            
+
             # Create simplified part representation
             simplified_svg = f'''
             <g class="part-overview">
@@ -316,7 +316,7 @@ class MultiPageBlueprintManager:
                 </text>
             </g>
             '''
-            
+
             overview_item = LayoutItem(
                 name=f"{part.name}_overview",
                 bounds=ScaledBounds(x=x, y=y, width=thumbnail_size, height=thumbnail_size+20),
@@ -325,16 +325,16 @@ class MultiPageBlueprintManager:
                 priority=1
             )
             overview_items.append(overview_item)
-        
+
         return overview_items
-    
-    def _create_mechanism_overview(self, mechanisms: List[LayoutItem]) -> List[LayoutItem]:
+
+    def _create_mechanism_overview(self, mechanisms: list[LayoutItem]) -> list[LayoutItem]:
         """Create mechanism connection overview"""
         overview_items = []
-        
+
         # Group mechanisms and show connections
         connection_y = 300  # Below parts overview
-        
+
         connection_svg = '''
         <g class="mechanism-connections">
             <text x="50" y="20" class="section-title">Mechanism Connections</text>
@@ -345,7 +345,7 @@ class MultiPageBlueprintManager:
             <!-- Connection diagram -->
             <g transform="translate(50,60)">
         '''
-        
+
         # Add connection lines and labels for different mechanism types
         y_offset = 0
         for i, mech in enumerate(mechanisms):
@@ -356,12 +356,12 @@ class MultiPageBlueprintManager:
                 </text>
             '''
             y_offset += 25
-        
+
         connection_svg += '''
             </g>
         </g>
         '''
-        
+
         connection_item = LayoutItem(
             name="mechanism_connections",
             bounds=ScaledBounds(x=0, y=connection_y, width=500, height=200),
@@ -370,12 +370,12 @@ class MultiPageBlueprintManager:
             priority=1
         )
         overview_items.append(connection_item)
-        
+
         return overview_items
-    
+
     def _create_specifications_page(self, num_parts: int, num_mechanisms: int) -> BlueprintPage:
         """Create comprehensive specifications page"""
-        
+
         specs_svg = f'''
         <g class="specifications-page">
             <text x="50" y="50" class="section-title" font-size="18">
@@ -465,7 +465,7 @@ class MultiPageBlueprintManager:
             </g>
         </g>
         '''
-        
+
         specs_item = LayoutItem(
             name="specifications",
             bounds=ScaledBounds(x=0, y=0, width=600, height=700),
@@ -473,7 +473,7 @@ class MultiPageBlueprintManager:
             item_type='specifications',
             priority=1
         )
-        
+
         return BlueprintPage(
             page_number=999,  # Will be renumbered
             title="Manufacturing Specifications",
@@ -482,7 +482,7 @@ class MultiPageBlueprintManager:
             height_mm=self.page_height_mm,
             content_type='specifications'
         )
-    
+
     def _create_empty_page(self) -> BlueprintPage:
         """Create empty page when no content is available"""
         empty_svg = '''
@@ -493,7 +493,7 @@ class MultiPageBlueprintManager:
             Please provide character parts or mechanisms to generate blueprint
         </text>
         '''
-        
+
         empty_item = LayoutItem(
             name="empty",
             bounds=ScaledBounds(x=0, y=0, width=600, height=800),
@@ -501,7 +501,7 @@ class MultiPageBlueprintManager:
             item_type='empty',
             priority=1
         )
-        
+
         return BlueprintPage(
             page_number=1,
             title="Empty Blueprint",
@@ -510,8 +510,8 @@ class MultiPageBlueprintManager:
             height_mm=self.page_height_mm,
             content_type='empty'
         )
-    
-    def renumber_pages(self, pages: List[BlueprintPage]) -> List[BlueprintPage]:
+
+    def renumber_pages(self, pages: list[BlueprintPage]) -> list[BlueprintPage]:
         """Renumber pages sequentially"""
         for i, page in enumerate(pages, 1):
             page.page_number = i
@@ -523,10 +523,10 @@ class MultiPageSVGGenerator:
     Generates multiple SVG files for complete blueprint documentation
     Each page is a separate SVG file for easy printing and viewing
     """
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    
+
     def _escape_xml_text(self, text: str) -> str:
         """Properly escape text for XML/SVG"""
         # First do HTML escaping for basic entities
@@ -534,8 +534,8 @@ class MultiPageSVGGenerator:
         # Fix any remaining unescaped ampersands
         text = re.sub(r'&(?!(amp|lt|gt|quot|apos);)', '&amp;', text)
         return text
-    
-    def generate_page_svgs(self, pages: List[BlueprintPage]) -> Dict[str, str]:
+
+    def generate_page_svgs(self, pages: list[BlueprintPage]) -> dict[str, str]:
         """
         Generate individual SVG files for each page
         
@@ -546,23 +546,23 @@ class MultiPageSVGGenerator:
             Dictionary mapping filename to SVG content
         """
         svg_files = {}
-        
+
         for page in pages:
             filename = f"blueprint_page_{page.page_number:02d}_{page.content_type}.svg"
             svg_content = self._generate_page_svg(page)
             svg_files[filename] = svg_content
-            
+
             self.logger.info(f"Generated page {page.page_number}: {filename}")
-        
+
         # Generate index page
         index_svg = self._generate_index_page(pages)
         svg_files["blueprint_index.svg"] = index_svg
-        
+
         return svg_files
-    
+
     def _generate_page_svg(self, page: BlueprintPage) -> str:
         """Generate SVG content for a single page"""
-        
+
         # Generate title block
         title_block = f'''
         <g id="title-block">
@@ -582,10 +582,10 @@ class MultiPageSVGGenerator:
             </text>
         </g>
         '''
-        
+
         # Generate content
         content_svg = '<g id="page-content" transform="translate(0,70)">'
-        
+
         for item in page.items:
             # Remove any XML declaration from embedded content
             clean_content = item.svg_content
@@ -594,7 +594,7 @@ class MultiPageSVGGenerator:
                 xml_end = clean_content.find('?>')
                 if xml_end != -1:
                     clean_content = clean_content[xml_end + 2:].strip()
-            
+
             # Remove outer SVG tags if present (just keep inner content)
             if '<svg' in clean_content and '</svg>' in clean_content:
                 svg_start = clean_content.find('<svg')
@@ -602,16 +602,16 @@ class MultiPageSVGGenerator:
                 svg_end = clean_content.rfind('</svg>')
                 if svg_start != -1 and svg_end != -1:
                     clean_content = clean_content[svg_content_start:svg_end]
-            
+
             item_svg = f'''
             <g transform="translate({item.bounds.x},{item.bounds.y})">
                 {clean_content}
             </g>
             '''
             content_svg += item_svg
-        
+
         content_svg += '</g>'
-        
+
         # Generate page footer
         footer_y = page.height_mm - 30
         footer_svg = f'''
@@ -627,7 +627,7 @@ class MultiPageSVGGenerator:
             </text>
         </g>
         '''
-        
+
         # Combine all elements
         svg_content = f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg width="{page.width_mm}" height="{page.height_mm}" 
@@ -661,12 +661,12 @@ class MultiPageSVGGenerator:
   {content_svg}
   {footer_svg}
 </svg>'''
-        
+
         return svg_content
-    
-    def _generate_index_page(self, pages: List[BlueprintPage]) -> str:
+
+    def _generate_index_page(self, pages: list[BlueprintPage]) -> str:
         """Generate index page listing all pages"""
-        
+
         index_content = '''
         <g id="index-content">
             <text x="300" y="100" class="section-title" font-size="20" text-anchor="middle">
@@ -676,7 +676,7 @@ class MultiPageSVGGenerator:
                 Complete manufacturing documentation for Automataii character system
             </text>
         '''
-        
+
         y_offset = 180
         for page in pages:
             index_content += f'''
@@ -691,9 +691,9 @@ class MultiPageSVGGenerator:
             </g>
             '''
             y_offset += 35
-        
+
         index_content += '</g>'
-        
+
         svg_content = f'''<?xml version="1.0" encoding="UTF-8"?>
 <svg width="600" height="800" xmlns="http://www.w3.org/2000/svg" version="1.1">
   <defs>
@@ -706,9 +706,9 @@ class MultiPageSVGGenerator:
   <rect x="5" y="5" width="590" height="790" fill="none" stroke="black" stroke-width="2"/>
   {index_content}
 </svg>'''
-        
+
         return svg_content
-    
+
     def _get_timestamp(self) -> str:
         """Get current timestamp"""
         import datetime

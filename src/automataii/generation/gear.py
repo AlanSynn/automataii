@@ -2,9 +2,9 @@
 
 import logging
 import math
-from typing import Optional, Dict, Any
-from PyQt6.QtCore import QPointF, QLineF
-from PyQt6.QtGui import QPainterPath
+from typing import Any
+
+from PyQt6.QtCore import QPointF
 
 from .base_mechanism import BaseMechanism
 
@@ -27,11 +27,11 @@ class Gear(BaseMechanism):
         ),  # Center of the first gear, or midpoint between gears
         r1: float = 30.0,
         r2: float = 20.0,
-        num_teeth1: Optional[int] = None,
-        num_teeth2: Optional[int] = None,
+        num_teeth1: int | None = None,
+        num_teeth2: int | None = None,
         gear_distance_offset: float = 0,  # Additional distance between gear centers beyond r1+r2
         angle_deg1: float = 0,  # Initial angle of gear1 (for drawing teeth)
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Generates data for a pair of simple spur gears.
 
@@ -176,11 +176,11 @@ if __name__ == "__main__":
 
 class GearGenerator:
     """Generator for gear mechanism SVG blueprints."""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    
-    def generate_svg(self, gear_data: Dict[str, Any]) -> str:
+
+    def generate_svg(self, gear_data: dict[str, Any]) -> str:
         """
         Generate SVG representation of gear mechanism for blueprints.
         
@@ -198,18 +198,18 @@ class GearGenerator:
             tooth_height = gear_data.get('tooth_height', radius * 0.2)
             angle_deg = gear_data.get('angle_deg', 0)
             gear_name = gear_data.get('name', 'Gear')
-            
+
             # Generate gear teeth path
             teeth_path = self._generate_gear_teeth_path(
                 center[0], center[1], radius, num_teeth, tooth_height, angle_deg
             )
-            
+
             # Calculate additional technical parameters
             module = (radius * 2) / num_teeth  # Gear module
             outer_radius = radius + tooth_height
             root_radius = radius - tooth_height * 0.3
             bore_radius = radius * 0.15  # Shaft hole
-            
+
             # Create comprehensive technical drawing
             svg_content = f'''
             <g class="gear-mechanism">
@@ -298,24 +298,24 @@ class GearGenerator:
                 </g>
             </g>
             '''
-            
+
             return svg_content.strip()
-            
+
         except Exception as e:
             self.logger.error(f"Failed to generate gear SVG: {e}")
-            return f'<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate gear</text>'
-    
-    def _generate_gear_teeth_path(self, cx: float, cy: float, radius: float, 
+            return '<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate gear</text>'
+
+    def _generate_gear_teeth_path(self, cx: float, cy: float, radius: float,
                                  num_teeth: int, tooth_height: float, angle_deg: float) -> str:
         """Generate SVG path for gear teeth."""
         if num_teeth < 3:
             return ""  # Not enough teeth to draw
-        
+
         angle_per_tooth = 360.0 / num_teeth
         outer_radius = radius + tooth_height
-        
+
         path_data = ""
-        
+
         for i in range(num_teeth):
             # Calculate angles for this tooth
             base_angle = angle_deg + i * angle_per_tooth
@@ -323,26 +323,26 @@ class GearGenerator:
             tooth_mid1 = math.radians(base_angle - angle_per_tooth * 0.1)
             tooth_mid2 = math.radians(base_angle + angle_per_tooth * 0.1)
             tooth_end = math.radians(base_angle + angle_per_tooth * 0.4)
-            
+
             # Points on inner circle (gear base)
             x1 = cx + radius * math.cos(tooth_start)
             y1 = cy + radius * math.sin(tooth_start)
             x4 = cx + radius * math.cos(tooth_end)
             y4 = cy + radius * math.sin(tooth_end)
-            
+
             # Points on outer circle (tooth tips)
             x2 = cx + outer_radius * math.cos(tooth_mid1)
             y2 = cy + outer_radius * math.sin(tooth_mid1)
             x3 = cx + outer_radius * math.cos(tooth_mid2)
             y3 = cy + outer_radius * math.sin(tooth_mid2)
-            
+
             if i == 0:
                 path_data += f"M {x1:.2f} {y1:.2f} "
             else:
                 path_data += f"L {x1:.2f} {y1:.2f} "
-            
+
             # Draw tooth profile
             path_data += f"L {x2:.2f} {y2:.2f} L {x3:.2f} {y3:.2f} L {x4:.2f} {y4:.2f} "
-        
+
         path_data += "Z"  # Close the path
         return path_data

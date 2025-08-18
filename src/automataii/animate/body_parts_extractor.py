@@ -351,7 +351,7 @@ class BodyPartsExtractor:
         elif self.texture.shape[2] == 3:
             # BGR image - add alpha channel
             self.texture = cv2.cvtColor(self.texture, cv2.COLOR_BGR2BGRA)
-        
+
         # If texture has alpha but it's all transparent, use mask to create alpha
         if self.texture.shape[2] == 4:
             alpha = self.texture[:, :, 3]
@@ -471,15 +471,15 @@ class BodyPartsExtractor:
         contours, _ = cv2.findContours(part_mask_data, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None, None, None
-        
+
         # Create filled mask from contours
         filled_mask = np.zeros_like(part_mask_data)
         cv2.drawContours(filled_mask, contours, -1, 255, -1)  # Fill all contours
-        
+
         # Also fill any holes inside the contours
         from scipy import ndimage
         filled_mask = ndimage.binary_fill_holes(filled_mask > 0).astype(np.uint8) * 255
-        
+
         # Use the filled mask for extraction
         points = cv2.findNonZero(filled_mask)
         if points is None:
@@ -500,7 +500,7 @@ class BodyPartsExtractor:
         # Crop texture and filled mask
         part_texture_cropped = full_texture[y : y + h, x : x + w].copy()
         alpha_channel_cropped = filled_mask[y : y + h, x : x + w]
-        
+
         # Ensure texture has proper content
         if part_texture_cropped.ndim == 2:
             # Grayscale
@@ -508,7 +508,7 @@ class BodyPartsExtractor:
         elif part_texture_cropped.shape[2] == 3:
             # BGR
             part_texture_cropped = cv2.cvtColor(part_texture_cropped, cv2.COLOR_BGR2BGRA)
-        
+
         # Apply filled mask to alpha channel
         if part_texture_cropped.shape[2] == 4:
             # For line art, use the filled mask as alpha
@@ -563,7 +563,7 @@ class BodyPartsExtractor:
             return
 
         self._prepare_joint_map()
-        
+
         # Clean up existing output directory to avoid mixing old and new files
         if self.output_dir.exists():
             # Remove all existing PNG files to avoid confusion
@@ -575,7 +575,7 @@ class BodyPartsExtractor:
                 old_file.unlink()
             for old_file in self.output_dir.glob("*.gif"):
                 old_file.unlink()
-        
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Time the segmentation
@@ -635,13 +635,13 @@ class BodyPartsExtractor:
             if bgra_image.shape[2] == 4 and alpha_channel is not None:
                 # Use the part mask as alpha to ensure visibility
                 bgra_image[:, :, 3] = alpha_channel
-                
+
                 # For line art, ensure texture is visible
                 if np.mean(bgra_image[:, :, :3]) > 240:  # Very light/white background
                     # Invert colors for better visibility on transparent background
                     mask_3d = np.stack([alpha_channel > 0] * 3, axis=2)
-                    bgra_image[:, :, :3] = np.where(mask_3d, 
-                                                     255 - bgra_image[:, :, :3], 
+                    bgra_image[:, :, :3] = np.where(mask_3d,
+                                                     255 - bgra_image[:, :, :3],
                                                      bgra_image[:, :, :3])
 
             cv2.imwrite(str(png_file_path), bgra_image)

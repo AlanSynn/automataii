@@ -109,7 +109,7 @@ def main():
 
     logging.info("Creating main window...")
     main_window = AutomataDesigner(
-        debug_mode=args.debug, 
+        debug_mode=args.debug,
         experiment_mode=args.experiment,
         editing_mode=args.editing
     )

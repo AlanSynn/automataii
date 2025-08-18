@@ -1,9 +1,9 @@
-from typing import List, Tuple, Optional, Dict, Any
-import math
 import logging
-import numpy as np
-from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QPainterPath, QPolygonF
+import math
+from typing import Any
+
+from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QPainterPath
 
 from .base_mechanism import BaseMechanism
 
@@ -19,11 +19,11 @@ class Cam(BaseMechanism):
     def generate(
         self,
         cam_center_scene: QPointF,
-        follower_path_points: List[QPointF],  # Should be QPointF from resampled path
+        follower_path_points: list[QPointF],  # Should be QPointF from resampled path
         follower_radius: float = 5.0,
         num_samples: int = 360,
         return_dict: bool = False,  # Added flag
-        base_radius_override: Optional[float] = None,  # For default/preview cams
+        base_radius_override: float | None = None,  # For default/preview cams
     ) -> Any:  # Returns QPainterPath or Dict
         """
         Generates a cam profile based on a list of follower center points.
@@ -62,30 +62,30 @@ class Cam(BaseMechanism):
             # The cam should have high points that push the follower UP and low points that let it fall DOWN
             base_radius = base_radius_override
             lift_amount = base_radius * 0.4  # 40% lift variation
-            
+
             # Create proper cam profile: higher radius at bottom pushes follower up
             # Using a sinusoidal lift profile for smooth motion
             for i in range(num_samples):
                 theta = 2 * math.pi * i / num_samples
-                
+
                 # Lift profile: maximum lift when cam's high point is at bottom (theta=3π/2)
                 # This creates the physics where cam pushes follower UP when convex part is below
                 lift = lift_amount * (1 + math.cos(theta + math.pi/2)) / 2  # Shifted cosine for proper phase
                 cam_radius = base_radius + lift
-                
+
                 # Generate cam profile point
                 pt = QPointF(
                     cam_radius * math.cos(theta),
                     cam_radius * math.sin(theta),
                 )
-                
+
                 if i == 0:
                     cam_profile_path.moveTo(pt)
                 else:
                     cam_profile_path.lineTo(pt)
-                    
+
                 cam_profile_points_world.append(pt + cam_center_scene)
-                
+
                 min_dist_to_center = min(min_dist_to_center, cam_radius)
                 max_dist_to_center = max(max_dist_to_center, cam_radius)
 
@@ -225,7 +225,7 @@ class Cam(BaseMechanism):
             return cam_profile_path
 
 
-def _generate_offset_curve(points: List[QPointF], offset: float) -> QPainterPath:
+def _generate_offset_curve(points: list[QPointF], offset: float) -> QPainterPath:
     """Generates an offset curve (simplified). Not fully robust."""
     offset_path = QPainterPath()
     if len(points) < 2:
@@ -341,11 +341,11 @@ if __name__ == "__main__":
 
 class CamGenerator:
     """Generator for cam mechanism SVG blueprints."""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    
-    def generate_svg(self, cam_data: Dict[str, Any]) -> str:
+
+    def generate_svg(self, cam_data: dict[str, Any]) -> str:
         """
         Generate SVG representation of cam mechanism for blueprints.
         
@@ -362,19 +362,19 @@ class CamGenerator:
             max_radius = cam_data.get('max_radius', 30.0)
             profile_points = cam_data.get('profile_points', [])
             name = cam_data.get('name', 'Cam')
-            
+
             # If no profile points, create a simple circular cam
             if not profile_points:
                 profile_points = self._generate_circular_profile(center, base_radius, 36)
-            
+
             # Generate cam profile path
             profile_path = self._generate_cam_profile_path(profile_points)
-            
+
             # Calculate additional cam parameters
             lift = max_radius - base_radius
             bore_radius = base_radius * 0.15
             follower_diameter = 8.0  # Standard follower size
-            
+
             # Create comprehensive technical drawing
             svg_content = f'''
             <g class="cam-mechanism">
@@ -508,14 +508,14 @@ class CamGenerator:
                 </g>
             </g>
             '''
-            
+
             return svg_content.strip()
-            
+
         except Exception as e:
             self.logger.error(f"Failed to generate cam SVG: {e}")
-            return f'<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate cam</text>'
-    
-    def _generate_circular_profile(self, center: List[float], radius: float, num_points: int) -> List[List[float]]:
+            return '<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate cam</text>'
+
+    def _generate_circular_profile(self, center: list[float], radius: float, num_points: int) -> list[list[float]]:
         """Generate points for a circular cam profile."""
         points = []
         for i in range(num_points):
@@ -524,16 +524,16 @@ class CamGenerator:
             y = center[1] + radius * math.sin(angle)
             points.append([x, y])
         return points
-    
-    def _generate_cam_profile_path(self, profile_points: List[List[float]]) -> str:
+
+    def _generate_cam_profile_path(self, profile_points: list[list[float]]) -> str:
         """Generate SVG path for cam profile."""
         if not profile_points:
             return ""
-        
+
         path_data = f"M {profile_points[0][0]:.2f} {profile_points[0][1]:.2f} "
-        
+
         for point in profile_points[1:]:
             path_data += f"L {point[0]:.2f} {point[1]:.2f} "
-        
+
         path_data += "Z"  # Close the path
         return path_data

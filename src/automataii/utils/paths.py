@@ -124,31 +124,54 @@ def get_base_path() -> Path:
 
 def resolve_path(relative_path: str | Path) -> Path:
     """
-    Resolves a relative path to an absolute path, correctly handling
-    both bundled and development environments.
+    Resolve a resource path that works in both dev and frozen builds.
 
-    This function is critical for finding resources (models, images, etc.)
-    regardless of whether the app is run from source or as a bundled app.
-
-    Args:
-        relative_path (Union[str, Path]): A path relative to the project root
-                                         (e.g., "models/onnx/pose_model.onnx")
-
-    Returns:
-        Path: An absolute Path object pointing to the resource
+    Strategy:
+    - Start with `get_base_path()` joined with the given path.
+    - If not found, try adding/removing a leading `src/` component to bridge
+      packaging-time relocations (e.g., PyInstaller `datas` placing files
+      under `_MEIPASS/examples` instead of `_MEIPASS/src/examples`).
+    - If none of the candidates exist, return the first candidate for callers
+      that may create files.
     """
     base_path = get_base_path()
 
-    # Convert to Path if it's a string
-    if isinstance(relative_path, str):
-        relative_path = Path(relative_path)
+    # Normalize to Path
+    rel = Path(relative_path) if not isinstance(relative_path, Path) else relative_path
 
-    resolved_path = base_path / relative_path
+    candidates: list[Path] = []
+    candidates.append(base_path / rel)
 
-    # Log the resolved path at debug level
-    logger.debug(f"Resolved path '{relative_path}' to '{resolved_path}'")
+    parts = rel.parts
+    # If path starts with 'src', also try without it
+    if parts and parts[0] == 'src':
+        without_src = Path(*parts[1:]) if len(parts) > 1 else Path('.')
+        candidates.append(base_path / without_src)
+    else:
+        # Also try with a leading 'src' for dev environments
+        candidates.append(base_path / 'src' / rel)
 
-    return resolved_path
+    # Deduplicate while preserving order
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        if c not in seen:
+            unique_candidates.append(c)
+            seen.add(c)
+
+    for c in unique_candidates:
+        try:
+            if c.exists():
+                logger.debug(f"Resolved path '{rel}' -> '{c}'")
+                return c
+        except Exception:
+            # In case of permission or other filesystem issues, skip to next candidate
+            continue
+
+    # Fallback: return the first candidate even if it doesn't exist
+    fallback = unique_candidates[0]
+    logger.debug(f"Resolved path (fallback) '{rel}' -> '{fallback}'")
+    return fallback
 
 
 if __name__ == "__main__":

@@ -98,12 +98,24 @@ build:
 
 build-experiment:
 	@echo "Building experiment version for current platform..."
-	$(PYTHON) scripts/build_experiment.py
+	$(PYTHON) scripts/build_experiment.py $(OPTS)
 
 build-macos:
 	@echo "Building macOS app bundle..."
-	$(UV) sync --group build-macos
+	$(UV) sync
 	$(PYTHON) scripts/build_macos.py
+
+.PHONY: build-macos-arm64 build-macos-x86_64
+
+build-macos-arm64:
+	@echo "Building macOS app bundle for arm64..."
+	$(UV) sync
+	$(PYTHON) scripts/build_macos.py --arch arm64
+
+build-macos-x86_64:
+	@echo "Building macOS app bundle for x86_64..."
+	$(UV) sync
+	$(PYTHON) scripts/build_macos.py --arch x86_64
 
 build-windows:
 	@echo "Building Windows executable..."

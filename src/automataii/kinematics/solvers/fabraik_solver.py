@@ -26,7 +26,7 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
 
     for i in range(1, len(chain) - 1):  # Iterate over middle joints (e.g., elbow, knee)
         current_item = chain[i]
-        joint_name = current_item.part_info.name
+        part_name = current_item.part_info.name  # This is the part name (e.g., 'left_arm_upper')
 
         # Map the visual part name (e.g., 'left_arm_upper') to the logical joint name ('left_elbow')
         part_to_joint_mapping = {
@@ -36,9 +36,9 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
             'right_leg_upper': 'right_knee'
         }
 
-        joint_key = part_to_joint_mapping.get(joint_name)
+        joint_key = part_to_joint_mapping.get(part_name)
         if not joint_key or joint_key not in bend_directions:
-            logging.debug(f"No bend direction for joint '{joint_key}' (from part '{joint_name}'). Skipping hint.")
+            logging.debug(f"No bend direction for joint '{joint_key}' (from part '{part_name}'). Skipping hint.")
             continue
 
         # Use the stable bend direction provided by IKManager. Do NOT recalculate it.
@@ -71,7 +71,8 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
 
             # 4. The final hint is the elbow's position pushed outwards in the calculated direction.
             hint_position = curr_pos + perp_vec
-            bend_hints[joint_name] = hint_position
+            # CRITICAL FIX: Use joint_key (e.g., 'left_elbow') as the key, not part_name
+            bend_hints[joint_key] = hint_position
             logging.info(f"Bend hint for '{joint_key}' set with direction {bend_dir}. Hint pos: {hint_position}")
 
     return bend_hints
