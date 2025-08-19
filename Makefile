@@ -100,6 +100,16 @@ build-experiment:
 	@echo "Building experiment version for current platform..."
 	$(PYTHON) scripts/build_experiment.py $(OPTS)
 
+.PHONY: build-experiment-arm64 build-experiment-x86_64
+
+build-experiment-arm64:
+	@echo "Building experiment version for macOS arm64..."
+	$(PYTHON) scripts/build_experiment.py --arch arm64 $(OPTS)
+
+build-experiment-x86_64:
+	@echo "Building experiment version for macOS x86_64..."
+	$(PYTHON) scripts/build_experiment.py --arch x86_64 $(OPTS)
+
 build-macos:
 	@echo "Building macOS app bundle..."
 	$(UV) sync

@@ -40,6 +40,7 @@ dependencies = [
     "psutil>=7.0.0",
     "requests>=2.32.4",
     "pyinstaller>=6.15.0",
+    "dmgbuild>=1.6.5",
 ]
 
 [project.optional-dependencies]
