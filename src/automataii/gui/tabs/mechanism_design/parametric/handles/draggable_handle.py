@@ -194,6 +194,3 @@ class DraggableHandle(QGraphicsEllipseItem):
         else:
             event.ignore()
 
-    def get_handle_id(self) -> str:
-        """Get the handle ID."""
-        return self.handle_id

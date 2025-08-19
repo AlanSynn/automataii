@@ -61,110 +61,10 @@ class ProjectManager(Injectable):
         # Subscribe to project events
         self._event_bus.subscribe(ProjectModified, self._on_project_modified)
 
-    @property
-    def current_project(self) -> AtiiProject | None:
-        """Get the currently loaded project."""
-        with self._lock:
-            return self._current_project
 
-    @property
-    def has_project(self) -> bool:
-        """Check if a project is currently loaded."""
-        return self._current_project is not None
 
-    @property
-    def is_project_modified(self) -> bool:
-        """Check if current project has unsaved changes."""
-        return self._current_project and self._current_project.is_modified
 
-    def create_project(
-        self,
-        name: str,
-        file_path: Path | None = None,
-        template: str = "default",
-        author: str = "",
-        description: str = ""
-    ) -> AtiiProject:
-        """
-        Create a new project.
-        
-        Args:
-            name: Project name
-            file_path: Path to save project (optional)
-            template: Template to use
-            author: Project author
-            description: Project description
-            
-        Returns:
-            Created project instance
-        """
-        with self._lock:
-            # Close current project if any
-            if self._current_project:
-                self.close_project()
 
-            # Create new project
-            project = AtiiProject(file_path)
-            project.name = name
-            project.manifest.author = author
-            project.manifest.description = description
-
-            # Apply template
-            if template in self._templates:
-                self._apply_template(project, template)
-
-            self._current_project = project
-
-            # Start auto-save if enabled
-            self._start_auto_save()
-
-            self._logger.info(f"Created new project: {name}")
-
-            # Fire event
-            event = ProjectCreated(
-                aggregate_id=str(id(project)),
-                project_name=name,
-                template_used=template
-            )
-            self._event_bus.publish(event)
-
-            return project
-
-    def load_project(self, file_path: Path, add_to_recent: bool = True) -> AtiiProject:
-        """
-        Load project from file.
-        
-        Args:
-            file_path: Path to project file
-            add_to_recent: Add to recent projects list
-            
-        Returns:
-            Loaded project instance
-        """
-        if not file_path.exists():
-            raise FileNotFoundError(f"Project file not found: {file_path}")
-
-        with self._lock:
-            # Close current project if any
-            if self._current_project:
-                self.close_project()
-
-            # Load project
-            project = AtiiProject(file_path)
-            project.load()
-
-            self._current_project = project
-
-            # Add to recent projects
-            if add_to_recent:
-                self._add_to_recent_projects(file_path, project.name)
-
-            # Start auto-save if enabled
-            self._start_auto_save()
-
-            self._logger.info(f"Loaded project: {project.name}")
-
-            return project
 
     def save_project(self, file_path: Path | None = None) -> bool:
         """
@@ -277,73 +177,13 @@ class ProjectManager(Injectable):
             self._logger.error(f"Auto-save failed: {e}", exc_info=True)
             return False
 
-    def get_recent_projects(self) -> list[dict[str, Any]]:
-        """Get list of recent projects."""
-        with self._lock:
-            return list(self._recent_projects)
 
-    def clear_recent_projects(self) -> None:
-        """Clear recent projects list."""
-        with self._lock:
-            self._recent_projects.clear()
 
-    def get_templates(self) -> dict[str, dict[str, Any]]:
-        """Get available project templates."""
-        return dict(self._templates)
 
-    def add_template(self, name: str, template_data: dict[str, Any]) -> None:
-        """Add a custom project template."""
-        self._templates[name] = template_data
 
-    def set_auto_save_enabled(self, enabled: bool) -> None:
-        """Enable or disable auto-save."""
-        with self._lock:
-            self._auto_save_enabled = enabled
-            if enabled and self._current_project:
-                self._start_auto_save()
-            else:
-                self._stop_auto_save()
 
-    def set_auto_save_interval(self, seconds: int) -> None:
-        """Set auto-save interval in seconds."""
-        with self._lock:
-            self._auto_save_interval = max(30, seconds)  # Minimum 30 seconds
-            if self._auto_save_enabled and self._current_project:
-                self._start_auto_save()  # Restart with new interval
 
-    def create_backup(self, backup_dir: Path | None = None) -> Path | None:
-        """Create manual backup of current project."""
-        if not self._current_project:
-            return None
 
-        try:
-            return self._current_project.create_backup(backup_dir)
-        except Exception as e:
-            self._logger.error(f"Failed to create backup: {e}", exc_info=True)
-            return None
-
-    def recover_from_crash(self) -> list[Path]:
-        """
-        Attempt to recover projects from crash.
-        
-        Returns:
-            List of recovered project files
-        """
-        recovered = []
-
-        # Look for auto-save files
-        temp_dir = Path.cwd() / ".automataii" / "recovery"
-        if temp_dir.exists():
-            for recovery_file in temp_dir.glob("*.atii"):
-                try:
-                    # Validate recovery file
-                    project = AtiiProject(recovery_file)
-                    project.load()
-                    recovered.append(recovery_file)
-                except Exception as e:
-                    self._logger.warning(f"Invalid recovery file {recovery_file}: {e}")
-
-        return recovered
 
     def _start_auto_save(self) -> None:
         """Start auto-save timer."""
@@ -491,7 +331,3 @@ def get_global_project_manager() -> ProjectManager:
     return _global_project_manager
 
 
-def set_global_project_manager(manager: ProjectManager) -> None:
-    """Set the global project manager."""
-    global _global_project_manager
-    _global_project_manager = manager

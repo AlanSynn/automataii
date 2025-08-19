@@ -336,8 +336,6 @@ class ProjectDataManager(QObject):
         self._effective_bounding_box_offset = QPointF(0, 0)
         self.project_data_cleared.emit()
 
-    def get_part_info(self, part_name: str) -> PartInfo | None:
-        return self._parts.get(part_name)
 
     def get_all_parts(self) -> dict[str, PartInfo]:
         return self.parts
@@ -427,10 +425,6 @@ class ProjectDataManager(QObject):
             return False
 
     # Methods for MainWindow to call for dialogs
-    def new_project(self):
-        # Similar to clear_project_data but maybe with different logging/signals
-        logging.info("ProjectDataManager: New project requested.")
-        self.clear_project_data()
         # self.project_newed_signal.emit() # Or reuse project_data_cleared
 
     def load_project_dialog(self):

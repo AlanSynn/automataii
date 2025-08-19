@@ -481,19 +481,6 @@ class EditorView(QGraphicsView):
             self.scene().update()  # Ensure repaint after zoom
         # If new_zoom_level is the same as self._zoom_level (already at min/max), do nothing further.
 
-    def wheelEvent(self, event: QWheelEvent):
-        """Handle mouse wheel for zooming based on discrete zoom levels."""
-        if self._pinch_mode:  # Do not process wheel events if pinching
-            return
-
-        delta = event.angleDelta().y()
-        step = 0
-        if delta > 0:
-            step = 1
-        elif delta < 0:
-            step = -1
-
-        self.zoom(step)
 
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press events based on the current mode."""
@@ -859,11 +846,6 @@ class EditorView(QGraphicsView):
 
     # --- Joint Definition --- #
 
-    def start_define_joint(self):
-        """Initiates the joint definition mode."""
-        self.set_mode("define_joint")
-        self._reset_joint_definition()  # Clear previous state
-        self._show_status_message("Define Joint: 1. Click parent part.")
 
     def _handle_joint_definition_click(self, scene_pos: QPointF, view_pos: QPointF):
         item_at_click = self.itemAt(view_pos)  # Use view_pos for itemAt
@@ -1003,29 +985,6 @@ class EditorView(QGraphicsView):
                 f"EditorView: Motion path target: {target_item.part_info.name}"
             )
 
-    def finish_motion_path_drawing(self, emit_signal: bool = True):
-        """Finalizes the motion path. Called when mode is toggled off by MainWindow.
-        The actual path points are emitted by freehandPathCompleted signal.
-        This method is now mainly for cleanup if the mode is exited while a path
-        was partially drawn but not completed via mouse release.
-        """
-        if self.current_target_item_for_path:
-            logging.debug(
-                f"Finishing motion path definition for {self.current_target_item_for_path.part_info.name}"
-            )
-            if self._is_drawing_freehand and len(self._motion_path_points) > 1:
-                # This case implies mode was toggled off mid-draw.
-                # Emit the points accumulated so far.
-                if emit_signal:
-                    self.freehandPathCompleted.emit(list(self._motion_path_points))
-                    logging.debug(
-                        "Emitted path from finish_motion_path_drawing due to mode toggle."
-                    )
-
-        self.current_target_item_for_path = None
-        self._is_drawing_freehand = False
-        self._cleanup_motion_path_visuals()
-        self.set_mode("select")  # Revert to select mode
 
     def _cancel_motion_path_drawing(self):
         """Cancels the current motion path drawing operation and cleans up."""
@@ -1054,17 +1013,6 @@ class EditorView(QGraphicsView):
 
     # --- End Effector Selection --- #
 
-    def start_select_end_effector(self, target_item: CharacterPartItem):
-        """Prepares the view to select an end-effector point on the given item."""
-        if not isinstance(target_item, CharacterPartItem):
-            logging.warning("Invalid target item for end effector selection.")
-            return
-
-        self._target_part_for_end_effector = target_item
-        self.set_mode("select_end_effector")
-        self._show_status_message(
-            f"Select End Effector: Click desired point on '{target_item.part_info.name}'. Esc to cancel."
-        )
 
     def _handle_end_effector_selection_click(self, scene_pos: QPointF):
         """Handles the click to set the end effector position."""
@@ -1085,21 +1033,10 @@ class EditorView(QGraphicsView):
 
     # --- Simulation Control --- #
 
-    def start_simulation(self):
-        """Starts the simulation mode."""
-        self.set_mode("simulation")
         # Parent window likely starts the timer/updates
 
-    def stop_simulation(self):
-        """Stops the simulation mode."""
-        self.set_mode("select")
         # Parent window likely stops the timer/updates
 
-    def reset_simulation(self):
-        """Resets the simulation to the initial state."""
-        self._restore_original_transforms()
-        self._animation_time = 0.0
-        self.set_mode("select")  # Usually stop simulation implies reset
 
     def _restore_original_transforms(self):
         """Restores the saved transforms of all part items."""
@@ -1127,18 +1064,6 @@ class EditorView(QGraphicsView):
 
     # --- Skeleton Visualization --- #
 
-    def get_part_item_by_name(self, part_name: str) -> CharacterPartItem | None:
-        """Finds a CharacterPartItem in the scene by its part_info.name."""
-        if not self.scene():
-            return None
-        for item in self.scene().items():
-            if (
-                isinstance(item, CharacterPartItem)
-                and item.part_info
-                and item.part_info.name == part_name
-            ):
-                return item
-        return None
 
     def visualize_skeleton(
         self, skeleton_data: list[dict[str, Any]], hierarchy_data: dict[str, list[str]]
@@ -1429,32 +1354,7 @@ class EditorView(QGraphicsView):
 
         return connections
 
-    def set_selected_part(
-        self, part_name: str | None, part_items: dict[str, CharacterPartItem]
-    ):
-        """Sets the visual state for the selected part and deselects others."""
-        logging.debug(f"EditorView: Setting selected part to: {part_name}")
-        for name, item in part_items.items():  # Use the passed dictionary
-            if isinstance(item, CharacterPartItem):  # Ensure it's the correct type
-                is_selected = name == part_name
-                item.set_selected(is_selected)  # CharacterPartItem has set_selected
-            else:
-                logging.warning(
-                    f"EditorView.set_selected_part: Item '{name}' is not a CharacterPartItem."
-                )
-        if self.scene():  # Check if scene exists before updating
-            self.scene().update()  # Trigger redraw if selection changes visuals
-        else:
-            logging.warning(
-                "EditorView.set_selected_part: Scene not available for update."
-            )
 
-    def get_current_part_transforms(self) -> dict[str, tuple[QPointF, float]]:
-        """Returns a dictionary of part names to their (position, rotation_degrees)."""
-        transforms = {}
-        for name, item in self.part_items.items():
-            transforms[name] = (item.pos(), item.rotation())
-        return transforms
 
     # --- Utility --- #
 

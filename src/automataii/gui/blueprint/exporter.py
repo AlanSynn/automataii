@@ -101,13 +101,42 @@ class BlueprintExporter:
 
             blueprint_manager = BlueprintExportManager.get_instance()
 
-            part_items = self._collect_part_items()
-            mechanism_layers_raw = self._get_mechanism_layers() or {}
+            # Safely collect part items with validation
+            try:
+                part_items = self._collect_part_items()
+            except Exception as e:
+                logging.error(f"[BLUEPRINT] Failed to collect part items: {e}")
+                part_items = []
+            
+            # Safely get mechanism layers
+            try:
+                mechanism_layers_raw = self._get_mechanism_layers() or {}
+            except Exception as e:
+                logging.error(f"[BLUEPRINT] Failed to get mechanism layers: {e}")
+                mechanism_layers_raw = {}
 
             # CRITICAL FIX: Apply scale enhancement before optimization
             logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale for all mechanisms...")
-            screen_scale_info = self.calculate_screen_to_blueprint_scale()
-            mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
+            try:
+                screen_scale_info = self.calculate_screen_to_blueprint_scale()
+            except Exception as e:
+                logging.error(f"[BLUEPRINT] Error calculating screen scale: {e}")
+                # Use safe defaults
+                screen_scale_info = {
+                    "pixels_per_mm": 2.78,
+                    "mm_per_pixel": 0.36,
+                    "pixels_per_scene_unit": 1.0,
+                    "character_height_mm": 300.0,
+                    "character_height_pixels": 800,
+                    "character_width_pixels": 400,
+                    "mechanism_scale_factors": {},
+                }
+            
+            try:
+                mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
+            except Exception as e:
+                logging.error(f"[BLUEPRINT] Error enhancing mechanism layers: {e}")
+                mechanism_layers = mechanism_layers_raw
 
             if not part_items and not mechanism_layers:
                 from PyQt6.QtWidgets import QMessageBox
@@ -323,144 +352,6 @@ class BlueprintExporter:
                 self._parent, "Export Failed", f"Failed to export blueprint using legacy system:\n{str(e)}"
             )
 
-    def export_all_multipage(self) -> None:
-        """Export all parts and mechanisms as multi-page letter-size blueprints."""
-        try:
-            from PyQt6.QtWidgets import (
-                QButtonGroup,
-                QDialog,
-                QDialogButtonBox,
-                QLabel,
-                QRadioButton,
-                QVBoxLayout,
-            )
-
-            from automataii.generation.blueprint import generate_multi_page_blueprint
-            from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
-
-            logging.info("[BLUEPRINT] Using multi-page blueprint export system")
-
-            # Show unit system selection dialog
-            unit_dialog = QDialog(self._parent)
-            unit_dialog.setWindowTitle("Select Unit System")
-            unit_dialog.setModal(True)
-            unit_dialog.resize(350, 200)
-
-            layout = QVBoxLayout()
-
-            title_label = QLabel("Choose the unit system for your multi-page blueprint:")
-            title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
-            layout.addWidget(title_label)
-
-            unit_group = QButtonGroup()
-
-            metric_radio = QRadioButton("Metric (millimeters)")
-            metric_radio.setToolTip("Dimensions will be shown in millimeters (mm)")
-            metric_radio.setChecked(True)
-            unit_group.addButton(metric_radio, 0)
-            layout.addWidget(metric_radio)
-
-            imperial_radio = QRadioButton("Imperial (inches/feet)")
-            imperial_radio.setToolTip("Dimensions will be shown in inches and feet")
-            unit_group.addButton(imperial_radio, 1)
-            layout.addWidget(imperial_radio)
-
-            info_label = QLabel("\nEach part/mechanism will be on a separate letter-size page.\nMetric is recommended for precision manufacturing.")
-            info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
-            layout.addWidget(info_label)
-
-            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-            button_box.accepted.connect(unit_dialog.accept)
-            button_box.rejected.connect(unit_dialog.reject)
-            layout.addWidget(button_box)
-
-            unit_dialog.setLayout(layout)
-
-            if unit_dialog.exec() != QDialog.DialogCode.Accepted:
-                return
-
-            unit_system = "imperial" if imperial_radio.isChecked() else "metric"
-            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
-
-            part_items = self._collect_part_items()
-            mechanism_layers_raw = self._get_mechanism_layers() or {}
-
-            # Apply scale enhancement before optimization
-            logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale for multi-page export...")
-            screen_scale_info = self.calculate_screen_to_blueprint_scale()
-            mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
-
-            if not part_items and not mechanism_layers:
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.warning(
-                    self._parent,
-                    "Multi-page Blueprint Export",
-                    "No mechanisms or character parts available for export.\n"
-                    "Please create some mechanisms or load character parts first.",
-                )
-                return
-
-            # Generate optimized layout items
-            optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
-            layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers, unit_system)
-
-            # Generate multi-page blueprint
-            pages = generate_multi_page_blueprint(
-                layout_items,
-                title="Character Manufacturing Blueprint",
-                scale_info=f"Character Height: 300mm | Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel",
-                snapshot_data_uri=None,
-                unit_system=unit_system
-            )
-
-            # Save each page as a separate file
-            import os
-
-            from PyQt6.QtWidgets import QFileDialog
-
-            # Ask user for output directory
-            output_dir = QFileDialog.getExistingDirectory(
-                self._parent,
-                "Select Directory for Multi-page Blueprint",
-                "",
-                QFileDialog.Option.ShowDirsOnly
-            )
-
-            if not output_dir:
-                return
-
-            saved_files = []
-            for i, page_svg in enumerate(pages, 1):
-                filename = os.path.join(output_dir, f"blueprint_page_{i:02d}.svg")
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(page_svg)
-                saved_files.append(filename)
-
-            logging.info(f"[BLUEPRINT] Multi-page export successful: {len(pages)} pages")
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self._parent,
-                "Multi-page Blueprint Export Complete",
-                f"Successfully exported {len(pages)} blueprint pages!\n\n"
-                f"Parts: {len([item for item in layout_items if item.item_type == 'part'])}\n"
-                f"Mechanisms: {len([item for item in layout_items if item.item_type == 'mechanism'])}\n"
-                f"Character Height: 300mm\n"
-                f"Page Size: Letter (8.5\" × 11\")\n"
-                f"Units: {unit_label}\n\n"
-                f"Files saved to:\n{output_dir}\n\n"
-                "Each part/mechanism is on a separate page for optimal printing.",
-            )
-
-        except Exception as e:
-            logging.error(f"[BLUEPRINT] Multi-page export failed: {e}")
-            import traceback
-            logging.error(f"[BLUEPRINT] Traceback: {traceback.format_exc()}")
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self._parent,
-                "Multi-page Export Error",
-                f"Multi-page blueprint export failed:\n\n{str(e)}\n\nCheck console for details.",
-            )
 
     def show_mechanism_dimensions(self, mechanism_id: str) -> None:
         """Show a dimension summary for a specific mechanism."""
@@ -656,10 +547,12 @@ class BlueprintExporter:
                 enhanced_layer = layer_data.copy()
                 enhanced_layer["screen_scale_info"] = screen_scale_info
 
-                mech_scale_factor = screen_scale_info["mechanism_scale_factors"].get(mech_id, 1.0)
+                # Safely get mechanism_scale_factors with fallback
+                mechanism_scale_factors = screen_scale_info.get("mechanism_scale_factors", {})
+                mech_scale_factor = mechanism_scale_factors.get(mech_id, 1.0)
                 enhanced_layer["mechanism_to_screen_scale"] = mech_scale_factor
-                enhanced_layer["screen_to_blueprint_scale"] = screen_scale_info["mm_per_pixel"]
-                enhanced_layer["total_scale_factor"] = mech_scale_factor * screen_scale_info["mm_per_pixel"]
+                enhanced_layer["screen_to_blueprint_scale"] = screen_scale_info.get("mm_per_pixel", 0.36)
+                enhanced_layer["total_scale_factor"] = mech_scale_factor * screen_scale_info.get("mm_per_pixel", 0.36)
 
                 if "params" in enhanced_layer:
                     real_world_params = self.calculate_real_world_mechanism_params(
@@ -790,10 +683,19 @@ class BlueprintExporter:
 
     def _collect_part_items(self) -> list[Any]:
         part_items: list[Any] = []
-        current_items = self._get_current_editor_items() or {}
-        for part_name, part_item in current_items.items():
-            if hasattr(part_item, "shape") and callable(part_item.shape):
-                part_items.append(part_item)
-                logging.debug(f"[BLUEPRINT] Added part: {part_name}")
+        try:
+            current_items = self._get_current_editor_items() or {}
+            for part_name, part_item in current_items.items():
+                try:
+                    if part_item and hasattr(part_item, "shape") and callable(part_item.shape):
+                        # Test that shape() doesn't crash
+                        _ = part_item.shape()
+                        part_items.append(part_item)
+                        logging.debug(f"[BLUEPRINT] Added part: {part_name}")
+                except Exception as e:
+                    logging.warning(f"[BLUEPRINT] Skipping invalid part {part_name}: {e}")
+                    continue
+        except Exception as e:
+            logging.error(f"[BLUEPRINT] Error collecting part items: {e}")
         return part_items
 

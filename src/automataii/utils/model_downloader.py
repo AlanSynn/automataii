@@ -159,31 +159,5 @@ class ModelDownloader:
         else:
             raise FileNotFoundError(f"Could not obtain model file: {model_name}")
 
-    def check_available_models(self) -> dict:
-        """Check which models are available locally"""
-        available = {}
-        for model_name in self.MODEL_URLS:
-            file_path = self.weights_dir / model_name
-            if file_path.exists():
-                try:
-                    model_info = self.MODEL_URLS[model_name]
-                    is_valid = self._verify_file(file_path, model_info["sha256"])
-                    available[model_name] = {
-                        "path": str(file_path),
-                        "size": file_path.stat().st_size,
-                        "valid": is_valid
-                    }
-                except Exception as e:
-                    available[model_name] = {
-                        "path": str(file_path),
-                        "size": file_path.stat().st_size,
-                        "valid": False,
-                        "error": str(e)
-                    }
-        return available
 
 # Convenience function for easy access
-def get_model_path(model_name: str) -> Path:
-    """Get path to a model file, downloading if necessary"""
-    downloader = ModelDownloader()
-    return downloader.ensure_model_available(model_name)

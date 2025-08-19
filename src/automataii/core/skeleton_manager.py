@@ -44,10 +44,6 @@ class SkeletonManager(QObject):
         self._standardized_skeleton_model: StandardizedSkeletonModel | None = None
         logging.info("SkeletonManager initialized with new standardized models.")
 
-    @property
-    def raw_input_data(self) -> dict[str, Any] | None:
-        """Returns the most recent raw input dictionary that was processed."""
-        return self._raw_input_skeleton_data
 
     @property
     def standardized_model(self) -> StandardizedSkeletonModel | None:
@@ -64,19 +60,7 @@ class SkeletonManager(QObject):
             for joint_id, joint in self._standardized_skeleton_model.joints.items()
         }
 
-    @property
-    def joint_hierarchy(self) -> dict[str, list[str]]:
-        """Returns the parent_id -> [child_ids] hierarchy from the standardized model."""
-        if not self._standardized_skeleton_model:
-            return {}
-        return self._standardized_skeleton_model.hierarchy
 
-    @property
-    def root_joints(self) -> list[str]:  # Returns list of root joint IDs
-        """Returns a list of root joint IDs from the standardized model."""
-        if not self._standardized_skeleton_model:
-            return []
-        return self._standardized_skeleton_model.root_joint_ids
 
     def load_skeleton_from_dict(
         self, data: dict[str, Any] | None, source_format: str = "auto"
@@ -461,17 +445,6 @@ class SkeletonManager(QObject):
                     return joint
         return None
 
-    def get_joint_id_by_original_name(self, original_name: str) -> str | None:
-        """
-        Retrieves the standardized joint ID using an original name from char_cfg.yaml (or similar source).
-        Uses the 'joint_map' in the standardized model.
-        """
-        if (
-            self._standardized_skeleton_model
-            and self._standardized_skeleton_model.joint_map
-        ):
-            return self._standardized_skeleton_model.joint_map.get(original_name)
-        return None
 
     def get_joint_position(
         self, joint_id_or_name: str
@@ -666,23 +639,6 @@ class SkeletonManager(QObject):
                 f"SkeletonManager: Joint '{joint_id}' not found in skeleton model"
             )
 
-    def get_joint_bend_direction(self, joint_id: str) -> float:
-        """
-        Get the bend direction for a specific joint.
-        
-        Args:
-            joint_id: The standardized ID of the joint
-            
-        Returns:
-            The bend direction (1.0 for default, -1.0 for inverted), or 1.0 if joint not found
-        """
-        if not self._standardized_skeleton_model:
-            return 1.0
-
-        if joint_id in self._standardized_skeleton_model.joints:
-            return self._standardized_skeleton_model.joints[joint_id].bend_direction
-
-        return 1.0
 
     def get_all_joint_bend_directions(self) -> dict[str, float]:
         """

@@ -15,23 +15,9 @@ class QPointFModel(BaseModel):
     x: float
     y: float
 
-    @validator("x", "y", pre=True, allow_reuse=True)
-    def validate_number(cls, v):
-        try:
-            return float(v)
-        except (ValueError, TypeError):
-            raise ValueError("Coordinate must be a number")
 
-    @classmethod
-    def from_qpointf(cls, point: QPointF):
-        return cls(x=point.x(), y=point.y())
 
-    @classmethod
-    def from_tuple(cls, t: tuple[float, float]):
-        return cls(x=t[0], y=t[1])
 
-    def to_tuple(self) -> tuple[float, float]:
-        return (self.x, self.y)
 
     def to_qpointf(self) -> QPointF:
         return QPointF(self.x, self.y)
@@ -87,24 +73,8 @@ class PartInfoModel(BaseModel):
         description="ID of the skeleton joint this part is primarily anchored to",
     )
 
-    class Config:
-        arbitrary_types_allowed = True  # For QPointF if we decide to store it directly (not recommended for JSON)
 
-    @validator("roi")
-    def roi_must_have_four_elements(cls, v):
-        if v is not None and len(v) != 4:
-            raise ValueError(
-                "roi must contain four float elements: [x, y, width, height]"
-            )
-        return v
 
-    @validator("local_pivot_offset")
-    def local_pivot_offset_must_have_two_elements(cls, v):
-        if v is not None and len(v) != 2:
-            raise ValueError(
-                "local_pivot_offset must contain two float elements: [x, y]"
-            )
-        return v
 
 
 class SkeletonJointModel(BaseModel):
@@ -119,28 +89,9 @@ class SkeletonJointModel(BaseModel):
         None, alias="labelOffset"
     )  # [dx, dy] optional
 
-    @validator("position")
-    def position_must_have_two_elements(cls, v):
-        if len(v) != 2:
-            raise ValueError("position must contain two float elements: [x, y]")
-        return v
 
-    @validator("color")
-    def color_must_have_three_or_four_elements(cls, v):
-        if v is not None and len(v) not in [3, 4]:
-            raise ValueError(
-                "color must contain three (RGB) or four (RGBA) integer elements"
-            )
-        return v
 
-    @validator("label_offset")
-    def label_offset_must_have_two_elements(cls, v):
-        if v is not None and len(v) != 2:
-            raise ValueError("label_offset must contain two float elements: [dx, dy]")
-        return v
 
-    class Config:
-        populate_by_name = True
 
 
 class CharacterDataModel(BaseModel):
@@ -153,25 +104,7 @@ class CharacterDataModel(BaseModel):
     )  # Alias for older format too
     # Allow 'skeleton' as an alias for 'skeleton_joints' for backwards compatibility
 
-    @validator("parts", pre=True)
-    def populate_part_names(cls, v):
-        if isinstance(v, dict):
-            for name, part_data in v.items():
-                if isinstance(part_data, dict) and "name" not in part_data:
-                    part_data["name"] = name
-        return v
 
-    @validator("skeleton_joints", pre=True, always=True)
-    def use_skeleton_if_skeleton_joints_empty(cls, v, values):
-        # This validator is tricky because `values` gives already validated fields.
-        # Pydantic processes fields in order. If 'skeleton' is defined later, this won't see it.
-        # The alias on the field itself is usually better.
-        # For now, we assume `alias='skeleton'` on the field handles reading from 'skeleton'.
-        # If 'skeleton_joints' specifically exists but is empty, and 'skeleton' exists with data,
-        # this logic is more complex.
-        # The alias `Field(..., alias='skeleton')` should handle the case where 'skeleton_joints' is absent
-        # and 'skeleton' exists. If 'skeleton_joints' is present (even if empty), it takes precedence.
-        return v
 
 
 class ProjectMetadata(BaseModel):
@@ -185,8 +118,6 @@ class ProjectMetadata(BaseModel):
     author: str | None = None
     tags: list[str] = Field(default_factory=list)
 
-    class Config:
-        extra = "allow"  # Allow additional fields for extensibility
 
 
 class ProjectFileModel(BaseModel):

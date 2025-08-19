@@ -186,10 +186,6 @@ class HoverViewControls(QWidget):
         self.show()
         self._hide_timer.start(self._hide_delay)
 
-    def hide_controls(self):
-        """Hide the controls immediately."""
-        self._hide_timer.stop()
-        self.hide()
 
     def _auto_hide(self):
         """Auto-hide the controls."""

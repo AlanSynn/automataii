@@ -15,12 +15,4 @@ class AppConfig:
         - Loading settings from a file
         """
 
-    def get_var(self) -> Any:
-        """
-        Get the Var.
-        """
 
-    def set_var(self, value: Any) -> Any:
-        """
-        Set the Var.
-        """

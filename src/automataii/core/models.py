@@ -160,70 +160,8 @@ class PartInfo:
         # Pass resolved paths to constructor
         return cls(model, resolved_image_path=resolved_img_path)
 
-    def to_pydantic_model(self) -> "PydanticPartInfoModel":
-        from .models_pydantic import (
-            MotionPathDataModel,
-            PydanticPartInfoModel,
-            QPointFModel,
-        )  # Late import
-
-        motion_path_pydantic = None
-        if self.motion_path_data and not self.motion_path_data.isEmpty():
-            points_for_pydantic: list[QPointFModel] = []  # Type hint for clarity
-            for i in range(self.motion_path_data.elementCount()):
-                element = self.motion_path_data.elementAt(i)
-                # For simplicity, only capture LineTo and MoveTo points.
-                # Curve control points would require a more complex MotionPathDataModel structure.
-                if element.isMoveTo() or element.isLineTo():
-                    points_for_pydantic.append(
-                        QPointFModel(x=element.x, y=element.y)
-                    )
-            if points_for_pydantic:
-                motion_path_pydantic = MotionPathDataModel(
-                    path_points=points_for_pydantic
-                )
-
-        return PydanticPartInfoModel(
-            name=self.name,
-            roi=self.roi,
-            z_value=self.z_value,
-            image_path=self.image_path,
-            fill_color=self.fill_color,
-            fixed=self.fixed,
-            opacity=self.opacity,
-            group=self.group,
-            original_svg_path=self.original_svg_path,
-            enhanced_svg_path=self.enhanced_svg_path,
-            effective_bbox_offset_x=self.effective_bbox_offset_x,
-            effective_bbox_offset_y=self.effective_bbox_offset_y,
-            motion_path_data=motion_path_pydantic,
-            show_anchor=self.show_anchor,
-            local_pivot_offset=self.local_pivot_offset,
-            anchor_joint_id=self.anchor_joint_id,
-        )
 
 
-class Joint:
-    """Joint connecting two parts"""
-
-    # Assuming parent_item and child_item are CharacterPartItem instances,
-    # which would internally hold a PartInfo instance.
-    def __init__(
-        self,
-        parent_item_name: str,
-        child_item_name: str,
-        parent_pos: QPointF,
-        child_pos: QPointF,
-        name: str = "",
-    ):
-        self.parent_item_name: str = parent_item_name
-        self.child_item_name: str = child_item_name
-        self.parent_pos: QPointF = (
-            parent_pos  # Joint position in parent local coordinates
-        )
-        self.child_pos: QPointF = child_pos  # Joint position in child local coordinates
-        self.name: str = name or f"Joint_{parent_item_name}_{child_item_name}"
-        self.angle: float = 0.0  # Current joint angle (relative to parent, in degrees)
 
     # get_global_pos would require access to the actual QGraphicsItem instances,
     # which PartInfo itself doesn't hold. This method might be better placed

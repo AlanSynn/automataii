@@ -69,43 +69,7 @@ class PathOptimizationService(QObject):
 
         logging.debug("PathOptimizationService initialized")
 
-    def set_target_path(self, mechanism_id: str, target_points: list[QPointF]) -> bool:
-        """
-        Set target path for mechanism optimization.
-        
-        Args:
-            mechanism_id: Mechanism to optimize
-            target_points: List of target path points
-            
-        Returns:
-            True if target path was set successfully
-        """
-        try:
-            if not target_points:
-                logging.warning(f"Empty target path provided for {mechanism_id}")
-                return False
 
-            # Store target path
-            self.target_paths[mechanism_id] = target_points.copy()
-
-            logging.info(f"Set target path with {len(target_points)} points for {mechanism_id}")
-            return True
-
-        except Exception as e:
-            logging.error(f"Failed to set target path: {e}")
-            return False
-
-    def get_target_path(self, mechanism_id: str) -> list[QPointF] | None:
-        """
-        Get target path for mechanism.
-        
-        Args:
-            mechanism_id: Mechanism ID
-            
-        Returns:
-            Target path points or None if not set
-        """
-        return self.target_paths.get(mechanism_id)
 
     def has_target_path(self, mechanism_id: str) -> bool:
         """
@@ -119,95 +83,9 @@ class PathOptimizationService(QObject):
         """
         return mechanism_id in self.target_paths
 
-    def start_optimization(self, mechanism_id: str,
-                          initial_params: dict[str, float] | None = None) -> bool:
-        """
-        Start path optimization for mechanism.
-        
-        Args:
-            mechanism_id: Mechanism to optimize
-            initial_params: Initial parameter values (optional)
-            
-        Returns:
-            True if optimization started successfully
-        """
-        try:
-            # Check if target path exists
-            if not self.has_target_path(mechanism_id):
-                logging.error(f"No target path set for {mechanism_id}")
-                return False
 
-            # Check if optimization is already running
-            if self.active_optimizations.get(mechanism_id, False):
-                logging.warning(f"Optimization already running for {mechanism_id}")
-                return False
 
-            # Get mechanism data
-            mechanism_data = self._get_mechanism_data(mechanism_id)
-            if not mechanism_data:
-                logging.error(f"No mechanism data found for {mechanism_id}")
-                return False
 
-            # Set up initial parameters
-            if initial_params is None:
-                initial_params = self._extract_current_parameters(mechanism_data)
-
-            # Mark optimization as active
-            self.active_optimizations[mechanism_id] = True
-
-            # Emit start signal
-            self.optimization_started.emit(mechanism_id)
-
-            # Start optimization in separate thread (using QTimer for now)
-            self._run_optimization_async(mechanism_id, initial_params, mechanism_data)
-
-            logging.info(f"Started optimization for {mechanism_id}")
-            return True
-
-        except Exception as e:
-            logging.error(f"Failed to start optimization: {e}")
-            self.active_optimizations[mechanism_id] = False
-            return False
-
-    def stop_optimization(self, mechanism_id: str) -> bool:
-        """
-        Stop ongoing optimization for mechanism.
-        
-        Args:
-            mechanism_id: Mechanism ID
-            
-        Returns:
-            True if optimization was stopped
-        """
-        if mechanism_id in self.active_optimizations:
-            self.active_optimizations[mechanism_id] = False
-            logging.info(f"Stopped optimization for {mechanism_id}")
-            return True
-        return False
-
-    def is_optimization_running(self, mechanism_id: str) -> bool:
-        """
-        Check if optimization is currently running.
-        
-        Args:
-            mechanism_id: Mechanism ID
-            
-        Returns:
-            True if optimization is running
-        """
-        return self.active_optimizations.get(mechanism_id, False)
-
-    def get_optimization_results(self, mechanism_id: str) -> dict | None:
-        """
-        Get optimization results for mechanism.
-        
-        Args:
-            mechanism_id: Mechanism ID
-            
-        Returns:
-            Optimization results dictionary or None
-        """
-        return self.optimization_results.get(mechanism_id)
 
     def _get_mechanism_data(self, mechanism_id: str) -> dict[str, Any] | None:
         """Get mechanism data from parameter controller."""
@@ -561,35 +439,7 @@ class PathOptimizationService(QObject):
                 # Emit progress signal (placeholder value)
                 self.optimization_progress.emit(mechanism_id, 0.5)
 
-    def clear_target_path(self, mechanism_id: str) -> bool:
-        """
-        Clear target path for mechanism.
-        
-        Args:
-            mechanism_id: Mechanism ID
-            
-        Returns:
-            True if path was cleared
-        """
-        if mechanism_id in self.target_paths:
-            del self.target_paths[mechanism_id]
-            logging.info(f"Cleared target path for {mechanism_id}")
-            return True
-        return False
 
-    def get_path_optimization_stats(self) -> dict[str, Any]:
-        """
-        Get statistics about path optimization usage.
-        
-        Returns:
-            Dictionary with optimization statistics
-        """
-        return {
-            'active_targets': len(self.target_paths),
-            'active_optimizations': sum(self.active_optimizations.values()),
-            'completed_optimizations': len(self.optimization_results),
-            'success_rate': self._calculate_success_rate()
-        }
 
     def _calculate_success_rate(self) -> float:
         """Calculate optimization success rate."""

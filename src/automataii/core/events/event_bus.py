@@ -213,50 +213,15 @@ class EventBus:
         self._thread_pool.submit(self._process_sync, event, handlers)
         self._stats['events_processed'] += 1
 
-    def replay_events(
-        self,
-        filter_func: EventFilter | None = None,
-        start_index: int = 0
-    ) -> None:
-        """
-        Replay events from history.
-        
-        Args:
-            filter_func: Optional filter for events to replay
-            start_index: Index to start replay from
-        """
-        with self._lock:
-            events_to_replay = list(self._event_history)[start_index:]
 
-        for event in events_to_replay:
-            if not filter_func or filter_func(event):
-                self.publish(event)
-
-    def clear_history(self) -> None:
-        """Clear event history."""
-        with self._lock:
-            self._event_history.clear()
 
     def get_stats(self) -> dict[str, Any]:
         """Get event bus statistics."""
         with self._lock:
             return self._stats.copy()
 
-    def set_enabled(self, enabled: bool) -> None:
-        """Enable or disable event processing."""
-        self._enabled = enabled
 
-    def set_processing_mode(self, mode: EventProcessingMode) -> None:
-        """Set default event processing mode."""
-        self._processing_mode = mode
 
-    def shutdown(self) -> None:
-        """Shutdown the event bus and cleanup resources."""
-        self._enabled = False
-        self._thread_pool.shutdown(wait=True)
-        with self._lock:
-            self._handlers.clear()
-            self._subscribers.clear()
 
 
 class FunctionEventHandler(EventHandler):
@@ -301,7 +266,3 @@ def get_global_event_bus() -> EventBus:
     return _global_event_bus
 
 
-def set_global_event_bus(event_bus: EventBus) -> None:
-    """Set the global event bus instance."""
-    global _global_event_bus
-    _global_event_bus = event_bus

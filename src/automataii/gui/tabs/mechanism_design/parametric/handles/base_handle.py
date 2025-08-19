@@ -327,9 +327,6 @@ class BaseHandle(QGraphicsEllipseItem):
         dy = point.y() - handle_center.y()
         return math.sqrt(dx * dx + dy * dy)
 
-    def is_near_point(self, point: QPointF, threshold: float = 20.0) -> bool:
-        """Check if handle is near a specific point."""
-        return self.distance_to_point(point) <= threshold
 
     def __repr__(self) -> str:
         """String representation for debugging."""

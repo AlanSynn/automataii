@@ -133,15 +133,6 @@ class ScaleNormalizer:
 
         return scaled_path
 
-    def get_scaled_bounds(self, original_bounds: tuple[int, int, int, int], scale_factor: float) -> ScaledBounds:
-        """Convert pixel bounds to scaled real-world bounds"""
-        x, y, w, h = original_bounds
-        return ScaledBounds(
-            x=x * scale_factor,
-            y=y * scale_factor,
-            width=w * scale_factor,
-            height=h * scale_factor
-        )
 
 
 class SmartLayoutManager:
@@ -2201,10 +2192,21 @@ class BlueprintLayoutOptimizer:
 
         # First pass: collect all contours and calculate total character bounds
         for item in part_items:
-            processor = PNGBlueprintProcessor()
-            contour = processor.process_part_png(item)
-            if contour:
-                all_contours.append((item, contour))
+            try:
+                # Validate item before processing
+                if not item or not hasattr(item, 'part_info'):
+                    self.logger.warning(f"Skipping invalid part item: {item}")
+                    continue
+                    
+                processor = PNGBlueprintProcessor()
+                contour = processor.process_part_png(item)
+                if contour:
+                    all_contours.append((item, contour))
+            except Exception as e:
+                self.logger.error(f"Error processing part item: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                continue
 
         if all_contours:
             # Calculate total character bounding box
@@ -2265,16 +2267,6 @@ class BlueprintLayoutOptimizer:
 
         return layout_items
 
-    def _process_mechanisms(self, mechanism_data: dict[str, Any]) -> list[LayoutItem]:
-        """Process mechanisms with enhanced support"""
-        layout_items = []
-
-        for mech_id, mech_info in mechanism_data.items():
-            layout_item = self.mechanism_processor.process_mechanism(mech_id, mech_info)
-            if layout_item:
-                layout_items.append(layout_item)
-
-        return layout_items
 
     def _generate_scaled_part_svg(self, scaled_contour: Any, part_name: str, bounds: ScaledBounds) -> str:
         """Generate SVG content for scaled part with texture image clipped to contour."""

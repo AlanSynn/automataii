@@ -36,40 +36,10 @@ class EventProcessingMode(Enum):
 
 
 # Common event filters
-class EventTypeFilter:
-    """Filter events by type."""
-
-    def __init__(self, event_type: type):
-        self.event_type = event_type
-
-    def __call__(self, event: Event) -> bool:
-        return isinstance(event, self.event_type)
 
 
-class SourceFilter:
-    """Filter events by source."""
-
-    def __init__(self, source: str):
-        self.source = source
-
-    def __call__(self, event: Event) -> bool:
-        return event.source == self.source
 
 
-class CompositeFilter:
-    """Combine multiple filters with AND/OR logic."""
-
-    def __init__(self, *filters: EventFilter, logic: str = "AND"):
-        self.filters = filters
-        self.logic = logic.upper()
-
-    def __call__(self, event: Event) -> bool:
-        if self.logic == "AND":
-            return all(f(event) for f in self.filters)
-        elif self.logic == "OR":
-            return any(f(event) for f in self.filters)
-        else:
-            raise ValueError(f"Unknown logic: {self.logic}")
 
 
 # Type aliases

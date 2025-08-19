@@ -264,8 +264,6 @@ class CharacterPartItem(QGraphicsPixmapItem):
     def is_fixed(self) -> bool:
         return self._is_fixed
 
-    def set_fixed(self, fixed: bool):
-        self._is_fixed = fixed
 
     @property
     def is_joint_locked(self) -> bool:
@@ -357,87 +355,6 @@ class CharacterPartItem(QGraphicsPixmapItem):
         path.addRect(self.boundingRect())
         return path
 
-    def paint(
-        self,
-        painter: QPainter,
-        option: QStyleOptionGraphicsItem,
-        widget: QWidget | None = None,
-    ):
-        # We don't want the default Qt selection rectangle to be drawn,
-        # so we clear the QStyle.State_Selected flag before calling super().paint()
-        # if option.state & QStyle.State_Selected:
-        #     option.state &= ~QStyle.State_Selected
-        painter.save()
-
-        if self.part_pixmap:
-            # Draw the actual part pixmap
-            painter.drawPixmap(
-                self.boundingRect(), self.part_pixmap, QRectF(self.part_pixmap.rect())
-            )
-
-        if self.is_active:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(255, 165, 0, 100))  # Semi-transparent orange
-            painter.drawRect(self.boundingRect())
-
-        painter.restore()
-
-        if self.debug_mode:
-            painter.save()
-
-            # Draw bounding box
-            pen_bbox = QPen(Qt.GlobalColor.red, 0.5)  # Thin red line for bbox
-            pen_bbox.setCosmetic(True)
-            painter.setPen(pen_bbox)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.boundingRect())
-
-            # Draw anchor_offset (transform origin)
-            anchor_color = Qt.GlobalColor.blue
-            painter.setPen(QPen(anchor_color, 1))
-            painter.setBrush(QBrush(anchor_color))
-            # Draw a small circle for the anchor_offset
-            painter.drawEllipse(self.anchor_offset, 2, 2)
-
-            # Draw text information
-            font = painter.font()
-            font.setPointSize(8)
-            painter.setFont(font)
-            painter.setPen(Qt.GlobalColor.black)
-
-            text_lines = [
-                f"Name: {self.name()}",
-                f"ScenePos: ({self.scenePos().x():.1f}, {self.scenePos().y():.1f})",
-                f"Pos: ({self.pos().x():.1f}, {self.pos().y():.1f})",
-                f"AnchorOffset: ({self.anchor_offset.x():.1f}, {self.anchor_offset.y():.1f})",
-                f"Rotation: {self.rotation():.1f}",
-                f"Z: {self.zValue():.1f}",
-            ]
-
-            # Position text slightly offset from the top-left of the bounding rect
-            text_y_offset = 0
-            for i, line in enumerate(text_lines):
-                painter.drawText(
-                    QPointF(
-                        self.boundingRect().left() + 2,
-                        self.boundingRect().top() + 10 + i * 10,
-                    ),
-                    line,
-                )
-                text_y_offset += 10
-
-            painter.restore()
-
-        if (
-            self.part_info.show_anchor
-        ):  # This is a separate flag, not tied to debug_mode
-            painter.save()
-            painter.setPen(
-                QPen(Qt.GlobalColor.magenta, 2)
-            )  # Changed color to differentiate from debug anchor
-            painter.setBrush(QBrush(Qt.GlobalColor.magenta))
-            painter.drawEllipse(self.anchor_offset, 3, 3)  # Slightly larger
-            painter.restore()
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
         """Handle item changes, like position changes by the user."""
@@ -464,13 +381,6 @@ class CharacterPartItem(QGraphicsPixmapItem):
             # self.setSelected(True) # Scene selection handles this if ItemIsSelectable
             pass
 
-    def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        """Handle mouse double-click events on the part."""
-        super().mouseDoubleClickEvent(event)
-        # self.part_double_clicked.emit(self.name()) # Temporarily commented out
-        logging.debug(f"CharacterPartItem '{self.name()}' double-clicked.")
-        # Example: Open properties dialog or enter rename mode
-        pass
 
     def hoverEnterEvent(self, event: QGraphicsSceneMouseEvent):
         super().hoverEnterEvent(event)

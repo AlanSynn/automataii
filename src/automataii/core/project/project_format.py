@@ -236,34 +236,11 @@ class AtiiProject:
         for asset_path, asset_data in self._assets.items():
             archive.writestr(asset_path, asset_data)
 
-    def add_asset(self, name: str, data: bytes, category: str = "images") -> str:
-        """
-        Add binary asset to project.
-        
-        Args:
-            name: Asset name/filename
-            data: Binary data
-            category: Asset category (images, textures, models, etc.)
-            
-        Returns:
-            Asset path within project
-        """
-        asset_path = f"assets/{category}/{name}"
-        self._assets[asset_path] = data
-        self._mark_modified()
-        return asset_path
 
     def get_asset(self, path: str) -> bytes | None:
         """Get binary asset by path."""
         return self._assets.get(path)
 
-    def remove_asset(self, path: str) -> bool:
-        """Remove asset by path."""
-        if path in self._assets:
-            del self._assets[path]
-            self._mark_modified()
-            return True
-        return False
 
     def list_assets(self, category: str | None = None) -> list[str]:
         """List all asset paths, optionally filtered by category."""
@@ -277,28 +254,11 @@ class AtiiProject:
         self.project_data[key] = value
         self._mark_modified()
 
-    def get_project_data(self, key: str, default: Any = None) -> Any:
-        """Get project data value."""
-        return self.project_data.get(key, default)
 
     def _mark_modified(self) -> None:
         """Mark project as modified."""
         self._is_modified = True
 
-    def get_info(self) -> dict[str, Any]:
-        """Get project information."""
-        return {
-            'name': self.manifest.name,
-            'description': self.manifest.description,
-            'author': self.manifest.author,
-            'version': self.manifest.version,
-            'created_at': self.manifest.created_at,
-            'modified_at': self.manifest.modified_at,
-            'file_path': str(self.file_path) if self.file_path else None,
-            'is_modified': self._is_modified,
-            'asset_count': len(self._assets),
-            'tags': self.manifest.tags
-        }
 
     def validate(self) -> list[str]:
         """

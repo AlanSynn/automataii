@@ -71,19 +71,5 @@ class StandardizedSkeletonModel(BaseModel):
         description="Any other relevant metadata, like source file path, processing notes, etc.",
     )
 
-    class Config:
-        validate_assignment = True  # Ensure fields are validated on assignment
 
-    def get_joint_children(self, joint_id: str) -> list[StandardizedJointModel]:
-        """Helper to get child joint models for a given joint_id."""
-        child_ids = self.hierarchy.get(joint_id, [])
-        return [
-            self.joints[child_id] for child_id in child_ids if child_id in self.joints
-        ]
 
-    def get_joint_parent(self, joint_id: str) -> StandardizedJointModel | None:
-        """Helper to get the parent joint model for a given joint_id."""
-        parent_id = self.joints.get(joint_id, {}).get("parent_id")
-        if parent_id and parent_id in self.joints:
-            return self.joints[parent_id]
-        return None

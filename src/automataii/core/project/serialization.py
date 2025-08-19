@@ -104,11 +104,6 @@ class ReferenceResolver:
         """Resolve reference by ID."""
         return self._id_to_object.get(ref_id)
 
-    def add_pending_reference(self, ref_id: str, container: Any, key: str) -> None:
-        """Add pending reference for later resolution."""
-        if ref_id not in self._pending_refs:
-            self._pending_refs[ref_id] = []
-        self._pending_refs[ref_id].append((container, key))
 
     def resolve_pending_references(self) -> None:
         """Resolve all pending references."""
@@ -417,120 +412,7 @@ class ProjectSerializer:
             self._logger.error(f"Deserialization failed: {e}", exc_info=True)
             raise SerializationError(f"Deserialization failed: {e}") from e
 
-    def serialize_to_file(
-        self,
-        obj: Any,
-        file_path: Path,
-        compress: bool = False
-    ) -> None:
-        """
-        Serialize object directly to file.
-        
-        Args:
-            obj: Object to serialize
-            file_path: Path to write to
-            compress: Apply compression
-        """
-        data = self.serialize(obj, compress=compress)
 
-        # Atomic write
-        temp_path = file_path.with_suffix('.tmp')
-        try:
-            with open(temp_path, 'wb') as f:
-                f.write(data)
-            temp_path.replace(file_path)
-        except Exception:
-            if temp_path.exists():
-                temp_path.unlink()
-            raise
 
-    def deserialize_from_file(
-        self,
-        file_path: Path,
-        expected_type: type | None = None,
-        compressed: bool = False
-    ) -> Any:
-        """
-        Deserialize object from file.
-        
-        Args:
-            file_path: Path to read from
-            expected_type: Expected object type
-            compressed: Data is compressed
-            
-        Returns:
-            Deserialized object
-        """
-        with open(file_path, 'rb') as f:
-            data = f.read()
 
-        return self.deserialize(data, expected_type, compressed)
 
-    def validate_schema(self, obj: Any, schema: dict[str, Any]) -> list[str]:
-        """
-        Validate object against JSON schema.
-        
-        Args:
-            obj: Object to validate
-            schema: JSON schema
-            
-        Returns:
-            List of validation errors
-        """
-        try:
-            import jsonschema
-            validator = jsonschema.Draft7Validator(schema)
-            errors = []
-
-            for error in validator.iter_errors(obj):
-                errors.append(f"{error.json_path}: {error.message}")
-
-            return errors
-
-        except ImportError:
-            self._logger.warning("jsonschema not available for validation")
-            return []
-        except Exception as e:
-            self._logger.error(f"Schema validation failed: {e}")
-            return [str(e)]
-
-    def get_supported_formats(self) -> list[SerializationFormat]:
-        """Get list of supported formats."""
-        formats = [SerializationFormat.JSON]
-
-        if HAS_MSGPACK:
-            formats.append(SerializationFormat.MSGPACK)
-
-        if HAS_BSON:
-            formats.append(SerializationFormat.BSON)
-
-        return formats
-
-    def estimate_size(self, obj: Any) -> int:
-        """
-        Estimate serialized size without full serialization.
-        
-        Args:
-            obj: Object to estimate
-            
-        Returns:
-            Estimated size in bytes
-        """
-        if isinstance(obj, (str, bytes)):
-            return len(obj)
-        elif isinstance(obj, (int, float, bool)):
-            return 8  # Rough estimate
-        elif isinstance(obj, (list, tuple)):
-            return sum(self.estimate_size(item) for item in obj)
-        elif isinstance(obj, dict):
-            return sum(
-                self.estimate_size(k) + self.estimate_size(v)
-                for k, v in obj.items()
-            )
-        else:
-            # Fallback: serialize to get actual size
-            try:
-                data = self.serialize(obj)
-                return len(data)
-            except Exception:
-                return 1024  # Default estimate

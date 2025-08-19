@@ -1350,12 +1350,6 @@ class IKManager(QObject):
         self._mechanism_position_targets.clear()
         self._mechanism_controlled_joints.clear()
 
-    def clear_mechanism_position_target(self, joint_id: str):
-        """Clear mechanism position target for a specific joint."""
-        std_joint_id = self._get_standardized_joint_id(joint_id)
-        if std_joint_id:
-            self._mechanism_position_targets.pop(std_joint_id, None)
-            self._mechanism_controlled_joints.discard(std_joint_id)
 
     def _run_ik_animation_step(self):
         if (
@@ -1633,10 +1627,6 @@ class IKManager(QObject):
         if animated_joint_scene_positions:
             self.skeleton_pose_updated.emit(animated_joint_scene_positions)
 
-    def get_world_rotation_degrees(self, transform: QTransform) -> float:
-        """Extracts rotation in degrees from a QTransform object."""
-        angle_rad = math.atan2(transform.m21(), transform.m11())
-        return math.degrees(angle_rad)
 
     @property
     def dynamic_joints(self) -> dict[str, dict[str, Any]]:

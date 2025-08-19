@@ -273,31 +273,7 @@ class AnchorHandle(BaseHandle):
         # Don't call super() as it may reset position
         # super().mouseMoveEvent(event)
 
-    def get_anchor_name(self) -> str:
-        """Get the anchor name (ground_pivot_1 or ground_pivot_2)."""
-        return self.anchor_name
 
-    def get_distance_to_other_anchor(self) -> float:
-        """
-        Calculate distance to the other anchor point.
-        
-        Returns:
-            Distance in scene coordinates, or -1 if other anchor not found
-        """
-        try:
-            other_anchor_name = "ground_pivot_2" if self.anchor_name == "ground_pivot_1" else "ground_pivot_1"
-            key_points = self.mechanism_data.get("key_points", {})
-
-            if other_anchor_name in key_points:
-                other_pos_data = key_points[other_anchor_name]
-                other_pos = QPointF(other_pos_data[0], other_pos_data[1])
-                return self.distance_to_point(other_pos)
-
-            return -1
-
-        except Exception as e:
-            logging.warning(f"Could not calculate anchor distance: {e}")
-            return -1
 
     def __repr__(self) -> str:
         """String representation for debugging."""

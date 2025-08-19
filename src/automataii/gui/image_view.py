@@ -240,92 +240,7 @@ class ImageProcessingView(QGraphicsView):
         elif gesture.state() == Qt.GestureState.GestureFinished:
             self._pinch_mode = False
 
-    def wheelEvent(self, event):
-        """Handle mouse wheel for zooming when not pinching."""
-        if not self._pinch_mode:
-            zoom_in = event.angleDelta().y() > 0
-            factor = 1.15 if zoom_in else 1 / 1.15
 
-            current_scale = self.transform().m11()
-            new_scale = current_scale * factor
-
-            # Limit zoom range (10% to 1000%)
-            if (
-                0.0999 < new_scale < 10.001
-            ):  # Allow slight overshoot for float precision
-                clamped_new_scale = max(0.1, min(new_scale, 10.0))
-                if abs(clamped_new_scale - new_scale) > 0.0001:  # if clamping happened
-                    factor = clamped_new_scale / current_scale
-
-                self.scale(factor, factor)
-                self.scene().update()
-
-    def drawForeground(self, painter: QPainter, rect: QRectF):
-        """Draws debug information on top of the view."""
-        super().drawForeground(painter, rect)
-
-        if not self.debug_mode:
-            return
-
-        painter.save()
-        painter.setPen(QColor("yellow"))
-        # Use view coordinates for text overlay
-        view_rect = self.viewport().rect()
-        text_flags = (
-            Qt.AlignmentFlag.AlignLeft
-            | Qt.AlignmentFlag.AlignTop
-            | Qt.TextFlag.TextWordWrap
-        )
-        text_margin = 5
-        current_y = text_margin
-
-        debug_text = "--- DEBUG INFO ---\n"
-
-        if self.image_item:
-            pixmap_size = self.image_item.pixmap().size()
-            scene_pos = self.image_item.scenePos()
-            scene_rect = self.image_item.sceneBoundingRect()
-            debug_text += "Image:\n"
-            debug_text += f"  Orig Size: {pixmap_size.width()}x{pixmap_size.height()}\n"
-            debug_text += f"  Scene Pos: ({scene_pos.x():.1f}, {scene_pos.y():.1f})\n"
-            debug_text += f"  Scene Rect: ({scene_rect.left():.1f}, {scene_rect.top():.1f}) W: {scene_rect.width():.1f} H: {scene_rect.height():.1f}\n"
-        else:
-            debug_text += "Image: Not Loaded\n"
-
-        if self.bounding_box:
-            bb = self.bounding_box
-            bb_w = bb["right"] - bb["left"]
-            bb_h = bb["bottom"] - bb["top"]
-            debug_text += "Bounding Box (Loaded):\n"
-            debug_text += (
-                f"  L: {bb['left']} R: {bb['right']} T: {bb['top']} B: {bb['bottom']}\n"
-            )
-            debug_text += f"  W: {bb_w} H: {bb_h}\n"
-            if self.bb_center:
-                debug_text += (
-                    f"  Center: ({self.bb_center[0]:.1f}, {self.bb_center[1]:.1f})\n"
-                )
-        else:
-            debug_text += "Bounding Box: Not Loaded\n"
-
-        # View information
-        visible_scene_rect = self.mapToScene(view_rect).boundingRect()
-        debug_text += "View:\n"
-        debug_text += f"  Viewport Rect: {view_rect.width()}x{view_rect.height()}\n"
-        debug_text += f"  Visible Scene Rect: ({visible_scene_rect.left():.1f}, {visible_scene_rect.top():.1f}) W: {visible_scene_rect.width():.1f} H: {visible_scene_rect.height():.1f}\n"
-        # Draw text in the top-left corner of the viewport
-        painter.drawText(
-            QRectF(
-                text_margin,
-                current_y,
-                view_rect.width() - 2 * text_margin,
-                view_rect.height(),
-            ),
-            text_flags,
-            debug_text,
-        )
-
-        painter.restore()
 
     # --- Image and Skeleton Loading ---
 
@@ -884,120 +799,8 @@ class ImageProcessingView(QGraphicsView):
         self.part_items.clear()
         self.joint_to_part_map.clear()
 
-    def load_character_parts(
-        self,
-        parts_data: dict[str, PartInfo],
-        skeleton_to_part_map: dict[str, str],
-        effective_bbox_offset: QPointF,
-    ):
-        """
-        Loads and displays CharacterPartItems based on parts_data.
-        These are interactive parts, distinct from simple skeleton visualization.
-        """
-        self.clear_character_parts()  # Clear existing parts first
 
-        if not self.scene():
-            logging.error(
-                "ImageProcessingView: Scene not available to load character parts."
-            )
-            return
 
-        if not parts_data:
-            logging.warning(
-                "ImageProcessingView: No parts_data provided to load_character_parts."
-            )
-            return
-
-        logging.info(f"ImageProcessingView: Loading {len(parts_data)} character parts.")
-
-        self.skeleton_to_part_map = skeleton_to_part_map  # Store the map
-
-        for part_name, part_info_obj in parts_data.items():
-            if not isinstance(part_info_obj, PartInfo):
-                logging.warning(
-                    f"ImageProcessingView: Item '{part_name}' in parts_data is not a PartInfo object. Skipping."
-                )
-                continue
-
-            try:
-                # Create the CharacterPartItem
-                part_item = CharacterPartItem(part_info_obj)
-
-                # Positioning logic (simplified from MainWindow.load_parts, assuming SVGs are self-contained)
-                # The key is that PartInfo.roi should be relative to texture.png origin
-                # if an image_path is primary, or svg coordinates are relative to (0,0) of part.
-                # This view positions relative to the overall texture.png, so bbox_offset is key.
-
-                # Default position is (0,0) minus the effective bbox_offset (aligns texture origin with scene origin)
-                item_x = 0.0  # Start with texture origin (0,0)
-                item_y = 0.0
-
-                if part_info_obj.roi and len(part_info_obj.roi) == 4:
-                    # If ROI exists, part's origin (top-left of its image/svg) is at roi[0], roi[1] within texture.png
-                    # So, add roi[0] and roi[1] to the base position.
-                    item_x += part_info_obj.roi[0]
-                    item_y += part_info_obj.roi[1]
-                    logging.debug(
-                        f"ImageProcessingView: Positioning '{part_name}' using ROI ({part_info_obj.roi[0]}, {part_info_obj.roi[1]}). Pos: ({item_x}, {item_y})"
-                    )
-                else:
-                    # If no ROI, might need a fallback based on a convention (e.g., skeleton joint pos)
-                    # For now, it will be at texture origin (0,0) if no ROI
-                    logging.debug(
-                        f"ImageProcessingView: Positioning '{part_name}' at texture origin (0,0) due to no ROI."
-                    )
-
-                part_item.setPos(item_x, item_y)
-                part_item.setZValue(10)  # Parts above image, below skeleton visuals
-                part_item.setVisible(
-                    False
-                )  # Initially hidden, controlled by a checkbox
-
-                self.scene().addItem(part_item)
-                self.part_items[part_name] = part_item
-
-                # Map controlling skeleton joint to this part item
-                # Iterate through skeleton_to_part_map to find which skeleton joint controls this part_name
-                for (
-                    skel_joint_name,
-                    controlled_part_name,
-                ) in skeleton_to_part_map.items():
-                    if controlled_part_name == part_name:
-                        self.joint_to_part_map[skel_joint_name] = part_item
-                        logging.debug(
-                            f"ImageProcessingView: Mapped skeleton joint '{skel_joint_name}' to control part '{part_name}'."
-                        )
-                        break  # Assuming one primary controlling joint per part for simplicity
-
-            except Exception as e:
-                logging.error(
-                    f"ImageProcessingView: Error creating/loading CharacterPartItem for '{part_name}': {e}"
-                )
-
-        logging.info(
-            f"ImageProcessingView: Loaded {len(self.part_items)} part items. Mapped {len(self.joint_to_part_map)} joints to parts."
-        )
-
-    def show_skeleton_visuals(self, show: bool):
-        """Shows or hides the skeleton joint and line visuals."""
-        for joint_item in self.joints.values():
-            joint_item.setVisible(show)
-        for label_item in self.joint_labels.values():
-            label_item.setVisible(show)
-        for line_item in self.lines:
-            line_item.setVisible(show)
-        logging.debug(f"ImageProcessingView: Skeleton visuals visibility set to {show}")
-
-    def show_part_visuals(self, show: bool):
-        """Shows or hides the CharacterPartItem visuals."""
-        for part_item in self.part_items.values():
-            part_item.setVisible(show)
-        logging.debug(
-            f"ImageProcessingView: Character part visuals visibility set to {show}"
-        )
-        # When showing parts, typically hide the base image texture
-        if self.image_item:
-            self.image_item.setVisible(not show)
 
     def mousePressEvent(self, event: QEvent):
         # Check if the click is on a joint
@@ -1188,9 +991,6 @@ class ImageProcessingView(QGraphicsView):
         """Zoom out the view."""
         self.scale(0.8, 0.8)
 
-    def reset_zoom(self):
-        """Reset zoom to 100%."""
-        self.resetTransform()
 
     def zoom(self, direction: int):
         """Zoom the view in or out based on direction.

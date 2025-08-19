@@ -145,19 +145,6 @@ class ParameterController(QObject):
         """
         return self.active_handles.get(mechanism_id, [])
 
-    def enable_handles_for_mechanism(self, mechanism_id: str, enabled: bool):
-        """
-        Enable or disable all handles for a mechanism.
-        
-        Args:
-            mechanism_id: Mechanism ID
-            enabled: Whether to enable or disable handles
-        """
-        handles = self.get_handles_for_mechanism(mechanism_id)
-        for handle in handles:
-            handle.setEnabled(enabled)
-
-        logging.debug(f"{'Enabled' if enabled else 'Disabled'} {len(handles)} handles for {mechanism_id}")
 
     # Event Handlers (Observer Pattern)
 
@@ -189,36 +176,7 @@ class ParameterController(QObject):
 
         logging.debug(f"Parameter changed: {mechanism_id}:{param_name} = {new_value}")
 
-    def _on_manipulation_started(self, mechanism_id: str):
-        """
-        Handle start of manipulation session.
-        
-        Args:
-            mechanism_id: ID of mechanism being manipulated
-        """
-        # Capture initial state for undo
-        self._capture_mechanism_state(mechanism_id)
 
-        # Optionally disable animation during manipulation
-        if hasattr(self.mechanism_tab, '_on_stop_animation'):
-            self.mechanism_tab._on_stop_animation()
-
-        logging.debug(f"Manipulation started for {mechanism_id}")
-
-    def _on_manipulation_finished(self, mechanism_id: str):
-        """
-        Handle end of manipulation session.
-        
-        Args:
-            mechanism_id: ID of mechanism that was manipulated
-        """
-        # Force immediate update for final state
-        self._process_pending_updates()
-
-        # Add to undo stack
-        self._finalize_undo_state(mechanism_id)
-
-        logging.debug(f"Manipulation finished for {mechanism_id}")
 
     # Update Management (Performance Optimization)
 
@@ -457,59 +415,7 @@ class ParameterController(QObject):
         # This could involve cleaning up intermediate states
         pass
 
-    def undo_last_change(self) -> bool:
-        """
-        Undo the last parameter change.
-        
-        Returns:
-            True if undo was successful, False otherwise
-        """
-        if not self.undo_stack:
-            return False
 
-        try:
-            # Get last state
-            undo_entry = self.undo_stack.pop()
-            mechanism_id = undo_entry['mechanism_id']
-
-            # Capture current state for redo
-            self._capture_current_state_for_redo(mechanism_id)
-
-            # Restore previous state
-            self._restore_mechanism_state(mechanism_id, undo_entry['state'])
-
-            return True
-
-        except Exception as e:
-            logging.error(f"Undo failed: {e}")
-            return False
-
-    def redo_last_change(self) -> bool:
-        """
-        Redo the last undone change.
-        
-        Returns:
-            True if redo was successful, False otherwise  
-        """
-        if not self.redo_stack:
-            return False
-
-        try:
-            # Get redo state
-            redo_entry = self.redo_stack.pop()
-            mechanism_id = redo_entry['mechanism_id']
-
-            # Capture current state for undo
-            self._capture_mechanism_state(mechanism_id)
-
-            # Restore redo state
-            self._restore_mechanism_state(mechanism_id, redo_entry['state'])
-
-            return True
-
-        except Exception as e:
-            logging.error(f"Redo failed: {e}")
-            return False
 
     def _capture_current_state_for_redo(self, mechanism_id: str):
         """Capture current state for redo stack."""
@@ -521,21 +427,6 @@ class ParameterController(QObject):
         # Implementation would restore mechanism state and update visuals
         pass
 
-    def get_performance_stats(self) -> dict[str, float]:
-        """
-        Get performance statistics for monitoring.
-        
-        Returns:
-            Dictionary with performance metrics
-        """
-        if self.update_count == 0:
-            return {'average_update_time_ms': 0, 'total_updates': 0}
-
-        return {
-            'average_update_time_ms': (self.total_update_time / self.update_count) * 1000,
-            'total_updates': self.update_count,
-            'total_time_seconds': self.total_update_time
-        }
 
     def __repr__(self) -> str:
         """String representation for debugging."""

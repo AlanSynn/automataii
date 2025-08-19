@@ -27,10 +27,6 @@ class ManufacturingContour:
         self.perimeter = cv2.arcLength(contour, True)
         self.bounding_rect = cv2.boundingRect(contour)
 
-    def get_cutting_path(self, kerf_compensation: float = 0.1) -> str:
-        """Generate optimized cutting path for CNC/laser with kerf compensation"""
-        # TODO: Implement kerf compensation for laser cutting
-        return self.svg_path
 
 
 class AdvancedContourExtractor:
@@ -200,60 +196,6 @@ class AdvancedContourExtractor:
 
         return path_data
 
-    def generate_cutting_paths(self, contours: list[ManufacturingContour]) -> str:
-        """
-        Generate optimized cutting paths for CNC/laser fabrication
-        
-        Args:
-            contours: List of manufacturing contours
-            
-        Returns:
-            Complete SVG with optimized cutting paths
-        """
-        if not contours:
-            return ""
-
-        # Calculate total bounding box
-        all_rects = [contour.bounding_rect for contour in contours]
-        min_x = min(rect[0] for rect in all_rects)
-        min_y = min(rect[1] for rect in all_rects)
-        max_x = max(rect[0] + rect[2] for rect in all_rects)
-        max_y = max(rect[1] + rect[3] for rect in all_rects)
-
-        width = max_x - min_x + 20  # Add padding
-        height = max_y - min_y + 20
-
-        svg_content = f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="{width:.2f}" height="{height:.2f}" xmlns="http://www.w3.org/2000/svg" version="1.1">
-  <defs>
-    <style>
-      .cutting-path {{ fill: none; stroke: red; stroke-width: 0.1; }}
-      .dimension-line {{ stroke: #666; stroke-width: 0.25; stroke-dasharray: 1,1; }}
-      .part-outline {{ fill: none; stroke: black; stroke-width: 0.5; }}
-    </style>
-  </defs>
-  
-  <!-- Manufacturing contour paths -->
-  <g class="manufacturing-contours">
-'''
-
-        # Add each contour as a cutting path
-        for i, contour in enumerate(contours):
-            # Translate contour to account for bounding box offset
-            offset_x = 10 - min_x
-            offset_y = 10 - min_y
-
-            # Create path with offset
-            path_data = self._apply_offset_to_path(contour.svg_path, offset_x, offset_y)
-
-            svg_content += f'''    <path d="{path_data}" class="cutting-path" id="contour-{i}"/>
-    <path d="{path_data}" class="part-outline" id="outline-{i}"/>
-'''
-
-        svg_content += '''  </g>
-</svg>'''
-
-        return svg_content
 
     def _apply_offset_to_path(self, svg_path: str, offset_x: float, offset_y: float) -> str:
         """Apply offset to SVG path coordinates"""

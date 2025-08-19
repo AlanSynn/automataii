@@ -143,14 +143,6 @@ class Container:
         """Register a transient service."""
         return self._register(service_type, implementation, factory, None, Lifetime.TRANSIENT)
 
-    def register_scoped(
-        self,
-        service_type: type[T],
-        implementation: type[T] | None = None,
-        factory: Callable[..., T] | None = None
-    ) -> 'Container':
-        """Register a scoped service."""
-        return self._register(service_type, implementation, factory, None, Lifetime.SCOPED)
 
     def _register(
         self,
@@ -311,32 +303,10 @@ class Container:
         else:
             return str(service_type)
 
-    def create_scope(self, name: str = "scope") -> Scope:
-        """Create a new dependency scope."""
-        scope = Scope(name)
-        with self._lock:
-            self._scopes[name] = scope
-        return scope
 
-    def enter_scope(self, scope: Scope) -> None:
-        """Enter a dependency scope."""
-        self._current_scope = scope
 
-    def exit_scope(self) -> None:
-        """Exit current dependency scope."""
-        if self._current_scope:
-            self._current_scope.clear()
-            self._current_scope = None
 
-    def is_registered(self, service_type: type) -> bool:
-        """Check if service type is registered."""
-        key = self._get_service_key(service_type)
-        return key in self._services or (self.parent and self.parent.is_registered(service_type))
 
-    def get_registrations(self) -> list[ServiceDescriptor]:
-        """Get all service registrations."""
-        with self._lock:
-            return list(self._services.values())
 
     def clear(self) -> None:
         """Clear all registrations and instances."""
@@ -376,10 +346,6 @@ def get_global_container() -> Container:
     return _global_container
 
 
-def set_global_container(container: Container) -> None:
-    """Set the global dependency container."""
-    global _global_container
-    _global_container = container
 
 
 # Convenience functions
@@ -388,9 +354,6 @@ def inject(service_type: type[T]) -> T:
     return get_global_container().resolve(service_type)
 
 
-def register_singleton(service_type: type[T], implementation: type[T] = None) -> None:
-    """Register a singleton in the global container."""
-    get_global_container().register_singleton(service_type, implementation)
 
 
 def register_transient(service_type: type[T], implementation: type[T] = None) -> None:

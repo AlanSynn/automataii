@@ -179,43 +179,19 @@ class SelectorRegistry:
         self._selectors: dict[str, Selector] = {}
         self._dependencies: dict[str, set] = {}
 
-    def register(self, name: str, selector: Selector) -> None:
-        """Register a selector."""
-        self._selectors[name] = selector
-        self._dependencies[name] = set(selector.dependencies)
 
     def get(self, name: str) -> Selector | None:
         """Get selector by name."""
         return self._selectors.get(name)
 
-    def invalidate(self, changed_fields: set) -> None:
-        """Invalidate selectors that depend on changed fields."""
-        for name, deps in self._dependencies.items():
-            if deps.intersection(changed_fields):
-                selector = self._selectors.get(name)
-                if selector:
-                    selector.clear_cache()
 
-    def clear_all(self) -> None:
-        """Clear all selector caches."""
-        for selector in self._selectors.values():
-            selector.clear_cache()
 
-    def list_selectors(self) -> list[str]:
-        """List all registered selector names."""
-        return list(self._selectors.keys())
 
 
 # Global selector registry
 _global_registry: SelectorRegistry | None = None
 
 
-def get_global_selector_registry() -> SelectorRegistry:
-    """Get global selector registry."""
-    global _global_registry
-    if _global_registry is None:
-        _global_registry = SelectorRegistry()
-    return _global_registry
 
 
 # Example selectors for common patterns
@@ -244,10 +220,3 @@ def get_theme_settings(state: State) -> dict[str, Any]:
     return default_theme
 
 
-@create_selector(get_current_user, get_theme_settings)
-def get_user_theme_preferences(user: dict | None, theme: dict) -> dict[str, Any]:
-    """Get user's theme preferences combined with current theme."""
-    if user and 'preferences' in user and 'theme' in user['preferences']:
-        user_theme = user['preferences']['theme']
-        return {**theme, **user_theme}
-    return theme

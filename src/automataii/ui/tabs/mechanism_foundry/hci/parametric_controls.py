@@ -443,37 +443,6 @@ class ParametricControlPanel(QScrollArea):
         # Add to layout (before stretch)
         self.layout.insertWidget(self.layout.count() - 1, group_box)
 
-    def configure_for_mechanism(self, param_info: dict[str, dict[str, Any]]):
-        """Configure the panel for a new mechanism"""
-        # Clear existing parameters
-        self.parameters.clear()
-        self.parameter_groups.clear()
-
-        # Group parameters by category
-        parameter_groups = {}
-
-        for param_name, param_def in param_info.items():
-            category = param_def.get('category', 'General')
-            if category not in parameter_groups:
-                parameter_groups[category] = []
-
-            # Create parameter state
-            param_state = ParameterState(
-                name=param_name,
-                value=param_def.get('current_value', 0.0),
-                parameter_type=ParameterType(param_def.get('parameter_type', 'length')),
-                constraint=ParameterConstraint(
-                    min_value=param_def.get('min_value', 0.0),
-                    max_value=param_def.get('max_value', 100.0),
-                    step_size=param_def.get('step_size', 0.1)
-                )
-            )
-
-            parameter_groups[category].append(param_state)
-
-        # Add parameter groups to controls
-        for category, parameters in parameter_groups.items():
-            self.add_parameter_group(category, parameters)
 
     def _add_parameter_to_group(self, param: ParameterState, group_layout: QVBoxLayout):
         """Add a single parameter control to a group"""
@@ -707,41 +676,4 @@ class ParametricControlPanel(QScrollArea):
             self.undo_button.setEnabled(True)
             self.redo_button.setEnabled(self.history_index < len(self.parameter_history) - 1)
 
-    def export_configuration(self) -> dict[str, Any]:
-        """Export current parameter configuration"""
-        return {
-            'parameters': {name: param.value for name, param in self.parameters.items()},
-            'locked': list(self.locked_parameters),
-            'timestamp': time.time()
-        }
 
-    def import_configuration(self, config: dict[str, Any]):
-        """Import parameter configuration"""
-        if 'parameters' not in config:
-            return
-
-        changes = {}
-
-        for param_name, value in config['parameters'].items():
-            if param_name in self.parameters:
-                param = self.parameters[param_name]
-                changes[param_name] = param.value
-                param.value = value
-
-                # Update UI
-                slider = self.parameter_widgets.get(param_name)
-                if slider:
-                    slider.set_value_animated(value)
-
-        # Restore lock states
-        if 'locked' in config:
-            for param_name in self.parameters:
-                should_be_locked = param_name in config['locked']
-                is_locked = param_name in self.locked_parameters
-
-                if should_be_locked != is_locked:
-                    self._toggle_parameter_lock(param_name, should_be_locked)
-
-        if changes:
-            self._add_to_history(changes)
-            self._emit_configuration_changed()

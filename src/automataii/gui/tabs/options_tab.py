@@ -162,21 +162,9 @@ class OptionsTab(QWidget):
             "unit_system", unit_text
         )  # Also emit through generic signal
 
-    def set_theme(self, theme_name: str):
-        """Sets the theme combo box to the given theme name."""
-        self.theme_combo.setCurrentText(theme_name)
 
-    def get_animation_duration(self) -> float:
-        """Returns the current animation duration."""
-        return self.anim_duration_spin.value()
 
-    def set_toolbar_visibility(self, visible: bool):
-        """Sets the 'Show Toolbar' checkbox state."""
-        self.toolbar_toggle_check.setChecked(visible)
 
-    def set_part_properties_visibility(self, visible: bool):
-        """Sets the 'Show Part Properties Panel' checkbox state."""
-        self.part_props_toggle_check.setChecked(visible)
 
     def set_debug_mode(self, enabled: bool):
         """Sets the 'Enable Debug Visuals' checkbox state."""

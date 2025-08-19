@@ -316,18 +316,6 @@ class SkeletonGraphicsItem(QGraphicsObject):
                     self._bone_items[bone_index].setLine(new_line)
                 bone_index += 1
 
-    def paint(
-        self,
-        painter: QPainter,
-        option: "QStyleOptionGraphicsItem",
-        widget: Optional["QWidget"] = None,
-    ):
-        logging.debug(
-            f"SkeletonItem:paint CALLED. BoundingRect: ({self.boundingRect().x()},{self.boundingRect().y()},{self.boundingRect().width()},{self.boundingRect().height()}). Joint items: {len(self._joint_items)}, Bone items: {len(self._bone_items)}"
-        )
-        # Joints and bones are child items. No specific painting needed for the parent item itself,
-        # unless for debugging or a background.
-        pass
 
     def boundingRect(self) -> QRectF:
         """
@@ -377,9 +365,6 @@ class SkeletonGraphicsItem(QGraphicsObject):
         item = self._joint_items.get(joint_id)
         return item.pos() if item else None
 
-    def get_all_joint_positions(self) -> dict[str, QPointF]:
-        """Returns a dictionary of all current joint positions {id: QPointF}."""
-        return {id: item.pos() for id, item in self._joint_items.items()}
 
     def _update_bend_arrows(self):
         """Update bend direction arrows for joints that have children."""

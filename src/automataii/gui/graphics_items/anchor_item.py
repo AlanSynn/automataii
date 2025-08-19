@@ -54,21 +54,7 @@ class AnchorItem(QGraphicsEllipseItem):  # Inherit only from QGraphicsEllipseIte
     def __str__(self) -> str:
         return f"<AnchorItem '{self.anchor_id}' at ({self.scenePos().x():.1f}, {self.scenePos().y():.1f})>"
 
-    def focusInEvent(self, event):
-        """Handle focus in event."""
-        super().focusInEvent(event)
-        self.setPen(QPen(QColor("cyan"), 2))  # Highlight when focused/selected
-        self.signals.anchorSelected.emit(
-            self.anchor_id
-        )  # Emit via internal signals object
 
-    def focusOutEvent(self, event):
-        """Handle focus out event."""
-        super().focusOutEvent(event)
-        self.setPen(QPen(QColor("black"), 1))  # Reset pen
-        self.signals.anchorLostFocus.emit(
-            self.anchor_id
-        )  # Emit via internal signals object
 
     def hoverEnterEvent(self, event):
         """Change cursor on hover."""

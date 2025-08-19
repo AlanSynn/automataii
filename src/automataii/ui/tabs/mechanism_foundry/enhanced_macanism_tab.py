@@ -696,86 +696,8 @@ class InteractiveMechanismWidget(QGraphicsView):
             # Return last known good value
             return getattr(self, '_last_output_angle', 0)
 
-    def _validate_four_bar_physics(self, ground, input_l, coupler, output, input_angle):
-        """Validate if four-bar mechanism configuration is physically possible"""
-        # Check Grashof criterion and geometric constraints
-        links = [ground, input_l, coupler, output]
-        links.sort()
-        s, p, q, l = links  # shortest, two middle, longest
 
-        # Grashof criterion: s + l <= p + q for continuous rotation
-        grashof_satisfied = (s + l) <= (p + q + self.physics_tolerance)
 
-        if not grashof_satisfied:
-            return False, "Grashof criterion violated - mechanism cannot have continuous rotation"
-
-        # Check if triangle inequality is satisfied (mechanism can be assembled)
-        # Position of point A (end of input link)
-        Ax = input_l * math.cos(input_angle)
-        Ay = input_l * math.sin(input_angle)
-
-        # Distance from A to O4
-        L = math.sqrt((ground - Ax)**2 + (0 - Ay)**2)
-
-        # Triangle inequality for coupler and output links
-        if L > (coupler + output + self.physics_tolerance):
-            return False, f"Links too short to reach - distance {L:.2f} > {coupler + output:.2f}"
-
-        if L < abs(coupler - output) - self.physics_tolerance:
-            return False, f"Links cannot connect - distance {L:.2f} < {abs(coupler - output):.2f}"
-
-        # Check for singularities (dead positions)
-        # This occurs when links become collinear
-        cos_angle_B = (coupler*coupler + output*output - L*L) / (2*coupler*output)
-        if abs(cos_angle_B) > (1.0 + self.physics_tolerance):
-            return False, f"Invalid cosine value {cos_angle_B:.3f} - mechanism in singular position"
-
-        return True, "Physics valid"
-
-    def _validate_slider_crank_physics(self, crank_length, rod_length, crank_angle):
-        """Validate slider-crank mechanism physics"""
-        # Check if connecting rod is long enough
-        crank_y_displacement = crank_length * abs(math.sin(crank_angle))
-
-        if crank_y_displacement > (rod_length - self.physics_tolerance):
-            return False, f"Connecting rod too short - needs {crank_y_displacement:.2f}, has {rod_length:.2f}"
-
-        # Check for dead centers (extreme positions)
-        if abs(crank_y_displacement) < self.physics_tolerance and abs(math.cos(crank_angle)) < self.physics_tolerance:
-            return False, "Mechanism at dead center position"
-
-        return True, "Physics valid"
-
-    def _evaluate_mechanism_safety(self):
-        """Evaluate mechanism safety and return status with educational info"""
-        try:
-            if self.mechanism_type == "four_bar":
-                if not self.mechanism_params:
-                    return "safe", "No parameters set"
-
-                return self._evaluate_four_bar_safety(
-                    self.mechanism_params.get("ground_link", 150),
-                    self.mechanism_params.get("input_link", 80),
-                    self.mechanism_params.get("coupler_link", 120),
-                    self.mechanism_params.get("output_link", 100),
-                    math.radians(self.animation_angle)
-                )
-
-            elif self.mechanism_type == "slider_crank":
-                return self._evaluate_slider_crank_safety(
-                    80,  # crank_length
-                    140, # rod_length
-                    math.radians(self.animation_angle)
-                )
-
-            # Other mechanisms are generally always safe for educational purposes
-            elif self.mechanism_type in ["cam_follower", "gear_train"]:
-                return "safe", "Mechanism operating normally"
-
-            return "safe", "Unknown mechanism type"
-
-        except Exception as e:
-            return "warning", f"Calculation error: {str(e)}"
 
     def _evaluate_four_bar_safety(self, ground, input_l, coupler, output, input_angle):
         """Comprehensive four-bar mechanism safety evaluation using mechanical engineering principles"""
@@ -1181,66 +1103,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         unreachable_desc.setZValue(-45)
         self.safety_zone_items.append(unreachable_desc)
 
-    def _update_safety_status_display(self):
-        """Update the safety status display"""
-        # Remove old status
-        if self.safety_status_text and self.safety_status_text.scene():
-            self.scene.removeItem(self.safety_status_text)
 
-        # Determine color and icon based on safety status
-        if self.safety_status == "safe":
-            color = QColor(0, 150, 0)
-            icon = "✅"
-            status_text = "SAFE OPERATION"
-        elif self.safety_status == "warning":
-            color = QColor(255, 140, 0)
-            icon = "⚠️"
-            status_text = "CAUTION ZONE"
-        else:  # danger
-            color = QColor(200, 0, 0)
-            icon = "⚠️"
-            status_text = "DANGER ZONE"
-
-        # Create status display
-        font = QFont("Arial", 12, QFont.Weight.Bold)
-        display_text = f"{icon} {status_text}"
-        self.safety_status_text = self.scene.addText(display_text, font)
-        self.safety_status_text.setDefaultTextColor(color)
-        self.safety_status_text.setPos(-200, 250)  # Bottom left
-        self.safety_status_text.setZValue(100)
-
-        # Add detailed message
-        if self.safety_message:
-            detail_font = QFont("Arial", 9)
-            detail_text = self.scene.addText(self.safety_message, detail_font)
-            detail_text.setDefaultTextColor(color.darker(120))
-            detail_text.setPos(-200, 270)
-            detail_text.setZValue(100)
-
-            # Store detail text for cleanup
-            if not hasattr(self, 'safety_detail_text'):
-                self.safety_detail_text = detail_text
-            else:
-                if self.safety_detail_text and self.safety_detail_text.scene():
-                    self.scene.removeItem(self.safety_detail_text)
-                self.safety_detail_text = detail_text
-
-    def _handle_physics_error(self, error_message):
-        """Handle physics validation error with detailed user feedback"""
-        self.physics_error_count += 1
-        print(f"Physics error #{self.physics_error_count}: {error_message}")
-
-        if self.physics_error_count >= self.max_physics_errors:
-            print("Maximum physics errors reached - stopping animation")
-            self.stop_animation()
-            self.physics_valid = False
-            self._show_physics_diagnostic(error_message)
-        else:
-            # Show warning but continue trying
-            self._show_physics_status(f"⚠️ Physics Warning: {error_message} (Attempt {self.physics_error_count}/{self.max_physics_errors})", QColor(255, 165, 0))
-            # Try to recover by reverting to last valid angle
-            print(f"Attempting to recover... reverting to angle {self.last_valid_angle:.1f}°")
-            self.animation_angle = self.last_valid_angle
 
     def _show_physics_status(self, message, color):
         """Show physics status message on screen"""
@@ -2051,9 +1914,6 @@ class InteractiveMechanismWidget(QGraphicsView):
         if not self.parametric_handles["cam_center_handle"].isSelected():
             self.parametric_handles["cam_center_handle"].setPos(cam_center)
 
-    def on_move_crank_center(_, pos: QPointF):
-            self.mechanism_params["crank_center"] = QPointF(pos.x(), pos.y())
-            self.draw_mechanism()
 
 
 
@@ -2214,110 +2074,8 @@ class InteractiveMechanismWidget(QGraphicsView):
         self.mechanism_items[f"{arrow_name}_h1"] = head1
         self.mechanism_items[f"{arrow_name}_h2"] = head2
 
-    def _calculate_gear_train_forces_accurate(self, gear1_center, gear2_center, contact_point,
-                                             gear1_radius, gear2_radius, gear_ratio):
-        """Calculate accurate forces for gear train"""
-        # Physical parameters
-        input_torque = self.mechanism_params.get("input_torque", 200)  # Nm
-        efficiency = 0.95  # Gear efficiency
 
-        # Calculate output torque
-        output_torque = input_torque * gear_ratio * efficiency
 
-        # Calculate contact force at gear interface
-        # T = F * r, so F = T / r
-        contact_force_magnitude = input_torque / (gear1_radius / 1000.0)  # Convert to meters
-
-        # Contact force direction (perpendicular to line of centers)
-        force_angle = math.atan2(gear2_center.y() - gear1_center.y(),
-                                gear2_center.x() - gear1_center.x()) + math.pi / 2
-
-        contact_force_vector = QPointF(
-            contact_force_magnitude * math.cos(force_angle) * 0.001,  # Scale for display
-            contact_force_magnitude * math.sin(force_angle) * 0.001
-        )
-
-        # Reaction forces at bearings
-        bearing_force = contact_force_magnitude * 0.7  # Approximation
-
-        # Store forces for display
-        self.current_forces = {
-            "contact": {
-                "position": contact_point,
-                "force": contact_force_vector,
-                "label": f"Contact: {contact_force_magnitude:.0f}N"
-            },
-            "input_torque": {
-                "position": gear1_center,
-                "force": QPointF(input_torque * 0.01, 0),
-                "label": f"T₁: {input_torque:.0f}Nm"
-            },
-            "output_torque": {
-                "position": gear2_center,
-                "force": QPointF(-output_torque * 0.01, 0),
-                "label": f"T₂: {output_torque:.0f}Nm"
-            }
-        }
-
-    def _draw_gear_optimized(self, center: QPointF, radius: float, angle: float, color: QColor):
-        """Simplified gear drawing - just circle and rotation indicator"""
-        # Main gear body (simple circle)
-        gear_circle = self.scene.addEllipse(
-            center.x() - radius, center.y() - radius,
-            radius * 2, radius * 2,
-            QPen(color, 2),
-            QBrush(color.lighter(150))
-        )
-
-        # Rotation indicator
-        indicator_length = radius * 0.8
-        indicator_x = center.x() + indicator_length * math.cos(angle)
-        indicator_y = center.y() + indicator_length * math.sin(angle)
-
-        indicator_line = self.scene.addLine(
-            center.x(), center.y(), indicator_x, indicator_y,
-            QPen(color.darker(150), 3)
-        )
-
-        self.mechanism_items[f"gear_{center.x()}"] = [gear_circle, indicator_line]
-
-    def _draw_velocity_arrow(self, start, end, label):
-        """Draw velocity arrow with label"""
-        # Arrow line
-        arrow_line = self.scene.addLine(
-            start.x(), start.y(), end.x(), end.y(),
-            QPen(QColor(0, 150, 255), 3)
-        )
-
-        # Arrowhead
-        arrow_length = 8
-        angle = math.atan2(end.y() - start.y(), end.x() - start.x())
-
-        # Arrow points
-        arrow_p1 = QPointF(
-            end.x() - arrow_length * math.cos(angle - math.pi/6),
-            end.y() - arrow_length * math.sin(angle - math.pi/6)
-        )
-        arrow_p2 = QPointF(
-            end.x() - arrow_length * math.cos(angle + math.pi/6),
-            end.y() - arrow_length * math.sin(angle + math.pi/6)
-        )
-
-        arrow_head = QPolygonF([end, arrow_p1, arrow_p2])
-        arrow_head_item = self.scene.addPolygon(
-            arrow_head,
-            QPen(QColor(0, 150, 255), 2),
-            QBrush(QColor(0, 150, 255))
-        )
-
-        # Label
-        text_item = self.scene.addText(label, QFont("Arial", 8))
-        text_item.setPos(end.x() + 5, end.y() - 15)
-        text_item.setDefaultTextColor(QColor(0, 120, 200))
-
-        self.mechanism_items["velocity_arrow"] = arrow_line
-        self.mechanism_items["velocity_head"] = arrow_head_item
-        self.mechanism_items["velocity_label"] = text_item
 
     def _calculate_four_bar_forces_optimized(self, O1: QPointF, A: QPointF, B: QPointF, O4: QPointF):
         """Simplified force calculation for performance"""
@@ -2345,254 +2103,8 @@ class InteractiveMechanismWidget(QGraphicsView):
         )
         self.forces.append(reaction_O1)
 
-    def _calculate_slider_crank_forces(self, O1: QPointF, A: QPointF, B: QPointF, crank_angle: float):
-        """Calculate forces in slider-crank mechanism"""
-        self.forces.clear()
 
-        # Input torque force (tangential to crank)
-        torque_magnitude = 40 + 15 * abs(math.sin(crank_angle * 2))  # Varying torque
-        torque_force_angle = crank_angle + math.pi/2  # Perpendicular to crank
-        input_force = ForceVector(
-            position=A,
-            magnitude=torque_magnitude,
-            angle=torque_force_angle,
-            force_type=ForceType.APPLIED,
-            label="F_torque"
-        )
-        self.forces.append(input_force)
 
-        # Gas pressure force on piston (horizontal)
-        gas_pressure = 35 + 20 * math.cos(crank_angle)  # Simulates combustion cycle
-        gas_force_direction = 0 if gas_pressure > 0 else math.pi  # Left or right
-        gas_force = ForceVector(
-            position=B,
-            magnitude=abs(gas_pressure),
-            angle=gas_force_direction,
-            force_type=ForceType.APPLIED,
-            label="F_gas"
-        )
-        self.forces.append(gas_force)
-
-        # Connecting rod force (along the rod)
-        rod_angle = math.atan2(B.y() - A.y(), B.x() - A.x())
-        rod_force_magnitude = 25 + 10 * abs(math.sin(crank_angle))
-        rod_force = ForceVector(
-            position=A,
-            magnitude=rod_force_magnitude,
-            angle=rod_angle,
-            force_type=ForceType.CONSTRAINT,
-            label="F_rod"
-        )
-        self.forces.append(rod_force)
-
-        # Reaction force at crank pivot
-        reaction_magnitude = 30 + 15 * abs(math.cos(crank_angle))
-        reaction_angle = crank_angle + math.pi + 0.2  # Slightly offset
-        reaction_force = ForceVector(
-            position=O1,
-            magnitude=reaction_magnitude,
-            angle=reaction_angle,
-            force_type=ForceType.REACTION,
-            label="R_O1"
-        )
-        self.forces.append(reaction_force)
-
-        # Side force on piston (normal to slider motion)
-        if abs(math.sin(crank_angle)) > 0.1:  # Avoid near-zero values
-            side_force_magnitude = 15 * abs(math.sin(crank_angle))
-            side_force_angle = math.pi/2 if math.sin(crank_angle) > 0 else -math.pi/2
-            side_force = ForceVector(
-                position=B,
-                magnitude=side_force_magnitude,
-                angle=side_force_angle,
-                force_type=ForceType.CONSTRAINT,
-                label="F_side"
-            )
-            self.forces.append(side_force)
-
-        # Emit force data for the info panel
-        force_data = {
-            "torque_force": torque_magnitude,
-            "gas_pressure": abs(gas_pressure),
-            "rod_force": rod_force_magnitude,
-            "reaction_force": reaction_magnitude,
-            "side_force": 15 * abs(math.sin(crank_angle)) if abs(math.sin(crank_angle)) > 0.1 else 0
-        }
-        self.force_calculated.emit(force_data)
-
-    def _calculate_cam_follower_forces(self, cam_center: QPointF, cam_profile: QPointF, follower_base: QPointF, follower_end: QPointF, cam_angle: float):
-        """Calculate forces in cam-follower mechanism"""
-        self.forces.clear()
-
-        # Cam rotation torque
-        torque_magnitude = 25 + 10 * abs(math.sin(cam_angle * 2))
-        torque_angle = cam_angle + math.pi/2
-        cam_torque = ForceVector(
-            position=cam_profile,
-            magnitude=torque_magnitude,
-            angle=torque_angle,
-            force_type=ForceType.APPLIED,
-            label="F_cam"
-        )
-        self.forces.append(cam_torque)
-
-        # Contact force between cam and follower
-        contact_magnitude = 20 + 15 * abs(math.sin(cam_angle))
-        contact_angle = math.atan2(follower_base.y() - cam_profile.y(), follower_base.x() - cam_profile.x())
-        contact_force = ForceVector(
-            position=cam_profile,
-            magnitude=contact_magnitude,
-            angle=contact_angle,
-            force_type=ForceType.CONSTRAINT,
-            label="F_contact"
-        )
-        self.forces.append(contact_force)
-
-        # Follower inertia force (vertical motion)
-        follower_acceleration = abs(math.sin(cam_angle)) * 20  # Approximate acceleration
-        inertia_magnitude = follower_acceleration * 0.8  # Mass factor
-        inertia_angle = math.pi/2 if math.sin(cam_angle) > 0 else -math.pi/2
-        inertia_force = ForceVector(
-            position=follower_base,
-            magnitude=inertia_magnitude,
-            angle=inertia_angle,
-            force_type=ForceType.APPLIED,
-            label="F_inertia"
-        )
-        self.forces.append(inertia_force)
-
-        # Spring return force (if follower is displaced upward)
-        displacement = follower_base.y()
-        if abs(displacement) > 1:
-            spring_magnitude = abs(displacement) * 0.5
-            spring_angle = -math.pi/2 if displacement > 0 else math.pi/2
-            spring_force = ForceVector(
-                position=follower_end,
-                magnitude=spring_magnitude,
-                angle=spring_angle,
-                force_type=ForceType.APPLIED,
-                label="F_spring"
-            )
-            self.forces.append(spring_force)
-
-        # Guide reaction force
-        if abs(displacement) > 0.1:
-            guide_magnitude = 12 + 8 * abs(displacement) / 20
-            guide_angle = 0 if displacement > 0 else math.pi
-            guide_force = ForceVector(
-                position=follower_base,
-                magnitude=guide_magnitude,
-                angle=guide_angle,
-                force_type=ForceType.REACTION,
-                label="R_guide"
-            )
-            self.forces.append(guide_force)
-
-        # Emit force data
-        force_data = {
-            "cam_torque": torque_magnitude,
-            "contact_force": contact_magnitude,
-            "inertia_force": inertia_magnitude,
-            "spring_force": abs(displacement) * 0.5 if abs(displacement) > 1 else 0,
-            "guide_reaction": 12 + 8 * abs(displacement) / 20 if abs(displacement) > 0.1 else 0
-        }
-        self.force_calculated.emit(force_data)
-
-    def _calculate_gear_train_forces(self, g1_center: QPointF, g2_center: QPointF, g3_center: QPointF,
-                                   mesh1_point: QPointF, mesh2_point: QPointF,
-                                   g1_angle: float, g2_angle: float, g3_angle: float,
-                                   teeth1: int, teeth2: int, teeth3: int):
-        """Calculate forces in gear train mechanism"""
-        self.forces.clear()
-
-        # Input torque on gear 1
-        input_torque = 35 + 10 * abs(math.sin(g1_angle * 2))
-        input_torque_angle = g1_angle + math.pi/2
-        # Convert torque to tangential force
-        input_force_pos = QPointF(
-            g1_center.x() + 25 * math.cos(input_torque_angle),
-            g1_center.y() + 25 * math.sin(input_torque_angle)
-        )
-        input_force = ForceVector(
-            position=input_force_pos,
-            magnitude=input_torque,
-            angle=input_torque_angle,
-            force_type=ForceType.APPLIED,
-            label="T_in"
-        )
-        self.forces.append(input_force)
-
-        # Mesh force at gear 1-2 interface
-        mesh1_magnitude = 25 + 8 * abs(math.cos(g1_angle))
-        mesh1_angle = math.atan2(g2_center.y() - g1_center.y(), g2_center.x() - g1_center.x()) + math.pi/2
-        mesh1_force = ForceVector(
-            position=mesh1_point,
-            magnitude=mesh1_magnitude,
-            angle=mesh1_angle,
-            force_type=ForceType.CONSTRAINT,
-            label="F_mesh1"
-        )
-        self.forces.append(mesh1_force)
-
-        # Mesh force at gear 2-3 interface
-        mesh2_magnitude = 20 + 6 * abs(math.sin(g2_angle))
-        mesh2_angle = math.atan2(g3_center.y() - g2_center.y(), g3_center.x() - g2_center.x()) + math.pi/2
-        mesh2_force = ForceVector(
-            position=mesh2_point,
-            magnitude=mesh2_magnitude,
-            angle=mesh2_angle,
-            force_type=ForceType.CONSTRAINT,
-            label="F_mesh2"
-        )
-        self.forces.append(mesh2_force)
-
-        # Output torque on gear 3 (scaled by gear ratio)
-        gear_ratio_total = (teeth1 / teeth2) * (teeth2 / teeth3)
-        output_torque = input_torque * gear_ratio_total * 0.95  # 95% efficiency
-        output_torque_angle = g3_angle + math.pi/2
-        output_force_pos = QPointF(
-            g3_center.x() + 20 * math.cos(output_torque_angle),
-            g3_center.y() + 20 * math.sin(output_torque_angle)
-        )
-        output_force = ForceVector(
-            position=output_force_pos,
-            magnitude=output_torque * 0.7,  # Scale for visualization
-            angle=output_torque_angle,
-            force_type=ForceType.APPLIED,
-            label="T_out"
-        )
-        self.forces.append(output_force)
-
-        # Bearing reaction forces
-        bearing1_magnitude = 18 + 5 * abs(math.sin(g1_angle))
-        bearing1_force = ForceVector(
-            position=g1_center,
-            magnitude=bearing1_magnitude,
-            angle=g1_angle + math.pi,
-            force_type=ForceType.REACTION,
-            label="R_1"
-        )
-        self.forces.append(bearing1_force)
-
-        bearing2_magnitude = 22 + 7 * abs(math.cos(g2_angle))
-        bearing2_force = ForceVector(
-            position=g2_center,
-            magnitude=bearing2_magnitude,
-            angle=g2_angle + math.pi + 0.3,
-            force_type=ForceType.REACTION,
-            label="R_2"
-        )
-        self.forces.append(bearing2_force)
-
-        # Emit force data
-        force_data = {
-            "input_torque": input_torque,
-            "output_torque": output_torque,
-            "mesh1_force": mesh1_magnitude,
-            "mesh2_force": mesh2_magnitude,
-            "gear_ratio": gear_ratio_total
-        }
-        self.force_calculated.emit(force_data)
 
     def _draw_force_vectors_optimized(self):
         """Optimized force vector drawing with persistent arrows"""
@@ -2827,55 +2339,6 @@ class InteractiveMechanismWidget(QGraphicsView):
         # Clear motion trail
         self.motion_trail.clear()
 
-    def _draw_force_vector_simple(self, force: ForceVector):
-        """Enhanced force vector drawing for better visibility"""
-        # Scale factor for better visibility
-        scale = 1.5  # Increased from 1.0
-
-        # Calculate end point
-        fx, fy = force.to_components()
-        end_point = QPointF(force.position.x() + fx * scale, force.position.y() + fy * scale)
-
-        # Use thicker, more visible lines
-        pen = QPen(force.color, 3)  # Increased from 2
-        line = self.scene.addLine(
-            force.position.x(), force.position.y(), end_point.x(), end_point.y(), pen
-        )
-        line.setZValue(20)
-        self.force_items.append(line)
-
-        # Larger, more visible arrowhead
-        arrow_size = 12  # Increased from 8
-        arrow_angle = 0.5  # Slightly wider arrow
-
-        arrow_p1 = QPointF(
-            end_point.x() - arrow_size * math.cos(force.angle - arrow_angle),
-            end_point.y() - arrow_size * math.sin(force.angle - arrow_angle),
-        )
-        arrow_p2 = QPointF(
-            end_point.x() - arrow_size * math.cos(force.angle + arrow_angle),
-            end_point.y() - arrow_size * math.sin(force.angle + arrow_angle),
-        )
-
-        arrow_polygon = QPolygonF([end_point, arrow_p1, arrow_p2])
-        arrow = self.scene.addPolygon(arrow_polygon, pen, QBrush(force.color))
-        arrow.setZValue(21)
-        self.force_items.append(arrow)
-
-        # Add force magnitude label for better understanding
-        if force.label and not self.skip_expensive_operations:
-            label_font = QFont("Arial", 9, QFont.Weight.Bold)
-            label_text = f"{force.label}\n{force.magnitude:.0f}N"
-            label = self.scene.addText(label_text, label_font)
-            label.setDefaultTextColor(force.color.darker(120))
-
-            # Position label away from the vector
-            label_offset = 15
-            label_x = (force.position.x() + end_point.x()) / 2 + label_offset
-            label_y = (force.position.y() + end_point.y()) / 2 - label_offset
-            label.setPos(label_x, label_y)
-            label.setZValue(22)
-            self.force_items.append(label)
 
     def _draw_motion_trail_optimized(self):
         """Optimized motion trail drawing"""
@@ -2919,16 +2382,6 @@ class InteractiveMechanismWidget(QGraphicsView):
             # Full redraw for other mechanisms that need precision
             self.draw_mechanism()
 
-    def _update_mechanism_positions_only(self):
-        """Update only positions without full redraw to reduce blinking"""
-        if self.mechanism_type == "four_bar":
-            self._update_four_bar_positions()
-        elif self.mechanism_type == "slider_crank":
-            self._update_slider_crank_positions()
-        elif self.mechanism_type == "cam_follower":
-            self._update_cam_follower_positions()
-        elif self.mechanism_type == "gear_train":
-            self._update_gear_train_positions()
 
 
     def _update_four_bar_positions(self):
@@ -3128,10 +2581,6 @@ class InteractiveMechanismWidget(QGraphicsView):
 
         print("Physics validation reset - animation can restart from safe position")
 
-    def restart_animation(self):
-        """Restart animation after physics reset"""
-        self.reset_physics_validation()
-        self.start_animation()
 
     # Keep the rest of the methods for compatibility
     def get_mechanism_educational_content(self, mechanism_type: str) -> dict:
@@ -4033,37 +3482,3 @@ class EnhancedMacanismTab(QWidget):
                 apps_text += f"• {app}\n"
             self.applications_display.setText(apps_text.strip())
 
-    def _calculate_mechanical_advantage(self, mechanism_type: str) -> str:
-        """Calculate mechanical advantage for current mechanism"""
-        if not self.mechanism_widget:
-            return "N/A"
-
-        try:
-            angle = math.radians(self.mechanism_widget.animation_angle)
-
-            if mechanism_type == "four_bar":
-                # For four-bar, MA varies with position
-                input_link = self.mechanism_widget.mechanism_params.get("input_link", 80)
-                output_link = self.mechanism_widget.mechanism_params.get("output_link", 100)
-                ma = (output_link / input_link) * abs(math.sin(angle))
-                return f"{ma:.2f}"
-
-            elif mechanism_type == "slider_crank":
-                # For slider-crank, MA depends on crank angle
-                ma = 1 / abs(math.cos(angle)) if abs(math.cos(angle)) > 0.1 else "∞"
-                return f"{ma:.2f}" if ma != "∞" else ma
-
-            elif mechanism_type == "gear_train":
-                # For gears, MA is constant and equals gear ratio
-                return "2.29"  # Based on our gear teeth ratios
-
-            elif mechanism_type == "cam_follower":
-                # For cam-follower, MA varies with cam profile
-                return f"{1 + abs(math.sin(angle)):.2f}"
-
-
-
-        except Exception as e:
-            print(f"Error calculating MA: {e}")
-
-        return "N/A"

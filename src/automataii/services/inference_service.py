@@ -111,34 +111,6 @@ class InferenceService:
         logger.debug("Detector output shape:", [o.shape for o in outputs])
         return outputs # Returning raw output for now
 
-    def run_pose_estimation(self, image: np.ndarray, bboxes: list) -> list:
-        """
-        Runs pose estimation for the given bounding boxes.
-
-        Args:
-            image: A NumPy array representing the image (H, W, C).
-            bboxes: A list of bounding boxes from the detector.
-
-        Returns:
-            A list of poses. The format is model-specific.
-        """
-        # For pose estimation, you typically crop the image for each bounding box
-        # and run inference on each crop.
-        all_poses = []
-        for bbox in bboxes:
-            # Note: Cropping logic needs to be implemented
-            # x1, y1, x2, y2 = bbox
-            # cropped_image = image[y1:y2, x1:x2]
-
-            input_tensor = self._preprocess_image(image, self.pose_input_shape)
-
-            outputs = self.pose_session.run(None, {self.pose_input_name: input_tensor})
-
-            # Post-processing is needed to convert output into keypoints.
-            logger.debug("Pose output shape:", [o.shape for o in outputs])
-            all_poses.append(outputs)
-
-        return all_poses
 
 # Example usage (for testing)
 if __name__ == '__main__':

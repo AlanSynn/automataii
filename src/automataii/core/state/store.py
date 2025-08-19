@@ -208,55 +208,9 @@ class StateStore(Generic[StateType]):
             self._logger.debug("Redid action")
             return True
 
-    def get_history(self) -> list[tuple[State[StateType], Action]]:
-        """Get action history."""
-        with self._lock:
-            return list(self._history)
 
-    def replay_from_history(self, index: int = 0) -> None:
-        """
-        Replay actions from a specific point in history.
-        
-        Args:
-            index: History index to replay from
-        """
-        if not (0 <= index < len(self._history)):
-            raise IndexError("Invalid history index")
 
-        with self._lock:
-            self._history_enabled = False
 
-            try:
-                # Reset to initial state
-                if self._history:
-                    initial_state = self._history[0][0]
-                    self._current_state = initial_state
-
-                    # Replay actions from index
-                    for i in range(index, len(self._history)):
-                        state, action = self._history[i]
-                        new_state = self._reducer.reduce(self._current_state, action)
-                        self._current_state = new_state.freeze()
-
-                # Notify subscribers
-                self._notify_subscribers()
-
-            finally:
-                self._history_enabled = True
-
-    def set_history_enabled(self, enabled: bool) -> None:
-        """Enable or disable history tracking."""
-        with self._lock:
-            self._history_enabled = enabled
-            if not enabled:
-                self._history.clear()
-                self._future.clear()
-
-    def clear_history(self) -> None:
-        """Clear action history."""
-        with self._lock:
-            self._history.clear()
-            self._future.clear()
 
     def get_stats(self) -> dict[str, Any]:
         """Get store statistics."""
@@ -280,7 +234,3 @@ def get_global_store() -> StateStore | None:
     return _global_store
 
 
-def set_global_store(store: StateStore) -> None:
-    """Set the global state store."""
-    global _global_store
-    _global_store = store

@@ -509,13 +509,6 @@ class MechanismPreviewWidget(QGraphicsView):
         self.scene.setSceneRect(view_rect_f)
         self._draw_path_comparison(view_rect_adjusted_f)
 
-    def _setup_scene_and_transform(self) -> QRectF:
-        """Clears and sets up the scene, returns the drawing area."""
-        self.scene.clear()
-        margin = 5
-        view_rect_f = QRectF(self.rect())
-        self.scene.setSceneRect(view_rect_f)
-        return view_rect_f.adjusted(margin, margin, -margin, -margin)
 
 
 class PreviewContainer(QWidget):

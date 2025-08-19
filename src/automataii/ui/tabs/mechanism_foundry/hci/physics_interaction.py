@@ -307,23 +307,6 @@ class PhysicsInteractionLayer(QWidget):
         # Reset haptic feedback
         self._reset_haptic_feedback()
 
-    def apply_force(self, component_id: str, force: tuple[float, float]):
-        """Apply a force to a component and visualize the response"""
-        if self.interaction_mode != InteractionMode.FORCE:
-            return
-
-        fx, fy = force
-        magnitude = math.sqrt(fx*fx + fy*fy)
-
-        # Store force for visualization
-        self.force_vectors[component_id] = force
-
-        # Update haptic feedback based on force magnitude
-        force_cursor = self.haptic_engine.get_force_cursor(magnitude)
-        self.setCursor(force_cursor)
-
-        # Emit force application signal
-        self.forceApplied.emit(component_id, force)
 
     def _can_grab_component(self, component_id: str) -> bool:
         """Check if a component can be grabbed in the current mode"""

@@ -225,38 +225,6 @@ class Cam(BaseMechanism):
             return cam_profile_path
 
 
-def _generate_offset_curve(points: list[QPointF], offset: float) -> QPainterPath:
-    """Generates an offset curve (simplified). Not fully robust."""
-    offset_path = QPainterPath()
-    if len(points) < 2:
-        return offset_path
-
-    for i in range(len(points)):
-        p1 = points[i]
-        p2 = points[(i + 1) % len(points)]  # Next point, wraps around for closed curve
-
-        # Calculate normal (simplified)
-        dx = p2.x() - p1.x()
-        dy = p2.y() - p1.y()
-        length = math.sqrt(dx * dx + dy * dy)
-        if length == 0:
-            continue
-
-        # Normal vector (pointing outwards for CCW path)
-        norm_x = -dy / length
-        norm_y = dx / length
-
-        offset_p1 = QPointF(p1.x() + norm_x * offset, p1.y() + norm_y * offset)
-        # offset_p2 = QPointF(p2.x() + norm_x * offset, p2.y() + norm_y * offset)
-        # This simplified normal is for the segment, not vertex, better to average normals at vertices
-
-        if i == 0:
-            offset_path.moveTo(offset_p1)
-        else:
-            offset_path.lineTo(offset_p1)  # This creates a polyline of offset points.
-            # For smooth curves, Bezier segments based on normals needed.
-    offset_path.closeSubpath()
-    return offset_path
 
 
 if __name__ == "__main__":

@@ -703,18 +703,6 @@ class AutomataDesigner(QMainWindow):
                 self, "Error", "Image Processing Tab is not available."
             )
 
-    @pyqtSlot()
-    def _handle_continue_without_example(self):
-        """Handles user choosing to continue without selecting an example."""
-        logging.info("MainWindow: User chose to continue without example, switching to Image Processing Tab")
-
-        # Switch to the image processing tab to allow manual image loading
-        for i in range(self.tab_widget.count()):
-            if self.tab_widget.widget(i) == self.image_proc_tab:
-                self.tab_widget.setCurrentIndex(i)
-                logging.info("MainWindow: Switched to Image Processing Tab for manual image loading")
-                self.statusBar().showMessage("Ready to load your own image", 3000)
-                break
 
     @pyqtSlot()
     def switch_to_editor_tab(self):
@@ -784,28 +772,6 @@ class AutomataDesigner(QMainWindow):
             self.project_data_manager.load_project_from_file(filepath)
             # The UI updates will be triggered by project_data_manager.project_data_loaded signal
 
-    def load_parts(self, filepath: str | None = None) -> bool:
-        """
-        DEPRECATED/REFACTORED: This method's core logic is moved to ProjectDataManager.
-        This method now primarily serves as a direct way to trigger loading if filepath is provided,
-        or it can be removed if load_parts_dialog is the only entry point.
-        For now, it delegates to ProjectDataManager.
-        """
-        if filepath:
-            logging.info(
-                f"MainWindow.load_parts called with path: {filepath}. Delegating to ProjectDataManager."
-            )
-            return self.project_data_manager.load_project_from_file(filepath)
-        else:
-            # This case should ideally not be hit if dialog is used.
-            # If called without filepath, it implies an issue or needs a default.
-            logging.warning(
-                "MainWindow.load_parts called without filepath. Consider using load_parts_dialog."
-            )
-            self._show_status_message(
-                "Error: No file path provided for loading parts.", error=True
-            )
-            return False
 
     # REFACTORED: The old content of load_parts is now largely in ProjectDataManager.
     # UI updates and manager notifications will be handled by a slot connected to
@@ -926,19 +892,6 @@ class AutomataDesigner(QMainWindow):
                 self, "Error", "Save project functionality is not available."
             )
 
-    def load_project_dialog(self):
-        """Opens a file dialog to load a project via ProjectDataManager."""
-        # Note: This is different from load_parts_dialog.
-        # This should be connected to the "Open Project" action.
-        if hasattr(self.project_data_manager, "load_project_dialog"):
-            self.project_data_manager.load_project_dialog()
-        else:
-            logging.error(
-                "ProjectDataManager does not have load_project_dialog method."
-            )
-            QMessageBox.critical(
-                self, "Error", "Load project functionality is not available."
-            )
 
     # --- Slots for EditorTab Signals (Implement these) ---
     @pyqtSlot(str, dict)
@@ -1416,9 +1369,6 @@ class AutomataDesigner(QMainWindow):
             "<p>This application helps design and simulate automata mechanisms.</p>",
         )
 
-    def show_about_qt_dialog(self):
-        """Displays the 'About Qt' dialog."""
-        QMessageBox.aboutQt(self, "About Qt")
 
     @pyqtSlot(str)
     def _handle_unit_changed(self, unit: str):
@@ -1453,78 +1403,6 @@ class AutomataDesigner(QMainWindow):
             self, "Project Error", f"An error occurred: {error_message}"
         )
 
-    def _load_project_into_editor_tab(self, project_file_model: ProjectFileModel):
-        """Loads parts and skeleton data into the EditorTab's view."""
-        logging.debug(
-            f"MainWindow:_load_project_into_editor_tab - Attempting to load project: {project_file_model.project_name if project_file_model else 'None'}"
-        )
-        if not self.editor_tab:
-            logging.error("EditorTab not initialized. Cannot load project data.")
-            return
-
-        if not project_file_model or not project_file_model.character:
-            logging.error(
-                "Invalid project_file_model or character data provided to _load_project_into_editor_tab."
-            )
-            self.editor_tab.clear_editor_content()  # Clear tab if data is bad
-            return
-
-        parts_data = project_file_model.character.parts
-        skeleton_data_pydantic_list = (
-            project_file_model.character.skeleton_joints
-        )  # This is List[PydanticSkeletonJointModel]
-        character_name = project_file_model.character.name
-        hierarchy_dict = (
-            project_file_model.character.hierarchy_dict
-        )  # This should be {parent_std_id: [child_std_id, ...]}
-
-        # Convert Pydantic SkeletonJointModel list to the List[Dict[str, Any]] expected by visualize_skeleton
-        skeleton_for_view = []
-        if skeleton_data_pydantic_list:
-            for pydantic_joint in skeleton_data_pydantic_list:
-                joint_dict = {
-                    "id": pydantic_joint.id,  # Standardized ID
-                    "name": pydantic_joint.name,  # Original name/label from source
-                    "position": QPointF(
-                        pydantic_joint.position[0], pydantic_joint.position[1]
-                    ),
-                    "parent": pydantic_joint.parent_id,  # Standardized parent ID
-                    "color": pydantic_joint.color,
-                    "label": pydantic_joint.label,  # Original name from char_cfg for this joint
-                }
-                skeleton_for_view.append(joint_dict)
-
-        logging.debug(
-            f"MainWindow:_load_project_into_editor_tab - Prepared skeleton_for_view (count: {len(skeleton_for_view)}): {skeleton_for_view}"
-        )
-        logging.debug(
-            f"MainWindow:_load_project_into_editor_tab - Prepared hierarchy_dict (keys: {list(hierarchy_dict.keys()) if hierarchy_dict else 'None'}): {hierarchy_dict}"
-        )
-
-        # Clear previous content and load new parts
-        self.editor_tab.clear_editor_content()
-        self.editor_tab.set_parts_data(parts_data)
-
-        # Call visualize_skeleton on the EditorTab's EditorView instance
-        if self.editor_tab.editor_view and skeleton_for_view:
-            logging.debug(
-                f"MainWindow: Calling editor_view.visualize_skeleton with {len(skeleton_for_view)} joints."
-            )
-            self.editor_tab.editor_view.visualize_skeleton(skeleton_for_view)
-        elif self.editor_tab.editor_view:
-            logging.debug(
-                "MainWindow: No skeleton data in project, clearing skeleton visualization."
-            )
-            self.editor_tab.editor_view.visualize_skeleton([])  # Clear if no skeleton
-
-        # Ensure the view is updated and potentially fits content
-        self.editor_tab.editor_view.scene().update()  # Update scene
-        # Consider calling fit_view or reset_view if appropriate after loading
-        # self.editor_tab.editor_view.zoom_to_fit() # Example
-
-        logging.info(
-            f"MainWindow: Finished _load_project_into_editor_tab for {character_name}"
-        )
 
     @pyqtSlot(str, QPainterPath)
     def _handle_part_motion_path_update_from_editor_tab(

@@ -184,22 +184,7 @@ class CamRodLengthHandle(DraggableHandle):
 
         return QPointF(constrained_x, constrained_y)
 
-    def get_current_rod_length(self) -> float:
-        """Get current rod length."""
-        return self.current_rod_length
 
-    def update_cam_center(self, new_cam_center: QPointF):
-        """Update cam center when cam moves."""
-        old_center = self.cam_center
-        self.cam_center = new_cam_center
-
-        # Maintain current rod length with new cam position
-        cam_top_y = new_cam_center.y() - self.base_radius
-        new_follower_y = cam_top_y - self.current_rod_length
-
-        self.setPos(QPointF(new_cam_center.x(), new_follower_y))
-
-        logging.debug(f"[CAM_ROD] Updated cam center: {old_center} -> {new_cam_center}")
 
 
 class CamSizeHandle(DraggableHandle):
@@ -334,25 +319,7 @@ class CamSizeHandle(DraggableHandle):
 
         return super().itemChange(change, value)
 
-    def get_current_parameters(self) -> tuple[float, float]:
-        """Get current cam parameters."""
-        return self.current_base_radius, self.current_eccentricity
 
-    def update_cam_center(self, new_cam_center: QPointF):
-        """Update cam center when cam moves."""
-        # Calculate offset from old center
-        offset_x = self.pos().x() - self.cam_center.x()
-        offset_y = self.pos().y() - self.cam_center.y()
-
-        # Update center
-        self.cam_center = new_cam_center
-
-        # Move handle to maintain relative position
-        new_handle_pos = QPointF(new_cam_center.x() + offset_x,
-                               new_cam_center.y() + offset_y)
-        self.setPos(new_handle_pos)
-
-        logging.debug(f"[CAM_SIZE] Updated cam center, handle moved to {new_handle_pos}")
 
 
 def create_cam_handles(mechanism_id: str,

@@ -1,0 +1,454 @@
+================================================================================
+UNUSED CODE ANALYSIS REPORT
+Generated: 2025-08-19T06:16:49.737953
+================================================================================
+
+Total unused entities: 291
+Files affected: 64
+
+By type:
+  - class: 24
+  - function: 29
+  - method: 238
+
+--------------------------------------------------------------------------------
+DETAILED LIST OF UNUSED ENTITIES
+--------------------------------------------------------------------------------
+
+src/automataii/animate/arap.py:
+     L 377: function plot_mesh
+
+src/automataii/carsegnet/model.py:
+     L 222: method   CharSegNet.forward
+
+src/automataii/core/blueprint_manager.py:
+  [P] L 152: method   BlueprintExportManager._get_save_directory_path
+     L 256: method   BlueprintExportManager.export_next_page
+     L 326: method   BlueprintExportManager.get_blueprint_progress
+     L 354: class    OptimizedBlueprintBuilder
+     L 363: method   OptimizedBlueprintBuilder.build_optimized_blueprint
+     L 568: class    BlueprintBuilder
+     L 603: method   BlueprintBuilder.add_character_parts_section
+     L 629: method   BlueprintBuilder.add_mechanisms_section
+     L 770: method   BlueprintBuilder.add_specifications_section
+     L 785: method   BlueprintBuilder.add_fabrication_notes_section
+     L 814: method   BlueprintBuilder.build
+
+src/automataii/core/container.py:
+     L 146: method   Container.register_scoped
+     L 314: method   Container.create_scope
+     L 321: method   Container.enter_scope
+     L 325: method   Container.exit_scope
+     L 331: method   Container.is_registered
+     L 336: method   Container.get_registrations
+     L 379: function set_global_container
+     L 391: function register_singleton
+
+src/automataii/core/events/decorators.py:
+     L  75: class    EventHandlerMixin
+     L 137: function subscribes_to
+
+src/automataii/core/events/event_bus.py:
+     L 216: method   EventBus.replay_events
+     L 235: method   EventBus.clear_history
+     L 245: method   EventBus.set_enabled
+     L 249: method   EventBus.set_processing_mode
+     L 253: method   EventBus.shutdown
+     L 304: function set_global_event_bus
+
+src/automataii/core/events/types.py:
+     L  39: class    EventTypeFilter
+     L  49: class    SourceFilter
+     L  59: class    CompositeFilter
+
+src/automataii/core/models.py:
+     L 163: method   PartInfo.to_pydantic_model
+     L 206: class    Joint
+
+src/automataii/core/models_pydantic.py:
+     L  19: method   QPointFModel.validate_number
+       decorators: validator
+     L  26: method   QPointFModel.from_qpointf
+       decorators: classmethod
+     L  30: method   QPointFModel.from_tuple
+       decorators: classmethod
+     L  33: method   QPointFModel.to_tuple
+     L  90: class    Config
+     L  94: method   PartInfoModel.roi_must_have_four_elements
+       decorators: validator
+     L 102: method   PartInfoModel.local_pivot_offset_must_have_two_elements
+       decorators: validator
+     L 123: method   SkeletonJointModel.position_must_have_two_elements
+       decorators: validator
+     L 129: method   SkeletonJointModel.color_must_have_three_or_four_elements
+       decorators: validator
+     L 137: method   SkeletonJointModel.label_offset_must_have_two_elements
+       decorators: validator
+     L 142: class    Config
+     L 157: method   CharacterDataModel.populate_part_names
+       decorators: validator
+     L 165: method   CharacterDataModel.use_skeleton_if_skeleton_joints_empty
+       decorators: validator
+     L 188: class    Config
+
+src/automataii/core/models_skeleton.py:
+     L  74: class    Config
+     L  77: method   StandardizedSkeletonModel.get_joint_children
+     L  84: method   StandardizedSkeletonModel.get_joint_parent
+
+src/automataii/core/project/file_integration.py:
+     L  44: method   FileIntegration.register_file_associations
+     L 166: method   FileIntegration.generate_thumbnail
+     L 265: method   FileIntegration.create_quick_look_plugin
+     L 280: method   FileIntegration.handle_drag_drop
+     L 304: method   FileIntegration.get_file_info
+     L 479: function get_global_file_integration
+
+src/automataii/core/project/project_format.py:
+     L 239: method   AtiiProject.add_asset
+     L 260: method   AtiiProject.remove_asset
+     L 280: method   AtiiProject.get_project_data
+     L 288: method   AtiiProject.get_info
+
+src/automataii/core/project/project_manager.py:
+     L  65: method   ProjectManager.current_project
+       decorators: property
+     L  71: method   ProjectManager.has_project
+       decorators: property
+     L  76: method   ProjectManager.is_project_modified
+       decorators: property
+     L  80: method   ProjectManager.create_project
+     L 133: method   ProjectManager.load_project
+     L 280: method   ProjectManager.get_recent_projects
+     L 285: method   ProjectManager.clear_recent_projects
+     L 290: method   ProjectManager.get_templates
+     L 294: method   ProjectManager.add_template
+     L 298: method   ProjectManager.set_auto_save_enabled
+     L 307: method   ProjectManager.set_auto_save_interval
+     L 314: method   ProjectManager.create_backup
+     L 325: method   ProjectManager.recover_from_crash
+     L 494: function set_global_project_manager
+
+src/automataii/core/project/serialization.py:
+     L 107: method   ReferenceResolver.add_pending_reference
+     L 420: method   ProjectSerializer.serialize_to_file
+     L 447: method   ProjectSerializer.deserialize_from_file
+     L 469: method   ProjectSerializer.validate_schema
+     L 497: method   ProjectSerializer.get_supported_formats
+     L 509: method   ProjectSerializer.estimate_size
+
+src/automataii/core/project_data_manager.py:
+     L 339: method   ProjectDataManager.get_part_info
+     L 430: method   ProjectDataManager.new_project
+
+src/automataii/core/serialization/base.py:
+     L 146: method   Serializable.to_json
+     L 151: method   Serializable.from_json
+       decorators: classmethod
+
+src/automataii/core/skeleton_manager.py:
+     L  48: method   SkeletonManager.raw_input_data
+       decorators: property
+     L  68: method   SkeletonManager.joint_hierarchy
+       decorators: property
+     L  75: method   SkeletonManager.root_joints
+       decorators: property
+     L 464: method   SkeletonManager.get_joint_id_by_original_name
+     L 669: method   SkeletonManager.get_joint_bend_direction
+
+src/automataii/core/state/base.py:
+     L 106: class    CombinedReducer
+     L 171: function init_action
+     L 181: function update_action
+
+src/automataii/core/state/middleware.py:
+     L  55: class    PerformanceMiddleware
+     L  87: class    ValidationMiddleware
+     L 150: class    ThrottleMiddleware
+     L 177: class    DebugMiddleware
+
+src/automataii/core/state/selectors.py:
+     L 182: method   SelectorRegistry.register
+     L 191: method   SelectorRegistry.invalidate
+     L 199: method   SelectorRegistry.clear_all
+     L 204: method   SelectorRegistry.list_selectors
+     L 213: function get_global_selector_registry
+     L 248: function get_user_theme_preferences
+       decorators: create_selector
+
+src/automataii/core/state/store.py:
+     L 211: method   StateStore.get_history
+     L 216: method   StateStore.replay_from_history
+     L 247: method   StateStore.set_history_enabled
+     L 255: method   StateStore.clear_history
+     L 283: function set_global_store
+
+src/automataii/generation/blueprint.py:
+     L 621: function generate_detailed_part_blueprint_svg
+  [P] L 681: function _create_detailed_part_svg
+     L 844: function generate_blueprint_svg
+
+src/automataii/generation/blueprint_optimizer.py:
+     L 136: method   ScaleNormalizer.get_scaled_bounds
+  [P] L2279: method   BlueprintLayoutOptimizer._process_mechanisms
+
+src/automataii/generation/cam.py:
+  [P] L 228: function _generate_offset_curve
+
+src/automataii/generation/contour_extractor.py:
+     L  30: method   ManufacturingContour.get_cutting_path
+     L 203: method   AdvancedContourExtractor.generate_cutting_paths
+
+src/automataii/generation/mechanism.py:
+     L   5: class    MechanismGenerator
+
+src/automataii/generation/multi_page_blueprint.py:
+     L  28: class    MultiPageBlueprintManager
+     L  49: method   MultiPageBlueprintManager.create_multi_page_blueprint
+     L 514: method   MultiPageBlueprintManager.renumber_pages
+     L 538: method   MultiPageSVGGenerator.generate_page_svgs
+
+src/automataii/gui/blueprint/exporter.py:
+     L 355: method   BlueprintExporter.export_all_multipage
+
+src/automataii/gui/dialogs/camera_dialog.py:
+     L 223: method   CameraDialog.closeEvent
+
+src/automataii/gui/dialogs/recommendation_dialog.py:
+  [P] L 512: method   MechanismPreviewWidget._setup_scene_and_transform
+
+src/automataii/gui/graphics_items/anchor_item.py:
+     L  57: method   AnchorItem.focusInEvent
+     L  65: method   AnchorItem.focusOutEvent
+
+src/automataii/gui/graphics_items/mechanism_anchor_item.py:
+     L  14: class    MechanismAnchorItem
+     L  53: method   MechanismAnchorItem.set_center_pos
+
+src/automataii/gui/graphics_items/part_item.py:
+     L 267: method   CharacterPartItem.set_fixed
+     L 360: method   CharacterPartItem.paint
+     L 467: method   CharacterPartItem.mouseDoubleClickEvent
+
+src/automataii/gui/graphics_items/skeleton_item.py:
+     L 319: method   SkeletonGraphicsItem.paint
+     L 380: method   SkeletonGraphicsItem.get_all_joint_positions
+
+src/automataii/gui/image_view.py:
+     L 243: method   ImageProcessingView.wheelEvent
+     L 263: method   ImageProcessingView.drawForeground
+     L 887: method   ImageProcessingView.load_character_parts
+     L 981: method   ImageProcessingView.show_skeleton_visuals
+     L 991: method   ImageProcessingView.show_part_visuals
+     L1191: method   ImageProcessingView.reset_zoom
+
+src/automataii/gui/interactive_segmentation_editor.py:
+     L 147: method   ClickableGraphicsView.get_boundary_points
+
+src/automataii/gui/main_window.py:
+  [P] L 707: method   AutomataDesigner._handle_continue_without_example
+       decorators: pyqtSlot
+     L 787: method   AutomataDesigner.load_parts
+     L 929: method   AutomataDesigner.load_project_dialog
+     L1419: method   AutomataDesigner.show_about_qt_dialog
+  [P] L1456: method   AutomataDesigner._load_project_into_editor_tab
+
+src/automataii/gui/tabs/editor_tab.py:
+  [P] L 610: method   EditorTab._handle_part_list_click
+  [P] L 793: method   EditorTab._handle_zoom_change
+  [P] L 811: method   EditorTab._handle_zoom_change_fit
+  [P] L 930: method   EditorTab._get_selected_part_has_motion_path
+  [P] L1627: method   EditorTab._solve_four_bar_kinematics
+  [P] L1682: method   EditorTab._clear_preview_paths
+  [P] L1936: method   EditorTab._extract_points_from_ellipse_path
+
+src/automataii/gui/tabs/landing_tab.py:
+     L 330: method   LandingTab.refresh
+
+src/automataii/gui/tabs/mechanism_design/parametric/controllers/parameter_controller.py:
+     L 148: method   ParameterController.enable_handles_for_mechanism
+  [P] L 192: method   ParameterController._on_manipulation_started
+  [P] L 208: method   ParameterController._on_manipulation_finished
+     L 460: method   ParameterController.undo_last_change
+     L 487: method   ParameterController.redo_last_change
+     L 524: method   ParameterController.get_performance_stats
+
+src/automataii/gui/tabs/mechanism_design/parametric/handles/anchor_handle.py:
+     L 276: method   AnchorHandle.get_anchor_name
+     L 280: method   AnchorHandle.get_distance_to_other_anchor
+
+src/automataii/gui/tabs/mechanism_design/parametric/handles/base_handle.py:
+     L 330: method   BaseHandle.is_near_point
+
+src/automataii/gui/tabs/mechanism_design/parametric/handles/cam_handles.py:
+     L 187: method   CamRodLengthHandle.get_current_rod_length
+     L 191: method   CamRodLengthHandle.update_cam_center
+     L 337: method   CamSizeHandle.get_current_parameters
+     L 341: method   CamSizeHandle.update_cam_center
+
+src/automataii/gui/tabs/mechanism_design/parametric/handles/coupler_handle.py:
+     L  20: class    CouplerHandle
+     L 486: method   CouplerHandle.get_coupler_point_name
+     L 490: method   CouplerHandle.is_position_reachable
+     L 494: method   CouplerHandle.get_last_valid_configuration
+
+src/automataii/gui/tabs/mechanism_design/parametric/handles/draggable_handle.py:
+     L 197: method   DraggableHandle.get_handle_id
+
+src/automataii/gui/tabs/mechanism_design/parametric/handles/joint_handle.py:
+     L  20: class    JointHandle
+     L 270: method   JointHandle.update_anchor_position
+     L 302: method   JointHandle.get_link_parameter_name
+     L 306: method   JointHandle.get_joint_name
+
+src/automataii/gui/tabs/mechanism_design/parametric/services/path_optimization_service.py:
+     L  72: method   PathOptimizationService.set_target_path
+     L  98: method   PathOptimizationService.get_target_path
+     L 122: method   PathOptimizationService.start_optimization
+     L 172: method   PathOptimizationService.stop_optimization
+     L 188: method   PathOptimizationService.is_optimization_running
+     L 200: method   PathOptimizationService.get_optimization_results
+     L 564: method   PathOptimizationService.clear_target_path
+     L 580: method   PathOptimizationService.get_path_optimization_stats
+
+src/automataii/gui/tabs/mechanism_design_tab.py:
+  [P] L 872: method   MechanismDesignTab._is_part_mechanism_controlled
+  [P] L1125: method   MechanismDesignTab._is_end_effector_part
+  [P] L1129: method   MechanismDesignTab._get_current_skeleton_data_with_mechanism_override
+  [P] L1279: method   MechanismDesignTab._force_parts_to_follow_mechanism
+  [P] L1315: method   MechanismDesignTab._force_parts_to_mechanism_positions_immediately
+  [P] L1341: method   MechanismDesignTab._align_skeleton_to_parts_immediately
+  [P] L1387: method   MechanismDesignTab._update_parts_from_mechanism_directly
+  [P] L1464: method   MechanismDesignTab._recreate_skeleton_visualization
+  [P] L1538: method   MechanismDesignTab._update_ik_with_mechanism_output
+  [P] L1839: method   MechanismDesignTab._clear_all_existing_mechanisms
+  [P] L2113: method   MechanismDesignTab._qpainterpath_to_numpy
+  [P] L3142: method   MechanismDesignTab._update_mechanism_visuals_fallback
+  [P] L3321: method   MechanismDesignTab._update_parts_visual_state
+  [P] L3539: method   MechanismDesignTab._recreate_layers_list_widget
+  [P] L3707: method   MechanismDesignTab._emergency_rebuild_ui
+     L4631: method   MechanismDesignTab.hideEvent
+  [P] L4924: method   MechanismDesignTab._request_mechanism_for_part
+  [P] L4976: method   MechanismDesignTab._create_interactive_handles_for_mechanism
+  [P] L4979: method   MechanismDesignTab._create_3bar_linkage_visuals
+  [P] L5351: method   MechanismDesignTab._create_generic_mechanism_visuals
+  [P] L5453: method   MechanismDesignTab._generate_mechanism_motion_path
+  [P] L5483: method   MechanismDesignTab._debug_data_consistency_check
+  [P] L5850: method   MechanismDesignTab._show_mechanism_validity_feedback
+  [P] L6433: method   MechanismDesignTab._setup_rotation_handle_events
+     L6447: method   RotationEventHandler.handle_mouse_press
+     L6457: method   RotationEventHandler.handle_mouse_move
+     L6462: method   RotationEventHandler.handle_mouse_release
+  [P] L7072: method   MechanismDesignTab._show_mechanism_dimensions
+  [P] L7079: method   MechanismDesignTab._generate_blueprint_instructions
+     L7083: method   MechanismDesignTab.export_mechanism_blueprint
+  [P] L7098: method   MechanismDesignTab._create_5bar_linkage_handles
+  [P] L7146: method   MechanismDesignTab._create_6bar_linkage_handles
+  [P] L8008: method   MechanismDesignTab._apply_4bar_kinematic_constraints
+  [P] L8269: method   MechanismDesignTab._regenerate_motion_path_for_mechanism
+  [P] L8638: method   MechanismDesignTab._update_4bar_linkage_realtime
+  [P] L8847: method   MechanismDesignTab._recreate_4bar_visuals
+  [P] L9336: method   MechanismDesignTab._calculate_screen_to_blueprint_scale
+  [P] L9340: method   MechanismDesignTab._enhance_mechanism_layers_with_scale_info
+  [P] L9344: method   MechanismDesignTab._calculate_real_world_mechanism_params
+
+src/automataii/gui/tabs/options_tab.py:
+     L 165: method   OptionsTab.set_theme
+     L 169: method   OptionsTab.get_animation_duration
+     L 173: method   OptionsTab.set_toolbar_visibility
+     L 177: method   OptionsTab.set_part_properties_visibility
+
+src/automataii/gui/views/editor_view.py:
+     L 484: method   EditorView.wheelEvent
+     L 862: method   EditorView.start_define_joint
+     L1006: method   EditorView.finish_motion_path_drawing
+     L1057: method   EditorView.start_select_end_effector
+     L1088: method   EditorView.start_simulation
+     L1093: method   EditorView.stop_simulation
+     L1098: method   EditorView.reset_simulation
+     L1130: method   EditorView.get_part_item_by_name
+     L1432: method   EditorView.set_selected_part
+     L1452: method   EditorView.get_current_part_transforms
+
+src/automataii/gui/widgets/view_controls.py:
+     L 189: method   HoverViewControls.hide_controls
+
+src/automataii/kinematics/ik_manager.py:
+     L1353: method   IKManager.clear_mechanism_position_target
+     L1636: method   IKManager.get_world_rotation_degrees
+
+src/automataii/services/inference_service.py:
+     L 114: method   InferenceService.run_pose_estimation
+
+src/automataii/ui/tabs/mechanism_foundry/enhanced_macanism_tab.py:
+  [P] L 699: method   InteractiveMechanismWidget._validate_four_bar_physics
+  [P] L 735: method   InteractiveMechanismWidget._validate_slider_crank_physics
+  [P] L 749: method   InteractiveMechanismWidget._evaluate_mechanism_safety
+  [P] L1184: method   InteractiveMechanismWidget._update_safety_status_display
+  [P] L1228: method   InteractiveMechanismWidget._handle_physics_error
+     L2054: method   InteractiveMechanismWidget.on_move_crank_center
+  [P] L2217: method   InteractiveMechanismWidget._calculate_gear_train_forces_accurate
+  [P] L2262: method   InteractiveMechanismWidget._draw_gear_optimized
+  [P] L2284: method   InteractiveMechanismWidget._draw_velocity_arrow
+  [P] L2348: method   InteractiveMechanismWidget._calculate_slider_crank_forces
+  [P] L2423: method   InteractiveMechanismWidget._calculate_cam_follower_forces
+  [P] L2501: method   InteractiveMechanismWidget._calculate_gear_train_forces
+  [P] L2830: method   InteractiveMechanismWidget._draw_force_vector_simple
+  [P] L2922: method   InteractiveMechanismWidget._update_mechanism_positions_only
+     L3131: method   InteractiveMechanismWidget.restart_animation
+  [P] L4036: method   EnhancedMacanismTab._calculate_mechanical_advantage
+
+src/automataii/ui/tabs/mechanism_foundry/hci/parametric_controls.py:
+     L 446: method   ParametricControlPanel.configure_for_mechanism
+     L 710: method   ParametricControlPanel.export_configuration
+     L 718: method   ParametricControlPanel.import_configuration
+
+src/automataii/ui/tabs/mechanism_foundry/hci/physics_interaction.py:
+     L 310: method   PhysicsInteractionLayer.apply_force
+
+src/automataii/ui/tabs/mechanism_foundry/hci/unified_visualization.py:
+     L 121: class    UnifiedMechanismRenderer
+     L 147: method   UnifiedMechanismRenderer.set_viewport
+     L 151: method   UnifiedMechanismRenderer.begin_render
+     L 156: method   UnifiedMechanismRenderer.draw_grid
+     L 240: method   UnifiedMechanismRenderer.draw_mechanism_link
+     L 304: method   UnifiedMechanismRenderer.draw_mechanism_joint
+     L 361: method   UnifiedMechanismRenderer.draw_force_vector
+     L 416: method   UnifiedMechanismRenderer.draw_velocity_vector
+     L 510: method   UnifiedMechanismRenderer.draw_motion_trail
+     L 538: method   UnifiedMechanismRenderer.draw_info_panel
+     L 584: method   UnifiedMechanismRenderer.update_physics_data
+     L 590: method   UnifiedMechanismRenderer.set_selection
+     L 594: method   UnifiedMechanismRenderer.set_hover
+
+src/automataii/utils/config.py:
+     L  18: method   AppConfig.get_var
+     L  23: method   AppConfig.set_var
+
+src/automataii/utils/helpers.py:
+     L  12: function setup_high_dpi_environment
+     L  31: function transform_to_dict
+     L  46: function dict_to_transform
+     L  69: function qpainterpath_to_points
+     L  80: function points_to_qpainterpath
+     L 125: function angle_between_vectors
+     L 140: function points_to_closed_bezier_path
+     L 200: class    NumpyEncoder
+
+src/automataii/utils/image_utils.py:
+     L   5: function save_image
+
+src/automataii/utils/model_downloader.py:
+     L 162: method   ModelDownloader.check_available_models
+     L 186: function get_model_path
+
+src/automataii/utils/path_utils.py:
+     L   8: function create_smooth_path
+
+src/automataii/utils/styling.py:
+     L   6: class    UIColors
+     L  44: function apply_dark_theme
+
+src/automataii/utils/svg_utils.py:
+     L   9: function contour_to_svg_path
+     L  22: function save_svg

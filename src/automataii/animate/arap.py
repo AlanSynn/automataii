@@ -374,28 +374,3 @@ class ARAP:
         return np.array([u, v, w]).squeeze()
 
 
-def plot_mesh(vertices, triangles, pins_xy):
-    """Helper function to visualize mesh deformation outputs"""
-    import matplotlib.pyplot as plt
-
-    for tri in triangles:
-        x_points = []
-        y_points = []
-        v0, v1, v2 = tri.tolist()
-        x_points.append(vertices[v0][0])
-        y_points.append(vertices[v0][1])
-        x_points.append(vertices[v1][0])
-        y_points.append(vertices[v1][1])
-        x_points.append(vertices[v2][0])
-        y_points.append(vertices[v2][1])
-        x_points.append(vertices[v0][0])
-        y_points.append(vertices[v0][1])
-
-        plt.plot(x_points, y_points)
-    plt.ylim((-15, 15))
-    plt.xlim((-15, 15))
-
-    for pin in pins_xy:
-        plt.plot(pin[0], pin[1], color="red", marker="o")
-
-    plt.show()

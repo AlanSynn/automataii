@@ -607,9 +607,6 @@ class EditorTab(QWidget):
         # Update part list styles whenever selection changes
         self._update_part_list_styles()
 
-    def _handle_part_list_click(self, item: QListWidgetItem):
-        # Currently, currentItemChanged handles selection. This could be for other interactions.
-        logging.info(f"Part list item clicked: {item.text()}")
 
     def _toggle_define_motion_path_mode(self, checked: bool):
         """Handle the 'Start/Stop Drawing' button toggle."""
@@ -790,27 +787,7 @@ class EditorTab(QWidget):
             self.editor_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             logging.info("EditorTab: Part movement UNLOCKED")
 
-    def _handle_zoom_change(self, zoom_text: str):
-        # This functionality is removed from the UI, but we keep the method
-        # in case it's called from somewhere else (e.g., main window menu).
-        try:
-            if zoom_text.lower() == "fit":
-                self.editor_view.zoom_to_fit()
-                return
-            if zoom_text.endswith("%"):
-                zoom_value = float(zoom_text[:-1]) / 100.0
-            else:
-                zoom_value = float(zoom_text)
-            self.editor_view.set_zoom_level(zoom_value)
-        except ValueError:
-            current_scale = self.editor_view.transform().m11()
-            self.zoom_combo.blockSignals(True)
-            self.zoom_combo.setCurrentText(f"{int(current_scale * 100)}%")
-            self.zoom_combo.blockSignals(False)
 
-    def _handle_zoom_change_fit(self):
-        # This functionality is removed from the UI
-        self.editor_view.zoom_to_fit()
 
     def _update_zoom_combo_from_view(self, scale_factor: float):
         # This functionality is removed from the UI
@@ -927,14 +904,6 @@ class EditorTab(QWidget):
                 count += 1
         return count
 
-    def _get_selected_part_has_motion_path(self) -> bool:
-        if (
-            self.selected_part_name
-            and self.selected_part_name in self.current_editor_items
-        ):
-            part_item = self.current_editor_items[self.selected_part_name]
-            return bool(part_item.motion_path and not part_item.motion_path.isEmpty())
-        return False
 
     def _update_part_list_styles(self):
         """Update item backgrounds to show which parts have paths."""
@@ -1624,68 +1593,7 @@ class EditorTab(QWidget):
             self, "Part Double-Clicked", f"Part '{part_name}' was double-clicked."
         )
 
-    def _solve_four_bar_kinematics(
-        self,
-        P0: QPointF,
-        P3: QPointF,
-        L1: float,
-        L2: float,
-        L3: float,
-        input_angle_L1_rad: float,
-    ) -> tuple[QPointF, QPointF, float, float, float] | None:
-        """
-        Solves the forward kinematics for a four-bar linkage for a given input angle of L1.
-        P0 and P3 are fixed pivots. L1 is the crank, L2 the coupler, L3 the rocker.
-        Lengths are assumed to be already scaled for display.
-        """
-        P1 = QPointF(
-            P0.x() + L1 * math.cos(input_angle_L1_rad),
-            P0.y() + L1 * math.sin(input_angle_L1_rad),
-        )
 
-        d_sq = (P3.x() - P1.x()) ** 2 + (P3.y() - P1.y()) ** 2
-        d = math.sqrt(d_sq)
-
-        if d > L2 + L3 or d < abs(L2 - L3):
-            return None
-        if d == 0 and L2 != L3:
-            return None
-
-        val_for_acos_gamma1 = (d_sq + L2**2 - L3**2) / (2 * d * L2)
-        if not (-1 <= val_for_acos_gamma1 <= 1):
-            return None
-        gamma1 = math.acos(val_for_acos_gamma1)
-        phi_P1P3 = math.atan2(P3.y() - P1.y(), P3.x() - P1.x())
-
-        solutions = []
-        for sign in [-1, 1]:
-            l2_angle_rad = phi_P1P3 + sign * gamma1
-            P2_test = QPointF(
-                P1.x() + L2 * math.cos(l2_angle_rad),
-                P1.y() + L2 * math.sin(l2_angle_rad),
-            )
-            dist_P2_P3 = math.sqrt(
-                (P2_test.x() - P3.x()) ** 2 + (P2_test.y() - P3.y()) ** 2
-            )
-            if abs(dist_P2_P3 - L3) < 0.001:
-                solutions.append((P2_test, l2_angle_rad))
-
-        if not solutions:
-            return None
-
-        P2, l2_angle_rad = solutions[0]
-        l3_angle_rad = math.atan2(P2.y() - P3.y(), P2.x() - P3.x())
-        l1_angle_rad = input_angle_L1_rad
-
-        return P1, P2, l1_angle_rad, l2_angle_rad, l3_angle_rad
-
-    def _clear_preview_paths(self):
-        """Clear any preview path visualizations."""
-        if hasattr(self, "_preview_path_items"):
-            for item in self._preview_path_items:
-                if item.scene() == self.editor_scene:
-                    self.editor_scene.removeItem(item)
-            self._preview_path_items.clear()
 
     def _collect_path_data(self) -> dict[str, QPainterPath]:
         """Collect all motion paths from parts."""
@@ -1933,23 +1841,6 @@ class EditorTab(QWidget):
         else:
             return self._create_raw_path(interpolated_points)
 
-    def _extract_points_from_ellipse_path(self, ellipse_path: QPainterPath, num_points: int) -> list[QPointF]:
-        """Extract evenly spaced points from an ellipse path, maintaining proper correspondence with original points."""
-        points = []
-        if ellipse_path.isEmpty():
-            return points
-
-        # Sample the ellipse path at regular intervals
-        # We want to distribute points evenly around the ellipse perimeter
-        length = ellipse_path.length()
-        if length > 0:
-            for i in range(num_points):
-                # Use arc-length parameterization for even distribution
-                percent = i / num_points if num_points > 1 else 0
-                point = ellipse_path.pointAtPercent(percent)
-                points.append(point)
-
-        return points
 
     def _update_part_path(self, part_name: str, new_path: QPainterPath):
         """Update the motion path for a part in all relevant data structures."""

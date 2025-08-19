@@ -144,9 +144,6 @@ class ClickableGraphicsView(QGraphicsView):
             self.boundary_polygon_item.setPen(QPen(QColor(255, 255, 0), 2))
             self.scene().addItem(self.boundary_polygon_item)
 
-    def get_boundary_points(self) -> list[tuple[float, float]]:
-        """Get current boundary points as list of tuples"""
-        return [(p.x(), p.y()) for p in self.current_boundary_points]
 
     def set_boundary_points(self, points: list[tuple[float, float]]):
         """Set boundary points from list of tuples"""

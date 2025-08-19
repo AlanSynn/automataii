@@ -41,33 +41,6 @@ class FileIntegration(Injectable):
         # Initialize MIME type
         mimetypes.add_type(self._mime_type, self._file_extension)
 
-    def register_file_associations(self, app_path: Path | None = None) -> bool:
-        """
-        Register .atii file associations with the OS.
-        
-        Args:
-            app_path: Path to application executable
-            
-        Returns:
-            True if registration successful
-        """
-        if not app_path:
-            app_path = Path(sys.executable)
-
-        try:
-            if self._system == "windows":
-                return self._register_windows_associations(app_path)
-            elif self._system == "darwin":
-                return self._register_macos_associations(app_path)
-            elif self._system == "linux":
-                return self._register_linux_associations(app_path)
-            else:
-                self._logger.warning(f"Unsupported system: {self._system}")
-                return False
-
-        except Exception as e:
-            self._logger.error(f"Failed to register file associations: {e}", exc_info=True)
-            return False
 
     def _register_windows_associations(self, app_path: Path) -> bool:
         """Register file associations on Windows."""
@@ -163,34 +136,6 @@ class FileIntegration(Injectable):
             self._logger.error(f"Linux registration failed: {e}")
             return False
 
-    def generate_thumbnail(self, project_path: Path, size: tuple = (256, 256)) -> bytes | None:
-        """
-        Generate thumbnail for project file.
-        
-        Args:
-            project_path: Path to .atii project
-            size: Thumbnail size (width, height)
-            
-        Returns:
-            PNG thumbnail data or None if failed
-        """
-        try:
-            # Load project to get thumbnail data
-            project = AtiiProject(project_path)
-            project.load()
-
-            # Check if project has embedded thumbnail
-            if project.manifest.thumbnail:
-                thumbnail_data = project.get_asset(project.manifest.thumbnail)
-                if thumbnail_data:
-                    return self._resize_image(thumbnail_data, size)
-
-            # Generate default thumbnail
-            return self._generate_default_thumbnail(project, size)
-
-        except Exception as e:
-            self._logger.error(f"Failed to generate thumbnail: {e}")
-            return None
 
     def _resize_image(self, image_data: bytes, size: tuple) -> bytes:
         """Resize image data to thumbnail size."""
@@ -262,80 +207,8 @@ class FileIntegration(Injectable):
         img.save(output, format='PNG')
         return output.getvalue()
 
-    def create_quick_look_plugin(self) -> bool:
-        """
-        Create Quick Look plugin for macOS (placeholder implementation).
-        
-        Returns:
-            True if plugin created successfully
-        """
-        if self._system != "darwin":
-            return False
 
-        # This would involve creating a proper Quick Look plugin bundle
-        # For now, just return False as this is a complex implementation
-        self._logger.info("Quick Look plugin creation not implemented")
-        return False
 
-    def handle_drag_drop(self, file_paths: list[Path]) -> list[Path]:
-        """
-        Handle drag and drop of files onto application.
-        
-        Args:
-            file_paths: List of dropped file paths
-            
-        Returns:
-            List of valid .atii project files
-        """
-        valid_projects = []
-
-        for path in file_paths:
-            if path.suffix.lower() == self._file_extension:
-                try:
-                    # Validate project file
-                    project = AtiiProject(path)
-                    project.load()
-                    valid_projects.append(path)
-                except Exception as e:
-                    self._logger.warning(f"Invalid project file {path}: {e}")
-
-        return valid_projects
-
-    def get_file_info(self, project_path: Path) -> dict[str, Any]:
-        """
-        Get file information for project.
-        
-        Args:
-            project_path: Path to project file
-            
-        Returns:
-            Dictionary with file information
-        """
-        try:
-            project = AtiiProject(project_path)
-            project.load()
-
-            stat = project_path.stat()
-
-            return {
-                'name': project.name,
-                'description': project.manifest.description,
-                'author': project.manifest.author,
-                'version': project.manifest.version,
-                'created': project.manifest.created_at,
-                'modified': project.manifest.modified_at,
-                'file_size': stat.st_size,
-                'file_modified': datetime.fromtimestamp(stat.st_mtime),
-                'asset_count': len(project.list_assets()),
-                'tags': project.manifest.tags
-            }
-
-        except Exception as e:
-            self._logger.error(f"Failed to get file info: {e}")
-            return {
-                'name': project_path.stem,
-                'error': str(e)
-            }
 
     def _get_icon_path(self) -> Path:
         """Get path to application icon."""
@@ -476,9 +349,3 @@ MimeType={self._mime_type};
 _global_file_integration: FileIntegration | None = None
 
 
-def get_global_file_integration() -> FileIntegration:
-    """Get the global file integration handler."""
-    global _global_file_integration
-    if _global_file_integration is None:
-        _global_file_integration = FileIntegration()
-    return _global_file_integration

@@ -143,15 +143,7 @@ class Serializable(ABC):
         """
         return data
 
-    def to_json(self, indent: int | None = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, default=str)
 
-    @classmethod
-    def from_json(cls: type[T], json_str: str) -> T:
-        """Create from JSON string."""
-        data = json.loads(json_str)
-        return cls.from_dict(data)
 
     def __eq__(self, other) -> bool:
         """Check equality based on serialized representation."""

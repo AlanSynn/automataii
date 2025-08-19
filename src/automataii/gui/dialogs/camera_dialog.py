@@ -220,10 +220,6 @@ class CameraDialog(QDialog):
                 self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
             )
 
-    def closeEvent(self, event):
-        """Ensures camera is stopped when the dialog is closed."""
-        self.stop_camera()
-        super().closeEvent(event)
 
     # Override reject to ensure camera stops
     def reject(self):

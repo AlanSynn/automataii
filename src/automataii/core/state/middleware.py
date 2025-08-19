@@ -52,75 +52,8 @@ class LoggingMiddleware(Middleware):
         return action
 
 
-class PerformanceMiddleware(Middleware):
-    """
-    Middleware that measures action processing time.
-    """
-
-    def __init__(self, warn_threshold_ms: float = 100.0):
-        self._logger = logging.getLogger("StateStore.Performance")
-        self._warn_threshold = warn_threshold_ms / 1000.0  # Convert to seconds
-
-    def process(self, store: 'StateStore', action: 'Action') -> 'Action':
-        """Measure action processing time."""
-        start_time = time.perf_counter()
-
-        # Process action (this is where the actual processing happens in the store)
-        # For middleware, we just pass through, but we could modify the action here
-        result_action = action
-
-        end_time = time.perf_counter()
-        duration = end_time - start_time
-
-        if duration > self._warn_threshold:
-            self._logger.warning(
-                f"Slow action detected: {action.type} took {duration*1000:.2f}ms"
-            )
-        else:
-            self._logger.debug(
-                f"Action {action.type} processed in {duration*1000:.2f}ms"
-            )
-
-        return result_action
 
 
-class ValidationMiddleware(Middleware):
-    """
-    Middleware that validates actions before processing.
-    """
-
-    def __init__(self, strict_mode: bool = False):
-        self._logger = logging.getLogger("StateStore.Validation")
-        self._strict_mode = strict_mode
-
-    def process(self, store: 'StateStore', action: 'Action') -> 'Action':
-        """Validate action."""
-        errors = self._validate_action(action)
-
-        if errors:
-            error_msg = f"Invalid action {action.type}: {', '.join(errors)}"
-
-            if self._strict_mode:
-                raise ValueError(error_msg)
-            else:
-                self._logger.warning(error_msg)
-
-        return action
-
-    def _validate_action(self, action: 'Action') -> list[str]:
-        """Validate action and return list of errors."""
-        errors = []
-
-        # Check action type
-        if not action.type:
-            errors.append("Action type is required")
-
-        if not isinstance(action.type, str):
-            errors.append("Action type must be string")
-
-        # Additional validation can be added here
-
-        return errors
 
 
 class PersistenceMiddleware(Middleware):
@@ -147,56 +80,5 @@ class PersistenceMiddleware(Middleware):
         # In real implementation, would save to file/database
 
 
-class ThrottleMiddleware(Middleware):
-    """
-    Middleware that throttles rapid actions of the same type.
-    """
-
-    def __init__(self, throttle_ms: float = 100.0):
-        self._logger = logging.getLogger("StateStore.Throttle")
-        self._throttle_interval = throttle_ms / 1000.0
-        self._last_action_times = {}
-
-    def process(self, store: 'StateStore', action: 'Action') -> 'Action':
-        """Throttle rapid actions."""
-        current_time = time.perf_counter()
-        action_type = action.type
-
-        last_time = self._last_action_times.get(action_type, 0)
-
-        if current_time - last_time < self._throttle_interval:
-            self._logger.debug(f"Throttling action: {action_type}")
-            # Could return None to indicate action should be dropped
-            # or modify the action to indicate it was throttled
-            pass
-
-        self._last_action_times[action_type] = current_time
-        return action
 
 
-class DebugMiddleware(Middleware):
-    """
-    Middleware that provides detailed debugging information.
-    """
-
-    def __init__(self):
-        self._logger = logging.getLogger("StateStore.Debug")
-        self._action_count = 0
-
-    def process(self, store: 'StateStore', action: 'Action') -> 'Action':
-        """Log detailed debug information."""
-        self._action_count += 1
-
-        # Log action details
-        self._logger.debug(f"[{self._action_count}] Processing action: {action}")
-
-        # Log current state (be careful with large states)
-        current_state = store.state
-        if hasattr(current_state, 'data') and len(str(current_state.data)) < 1000:
-            self._logger.debug(f"Current state: {current_state.data}")
-
-        # Log store statistics
-        stats = store.get_stats()
-        self._logger.debug(f"Store stats: {stats}")
-
-        return action

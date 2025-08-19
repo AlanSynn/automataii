@@ -103,34 +103,6 @@ class Reducer(ABC, Generic[StateType]):
         return action.type in self.action_types
 
 
-class CombinedReducer(Reducer[dict[str, Any]]):
-    """
-    Combines multiple reducers into one.
-    """
-
-    def __init__(self, reducers: dict[str, Reducer]):
-        self.reducers = reducers
-        self._action_types = set()
-        for reducer in reducers.values():
-            self._action_types.update(reducer.action_types)
-
-    def reduce(self, state: State[dict[str, Any]], action: Action) -> State[dict[str, Any]]:
-        """Apply action to each sub-reducer."""
-        new_state_data = {}
-
-        for key, reducer in self.reducers.items():
-            if reducer.handles_action(action):
-                sub_state = State(state.data.get(key))
-                new_sub_state = reducer.reduce(sub_state, action)
-                new_state_data[key] = new_sub_state.data
-            else:
-                new_state_data[key] = state.data.get(key)
-
-        return State(new_state_data)
-
-    @property
-    def action_types(self) -> set[str]:
-        return self._action_types
 
 
 # Common action types
@@ -168,9 +140,6 @@ def create_action(action_type: str, payload: dict[str, Any] = None, meta: dict[s
 
 
 # Action creators
-def init_action() -> Action:
-    """Create initialization action."""
-    return create_action(ActionTypes.INIT)
 
 
 def reset_action() -> Action:
@@ -178,6 +147,3 @@ def reset_action() -> Action:
     return create_action(ActionTypes.RESET)
 
 
-def update_action(path: str, value: Any) -> Action:
-    """Create update action."""
-    return create_action(ActionTypes.UPDATE, {"path": path, "value": value})

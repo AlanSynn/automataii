@@ -327,6 +327,3 @@ class LandingTab(QWidget):
         # and updating the status bar.
         # Therefore, the direct calls to switch tab and load image here are removed.
 
-    def refresh(self):
-        """Refresh the example images display."""
-        self._load_example_images()
