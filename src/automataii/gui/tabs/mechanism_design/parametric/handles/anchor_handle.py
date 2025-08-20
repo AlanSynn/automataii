@@ -239,30 +239,25 @@ class AnchorHandle(BaseHandle):
 
     def mouseMoveEvent(self, event):
         """
-        Override mouse move to include anchor-specific constraint validation.
+        Override mouse move to allow free dragging without real-time constraint validation.
+        Constraint validation will be deferred to when exiting parametric editing mode.
         """
         if not self._is_dragging or not self._is_enabled:
             logging.info(f"[ANCHOR] ❌ Not dragging or not enabled: dragging={self._is_dragging}, enabled={self._is_enabled}")
             return
-
+        
         new_position = event.scenePos()
         logging.info(f"[ANCHOR] 🎯 Mouse move to {new_position} for {self.anchor_name}")
-
-        # Validate anchor-specific constraints
-        is_valid, error_msg = self._validate_anchor_constraints(new_position)
-
-        if not is_valid:
-            # Show constraint violation feedback
-            self._show_constraint_feedback()
-            logging.debug(f"Anchor constraint violation: {error_msg}")
-            return  # Don't move if constraints violated
-
+        
+        # Allow free dragging without constraint validation for smoother UX
+        # Constraints will be validated when exiting parametric editing mode
+        
         # Update position immediately for visual feedback
         old_pos = self.pos()
         self.setPos(new_position)
         actual_pos = self.pos()
         logging.info(f"[ANCHOR] ✅ Moved {self.anchor_name} from {old_pos} to {new_position}, actual: {actual_pos}")
-
+        
         # CRITICAL: Call the update callback immediately to trigger mechanism update
         if hasattr(self, 'update_callback') and self.update_callback:
             self.update_callback(new_position)

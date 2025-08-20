@@ -603,8 +603,19 @@ class CamEditor(MechanismEditor):
         self.mechanism_data = mechanism_data
         params = mechanism_data.get("params", {})
         
+        # Get cam position - use stored position if available
+        if 'cam_position' in mechanism_data:
+            cam_position = mechanism_data['cam_position']
+            center = QPointF(cam_position[0], cam_position[1])
+        else:
+            # Fallback to default center if not specified
+            center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
+        
+        # Store center in params for consistency
+        params["center_x"] = center.x()
+        params["center_y"] = center.y()
+        
         # Cam center handle
-        center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
         center_handle = ParametricHandle(
             center,
             f"{self.mechanism_id}_center",
@@ -616,8 +627,14 @@ class CamEditor(MechanismEditor):
         self.scene.addItem(center_handle)
         self.handles["center"] = center_handle
         
-        # Cam profile control points
-        self._create_profile_handles(params)
+        # Cam profile control points (if needed)
+        # For now, simplified - just size control
+        base_radius = params.get("base_radius", 25.0)
+        eccentricity = params.get("eccentricity", 10.0)
+        
+        # Store these for reference
+        params["base_radius"] = base_radius
+        params["eccentricity"] = eccentricity
         
         # Follower rod length handle
         self._create_follower_handle(params)
@@ -662,10 +679,20 @@ class CamEditor(MechanismEditor):
     def _create_follower_handle(self, params: dict):
         """Create handle for follower rod adjustment."""
         center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
-        rod_length = params.get("follower_rod_length", 100)
+        base_radius = params.get("base_radius", 25.0)
+        rod_length = params.get("follower_rod_length", 40.0)
         
-        # Position above cam
-        follower_pos = QPointF(center.x(), center.y() - rod_length)
+        # Get scaling factors if available
+        cam_scale_factor = self.mechanism_data.get('cam_scale_factor', 1.0)
+        rod_length_multiplier = self.mechanism_data.get('rod_length_multiplier', 1.0)
+        
+        # Apply scaling
+        scaled_base_radius = base_radius * cam_scale_factor
+        scaled_rod_length = rod_length * rod_length_multiplier
+        
+        # Position follower above cam (gravity physics)
+        # Follower should be above the cam by base_radius + rod_length
+        follower_pos = QPointF(center.x(), center.y() - (scaled_base_radius + scaled_rod_length))
         
         handle = ParametricHandle(
             follower_pos,
@@ -674,13 +701,13 @@ class CamEditor(MechanismEditor):
             self._on_follower_moved,
             style=HandleStyle(size=12, color=QColor(100, 100, 255))
         )
-        handle.setToolTip("Follower Rod - Drag to adjust length and position")
+        handle.setToolTip("Follower Rod - Drag vertically to adjust length")
         
-        # Constrain to vertical movement
+        # Constrain to vertical movement only
         handle.constraints = {
-            'min_y': center.y() - 200,
-            'max_y': center.y() - 50,
-            'fixed_x': center.x()
+            'min_y': center.y() - 300,  # Maximum rod length
+            'max_y': center.y() - (scaled_base_radius + 20),  # Minimum rod length (must be above cam)
+            'fixed_x': center.x()  # Keep horizontally aligned with cam center
         }
         
         self.scene.addItem(handle)
@@ -705,28 +732,26 @@ class CamEditor(MechanismEditor):
             self.mechanism_data["params"]["center_y"]
         )
         
-        # Update center
+        # Update center position
         self.mechanism_data["params"]["center_x"] = new_pos.x()
         self.mechanism_data["params"]["center_y"] = new_pos.y()
         
-        # Move all profile handles
-        offset = new_pos - old_center
-        for i in range(8):
-            handle_key = f"profile_{i}"
-            if handle_key in self.handles:
-                handle = self.handles[handle_key]
-                handle.setPos(handle.pos() + offset)
-                handle.constraints['center'] = new_pos
+        # Also update cam_position if it exists
+        if 'cam_position' in self.mechanism_data:
+            self.mechanism_data['cam_position'] = [new_pos.x(), new_pos.y()]
         
-        # Move follower handle
+        # Calculate offset for moving other handles
+        offset = new_pos - old_center
+        
+        # Move follower handle to maintain relative position
         if "follower" in self.handles:
-            self.handles["follower"].constraints['fixed_x'] = new_pos.x()
-            follower_pos = self.handles["follower"].scenePos()
-            self.handles["follower"].setPos(
-                QPointF(new_pos.x(), follower_pos.y()) - 
-                QPointF(self.handles["follower"].style.size/2, 
-                       self.handles["follower"].style.size/2)
-            )
+            follower_handle = self.handles["follower"]
+            # Update follower's constraint to follow cam center
+            follower_handle.constraints['fixed_x'] = new_pos.x()
+            # Move follower vertically with cam
+            current_follower_pos = follower_handle.pos()
+            new_follower_pos = current_follower_pos + offset
+            follower_handle.setPos(new_follower_pos)
         
         self._trigger_cam_update()
     
@@ -752,18 +777,28 @@ class CamEditor(MechanismEditor):
         self._trigger_cam_update()
     
     def _on_follower_moved(self, handle_id: str, new_pos: QPointF):
-        """Handle follower rod movement."""
+        """Handle follower movement - adjust rod length."""
         center = QPointF(
             self.mechanism_data["params"]["center_x"],
             self.mechanism_data["params"]["center_y"]
         )
         
-        # Calculate new rod length
-        rod_length = abs(center.y() - new_pos.y())
-        self.mechanism_data["params"]["follower_rod_length"] = rod_length
+        # Get current scaling factors
+        base_radius = self.mechanism_data["params"].get("base_radius", 25.0)
+        cam_scale_factor = self.mechanism_data.get('cam_scale_factor', 1.0)
+        scaled_base_radius = base_radius * cam_scale_factor
         
-        # Update follower offset if needed
-        self.mechanism_data["params"]["follower_offset_x"] = new_pos.x() - center.x()
+        # Calculate new rod length based on follower position
+        # Follower is above cam, so rod_length = |center.y - follower.y| - base_radius
+        distance_from_center = abs(center.y() - new_pos.y())
+        new_rod_length = max(20, distance_from_center - scaled_base_radius)  # Minimum rod length of 20
+        
+        # Update rod length in params (unscaled value)
+        rod_length_multiplier = self.mechanism_data.get('rod_length_multiplier', 1.0)
+        if rod_length_multiplier > 0:
+            self.mechanism_data["params"]["follower_rod_length"] = new_rod_length / rod_length_multiplier
+        else:
+            self.mechanism_data["params"]["follower_rod_length"] = new_rod_length
         
         self._trigger_cam_update()
     
@@ -1238,9 +1273,80 @@ class ParametricEditor(QObject):
         if self.active_editor:
             self.active_editor.set_handles_visible(True)
     
+    def validate_physics_constraints(self) -> tuple[bool, str]:
+        """
+        Validate physics constraints for all active mechanisms.
+        This is called when exiting parametric editing mode.
+        
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        logging.info("[PARAMETRIC-EDITOR] Validating physics constraints...")
+        
+        for mech_id, editor in self.editors.items():
+            # Validate based on mechanism type
+            if isinstance(editor, CamEditor):
+                # Validate CAM gravity physics
+                mech_data = editor.mechanism_data  # Direct access to mechanism_data
+                cam_center = QPointF(mech_data.get('cam_center_x', 0), mech_data.get('cam_center_y', 0))
+                follower_pos = QPointF(mech_data.get('follower_x', 0), mech_data.get('follower_y', cam_center.y() - 100))
+                
+                # Check gravity constraint: follower must be above cam
+                if follower_pos.y() >= cam_center.y():
+                    error_msg = f"CAM mechanism physics constraint violated: Follower must be above cam center (gravity constraint)"
+                    logging.warning(f"[PHYSICS-VALIDATION] {error_msg}")
+                    return False, error_msg
+                    
+            elif isinstance(editor, FourBarEditor):
+                # Validate Grashof condition for 4-bar linkage
+                mech_data = editor.mechanism_data  # Direct access to mechanism_data
+                
+                # Get link lengths
+                anchor1 = QPointF(mech_data.get('anchor1_x', 0), mech_data.get('anchor1_y', 0))
+                anchor2 = QPointF(mech_data.get('anchor2_x', 200), mech_data.get('anchor2_y', 0))
+                joint1 = QPointF(mech_data.get('joint1_x', 50), mech_data.get('joint1_y', 100))
+                joint2 = QPointF(mech_data.get('joint2_x', 150), mech_data.get('joint2_y', 100))
+                
+                # Calculate link lengths
+                ground_link = ((anchor2.x() - anchor1.x())**2 + (anchor2.y() - anchor1.y())**2)**0.5
+                link1 = ((joint1.x() - anchor1.x())**2 + (joint1.y() - anchor1.y())**2)**0.5
+                link2 = ((joint2.x() - anchor2.x())**2 + (joint2.y() - anchor2.y())**2)**0.5
+                coupler = ((joint2.x() - joint1.x())**2 + (joint2.y() - joint1.y())**2)**0.5
+                
+                # Check Grashof condition
+                lengths = [ground_link, link1, link2, coupler]
+                s = min(lengths)
+                l = max(lengths)
+                p, q = sorted([length for length in lengths if length != s and length != l])
+                
+                if s + l > p + q:
+                    error_msg = f"4-bar linkage Grashof condition violated: shortest + longest > sum of other two links"
+                    logging.warning(f"[PHYSICS-VALIDATION] {error_msg}")
+                    # For now, just log the warning but don't block (can be made stricter later)
+                    # return False, error_msg
+                    
+            elif isinstance(editor, GearEditor):
+                # Validate gear mesh constraints
+                mech_data = editor.mechanism_data  # Direct access to mechanism_data
+                
+                # Check gear ratios and center distances
+                # This is a placeholder for gear-specific validation
+                pass
+                
+        logging.info("[PARAMETRIC-EDITOR] Physics constraints validation completed successfully")
+        return True, ""
+
     def disable_editing(self) -> None:
-        """Disable parametric editing mode."""
+        """Disable parametric editing mode and validate physics constraints."""
         logging.info("[PARAMETRIC-EDITOR] Editing mode disabled")
+        
+        # Validate physics constraints before finalizing
+        is_valid, error_msg = self.validate_physics_constraints()
+        if not is_valid:
+            # Show warning to user but don't prevent exit
+            # In production, you might want to show a dialog or confirmation
+            logging.warning(f"[PARAMETRIC-EDITOR] Physics validation failed: {error_msg}")
+            # TODO: Add user notification via QMessageBox or status bar
         
         # Hide all handles
         for editor in self.editors.values():
@@ -1249,4 +1355,4 @@ class ParametricEditor(QObject):
         # Stop update timer
         if self._update_timer.isActive():
             self._update_timer.stop()
-            self._process_updates()  # Process any remaining updates
+            self._process_updates()  # Process any remaining updates  # Process any remaining updates

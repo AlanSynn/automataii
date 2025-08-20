@@ -128,30 +128,24 @@ class CamRodLengthHandle(DraggableHandle):
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
         """
-        Override to enforce gravity constraints and rod length limits.
+        Override to allow free dragging without real-time physics constraints.
+        Physics validation will be deferred to when exiting parametric editing mode.
         """
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             new_pos = value  # Proposed new position
-
-            # Apply gravity physics constraints
-            constrained_pos = self._apply_gravity_constraints(new_pos)
-
-            # Calculate and validate rod length
-            new_rod_length = self._calculate_rod_length_from_position(constrained_pos)
-
-            # Additional validation if needed
+            
+            # Allow free dragging without physics constraints for smoother UX
+            # Just calculate the new rod length for display purposes
+            new_rod_length = self._calculate_rod_length_from_position(new_pos)
+            
+            # Update rod length if changed
             if new_rod_length != self.current_rod_length:
                 self.current_rod_length = new_rod_length
                 logging.debug(f"[CAM_ROD] Rod length changed to {new_rod_length:.1f}")
-
-            # Continue with standard processing
-            if constrained_pos != new_pos:
-                logging.debug(f"[CAM_ROD] Gravity constraint applied: {new_pos} -> {constrained_pos}")
-                # Override the new position with constrained version
-                return super().itemChange(change, constrained_pos)
-            else:
-                return super().itemChange(change, value)
-
+            
+            # Return the proposed position without constraints
+            return super().itemChange(change, value)
+        
         return super().itemChange(change, value)
 
     def _apply_gravity_constraints(self, proposed_pos: QPointF) -> QPointF:

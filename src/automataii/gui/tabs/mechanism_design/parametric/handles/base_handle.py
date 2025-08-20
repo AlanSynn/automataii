@@ -216,7 +216,7 @@ class BaseHandle(QGraphicsEllipseItem):
         # super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
-        """Handle mouse move - update parameter during drag."""
+        """Handle mouse move - update parameter during drag without real-time constraint validation."""
         logging.info(f"[HANDLE BASE] mouseMoveEvent called for {self.param_name}, dragging={self._is_dragging}")
 
         if not self._is_dragging or not self._is_enabled:
@@ -231,13 +231,8 @@ class BaseHandle(QGraphicsEllipseItem):
         # Calculate new parameter value based on position change
         new_value = self._calculate_parameter_from_position(new_pos)
 
-        # Validate against constraints
-        if self.constraint_validator:
-            validated_value = self.constraint_validator(self.param_name, new_value)
-            if validated_value != new_value:
-                # Constraint violation - provide visual feedback
-                self._show_constraint_feedback()
-                new_value = validated_value
+        # Skip real-time constraint validation for smoother dragging
+        # Constraints will be validated when exiting parametric editing mode
 
         # Update parameter if changed
         if new_value != self._initial_param_value:

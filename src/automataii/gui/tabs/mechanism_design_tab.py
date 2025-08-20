@@ -6754,58 +6754,66 @@ class MechanismDesignTab(QWidget):
         except Exception as e:
             logging.error(f"Failed to refresh visuals for {mechanism_id}: {e}")
 
-    @pyqtSlot(str, str, str)
-    def _update_mechanism_visuals_realtime(self, mechanism_id: str, layer_data: dict[str, Any]):
+    def _update_mechanism_visuals_realtime(self, mechanism_id: str, params_changed: dict[str, Any]):
         """
-        Update mechanism visuals in real-time during parametric manipulation.
-
+        Update mechanism visuals in real-time during parametric editing.
+        CRITICAL: This needs to be extremely fast for smooth interaction.
+        
         Args:
-            mechanism_id: Mechanism ID
-            layer_data: Updated mechanism data
+            mechanism_id: ID of mechanism being updated
+            params_changed: Changed parameters
         """
         try:
-            # CRITICAL: Pause animation during parametric manipulation to prevent conflicts
-            animation_was_running = self._is_animation_running()
+            layer_data = self.mechanism_layers.get(mechanism_id)
+            if not layer_data:
+                return
+            
+            logging.debug(f"[PARAMETRIC] Updating visuals for {mechanism_id} with changes: {params_changed}")
+            
+            # Critical: Stop animation during update to prevent conflicts
+            animation_was_running = self.animation_timer.isActive()
             if animation_was_running:
                 self._on_stop_animation()
-                logging.debug(f"[PARAMETRIC] Paused animation during visual update for {mechanism_id}")
-
-            # Store original visual properties before removing items
-            original_visual_properties = {}
-            existing_items = layer_data.get("visual_items", [])
-
-            for i, item in enumerate(existing_items):
-                if item and hasattr(item, 'pen'):
+                
+            # Extract the previous visual properties to restore later (for consistency)
+            visual_items = layer_data.get("visual_items", [])
+            original_visual_properties = []
+            for item in visual_items:
+                if item and not sip.isdeleted(item):
                     try:
-                        original_visual_properties[i] = {
+                        props = {
                             'pen': item.pen() if hasattr(item, 'pen') else None,
                             'brush': item.brush() if hasattr(item, 'brush') else None,
                             'z_value': item.zValue(),
                             'visible': item.isVisible(),
                             'enabled': item.isEnabled()
                         }
+                        original_visual_properties.append(props)
                     except RuntimeError:
-                        # Item already deleted
-                        continue
-
-            # Remove old visual items safely
-            for item in existing_items:
-                try:
-                    if item and hasattr(item, 'scene') and item.scene():
-                        self.mechanism_scene.removeItem(item)
-                except RuntimeError:
-                    # Item was already deleted by Qt - ignore
-                    logging.debug("Visual item already deleted by Qt, skipping removal")
-                    pass
-
+                        # Item was deleted
+                        original_visual_properties.append({})
+                        
+            # Remove old visual items from scene
+            for item in visual_items:
+                if item and not sip.isdeleted(item):
+                    try:
+                        if item.scene() == self.mechanism_scene:
+                            self.mechanism_scene.removeItem(item)
+                    except RuntimeError:
+                        # Item was already deleted
+                        pass
+                        
+            # Update parameters in layer data
+            params = layer_data.get("params", {})
+            params.update(params_changed)
+            layer_data["params"] = params
+            
             # Recreate visual items with updated parameters
             mechanism_type = layer_data.get("type")
             new_items = []
-
+            
             if mechanism_type == "4_bar_linkage":
                 new_items = self._create_4bar_linkage_visuals(layer_data)
-            elif mechanism_type == "5_bar_linkage":
-                new_items = self._create_5bar_linkage_visuals(layer_data)
             elif mechanism_type == "6_bar_linkage":
                 new_items = self._create_6bar_linkage_visuals(layer_data)
             elif mechanism_type == "cam":
@@ -6816,7 +6824,7 @@ class MechanismDesignTab(QWidget):
                 new_items = self._create_planetary_gear_visuals(layer_data)
             else:
                 logging.warning(f"[PARAMETRIC] Unknown mechanism type for realtime update: {mechanism_type}")
-
+                
             # CRITICAL: Apply original visual properties to new items if available
             for i, item in enumerate(new_items):
                 if i < len(original_visual_properties) and item:
@@ -6832,23 +6840,24 @@ class MechanismDesignTab(QWidget):
                     except (RuntimeError, KeyError):
                         # Item properties couldn't be restored - continue
                         continue
-
+                        
             # Store updated visual items
             layer_data["visual_items"] = new_items
             logging.debug(f"[PARAMETRIC] Recreated {len(new_items)} visual items for {mechanism_type}")
-
-            # Update handle positions to match new mechanism positions
-            if mechanism_id in self.parametric_handles and self.parametric_mode_enabled:
+            
+            # Skip handle position update if parametric_handles doesn't exist
+            # This is for the new parametric system which uses ParametricEditor
+            if hasattr(self, 'parametric_handles') and mechanism_id in self.parametric_handles and self.parametric_mode_enabled:
                 self._update_handle_positions_for_mechanism(mechanism_id, layer_data)
-
+                
             # Update display
             self.mechanism_view.update()
-
+            
             # Resume animation if it was running (but only if parametric mode allows it)
             if animation_was_running and not self.parametric_mode_enabled:
                 self._on_start_animation()
                 logging.debug(f"[PARAMETRIC] Resumed animation after visual update for {mechanism_id}")
-
+                
         except Exception as e:
             logging.error(f"Failed to update visuals realtime for {mechanism_id}: {e}")
 
