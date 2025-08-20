@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
+from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QDialog,
     QGraphicsEllipseItem,
@@ -34,6 +35,20 @@ from automataii.config.z_indices import (
     Z_SKELETON_OVERLAY,
 )
 from automataii.utils.paths import get_project_root, resolve_path
+
+# New Visualization System
+try:
+    from automataii.gui.mechanisms.visualization import (
+        VisualizationAdapter,
+        VisualizationConfig,
+        VisualizerFactory
+    )
+    from automataii.gui.mechanisms.visualization.adapter import VisualizationAdapter
+    VISUALIZATION_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"New visualization system not available: {e}")
+    VISUALIZATION_AVAILABLE = False
+    VisualizationAdapter = None
 
 # Parametric Design System (ULTRATHINK Architecture)
 try:
@@ -165,6 +180,14 @@ class MechanismDesignTab(QWidget):
             logging.info("Parametric design features disabled (module not available)")
         self.mechanism_trace_items: dict[str, QGraphicsPathItem] = {}  # Visual path items
         self.mechanism_trace_points: dict[str, list[QPointF]] = {}  # Store trace points
+        
+        # Initialize new visualization system if available
+        self.visualization_adapter: VisualizationAdapter | None = None
+        if VISUALIZATION_AVAILABLE:
+            self.visualization_adapter = VisualizationAdapter(self.mechanism_scene)
+            logging.info("New visualization system initialized")
+        else:
+            logging.info("Using legacy visualization system")
 
         # UI Elements
         self.blueprint_btn: QPushButton | None = None
@@ -3243,6 +3266,54 @@ class MechanismDesignTab(QWidget):
             if layer_data.get("part_name") == part_name:
                 return True
         return False
+
+    def _create_mechanism_visuals_unified(self, mechanism_id: str, mechanism_data: dict) -> list[QGraphicsItem]:
+        """
+        Unified method to create mechanism visuals using new system when available.
+        
+        Args:
+            mechanism_id: Unique mechanism identifier
+            mechanism_data: Mechanism configuration and state
+            
+        Returns:
+            List of visual items
+        """
+        # Use new visualization system if available
+        if self.visualization_adapter and VISUALIZATION_AVAILABLE:
+            try:
+                # Set transform function if needed
+                transform_func = self._get_scene_transform_function(mechanism_data)
+                if transform_func:
+                    mechanism_data["transform_function"] = transform_func
+                
+                visual_items = self.visualization_adapter.create_mechanism_visuals(
+                    mechanism_id, mechanism_data
+                )
+                
+                if visual_items:
+                    logging.debug(f"Created {len(visual_items)} visuals using new system for {mechanism_id}")
+                    return visual_items
+                    
+            except Exception as e:
+                logging.warning(f"New visualization system failed, falling back to legacy: {e}")
+        
+        # Fallback to legacy system
+        mechanism_type = mechanism_data.get("type")
+        if mechanism_type == "4_bar_linkage":
+            return self._create_4bar_linkage_visuals(mechanism_data)
+        elif mechanism_type == "5_bar_linkage":
+            return self._create_5bar_linkage_visuals(mechanism_data)
+        elif mechanism_type == "6_bar_linkage":
+            return self._create_6bar_linkage_visuals(mechanism_data)
+        elif mechanism_type == "cam":
+            return self._create_cam_visuals(mechanism_data)
+        elif mechanism_type == "gear":
+            return self._create_gear_visuals(mechanism_data)
+        elif mechanism_type == "planetary_gear":
+            return self._create_planetary_gear_visuals(mechanism_data)
+        else:
+            logging.warning(f"Unknown mechanism type: {mechanism_type}")
+            return []
 
     def _create_4bar_linkage_visuals(self, mechanism_data: dict) -> list[QGraphicsItem]:
         """Create visual representation of 4-bar linkage with triangular coupler (like dataset generator)."""
@@ -6716,21 +6787,31 @@ class MechanismDesignTab(QWidget):
 
         Args:
             mechanism_id: Mechanism ID to update
-            params: Updated mechanism parameters
+            params: Updated mechanism parameters (entire mechanism_data from editor)
         """
         try:
             # Update mechanism layer data with new parameters
             if mechanism_id in self.mechanism_layers:
                 layer_data = self.mechanism_layers[mechanism_id]
                 
-                # Update parameters
+                # The params from ParametricEditor contains the full mechanism_data
+                # Update the params field specifically
                 if "params" in params:
                     layer_data["params"].update(params["params"])
+                    
+                    # For CAM, also update cam_position if center was changed
+                    if layer_data.get("type") == "cam":
+                        if "center_x" in params["params"] and "center_y" in params["params"]:
+                            layer_data["cam_position"] = [
+                                params["params"]["center_x"],
+                                params["params"]["center_y"]
+                            ]
+                            logging.debug(f"[PARAMETRIC] Updated CAM position to ({params['params']['center_x']:.1f}, {params['params']['center_y']:.1f})")
                 
                 # Regenerate mechanism simulation with new parameters
                 self._regenerate_mechanism_simulation(mechanism_id, layer_data)
                 
-                # Update visual representation
+                # Update visual representation - pass full layer_data, not just params!
                 self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
                 
                 logging.debug(f"[PARAMETRIC] Updated mechanism {mechanism_id} with new parameters")
@@ -6754,21 +6835,40 @@ class MechanismDesignTab(QWidget):
         except Exception as e:
             logging.error(f"Failed to refresh visuals for {mechanism_id}: {e}")
 
-    def _update_mechanism_visuals_realtime(self, mechanism_id: str, params_changed: dict[str, Any]):
+    def _update_mechanism_visuals_realtime(self, mechanism_id: str, mechanism_data: dict[str, Any]):
         """
         Update mechanism visuals in real-time during parametric editing.
         CRITICAL: This needs to be extremely fast for smooth interaction.
         
         Args:
             mechanism_id: ID of mechanism being updated
-            params_changed: Changed parameters
+            mechanism_data: Full mechanism data (not just params)
         """
         try:
-            layer_data = self.mechanism_layers.get(mechanism_id)
-            if not layer_data:
-                return
+            # Use new visualization system if available for updates
+            if self.visualization_adapter and VISUALIZATION_AVAILABLE:
+                try:
+                    # Set transform function if needed
+                    transform_func = self._get_scene_transform_function(mechanism_data)
+                    if transform_func:
+                        mechanism_data["transform_function"] = transform_func
+                    
+                    # Update existing visuals (much faster than recreating)
+                    self.visualization_adapter.update_mechanism_visuals(mechanism_id, mechanism_data)
+                    
+                    # Update display
+                    self.mechanism_view.update()
+                    
+                    logging.debug(f"[PARAMETRIC] Updated visuals using new system for {mechanism_id}")
+                    return
+                    
+                except Exception as e:
+                    logging.warning(f"New visualization update failed, falling back to legacy: {e}")
             
-            logging.debug(f"[PARAMETRIC] Updating visuals for {mechanism_id} with changes: {params_changed}")
+            # Legacy fallback - recreate visuals (slower)
+            layer_data = self.mechanism_layers.get(mechanism_id, mechanism_data)
+            
+            logging.debug(f"[PARAMETRIC] Updating visuals for {mechanism_id}")
             
             # Critical: Stop animation during update to prevent conflicts
             animation_was_running = self.animation_timer.isActive()
@@ -6802,11 +6902,6 @@ class MechanismDesignTab(QWidget):
                     except RuntimeError:
                         # Item was already deleted
                         pass
-                        
-            # Update parameters in layer data
-            params = layer_data.get("params", {})
-            params.update(params_changed)
-            layer_data["params"] = params
             
             # Recreate visual items with updated parameters
             mechanism_type = layer_data.get("type")
@@ -6830,13 +6925,16 @@ class MechanismDesignTab(QWidget):
                 if i < len(original_visual_properties) and item:
                     try:
                         props = original_visual_properties[i]
-                        if props['pen'] and hasattr(item, 'setPen'):
+                        if props.get('pen') and hasattr(item, 'setPen'):
                             item.setPen(props['pen'])
-                        if props['brush'] and hasattr(item, 'setBrush'):
+                        if props.get('brush') and hasattr(item, 'setBrush'):
                             item.setBrush(props['brush'])
-                        item.setZValue(props['z_value'])
-                        item.setVisible(props['visible'])
-                        item.setEnabled(props['enabled'])
+                        if props.get('z_value'):
+                            item.setZValue(props['z_value'])
+                        if props.get('visible') is not None:
+                            item.setVisible(props['visible'])
+                        if props.get('enabled') is not None:
+                            item.setEnabled(props['enabled'])
                     except (RuntimeError, KeyError):
                         # Item properties couldn't be restored - continue
                         continue

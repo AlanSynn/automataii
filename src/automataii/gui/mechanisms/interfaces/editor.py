@@ -14,7 +14,7 @@ Defines the contract for interactive editing capabilities.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
@@ -29,8 +29,8 @@ class HandleConfig:
     param_name: str
     tooltip: str
     size: float = 12.0
-    color: QColor = QColor(255, 100, 0)
-    hover_color: QColor = QColor(255, 150, 50)
+    color: QColor = field(default_factory=lambda: QColor(255, 100, 0))
+    hover_color: QColor = field(default_factory=lambda: QColor(255, 150, 50))
     constraints: Optional[Dict[str, Any]] = None
     callback: Optional[Callable] = None
     

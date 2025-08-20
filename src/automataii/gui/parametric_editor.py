@@ -334,11 +334,17 @@ class FourBarEditor(MechanismEditor):
     
     def _get_handle_constraints(self, handle_id: str) -> dict:
         """Get movement constraints for handle."""
+        # Remove all constraints for anchors to allow free movement
+        if handle_id in ["anchor1", "anchor2"]:
+            # No constraints - allow completely free movement
+            return {}
+            
+        # For other handles, apply reasonable constraints
         constraints = {
-            'min_x': -1000,
-            'max_x': 1000,
-            'min_y': -1000,
-            'max_y': 1000
+            'min_x': -2000,
+            'max_x': 2000,
+            'min_y': -2000,
+            'max_y': 2000
         }
         
         # Add specific constraints based on handle type
@@ -390,17 +396,27 @@ class FourBarEditor(MechanismEditor):
         return QPointF(params.get("coupler_point_x", 350), params.get("coupler_point_y", 250))
     
     def _on_anchor1_moved(self, handle_id: str, new_pos: QPointF):
-        """Handle anchor1 movement."""
+        """Handle anchor1 movement - allow free dragging."""
+        # Direct update without transformation - the position is already in scene coordinates
         self.mechanism_data["params"]["anchor1_x"] = new_pos.x()
         self.mechanism_data["params"]["anchor1_y"] = new_pos.y()
+        
+        # Update dependent handles to maintain linkage structure
         self._update_dependent_handles("anchor1", new_pos)
+        
+        # Trigger visual update
         self._trigger_mechanism_update()
     
     def _on_anchor2_moved(self, handle_id: str, new_pos: QPointF):
-        """Handle anchor2 movement."""
+        """Handle anchor2 movement - allow free dragging."""
+        # Direct update without transformation - the position is already in scene coordinates
         self.mechanism_data["params"]["anchor2_x"] = new_pos.x()
         self.mechanism_data["params"]["anchor2_y"] = new_pos.y()
+        
+        # Update dependent handles to maintain linkage structure
         self._update_dependent_handles("anchor2", new_pos)
+        
+        # Trigger visual update
         self._trigger_mechanism_update()
     
     def _on_crank_moved(self, handle_id: str, new_pos: QPointF):
@@ -496,24 +512,27 @@ class FourBarEditor(MechanismEditor):
             self._updating = False
     
     def _trigger_mechanism_update(self):
-        """Trigger mechanism simulation update."""
+        """Trigger mechanism simulation update without transformation."""
         if self._updating:
             return
         
-        # This would call back to the main mechanism system
-        # to update the simulation with new parameters
+        # Direct parameter pass-through without transformation
+        # The positions are already in scene coordinates
         param_changes = {
-            "anchor1": (self.mechanism_data["params"]["anchor1_x"], 
-                       self.mechanism_data["params"]["anchor1_y"]),
-            "anchor2": (self.mechanism_data["params"]["anchor2_x"],
-                       self.mechanism_data["params"]["anchor2_y"]),
-            "l2": self.mechanism_data["params"]["l2"],
+            "anchor1_x": self.mechanism_data["params"]["anchor1_x"],
+            "anchor1_y": self.mechanism_data["params"]["anchor1_y"],
+            "anchor2_x": self.mechanism_data["params"]["anchor2_x"],
+            "anchor2_y": self.mechanism_data["params"]["anchor2_y"],
+            "l2": self.mechanism_data["params"].get("l2", 60),
             "l3": self.mechanism_data["params"].get("l3", 80),
-            "l4": self.mechanism_data["params"]["l4"]
+            "l4": self.mechanism_data["params"].get("l4", 70)
         }
         
-        # Emit signal or callback to update mechanism
-        logging.info(f"[4BAR-EDITOR] Updating mechanism with: {param_changes}")
+        # Store the changes directly without transformation
+        self.mechanism_data["params"].update(param_changes)
+        
+        # Log without transformation messages
+        logging.debug(f"[4BAR-EDITOR] Updated mechanism parameters")
     
     def update_mechanism(self, param_changes: dict[str, Any]) -> dict[str, Any]:
         """Update mechanism and return new simulation data."""
@@ -726,19 +745,25 @@ class CamEditor(MechanismEditor):
         return radius
     
     def _on_center_moved(self, handle_id: str, new_pos: QPointF):
-        """Handle cam center movement."""
+        """Handle cam center movement - update all related fields."""
         old_center = QPointF(
-            self.mechanism_data["params"]["center_x"],
-            self.mechanism_data["params"]["center_y"]
+            self.mechanism_data["params"].get("center_x", 0),
+            self.mechanism_data["params"].get("center_y", 0)
         )
         
-        # Update center position
+        # Update center position in params
         self.mechanism_data["params"]["center_x"] = new_pos.x()
         self.mechanism_data["params"]["center_y"] = new_pos.y()
         
-        # Also update cam_position if it exists
-        if 'cam_position' in self.mechanism_data:
-            self.mechanism_data['cam_position'] = [new_pos.x(), new_pos.y()]
+        # CRITICAL: Also update cam_position for visual creation
+        self.mechanism_data["cam_position"] = [new_pos.x(), new_pos.y()]
+        
+        # Update key_points if it exists
+        if "key_points" not in self.mechanism_data:
+            self.mechanism_data["key_points"] = {}
+        self.mechanism_data["key_points"]["cam_center"] = [new_pos.x(), new_pos.y()]
+        
+        logging.debug(f"[CAM-EDITOR] Updated center to ({new_pos.x():.1f}, {new_pos.y():.1f})")
         
         # Calculate offset for moving other handles
         offset = new_pos - old_center
@@ -803,12 +828,10 @@ class CamEditor(MechanismEditor):
         self._trigger_cam_update()
     
     def _trigger_cam_update(self):
-        """Trigger cam mechanism update with physics."""
-        # Perform physics-based simulation
-        simulation_data = self._simulate_cam_follower_physics()
-        
-        # Update visuals
-        self.update_visuals(simulation_data)
+        """Trigger cam mechanism update - let the main system handle it."""
+        # Don't do local simulation - let the parametric system handle updates
+        # This will be called through the _queue_update callback
+        logging.debug(f"[CAM-EDITOR] Triggered update for cam mechanism")
     
     def _simulate_cam_follower_physics(self) -> dict[str, Any]:
         """Simulate cam-follower interaction with proper physics."""
