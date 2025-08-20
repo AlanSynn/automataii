@@ -396,12 +396,14 @@ class BlueprintExporter:
         elif mech_type == "cam":
             base_radius = params.get("base_radius", 0) * scale_factor
             eccentricity = params.get("eccentricity", 0) * scale_factor
+            rod_length = params.get("follower_rod_length", 0) * scale_factor
 
             dimensions_text += "Cam Dimensions (mm):\n"
             dimensions_text += f"  Base Radius: {base_radius:.1f} mm ({base_radius/mm_per_inch:.2f}\")\n"
             dimensions_text += f"  Eccentricity: {eccentricity:.1f} mm ({eccentricity/mm_per_inch:.2f}\")\n"
             dimensions_text += f"  Max Radius: {base_radius + eccentricity:.1f} mm\n"
             dimensions_text += f"  Min Radius: {base_radius - eccentricity:.1f} mm\n"
+            dimensions_text += f"  Follower Rod Length: {rod_length:.1f} mm ({rod_length/mm_per_inch:.2f}\")\n"
 
         elif mech_type == "gear":
             r1 = params.get("r1", 0) * scale_factor
@@ -587,7 +589,7 @@ class BlueprintExporter:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
             elif mech_type == "cam":
-                for param_name in ["base_radius", "eccentricity"]:
+                for param_name in ["base_radius", "eccentricity", "follower_rod_length"]:
                     if param_name in params:
                         real_world_params[f"{param_name}_mm"] = params[param_name] * scale_factor
             elif mech_type in ["gear", "planetary_gear"]:
@@ -641,19 +643,22 @@ class BlueprintExporter:
         elif mech_type == "cam":
             base_radius = params.get("base_radius", 0) * scale_factor
             eccentricity = params.get("eccentricity", 0) * scale_factor
+            rod_length = params.get("follower_rod_length", 0) * scale_factor
             instructions += "Materials Needed:\n"
             instructions += "- Cam material (wood, acrylic, or metal)\n"
-            instructions += "- Follower rod\n"
+            instructions += f"- Follower rod: {rod_length:.1f} mm ({rod_length/mm_per_inch:.2f}\")\n"
             instructions += "- Linear bearing or guide\n"
             instructions += "- Rotation shaft and bearing\n\n"
             instructions += "Cam Profile Creation:\n"
             instructions += "1. Draw egg-shaped profile:\n"
-            instructions += f"   - Maximum radius: {base_radius + eccentricity:.1f} mm\n"
-            instructions += f"   - Minimum radius: {base_radius - eccentricity:.1f} mm\n"
+            instructions += f"   - Maximum radius: {base_radius + eccentricity:.1f} mm ({(base_radius + eccentricity)/mm_per_inch:.2f}\")\n"
+            instructions += f"   - Minimum radius: {base_radius - eccentricity:.1f} mm ({(base_radius - eccentricity)/mm_per_inch:.2f}\")\n"
+            instructions += f"   - Base radius: {base_radius:.1f} mm ({base_radius/mm_per_inch:.2f}\")\n"
+            instructions += f"   - Eccentricity: {eccentricity:.1f} mm ({eccentricity/mm_per_inch:.2f}\")\n"
             instructions += "2. Mark center hole for shaft\n"
             instructions += "3. Cut cam profile carefully\n"
             instructions += "4. Smooth edges for proper follower contact\n"
-            instructions += "5. Install follower guide above cam\n"
+            instructions += f"5. Install follower guide {rod_length:.1f} mm above cam center\n"
         elif mech_type == "gear":
             r1 = params.get("r1", 0) * scale_factor
             r2 = params.get("r2", 0) * scale_factor

@@ -25,6 +25,29 @@ class BlueprintPage:
     height_mm: float
     content_type: str  # 'parts', 'mechanisms', 'assembly', 'specifications'
 
+
+class MultiPageSVGGenerator:
+    """Generates multi-page blueprint documentation in SVG format"""
+    
+    def _generate_page_svg(self, page: BlueprintPage) -> str:
+        """Generate SVG content for a single blueprint page"""
+        
+        # Generate title block
+        title_block = f'''
+        <g id="title-block">
+            <rect x="10" y="10" width="{page.width_mm - 20}" height="40" 
+                  fill="#f0f0f0" stroke="black" stroke-width="1"/>
+            <text x="{page.width_mm / 2}" y="35" class="section-title" 
+                  font-size="16" text-anchor="middle">
+                {html.escape(page.title)}
+            </text>
+        </g>
+        '''
+        
+        # Generate content area
+        content_svg = '<g id="page-content" transform="translate(0,60)">'
+        
+        for item in page.items:
             # Remove any XML declaration from embedded content
             clean_content = item.svg_content
             if clean_content.startswith('<?xml'):

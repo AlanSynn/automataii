@@ -13,9 +13,10 @@ from automataii.generation.cam import CamGenerator
 from automataii.generation.gear import GearGenerator
 from automataii.generation.linkage import LinkageGenerator
 from automataii.generation.mechanism_debug import MechanismDebugRenderer
-from automataii.generation.multi_page_blueprint import (
-    MultiPageSVGGenerator,
-)
+# Multi-page blueprint generation (future feature)
+# from automataii.generation.multi_page_blueprint import (
+#     MultiPageSVGGenerator,
+# )
 
 
 class BlueprintExportManager(QObject):

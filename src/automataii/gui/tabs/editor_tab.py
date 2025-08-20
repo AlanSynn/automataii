@@ -531,6 +531,12 @@ class EditorTab(QWidget):
         self.zoom_fit_btn.setStyleSheet(zoom_button_style)
         zoom_controls_layout.addWidget(self.zoom_fit_btn)
 
+        # Center on Character button
+        self.center_character_btn = QPushButton("⎈")
+        self.center_character_btn.setToolTip("Center on Character")
+        self.center_character_btn.setStyleSheet(zoom_button_style)
+        zoom_controls_layout.addWidget(self.center_character_btn)
+
         # Removed 1:1 zoom reset button as requested (Issue #4)
 
         view_controls_layout.addLayout(zoom_controls_layout)
@@ -563,6 +569,7 @@ class EditorTab(QWidget):
         self.zoom_in_btn.clicked.connect(lambda: self.editor_view.zoom(1))
         self.zoom_out_btn.clicked.connect(lambda: self.editor_view.zoom(-1))
         self.zoom_fit_btn.clicked.connect(self.editor_view.zoom_to_fit)
+        self.center_character_btn.clicked.connect(self.center_on_character)
         # Removed zoom_reset_btn connection (1:1 button removed)
 
     def _handle_part_selection_change(
@@ -1934,6 +1941,31 @@ class EditorTab(QWidget):
                 if hasattr(item, 'motion_path') and item.motion_path and not item.motion_path.isEmpty():
                     return True
         return False
+    
+    def center_on_character(self):
+        """Center the view on the character (all parts)."""
+        if not self.editor_scene or not self.current_editor_items:
+            return
+        
+        # Calculate bounding box of all parts
+        combined_rect = None
+        for part_info in self.current_editor_items.values():
+            part_item = part_info.get("graphics_item")
+            if part_item and part_item.scene():
+                part_rect = part_item.sceneBoundingRect()
+                if combined_rect is None:
+                    combined_rect = part_rect
+                else:
+                    combined_rect = combined_rect.united(part_rect)
+        
+        if combined_rect:
+            # Add some padding
+            padding = 50
+            combined_rect.adjust(-padding, -padding, padding, padding)
+            
+            # Center on the character without changing zoom
+            center = combined_rect.center()
+            self.editor_view.centerOn(center)
 
     def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
         """Handle joint bend direction change from EditorView."""
