@@ -1,0 +1,102 @@
+name: macOS Arch Builds
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build-x86_64:
+    name: Build macOS x86_64 (Intel)
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Import signing certificate
+        if: ${{ secrets.MACOS_CERT_P12 && secrets.MACOS_CERT_PASSWORD && secrets.KEYCHAIN_PASSWORD && secrets.MACOS_SIGN_IDENTITY }}
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -A
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Build x86_64 DMG (signed + notarized if secrets present)
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          SIGN_ARG=""
+          NOTARIZE_ARG=""
+          if [[ -n "$MACOS_SIGN_IDENTITY" ]]; then SIGN_ARG="--sign \"$MACOS_SIGN_IDENTITY\""; fi
+          if [[ -n "$APPLE_ID" && -n "$APPLE_TEAM_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then NOTARIZE_ARG="--notarize"; fi
+          eval uv run python scripts/build_macos.py --arch x86_64 $SIGN_ARG $NOTARIZE_ARG
+
+      - name: Upload artifact (x86_64 DMG)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Automataii-macos-x86_64.dmg
+          path: dist/Automataii-macos-x86_64.dmg
+          if-no-files-found: error
+
+  build-arm64:
+    name: Build macOS arm64 (Apple Silicon)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Import signing certificate
+        if: ${{ secrets.MACOS_CERT_P12 && secrets.MACOS_CERT_PASSWORD && secrets.KEYCHAIN_PASSWORD && secrets.MACOS_SIGN_IDENTITY }}
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -A
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Build arm64 DMG (signed + notarized if secrets present)
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          SIGN_ARG=""
+          NOTARIZE_ARG=""
+          if [[ -n "$MACOS_SIGN_IDENTITY" ]]; then SIGN_ARG="--sign \"$MACOS_SIGN_IDENTITY\""; fi
+          if [[ -n "$APPLE_ID" && -n "$APPLE_TEAM_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then NOTARIZE_ARG="--notarize"; fi
+          eval uv run python scripts/build_macos.py --arch arm64 $SIGN_ARG $NOTARIZE_ARG
+
+      - name: Upload artifact (arm64 DMG)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Automataii-macos-arm64.dmg
+          path: dist/Automataii-macos-arm64.dmg
+          if-no-files-found: error
