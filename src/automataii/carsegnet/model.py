@@ -126,98 +126,11 @@ class CharSegNet(nn.Module):
         # Random initialization happens by default when creating nn.Module layers
         return encoder
 
-    def _preprocess(self, x: torch.Tensor) -> torch.Tensor:
-        """Normalize pixel values and pad to a square input."""
-        # Normalize colors
-        x = (x - self.pixel_mean.to(x.device)) / self.pixel_std.to(x.device)
+    
 
-        # Pad
-        h, w = x.shape[-2:]
-        padh = self.input_size - h
-        padw = self.input_size - w
-        x = F.pad(x, (0, padw, 0, padh))
-        return x
+    
 
-    def _get_face_crops_and_masks(
-        self, image: torch.Tensor, stage2_logits: torch.Tensor, face_class_index: int
-    ) -> tuple[
-        list[torch.Tensor | None],
-        list[torch.Tensor | None],
-        list[list[int] | None],
-    ]:
-        """Get face crops, masks, and bounding boxes based on Stage 2 output.
-
-        Returns:
-            Tuple containing lists (one element per batch item):
-            - List of cropped face images (or None if no face detected).
-            - List of binary face masks within the crop (or None).
-            - List of bounding boxes [x1, y1, x2, y2] (or None).
-        """
-        batch_size = image.shape[0]
-        face_crops = [None] * batch_size
-        face_masks = [None] * batch_size
-        face_bboxes = [None] * batch_size
-
-        # Get probabilities for the face class
-        face_probs = torch.softmax(stage2_logits, dim=1)[:, face_class_index, :, :]
-        # Thresholding or finding the largest connected component might be needed
-        # Simple thresholding for now:
-        face_binary_mask_full = face_probs > 0.5  # (B, H, W)
-
-        if not face_binary_mask_full.any():
-            logger.warning("No face region found based on Stage 2 output.")
-            return face_crops, face_masks, face_bboxes
-
-        # Get bounding boxes for each item in the batch
-        # masks_to_boxes expects boolean masks (B, H, W)
-        try:
-            boxes = masks_to_boxes(face_binary_mask_full)
-        except Exception as e:
-            logger.error(f"Error getting bounding boxes from masks: {e}")
-            # Handle cases where masks might be empty after slicing/processing
-            return face_crops, face_masks, face_bboxes
-
-        for i in range(batch_size):
-            if not face_binary_mask_full[i].any():
-                continue  # No face found in this batch item
-
-            box = boxes[i].round().int()
-            x1, y1, x2, y2 = box.tolist()
-
-            # Ensure box coordinates are within image bounds and valid
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(image.shape[3], x2), min(image.shape[2], y2)
-            if x1 >= x2 or y1 >= y2:
-                logger.warning(
-                    f"Invalid bounding box for batch {i}: {[x1, y1, x2, y2]}"
-                )
-                continue
-
-            # Crop the original image and the binary face mask
-            crop = image[i : i + 1, :, y1:y2, x1:x2]
-            mask_crop = (
-                face_binary_mask_full[i : i + 1, y1:y2, x1:x2].unsqueeze(1).float()
-            )  # (1, 1, H_crop, W_crop)
-
-            face_crops[i] = crop
-            face_masks[i] = mask_crop
-            face_bboxes[i] = [x1, y1, x2, y2]
-
-        return face_crops, face_masks, face_bboxes
-
-    def _upsample_logits(
-        self, logits: torch.Tensor, target_size: tuple[int, int]
-    ) -> torch.Tensor:
-        """Upsamples logits to the target spatial size."""
-        # Expects logits shape (B, C, H, W)
-        if logits.shape[-2:] == target_size:
-            return logits
-        return F.interpolate(
-            logits,
-            size=target_size,
-            mode="bilinear",
-            align_corners=False,
-        )
+    
 
 
 

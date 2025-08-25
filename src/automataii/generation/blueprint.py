@@ -229,67 +229,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
 
     return ''.join(svg_parts)
 
-def generate_multi_page_blueprint(layout_items,
-                                  title="Manufacturing Blueprint",
-                                  scale_info="",
-                                  snapshot_data_uri: str | None = None,
-                                  unit_system: str = "metric"):
-    """
-    Generate multi-page blueprint with each part on a separate letter-size page.
-    
-    Args:
-        layout_items: List of LayoutItem objects
-        title: Blueprint title
-        scale_info: Scale information text
-        snapshot_data_uri: Optional snapshot image
-        unit_system: "metric" for mm, "imperial" for inches
-        
-    Returns:
-        List of SVG strings, one per page
-    """
-    logger = logging.getLogger(__name__)
 
-    # Letter size in mm: 8.5" x 11" = 215.9mm x 279.4mm
-    page_width_mm = 215.9
-    page_height_mm = 279.4
-    margin_mm = 20.0
-    content_width = page_width_mm - (2 * margin_mm)
-    content_height = page_height_mm - (2 * margin_mm)
-
-    # Separate parts and mechanisms
-    part_items = [item for item in layout_items if item.item_type == 'part']
-    mechanism_items = [item for item in layout_items if item.item_type == 'mechanism']
-
-    logger.info(f"[MULTIPAGE] Generating {len(part_items)} part pages + {len(mechanism_items)} mechanism pages")
-
-    pages = []
-    page_num = 1
-
-    # Generate one page per part
-    for item in part_items:
-        page_svg = _generate_single_part_page(
-            item, page_num, len(part_items) + len(mechanism_items),
-            page_width_mm, page_height_mm, margin_mm,
-            title, scale_info, snapshot_data_uri if page_num == 1 else None,
-            unit_system
-        )
-        pages.append(page_svg)
-        page_num += 1
-        logger.info(f"[MULTIPAGE] Generated page {page_num-1} for part: {item.name}")
-
-    # Generate one page per mechanism
-    for item in mechanism_items:
-        page_svg = _generate_single_mechanism_page(
-            item, page_num, len(part_items) + len(mechanism_items),
-            page_width_mm, page_height_mm, margin_mm,
-            title, scale_info, None, unit_system
-        )
-        pages.append(page_svg)
-        page_num += 1
-        logger.info(f"[MULTIPAGE] Generated page {page_num-1} for mechanism: {item.name}")
-
-    logger.info(f"[MULTIPAGE] Complete: {len(pages)} pages generated")
-    return pages
 
 
 def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_height_mm, margin_mm, title, scale_info, snapshot_data_uri, unit_system="metric"):
@@ -620,38 +560,7 @@ def generate_detailed_part_content(part_items: list, padding: float = 20.0) -> s
 
 
 
-def _generate_fallback_blueprint_svg(part_items: list, padding: float = 20.0) -> str:
-    """Generate fallback blueprint when PNG extraction fails completely"""
 
-    total_width = 600
-    total_height = 400
-
-    fallback_svg = f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="{total_width:.2f}" height="{total_height:.2f}" xmlns="http://www.w3.org/2000/svg" version="1.1">
-  <defs>
-    <style>
-      .error-text {{ font-family: Arial, sans-serif; font-size: 12px; fill: red; }}
-      .info-text {{ font-family: Arial, sans-serif; font-size: 10px; fill: #333; }}
-    </style>
-  </defs>
-
-  <!-- Error Message -->
-  <rect x="5" y="5" width="{total_width-10}" height="{total_height-10}" fill="none" stroke="red" stroke-width="2"/>
-  <text x="{total_width/2:.2f}" y="50" class="error-text" text-anchor="middle">
-    Blueprint Generation Error
-  </text>
-  <text x="{total_width/2:.2f}" y="80" class="info-text" text-anchor="middle">
-    PNG contour extraction failed for all parts
-  </text>
-  <text x="{total_width/2:.2f}" y="100" class="info-text" text-anchor="middle">
-    Ensure part items have valid image_path attributes pointing to PNG files
-  </text>
-  <text x="{total_width/2:.2f}" y="140" class="info-text" text-anchor="middle">
-    Parts found: {len(part_items)}
-  </text>
-</svg>'''
-
-    return fallback_svg
 
 
 

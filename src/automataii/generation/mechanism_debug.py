@@ -55,28 +55,7 @@ class MechanismDebugRenderer:
         self.logger = logging.getLogger(__name__)
         self.debug_reports: list[DebugInfo] = []
 
-    def debug_mechanism_transforms(self, mechanism_data: dict[str, Any]) -> list[DebugInfo]:
-        """
-        Validate mechanism data completeness and debug transform issues
-        
-        Args:
-            mechanism_data: Dictionary of mechanism_id -> mechanism_info
-            
-        Returns:
-            List of debug reports for each mechanism
-        """
-        debug_reports = []
-
-        if not mechanism_data:
-            self.logger.warning("No mechanism data provided for debugging")
-            return debug_reports
-
-        for mech_id, data in mechanism_data.items():
-            debug_info = self._debug_single_mechanism(mech_id, data)
-            debug_reports.append(debug_info)
-
-        self.debug_reports = debug_reports
-        return debug_reports
+    
 
     def _debug_single_mechanism(self, mech_id: str, data: dict[str, Any]) -> DebugInfo:
         """Debug a single mechanism"""
@@ -283,115 +262,8 @@ class MechanismDebugRenderer:
             self.logger.error(f"Error estimating bounds from paths: {e}")
             return None
 
-    def render_mechanism_bounds(self, svg_content: str, debug_info: DebugInfo) -> str:
-        """
-        Render debug visualization with mechanism bounds
-        
-        Args:
-            svg_content: Original mechanism SVG
-            debug_info: Debug information for the mechanism
-            
-        Returns:
-            Enhanced SVG with debug visualization
-        """
-        if not svg_content or not debug_info.bounding_box:
-            return svg_content
+    
 
-        bbox = debug_info.bounding_box
+    
 
-        # Add debug overlay
-        debug_overlay = f'''
-    <!-- Debug Overlay for {debug_info.mechanism_id} -->
-    <g class="debug-overlay" opacity="0.7">
-        <!-- Bounding box -->
-        <rect x="{bbox.x}" y="{bbox.y}" width="{bbox.width}" height="{bbox.height}" 
-              fill="none" stroke="red" stroke-width="1" stroke-dasharray="3,3"/>
-        
-        <!-- Center point -->
-        <circle cx="{bbox.x + bbox.width/2}" cy="{bbox.y + bbox.height/2}" 
-                r="3" fill="red" opacity="0.8"/>
-        
-        <!-- Debug info text -->
-        <text x="{bbox.x}" y="{bbox.y - 5}" font-family="Arial" font-size="8" fill="red">
-            {debug_info.mechanism_id} ({debug_info.mechanism_type})
-        </text>
-        <text x="{bbox.x}" y="{bbox.y + bbox.height + 15}" font-family="Arial" font-size="6" fill="blue">
-            {bbox.width:.1f}x{bbox.height:.1f} | Errors: {len(debug_info.errors)}
-        </text>
-    </g>
-        '''
-
-        # Insert debug overlay before closing </svg> tag
-        if '</svg>' in svg_content:
-            svg_content = svg_content.replace('</svg>', debug_overlay + '\n</svg>')
-        else:
-            svg_content += debug_overlay
-
-        return svg_content
-
-    def generate_debug_report(self) -> str:
-        """Generate comprehensive debug report"""
-
-        if not self.debug_reports:
-            return "No debug reports available"
-
-        report_lines = [
-            "=== MECHANISM DEBUG REPORT ===",
-            f"Total mechanisms analyzed: {len(self.debug_reports)}",
-            ""
-        ]
-
-        successful_mechanisms = 0
-        total_errors = 0
-        total_warnings = 0
-
-        for debug_info in self.debug_reports:
-            report_lines.append(f"Mechanism: {debug_info.mechanism_id}")
-            report_lines.append(f"  Type: {debug_info.mechanism_type}")
-            report_lines.append(f"  SVG Generated: {debug_info.svg_generated}")
-            report_lines.append(f"  SVG Length: {debug_info.svg_length}")
-
-            if debug_info.bounding_box:
-                bbox = debug_info.bounding_box
-                report_lines.append(f"  Bounds: {bbox.width:.1f}x{bbox.height:.1f} at ({bbox.x:.1f}, {bbox.y:.1f})")
-            else:
-                report_lines.append("  Bounds: Not available")
-
-            # Data completeness
-            missing_fields = [k for k, v in debug_info.data_completeness.items() if not v]
-            if missing_fields:
-                report_lines.append(f"  Missing fields: {', '.join(missing_fields)}")
-
-            # Errors and warnings
-            if debug_info.errors:
-                report_lines.append(f"  Errors ({len(debug_info.errors)}):")
-                for error in debug_info.errors:
-                    report_lines.append(f"    - {error}")
-                total_errors += len(debug_info.errors)
-
-            if debug_info.warnings:
-                report_lines.append(f"  Warnings ({len(debug_info.warnings)}):")
-                for warning in debug_info.warnings:
-                    report_lines.append(f"    - {warning}")
-                total_warnings += len(debug_info.warnings)
-
-            if debug_info.svg_generated and not debug_info.errors:
-                successful_mechanisms += 1
-
-            report_lines.append("")
-
-        # Summary
-        report_lines.extend([
-            "=== SUMMARY ===",
-            f"Successful mechanisms: {successful_mechanisms}/{len(self.debug_reports)}",
-            f"Total errors: {total_errors}",
-            f"Total warnings: {total_warnings}",
-            ""
-        ])
-
-        return "\n".join(report_lines)
-
-    def get_problematic_mechanisms(self) -> list[DebugInfo]:
-        """Get list of mechanisms with issues"""
-        return [debug for debug in self.debug_reports
-                if debug.errors or not debug.svg_generated or not debug.bounding_box]
+    

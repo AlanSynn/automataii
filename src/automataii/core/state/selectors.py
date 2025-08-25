@@ -195,28 +195,9 @@ _global_registry: SelectorRegistry | None = None
 
 
 # Example selectors for common patterns
-@memoize(dependencies=['user'])
-def get_current_user(state: State) -> dict[str, Any] | None:
-    """Get current user from state."""
-    if hasattr(state.data, 'user'):
-        return state.data.user
-    elif isinstance(state.data, dict):
-        return state.data.get('user')
-    return None
 
 
-@memoize(dependencies=['ui', 'theme'])
-def get_theme_settings(state: State) -> dict[str, Any]:
-    """Get theme settings from state."""
-    default_theme = {'mode': 'light', 'primary_color': '#007acc'}
 
-    if hasattr(state.data, 'ui') and hasattr(state.data.ui, 'theme'):
-        return {**default_theme, **state.data.ui.theme}
-    elif isinstance(state.data, dict):
-        ui_data = state.data.get('ui', {})
-        theme_data = ui_data.get('theme', {})
-        return {**default_theme, **theme_data}
 
-    return default_theme
 
 

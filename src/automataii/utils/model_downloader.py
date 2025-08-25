@@ -142,22 +142,7 @@ class ModelDownloader:
             logger.error(f"Failed to download model: {model_name}")
             return None
 
-    def ensure_model_available(self, model_name: str) -> Path:
-        """Ensure a model is available, downloading if necessary"""
-        file_path = self.weights_dir / model_name
-
-        # If file exists and is valid, return it
-        if file_path.exists():
-            model_info = self.MODEL_URLS.get(model_name)
-            if model_info and self._verify_file(file_path, model_info["sha256"]):
-                return file_path
-
-        # Try to download
-        downloaded_path = self.download_model(model_name)
-        if downloaded_path:
-            return downloaded_path
-        else:
-            raise FileNotFoundError(f"Could not obtain model file: {model_name}")
+    
 
 
 # Convenience function for easy access

@@ -1,0 +1,248 @@
+================================================================================
+MECHANISM DESIGN TAB ANALYSIS REPORT
+================================================================================
+
+Total methods: 129
+Public methods: 27
+Private methods: 102
+
+Methods with no internal callers: 20
+Potentially external references: 39
+
+POTENTIALLY UNUSED METHODS:
+----------------------------------------
+  _add_test_path_for_debugging (line 3015)
+    Doc: Add a simple test path to verify the scene is working....
+    Private: True, Complexity: 3
+
+  _calculate_4bar_rocker_position (line 6648)
+    Doc: 
+        Calculate rocker_end position using circle intersec...
+    Private: True, Complexity: 4
+
+  _check_4bar_validity (line 5384)
+    Doc: 
+        Check 4-bar linkage kinematic constraints.
+        ...
+    Private: True, Complexity: 5
+
+  _check_gear_validity (line 5432)
+    Doc: Check gear mechanism validity based on center distances....
+    Private: True, Complexity: 2
+
+  _check_multibar_validity (line 5425)
+    Doc: Check multi-bar linkage validity based on reasonable distanc...
+    Private: True, Complexity: 2
+
+  _connect_signals (line 613)
+    Doc: Connect signals...
+    Private: True, Complexity: 7
+
+  _connect_to_ik_manager (line 685)
+    Doc: Connect to IK manager signals for skeleton animation....
+    Private: True, Complexity: 5
+
+  _create_gear_handles (line 6302)
+    Doc: Create interactive handles for simple gear pair centers usin...
+    Private: True, Complexity: 10
+
+  _create_mechanism_visuals_unified (line 3270)
+    Doc: 
+        Unified method to create mechanism visuals using ne...
+    Private: True, Complexity: 11
+
+  _export_current_mechanism_blueprint (line 6124)
+    Doc: Delegate to BlueprintExporter to export all content....
+    Private: True, Complexity: 1
+
+  _handle_recommendation_selection (line 1429)
+    Doc: Handle mechanism selection from recommendation dialog.
+     ...
+    Private: True, Complexity: 11
+
+  _initialize_parametric_system (line 4849)
+    Doc: 
+        Initialize the parametric design system for interac...
+    Private: True, Complexity: 3
+
+  _regenerate_cam_mechanism_realtime (line 5921)
+    Doc: Regenerate CAM mechanism with updated parameters in real-tim...
+    Private: True, Complexity: 3
+
+  _regenerate_cam_visuals_with_params (line 6176)
+    Doc: Regenerate cam visuals when parameters change during paramet...
+    Private: True, Complexity: 4
+
+  _remove_parametric_handles_for_mechanism (line 6386)
+    Doc: 
+        Remove all parametric handles for a specific mechan...
+    Private: True, Complexity: 1
+
+  _rotate_mechanism (line 5532)
+    Doc: 
+        Rotate all anchor points freely - no physics constr...
+    Private: True, Complexity: 9
+
+  _setup_ui (line 222)
+    Doc: Setup UI - Similar to EditorTab but with mechanism layers in...
+    Private: True, Complexity: 2
+
+  _show_current_mechanism_dimensions (line 6117)
+    Doc: Delegate to BlueprintExporter to show dimensions for a mecha...
+    Private: True, Complexity: 2
+
+  _update_animation (line 2383)
+    Doc: 
+        Update animation frame by calculating mechanism out...
+    Private: True, Complexity: 15
+
+  _validate_anchor_constraints (line 6768)
+    Doc: 
+        Validate anchor position constraints.
+
+        Args...
+    Private: True, Complexity: 1
+
+POTENTIALLY DUPLICATE METHODS:
+----------------------------------------
+  _handle_joint_bend_direction_changed <-> on_skeleton_manager_updated (similarity: 1.00)
+
+  _handle_joint_bend_direction_changed <-> _connect_to_ik_manager (similarity: 1.00)
+
+  _handle_joint_bend_direction_changed <-> _get_standardized_joint_id (similarity: 1.00)
+
+  _handle_joint_bend_direction_changed <-> _on_stop_animation (similarity: 1.00)
+
+  _handle_joint_bend_direction_changed <-> _clear_mechanism_trace (similarity: 1.00)
+
+  _handle_joint_bend_direction_changed <-> _enable_animation_controls_after_parametric (similarity: 1.00)
+
+  _handle_joint_bend_direction_changed <-> _disable_mechanism_visual_interaction (similarity: 1.00)
+
+  _handle_joint_bend_direction_changed <-> center_on_character (similarity: 1.00)
+
+  on_skeleton_manager_updated <-> _connect_to_ik_manager (similarity: 1.00)
+
+  on_skeleton_manager_updated <-> _get_standardized_joint_id (similarity: 1.00)
+
+  on_skeleton_manager_updated <-> _on_stop_animation (similarity: 1.00)
+
+  on_skeleton_manager_updated <-> _clear_mechanism_trace (similarity: 1.00)
+
+  on_skeleton_manager_updated <-> _enable_animation_controls_after_parametric (similarity: 1.00)
+
+  on_skeleton_manager_updated <-> _disable_mechanism_visual_interaction (similarity: 1.00)
+
+  on_skeleton_manager_updated <-> center_on_character (similarity: 1.00)
+
+  _connect_to_ik_manager <-> _get_standardized_joint_id (similarity: 1.00)
+
+  _connect_to_ik_manager <-> _on_stop_animation (similarity: 1.00)
+
+  _connect_to_ik_manager <-> _clear_mechanism_trace (similarity: 1.00)
+
+  _connect_to_ik_manager <-> _enable_animation_controls_after_parametric (similarity: 1.00)
+
+  _connect_to_ik_manager <-> _disable_mechanism_visual_interaction (similarity: 1.00)
+
+  _connect_to_ik_manager <-> center_on_character (similarity: 1.00)
+
+  _get_target_joint_for_mechanism_control <-> _extract_key_points_from_simulation (similarity: 1.00)
+
+  _get_target_joint_for_mechanism_control <-> _check_multibar_validity (similarity: 1.00)
+
+  _get_target_joint_for_mechanism_control <-> _check_gear_validity (similarity: 1.00)
+
+  _get_target_joint_for_mechanism_control <-> _update_parametric_handles_for_selection (similarity: 1.00)
+
+  _extract_key_points_from_simulation <-> _check_multibar_validity (similarity: 1.00)
+
+  _extract_key_points_from_simulation <-> _check_gear_validity (similarity: 1.00)
+
+  _extract_key_points_from_simulation <-> _update_parametric_handles_for_selection (similarity: 1.00)
+
+  _get_standardized_joint_id <-> _on_stop_animation (similarity: 1.00)
+
+  _get_standardized_joint_id <-> _clear_mechanism_trace (similarity: 1.00)
+
+  _get_standardized_joint_id <-> _enable_animation_controls_after_parametric (similarity: 1.00)
+
+  _get_standardized_joint_id <-> _disable_mechanism_visual_interaction (similarity: 1.00)
+
+  _get_standardized_joint_id <-> center_on_character (similarity: 1.00)
+
+  _create_5bar_linkage_visuals <-> _create_6bar_linkage_visuals (similarity: 1.00)
+
+  showEvent <-> mouseReleaseEvent (similarity: 1.00)
+
+  _on_stop_animation <-> _clear_mechanism_trace (similarity: 1.00)
+
+  _on_stop_animation <-> _enable_animation_controls_after_parametric (similarity: 1.00)
+
+  _on_stop_animation <-> _disable_mechanism_visual_interaction (similarity: 1.00)
+
+  _on_stop_animation <-> center_on_character (similarity: 1.00)
+
+  _update_parametric_button_state <-> _update_blueprint_button_state (similarity: 1.00)
+
+  _create_gear_visuals <-> _create_planetary_gear_visuals (similarity: 0.86)
+
+  _clear_mechanism_trace <-> _enable_animation_controls_after_parametric (similarity: 1.00)
+
+  _clear_mechanism_trace <-> _disable_mechanism_visual_interaction (similarity: 1.00)
+
+  _clear_mechanism_trace <-> center_on_character (similarity: 1.00)
+
+  _enable_animation_controls_after_parametric <-> _disable_mechanism_visual_interaction (similarity: 1.00)
+
+  _enable_animation_controls_after_parametric <-> center_on_character (similarity: 1.00)
+
+  _check_multibar_validity <-> _check_gear_validity (similarity: 1.00)
+
+  _check_multibar_validity <-> _update_parametric_handles_for_selection (similarity: 1.00)
+
+  _check_gear_validity <-> _update_parametric_handles_for_selection (similarity: 1.00)
+
+  _solve_circle_intersection <-> _calculate_4bar_rocker_position (similarity: 1.00)
+
+  on_move_g1 <-> on_move_g2 (similarity: 1.00)
+
+  _disable_mechanism_visual_interaction <-> center_on_character (similarity: 1.00)
+
+HIGH COMPLEXITY METHODS (>10):
+----------------------------------------
+  _enable_parametric_mode (line 4954, complexity: 57)
+  _update_mechanism_visuals_for_animation (line 2475, complexity: 50)
+  _get_anchor_positions_for_mechanism (line 7036, complexity: 30)
+  _update_mechanism_visuals_realtime (line 6838, complexity: 28)
+  _update_mechanism_layers_list (line 3055, complexity: 26)
+  _regenerate_mechanism_simulation (line 5616, complexity: 23)
+  _on_anchor_moved (line 6463, complexity: 23)
+  _display_paths_in_preview (line 2888, complexity: 19)
+  _calculate_mechanism_output (line 2132, complexity: 18)
+  _update_handle_positions_for_mechanism (line 6962, complexity: 17)
+  _generate_mechanism_from_candidate (line 1628, complexity: 16)
+  _get_scene_transform_function (line 1863, complexity: 16)
+  _extract_key_points_from_simulation (line 2087, complexity: 16)
+  _update_animation (line 2383, complexity: 15)
+  set_path_data_from_editor (line 703, complexity: 14)
+  _update_parts_from_skeleton (line 907, complexity: 13)
+  _safe_remove_visual_items (line 3839, complexity: 13)
+  prepare_tab_activation (line 3941, complexity: 13)
+  toggle_parametric_mode (line 4876, complexity: 13)
+  _update_other_handles (line 6028, complexity: 13)
+  _ensure_skeleton_visualization (line 973, complexity: 12)
+  _reset_skeleton_to_initial_state (line 3708, complexity: 12)
+  on_skeleton_updated (line 849, complexity: 11)
+  _clear_scene_preserve_skeleton (line 1086, complexity: 11)
+  _setup_mechanism_ik_integration (line 1193, complexity: 11)
+  _on_get_recommendations (line 1318, complexity: 11)
+  _handle_recommendation_selection (line 1429, complexity: 11)
+  _get_inverse_scene_transform_function (line 1997, complexity: 11)
+  _create_mechanism_visuals_unified (line 3270, complexity: 11)
+  center_on_character (line 7278, complexity: 11)
+
+TOP METHOD CALLERS:
+----------------------------------------
+  _get_scene_transform_function: called 17 times
+  to_scene_coords: called 11 times
