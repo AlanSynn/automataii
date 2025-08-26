@@ -180,26 +180,9 @@ class MechanismDesignTabLayout:
             generation_layout.addWidget(parametric_edit_btn)
             self._created_widgets['parametric_edit_btn'] = parametric_edit_btn
             
-            # Dimension Display Button
-            show_dimensions_btn = QPushButton("📏 Show Dimensions")
-            show_dimensions_btn.setToolTip("Display mechanism dimensions for printing")
-            show_dimensions_btn.setVisible(False)
-            show_dimensions_btn.setStyleSheet(self._get_success_button_style())
-            generation_layout.addWidget(show_dimensions_btn)
-            self._created_widgets['show_dimensions_btn'] = show_dimensions_btn
-            
-            # Export Blueprint Button
-            export_blueprint_btn = QPushButton("📄 Export Blueprint")
-            export_blueprint_btn.setToolTip("Export mechanism as printable blueprint")
-            export_blueprint_btn.setVisible(False)
-            export_blueprint_btn.setStyleSheet(self._get_warning_button_style())
-            generation_layout.addWidget(export_blueprint_btn)
-            self._created_widgets['export_blueprint_btn'] = export_blueprint_btn
         else:
             # Store None references for parametric features
             self._created_widgets['parametric_edit_btn'] = None
-            self._created_widgets['show_dimensions_btn'] = None
-            self._created_widgets['export_blueprint_btn'] = None
             
         return generation_group
         

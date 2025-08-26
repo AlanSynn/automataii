@@ -55,8 +55,6 @@ class MechanismDesignUI:
         
         # Parametric Design Elements (if available)
         self.parametric_edit_btn: QPushButton | None = None
-        self.show_dimensions_btn: QPushButton | None = None
-        self.export_blueprint_btn: QPushButton | None = None
         
         # View Control Elements
         self.zoom_in_btn: QPushButton | None = None
@@ -216,47 +214,6 @@ class MechanismDesignUI:
             """)
             generation_layout.addWidget(self.parametric_edit_btn)
 
-            # Dimension Display Button
-            self.show_dimensions_btn = QPushButton("📏 Show Dimensions")
-            self.show_dimensions_btn.setToolTip("Display mechanism dimensions for printing")
-            self.show_dimensions_btn.setVisible(False)  # Hidden until parametric mode
-            self.show_dimensions_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #27ae60;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: normal;
-                    min-height: 16px;
-                }
-                QPushButton:hover {
-                    background-color: #229954;
-                }
-            """)
-            generation_layout.addWidget(self.show_dimensions_btn)
-
-            # Export Blueprint Button
-            self.export_blueprint_btn = QPushButton("📄 Export Blueprint")
-            self.export_blueprint_btn.setToolTip("Export mechanism as printable blueprint")
-            self.export_blueprint_btn.setVisible(False)  # Hidden until parametric mode
-            self.export_blueprint_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e67e22;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: normal;
-                    min-height: 16px;
-                }
-                QPushButton:hover {
-                    background-color: #d35400;
-                }
-            """)
-            generation_layout.addWidget(self.export_blueprint_btn)
 
         panel_layout.addWidget(generation_group)
 
@@ -309,65 +266,6 @@ class MechanismDesignUI:
         animation_layout.addLayout(anim_button_layout)
         panel_layout.addWidget(animation_group)
 
-        # 4. Blueprint Export Group
-        export_group = QGroupBox("4 Blueprint Export")
-        export_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        export_layout = QVBoxLayout(export_group)
-
-        self.blueprint_btn = QPushButton("Export Blueprint")
-        self.blueprint_btn.setEnabled(False)
-        self.blueprint_btn.setToolTip("Export character parts and mechanisms as SVG blueprint")
-        self.blueprint_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #8e44ad;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: normal;
-                min-height: 20px;
-            }
-            QPushButton:hover {
-                background-color: #7d3c98;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
-                color: #7f8c8d;
-            }
-        """)
-        export_layout.addWidget(self.blueprint_btn)
-
-        # Info label for single large page export
-        self.blueprint_info_label = QLabel("Exports to single large-format blueprint (1200×1600mm)")
-        self.blueprint_info_label.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 10px;
-                font-style: italic;
-                padding: 2px;
-            }
-        """)
-        export_layout.addWidget(self.blueprint_info_label)
-        panel_layout.addWidget(export_group)
 
         # 5. View Controls Group
         view_controls_group = QGroupBox("5 View Controls")

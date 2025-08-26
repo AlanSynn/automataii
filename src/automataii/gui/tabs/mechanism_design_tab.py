@@ -1,3 +1,27 @@
+# MechanismDesignTab
+# Lines: 4546 (reduced from 5277 via parametric editing extraction)
+# Public API: toggle_parametric_mode, set_path_data_from_editor, set_parts_data, clear_mechanism_data
+# Deps In (Afferent): 3 [MainWindow, TabManager, SkeletonService]
+# Deps Out (Efferent): 15+ [PyQt6, services, visualization, parametric_manager, ui_components]
+# Coupling: Medium (rationale: coordinates multiple subsystems but parametric editing extracted)
+# Cohesion: Layer (tab coordination and mechanism design orchestration)
+# Owner: Alan Synn, Reviewers: TBD
+# Last Updated: 2025-08-26
+
+"""
+Mechanism Design Tab for Character Animation
+
+This module provides the main interface for designing and editing mechanical systems
+for character animation. It coordinates multiple subsystems including:
+- Mechanism generation and visualization
+- Animation controls and timeline
+- Parametric editing (delegated to ParametricEditingManager)
+- Blueprint export functionality
+
+The class has been refactored to extract the parametric editing system into a separate
+manager for better modularity and maintainability.
+"""
+
 import math
 import uuid
 from collections.abc import Callable
@@ -47,6 +71,8 @@ except ImportError as e:
     VisualizationAdapter = None
 
 # Parametric Design System (ULTRATHINK Architecture)
+from .parametric_editing_manager import ParametricEditingManager
+
 try:
     from automataii.gui.parametric_editor import (
         ParametricEditor, MechanismEditor, FourBarEditor,
@@ -174,11 +200,8 @@ class MechanismDesignTab(QWidget):
         self.parametric_editor: ParametricEditor | None = None
         self.parametric_mode_enabled = False
 
-        # Initialize parametric system if available
-        if PARAMETRIC_AVAILABLE:
-            self._initialize_parametric_system()
-        else:
-            pass
+        # Initialize parametric editing manager (will be fully initialized after UI setup)
+        self.parametric_manager = ParametricEditingManager(self)
         self.mechanism_trace_items: dict[str, QGraphicsPathItem] = {}  # Visual path items
         self.mechanism_trace_points: dict[str, list[QPointF]] = {}  # Store trace points
 
@@ -223,8 +246,6 @@ class MechanismDesignTab(QWidget):
         self.stop_btn = self.ui_widgets.get('stop_btn')
         self.reset_btn = self.ui_widgets.get('reset_btn')
         self.parametric_edit_btn = self.ui_widgets.get('parametric_edit_btn')
-        self.show_dimensions_btn = self.ui_widgets.get('show_dimensions_btn')
-        self.export_blueprint_btn = self.ui_widgets.get('export_blueprint_btn')
         self.zoom_in_btn = self.ui_widgets.get('zoom_in_btn')
         self.zoom_out_btn = self.ui_widgets.get('zoom_out_btn')
         self.zoom_fit_btn = self.ui_widgets.get('zoom_fit_btn')
@@ -233,6 +254,12 @@ class MechanismDesignTab(QWidget):
         
         # Connect all signals using new signal manager
         self.signal_manager.connect_all_signals(self)
+        
+        # Initialize parametric system now that mechanism_scene is available
+        if PARAMETRIC_AVAILABLE:
+            self._initialize_parametric_system()
+            # Also initialize the manager's parametric system
+            self.parametric_manager._initialize_parametric_system()
         
         # PHASE 1: Initialize UI state management
         self._current_ui_state = UIState()
@@ -3262,423 +3289,16 @@ class MechanismDesignTab(QWidget):
     # ================================================================================
 
     def _initialize_parametric_system(self):
-        """
-        Initialize the parametric design system for interactive manipulation.
-
-        Features:
-        - Interactive drag handles for mechanism parameters
-        - Real-time parameter updates with constraint validation
-        - Performance-optimized update throttling
-        - Physics-based simulation for realistic motion
-        """
-        if not PARAMETRIC_AVAILABLE:
-            return
-
-        try:
-            # Initialize parametric editor with the mechanism scene
-            self.parametric_editor = ParametricEditor(self.mechanism_scene)
-
-            # Connect signals for mechanism updates
-            self.parametric_editor.mechanism_updated.connect(self._on_parametric_mechanism_update)
-            self.parametric_editor.visual_refresh_requested.connect(self._on_parametric_visual_refresh)
-
-        except Exception as e:
-            self.parametric_editor = None
+        """Initialize the parametric design system by delegating to the manager."""
+        self.parametric_manager._initialize_parametric_system()
 
     def toggle_parametric_mode(self, enabled: bool | None = None):
-        """
-        Toggle parametric editing mode on/off.
-
-        Args:
-            enabled: Explicit enable/disable, or None to toggle current state
-        """
-
-        if not PARAMETRIC_AVAILABLE:
-            return
-
-        if not self.parametric_editor:
-            return
-
-        if enabled is None:
-            enabled = not self.parametric_mode_enabled
-
-        # Debug: Show current state
-        if hasattr(self, 'mechanism_layers'):
-            pass
-
-        # Check if we have mechanisms to edit
-        if enabled and not self.mechanism_layers:
-            # Show user-friendly message
-            if hasattr(self, 'main_window'):
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.information(
-                    self.main_window,
-                    "Parametric Edit",
-                    "Please generate mechanisms first using 'Get Mechanism' button.\\n\\n"
-                    "Parametric editing allows you to interactively adjust mechanism parameters by dragging anchor points."
-                )
-            return
-
-        # CRITICAL: Handle animation conflicts properly
-        animation_was_running = False
-        if enabled:
-            # Enabling parametric mode - stop any running animation
-            animation_was_running = self._is_animation_running()
-            if animation_was_running:
-                self._on_stop_animation()
-
-            # Store animation state for potential restoration
-            if not hasattr(self, '_animation_state_before_parametric'):
-                self._animation_state_before_parametric = animation_was_running
-        else:
-            # Disabling parametric mode - check if we should restore animation
-            should_restore_animation = getattr(self, '_animation_state_before_parametric', False)
-            if hasattr(self, '_animation_state_before_parametric'):
-                delattr(self, '_animation_state_before_parametric')
-
-        self.parametric_mode_enabled = enabled
-
-        if enabled:
-            self._enable_parametric_mode()
-        else:
-            self._disable_parametric_mode()
-
-            # Restore animation if it was running before parametric mode
-            if 'should_restore_animation' in locals() and should_restore_animation:
-                # Small delay to ensure visual state is fully restored before starting animation
-                from PyQt6.QtCore import QTimer
-                QTimer.singleShot(100, self._on_start_animation)
-        
-        # PHASE 1 REFACTORING: Use new UI state management
-        self.ui_state_manager.set_parametric_mode(enabled)
-        self._update_all_ui_states()
+        """Toggle parametric editing mode on/off by delegating to the manager."""
+        self.parametric_manager.toggle_parametric_mode(enabled)
 
     def _enable_parametric_mode(self):
-        """Enable parametric editing mode - show interactive handles.
-
-        ULTRATHINK: Enhanced to use new ParametricEditor system.
-        """
-        if not self.parametric_editor:
-            return
-
-        try:
-
-            # CRITICAL FIX: Clear all mechanism traces when entering parametric mode
-            for mechanism_id in list(self.mechanism_layers.keys()):
-                self._clear_mechanism_trace(mechanism_id)
-
-            # Create editors for all existing mechanisms
-            for mechanism_id, layer_data in self.mechanism_layers.items():
-                part_name = layer_data.get("part_name")
-                mechanism_type = layer_data.get("type")
-
-                try:
-                    if "params" not in layer_data:
-                        layer_data["params"] = {}
-
-                    # CRITICAL FIX: Ensure all required parameters are present for each mechanism type
-
-                    if mechanism_type == "cam":
-                        # CAM: Ensure center_x and center_y are in params
-                        cam_position = layer_data.get("cam_position")
-                        if cam_position and len(cam_position) >= 2:
-                            layer_data["params"]["center_x"] = cam_position[0]
-                            layer_data["params"]["center_y"] = cam_position[1]
-                        else:
-                            # Fallback to default position if cam_position not set
-                            layer_data["params"]["center_x"] = 400
-                            layer_data["params"]["center_y"] = 300
-
-                    elif mechanism_type == "4_bar_linkage":
-                        # 4-BAR: Extract anchor positions from simulation data and transform to scene coords
-                        params = layer_data["params"]
-                        full_sim_data = layer_data.get("full_simulation_data", {})
-
-                        if "joint_positions" in full_sim_data:
-                            joint_positions = full_sim_data["joint_positions"]
-                            if ("p1_positions" in joint_positions and len(joint_positions["p1_positions"]) > 0 and
-                                "p2_positions" in joint_positions and len(joint_positions["p2_positions"]) > 0):
-                                # Use first frame positions as anchor positions
-                                p1 = joint_positions["p1_positions"][0]
-                                p2 = joint_positions["p2_positions"][0]
-                                p3 = joint_positions["p3_positions"][0] if "p3_positions" in joint_positions else None
-                                p4 = joint_positions["p4_positions"][0] if "p4_positions" in joint_positions else None
-
-                                # Transform ALL positions to scene coordinates using the same function as visuals
-                                to_scene = self._get_scene_transform_function(layer_data)
-                                if to_scene:
-                                    p1_scene = to_scene(np.array(p1))
-                                    p2_scene = to_scene(np.array(p2))
-
-                                    # Convert QPointF to x,y values
-                                    if hasattr(p1_scene, 'x'):
-                                        params["anchor1_x"] = p1_scene.x()
-                                        params["anchor1_y"] = p1_scene.y()
-                                    else:
-                                        params["anchor1_x"] = float(p1_scene[0]) if isinstance(p1_scene, np.ndarray) else p1_scene[0]
-                                        params["anchor1_y"] = float(p1_scene[1]) if isinstance(p1_scene, np.ndarray) else p1_scene[1]
-
-                                    if hasattr(p2_scene, 'x'):
-                                        params["anchor2_x"] = p2_scene.x()
-                                        params["anchor2_y"] = p2_scene.y()
-                                    else:
-                                        params["anchor2_x"] = float(p2_scene[0]) if isinstance(p2_scene, np.ndarray) else p2_scene[0]
-                                        params["anchor2_y"] = float(p2_scene[1]) if isinstance(p2_scene, np.ndarray) else p2_scene[1]
-
-                                    # Transform p3 and p4 for angles and coupler position
-                                    if p3 is not None:
-                                        p3_scene = to_scene(np.array(p3))
-                                        if hasattr(p3_scene, 'x'):
-                                            p3_x, p3_y = p3_scene.x(), p3_scene.y()
-                                        else:
-                                            p3_x = float(p3_scene[0]) if isinstance(p3_scene, np.ndarray) else p3_scene[0]
-                                            p3_y = float(p3_scene[1]) if isinstance(p3_scene, np.ndarray) else p3_scene[1]
-
-                                        # Calculate crank angle in scene space
-                                        dx = p3_x - params["anchor1_x"]
-                                        dy = p3_y - params["anchor1_y"]
-                                        params["crank_angle"] = math.degrees(math.atan2(dy, dx))
-                                        params["crank_x"] = p3_x  # Store crank position
-                                        params["crank_y"] = p3_y
-
-                                    if p4 is not None:
-                                        p4_scene = to_scene(np.array(p4))
-                                        if hasattr(p4_scene, 'x'):
-                                            p4_x, p4_y = p4_scene.x(), p4_scene.y()
-                                        else:
-                                            p4_x = float(p4_scene[0]) if isinstance(p4_scene, np.ndarray) else p4_scene[0]
-                                            p4_y = float(p4_scene[1]) if isinstance(p4_scene, np.ndarray) else p4_scene[1]
-
-                                        # Calculate rocker angle in scene space
-                                        dx = p4_x - params["anchor2_x"]
-                                        dy = p4_y - params["anchor2_y"]
-                                        params["rocker_angle"] = math.degrees(math.atan2(dy, dx))
-                                        params["rocker_x"] = p4_x  # Store rocker position
-                                        params["rocker_y"] = p4_y
-
-                                        # Calculate coupler position
-                                        if p3 is not None:
-                                            # Get coupler offset from original params
-                                            coupler_point_x = params.get("coupler_point_x", 0.0)
-                                            coupler_point_y = params.get("coupler_point_y", 0.0)
-
-                                            # Calculate coupler position in scene space (like in visuals)
-                                            coupler_vec_x = p4_x - p3_x
-                                            coupler_vec_y = p4_y - p3_y
-                                            coupler_length = math.sqrt(coupler_vec_x**2 + coupler_vec_y**2)
-
-                                            if coupler_length > 0:
-                                                coupler_unit_x = coupler_vec_x / coupler_length
-                                                coupler_unit_y = coupler_vec_y / coupler_length
-                                                coupler_normal_x = -coupler_unit_y
-                                                coupler_normal_y = coupler_unit_x
-
-                                                # Transform coupler offset to scene scale
-                                                scale = layer_data.get("transform_params", {}).get("scale", 1.0)
-                                                scaled_offset_x = coupler_point_x * scale
-                                                scaled_offset_y = coupler_point_y * scale
-
-                                                params["coupler_x"] = p3_x + scaled_offset_x * coupler_unit_x + scaled_offset_y * coupler_normal_x
-                                                params["coupler_y"] = p3_y + scaled_offset_x * coupler_unit_y + scaled_offset_y * coupler_normal_y
-                                            else:
-                                                params["coupler_x"] = p3_x
-                                                params["coupler_y"] = p3_y
-
-                                else:
-                                    # No transformation available, use raw values
-                                    params["anchor1_x"] = p1[0] if isinstance(p1, (list, tuple)) else p1
-                                    params["anchor1_y"] = p1[1] if isinstance(p1, (list, tuple)) else 0
-                                    params["anchor2_x"] = p2[0] if isinstance(p2, (list, tuple)) else p2
-                                    params["anchor2_y"] = p2[1] if isinstance(p2, (list, tuple)) else 0
-                                    params["crank_angle"] = 0
-                                    params["rocker_angle"] = 45
-                                    params["coupler_x"] = 350
-                                    params["coupler_y"] = 250
-
-                            else:
-                                # Fallback: Use default positions
-                                l1 = params.get("l1", 100)
-                                params["anchor1_x"] = 400
-                                params["anchor1_y"] = 300
-                                params["anchor2_x"] = 400 + l1
-                                params["anchor2_y"] = 300
-                                params["crank_angle"] = 0
-                                params["rocker_angle"] = 45
-                                params["coupler_x"] = 450
-                                params["coupler_y"] = 250
-                        else:
-                            # No simulation data, use defaults
-                            l1 = params.get("l1", 100)
-                            params["anchor1_x"] = 400
-                            params["anchor1_y"] = 300
-                            params["anchor2_x"] = 400 + l1
-                            params["anchor2_y"] = 300
-                            params["crank_angle"] = 0
-                            params["rocker_angle"] = 45
-                            params["coupler_x"] = 450
-                            params["coupler_y"] = 250
-
-                    elif mechanism_type in ["gear", "simple_gear"]:
-                        # GEAR: Convert r1, r2 to gear parameters with scene positions
-                        params = layer_data["params"]
-                        full_sim_data = layer_data.get("full_simulation_data", {})
-
-                        # Map radius parameters
-                        if "r1" in params:
-                            params["gear1_radius"] = params["r1"]
-                        if "r2" in params:
-                            params["gear2_radius"] = params["r2"]
-
-                        # Try to get positions from simulation data
-                        to_scene = self._get_scene_transform_function(layer_data)
-
-                        if "gear_data" in full_sim_data and to_scene:
-                            gear_data = full_sim_data["gear_data"]
-                            # Get first frame gear centers
-                            if "gear1_centers" in gear_data and len(gear_data["gear1_centers"]) > 0:
-                                g1_center = gear_data["gear1_centers"][0]
-                                g1_scene = to_scene(np.array(g1_center))
-                                if hasattr(g1_scene, 'x'):
-                                    params["gear1_x"] = g1_scene.x()
-                                    params["gear1_y"] = g1_scene.y()
-                                else:
-                                    params["gear1_x"] = float(g1_scene[0]) if isinstance(g1_scene, np.ndarray) else g1_scene[0]
-                                    params["gear1_y"] = float(g1_scene[1]) if isinstance(g1_scene, np.ndarray) else g1_scene[1]
-
-                            if "gear2_centers" in gear_data and len(gear_data["gear2_centers"]) > 0:
-                                g2_center = gear_data["gear2_centers"][0]
-                                g2_scene = to_scene(np.array(g2_center))
-                                if hasattr(g2_scene, 'x'):
-                                    params["gear2_x"] = g2_scene.x()
-                                    params["gear2_y"] = g2_scene.y()
-                                else:
-                                    params["gear2_x"] = float(g2_scene[0]) if isinstance(g2_scene, np.ndarray) else g2_scene[0]
-                                    params["gear2_y"] = float(g2_scene[1]) if isinstance(g2_scene, np.ndarray) else g2_scene[1]
-                        else:
-                            # Set default scene positions if not present
-                            if "gear1_x" not in params:
-                                params["gear1_x"] = 400
-                            if "gear1_y" not in params:
-                                params["gear1_y"] = 300
-                            if "gear2_x" not in params:
-                                # Position gear2 to mesh with gear1
-                                r1 = params.get("gear1_radius", params.get("r1", 40))
-                                r2 = params.get("gear2_radius", params.get("r2", 60))
-                                params["gear2_x"] = params["gear1_x"] + r1 + r2 + 2  # Small clearance
-                            if "gear2_y" not in params:
-                                params["gear2_y"] = params["gear1_y"]
-
-                    elif mechanism_type == "planetary_gear":
-                        # PLANETARY GEAR: Map to GearEditor parameters with scene coordinates
-                        params = layer_data["params"]
-                        full_sim_data = layer_data.get("full_simulation_data", {})
-
-                        # Map radius parameters
-                        if "r_sun" in params:
-                            params["gear1_radius"] = params["r_sun"]
-                        elif "sun_radius" in params:
-                            params["gear1_radius"] = params["sun_radius"]
-                        else:
-                            params["gear1_radius"] = 20  # Default sun radius
-
-                        if "r_planet" in params:
-                            params["gear2_radius"] = params["r_planet"]
-                        elif "planet_radius" in params:
-                            params["gear2_radius"] = params["planet_radius"]
-                        else:
-                            params["gear2_radius"] = 30  # Default planet radius
-
-                        # Try to get positions from simulation data
-                        to_scene = self._get_scene_transform_function(layer_data)
-
-                        if "gear_positions" in full_sim_data and to_scene:
-                            gear_pos = full_sim_data["gear_positions"]
-                            # Get sun center
-                            if "sun_centers" in gear_pos and len(gear_pos["sun_centers"]) > 0:
-                                sun_center = gear_pos["sun_centers"][0]
-                                sun_scene = to_scene(np.array(sun_center))
-                                if hasattr(sun_scene, 'x'):
-                                    params["gear1_x"] = sun_scene.x()
-                                    params["gear1_y"] = sun_scene.y()
-                                else:
-                                    params["gear1_x"] = float(sun_scene[0]) if isinstance(sun_scene, np.ndarray) else sun_scene[0]
-                                    params["gear1_y"] = float(sun_scene[1]) if isinstance(sun_scene, np.ndarray) else sun_scene[1]
-
-                            # Get planet center
-                            if "planet_centers" in gear_pos and len(gear_pos["planet_centers"]) > 0:
-                                planet_center = gear_pos["planet_centers"][0]
-                                planet_scene = to_scene(np.array(planet_center))
-                                if hasattr(planet_scene, 'x'):
-                                    params["gear2_x"] = planet_scene.x()
-                                    params["gear2_y"] = planet_scene.y()
-                                else:
-                                    params["gear2_x"] = float(planet_scene[0]) if isinstance(planet_scene, np.ndarray) else planet_scene[0]
-                                    params["gear2_y"] = float(planet_scene[1]) if isinstance(planet_scene, np.ndarray) else planet_scene[1]
-                        else:
-                            # Set default scene positions
-                            if "gear1_x" not in params:
-                                params["gear1_x"] = 400
-                            if "gear1_y" not in params:
-                                params["gear1_y"] = 300
-
-                            # Set planet position based on arm length
-                            arm_length = params.get("arm_length", params.get("carrier_length", 50))
-                            if "gear2_x" not in params:
-                                params["gear2_x"] = params["gear1_x"] + params["gear1_radius"] + params["gear2_radius"] + arm_length
-                            if "gear2_y" not in params:
-                                params["gear2_y"] = params["gear1_y"]
-
-                    # Create appropriate editor for mechanism type
-                    editor = self.parametric_editor.create_editor(mechanism_id, layer_data)
-                    if editor:
-                        pass
-                except Exception as e:
-                    import traceback
-
-            # Enable editing mode
-            self.parametric_editor.enable_editing()
-
-            # Set active editor based on currently selected part in the UI
-
-            # Get the currently selected item from the mechanism layers list
-            selected_items = self.ui_widgets['mechanism_layers_list'].selectedItems()
-            if selected_items:
-                selected_part = selected_items[0].data(Qt.ItemDataRole.UserRole)
-
-                # Find mechanism for the UI-selected part
-                found = False
-                for mechanism_id, layer_data in self.mechanism_layers.items():
-                    part_name = layer_data.get("part_name")
-                    if part_name == selected_part:
-                        self.parametric_editor.set_active_editor(mechanism_id)
-                        found = True
-                        break
-                    else:
-                        pass
-
-                if not found:
-                    # Default to first mechanism if no match
-                    if self.mechanism_layers:
-                        first_id = list(self.mechanism_layers.keys())[0]
-                        self.parametric_editor.set_active_editor(first_id)
-            else:
-                if self.selected_part_name:
-                    # Find mechanism for selected part
-                    for mechanism_id, layer_data in self.mechanism_layers.items():
-                        if layer_data.get("part_name") == self.selected_part_name:
-                            self.parametric_editor.set_active_editor(mechanism_id)
-                            break
-
-            # PHASE 1 REFACTORING: Removed individual UI updates - now handled by UI state manager
-            
-            # Disable animation controls in parametric mode
-            self._disable_animation_controls_for_parametric()
-
-            # Disable mechanism visual interaction to allow handle interaction
-            self._disable_mechanism_visual_interaction()
-
-        except Exception as e:
-            import traceback
+        """Enable parametric editing mode by delegating to the manager."""
+        self.parametric_manager._enable_parametric_mode()
 
     def _disable_animation_controls_for_parametric(self):
         """
@@ -3714,36 +3334,8 @@ class MechanismDesignTab(QWidget):
             pass
 
     def _disable_parametric_mode(self):
-        """Disable parametric editing mode - hide handles and restore normal interaction.
-
-        ULTRATHINK: Enhanced to use new ParametricEditor system.
-        """
-        if not self.parametric_editor:
-            return
-
-        try:
-
-            # Disable editing mode
-            self.parametric_editor.disable_editing()
-
-            # Remove all editors
-            for mechanism_id in list(self.parametric_editor.editors.keys()):
-                self.parametric_editor.remove_editor(mechanism_id)
-
-            # Clear all mechanism traces on exit
-            for mechanism_id in list(self.mechanism_trace_items.keys()):
-                self._clear_mechanism_trace(mechanism_id)
-
-            # Re-enable mechanism visual interaction
-            self._enable_mechanism_visual_interaction()
-
-            # PHASE 1 REFACTORING: Removed individual UI updates - now handled by UI state manager
-
-            # Re-enable animation controls
-            self._enable_animation_controls_after_parametric()
-
-        except Exception as e:
-            import traceback
+        """Disable parametric editing mode by delegating to the manager."""
+        self.parametric_manager._disable_parametric_mode()
 
     def _create_rotation_handle(self, mechanism_id: str, center_pos: QPointF, radius: float = 60) -> QGraphicsItem:
         """
@@ -3851,295 +3443,8 @@ class MechanismDesignTab(QWidget):
             return False
 
     def _regenerate_mechanism_simulation(self, mechanism_id: str, layer_data: dict):
-        """
-        Regenerate simulation data for a mechanism after parameters have changed.
-        This recalculates joint positions and paths for the new configuration.
-        """
-        try:
-            mech_type = layer_data.get("type")
-            params = layer_data.get("params", {})
-
-            # CRITICAL FIX: Clear existing mechanism traces to prevent old red paths from persisting
-            self._clear_mechanism_trace(mechanism_id)
-
-            if mech_type == "4_bar_linkage":
-                # Generate new simulation data for 4-bar linkage
-                num_frames = 100
-                joint_positions = {
-                    "p1_positions": [],
-                    "p2_positions": [],
-                    "p3_positions": [],
-                    "p4_positions": []
-                }
-
-                p1 = np.array(params.get("ground_pivot_1", [0, 0]))
-                p2 = np.array(params.get("ground_pivot_2", [100, 0]))
-                L2 = params.get("L2", 40)  # Crank length
-                L3 = params.get("L3", 60)  # Coupler length
-                L4 = params.get("L4", 50)  # Rocker length
-
-                for i in range(num_frames):
-                    theta = (i / num_frames) * 2 * np.pi
-
-                    # Calculate crank position (p3)
-                    p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
-
-                    # Calculate rocker position (p4) using circle-circle intersection
-                    # p4 must be L3 from p3 and L4 from p2
-                    p4 = self._solve_circle_intersection(p3, L3, p2, L4)
-
-                    if p4 is not None:
-                        joint_positions["p1_positions"].append(p1.tolist())
-                        joint_positions["p2_positions"].append(p2.tolist())
-                        joint_positions["p3_positions"].append(p3.tolist())
-                        joint_positions["p4_positions"].append(p4.tolist())
-
-                # Store the new simulation data
-                layer_data["full_simulation_data"] = {
-                    "joint_positions": joint_positions
-                }
-
-            elif mech_type == "5_bar_linkage":
-                # Generate new simulation data for 5-bar linkage
-                num_frames = 100
-                joint_positions = {
-                    "p1_positions": [],
-                    "p2_positions": [],
-                    "p3_positions": [],
-                    "p4_positions": [],
-                    "p5_positions": []
-                }
-
-                # Get updated positions from key_points
-                key_points = layer_data.get("key_points", {})
-                p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
-                p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
-
-                # Calculate link lengths from key points
-                if "joint_3" in key_points and "joint_4" in key_points and "joint_5" in key_points:
-                    p3 = np.array(key_points["joint_3"])
-                    p4 = np.array(key_points["joint_4"])
-                    p5 = np.array(key_points["joint_5"])
-
-                    L2 = np.linalg.norm(p3 - p1)  # Input link
-                    L3 = np.linalg.norm(p4 - p3)  # Coupler 1
-                    L4 = np.linalg.norm(p5 - p4)  # Coupler 2
-                    L5 = np.linalg.norm(p5 - p2)  # Output link
-
-                    params["L2"] = float(L2)
-                    params["L3"] = float(L3)
-                    params["L4"] = float(L4)
-                    params["L5"] = float(L5)
-                else:
-                    L2 = params.get("L2", 40)
-                    L3 = params.get("L3", 50)
-                    L4 = params.get("L4", 45)
-                    L5 = params.get("L5", 55)
-
-                for i in range(num_frames):
-                    theta = (i / num_frames) * 2 * np.pi
-
-                    # Calculate positions for 5-bar linkage
-                    p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
-
-                    # Simplified 5-bar kinematics - use approximate positions
-                    p4 = p3 + L3 * np.array([np.cos(theta + 0.5), np.sin(theta + 0.5)])
-                    p5 = self._solve_circle_intersection(p4, L4, p2, L5)
-
-                    if p5 is not None:
-                        joint_positions["p1_positions"].append(p1.tolist())
-                        joint_positions["p2_positions"].append(p2.tolist())
-                        joint_positions["p3_positions"].append(p3.tolist())
-                        joint_positions["p4_positions"].append(p4.tolist())
-                        joint_positions["p5_positions"].append(p5.tolist())
-
-                layer_data["full_simulation_data"] = {
-                    "joint_positions": joint_positions
-                }
-
-            elif mech_type == "6_bar_linkage":
-                # Generate new simulation data for 6-bar linkage (Stephenson Type I)
-                num_frames = 100
-                joint_positions = {
-                    "p1_positions": [],
-                    "p2_positions": [],
-                    "p3_positions": [],
-                    "p4_positions": [],
-                    "p5_positions": [],
-                    "p6_positions": []
-                }
-
-                # Get updated positions from key_points
-                key_points = layer_data.get("key_points", {})
-                p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
-                p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
-                p6 = np.array(key_points.get("ground_pivot_3", [50, -30]))
-
-                # Calculate link lengths
-                if all(k in key_points for k in ["joint_3", "joint_4", "joint_5"]):
-                    p3 = np.array(key_points["joint_3"])
-                    p4 = np.array(key_points["joint_4"])
-                    p5 = np.array(key_points["joint_5"])
-
-                    L2 = np.linalg.norm(p3 - p1)
-                    L3 = np.linalg.norm(p4 - p3)
-                    L4 = np.linalg.norm(p4 - p2)
-                    L5 = np.linalg.norm(p5 - p4)
-                    L6 = np.linalg.norm(p5 - p6)
-
-                    params.update({
-                        "L2": float(L2), "L3": float(L3), "L4": float(L4),
-                        "L5": float(L5), "L6": float(L6)
-                    })
-                else:
-                    L2 = params.get("L2", 40)
-                    L3 = params.get("L3", 60)
-                    L4 = params.get("L4", 50)
-                    L5 = params.get("L5", 45)
-                    L6 = params.get("L6", 55)
-
-                for i in range(num_frames):
-                    theta = (i / num_frames) * 2 * np.pi
-
-                    # Calculate positions for 6-bar linkage
-                    p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
-                    p4 = self._solve_circle_intersection(p3, L3, p2, L4)
-
-                    if p4 is not None:
-                        p5 = self._solve_circle_intersection(p4, L5, p6, L6)
-                        if p5 is not None:
-                            joint_positions["p1_positions"].append(p1.tolist())
-                            joint_positions["p2_positions"].append(p2.tolist())
-                            joint_positions["p3_positions"].append(p3.tolist())
-                            joint_positions["p4_positions"].append(p4.tolist())
-                            joint_positions["p5_positions"].append(p5.tolist())
-                            joint_positions["p6_positions"].append(p6.tolist())
-
-                layer_data["full_simulation_data"] = {
-                    "joint_positions": joint_positions
-                }
-
-            elif mech_type == "cam":
-                # Generate cam mechanism data with correct physics
-                num_frames = 100
-                base_radius = params.get("base_radius", 25.0)
-                eccentricity = params.get("eccentricity", 10.0)
-                rod_length = params.get("follower_rod_length", 40.0)
-
-                # Update from key_points if available
-                key_points = layer_data.get("key_points", {})
-                if "cam_center" in key_points:
-                    cam_center_base = np.array(key_points["cam_center"])
-                else:
-                    cam_center_base = np.array([0, 0])
-
-                cam_data = {
-                    "cam_centers": [],
-                    "follower_y_positions": []
-                }
-
-                for i in range(num_frames):
-                    # Cam rotates in place at cam_center_base
-                    angle = (i / num_frames) * 2 * np.pi
-
-                    # Calculate cam radius at this rotation angle using our corrected egg shape
-                    # Proper cam profile: lift when convex part is at bottom (pushes follower up)
-                    lift = eccentricity * (1 + np.cos(angle + np.pi/2)) / 2  # Shifted for proper phase
-                    cam_radius_at_angle = base_radius + lift
-
-                    # Cam center stays fixed (cam rotates in place)
-                    current_cam_center = cam_center_base
-
-                    # Follower rides on top of cam at the contact point
-                    # The follower's Y position is cam center Y + cam radius + rod length offset
-                    follower_y = current_cam_center[1] - cam_radius_at_angle - rod_length
-
-                    cam_data["cam_centers"].append(current_cam_center.tolist())
-                    cam_data["follower_y_positions"].append(follower_y)
-
-                layer_data["full_simulation_data"] = {
-                    "cam_data": cam_data
-                }
-
-            elif mech_type == "gear":
-                # Generate gear rotation data
-                num_frames = 100
-                r1 = params.get("r1", 30)
-                r2 = params.get("r2", 50)
-
-                # Update gear positions from key_points if available
-                key_points = layer_data.get("key_points", {})
-                if "gear1_center" in key_points and "gear2_center" in key_points:
-                    g1 = np.array(key_points["gear1_center"])
-                    g2 = np.array(key_points["gear2_center"])
-                    distance = np.linalg.norm(g2 - g1)
-
-                    # Maintain gear ratio but adjust sizes to fit distance
-                    ratio = r2 / r1
-                    r1 = distance / (1 + ratio)
-                    r2 = r1 * ratio
-                    params["r1"] = float(r1)
-                    params["r2"] = float(r2)
-
-                gear_data = {
-                    "gear1_angles": [],
-                    "gear2_angles": []
-                }
-
-                for i in range(num_frames):
-                    theta1 = (i / num_frames) * 2 * np.pi
-                    theta2 = -theta1 * (r1 / r2)  # Gear ratio
-
-                    gear_data["gear1_angles"].append(theta1)
-                    gear_data["gear2_angles"].append(theta2)
-
-                layer_data["full_simulation_data"] = {
-                    "gear_data": gear_data
-                }
-
-            elif mech_type == "planetary_gear":
-                # Generate planetary gear data
-                num_frames = 100
-                r_sun = params.get("r_sun", 20)
-                r_planet = params.get("r_planet", 30)
-                arm_length = params.get("arm_length", 15)
-
-                # Update from key_points if available
-                key_points = layer_data.get("key_points", {})
-                if "sun_center" in key_points:
-                    sun_center_base = np.array(key_points["sun_center"])
-                else:
-                    sun_center_base = np.array([0, 0])
-
-                gear_positions = {
-                    "sun_centers": [],
-                    "planet_centers": [],
-                    "tracking_points": []
-                }
-
-                for i in range(num_frames):
-                    angle = (i / num_frames) * 2 * np.pi
-                    planet_orbital_angle = angle
-                    planet_rotation_angle = -angle * (r_sun / r_planet)
-
-                    sun_center = sun_center_base
-                    planet_center = sun_center + (r_sun + r_planet) * np.array([
-                        np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)
-                    ])
-                    tracking_point = planet_center + arm_length * np.array([
-                        np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)
-                    ])
-
-                    gear_positions["sun_centers"].append(sun_center.tolist())
-                    gear_positions["planet_centers"].append(planet_center.tolist())
-                    gear_positions["tracking_points"].append(tracking_point.tolist())
-
-                layer_data["full_simulation_data"] = {
-                    "gear_positions": gear_positions
-                }
-
-        except Exception as e:
-            pass
+        """Regenerate mechanism simulation by delegating to the manager."""
+        self.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
 
     def _solve_circle_intersection(self, center1: np.ndarray, radius1: float,
                                    center2: np.ndarray, radius2: float) -> np.ndarray:
@@ -4767,174 +4072,17 @@ class MechanismDesignTab(QWidget):
 
     @pyqtSlot(str, dict)
     def _on_parametric_mechanism_update(self, mechanism_id: str, params: dict[str, Any]):
-        """
-        Handle mechanism update request from parametric editor.
-
-        Args:
-            mechanism_id: Mechanism ID to update
-            params: Updated mechanism parameters (entire mechanism_data from editor)
-        """
-        try:
-            # Update mechanism layer data with new parameters
-            if mechanism_id in self.mechanism_layers:
-                layer_data = self.mechanism_layers[mechanism_id]
-
-                # The params from ParametricEditor contains the full mechanism_data
-                # Update the params field specifically
-                if "params" in params:
-                    layer_data["params"].update(params["params"])
-
-                    # For CAM, also update cam_position if center was changed
-                    if layer_data.get("type") == "cam":
-                        if "center_x" in params["params"] and "center_y" in params["params"]:
-                            layer_data["cam_position"] = [
-                                params["params"]["center_x"],
-                                params["params"]["center_y"]
-                            ]
-
-                # Regenerate mechanism simulation with new parameters
-                self._regenerate_mechanism_simulation(mechanism_id, layer_data)
-
-                # Update visual representation - pass full layer_data, not just params!
-                self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
-
-        except Exception as e:
-            pass
+        """Handle mechanism update by delegating to the manager."""
+        self.parametric_manager._on_parametric_mechanism_update(mechanism_id, params)
 
     @pyqtSlot(str)
     def _on_parametric_visual_refresh(self, mechanism_id: str):
-        """
-        Handle visual refresh request from parametric controller.
-
-        Args:
-            mechanism_id: Mechanism ID to refresh visuals for
-        """
-        try:
-            if mechanism_id in self.mechanism_layers:
-                layer_data = self.mechanism_layers[mechanism_id]
-                self._refresh_mechanism_visuals(mechanism_id, layer_data)
-
-        except Exception as e:
-            pass
+        """Handle visual refresh by delegating to the manager."""
+        self.parametric_manager._on_parametric_visual_refresh(mechanism_id)
 
     def _update_mechanism_visuals_realtime(self, mechanism_id: str, mechanism_data: dict[str, Any]):
-        """
-        Update mechanism visuals in real-time during parametric editing.
-        CRITICAL: This needs to be extremely fast for smooth interaction.
-
-        Args:
-            mechanism_id: ID of mechanism being updated
-            mechanism_data: Full mechanism data (not just params)
-        """
-        try:
-            # Use new visualization system if available for updates
-            if self.visualization_adapter and VISUALIZATION_AVAILABLE:
-                try:
-                    # Set transform function if needed
-                    transform_func = self._get_scene_transform_function(mechanism_data)
-                    if transform_func:
-                        mechanism_data["transform_function"] = transform_func
-
-                    # Update existing visuals (much faster than recreating)
-                    self.visualization_adapter.update_mechanism_visuals(mechanism_id, mechanism_data)
-
-                    # Update display
-                    self.mechanism_view.update()
-
-                    return
-
-                except Exception as e:
-                    pass
-
-            # Legacy fallback - recreate visuals (slower)
-            layer_data = self.mechanism_layers.get(mechanism_id, mechanism_data)
-
-            # Critical: Stop animation during update to prevent conflicts
-            animation_was_running = self.animation_timer.isActive()
-            if animation_was_running:
-                self._on_stop_animation()
-
-            # Extract the previous visual properties to restore later (for consistency)
-            visual_items = layer_data.get("visual_items", [])
-            original_visual_properties = []
-            for item in visual_items:
-                if item and not sip.isdeleted(item):
-                    try:
-                        props = {
-                            'pen': item.pen() if hasattr(item, 'pen') else None,
-                            'brush': item.brush() if hasattr(item, 'brush') else None,
-                            'z_value': item.zValue(),
-                            'visible': item.isVisible(),
-                            'enabled': item.isEnabled()
-                        }
-                        original_visual_properties.append(props)
-                    except RuntimeError:
-                        # Item was deleted
-                        original_visual_properties.append({})
-
-            # Remove old visual items from scene
-            for item in visual_items:
-                if item and not sip.isdeleted(item):
-                    try:
-                        if item.scene() == self.mechanism_scene:
-                            self.mechanism_scene.removeItem(item)
-                    except RuntimeError:
-                        # Item was already deleted
-                        pass
-
-            # Recreate visual items with updated parameters
-            mechanism_type = layer_data.get("type")
-            new_items = []
-
-            if mechanism_type == "4_bar_linkage":
-                new_items = self._create_4bar_linkage_visuals(layer_data)
-            elif mechanism_type == "6_bar_linkage":
-                new_items = self._create_6bar_linkage_visuals(layer_data)
-            elif mechanism_type == "cam":
-                new_items = self._create_cam_visuals(layer_data)
-            elif mechanism_type == "gear":
-                new_items = self._create_gear_visuals(layer_data)
-            elif mechanism_type == "planetary_gear":
-                new_items = self._create_planetary_gear_visuals(layer_data)
-            else:
-                pass
-
-            # CRITICAL: Apply original visual properties to new items if available
-            for i, item in enumerate(new_items):
-                if i < len(original_visual_properties) and item:
-                    try:
-                        props = original_visual_properties[i]
-                        if props.get('pen') and hasattr(item, 'setPen'):
-                            item.setPen(props['pen'])
-                        if props.get('brush') and hasattr(item, 'setBrush'):
-                            item.setBrush(props['brush'])
-                        if props.get('z_value'):
-                            item.setZValue(props['z_value'])
-                        if props.get('visible') is not None:
-                            item.setVisible(props['visible'])
-                        if props.get('enabled') is not None:
-                            item.setEnabled(props['enabled'])
-                    except (RuntimeError, KeyError):
-                        # Item properties couldn't be restored - continue
-                        continue
-
-            # Store updated visual items
-            layer_data["visual_items"] = new_items
-
-            # Skip handle position update if parametric_handles doesn't exist
-            # This is for the new parametric system which uses ParametricEditor
-            if hasattr(self, 'parametric_handles') and mechanism_id in self.parametric_handles and self.parametric_mode_enabled:
-                self._update_handle_positions_for_mechanism(mechanism_id, layer_data)
-
-            # Update display
-            self.mechanism_view.update()
-
-            # Resume animation if it was running (but only if parametric mode allows it)
-            if animation_was_running and not self.parametric_mode_enabled:
-                self._on_start_animation()
-
-        except Exception as e:
-            pass
+        """Update mechanism visuals in real-time by delegating to the manager."""
+        self.parametric_manager._update_mechanism_visuals_realtime(mechanism_id, mechanism_data)
 
     def _update_handle_positions_for_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
         """

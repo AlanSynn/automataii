@@ -147,8 +147,6 @@ class MechanismDesignTabSignals:
     def _connect_parametric_signals(self, tab: 'MechanismDesignTab') -> None:
         """Connect parametric editing signals."""
         parametric_edit_btn = self.widgets.get('parametric_edit_btn')
-        show_dimensions_btn = self.widgets.get('show_dimensions_btn')
-        export_blueprint_btn = self.widgets.get('export_blueprint_btn')
         
         if parametric_edit_btn and hasattr(tab, 'toggle_parametric_mode'):
             connection = parametric_edit_btn.clicked.connect(
@@ -156,17 +154,6 @@ class MechanismDesignTabSignals:
             )
             self._connections.append(connection)
             
-        if show_dimensions_btn and hasattr(tab, '_show_current_mechanism_dimensions'):
-            connection = show_dimensions_btn.clicked.connect(
-                tab._show_current_mechanism_dimensions
-            )
-            self._connections.append(connection)
-            
-        if export_blueprint_btn and hasattr(tab, '_export_current_mechanism_blueprint'):
-            connection = export_blueprint_btn.clicked.connect(
-                tab._export_current_mechanism_blueprint
-            )
-            self._connections.append(connection)
             
     def _connect_external_signals(self, tab: 'MechanismDesignTab') -> None:
         """Connect external system signals."""

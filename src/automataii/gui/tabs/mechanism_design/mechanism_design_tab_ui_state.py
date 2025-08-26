@@ -216,14 +216,7 @@ class MechanismDesignTabUIState:
             
     def _update_parametric_specific_buttons(self, parametric_enabled: bool) -> None:
         """Update buttons that are only visible in parametric mode."""
-        show_dimensions_btn = self.widgets.get('show_dimensions_btn')
-        export_blueprint_btn = self.widgets.get('export_blueprint_btn')
-        
-        if show_dimensions_btn:
-            show_dimensions_btn.setVisible(parametric_enabled)
-            
-        if export_blueprint_btn:
-            export_blueprint_btn.setVisible(parametric_enabled)
+        pass
             
     def _update_animation_controls_for_parametric(self, parametric_enabled: bool) -> None:
         """Update animation controls when parametric mode changes."""
