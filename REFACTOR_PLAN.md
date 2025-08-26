@@ -1,212 +1,137 @@
-### 1\. Method Call Chain Analysis (AST Simulation)
+분석 결과는 다음과 같습니다.
 
-Analyzing the code reveals several key operational flows, or method call chains, that are triggered by user actions or internal events. Understanding these chains is crucial for identifying logical units to refactor.
+### 1\. AST 기반 주요 메소드 호출 체인
 
-  * **Mechanism Recommendation and Generation:**
+사용자 인터랙션(버튼 클릭 등)을 시작점으로 주요 기능의 메소드 호출 체인을 분석하면 코드의 흐름과 의존성을 파악할 수 있습니다. **파라메트릭 편집 모드**는 가장 크고 독립적인 기능 단위 중 하나로, 호출 체인은 다음과 같습니다.
 
-      * `_on_get_recommendations()` (User clicks "Get Mechanism")
-          * `MechanismRecommendationDialog.exec()`
-          * `_generate_mechanism_from_candidate()` (Triggered by dialog signal)
-              * `_clear_mechanism_for_part()`
-              * `_clear_mechanism_trace()`
-              * `convert_json_params_to_internal()`
-              * `_verify_coupler_joint_connection()`
-              * `_adjust_mechanism_to_target_joint()`
-              * `_add_mechanism_layer()`
-              * `_generate_mechanism_visuals_directly()`
-                  * `handle_mechanism_visuals()`
-                      * `_create_..._visuals()` (e.g., `_create_4bar_linkage_visuals`)
+1.  **사용자 입력**: `parametric_edit_btn` (파라메트릭 편집 버튼) 클릭
+      * **연결된 슬롯**: `toggle_parametric_mode`
+2.  `toggle_parametric_mode(enabled)`
+      * `_is_animation_running()`: 애니메이션 상태를 확인하고 충돌을 방지하기 위해 중지합니다.
+      * `_enable_parametric_mode()` 또는 `_disable_parametric_mode()`를 호출하여 모드를 전환합니다.
+3.  `_enable_parametric_mode()`
+      * `self.parametric_editor.create_editor()`: `mechanism_layers`에 있는 각 메커니즘에 대한 편집기를 생성합니다.
+      * `self.parametric_editor.enable_editing()`: 생성된 핸들을 씬(scene)에 표시하고 상호작용을 활성화합니다.
+      * `ui_state_manager.set_parametric_mode()`: UI 상태를 업데이트합니다.
+4.  **사용자 핸들 조작**: 사용자가 그래픽 씬의 핸들을 드래그합니다.
+      * **시그널 발생**: `ParametricEditor` 내부의 `MechanismEditor`가 `mechanism_updated` 시그널을 발생시킵니다.
+      * **연결된 슬롯**: `_on_parametric_mechanism_update`
+5.  `_on_parametric_mechanism_update(mechanism_id, params)`
+      * `_regenerate_mechanism_simulation(mechanism_id, layer_data)`: 변경된 파라미터를 기반으로 메커니즘의 운동학 시뮬레이션 데이터를 다시 계산합니다.
+      * `_update_mechanism_visuals_realtime(mechanism_id, layer_data)`: 시뮬레이션 결과를 바탕으로 메커니즘의 시각적 요소를 즉시 업데이트하여 사용자에게 피드백을 제공합니다.
 
-  * **Animation Control:**
-
-      * `_on_start_animation()` (User clicks "Play")
-          * `_setup_mechanism_ik_integration()`
-          * `animation_timer.start()`
-      * `_update_animation()` (Called by `animation_timer.timeout`)
-          * `_calculate_mechanism_output()`
-              * `_get_scene_transform_function()`
-          * `_get_target_joint_for_mechanism_control()`
-          * `main_window.ik_manager.set_mechanism_position_target()`
-          * `_update_mechanism_visuals_for_animation()`
-          * `_update_mechanism_path_trace()`
-      * `on_skeleton_updated()` (Receives signal from `ik_manager`)
-          * `skeleton_service.on_skeleton_updated()`
-          * `skeleton_service.update_parts_from_skeleton()`
-
-  * **Parametric Editing:**
-
-      * `toggle_parametric_mode()` (User clicks "Parametric Edit")
-          * `_enable_parametric_mode()` or `_disable_parametric_mode()`
-          * `_enable_parametric_mode()`
-              * `parametric_editor.create_editor()`
-              * `parametric_editor.set_active_editor()`
-      * `_on_parametric_mechanism_update()` (Triggered by `parametric_editor` signal)
-          * `_regenerate_mechanism_simulation()`
-          * `_update_mechanism_visuals_realtime()`
-          * `_refresh_mechanism_visuals()`
+이 호출 체인은 메커니즘 데이터(`self.mechanism_layers`)와 그래픽 씬(`self.mechanism_scene`)에 크게 의존하지만, 그 외 `MechanismDesignTab`의 다른 기능들과는 비교적 독립적으로 동작합니다.
 
 -----
 
-### 2\. Safely Separable Components (Minimal Modification)
+### 2\. 안전하게 분리 가능한 클래스 (수정 최소화)
 
-Several groups of methods in `MechanismDesignTab` have distinct responsibilities and can be extracted into separate classes with almost no changes to their internal logic. This is the most effective way to reduce the size of the main class file safely.
+이 코드에서 가장 많은 라인을 차지하며, 거의 수정 없이 안전하게 분리할 수 있는 부분은 \*\*파라메트릭 디자인 시스템 (Parametric Design System)\*\*입니다.
 
-1.  **`MechanismVisualsFactory`:**
+  * **분리 대상**: `PARAMETRIC DESIGN SYSTEM (ULTRATHINK Architecture)` 주석 아래에 있는 모든 메소드와 관련 상태 변수.
+  * **추정 라인 수**: 약 600 라인 이상
+  * **분리 가능 클래스명**: `ParametricEditingManager`
 
-      * **Description:** A class dedicated solely to creating the `QGraphicsItem` objects for different mechanisms. These methods are almost pure functions; they take data and return visual items.
-      * **Methods to Move:**
-          * `_create_4bar_linkage_visuals()`
-          * `_create_5bar_linkage_visuals()`
-          * `_create_6bar_linkage_visuals()`
-          * `_create_cam_visuals()`
-          * `_create_gear_visuals()`
-          * `_create_planetary_gear_visuals()`
-      * **Safety:** **Extremely high.** The only dependency is `self.mechanism_scene` for adding items. The factory can simply accept the scene object in its constructor (`__init__(self, scene)`).
+#### 분리 가능한 메소드 목록:
 
-2.  **`MechanismDesignUI`:**
+`_initialize_parametric_system`, `toggle_parametric_mode`, `_enable_parametric_mode`, `_disable_parametric_mode`, `_disable_animation_controls_for_parametric`, `_enable_animation_controls_after_parametric`, `_on_parametric_mechanism_update`, `_on_parametric_visual_refresh`, `_update_mechanism_visuals_realtime`, `_update_handle_positions_for_mechanism`, `_regenerate_mechanism_simulation`, `_solve_circle_intersection`, `_recreate_mechanism_visuals`, `_get_anchor_positions_for_mechanism`, `_disable_mechanism_visual_interaction`, `_enable_mechanism_visual_interaction`, `_on_layer_selection_changed` 내부의 파라메트릭 관련 로직 등.
 
-      * **Description:** This class would manage the creation, styling, and layout of all UI widgets (buttons, lists, group boxes). It would separate the UI definition from the application logic.
-      * **Methods to Move:**
-          * `_setup_ui()` (This would become the core of the new class).
-      * **Safety:** **Very high.** This is a standard practice for cleaning up large Qt widgets. The main `MechanismDesignTab` class would instantiate this UI class and then connect the UI element signals (e.g., `self.ui.recommendation_btn.clicked.connect(...)`) to its own handler methods.
+#### 분리가 안전한 이유:
 
-3.  **`AnimationController`:**
-
-      * **Description:** A dedicated controller to manage the animation state and timer.
-      * **Methods to Move:**
-          * `_on_start_animation()`
-          * `_on_stop_animation()`
-          * `_on_reset_animation()`
-          * `_update_animation()`
-      * **Safety:** **High.** This class would need references to the main tab to access data (`mechanism_layers`, `animation_time`) and the `ik_manager`. This neatly isolates all timer-related logic.
+1.  **기능적 응집도**: 이 메소드들은 모두 "파라메트릭 편집"이라는 단일 책임을 수행하기 위해 존재합니다.
+2.  **낮은 결합도**: 이 기능들은 `MechanismDesignTab`의 특정 상태(e.g., `mechanism_layers`, `mechanism_scene`, `parametric_editor`)에만 접근하며, 다른 탭의 기능(애니메이션, 추천, 데이터 로딩)과 직접적인 호출 관계가 거의 없습니다.
+3.  **단일 진입점**: `toggle_parametric_mode` 메소드가 외부(UI 버튼)에서 호출되는 주요 진입점 역할을 하므로, 이 메소드의 인터페이스만 유지하면 기존 로직을 그대로 이전할 수 있습니다.
 
 -----
 
-### 3\. Refactoring Execution Status
+### 3\. 가장 안전한 리팩토링 방향 (UI/UX 보존)
 
-**✅ COMPLETED - Step 1: Extract the `MechanismVisualsFactory` (Lowest Risk)**
+UI/UX를 100% 보존하면서 가장 안전하게 코드를 개선하는 방법은 **'클래스 추출(Extract Class)' 리팩토링**과 **'위임(Delegation)' 패턴**을 사용하는 것입니다. 이 방법은 기존 코드의 로직을 거의 수정하지 않고 구조만 변경하여 안정성을 극대화합니다.
 
-**Status:** ✅ **COMPLETED** (January 2025)
+#### 단계별 리팩토링 계획:
 
-**Implementation Results:**
-- ✅ Created: `/src/automataii/gui/tabs/mechanism_visuals_factory.py` (~400 lines)
-- ✅ Extracted Methods:
-  - `create_4bar_linkage_visuals()` 
-  - `create_5bar_linkage_visuals()` 
-  - `create_6bar_linkage_visuals()`
-  - `create_cam_visuals()`
-  - `create_gear_visuals()`
-  - `create_planetary_gear_visuals()`
-- ✅ Factory instantiation in main class: `self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)`
-- ✅ All method calls updated to use factory pattern
-- ✅ Original methods removed from main file (481 lines removed)
+**1단계: `ParametricEditingManager` 클래스 생성**
 
-**Achieved Benefits:**
-- 📉 Reduced main file size by ~800 lines
-- 🎯 Clean separation of visual creation logic
-- 🔄 Factory pattern implementation
-- ✅ Zero functional changes - all features preserved
+`MechanismDesignTab`의 파라메트릭 편집 관련 모든 로직을 담을 새로운 클래스 `ParametricEditingManager`를 만듭니다. 이 클래스는 `MechanismDesignTab`의 인스턴스를 생성자에서 인자로 받아 필요한 공유 자원(씬, 데이터, UI 위젯 등)에 접근합니다.
 
----
+```python
+# (새로운 파일: parametric_editing_manager.py)
+class ParametricEditingManager:
+    def __init__(self, parent_tab):
+        self.parent_tab = parent_tab  # MechanismDesignTab 인스턴스
+        self.parametric_mode_enabled = False
 
-**✅ COMPLETED - Step 2: Extract the `MechanismDesignUI` (Low Risk)**
+        # _initialize_parametric_system 로직을 여기에 포함
+        if PARAMETRIC_AVAILABLE:
+            self._initialize_parametric_system()
 
-**Status:** ✅ **COMPLETED** (January 2025)
+    def _initialize_parametric_system(self):
+        # ... 기존 코드 ...
+        # self.parametric_editor.mechanism_updated.connect(...) 대신
+        # self.parent_tab.parametric_editor.mechanism_updated.connect(self._on_parametric_mechanism_update)
+        pass
 
-**Implementation Results:**
-- ✅ Created: `/src/automataii/gui/tabs/mechanism_design_ui.py` (~400 lines)
-- ✅ Extracted complete `_setup_ui()` method as `setup()`
-- ✅ All UI elements moved to UI class with backward compatibility references
-- ✅ UI instantiation: `self.ui = MechanismDesignUI()` + `self.ui.setup(self)`
-- ✅ Signal connections maintained through reference attributes
+    def toggle_parametric_mode(self, enabled=None):
+        # ... 기존 toggle_parametric_mode 로직 전체를 여기에 이동 ...
+        # self.mechanism_layers -> self.parent_tab.mechanism_layers
+        # self.mechanism_scene -> self.parent_tab.mechanism_scene
+        pass
 
-**Achieved Benefits:**
-- 🎨 Complete UI/Logic separation
-- 📦 Modular UI component
-- 🔧 Easier UI maintenance and testing
-- ✅ Full backward compatibility maintained
+    def _enable_parametric_mode(self):
+        # ... 기존 _enable_parametric_mode 로직 전체를 여기에 이동 ...
+        pass
 
----
-
-**✅ COMPLETED - Step 3: Consolidate Services (Medium Risk)**
-
-**Status:** ✅ **COMPLETED** (January 2025)
-
-**Implementation Results:**
-- ✅ Created: `/src/automataii/services/mechanism_service.py` (~160 lines)
-  - `verify_coupler_joint_connection()`
-  - `adjust_mechanism_to_target_joint()`
-- ✅ Created: `/src/automataii/services/skeleton_service.py` (~50 lines)  
-  - `position_parts_at_anchor_joints()`
-- ✅ Service instantiation in main class
-- ✅ Method delegation implemented
-- ✅ Original methods removed from main file
-
-**Achieved Benefits:**
-- 🏗️ Service-oriented architecture established
-- 🎯 Business logic properly separated
-- 🧪 Improved testability
-- 📈 Better code maintainability
-
----
-
-### 4\. PHASE 1 COMPLETION SUMMARY
-
-**🎉 PHASE 1 REFACTORING SUCCESSFULLY COMPLETED**
-
-**Final Results:**
-- **Original File Size:** ~6,640 lines (500+ LOC policy violation)
-- **Current File Size:** 5,849 lines (**791 lines reduced**)
-- **Files Created:** 4 new modular components
-- **Architecture:** Successfully implemented SOLID principles
-- **Functionality:** ✅ 100% preserved - Application fully functional
-
-**Created Architecture:**
-```
-MechanismDesignTab (Main Controller - 5,849 lines)
-├── MechanismVisualsFactory (Visual Creation - ~400 lines)
-├── MechanismDesignUI (UI Components - ~400 lines)  
-├── MechanismService (Business Logic - ~160 lines)
-└── SkeletonService (Skeleton Operations - ~50 lines)
+    # ... 파라메트릭 관련 다른 모든 private 메소드들도 여기에 이동 ...
 ```
 
----
+**2단계: `MechanismDesignTab`에서 `ParametricEditingManager` 사용**
 
-### 5\. PHASE 2: NEXT RECOMMENDED STEPS
+기존 `MechanismDesignTab` 클래스에서는 `ParametricEditingManager`의 인스턴스를 생성하고, 관련 메소드 호출을 이 인스턴스에 위임합니다.
 
-**🎯 Priority: Address Remaining 500+ LOC Policy Violation**
+```python
+# (기존 MechanismDesignTab 클래스 수정)
 
-The file is still 5,849 lines. To fully comply with the 500+ LOC policy, additional refactoring phases are recommended:
+# from .parametric_editing_manager import ParametricEditingManager # import 추가
 
-**Phase 2A: Animation Controller Extraction (Medium Risk)**
-- Extract animation-related methods into `AnimationController`
-- Target methods: `_on_start_animation()`, `_on_stop_animation()`, `_update_animation()`
-- **Estimated reduction:** ~200-300 lines
+class MechanismDesignTab(QWidget):
+    def __init__(self, main_window, parent=None):
+        super().__init__(parent)
+        # ... 기존 초기화 코드 ...
 
-**Phase 2B: Event Handler Extraction (Medium Risk)**  
-- Extract event handling into `MechanismEventHandler`
-- Target: UI event handlers and signal connections
-- **Estimated reduction:** ~400-500 lines
+        # ParametricEditingManager 인스턴스 생성
+        self.parametric_manager = ParametricEditingManager(self)
 
-**Phase 2C: Data Management Extraction (High Risk)**
-- Extract data management into `MechanismDataManager`
-- Target: Layer management, state tracking, data validation
-- **Estimated reduction:** ~600-800 lines
+        # ... 기존 초기화 코드 ...
 
-**Phase 2D: Configuration and Utilities (Low Risk)**
-- Extract configuration and utility methods
-- **Estimated reduction:** ~200-300 lines
+        # UI 시그널 연결은 그대로 유지
+        self.signal_manager.connect_all_signals(self)
 
-**Target Goal:** Reduce main file to under 500 lines through systematic extraction.
+    # ... 다른 메소드들은 그대로 유지 ...
 
----
+    # ================================================================================
+    # PARAMETRIC DESIGN SYSTEM (ULTRATHINK Architecture)
+    # ================================================================================
 
-### 6\. Success Metrics Achieved
+    # 기존의 긴 메소드들을 간단한 위임 호출로 변경
+    def toggle_parametric_mode(self, enabled: bool | None = None):
+        """Toggle parametric editing mode on/off by delegating to the manager."""
+        self.parametric_manager.toggle_parametric_mode(enabled)
 
-- ✅ **Modularity:** Components properly separated by responsibility
-- ✅ **Testability:** Each component can be unit tested independently  
-- ✅ **Maintainability:** Changes isolated to specific components
-- ✅ **Reusability:** Factory and Service patterns enable reuse
-- ✅ **SOLID Compliance:** Single Responsibility, Dependency Inversion applied
-- ✅ **Zero Regressions:** All functionality preserved
-- ✅ **Code Quality:** Improved architecture without breaking changes
+    @pyqtSlot(str, dict)
+    def _on_parametric_mechanism_update(self, mechanism_id: str, params: dict[str, Any]):
+        """Handle mechanism update by delegating to the manager."""
+        self.parametric_manager._on_parametric_mechanism_update(mechanism_id, params)
+
+    @pyqtSlot(str)
+    def _on_parametric_visual_refresh(self, mechanism_id: str):
+        """Handle visual refresh by delegating to the manager."""
+        self.parametric_manager._on_parametric_visual_refresh(mechanism_id)
+
+    # 기존에 있던 파라메트릭 관련 모든 메소드들은 삭제하고 위와 같이 위임 메소드만 남김
+```
+
+#### 이 방법의 장점:
+
+  * **완벽한 안전성**: 기존 코드의 동작 로직은 전혀 변경되지 않고, 단지 다른 클래스로 물리적인 위치만 이동합니다. 버그 발생 가능성이 거의 없습니다.
+  * **UI/UX 보존**: `MechanismDesignTab`의 퍼블릭 인터페이스(UI 시그널에 연결된 슬롯)가 그대로 유지됩니다. 따라서 사용자 관점에서는 어떤 변화도 감지할 수 없습니다.
+  * **가독성 및 유지보수성 향상**: `MechanismDesignTab`의 코드 라인 수가 600줄 이상 극적으로 줄어들어 클래스의 핵심 책임(탭의 전반적인 상태 관리 및 다른 모듈과의 연동)이 명확해집니다. 파라메트릭 편집 관련 수정이 필요할 경우, `ParametricEditingManager` 클래스만 보면 되므로 유지보수가 용이해집니다.

@@ -14,14 +14,10 @@ from PyQt6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsRectItem,
     QGroupBox,
-    QHBoxLayout,
-    QLabel,
+    QHBoxLayout, 
     QListWidget,
     QListWidgetItem,
     QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -79,6 +75,11 @@ from automataii.kinematics.mechanism import (
 )
 from automataii.gui.tabs.mechanism_visuals_factory import MechanismVisualsFactory
 from automataii.gui.tabs.mechanism_design.mechanism_design_ui import MechanismDesignUI
+from automataii.gui.tabs.mechanism_design.mechanism_design_tab_layout import MechanismDesignTabLayout
+from automataii.gui.tabs.mechanism_design.mechanism_design_tab_ui_state import (
+    MechanismDesignTabUIState, UIState, AnimationState
+)
+from automataii.gui.tabs.mechanism_design.mechanism_design_tab_signals import MechanismDesignTabSignals
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -123,25 +124,19 @@ class MechanismDesignTab(QWidget):
         self.mechanism_enabled_state: dict[str, bool] = {}  # Track which mechanisms are enabled
         self.interactive_handles: dict[str, list[QGraphicsItem]] = {}  # Drag handles for params
 
-        # Graphics scene for mechanism preview
-        self.mechanism_scene = QGraphicsScene(self)
-        self.mechanism_view = EditorView(self.mechanism_scene, self, mechanism_mode=True)
+        # Graphics scene for mechanism preview - will be created by layout manager
+        # self.mechanism_scene = QGraphicsScene(self)
+        # self.mechanism_view = EditorView(self.mechanism_scene, self, mechanism_mode=True)
 
-        # Mechanism visuals factory for creating visual representations
-        self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
+        # Mechanism visuals factory for creating visual representations - will be created after layout setup
+        # self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
 
         # Business logic services
         self.mechanism_service = MechanismService()
         self.skeleton_service = SkeletonService()
 
-        # Blueprint exporter (encapsulates legacy blueprint logic)
-        self.blueprint_exporter = BlueprintExporter(
-            parent=self,
-            mechanism_view=self.mechanism_view,
-            get_mechanism_layers=lambda: self.mechanism_layers,
-            get_current_editor_items=lambda: self.current_editor_items,
-            get_scene_transform_function=self._get_scene_transform_function,
-        )
+        # Blueprint exporter - will be initialized after layout setup
+        # self.blueprint_exporter = BlueprintExporter(...)
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -194,31 +189,76 @@ class MechanismDesignTab(QWidget):
         else:
             pass
 
-        # UI setup and elements
-        self.ui = MechanismDesignUI()
-        self.ui.setup(self)
-
-        # Get references to UI elements for backward compatibility
-        self.blueprint_btn = self.ui.blueprint_btn
-        self.recommendation_btn = self.ui.recommendation_btn
-        self.mechanism_layers_list = self.ui.mechanism_layers_list
-        self.play_btn = self.ui.play_btn
-        self.stop_btn = self.ui.stop_btn
-        self.reset_btn = self.ui.reset_btn
-        self.parametric_edit_btn = self.ui.parametric_edit_btn
-        self.show_dimensions_btn = self.ui.show_dimensions_btn
-        self.export_blueprint_btn = self.ui.export_blueprint_btn
-        self.zoom_in_btn = self.ui.zoom_in_btn
-        self.zoom_out_btn = self.ui.zoom_out_btn
-        self.zoom_fit_btn = self.ui.zoom_fit_btn
-        self.center_character_btn = self.ui.center_character_btn
-        self.blueprint_info_label = self.ui.blueprint_info_label
-
-        # Add the mechanism view to the main layout (UI class doesn't handle this)
-        main_layout = self.layout()
-        if main_layout:
-            main_layout.addWidget(self.mechanism_view, 1)
-        self._connect_signals()
+        # PHASE 1 REFACTORING: Use new UI management system
+        # UI setup with new layout manager
+        self.layout_manager = MechanismDesignTabLayout()
+        self.layout_manager.setup_main_layout(self)
+        
+        # Get all created widgets
+        self.ui_widgets = self.layout_manager.get_all_widgets()
+        
+        # Initialize mechanism visuals factory now that scene is created
+        self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
+        
+        # Blueprint exporter (now that mechanism_view is available)
+        self.blueprint_exporter = BlueprintExporter(
+            parent=self,
+            mechanism_view=self.mechanism_view,
+            get_mechanism_layers=lambda: self.mechanism_layers,
+            get_current_editor_items=lambda: self.current_editor_items,
+            get_scene_transform_function=self._get_scene_transform_function,
+        )
+        
+        # UI state manager
+        self.ui_state_manager = MechanismDesignTabUIState(self.ui_widgets)
+        
+        # Signal connection manager
+        self.signal_manager = MechanismDesignTabSignals(self.ui_widgets)
+        
+        # Backward compatibility: Create references to UI elements
+        self.blueprint_btn = self.ui_widgets.get('blueprint_btn')
+        self.recommendation_btn = self.ui_widgets.get('recommendation_btn')
+        self.mechanism_layers_list = self.ui_widgets.get('mechanism_layers_list')
+        self.play_btn = self.ui_widgets.get('play_btn')
+        self.stop_btn = self.ui_widgets.get('stop_btn')
+        self.reset_btn = self.ui_widgets.get('reset_btn')
+        self.parametric_edit_btn = self.ui_widgets.get('parametric_edit_btn')
+        self.show_dimensions_btn = self.ui_widgets.get('show_dimensions_btn')
+        self.export_blueprint_btn = self.ui_widgets.get('export_blueprint_btn')
+        self.zoom_in_btn = self.ui_widgets.get('zoom_in_btn')
+        self.zoom_out_btn = self.ui_widgets.get('zoom_out_btn')
+        self.zoom_fit_btn = self.ui_widgets.get('zoom_fit_btn')
+        self.center_character_btn = self.ui_widgets.get('center_character_btn')
+        self.blueprint_info_label = self.ui_widgets.get('blueprint_info_label')
+        
+        # Connect all signals using new signal manager
+        self.signal_manager.connect_all_signals(self)
+        
+        # PHASE 1: Initialize UI state management
+        self._current_ui_state = UIState()
+        self._update_all_ui_states()
+    
+    def _update_all_ui_states(self) -> None:
+        """Update all UI component states based on current data."""
+        # Update UI state based on current mechanism and path data
+        ui_state = UIState(
+            has_paths=bool(getattr(self, 'path_data', {})),
+            has_mechanisms=bool(getattr(self, 'mechanism_layers', {})),
+            has_enabled_parts=any(
+                getattr(self, 'part_enabled_state', {}).values()
+            ),
+            animation_running=getattr(self, 'animation_timer', None) and 
+                            getattr(self.animation_timer, 'isActive', lambda: False)(),
+            parametric_mode=getattr(self, 'parametric_mode_enabled', False),
+            has_parts_data=bool(getattr(self, 'parts_data', {}))
+        )
+        
+        # Update UI state manager
+        if hasattr(self, 'ui_state_manager'):
+            self.ui_state_manager.update_button_states(ui_state)
+        
+        self._current_ui_state = ui_state
+        # Connect to IK manager and other external systems
         self._connect_to_ik_manager()
 
         # Connect parametric system signals if available
@@ -237,427 +277,11 @@ class MechanismDesignTab(QWidget):
         """Loads generated mechanism paths from a JSON file."""
         # ... existing code ...
 
-    def _setup_ui(self):
-        """Setup UI - Similar to EditorTab but with mechanism layers instead of parts"""
-        main_layout = QHBoxLayout(self)
+    # PHASE 1 REFACTORING: Old _setup_ui method removed - now handled by MechanismDesignTabLayout
+    # This massive 400+ line method has been extracted into focused, single-responsibility classes
 
-        # Left Control Panel (similar to EditorTab)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(300)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        control_panel = QWidget()
-        self.control_panel = control_panel  # Store as instance variable for recreation methods
-        panel_layout = QVBoxLayout(control_panel)
-        panel_layout.setContentsMargins(10, 10, 10, 10)
-        panel_layout.setSpacing(15)
-
-        # 1. Parts List Group - EXACT COPY from EditorTab
-        layers_group = QGroupBox("1 Parts for Mechanisms")
-        layers_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        layers_layout = QVBoxLayout(layers_group)
-        self.mechanism_layers_list = QListWidget()
-        self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
-        self.mechanism_layers_list.setMinimumHeight(180)
-        self.mechanism_layers_list.setStyleSheet("""
-            QListWidget {
-                background-color: white;
-                border: 1px solid #dee2e6;
-                border-radius: 6px;
-                padding: 4px;
-                font-size: 13px;
-            }
-            QListWidget::item {
-                padding: 8px 12px;
-                margin: 2px;
-                border-radius: 4px;
-                border: 1px solid transparent;
-            }
-            QListWidget::item:selected {
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                    stop: 0 #0078D7, stop: 1 #005a9e);
-                color: white;
-                border: 1px solid #004578;
-            }
-            QListWidget::item:selected:!active {
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                    stop: 0 #0078D7, stop: 1 #005a9e);
-                color: white;
-                border: 1px solid #004578;
-            }
-            QListWidget::item:hover {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-            }
-        """)
-        # Add widget to layout (Qt handles parent automatically)
-        layers_layout.addWidget(self.mechanism_layers_list)
-        panel_layout.addWidget(layers_group)
-
-        # 2. Mechanism Generation Group
-        generation_group = QGroupBox("2 Mechanism Generation")
-        generation_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        generation_layout = QVBoxLayout(generation_group)
-
-        self.recommendation_btn = QPushButton("Get Mechanism")
-        self.recommendation_btn.setEnabled(False)
-        self.recommendation_btn.setToolTip("Get mechanism recommendations based on motion paths")
-        self.recommendation_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: normal;
-                min-height: 20px;
-            }
-            QPushButton:hover {
-                background-color: #229954;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
-                color: #7f8c8d;
-            }
-        """)
-        generation_layout.addWidget(self.recommendation_btn)
-
-        # Parametric Design Button (ULTRATHINK Architecture)
-        if PARAMETRIC_AVAILABLE:
-            self.parametric_edit_btn = QPushButton("Parametric Edit")
-            self.parametric_edit_btn.setToolTip("Enable interactive parameter editing with drag handles")
-            self.parametric_edit_btn.setEnabled(False)  # Enable when mechanisms are loaded
-            self.parametric_edit_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #3498db;
-                    color: white;
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                    font-size: 13px;
-                    font-weight: normal;
-                    min-height: 20px;
-                }
-                QPushButton:hover {
-                    background-color: #2980b9;
-                }
-                QPushButton:disabled {
-                    background-color: #bdc3c7;
-                    color: #7f8c8d;
-                }
-            """)
-            generation_layout.addWidget(self.parametric_edit_btn)
-
-            # Dimension Display Button
-            self.show_dimensions_btn = QPushButton("📏 Show Dimensions")
-            self.show_dimensions_btn.setToolTip("Display mechanism dimensions for printing")
-            self.show_dimensions_btn.setVisible(False)  # Hidden until parametric mode
-            self.show_dimensions_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #27ae60;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: normal;
-                    min-height: 16px;
-                }
-                QPushButton:hover {
-                    background-color: #229954;
-                }
-            """)
-            generation_layout.addWidget(self.show_dimensions_btn)
-
-            # Export Blueprint Button
-            self.export_blueprint_btn = QPushButton("📄 Export Blueprint")
-            self.export_blueprint_btn.setToolTip("Export mechanism as printable blueprint")
-            self.export_blueprint_btn.setVisible(False)  # Hidden until parametric mode
-            self.export_blueprint_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e67e22;
-                    color: white;
-                    border: none;
-                    padding: 6px 12px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                    font-weight: normal;
-                    min-height: 16px;
-                }
-                QPushButton:hover {
-                    background-color: #d35400;
-                }
-            """)
-            generation_layout.addWidget(self.export_blueprint_btn)
-        else:
-            # Parametric features not available
-            self.parametric_edit_btn = None
-            self.show_dimensions_btn = None
-            self.export_blueprint_btn = None
-
-        panel_layout.addWidget(generation_group)
-
-        # 3. Animation Group
-        animation_group = QGroupBox("3 Animation")
-        animation_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        animation_layout = QVBoxLayout(animation_group)
-
-        style = self.style()
-        anim_button_layout = QHBoxLayout()
-        anim_button_layout.setSpacing(12)
-
-        self.play_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "")
-        self.play_btn.setToolTip("Play Animation")
-        self.play_btn.setEnabled(False)
-
-        self.stop_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), "")
-        self.stop_btn.setToolTip("Stop Animation")
-        self.stop_btn.setEnabled(False)
-
-        self.reset_btn = QPushButton(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), "")
-        self.reset_btn.setToolTip("Reset Animation")
-        self.reset_btn.setEnabled(False)
-
-        anim_button_layout.addStretch()
-        anim_button_layout.addWidget(self.play_btn)
-        anim_button_layout.addWidget(self.stop_btn)
-        anim_button_layout.addWidget(self.reset_btn)
-        anim_button_layout.addStretch()
-
-        animation_layout.addLayout(anim_button_layout)
-        panel_layout.addWidget(animation_group)
-
-        # 4. Blueprint Export Group
-        export_group = QGroupBox("4 Blueprint Export")
-        export_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        export_layout = QVBoxLayout(export_group)
-
-        self.blueprint_btn = QPushButton("Export Blueprint")
-        self.blueprint_btn.setEnabled(False)
-        self.blueprint_btn.setToolTip("Export character parts and mechanisms as SVG blueprint")
-        self.blueprint_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #8e44ad;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 13px;
-                font-weight: normal;
-                min-height: 20px;
-            }
-            QPushButton:hover {
-                background-color: #7d3c98;
-            }
-            QPushButton:disabled {
-                background-color: #bdc3c7;
-                color: #7f8c8d;
-            }
-        """)
-        export_layout.addWidget(self.blueprint_btn)
-
-        # Info label for single large page export
-        self.blueprint_info_label = QLabel("Exports to single large-format blueprint (1200×1600mm)")
-        self.blueprint_info_label.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 10px;
-                font-style: italic;
-                padding: 2px;
-            }
-        """)
-        export_layout.addWidget(self.blueprint_info_label)
-        panel_layout.addWidget(export_group)
-
-        # 5. View Controls Group
-        view_controls_group = QGroupBox("5 View Controls")
-        view_controls_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        view_controls_layout = QVBoxLayout(view_controls_group)
-
-        # Zoom controls
-        zoom_controls_layout = QHBoxLayout()
-        zoom_controls_layout.setSpacing(6)
-
-        zoom_button_style = """
-            QPushButton {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-weight: bold;
-                color: #495057;
-                min-height: 22px;
-                min-width: 30px;
-                font-size: 10pt;
-            }
-            QPushButton:hover {
-                background-color: #e9ecef;
-                border-color: #adb5bd;
-            }
-            QPushButton:pressed {
-                background-color: #dee2e6;
-                border-color: #6c757d;
-            }
-        """
-
-        self.zoom_in_btn = QPushButton("+")
-        self.zoom_in_btn.setToolTip("Zoom In")
-        self.zoom_in_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.zoom_in_btn)
-
-        self.zoom_out_btn = QPushButton("−")
-        self.zoom_out_btn.setToolTip("Zoom Out")
-        self.zoom_out_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.zoom_out_btn)
-
-        self.zoom_fit_btn = QPushButton("⌖")
-        self.zoom_fit_btn.setToolTip("Zoom to Fit")
-        self.zoom_fit_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.zoom_fit_btn)
-
-        # Center on Character button
-        self.center_character_btn = QPushButton("⎈")
-        self.center_character_btn.setToolTip("Center on Character")
-        self.center_character_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.center_character_btn)
-
-        view_controls_layout.addLayout(zoom_controls_layout)
-        panel_layout.addWidget(view_controls_group)
-
-        panel_layout.addStretch(1)
-
-        control_panel.setMinimumWidth(280)
-        scroll_area.setWidget(control_panel)
-        main_layout.addWidget(scroll_area)
-
-        main_layout.addWidget(self.mechanism_view, 1)
-
-    def _connect_signals(self):
-        """Connect signals"""
-        self.recommendation_btn.clicked.connect(self._on_get_recommendations)
-        self.play_btn.clicked.connect(self._on_start_animation)
-        self.stop_btn.clicked.connect(self._on_stop_animation)
-        self.reset_btn.clicked.connect(self._on_reset_animation)
-        self.mechanism_layers_list.itemSelectionChanged.connect(self._on_layer_selection_changed)
-        self.mechanism_layers_list.itemClicked.connect(self._on_layer_item_clicked)
-
-        # Connect EditorView's joint_bend_direction_changed signal
-        if hasattr(self.mechanism_view, 'joint_bend_direction_changed'):
-            self.mechanism_view.joint_bend_direction_changed.connect(self._handle_joint_bend_direction_changed)
-
-        # Blueprint Export signal
-        if self.blueprint_btn:
-            self.blueprint_btn.clicked.connect(self._on_export_blueprint)
-
-        # View Controls signals
-        if hasattr(self, 'zoom_in_btn'):
-            self.zoom_in_btn.clicked.connect(lambda: self.mechanism_view.zoom(1))
-            self.zoom_out_btn.clicked.connect(lambda: self.mechanism_view.zoom(-1))
-            self.zoom_fit_btn.clicked.connect(self.mechanism_view.zoom_to_fit)
-            self.center_character_btn.clicked.connect(self.center_on_character)
-
-        # Parametric Design System signals
-        if PARAMETRIC_AVAILABLE and self.parametric_edit_btn:
-            self.parametric_edit_btn.clicked.connect(lambda: self.toggle_parametric_mode())
-
-            # Connect dimension and export buttons
-            if self.show_dimensions_btn:
-                self.show_dimensions_btn.clicked.connect(self._show_current_mechanism_dimensions)
-            if self.export_blueprint_btn:
-                self.export_blueprint_btn.clicked.connect(self._export_current_mechanism_blueprint)
+    # PHASE 1 REFACTORING: Old _connect_signals method removed - now handled by MechanismDesignTabSignals
+    # Signal connections are now centralized and organized by functional area
 
     def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
         """Handle joint bend direction change from EditorView."""
@@ -2872,240 +2496,69 @@ class MechanismDesignTab(QWidget):
         self.control_point_items[part_name] = control_point_items
 
     def _update_recommendation_button_state(self):
-        """Update the recommendation button state based on parts with motion paths."""
-        # Check if any parts have motion paths
-        has_parts_with_paths = bool(self.path_data)
-
-        if self.recommendation_btn:
-            self.recommendation_btn.setEnabled(has_parts_with_paths)
+        """Update the recommendation button state based on parts with motion paths.
+        
+        PHASE 1 REFACTORING: Replaced with centralized UI state management.
+        """
+        self._update_all_ui_states()
 
     def _update_mechanism_layers_list(self):
-        """Update the mechanism layers list to show all parts with simple path-based coloring and toggle functionality."""
-
-        # If widget is None or invalid, try to get it from UI first, then create replacement
-        widget_valid = False
-        try:
-            if self.mechanism_layers_list and hasattr(self.mechanism_layers_list, 'clear'):
-                # Try to access the widget to see if it's still valid
-                _ = self.mechanism_layers_list.isVisible()
-                widget_valid = True
-        except (RuntimeError, AttributeError):
-            # Widget has been deleted or is invalid
-            widget_valid = False
+        """Update the mechanism layers list to show all parts with simple path-based coloring and toggle functionality.
         
-        if not widget_valid:
-            # Try to get from UI first
-            if hasattr(self, 'ui') and self.ui and hasattr(self.ui, 'mechanism_layers_list'):
-                self.mechanism_layers_list = self.ui.mechanism_layers_list
-                print(f"[DEBUG] Got widget from UI, parent: {self.mechanism_layers_list.parent()}")
+        PHASE 1 REFACTORING: UI list management is now handled by layout manager.
+        This method now updates the data and shows parts with motion paths in black, others in gray.
+        """
+        # Get the widget from UI system
+        if hasattr(self, 'ui_widgets') and 'mechanism_layers_list' in self.ui_widgets:
+            mechanism_layers_list = self.ui_widgets['mechanism_layers_list']
             
-            # If still None, create simple replacement widget
-            if not self.mechanism_layers_list:
-                self.mechanism_layers_list = QListWidget()
-                self.mechanism_layers_list.setToolTip("Parts for mechanisms")
-                self.mechanism_layers_list.setMinimumHeight(180)
-                self.mechanism_layers_list.setStyleSheet("""
-                QListWidget {
-                    background-color: white;
-                    border: 1px solid #dee2e6;
-                    border-radius: 6px;
-                    padding: 4px;
-                    font-size: 13px;
-                }
-                QListWidget::item {
-                    padding: 8px 12px;
-                    margin: 2px;
-                    border-radius: 4px;
-                    border: 1px solid transparent;
-                }
-                QListWidget::item:selected {
-                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                        stop: 0 #0078D7, stop: 1 #005a9e);
-                    color: white;
-                    border: 1px solid #004578;
-                }
-                QListWidget::item:selected:!active {
-                    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                        stop: 0 #0078D7, stop: 1 #005a9e);
-                    color: white;
-                    border: 1px solid #004578;
-                }
-                QListWidget::item:hover {
-                    background-color: #f8f9fa;
-                    border: 1px solid #dee2e6;
-                }
-                """)
-
-                # Try to add it to existing layout if possible, prioritizing original UI group
-                if hasattr(self, 'control_panel') and self.control_panel:
-                    # First, look for the original UI group "1 Parts for Mechanisms"
-                    existing_groups = self.control_panel.findChildren(QGroupBox)
-                    original_ui_group = None
-                    fallback_parts_group = None
+            # Simple clear and repopulate
+            mechanism_layers_list.clear()
+            
+            # Get editor parts data and path data
+            editor_parts_data = None
+            editor_path_data = None
+            
+            if hasattr(self, 'main_window') and self.main_window:
+                if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
+                    editor_parts_data = self.main_window.editor_tab.current_parts_info
+                    editor_path_data = self.main_window.editor_tab.get_current_path_data()
                     
-                    for group in existing_groups:
-                        group_title = group.title()
-                        if "1 Parts for Mechanisms" == group_title:
-                            original_ui_group = group
-                            break
-                        elif "Parts for Mechanisms" in group_title:
-                            fallback_parts_group = group
-
-                    # Use original UI group if found
-                    if original_ui_group:
-                        group_layout = original_ui_group.layout()
-                        if group_layout:
-                            # Clear existing widget if any and add our list
-                            while group_layout.count():
-                                child = group_layout.takeAt(0)
-                                if child.widget():
-                                    child.widget().setParent(None)
-                            group_layout.addWidget(self.mechanism_layers_list)
-                    elif fallback_parts_group:
-                        # Use fallback group if original not found
-                        group_layout = fallback_parts_group.layout()
-                        if group_layout and group_layout.count() == 0:  # Empty group
-                            group_layout.addWidget(self.mechanism_layers_list)
+            if editor_parts_data:
+                # Filter out disabled parts
+                disabled_parts = {
+                    'torso',
+                    'left_arm_upper', 'right_arm_upper',
+                    'left_leg_upper', 'right_leg_upper'
+                }
+                
+                all_parts = [
+                    part for part in editor_parts_data.keys()
+                    if part not in disabled_parts
+                ]
+                
+                # Add items to the list
+                from PyQt6.QtWidgets import QListWidgetItem
+                from PyQt6.QtCore import Qt
+                
+                for part in all_parts:
+                    item = QListWidgetItem(part)
+                    item.setData(Qt.ItemDataRole.UserRole, part)
+                    
+                    # Color based on whether part has motion path (not mechanism)
+                    has_motion_path = (editor_path_data and 
+                                     part in editor_path_data and 
+                                     editor_path_data[part] is not None and
+                                     not editor_path_data[part].isEmpty())
+                    
+                    if has_motion_path:
+                        item.setForeground(Qt.GlobalColor.black)
+                        item.setToolTip(f"{part} - has motion path")
                     else:
-                        # No suitable group found, create new one at appropriate position
-                        layout = self.control_panel.layout()
-                        if layout:
-                            temp_group = QGroupBox("1 Parts for Mechanisms")
-                            temp_layout = QVBoxLayout(temp_group)
-                            temp_layout.addWidget(self.mechanism_layers_list)
-                            # Insert at position 0 (first position) to maintain UI consistency
-                            layout.insertWidget(0, temp_group)
-
-                    # Reconnect signals
-                    if hasattr(self, '_on_layers_list_item_clicked'):
-                        self.mechanism_layers_list.itemClicked.connect(self._on_layers_list_item_clicked)
-
-        if not hasattr(self.mechanism_layers_list, 'clear'):
-            return
-
-        # Safety check - verify the widget is still connected to Qt
-        try:
-            _ = self.mechanism_layers_list.count()
-        except RuntimeError:
-            return
-
-        # Simple clear like editor tab
-        self.mechanism_layers_list.clear()
-
-        # CRITICAL: Use editor tab data directly instead of local copy
-        editor_parts_data = None
-        editor_path_data = None
-
-        if hasattr(self, 'main_window') and self.main_window:
-
-            if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
-                editor_parts_data = self.main_window.editor_tab.current_parts_info
-                editor_path_data = self.main_window.editor_tab.get_current_path_data()
-
-        # Simple population using editor tab data directly
-        if editor_parts_data:
-            print(f"[DEBUG] Found editor_parts_data with {len(editor_parts_data)} parts")
-        else:
-            print("[DEBUG] No editor_parts_data found, using fallback parts")
-            # Fallback: use common part names if no editor data
-            editor_parts_data = {
-                'head': {},
-                'left_arm_lower': {},
-                'right_arm_lower': {},
-                'left_leg_lower': {},
-                'right_leg_lower': {},
-                'left_hand': {},
-                'right_hand': {},
-                'left_foot': {},
-                'right_foot': {}
-            }
-            
-        if editor_parts_data:
-            # Apply same filtering as editor tab for consistency
-            disabled_parts = {
-                'torso',
-                'left_arm_upper', 'right_arm_upper',
-                'left_leg_upper', 'right_leg_upper'
-            }
-
-            # Filter out disabled parts to match editor tab behavior
-            all_parts = [
-                part_name for part_name in editor_parts_data.keys()
-                if not any(disabled_part in part_name.lower() for disabled_part in disabled_parts)
-            ]
-            all_parts.sort()
-
-            for part_name in all_parts:
-                has_path = part_name in editor_path_data if editor_path_data else False
-                is_enabled = self.part_enabled_state.get(part_name, True)  # Default to enabled
-                has_mechanism = self._part_has_mechanism(part_name)
-
-                # Create list item with toggle indicator
-                display_text = part_name
-                if has_path:
-                    # Add toggle indicator for parts with paths
-                    toggle_symbol = "●" if is_enabled else "○"
-                    display_text = f"{part_name} {toggle_symbol}"
-
-                item = QListWidgetItem(display_text)
-                item.setData(Qt.ItemDataRole.UserRole, part_name)  # Store part name
-
-                # Color coding like editor tab
-                if has_path:
-                    if is_enabled:
-                        # Enabled part with path - normal black text
-                        item.setForeground(QBrush(QColor(0, 0, 0)))
-                        item.setToolTip(f"{part_name} - Has motion path (enabled)")
-                    else:
-                        # Disabled part with path - gray text
-                        item.setForeground(QBrush(QColor(128, 128, 128)))
-                        item.setToolTip(f"{part_name} - Has motion path (disabled)")
-                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-                else:
-                    # Part without path - gray text and disabled
-                    item.setForeground(QBrush(QColor(160, 160, 160)))
-                    item.setToolTip(f"{part_name} - No motion path defined")
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-
-                # Add to list
-                self.mechanism_layers_list.addItem(item)
-        else:
-            pass
-
-        final_count = self.mechanism_layers_list.count() if self.mechanism_layers_list else 0
-
-        # CRITICAL: Check widget state immediately
-
-        # CRITICAL: Check widget visibility and parent
-        if self.mechanism_layers_list:
-
-            # Force parent FIRST if missing to prevent popup dialog
-            if not self.mechanism_layers_list.parent():
-                if hasattr(self, 'control_panel') and self.control_panel:
-                    # Find or create a group for it, prioritizing original UI group
-                    found_group = False
-                    for group in self.control_panel.findChildren(QGroupBox):
-                        group_title = group.title()
-                        # Prioritize original UI group first
-                        if "1 Parts for Mechanisms" == group_title or "Parts" in group_title:
-                            if group.layout():
-                                group.layout().addWidget(self.mechanism_layers_list)
-                                found_group = True
-                                break
-
-                    if not found_group:
-                        # Create new group with correct title
-                        new_group = QGroupBox("1 Parts for Mechanisms")
-                        new_layout = QVBoxLayout(new_group)
-                        new_layout.addWidget(self.mechanism_layers_list)
-                        self.control_panel.layout().insertWidget(0, new_group)
-
-            # Now that parent is set, make it visible within its parent
-            if self.mechanism_layers_list.parent():
-                self.mechanism_layers_list.setVisible(True)
-
-        if final_count == 0:
-            pass
+                        item.setForeground(Qt.GlobalColor.gray) 
+                        item.setToolTip(f"{part} - no motion path")
+                        
+                    mechanism_layers_list.addItem(item)
             # Don't set to None - keep existing widget if possible
 
     def _part_has_mechanism(self, part_name: str) -> bool:
@@ -3414,87 +2867,19 @@ class MechanismDesignTab(QWidget):
         self.cleanup_tab_resources()
 
     def activate_tab(self):
-        """Called when user switches to mechanism tab."""
+        """Called when user switches to mechanism tab.
+        
+        PHASE 1 REFACTORING: Simplified to use new UI management system.
+        """
         self._tab_active = True  # CRITICAL: Allow IK updates
 
         self.prepare_tab_activation()
 
-        # Data synchronization is now handled by MainWindow before activate_tab is called
-        # Just update the layers list with current data
-        print(f"[DEBUG] activate_tab: mechanism_layers_list = {self.mechanism_layers_list}")
-        
-        # FORCE UPDATE: Make sure we have a valid widget
-        if not self.mechanism_layers_list:
-            print("[DEBUG] activate_tab: mechanism_layers_list is None, getting from UI")
-            if hasattr(self, 'ui') and self.ui and hasattr(self.ui, 'mechanism_layers_list'):
-                self.mechanism_layers_list = self.ui.mechanism_layers_list
-                print(f"[DEBUG] activate_tab: Got from UI: {self.mechanism_layers_list}")
-        
+        # Update the mechanism layers list with current data
         self._update_mechanism_layers_list()
         
-        # Force visibility after update
-        if self.mechanism_layers_list:
-            print(f"[DEBUG] activate_tab: Setting visibility, current count: {self.mechanism_layers_list.count()}")
-            print(f"[DEBUG] activate_tab: Widget parent: {self.mechanism_layers_list.parent()}")
-            print(f"[DEBUG] activate_tab: Widget visible: {self.mechanism_layers_list.isVisible()}")
-            print(f"[DEBUG] activate_tab: Widget size: {self.mechanism_layers_list.size().width()}x{self.mechanism_layers_list.size().height()}")
-            
-            # CRITICAL FIX: If widget has no parent, add it to the correct UI location
-            if not self.mechanism_layers_list.parent():
-                print("[DEBUG] activate_tab: Widget has no parent! Fixing...")
-                # Find the parts group in the UI and add the widget there
-                if hasattr(self, 'ui') and self.ui:
-                    # Look for the control panel and parts group
-                    control_panel = None
-                    main_layout = self.layout()
-                    if main_layout:
-                        for i in range(main_layout.count()):
-                            item = main_layout.itemAt(i)
-                            if item and item.widget():
-                                widget = item.widget()
-                                # Look for QScrollArea (the left panel)
-                                if hasattr(widget, 'widget') and widget.widget():
-                                    control_panel = widget.widget()
-                                    break
-                    
-                    if control_panel:
-                        # Find the "1 Parts for Mechanisms" group
-                        parts_groups = control_panel.findChildren(QGroupBox)
-                        for group in parts_groups:
-                            if "Parts for Mechanisms" in group.title():
-                                print(f"[DEBUG] Found parts group: {group.title()}")
-                                group_layout = group.layout()
-                                if group_layout:
-                                    # Clear existing items and add our widget
-                                    while group_layout.count():
-                                        child = group_layout.takeAt(0)
-                                        if child.widget():
-                                            child.widget().setParent(None)
-                                    group_layout.addWidget(self.mechanism_layers_list)
-                                    print(f"[DEBUG] Added widget to group, new parent: {self.mechanism_layers_list.parent()}")
-                                    break
-            
-            self.mechanism_layers_list.setVisible(True)
-            self.mechanism_layers_list.show()
-            self.mechanism_layers_list.raise_()
-            
-            # Try to force parent layout update
-            if self.mechanism_layers_list.parent():
-                parent = self.mechanism_layers_list.parent()
-                if hasattr(parent, 'layout') and parent.layout():
-                    parent.layout().update()
-                parent.update()
-                print(f"[DEBUG] activate_tab: Updated parent: {parent}")
-            
-            # Force geometry update
-            self.mechanism_layers_list.updateGeometry()
-            self.mechanism_layers_list.repaint()
-
-        # CRITICAL: Update all button states when tab is activated
-        self._update_recommendation_button_state()
-        self._update_parametric_button_state()
-        self._update_blueprint_button_state()
-        self._update_animation_button_states()
+        # CRITICAL: Update all UI states when tab is activated
+        self._update_all_ui_states()
 
     def showEvent(self, event):
         """Handle widget show event for additional safety."""
@@ -3582,10 +2967,13 @@ class MechanismDesignTab(QWidget):
             # Start mechanism animation timer for visuals and path tracing
             self.animation_timer.start(33)  # ~30 FPS
 
-            self.play_btn.setEnabled(False)
-            self.stop_btn.setEnabled(True)
+            # PHASE 1 REFACTORING: Use centralized UI state management instead of direct button updates
+            from automataii.gui.tabs.mechanism_design.mechanism_design_tab_ui_state import AnimationState
+            animation_state = AnimationState(can_play=False, can_stop=True, can_reset=True, is_running=True)
+            self.ui_state_manager.set_animation_state(animation_state)
 
         else:
+            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Warning", "No mechanisms are enabled for animation.")
 
     def _on_stop_animation(self):
@@ -3604,8 +2992,10 @@ class MechanismDesignTab(QWidget):
             except Exception:
                 pass
 
-        self.play_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
+        # PHASE 1 REFACTORING: Use centralized UI state management instead of direct button updates
+        from automataii.gui.tabs.mechanism_design.mechanism_design_tab_ui_state import AnimationState
+        animation_state = AnimationState(can_play=True, can_stop=False, can_reset=True, is_running=False)
+        self.ui_state_manager.set_animation_state(animation_state)
 
     def _on_reset_animation(self):
         """Reset animation to start position with comprehensive IK reset."""
@@ -3740,36 +3130,18 @@ class MechanismDesignTab(QWidget):
         self._update_parametric_button_state()
 
     def _update_animation_button_states(self):
-        """Update animation button states based on enabled parts."""
-        # Check if any parts with paths are enabled
-        has_enabled_parts = any(
-            self.part_enabled_state.get(part_name, True)
-            for part_name in self.path_data.keys()
-        )
-
-        # Enable/disable animation buttons based on enabled parts
-        self.play_btn.setEnabled(has_enabled_parts and bool(self.path_data))
-        self.reset_btn.setEnabled(has_enabled_parts and bool(self.path_data))
+        """Update animation button states based on enabled parts.
+        
+        PHASE 1 REFACTORING: Replaced with centralized UI state management.
+        """
+        self._update_all_ui_states()
 
     def _update_parametric_button_state(self):
-        """Update parametric edit button state based on available mechanisms."""
-        if not PARAMETRIC_AVAILABLE or not self.parametric_edit_btn:
-            return
-
-        # Enable parametric edit if we have any mechanisms loaded
-        has_mechanisms = bool(self.mechanism_layers)
-        # Enable parametric edit button based on available mechanisms
-        self.parametric_edit_btn.setEnabled(has_mechanisms)
-
-        if has_mechanisms:
-            self.parametric_edit_btn.setToolTip(
-                "Enable interactive parameter editing with drag handles\n"
-                f"{len(self.mechanism_layers)} mechanism(s) available for editing"
-            )
-        else:
-            self.parametric_edit_btn.setToolTip(
-                "Generate mechanisms first to enable parametric editing"
-            )
+        """Update parametric edit button state based on available mechanisms.
+        
+        PHASE 1 REFACTORING: Replaced with centralized UI state management.
+        """
+        self._update_all_ui_states()
 
     def _toggle_mechanism_visuals(self, part_name: str, enabled: bool):
         """Toggle visibility of mechanism visuals for a specific part."""
@@ -3942,7 +3314,7 @@ class MechanismDesignTab(QWidget):
                 QMessageBox.information(
                     self.main_window,
                     "Parametric Edit",
-                    "Please generate mechanisms first using 'Get Mechanism' button.\n\n"
+                    "Please generate mechanisms first using 'Get Mechanism' button.\\n\\n"
                     "Parametric editing allows you to interactively adjust mechanism parameters by dragging anchor points."
                 )
             return
@@ -3976,6 +3348,10 @@ class MechanismDesignTab(QWidget):
                 # Small delay to ensure visual state is fully restored before starting animation
                 from PyQt6.QtCore import QTimer
                 QTimer.singleShot(100, self._on_start_animation)
+        
+        # PHASE 1 REFACTORING: Use new UI state management
+        self.ui_state_manager.set_parametric_mode(enabled)
+        self._update_all_ui_states()
 
     def _enable_parametric_mode(self):
         """Enable parametric editing mode - show interactive handles.
@@ -4265,7 +3641,7 @@ class MechanismDesignTab(QWidget):
             # Set active editor based on currently selected part in the UI
 
             # Get the currently selected item from the mechanism layers list
-            selected_items = self.mechanism_layers_list.selectedItems()
+            selected_items = self.ui_widgets['mechanism_layers_list'].selectedItems()
             if selected_items:
                 selected_part = selected_items[0].data(Qt.ItemDataRole.UserRole)
 
@@ -4293,23 +3669,8 @@ class MechanismDesignTab(QWidget):
                             self.parametric_editor.set_active_editor(mechanism_id)
                             break
 
-            # Update UI to show parametric mode
-            if self.parametric_edit_btn:
-                self.parametric_edit_btn.setText("Exit Parametric Mode")
-                self.parametric_edit_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #e74c3c;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        font-weight: bold;
-                    }
-                    QPushButton:hover {
-                        background-color: #c0392b;
-                    }
-                """)
-
+            # PHASE 1 REFACTORING: Removed individual UI updates - now handled by UI state manager
+            
             # Disable animation controls in parametric mode
             self._disable_animation_controls_for_parametric()
 
@@ -4323,28 +3684,17 @@ class MechanismDesignTab(QWidget):
         """
         Disable animation controls when parametric mode is active.
         ULTRATHINK: Prevent conflicts between parametric editing and animation.
+        
+        PHASE 1 REFACTORING: Simplified to use centralized UI state management.
         """
         try:
-            # Find and disable play button
-            if hasattr(self, 'play_btn') and self.play_btn:
-                self.play_btn.setEnabled(False)
-                self.play_btn.setToolTip("⚠️ Animation disabled during parametric editing")
-
-            # Find and disable stop button
-            if hasattr(self, 'stop_btn') and self.stop_btn:
-                self.stop_btn.setEnabled(False)
-                self.stop_btn.setToolTip("⚠️ Animation disabled during parametric editing")
-
-            # Find and disable reset button
-            if hasattr(self, 'reset_btn') and self.reset_btn:
-                self.reset_btn.setEnabled(False)
-                self.reset_btn.setToolTip("⚠️ Animation disabled during parametric editing")
-
             # Disable any running animation
             if hasattr(self, '_is_animation_running') and self._is_animation_running():
                 if hasattr(self, '_on_stop_animation'):
                     self._on_stop_animation()
 
+            # Animation controls are now handled by UI state manager
+            
         except Exception as e:
             pass
 
@@ -4352,23 +3702,14 @@ class MechanismDesignTab(QWidget):
         """
         Re-enable animation controls when exiting parametric mode.
         ULTRATHINK: Restore normal functionality after parametric editing.
+        
+        PHASE 1 REFACTORING: Simplified to use centralized UI state management.
         """
         try:
-            # Re-enable play button
-            if hasattr(self, 'play_btn') and self.play_btn:
-                self.play_btn.setEnabled(True)
-                self.play_btn.setToolTip("▶️ Play mechanism animation")
-
-            # Re-enable stop button
-            if hasattr(self, 'stop_btn') and self.stop_btn:
-                self.stop_btn.setEnabled(True)
-                self.stop_btn.setToolTip("⏹️ Stop mechanism animation")
-
-            # Re-enable reset button
-            if hasattr(self, 'reset_btn') and self.reset_btn:
-                self.reset_btn.setEnabled(True)
-                self.reset_btn.setToolTip("🔄 Reset mechanism to initial state")
-
+            # Animation controls are now handled by UI state manager
+            # Just trigger a full UI state update
+            self._update_all_ui_states()
+            
         except Exception as e:
             pass
 
@@ -4396,22 +3737,7 @@ class MechanismDesignTab(QWidget):
             # Re-enable mechanism visual interaction
             self._enable_mechanism_visual_interaction()
 
-            # Update UI
-            if self.parametric_edit_btn:
-                self.parametric_edit_btn.setText("Enter Parametric Mode")
-                self.parametric_edit_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #27ae60;
-                        color: white;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        font-weight: bold;
-                    }
-                    QPushButton:hover {
-                        background-color: #229954;
-                    }
-                """)
+            # PHASE 1 REFACTORING: Removed individual UI updates - now handled by UI state manager
 
             # Re-enable animation controls
             self._enable_animation_controls_after_parametric()
@@ -5948,15 +5274,8 @@ class MechanismDesignTab(QWidget):
 
     def _update_blueprint_button_state(self):
         """Update blueprint button enabled state based on available parts."""
-        if self.blueprint_btn:
-            has_parts = bool(self.current_editor_items)
-            self.blueprint_btn.setEnabled(has_parts)
-
-            if has_parts:
-                part_count = len(self.current_editor_items)
-                self.blueprint_btn.setToolTip(f"Export {part_count} character parts and mechanisms as SVG blueprint")
-            else:
-                self.blueprint_btn.setToolTip("Export character parts and mechanisms as SVG blueprint")
+        # PHASE 1 REFACTORING: Use new UI state management
+        self._update_all_ui_states()
 
 # Keep this part for running the tab standalone for testing if required.
 # if __name__ == "__main__":
