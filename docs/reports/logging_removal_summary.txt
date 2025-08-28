@@ -1,0 +1,20 @@
+============================================================
+LOGGING REMOVAL SUMMARY
+============================================================
+File: src/automataii/gui/tabs/mechanism_design_tab.py
+Original lines: 7034
+Lines with logging: 341
+Lines after cleaning: 6693
+
+Examples of removed lines:
+  Line 1: import logging
+  Line 49: logging.warning(f"New visualization system not available: {e}")
+  Line 61: logging.warning(f"Parametric design system not available: {e}")
+  Line 82: logger = logging.getLogger(__name__)
+  Line 180: logging.info("Parametric design features disabled (module not available)")
+  Line 188: logging.info("New visualization system initialized")
+  Line 190: logging.info("Using legacy visualization system")
+  Line 262: logging.error(f"[MECHANISM TAB] Created mechanism_layers_list widget: {id(self.mechanism_layers_list)}")
+  Line 649: logging.info(f"MechanismDesignTab: Joint '{joint_id}' bend direction changed to {new_direction}")
+  Line 654: logging.info("MechanismDesignTab: Updated bend direction in skeleton_manager")
+  ... and 331 more lines

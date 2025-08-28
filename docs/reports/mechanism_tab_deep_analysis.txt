@@ -1,0 +1,101 @@
+================================================================================
+DEEP MECHANISM DESIGN TAB ANALYSIS REPORT
+================================================================================
+
+Total methods: 129
+Private methods: 102
+Public methods: 27
+
+Entry points (externally callable): 40
+Reachable methods: 104
+Orphan methods: 25
+
+ORPHAN METHOD CHAINS:
+----------------------------------------
+Chain 1 (1 methods):
+  - _create_mechanism_visuals_unified (line 3270, complexity: 12)
+
+Chain 2 (1 methods):
+  - _check_multibar_validity (line 5425, complexity: 2)
+
+Chain 3 (3 methods):
+  - _create_rotation_handle (line 5497, complexity: 3)
+  - _rotate_mechanism (line 5532, complexity: 10)
+  - _show_free_edit_feedback (line 6086, complexity: 6)
+
+Chain 4 (4 methods):
+  - _get_standardized_joint_id (line 2463, complexity: 5)
+  - _get_target_joint_for_mechanism_control (line 1143, complexity: 5)
+  - _update_animation (line 2383, complexity: 16)
+  - _update_mechanism_path_trace (line 4766, complexity: 5)
+
+Chain 5 (1 methods):
+  - _check_4bar_validity (line 5384, complexity: 6)
+
+Chain 6 (1 methods):
+  - _initialize_parametric_system (line 4849, complexity: 4)
+
+Chain 7 (1 methods):
+  - _calculate_4bar_rocker_position (line 6648, complexity: 5)
+
+Chain 8 (1 methods):
+  - _validate_anchor_constraints (line 6768, complexity: 1)
+
+Chain 9 (1 methods):
+  - _regenerate_cam_mechanism_realtime (line 5921, complexity: 4)
+
+Chain 10 (1 methods):
+  - _connect_to_ik_manager (line 685, complexity: 7)
+
+Chain 11 (1 methods):
+  - _add_test_path_for_debugging (line 3015, complexity: 4)
+
+Chain 12 (1 methods):
+  - _create_gear_handles (line 6302, complexity: 13)
+
+Chain 13 (1 methods):
+  - _setup_ui (line 222, complexity: 2)
+
+Chain 14 (1 methods):
+  - _check_gear_validity (line 5432, complexity: 2)
+
+Chain 15 (1 methods):
+  - _remove_parametric_handles_for_mechanism (line 6386, complexity: 1)
+
+Chain 16 (1 methods):
+  - _show_current_mechanism_dimensions (line 6117, complexity: 3)
+
+Chain 17 (1 methods):
+  - _handle_recommendation_selection (line 1429, complexity: 12)
+
+Chain 18 (1 methods):
+  - _regenerate_cam_visuals_with_params (line 6176, complexity: 5)
+
+Chain 19 (1 methods):
+  - _export_current_mechanism_blueprint (line 6124, complexity: 1)
+
+Chain 20 (1 methods):
+  - _connect_signals (line 613, complexity: 7)
+
+POTENTIALLY DUPLICATE METHODS (>70% similar):
+----------------------------------------
+on_move_g1 <-> on_move_g2 (similarity: 0.70)
+  Lines: 6331 <-> 6350
+  Length: 18 <-> 18
+
+_create_5bar_linkage_visuals <-> _create_6bar_linkage_visuals (similarity: 0.70)
+  Lines: 3486 <-> 3590
+  Length: 103 <-> 117
+
+HIGH COMPLEXITY METHODS (>15):
+----------------------------------------
+  _enable_parametric_mode (line 4954, complexity: 59)
+  _update_mechanism_visuals_for_animation (line 2475, complexity: 51)
+  _update_mechanism_visuals_realtime (line 6838, complexity: 33)
+  _get_anchor_positions_for_mechanism (line 7036, complexity: 31)
+  _update_mechanism_layers_list (line 3055, complexity: 27)
+  _regenerate_mechanism_simulation (line 5616, complexity: 24)
+  _on_anchor_moved (line 6463, complexity: 24)
+  _get_scene_transform_function (line 1863, complexity: 19)
+  _display_paths_in_preview (line 2888, complexity: 19)
+  _calculate_mechanism_output (line 2132, complexity: 18)
