@@ -1,0 +1,61 @@
+{
+  "scale_total_height_in": 6.0,
+  "parts": {
+    "Head": {
+      "width_in": 1.256,
+      "height_in": 1.928
+    },
+    "Body": {
+      "width_in": 2.908,
+      "height_in": 4.42
+    },
+    "Left_upper_arm": {
+      "width_in": 0.868,
+      "height_in": 2.027
+    },
+    "Left_lower_arm": {
+      "width_in": 0.613,
+      "height_in": 2.298
+    },
+    "Left_hand": {
+      "width_in": 0.596,
+      "height_in": 0.533
+    },
+    "Right_upper_arm": {
+      "width_in": 0.93,
+      "height_in": 2.06
+    },
+    "Right_lower_arm": {
+      "width_in": 0.784,
+      "height_in": 2.299
+    },
+    "Right_hand": {
+      "width_in": 0.784,
+      "height_in": 1.087
+    },
+    "Left_upper_leg": {
+      "width_in": 1.173,
+      "height_in": 3.047
+    },
+    "Left_lower_leg": {
+      "width_in": 0.88,
+      "height_in": 2.365
+    },
+    "Left_foot": {
+      "width_in": 1.932,
+      "height_in": 1.714
+    },
+    "Right_upper_leg": {
+      "width_in": 1.173,
+      "height_in": 3.047
+    },
+    "Right_lower_leg": {
+      "width_in": 0.88,
+      "height_in": 2.364
+    },
+    "Right_foot": {
+      "width_in": 1.932,
+      "height_in": 1.714
+    }
+  }
+}

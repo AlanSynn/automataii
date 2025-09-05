@@ -1,0 +1,61 @@
+{
+  "scale_total_height_in": 6.0,
+  "parts": {
+    "head": {
+      "width_in": 0.639,
+      "height_in": 0.964
+    },
+    "torso": {
+      "width_in": 1.286,
+      "height_in": 2.159
+    },
+    "uarm_left": {
+      "width_in": 0.515,
+      "height_in": 0.94
+    },
+    "larm_left": {
+      "width_in": 0.171,
+      "height_in": 0.168
+    },
+    "hand_left": {
+      "width_in": 0.79,
+      "height_in": 1.073
+    },
+    "uarm_right": {
+      "width_in": 0.58,
+      "height_in": 0.945
+    },
+    "larm_right": {
+      "width_in": 0.171,
+      "height_in": 0.169
+    },
+    "hand_right": {
+      "width_in": 0.845,
+      "height_in": 1.073
+    },
+    "uleg_left": {
+      "width_in": 1.035,
+      "height_in": 1.529
+    },
+    "lleg_left": {
+      "width_in": 0.45,
+      "height_in": 1.169
+    },
+    "foot_left": {
+      "width_in": 0.972,
+      "height_in": 0.862
+    },
+    "uleg_right": {
+      "width_in": 1.042,
+      "height_in": 1.529
+    },
+    "lleg_right": {
+      "width_in": 0.45,
+      "height_in": 1.169
+    },
+    "foot_right": {
+      "width_in": 0.972,
+      "height_in": 0.862
+    }
+  }
+}
