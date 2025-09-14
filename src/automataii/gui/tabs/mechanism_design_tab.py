@@ -1331,6 +1331,26 @@ class MechanismDesignTab(QWidget):
                         layer_data["params"]["center_x"] = cam_pos[0]
                         layer_data["params"]["center_y"] = cam_pos[1]
 
+                        # Compute total lift from target path (use Y-range)
+                        path_y_min = np.min(path_np[:, 1])
+                        total_lift_screen = float(path_y_max - path_y_min)
+
+                        # Normalize eccentricity to mechanism space used by transform (avoid double scaling)
+                        # Match _get_scene_transform_function: user_scale = max(user_bbox)/2
+                        x_min, y_min = np.min(path_np[:, 0]), np.min(path_np[:, 1])
+                        x_max, y_max = np.max(path_np[:, 0]), np.max(path_np[:, 1])
+                        user_bbox_w = float(x_max - x_min)
+                        user_bbox_h = float(y_max - y_min)
+                        user_scale = max(user_bbox_w, user_bbox_h) / 2.0 if max(user_bbox_w, user_bbox_h) > 0 else 1.0
+                        ecc_norm = total_lift_screen / user_scale if user_scale > 0 else total_lift_screen
+
+                        # Set normalized parameters
+                        layer_data["params"]["eccentricity"] = max(1e-6, ecc_norm)
+                        # If base_radius missing or too large, choose a reasonable default relative to lift
+                        br = layer_data["params"].get("base_radius")
+                        if (br is None) or (br <= 0) or (br > 3 * ecc_norm):
+                            layer_data["params"]["base_radius"] = 0.3 * ecc_norm
+
                 except Exception as e:
                     # Fallback to default position
                     layer_data["params"]["center_x"] = 400
@@ -1339,6 +1359,16 @@ class MechanismDesignTab(QWidget):
                 # No path available, use default position
                 layer_data["params"]["center_x"] = 400
                 layer_data["params"]["center_y"] = 300
+
+            # Set default cam template SVG path for template-driven cam design (pear cam)
+            try:
+                default_template = "tom/pear_cam_4.3in.svg"
+                import os
+                if os.path.exists(default_template):
+                    layer_data['cam_template_svg_path'] = default_template
+                    layer_data['params']['cam_template_svg_path'] = default_template
+            except Exception:
+                pass
 
         # Verify and adjust coupler point connection to skeleton joint
         self._verify_coupler_joint_connection(layer_data)
@@ -1417,6 +1447,12 @@ class MechanismDesignTab(QWidget):
 
         # Initialize path tracing for this mechanism
         self._init_mechanism_path_trace(mechanism_id)
+
+        # Sync UI state so Parametric Edit becomes enabled immediately
+        try:
+            self._update_all_ui_states()
+        except Exception:
+            pass
 
     def _get_scene_transform_function(self, layer_data: dict) -> Callable | None:
         """
@@ -1711,48 +1747,35 @@ class MechanismDesignTab(QWidget):
                 return None
 
         elif mech_type == "cam":
-            # First try to use full_simulation_data from dataset
-            full_sim_data = layer_data.get("full_simulation_data", {})
-            cam_data = full_sim_data.get("cam_data", {})
-            to_scene_coords = self._get_scene_transform_function(layer_data)
-
-            if cam_data and "follower_y_positions" in cam_data and to_scene_coords:
-                follower_positions = cam_data["follower_y_positions"]
-                num_frames = len(follower_positions)
-                if num_frames > 0:
-                    # Fix frame index calculation - remove modulo to prevent jumping
-                    normalized_time = (time / (2 * math.pi)) % 1.0  # Keep in [0, 1] range
-                    frame_index = int(normalized_time * (num_frames - 1))
-                    frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
-                    follower_y = follower_positions[frame_index]
-                    follower_pos_orig = np.array([0, follower_y])
-
-                    scene_point = to_scene_coords(follower_pos_orig)
-                    return scene_point
-
-            # Fallback calculation using EXACT same formula as dataset generator with Y-axis flip
+            # Physical contact under gravity: follower sits rod_length above the lowest scene point of cam profile
             params = layer_data.get("params", {})
-            base_radius = params.get("base_radius", 25.0)
-            eccentricity = params.get("eccentricity", 10.0)
-
-            if to_scene_coords:
-                # Y-axis flipped coordinate transform for cam-below orientation
-                def to_scene_coords_flipped(p):
-                    p_flipped = np.array([p[0], -p[1]])
-                    return to_scene_coords(p_flipped)
-
-                # Use EXACT same calculation as simulate_cam_motion() in dataset generator
-                angle = time
-                cam_offset = np.array([eccentricity, 0])  # Same as dataset
-                rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-                rotated_center = rotation_matrix @ cam_offset
-                follower_y = rotated_center[1] + base_radius  # Exact dataset formula
-                follower_pos_orig = np.array([0, follower_y])
-
-                scene_point = to_scene_coords_flipped(follower_pos_orig)
-                return scene_point
-            else:
+            follower_rod_length = params.get("follower_rod_length", 40.0)
+            rod_len_mul = layer_data.get('rod_length_multiplier', 1.0)
+            cam_points_local = layer_data.get('cam_points_local') or layer_data.get('cam_profile_local_points')
+            cam_to_scene = layer_data.get('cam_transform_function') or self._get_scene_transform_function(layer_data)
+            if cam_points_local is None or cam_to_scene is None:
                 return None
+            # Rotate local cam profile
+            angle = time
+            cos_r, sin_r = np.cos(angle), np.sin(angle)
+            rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+            rotated = np.array(cam_points_local) @ rot.T
+            # Map to scene
+            scene_pts = [cam_to_scene(p) for p in rotated]
+            if not scene_pts:
+                return None
+            # Contact point at max scene y (gravity down)
+            idx = max(range(len(scene_pts)), key=lambda i: scene_pts[i].y())
+            x_contact = scene_pts[idx].x(); y_contact = scene_pts[idx].y()
+            # Convert rod length to scene units
+            try:
+                u0 = cam_to_scene(np.array([0.0, 0.0])); u1 = cam_to_scene(np.array([0.0, 1.0]))
+                unit_scale = ((u1.x()-u0.x())**2 + (u1.y()-u0.y())**2) ** 0.5
+            except Exception:
+                unit_scale = 1.0
+            rod_scene = follower_rod_length * rod_len_mul * unit_scale
+            # Follower above cam
+            return QPointF(x_contact, y_contact - rod_scene)
 
         elif mech_type == "gear":
             # First try to use full_simulation_data from dataset
@@ -2111,7 +2134,7 @@ class MechanismDesignTab(QWidget):
                 else:
                     pass
 
-            elif mech_type == "cam" and len(visual_items) >= 2:  # Cam and follower
+            elif mech_type == "cam" and len(visual_items) >= 2:  # Cam and follower (supports fixed profile or eccentric disk)
                 params = layer_data.get("params", {})
                 base_radius = params.get("base_radius", 25.0)
                 eccentricity = params.get("eccentricity", 10.0)
@@ -2139,8 +2162,43 @@ class MechanismDesignTab(QWidget):
                         float(p[1] + character_position[1])
                     ) if len(p) == 2 else QPointF(character_position[0], character_position[1])
 
-                # Calculate cam position and rotation
-                if cam_data and "cam_centers" in cam_data and "follower_y_positions" in cam_data:
+                # Calculate cam position and follower position
+                cam_profile_local = layer_data.get('cam_profile_local_points')
+                cam_points_local = layer_data.get('cam_points_local')
+
+                # Recompute cam points from template if template exists and parameters changed
+                if cam_profile_local is not None and len(cam_profile_local) > 2:
+                    try:
+                        # Optionally check cache with current radii; for simplicity regenerate
+                        cam_points_local = self.visuals_factory._build_cam_from_template(
+                            cam_profile_local,
+                            scaled_base_radius,
+                            scaled_eccentricity,
+                            num_samples=180
+                        )
+                        layer_data['cam_points_local'] = cam_points_local
+                    except Exception:
+                        pass
+
+                if cam_points_local is not None and len(cam_points_local) > 2:
+                    # Fixed template-driven cam: rotate precomputed polygon
+                    angle = time
+                    cos_r, sin_r = np.cos(angle), np.sin(angle)
+                    rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+                    rotated = cam_points_local @ rot.T
+                    y_max = float(np.max(rotated[:, 1]))
+                    follower_pos_orig = np.array([0.0, y_max + scaled_rod_length])
+                    current_cam_center = np.array([0.0, 0.0])
+                elif cam_profile_local is not None and len(cam_profile_local) > 2:
+                    # Fixed profile: rigid rotation only
+                    angle = time
+                    cos_r, sin_r = np.cos(angle), np.sin(angle)
+                    rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+                    rotated = cam_profile_local @ rot.T
+                    y_max = float(np.max(rotated[:, 1]))
+                    follower_pos_orig = np.array([0.0, y_max + scaled_rod_length])
+                    current_cam_center = np.array([0.0, 0.0])
+                elif cam_data and "cam_centers" in cam_data and "follower_y_positions" in cam_data:
                     cam_centers = cam_data["cam_centers"]
                     follower_positions = cam_data["follower_y_positions"]
                     num_frames = len(cam_centers)
@@ -2153,64 +2211,71 @@ class MechanismDesignTab(QWidget):
                         follower_y = follower_positions[frame_index]
                         follower_pos_orig = np.array([0, follower_y])
                 else:
-                    # Manual calculation - keep cam center fixed, move follower
+                    # Manual fallback using dataset model: rotate eccentric center, follower_y = center_y + base_radius
                     angle = time
-                    current_cam_center = np.array([0, 0])
+                    rotation_matrix = np.array([
+                        [np.cos(angle), -np.sin(angle)],
+                        [np.sin(angle),  np.cos(angle)],
+                    ])
+                    rotated_center = rotation_matrix @ np.array([scaled_eccentricity, 0.0])
+                    current_cam_center = rotated_center
+                    follower_y = rotated_center[1] + scaled_base_radius
+                    follower_pos_orig = np.array([0.0, follower_y])
 
-                    # Calculate follower position based on scaled cam profile
-                    lift = scaled_eccentricity * (1 + np.cos(angle)) / 2  # Egg shape formula
-                    cam_radius_at_angle = scaled_base_radius + lift
-                    follower_y = current_cam_center[1] - cam_radius_at_angle - scaled_rod_length
-                    follower_pos_orig = np.array([0, follower_y])
-
-                # Update egg-shaped cam with rotation
+                # Update cam shape polygon
                 if len(visual_items) >= 1 and isinstance(visual_items[0], QGraphicsPolygonItem):
-                    # Generate egg profile (same as visual creation)
-                    def create_egg_shape_profile(base_radius, eccentricity):
-                        points = []
-                        num_points = 100
-                        for i in range(num_points):
-                            theta = (i / num_points) * 2 * np.pi
-                            lift = eccentricity * (1 + np.cos(theta)) / 2  # Egg shape
-                            r = base_radius + lift
-                            x = r * np.cos(theta)
-                            y = r * np.sin(theta)
-                            points.append([x, y])
-                        return points
-
-                    # Use scaled dimensions for animation
-                    egg_profile = create_egg_shape_profile(scaled_base_radius, scaled_eccentricity)
-
-                    # Apply rotation
-                    rotation_angle = time
-                    cos_rot = np.cos(rotation_angle)
-                    sin_rot = np.sin(rotation_angle)
-
-                    # Transform egg profile to scene coordinates
                     cam_polygon_points = []
-                    for point in egg_profile:
-                        # Rotate point around cam center
-                        x, y = point[0], point[1]
-                        x_rot = x * cos_rot - y * sin_rot
-                        y_rot = x * sin_rot + y * cos_rot
-
-                        # Position relative to cam center and transform to scene
-                        rotated_point = np.array([x_rot, y_rot]) + current_cam_center
-                        scene_point = cam_to_scene_coords(rotated_point)
-                        cam_polygon_points.append(scene_point)
-
-                    # Update the polygon
+                    if cam_points_local is not None and len(cam_points_local) > 2:
+                        angle = time
+                        cos_r, sin_r = np.cos(angle), np.sin(angle)
+                        rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+                        rotated = cam_points_local @ rot.T
+                        for p in rotated:
+                            scene_point = cam_to_scene_coords(p)
+                            cam_polygon_points.append(scene_point)
+                    elif cam_profile_local is not None and len(cam_profile_local) > 2:
+                        angle = time
+                        cos_r, sin_r = np.cos(angle), np.sin(angle)
+                        rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+                        rotated = cam_profile_local @ rot.T
+                        for p in rotated:
+                            scene_point = cam_to_scene_coords(p)
+                            cam_polygon_points.append(scene_point)
+                    else:
+                        num_points = 120
+                        for i in range(num_points + 1):
+                            theta = 2 * np.pi * (i / num_points)
+                            point = current_cam_center + scaled_base_radius * np.array([np.cos(theta), np.sin(theta)])
+                            scene_point = cam_to_scene_coords(point)
+                            cam_polygon_points.append(scene_point)
                     if cam_polygon_points:
                         cam_polygon = QPolygonF(cam_polygon_points)
                         visual_items[0].setPolygon(cam_polygon)
 
-                # Update follower position with proportional size
+                # Update follower position: physical contact under gravity (scene space)
                 if len(visual_items) >= 2 and isinstance(visual_items[1], QGraphicsRectItem):
-                    follower_scene = cam_to_scene_coords(follower_pos_orig)
-                    follower_width, follower_height = 20, 15  # Larger for visibility
+                    if cam_polygon_points:
+                        # Scene y max contact
+                        idx = max(range(len(cam_polygon_points)), key=lambda i: cam_polygon_points[i].y())
+                        x_contact = cam_polygon_points[idx].x()
+                        y_contact = cam_polygon_points[idx].y()
+                    else:
+                        pt = cam_to_scene_coords(np.array([0.0, 0.0]))
+                        x_contact, y_contact = pt.x(), pt.y()
+                    # rod length scene scale
+                    try:
+                        u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
+                        u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
+                        unit_scale = ((u1.x()-u0.x())**2 + (u1.y()-u0.y())**2) ** 0.5
+                    except Exception:
+                        unit_scale = 1.0
+                    rod_scene = scaled_rod_length * unit_scale
+                    follower_scene_x = x_contact
+                    follower_scene_y = y_contact - rod_scene  # follower above cam (gravity)
+                    follower_width, follower_height = 20, 15
                     visual_items[1].setRect(
-                        follower_scene.x() - follower_width/2,
-                        follower_scene.y() - follower_height/2,
+                        follower_scene_x - follower_width/2,
+                        follower_scene_y - follower_height/2,
                         follower_width, follower_height
                     )
 
@@ -2221,13 +2286,25 @@ class MechanismDesignTab(QWidget):
                         cam_center_scene.x() - 3, cam_center_scene.y() - 3, 6, 6
                     )
 
-                # Update rod connection line (connect from top of cam to follower)
+                # Update rod connection line (connect contact to follower)
                 if len(visual_items) >= 4 and isinstance(visual_items[3], QGraphicsLineItem):
-                    follower_scene = cam_to_scene_coords(follower_pos_orig)
-                    # Connect from top of cam to follower
-                    cam_top_orig = current_cam_center + np.array([0, -scaled_base_radius])
-                    cam_top_scene = cam_to_scene_coords(cam_top_orig)
-                    visual_items[3].setLine(QLineF(cam_top_scene, follower_scene))
+                    if cam_polygon_points:
+                        idx = max(range(len(cam_polygon_points)), key=lambda i: cam_polygon_points[i].y())
+                        x_contact = cam_polygon_points[idx].x()
+                        y_contact = cam_polygon_points[idx].y()
+                    else:
+                        pt = cam_to_scene_coords(np.array([0.0, 0.0]))
+                        x_contact, y_contact = pt.x(), pt.y()
+                    try:
+                        u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
+                        u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
+                        unit_scale = ((u1.x()-u0.x())**2 + (u1.y()-u0.y())**2) ** 0.5
+                    except Exception:
+                        unit_scale = 1.0
+                    rod_scene = scaled_rod_length * unit_scale
+                    follower_scene_x = x_contact
+                    follower_scene_y = y_contact - rod_scene  # follower above cam
+                    visual_items[3].setLine(QLineF(QPointF(x_contact, y_contact), QPointF(follower_scene_x, follower_scene_y)))
 
                 return
 
@@ -2680,6 +2757,14 @@ class MechanismDesignTab(QWidget):
             visual_items.extend(self.visuals_factory.create_planetary_gear_visuals(mechanism_graphics_data, transform_func))
 
         layer_data["visual_items"] = visual_items
+
+        # Merge back important computed fields from visuals to persistent layer_data
+        for k in (
+            'cam_profile_local_points', 'cam_points_local', 'cam_template_svg_path',
+            'cam_transform_function', 'cam_axis_local', 'cam_scale_factor', 'rod_length_multiplier'
+        ):
+            if k in mechanism_graphics_data:
+                layer_data[k] = mechanism_graphics_data[k]
 
         # Force scene update to ensure visuals are displayed
         self.mechanism_scene.update()

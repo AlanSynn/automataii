@@ -117,8 +117,20 @@ class ParametricEditingManager:
 
         print(f"🔧 parametric_editor exists: {self.parent_tab.parametric_editor is not None}")
         if not self.parent_tab.parametric_editor:
-            print("❌ No parametric editor available")
-            return
+            # Attempt lazy initialization if not already done
+            try:
+                self._initialize_parametric_system()
+            except Exception as e:
+                print(f"❌ Lazy init failed: {e}")
+            if not self.parent_tab.parametric_editor:
+                print("❌ No parametric editor available after init")
+                # User-friendly message
+                try:
+                    from PyQt6.QtWidgets import QMessageBox
+                    QMessageBox.information(self.parent_tab, "Parametric Edit", "Parametric system not available.")
+                except Exception:
+                    pass
+                return
 
         if enabled is None:
             enabled = not self.parametric_mode_enabled
@@ -187,6 +199,10 @@ class ParametricEditingManager:
             return
 
         try:
+            # Mark parametric mode on all mechanisms (visuals may switch mapping behavior)
+            for mechanism_id in self.parent_tab.mechanism_layers.keys():
+                self.parent_tab.mechanism_layers[mechanism_id]['parametric_mode'] = True
+
             # CRITICAL FIX: Clear all mechanism traces when entering parametric mode
             for mechanism_id in list(self.parent_tab.mechanism_layers.keys()):
                 self.parent_tab._clear_mechanism_trace(mechanism_id)
@@ -539,6 +555,10 @@ class ParametricEditingManager:
 
             # Re-enable mechanism visual interaction
             self._enable_mechanism_visual_interaction()
+
+            # Unmark parametric mode flag on mechanisms
+            for mechanism_id in self.parent_tab.mechanism_layers.keys():
+                self.parent_tab.mechanism_layers[mechanism_id]['parametric_mode'] = False
 
         except Exception as e:
             import traceback
@@ -1131,17 +1151,22 @@ class ParametricEditingManager:
         new_items = []
         
         try:
-            # Delegate to parent tab's visual creation methods
-            if mechanism_type == "4_bar_linkage" and hasattr(self.parent_tab, '_create_4bar_linkage_visuals'):
-                new_items = self.parent_tab._create_4bar_linkage_visuals(layer_data)
-            elif mechanism_type == "6_bar_linkage" and hasattr(self.parent_tab, '_create_6bar_linkage_visuals'):
-                new_items = self.parent_tab._create_6bar_linkage_visuals(layer_data)
-            elif mechanism_type == "cam" and hasattr(self.parent_tab, '_create_cam_visuals'):
-                new_items = self.parent_tab._create_cam_visuals(layer_data)
-            elif mechanism_type == "gear" and hasattr(self.parent_tab, '_create_gear_visuals'):
-                new_items = self.parent_tab._create_gear_visuals(layer_data)
-            elif mechanism_type == "planetary_gear" and hasattr(self.parent_tab, '_create_planetary_gear_visuals'):
-                new_items = self.parent_tab._create_planetary_gear_visuals(layer_data)
+            # Use visuals_factory from parent tab (authoritative visual creation)
+            vf = getattr(self.parent_tab, 'visuals_factory', None)
+            if not vf:
+                return []
+
+            transform_func = self.parent_tab._get_scene_transform_function(layer_data)
+
+            if mechanism_type == "4_bar_linkage" and hasattr(vf, 'create_4bar_linkage_visuals'):
+                new_items = vf.create_4bar_linkage_visuals(layer_data, transform_func)
+            elif mechanism_type == "cam" and hasattr(vf, 'create_cam_visuals'):
+                char_pos = self.parent_tab._get_character_position() if hasattr(self.parent_tab, '_get_character_position') else None
+                new_items = vf.create_cam_visuals(layer_data, transform_func, char_pos)
+            elif mechanism_type == "gear" and hasattr(vf, 'create_gear_visuals'):
+                new_items = vf.create_gear_visuals(layer_data, transform_func)
+            elif mechanism_type == "planetary_gear" and hasattr(vf, 'create_planetary_gear_visuals'):
+                new_items = vf.create_planetary_gear_visuals(layer_data, transform_func)
         except Exception as e:
             print(f"Error creating visuals for {mechanism_type}: {e}")
             

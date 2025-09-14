@@ -17,6 +17,7 @@ separation between the main tab logic and visual rendering concerns.
 
 import math
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, Qt
@@ -428,7 +429,11 @@ class MechanismVisualsFactory:
         return visual_items
 
     def create_cam_visuals(self, mechanism_data: dict, transform_function=None, character_position=None) -> list[QGraphicsItem]:
-        """Create visual representation of cam and follower mechanism with egg-shaped cam."""
+        """Create visual representation of cam and follower mechanism using analytic pear-cam profile.
+
+        - No dataset/template dependency: profile is built from base_radius and eccentricity (total lift).
+        - Pear-cam lobe: single-sided rise/return with dwells; shape preserved under rotation.
+        """
         to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
         params = mechanism_data.get("params", {})
 
@@ -451,67 +456,62 @@ class MechanismVisualsFactory:
         scaled_eccentricity = eccentricity * cam_scale_factor
         scaled_rod_length = follower_rod_length * rod_length_multiplier
 
-        # Create egg-shaped cam profile
-        def create_egg_shape_profile(base_radius, eccentricity):
-            """Create an egg-shaped cam profile using parametric equations"""
-            points = []
-            num_points = 100
+        # Build analytic pear-cam profile from base_radius/eccentricity
+        cam_points_local = self._build_pear_cam_profile(
+            base_radius=scaled_base_radius,
+            eccentricity=scaled_eccentricity,
+            rise_deg=70.0,
+            high_dwell_deg=40.0,
+            return_deg=70.0
+        )
+        mechanism_data['cam_points_local'] = cam_points_local
+        
+        # Determine placement: align follower center with bottom of user's path
+        cam_pos = mechanism_data.get('cam_position')
+        try:
+            gen_path = mechanism_data.get('generated_path')
+            if gen_path is not None:
+                brect = gen_path.boundingRect()
+                path_x_center = float(brect.center().x())
+                path_y_bottom = float(brect.bottom())
+                local_y_max = float(np.max(cam_points_local[:, 1]))
+                follower_local_y = local_y_max + scaled_rod_length
+                cam_pos = [path_x_center, path_y_bottom - follower_local_y]
+                mechanism_data['cam_position'] = cam_pos
+        except Exception:
+            pass
 
-            for i in range(num_points):
-                theta = (i / num_points) * 2 * np.pi
-
-                # Create egg shape: one end more pointed than the other
-                # The egg is wider at bottom (theta = π/2) and narrower at top (theta = 3π/2)
-                # This creates proper egg shape with follower riding on the surface
-                lift = eccentricity * (1 + np.cos(theta)) / 2  # Maximum at theta=0 (right side)
-                r = base_radius + lift
-
-                # Convert to Cartesian coordinates
-                x = r * np.cos(theta)
-                y = r * np.sin(theta)
-
-                points.append([x, y])
-
-            return points
-
-        # Get CAM position - use stored position if available, otherwise calculate
-        if 'cam_position' in mechanism_data:
-            cam_position = mechanism_data['cam_position']
-        else:
-            cam_position = character_position or [300, 400]  # Default fallback
-            mechanism_data['cam_position'] = cam_position
-
-        # CAM is positioned at bottom with follower above (gravity physics)
-        # Position cam at origin for proper coordinate transformation
-        cam_center_orig = np.array([0, 0])  # CAM center at origin
-
-        # Place follower ABOVE cam center
-        # Follower should be at foot level, so calculate based on that
-        follower_y_orig = cam_center_orig[1] - (scaled_base_radius + scaled_rod_length)
-        follower_pos_orig = np.array([cam_center_orig[0], follower_y_orig])
-
-        # Create egg-shaped cam profile with scaled dimensions
-        egg_profile = create_egg_shape_profile(scaled_base_radius, scaled_eccentricity)
-
-        # Use existing transform function if available, otherwise create new one
-        if 'cam_transform_function' in mechanism_data:
-            cam_to_scene_coords = mechanism_data['cam_transform_function']
-        else:
-            # Create custom transformation for CAM positioning
-            # CAM should be positioned directly at character feet position
-            def cam_to_scene_coords(p):
-                """Transform CAM coordinates to scene, placing CAM at character feet."""
-                if len(p) != 2:
-                    return QPointF(cam_position[0], cam_position[1])
-
-                # Transform point relative to character position
-                # Y coordinate: cam_position[1] is already at feet + offset
-                # CAM should be centered at this position
-                return QPointF(
-                    float(p[0] + cam_position[0]),
-                    float(p[1] + cam_position[1])
-                )
-            mechanism_data['cam_transform_function'] = cam_to_scene_coords
+        # Define mapping as base transform + offset so scale is preserved
+        base_map = transform_function or self._get_scene_transform_function(mechanism_data)
+        if base_map is None:
+            return []
+        try:
+            if gen_path is not None:
+                brect = gen_path.boundingRect()
+                path_x_center = float(brect.center().x())
+                path_y_bottom = float(brect.bottom())
+                local_y_max = float(np.max(cam_points_local[:, 1]))
+                # Place cam such that its top (local_y_max) touches path bottom; ignore rod length for placement
+                follower_local = np.array([0.0, local_y_max])
+                follower_scene_raw = base_map(follower_local)
+                dx = path_x_center - follower_scene_raw.x()
+                dy = path_y_bottom - follower_scene_raw.y()
+                def cam_to_scene_coords(p):
+                    if p is None or len(p) != 2:
+                        return QPointF(follower_scene_raw.x() + dx, follower_scene_raw.y() + dy)
+                    mapped = base_map(p)
+                    return QPointF(mapped.x() + dx, mapped.y() + dy)
+                mechanism_data['cam_transform_function'] = cam_to_scene_coords
+            else:
+                mechanism_data['cam_transform_function'] = base_map
+        except Exception:
+            mechanism_data['cam_transform_function'] = base_map
+        # Bind local mapper for convenience
+        cam_to_scene_coords = mechanism_data['cam_transform_function']
+        # Initial follower position at topmost y of unrotated cam (ignore rod length for default placement)
+        y_max = float(np.max(cam_points_local[:, 1]))
+        follower_pos_orig = np.array([0.0, y_max], dtype=float)
+        cam_center_orig = np.array([0.0, 0.0], dtype=float)
 
         # Store scaling factors for consistency in animation and parametric editing
         mechanism_data['cam_scale_factor'] = cam_scale_factor
@@ -521,12 +521,11 @@ class MechanismVisualsFactory:
         cam_center_scene = cam_to_scene_coords(cam_center_orig)
         follower_scene = cam_to_scene_coords(follower_pos_orig)
 
-        # Transform egg profile points to scene coordinates
+        # Build cam polygon
         cam_polygon_points = []
-        for point in egg_profile:
-            # Position relative to cam center
-            point_offset = np.array(point) + cam_center_orig
-            scene_point = cam_to_scene_coords(point_offset)
+        pts = mechanism_data.get('cam_points_local')
+        for p in pts:
+            scene_point = cam_to_scene_coords(p)
             cam_polygon_points.append(scene_point)
 
         # Create QPolygonF from points
@@ -534,10 +533,10 @@ class MechanismVisualsFactory:
 
         visual_items = []
 
-        # Create egg-shaped cam body with enhanced visibility
-        cam_color = QColor("#2196f3")  # Modern blue
+        # Create circular cam body
+        cam_color = QColor("#2196f3")
         cam_body = QGraphicsPolygonItem(cam_polygon)
-        cam_body.setPen(QPen(cam_color.darker(120), 3))  # Thinner border for smaller cam
+        cam_body.setPen(QPen(cam_color.darker(120), 3))
         cam_body.setBrush(QBrush(cam_color.lighter(130)))
         cam_body.setZValue(15)  # Above parts
         cam_body.setOpacity(1.0)  # Full opacity for visibility
@@ -573,10 +572,13 @@ class MechanismVisualsFactory:
         self.scene.addItem(cam_center_marker)
         visual_items.append(cam_center_marker)
 
-        # Create follower rod line to show connection
-        rod_pen = QPen(QColor("#9e9e9e"), 3, Qt.PenStyle.DashLine)  # Gray dashed line, thicker
+        # Create follower rod line from cam top (support point) to follower
+        rod_pen = QPen(QColor("#9e9e9e"), 3, Qt.PenStyle.DashLine)
+        pts = mechanism_data.get('cam_points_local')
+        y_max = float(np.max(pts[:, 1]))
+        cam_top_scene = cam_to_scene_coords(np.array([0.0, y_max]))
         follower_rod = QGraphicsLineItem(
-            cam_center_scene.x(), cam_center_scene.y(),
+            cam_top_scene.x(), cam_top_scene.y(),
             follower_scene.x(), follower_scene.y()
         )
         follower_rod.setPen(rod_pen)
@@ -587,6 +589,148 @@ class MechanismVisualsFactory:
 
         # Return visual items
         return visual_items
+
+    def _load_cam_profile_svg(self, svg_path: str) -> tuple[np.ndarray, np.ndarray]:
+        """Parse a simple SVG cam profile and return (axis, polygon_points).
+
+        Assumptions:
+        - Uses a <path> composed of M/L commands for the cam outline
+        - A <circle> in construction layer gives axis (cx, cy)
+        - Ignores group transforms as both elements share the same space
+        """
+        tree = ET.parse(svg_path)
+        root = tree.getroot()
+
+        # Namespaces handling (strip if present)
+        def strip(tag: str) -> str:
+            return tag.split('}', 1)[-1]
+
+        axis = None
+        poly_pts: list[tuple[float, float]] = []
+
+        for elem in root.iter():
+            tag = strip(elem.tag)
+            if tag == 'circle' and axis is None:
+                cx = float(elem.attrib.get('cx', '0'))
+                cy = float(elem.attrib.get('cy', '0'))
+                axis = np.array([cx, cy], dtype=float)
+            elif tag == 'path' and ('layer-cam' in (elem.get('id') or '') or True):
+                d = elem.attrib.get('d', '')
+                if not d:
+                    continue
+                # Very simple M/L tokenizer
+                tokens = d.replace(',', ' ').split()
+                i = 0
+                cur = None
+                while i < len(tokens):
+                    cmd = tokens[i]
+                    if cmd in ('M', 'L') and i + 2 < len(tokens):
+                        try:
+                            x = float(tokens[i + 1])
+                            y = float(tokens[i + 2])
+                            poly_pts.append((x, y))
+                            cur = (x, y)
+                            i += 3
+                        except ValueError:
+                            i += 1
+                    else:
+                        # Skip numbers after implicit L
+                        try:
+                            x = float(cmd)
+                            y = float(tokens[i + 1])
+                            poly_pts.append((x, y))
+                            cur = (x, y)
+                            i += 2
+                        except Exception:
+                            i += 1
+
+        if axis is None:
+            # Fallback: center of bbox of points
+            arr = np.array(poly_pts, dtype=float)
+            center = (np.min(arr, axis=0) + np.max(arr, axis=0)) / 2.0
+            axis = center
+
+        arr = np.array(poly_pts, dtype=float)
+        return axis, arr
+
+    def _build_cam_from_template(self, template_points: np.ndarray, base_radius: float, eccentricity: float, num_samples: int = 180) -> np.ndarray:
+        """Build a cam polygon from a template profile using normalized radial mapping.
+
+        - Compute support function r_templ(θ) = max(dot(p, uθ)) over template points (convex envelope)
+        - Normalize: s(θ) = (r_templ(θ) - min(r_templ)) / (max(r_templ) - min(r_templ) + eps)
+        - New radius: r(θ) = base_radius + eccentricity * s(θ)
+        - Return polygon points: r(θ) * [cosθ, sinθ]
+        """
+        if template_points is None or len(template_points) < 3:
+            # Fallback circular cam
+            pts = []
+            for i in range(num_samples + 1):
+                theta = 2 * np.pi * i / num_samples
+                pts.append([base_radius * np.cos(theta), base_radius * np.sin(theta)])
+            return np.array(pts, dtype=float)
+
+        thetas = np.linspace(0, 2 * np.pi, num_samples + 1)
+        u = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)  # (N,2)
+        # Compute support: for each θ, max over points dot(p, uθ)
+        # template_points shape (M,2)
+        # dots shape (N,M) = u @ p^T
+        dots = u @ template_points.T
+        r_templ = np.max(dots, axis=1)
+        r_min = float(np.min(r_templ))
+        r_max = float(np.max(r_templ))
+        denom = max(1e-9, r_max - r_min)
+        s = (r_templ - r_min) / denom
+        r_new = base_radius + eccentricity * s
+        pts = np.stack([r_new * np.cos(thetas), r_new * np.sin(thetas)], axis=1)
+        return pts.astype(float)
+
+    def _build_pear_cam_profile(
+        self,
+        base_radius: float,
+        eccentricity: float,
+        rise_deg: float = 70.0,
+        high_dwell_deg: float = 40.0,
+        return_deg: float = 70.0,
+        num_samples: int = 360,
+    ) -> np.ndarray:
+        """Analytic pear-cam (single-lobe) profile with sinusoidal rise/return and dwells.
+
+        - total_lift == eccentricity
+        - r(θ) = base_radius + eccentricity * s(θ)
+        - s(θ)=0 in low-dwell, smooth rise to 1 over rise_deg, dwell at 1, smooth return to 0 over return_deg
+        """
+        rise = np.deg2rad(rise_deg)
+        dwell_high = np.deg2rad(high_dwell_deg)
+        ret = np.deg2rad(return_deg)
+        total = 2 * np.pi
+        dwell_low = max(0.0, total - (rise + dwell_high + ret))
+
+        # Define phase segments starting at θ0 = π (lobe at bottom by default)
+        theta0 = np.pi  # place high radius at bottom (push follower up)
+        seg1_end = theta0 + rise
+        seg2_end = seg1_end + dwell_high
+        seg3_end = seg2_end + ret
+
+        thetas = np.linspace(0, 2 * np.pi, num_samples, endpoint=False)
+        s = np.zeros_like(thetas)
+        # Piecewise s(θ)
+        for i, t in enumerate(thetas):
+            # Wrap relative phase to [theta0, theta0+2π)
+            rel = (t - theta0) % (2 * np.pi) + theta0
+            if rel < seg1_end:  # rise
+                u = (rel - theta0) / rise
+                s[i] = 0.5 * (1 - np.cos(np.pi * u))  # sinusoidal rise
+            elif rel < seg2_end:  # high dwell
+                s[i] = 1.0
+            elif rel < seg3_end:  # return
+                u = (rel - seg2_end) / ret
+                s[i] = 0.5 * (1 + np.cos(np.pi * u))  # sinusoidal return
+            else:  # low dwell
+                s[i] = 0.0
+
+        r = base_radius + eccentricity * s
+        pts = np.stack([r * np.cos(thetas), r * np.sin(thetas)], axis=1)
+        return pts.astype(float)
 
     def create_gear_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
         """Create visual representation of gear train mechanism."""

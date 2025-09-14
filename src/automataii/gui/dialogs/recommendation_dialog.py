@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np  # Add numpy import
-from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt
+from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer
 from PyQt6.QtCore import pyqtSignal as Signal
 from PyQt6.QtGui import (
     QBrush,
@@ -17,6 +17,8 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QDialog,
     QGraphicsPathItem,
+    QGraphicsPolygonItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QGridLayout,
@@ -202,6 +204,14 @@ class MechanismPreviewWidget(QGraphicsView):
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
         self.setBackgroundBrush(QColor("#ffffff"))  # White background
+        # CAM animation state
+        self._cam_poly_item: QGraphicsPolygonItem | None = None
+        self._follower_item: QGraphicsRectItem | None = None
+        self._rod_item: QGraphicsPathItem | None = None
+        self._cam_points_local: np.ndarray | None = None
+        self._cam_to_screen: Callable | None = None
+        self._cam_angle: float = 0.0
+        self._cam_timer: QTimer | None = None
         self._render_preview()  # Render after background is set and scene is ready
 
     def _draw_path_comparison(self, bounds: QRectF) -> None:
@@ -351,84 +361,210 @@ class MechanismPreviewWidget(QGraphicsView):
         self.scene.addEllipse(p_coupler_t.x() - 3, p_coupler_t.y() - 3, 6, 6, QPen(QColor("#ff0000")), QBrush(QColor("#ff0000")))
 
     def _draw_cam_follower_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
-        """Draw a cam (egg-shape) with follower above; follower rod may be long."""
-        cam_data = full_sim_data["cam_data"]
-        frame_idx = 0
+        """Template-driven cam preview with rigid rotation animation."""
+        base_radius = float(params.get("base_radius", 25.0))
+        # Override eccentricity with user total lift if available
+        eccentricity = float(params.get("eccentricity", 10.0))
+        try:
+            up = self.mechanism_data.get("user_path_aligned_np")
+            if up is not None and len(up) > 0:
+                umin = float(np.min(up[:, 1])); umax = float(np.max(up[:, 1]))
+                user_lift = abs(umax - umin)
+                if user_lift > 1e-9:
+                    eccentricity = user_lift
+        except Exception:
+            pass
+        rod_len = float(params.get("follower_rod_length", 40.0))
 
-        cam_center = np.array(cam_data["cam_centers"][frame_idx])
-        follower_y = cam_data["follower_y_positions"][frame_idx]
-        base_radius = params.get("base_radius")
-        eccentricity = params.get("eccentricity", 0.0)
-        rod_len = params.get("follower_rod_length", 40.0)
+        cam_data = full_sim_data.get("cam_data", {}) if full_sim_data else {}
+        if cam_data and "follower_y_positions" in cam_data:
+            follower_path = [[0.0, float(y)] for y in cam_data.get("follower_y_positions")]
+        else:
+            follower_path = [[0.0, base_radius + (eccentricity * 0.5) * (1 + np.cos(2*np.pi*i/90))] for i in range(90)]
 
-        to_screen_coords_func = self._get_transform_for_sim_data(
-            {"follower_path": [[0, y] for y in cam_data["follower_y_positions"]]}, "follower_path"
-        )
+        to_screen_coords_func = self._get_transform_for_sim_data({"follower_path": follower_path}, "follower_path")
         if not to_screen_coords_func:
             return
+        self._cam_to_screen = lambda p: to_screen_coords_func(p, transform)
 
-        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
+        # Load template and build cam polygon points
+        svg_path = (
+            self.mechanism_data.get('cam_template_svg_path')
+            or self.mechanism_data.get('parameters', {}).get('cam_template_svg_path')
+            or 'tom/pear_cam_4.3in.svg'
+        )
+        template_pts = None
+        try:
+            axis, poly = self._load_cam_profile_svg(svg_path)
+            template_pts = poly - axis
+        except Exception:
+            template_pts = None
 
-        # Create proper egg-shaped cam profile centered at cam_center
-        # Physics: cam's high points push follower UP, low points let it fall DOWN
-        cam_path = QPainterPath()
-        for i in range(101):
-            theta = 2 * np.pi * i / 100
-            # Proper cam profile: lift when convex part is at bottom (pushes follower up)
-            # Using sinusoidal lift profile shifted for correct physics
-            lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2  # Shifted for proper phase
-            effective_radius = base_radius + lift
+        # If base radius is missing or out-of-range, tie it to eccentricity to control on-screen size
+        if (base_radius <= 0) or (base_radius > 3 * eccentricity):
+            base_radius = 0.3 * max(1e-6, eccentricity)
 
-            p_orig = cam_center + effective_radius * np.array([np.cos(theta), np.sin(theta)])
-            p_screen = to_screen_coords(p_orig)
-            if i == 0:
-                cam_path.moveTo(p_screen)
+        # Build analytic pear-cam profile (ignore template for robust fit)
+        self._cam_points_local = self._build_pear_cam_profile(
+            base_radius=base_radius,
+            eccentricity=eccentricity,
+            rise_deg=70.0,
+            high_dwell_deg=40.0,
+            return_deg=70.0,
+            num_samples=180
+        )
+
+        # Create items
+        cam_polygon = QPolygonF([self._cam_to_screen(p) for p in self._cam_points_local])
+        cam_color = QColor("#e74c3c")
+        self._cam_poly_item = QGraphicsPolygonItem(cam_polygon)
+        self._cam_poly_item.setPen(QPen(cam_color, 3))
+        self._cam_poly_item.setBrush(QBrush(cam_color.lighter(160)))
+        self.scene.addItem(self._cam_poly_item)
+
+        y_max = float(np.max(self._cam_points_local[:, 1]))
+        follower_center = np.array([0.0, y_max - rod_len])  # follower above cam
+        w, h = 16.0, 10.0
+        follower_color = QColor("#ff7f50")
+        follower_scene_center = self._cam_to_screen(follower_center)
+        self._follower_item = QGraphicsRectItem(
+            follower_scene_center.x() - w/2,
+            follower_scene_center.y() - h/2,
+            w, h
+        )
+        self._follower_item.setPen(QPen(follower_color, 2))
+        self._follower_item.setBrush(QBrush(follower_color.lighter(140)))
+        self.scene.addItem(self._follower_item)
+
+        cam_top_scene = self._cam_to_screen(np.array([0.0, y_max]))
+        rod_path = QPainterPath(cam_top_scene)
+        rod_path.lineTo(follower_scene_center)
+        rod_pen = QPen(QColor("#2ecc71"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        self._rod_item = QGraphicsPathItem(rod_path)
+        self._rod_item.setPen(rod_pen)
+        self.scene.addItem(self._rod_item)
+
+        # Start animation
+        if self._cam_timer is None:
+            self._cam_timer = QTimer(self)
+            self._cam_timer.timeout.connect(lambda: self._tick_cam_animation(rod_len))
+            self._cam_timer.start(60)  # ~16 FPS
+
+    def _tick_cam_animation(self, rod_len: float):
+        if self._cam_points_local is None or self._cam_poly_item is None or self._cam_to_screen is None:
+            return
+        self._cam_angle = (self._cam_angle + 0.06) % (2*np.pi)
+        cos_r, sin_r = np.cos(self._cam_angle), np.sin(self._cam_angle)
+        rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+        rotated = self._cam_points_local @ rot.T
+
+        self._cam_poly_item.setPolygon(QPolygonF([self._cam_to_screen(p) for p in rotated]))
+
+        y_max = float(np.max(rotated[:, 1]))
+        follower_center = np.array([0.0, y_max - rod_len])
+        follower_scene_center = self._cam_to_screen(follower_center)
+        w, h = 16.0, 10.0
+        self._follower_item.setRect(
+            follower_scene_center.x() - w/2,
+            follower_scene_center.y() - h/2,
+            w, h
+        )
+        cam_top_scene = self._cam_to_screen(np.array([0.0, y_max]))
+        rod_path = QPainterPath(cam_top_scene)
+        rod_path.lineTo(follower_scene_center)
+        self._rod_item.setPath(rod_path)
+
+    def _load_cam_profile_svg(self, svg_path: str) -> tuple[np.ndarray, np.ndarray]:
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(svg_path)
+        root = tree.getroot()
+        def strip(tag: str) -> str:
+            return tag.split('}', 1)[-1]
+        axis = None
+        poly_pts = []
+        for elem in root.iter():
+            tag = strip(elem.tag)
+            if tag == 'circle' and axis is None:
+                try:
+                    cx = float(elem.attrib.get('cx', '0'))
+                    cy = float(elem.attrib.get('cy', '0'))
+                    axis = np.array([cx, cy], dtype=float)
+                except Exception:
+                    pass
+            elif tag == 'path':
+                d = elem.attrib.get('d', '')
+                if not d:
+                    continue
+                tokens = d.replace(',', ' ').split()
+                i = 0
+                while i < len(tokens):
+                    cmd = tokens[i]
+                    if cmd in ('M', 'L') and i+2 < len(tokens):
+                        try:
+                            x = float(tokens[i+1]); y = float(tokens[i+2])
+                            poly_pts.append((x, y)); i += 3
+                        except Exception:
+                            i += 1
+                    else:
+                        try:
+                            x = float(cmd); y = float(tokens[i+1])
+                            poly_pts.append((x, y)); i += 2
+                        except Exception:
+                            i += 1
+        if axis is None and poly_pts:
+            arr = np.array(poly_pts, dtype=float)
+            center = (np.min(arr, axis=0) + np.max(arr, axis=0)) / 2.0
+            axis = center
+        return axis, np.array(poly_pts, dtype=float)
+
+    def _build_cam_from_template(self, template_points: np.ndarray, base_radius: float, eccentricity: float, num_samples: int = 180) -> np.ndarray:
+        if template_points is None or len(template_points) < 3:
+            thetas = np.linspace(0, 2*np.pi, num_samples)
+            return np.stack([base_radius*np.cos(thetas), base_radius*np.sin(thetas)], axis=1)
+        thetas = np.linspace(0, 2*np.pi, num_samples)
+        u = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
+        dots = u @ template_points.T
+        r_templ = np.max(dots, axis=1)
+        r_min = float(np.min(r_templ)); r_max = float(np.max(r_templ))
+        denom = max(1e-9, r_max - r_min)
+        s = (r_templ - r_min) / denom
+        r = base_radius + eccentricity * s
+        return np.stack([r*np.cos(thetas), r*np.sin(thetas)], axis=1)
+
+    def _build_pear_cam_profile(
+        self,
+        base_radius: float,
+        eccentricity: float,
+        rise_deg: float = 70.0,
+        high_dwell_deg: float = 40.0,
+        return_deg: float = 70.0,
+        num_samples: int = 360,
+    ) -> np.ndarray:
+        rise = np.deg2rad(rise_deg)
+        dwell_high = np.deg2rad(high_dwell_deg)
+        ret = np.deg2rad(return_deg)
+        total = 2 * np.pi
+        dwell_low = max(0.0, total - (rise + dwell_high + ret))
+        theta0 = np.pi
+        seg1_end = theta0 + rise
+        seg2_end = seg1_end + dwell_high
+        seg3_end = seg2_end + ret
+        thetas = np.linspace(0, 2 * np.pi, num_samples, endpoint=False)
+        s = np.zeros_like(thetas)
+        for i, t in enumerate(thetas):
+            rel = (t - theta0) % (2 * np.pi) + theta0
+            if rel < seg1_end:
+                u = (rel - theta0) / rise
+                s[i] = 0.5 * (1 - np.cos(np.pi * u))
+            elif rel < seg2_end:
+                s[i] = 1.0
+            elif rel < seg3_end:
+                u = (rel - seg2_end) / ret
+                s[i] = 0.5 * (1 + np.cos(np.pi * u))
             else:
-                cam_path.lineTo(p_screen)
-
-        self.scene.addPath(cam_path, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
-
-        # GRAVITY PHYSICS: Follower must be above cam (visually)
-        # Move cam center down and follower up to show proper gravity orientation
-        cam_center_adjusted = cam_center + np.array([0, base_radius])  # Move cam down
-        follower_center_y = cam_center[1] - (base_radius + rod_len)  # Follower above original cam center
-        follower_pos_orig = np.array([cam_center[0], follower_center_y])
-
-        # Redraw cam with adjusted center (moved down)
-        cam_path_adjusted = QPainterPath()
-        for i in range(101):
-            theta = 2 * np.pi * i / 100
-            # Use same proper cam profile with correct physics
-            lift = eccentricity * (1 + np.cos(theta + np.pi/2)) / 2  # Shifted for proper phase
-            effective_radius = base_radius + lift
-            p_orig = cam_center_adjusted + effective_radius * np.array([np.cos(theta), np.sin(theta)])
-            p_screen = to_screen_coords(p_orig)
-            if i == 0:
-                cam_path_adjusted.moveTo(p_screen)
-            else:
-                cam_path_adjusted.lineTo(p_screen)
-
-        # Remove old cam and add adjusted one
-        self.scene.addPath(cam_path_adjusted, QPen(QColor("#e74c3c"), 4), QBrush(QColor("#e74c3c").lighter(160)))
-
-        # Enhanced follower visualization - more prominent for drag editing
-        w, h = 16, 10  # Slightly larger for better visibility
-        tl = follower_pos_orig + np.array([-w/2, -h/2])
-        tr = follower_pos_orig + np.array([w/2, -h/2])
-        br = follower_pos_orig + np.array([w/2, h/2])
-        bl = follower_pos_orig + np.array([-w/2, h/2])
-        follower_poly = QPolygonF([to_screen_coords(p) for p in [tl, tr, br, bl]])
-
-        # Use different color to indicate drag-editability
-        follower_color = QColor("#ff7f50")  # Coral color for better visibility
-        self.scene.addPolygon(follower_poly, QPen(follower_color, 3), QBrush(follower_color.lighter(140)))
-
-        # Draw connecting rod from top of adjusted cam to follower
-        cam_top_adjusted = cam_center_adjusted + np.array([0, -base_radius])
-        rod_start_screen = to_screen_coords(cam_top_adjusted)
-        rod_end_screen = to_screen_coords(follower_pos_orig)
-        rod_pen = QPen(QColor("#2ecc71"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        self.scene.addLine(QLineF(rod_start_screen, rod_end_screen), rod_pen)
+                s[i] = 0.0
+        r = base_radius + eccentricity * s
+        return np.stack([r * np.cos(thetas), r * np.sin(thetas)], axis=1)
 
     def _draw_simple_gear_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
         """Draws a simple gear train from simulation data."""
