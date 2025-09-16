@@ -29,8 +29,9 @@ from PyQt6.QtWidgets import (
 # from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
 from automataii.config.z_indices import (
     Z_MOTION_PATH_PREVIEW,
+    Z_MOTION_PATH_LINE,
     Z_SKELETON_OVERLAY,
-)  # Added Z_SKELETON_OVERLAY and mechanism-specific Z-indices
+)  # Z-indices for paths and overlays
 from automataii.gui.graphics_items.part_item import CharacterPartItem  # UPDATED
 from automataii.gui.graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
 
@@ -172,9 +173,10 @@ class EditorView(QGraphicsView):
         self.selection_markers: dict[
             str, QGraphicsEllipseItem
         ] = {}  # For mechanism point markers
-        self.final_paths_map: dict[
-            str, QGraphicsPathItem
-        ] = {}  # NEW: To store final green paths
+        self.final_paths_map: dict[str, QGraphicsPathItem] = {}  # Final smoothed paths
+        # Overlays for dual-track/diagnostics
+        self._raw_paths_map: dict[str, QGraphicsPathItem] = {}
+        self._corrected_paths_map: dict[str, QGraphicsPathItem] = {}
 
         # Rounded corners and white background for the viewport
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
@@ -193,6 +195,74 @@ class EditorView(QGraphicsView):
         logging.info(
             f"EditorView initialized with DPI: {self.dpi}, default unit: {self.display_unit}"
         )
+
+    # ---- Overlay path helpers (dual-track preview, diagnostics) ----
+    def set_raw_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
+        """Set or clear the raw path overlay for a component key (part name)."""
+        # Remove existing
+        if key in self._raw_paths_map:
+            old = self._raw_paths_map.pop(key)
+            try:
+                self.scene().removeItem(old)
+            except Exception:
+                pass
+        if path is None or path.isEmpty():
+            return
+        item = QGraphicsPathItem(path)
+        if pen is None:
+            # Default: dashed purple, medium thickness (raw overlay)
+            p = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
+        else:
+            p = pen
+        item.setPen(p)
+        item.setZValue(Z_MOTION_PATH_LINE)  # Keep above parts but below skeleton overlay
+        self.scene().addItem(item)
+        self._raw_paths_map[key] = item
+
+    def set_corrected_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
+        """Set or clear the feasibility-corrected path overlay for a component key."""
+        if key in self._corrected_paths_map:
+            old = self._corrected_paths_map.pop(key)
+            try:
+                self.scene().removeItem(old)
+            except Exception:
+                pass
+        if path is None or path.isEmpty():
+            return
+        item = QGraphicsPathItem(path)
+        if pen is None:
+            # Default: semi-transparent orange solid
+            p = QPen(QColor(255, 140, 0, 220), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        else:
+            p = pen
+        item.setPen(p)
+        item.setZValue(Z_MOTION_PATH_LINE)
+        self.scene().addItem(item)
+        self._corrected_paths_map[key] = item
+
+    def clear_overlays_for(self, key: str) -> None:
+        """Clear raw and corrected overlays for a component key."""
+        if key in self._raw_paths_map:
+            try:
+                self.scene().removeItem(self._raw_paths_map[key])
+            except Exception:
+                pass
+            self._raw_paths_map.pop(key, None)
+        if key in self._corrected_paths_map:
+            try:
+                self.scene().removeItem(self._corrected_paths_map[key])
+            except Exception:
+                pass
+            self._corrected_paths_map.pop(key, None)
+
+    def clear_corrected_overlay_for(self, key: str) -> None:
+        """Clear only the corrected overlay for a component key, keeping raw overlay intact."""
+        if key in self._corrected_paths_map:
+            try:
+                self.scene().removeItem(self._corrected_paths_map[key])
+            except Exception:
+                pass
+            self._corrected_paths_map.pop(key, None)
 
     def set_display_unit(self, unit: str):
         """Sets the display unit for the grid and updates the view."""
@@ -1589,6 +1659,11 @@ class EditorView(QGraphicsView):
                     f"Visual path for component '{component_key}' was in map but not in scene."
                 )
 
+            # Also clear overlays (raw/corrected) if present
+            try:
+                self.clear_overlays_for(component_key)
+            except Exception:
+                pass
             self.path_data_cleared_for_component.emit(component_key)
             self._show_status_message(f"Path cleared for {component_key}.")
         else:
@@ -1596,6 +1671,10 @@ class EditorView(QGraphicsView):
                 f"No visual path found in map for component '{component_key}' to clear."
             )
             # Still emit, as IKManager might have data even if visual wasn't shown or was already cleared
+            try:
+                self.clear_overlays_for(component_key)
+            except Exception:
+                pass
             self.path_data_cleared_for_component.emit(component_key)
             self._show_status_message(
                 f"No visual path to clear for {component_key}, ensuring data is cleared."

@@ -3,7 +3,7 @@ import math
 from typing import Any
 
 from PyQt6.QtCore import QPointF, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QBrush, QColor, QPainterPath
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QGraphicsScene,
     QGroupBox,
@@ -93,6 +93,9 @@ class EditorTab(QWidget):
 
         # Connect signals from self.editor_view now that it exists
         self._connect_editor_view_signals()
+
+        # Storage for feasibility-corrected candidate paths (per part)
+        self._corrected_paths: dict[str, QPainterPath] = {}
 
     def _connect_editor_view_signals(self):
         """Connect signals from this tab's EditorView instance."""
@@ -370,6 +373,8 @@ class EditorTab(QWidget):
         smoothness_layout.addWidget(self.smoothness_value_label)
 
         motion_path_layout.addLayout(smoothness_layout)
+
+        # Note: Feasibility is now auto-applied on Play. Button removed per request.
 
         panel_layout.addWidget(motion_path_group)
         panel_layout.setStretchFactor(motion_path_group, 0)
@@ -741,6 +746,12 @@ class EditorTab(QWidget):
     def _play_simulation_clicked(self):
         # 🔧 PART MOVEMENT LOCK: Lock part movement during animation
         self._lock_part_movement(True)
+
+        # Auto-apply feasibility snapping for all parts before playing
+        try:
+            self._apply_corrections_for_all_parts()
+        except Exception as e:
+            logging.debug(f"Auto-apply feasibility corrections failed: {e}")
 
         # Always emit the signal so IK manager knows we're playing
         self.request_play_simulation.emit()
@@ -1644,28 +1655,284 @@ class EditorTab(QWidget):
             self._regenerate_path_with_smoothness(self.selected_part_name, value)
 
     def _regenerate_path_with_smoothness(self, part_name: str, smoothness_percentage: int):
-        """Regenerate the motion path for a part with new smoothness percentage (0-100)."""
-        # Get the original path points if available
+        """Regenerate motion path using tolerance-based smoothing that preserves extremes.
+
+        Shows dual-track overlay: raw (dashed green) vs smoothed (solid).
+        """
+        # 1) Gather original points
         original_points = self._get_original_path_points(part_name)
         if not original_points or len(original_points) < 3:
             logging.warning(f"Cannot regenerate path for {part_name}: insufficient original points")
             return
 
-        # Create new path based on smoothness percentage
+        # If smoothness is 0: commit completely raw path and show purple dashed raw overlay
         if smoothness_percentage == 0:
-            # 0% = raw points (straight lines)
-            new_path = self._create_raw_path(original_points)
-        elif smoothness_percentage == 100:
-            # 100% = perfect ellipse
-            new_path = self._create_perfect_ellipse_path(original_points)
-        else:
-            # Interpolation between raw points and ellipse
-            new_path = self._create_interpolated_path(original_points, smoothness_percentage)
+            raw_path = self._create_raw_path(original_points)
+            if hasattr(self.editor_view, 'set_raw_overlay_path'):
+                # Purple dashed pen for raw overlay
+                raw_pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
+                self.editor_view.set_raw_overlay_path(part_name, raw_path, raw_pen)
+            # Compute feasibility-corrected overlay (if available)
+            try:
+                corrected = self._apply_feasibility_snapping_if_needed(part_name, raw_path)
+                if corrected is not None and hasattr(self.editor_view, 'set_corrected_overlay_path'):
+                    self.editor_view.set_corrected_overlay_path(part_name, corrected)
+                    self._corrected_paths[part_name] = corrected
+            except Exception as e:
+                logging.debug(f"Feasibility snapping skipped: {e}")
+            self._update_part_path(part_name, raw_path)
+            logging.info(f"Regenerated path (RAW) for {part_name} with smoothness 0%")
+            return
 
-        # Update the path in both the part item and project data
+        # 2) Map slider 0..100 to geometric tolerance based on path size
+        bbox_min_x = min(p.x() for p in original_points)
+        bbox_max_x = max(p.x() for p in original_points)
+        bbox_min_y = min(p.y() for p in original_points)
+        bbox_max_y = max(p.y() for p in original_points)
+        diag = ((bbox_max_x - bbox_min_x) ** 2 + (bbox_max_y - bbox_min_y) ** 2) ** 0.5
+        # Use up to 5% of diagonal as max tolerance; avoid negative/lower than minimal float jitter
+        epsilon = max(0.1, 0.05 * diag * (smoothness_percentage / 100.0))
+
+        # 3) Compute extreme indices to preserve (endpoints + local extrema along principal axis)
+        keep_indices = self._compute_extreme_indices(original_points)
+
+        # 4) RDP simplify while preserving extremes
+        simplified = self._rdp_preserve(original_points, epsilon, keep_indices)
+        if len(simplified) < 3:
+            simplified = original_points
+
+        # 5) Build smoothed path via spline
+        try:
+            tension = 0.5
+            new_path = self.editor_view._create_spline_path(simplified, closed_loop=True, tension=tension)
+        except Exception:
+            new_path = self._create_raw_path(simplified)
+
+        # 6) Show dual-track overlays: raw vs smoothed
+        raw_overlay = self._create_raw_path(original_points)
+        if hasattr(self.editor_view, 'set_raw_overlay_path'):
+            raw_pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
+            self.editor_view.set_raw_overlay_path(part_name, raw_overlay, raw_pen)
+
+        # 7) Optional: feasibility snapping (overlay corrected if needed)
+        try:
+            corrected = self._apply_feasibility_snapping_if_needed(part_name, new_path)
+            if corrected is not None and hasattr(self.editor_view, 'set_corrected_overlay_path'):
+                self.editor_view.set_corrected_overlay_path(part_name, corrected)
+                self._corrected_paths[part_name] = corrected
+        except Exception as e:
+            logging.debug(f"Feasibility snapping skipped: {e}")
+
+        # 8) Commit smoothed path
         self._update_part_path(part_name, new_path)
+        logging.info(f"Regenerated path (RDP) for {part_name} with epsilon={epsilon:.2f}")
 
-        logging.info(f"Regenerated path for {part_name} with smoothness {smoothness_percentage}%")
+    # ---- Geometry helpers for Stage 1 smoothing ----
+    def _compute_extreme_indices(self, points: list[QPointF]) -> set[int]:
+        """Detect indices of extremes along principal axis, including endpoints.
+
+        Uses PCA to find major axis, projects points, and picks local maxima/minima.
+        """
+        try:
+            import numpy as np
+        except Exception:
+            # Fallback: use x-axis projection
+            vals = [p.x() for p in points]
+            return self._local_extrema_indices(vals)
+
+        arr = np.array([[p.x(), p.y()] for p in points], dtype=float)
+        arr_centered = arr - np.mean(arr, axis=0)
+        cov = np.cov(arr_centered.T)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        major = eigvecs[:, np.argmax(eigvals)]
+        proj = arr_centered @ major
+        idxs = self._local_extrema_indices(proj.tolist())
+        # Always include endpoints
+        idxs.update({0, len(points) - 1})
+        return idxs
+
+    def _local_extrema_indices(self, values: list[float]) -> set[int]:
+        """Return indices that are local minima or maxima in a 1D sequence."""
+        idxs: set[int] = set()
+        n = len(values)
+        for i in range(1, n - 1):
+            if (values[i] >= values[i - 1] and values[i] >= values[i + 1]) or \
+               (values[i] <= values[i - 1] and values[i] <= values[i + 1]):
+                idxs.add(i)
+        return idxs
+
+    def _rdp_preserve(self, points: list[QPointF], epsilon: float, keep_indices: set[int]) -> list[QPointF]:
+        """Ramer–Douglas–Peucker simplification while forcing certain indices to be kept."""
+        # Convert to tuples for distance calc
+        import math
+
+        def point_line_distance(p, a, b):
+            # p, a, b are QPointF
+            ax, ay = a.x(), a.y()
+            bx, by = b.x(), b.y()
+            px, py = p.x(), p.y()
+            dx, dy = bx - ax, by - ay
+            if dx == 0 and dy == 0:
+                return math.hypot(px - ax, py - ay)
+            t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+            t = max(0.0, min(1.0, t))
+            projx, projy = ax + t * dx, ay + t * dy
+            return math.hypot(px - projx, py - projy)
+
+        def rdp_segment(start_idx, end_idx) -> list[int]:
+            if end_idx <= start_idx + 1:
+                return [start_idx, end_idx]
+            # Find furthest point
+            a, b = points[start_idx], points[end_idx]
+            max_dist = -1.0
+            index = -1
+            for i in range(start_idx + 1, end_idx):
+                d = point_line_distance(points[i], a, b)
+                if d > max_dist:
+                    max_dist = d
+                    index = i
+            if max_dist > epsilon or any((start_idx < k < end_idx) for k in keep_indices):
+                # Split
+                left = rdp_segment(start_idx, index)
+                right = rdp_segment(index, end_idx)
+                return left[:-1] + right
+            else:
+                return [start_idx, end_idx]
+
+        n = len(points)
+        # Ensure keep points are included by forcing splits at those indices
+        selected = set()
+        # Sort keep indices inside (0,n-1)
+        internal_keeps = sorted([k for k in keep_indices if 0 < k < n - 1])
+        segments = []
+        prev = 0
+        for k in internal_keeps:
+            segments.append((prev, k))
+            prev = k
+        segments.append((prev, n - 1))
+        idx_list: list[int] = []
+        for s, e in segments:
+            seg_idxs = rdp_segment(s, e)
+            for i in seg_idxs:
+                selected.add(i)
+        final_indices = sorted(selected)
+        return [points[i] for i in final_indices]
+
+    # ---- Feasibility stub (Stage 1) ----
+    def _apply_feasibility_snapping_if_needed(self, part_name: str, path: QPainterPath) -> QPainterPath | None:
+        """Attempt to compute a nearest-feasible path based on end-effector reach.
+
+        Uses a two-bone (root->mid->effector) annulus model when available from IKManager:
+        feasible radii from root = [abs(l1-l2), l1+l2] (± small tolerance). Points are
+        projected onto this annulus. Falls back to single-bone model otherwise.
+        """
+        try:
+            ik = getattr(self.main_window, 'ik_manager', None)
+            if not ik or not hasattr(ik, 'sim_joints_config'):
+                return None
+
+            # Find end-effector joint (abstract) for this part
+            eff_abs = None
+            try:
+                for comp in getattr(ik, 'sim_selectable_components', []) or []:
+                    if comp.get('partName') == part_name:
+                        eff_abs = comp.get('targetJointId')
+                        break
+            except Exception:
+                eff_abs = None
+            if not eff_abs:
+                return None
+
+            # Resolve parent (mid) and root anchors via sim_limb_configs
+            mid_abs = None
+            root_abs = None
+            try:
+                mid_abs = ik.sim_limb_configs.get(eff_abs, {}).get('parentAnchor')
+                if mid_abs:
+                    root_abs = ik.sim_limb_configs.get(mid_abs, {}).get('parentAnchor') or mid_abs
+            except Exception:
+                pass
+            if not mid_abs or not root_abs:
+                return None
+
+            # Map abstract names to standardized joint IDs
+            def std_id_of(abs_name: str) -> str | None:
+                try:
+                    return ik._get_standardized_joint_id(abs_name)  # type: ignore[attr-defined]
+                except Exception:
+                    return None
+
+            eff_id = std_id_of(eff_abs) or eff_abs
+            mid_id = std_id_of(mid_abs) or mid_abs
+            root_id = std_id_of(root_abs) or root_abs
+            for jid in (eff_id, mid_id, root_id):
+                if jid not in ik.sim_joints_config:
+                    return None
+
+            root_pos = ik.sim_joints_config[root_id]['position']
+            mid_pos = ik.sim_joints_config[mid_id]['position']
+            eff_pos = ik.sim_joints_config[eff_id]['position']
+
+            # Bone lengths
+            def dist(a, b):
+                dx = a.x() - b.x(); dy = a.y() - b.y()
+                return (dx*dx + dy*dy) ** 0.5
+
+            l1 = dist(root_pos, mid_pos)
+            l2 = dist(mid_pos, eff_pos)
+            if l1 <= 1e-6 or l2 <= 1e-6:
+                return None
+
+            tol = 0.05  # small tolerance 5%
+            r_min = max(0.0, abs(l1 - l2) * (1.0 - tol))
+            r_max = (l1 + l2) * (1.0 + tol)
+
+            # Project sampled points
+            corrected = QPainterPath()
+            any_change = False
+            samples = 100
+            for i in range(samples):
+                t = i / (samples - 1) if samples > 1 else 0.0
+                p = path.pointAtPercent(t)
+                dx = p.x() - root_pos.x()
+                dy = p.y() - root_pos.y()
+                d = (dx * dx + dy * dy) ** 0.5
+                if d < 1e-6:
+                    nx, ny = r_min, 0.0
+                    any_change = True
+                else:
+                    if d < r_min:
+                        s = r_min / d; nx, ny = dx * s, dy * s; any_change = True
+                    elif d > r_max:
+                        s = r_max / d; nx, ny = dx * s, dy * s; any_change = True
+                    else:
+                        nx, ny = dx, dy
+                cx = root_pos.x() + nx
+                cy = root_pos.y() + ny
+                if i == 0:
+                    corrected.moveTo(cx, cy)
+                else:
+                    corrected.lineTo(cx, cy)
+            corrected.closeSubpath()
+            return corrected if any_change else None
+        except Exception as e:
+            logging.debug(f"Feasibility snapping error: {e}")
+            return None
+
+    def _apply_corrections_for_all_parts(self):
+        """Auto-apply feasibility-corrected paths for all parts that have them."""
+        if not hasattr(self, '_corrected_paths') or not self._corrected_paths:
+            return
+        for part, corrected in list(self._corrected_paths.items()):
+            try:
+                if corrected is None:
+                    continue
+                self._update_part_path(part, corrected)
+                if hasattr(self.editor_view, 'clear_corrected_overlay_for'):
+                    self.editor_view.clear_corrected_overlay_for(part)
+                self._corrected_paths.pop(part, None)
+            except Exception as e:
+                logging.debug(f"Failed to auto-apply correction for {part}: {e}")
 
     def _get_original_path_points(self, part_name: str) -> list[QPointF]:
         """Get the original drawn points for a part (before spline interpolation)."""
