@@ -1358,6 +1358,15 @@ class AutomataDesigner(QMainWindow):
             setting_name == "unit_system"
         ):  # Assuming this will be the setting_name from OptionsTab
             self._handle_unit_changed(str(value))
+        elif setting_name == "performance_preset":
+            try:
+                preset = str(value)
+                if hasattr(self, 'mechanism_design_tab') and self.mechanism_design_tab:
+                    apply = getattr(self.mechanism_design_tab, 'apply_performance_preset', None)
+                    if callable(apply):
+                        apply(preset)
+            except Exception:
+                pass
         elif setting_name == "debug_mode":
             # Assuming ImageProcessingTab has a method to set debug mode
             if hasattr(self.image_proc_tab, "set_debug_mode"):

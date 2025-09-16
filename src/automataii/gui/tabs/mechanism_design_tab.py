@@ -28,8 +28,8 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
+from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, QElapsedTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF, QPainter
 from PyQt6 import sip
 from PyQt6.QtWidgets import (
     QDialog,
@@ -187,6 +187,16 @@ class MechanismDesignTab(QWidget):
         self.animation_time = 0.0
         self.animation_speed = 1.0  # radians per second
         self.animating_mechanisms = {}  # Store original positions for animation
+
+        # Phase 1 performance: IK throttling and mechanism update batching
+        self.ik_update_rate_hz: int = 30  # target IK updates per second
+        self._ik_min_interval_ms: int = int(1000 / max(1, self.ik_update_rate_hz))
+        self._ik_throttle_timer: QElapsedTimer = QElapsedTimer()
+        self._ik_throttle_timer.invalidate()
+        self._last_target_pos_by_joint: dict[str, QPointF] = {}
+        self._pos_epsilon_px: float = 0.5  # minimum movement to trigger IK update
+        self.mechanism_update_fraction: float = 0.5  # update only 50% mechanisms per frame
+        self._mech_rr_cursor: int = 0
 
         # Tab state tracking for safe Qt object lifecycle management
         self._tab_visible = False
@@ -1965,8 +1975,22 @@ class MechanismDesignTab(QWidget):
             for mech_id, layer_data in self.mechanism_layers.items():
                 part_name = layer_data.get("part_name", "unknown")
 
-        # 1. Calculate all mechanism outputs and determine IK targets
-        for mechanism_id, layer_data in self.mechanism_layers.items():
+        # 1. Calculate mechanism outputs (round-robin subset) and determine IK targets
+        mech_items = list(self.mechanism_layers.items())
+        total_mechs = len(mech_items)
+        if total_mechs > 0:
+            batch_count = max(1, int(math.ceil(total_mechs * max(0.05, min(1.0, self.mechanism_update_fraction)))))
+            start = self._mech_rr_cursor % total_mechs
+            end = start + batch_count
+            if end <= total_mechs:
+                selected = mech_items[start:end]
+            else:
+                selected = mech_items[start:] + mech_items[: (end % total_mechs)]
+            self._mech_rr_cursor = (self._mech_rr_cursor + batch_count) % total_mechs
+        else:
+            selected = []
+
+        for mechanism_id, layer_data in selected:
             if not layer_data or not layer_data.get("part_name"):
                 continue
 
@@ -2005,12 +2029,19 @@ class MechanismDesignTab(QWidget):
             except Exception as e:
                 pass
 
-        # 2. Set targets in the IK system
+        # 2. Throttled IK target updates with epsilon-based skipping
         if active_joint_updates and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            ik_manager = self.main_window.ik_manager
-            for joint_id, target_pos in active_joint_updates.items():
-                # The IK manager will handle validation and smoothing
-                ik_manager.set_mechanism_position_target(joint_id, target_pos)
+            if not self._ik_throttle_timer.isValid():
+                self._ik_throttle_timer.start()
+            if self._ik_throttle_timer.elapsed() >= self._ik_min_interval_ms:
+                ik_manager = self.main_window.ik_manager
+                eps = max(0.0, float(getattr(self, '_pos_epsilon_px', 0.5)))
+                for joint_id, target_pos in active_joint_updates.items():
+                    last = self._last_target_pos_by_joint.get(joint_id)
+                    if last is None or (abs(target_pos.x() - last.x()) > eps or abs(target_pos.y() - last.y()) > eps):
+                        ik_manager.set_mechanism_position_target(joint_id, target_pos)
+                        self._last_target_pos_by_joint[joint_id] = target_pos
+                self._ik_throttle_timer.restart()
 
         # NOTE: All part and skeleton visual updates are now handled by the signal/slot connection
         # to on_skeleton_updated, which is called after the IK manager solves the pose.
@@ -2086,13 +2117,14 @@ class MechanismDesignTab(QWidget):
                         if len(visual_items) > 0:
                             driver_link = visual_items[0]
                             if isinstance(driver_link, QGraphicsLineItem):
-                                driver_link.setLine(QLineF(p1_t, p3_t))
+                                # Avoid redundant setLine calls if unchanged
+                                self._set_line_if_changed(driver_link, p1_t, p3_t)
 
                         # Update follower link (item 1)
                         if len(visual_items) > 1:
                             follower_link = visual_items[1]
                             if isinstance(follower_link, QGraphicsLineItem):
-                                follower_link.setLine(QLineF(p2_t, p4_t))
+                                self._set_line_if_changed(follower_link, p2_t, p4_t)
 
                         # Update coupler triangle/line (item 2)
                         if len(visual_items) > 2:
@@ -3348,8 +3380,71 @@ class MechanismDesignTab(QWidget):
             if mechanism_id in self.mechanism_trace_paths:
                 del self.mechanism_trace_paths[mechanism_id]
 
-        except Exception as e:
+        except Exception:
             pass
+
+    # ====== Performance Utilities ======
+    def _set_line_if_changed(self, line_item: QGraphicsLineItem, p1: QPointF, p2: QPointF, eps: float = 0.1) -> None:
+        """Set line only if endpoints changed beyond epsilon (in scene px)."""
+        try:
+            current = line_item.line()
+            if (abs(current.p1().x() - p1.x()) > eps or abs(current.p1().y() - p1.y()) > eps or
+                abs(current.p2().x() - p2.x()) > eps or abs(current.p2().y() - p2.y()) > eps):
+                line_item.setLine(QLineF(p1, p2))
+        except Exception:
+            # Fallback if any issue
+            try:
+                line_item.setLine(QLineF(p1, p2))
+            except Exception:
+                pass
+
+    def apply_performance_preset(self, preset: str) -> None:
+        """Apply performance preset to mechanism simulation and view.
+
+        Presets:
+        - Fast: fewer updates, simpler trace, lower IK rate
+        - Balanced: defaults
+        - High: more updates, longer trace, higher IK rate
+        """
+        p = (preset or '').strip().lower()
+        if p == 'fast':
+            self.ik_update_rate_hz = 15
+            self._ik_min_interval_ms = int(1000 / self.ik_update_rate_hz)
+            self._pos_epsilon_px = 1.0
+            self.mechanism_update_fraction = 0.33
+            self.trace_update_stride = 4
+            self.trace_max_points = 250
+            # Render hint: prefer speed (no AA)
+            if hasattr(self, 'mechanism_view') and self.mechanism_view:
+                try:
+                    self.mechanism_view.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+                except Exception:
+                    pass
+        elif p == 'high':
+            self.ik_update_rate_hz = 60
+            self._ik_min_interval_ms = int(1000 / self.ik_update_rate_hz)
+            self._pos_epsilon_px = 0.2
+            self.mechanism_update_fraction = 1.0
+            self.trace_update_stride = 1
+            self.trace_max_points = 1000
+            # Enable AA for nicer visuals
+            if hasattr(self, 'mechanism_view') and self.mechanism_view:
+                try:
+                    self.mechanism_view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                except Exception:
+                    pass
+        else:  # balanced/default
+            self.ik_update_rate_hz = 30
+            self._ik_min_interval_ms = int(1000 / self.ik_update_rate_hz)
+            self._pos_epsilon_px = 0.5
+            self.mechanism_update_fraction = 0.5
+            self.trace_update_stride = 2
+            self.trace_max_points = 500
+            if hasattr(self, 'mechanism_view') and self.mechanism_view:
+                try:
+                    self.mechanism_view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                except Exception:
+                    pass
 
     def _generate_joint_motion_path(self, layer_data: dict, joint_id: str) -> QPainterPath | None:
         """Generate a motion path specifically for a skeleton joint using mechanism calculations."""

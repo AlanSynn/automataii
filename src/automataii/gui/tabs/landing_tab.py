@@ -176,7 +176,7 @@ class LandingTab(QWidget):
             logo_label.setStyleSheet("font-size: 50px;")
 
         # Title
-        title_label = QLabel("Automataii!")
+        title_label = QLabel("MotionSmith")
         title_label.setStyleSheet(f"""
             color: {self.STEEL_BLUE};
             font-family: 'Segoe UI', 'Arial', sans-serif;
@@ -326,4 +326,3 @@ class LandingTab(QWidget):
         # loading the image into ImageProcessingTab, switching tabs,
         # and updating the status bar.
         # Therefore, the direct calls to switch tab and load image here are removed.
-

@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QLabel,
     QVBoxLayout,
     QWidget,
 )
@@ -24,6 +25,7 @@ class OptionsTab(QWidget):
         bool
     )  # For detailed processing steps visibility
     unitChanged = pyqtSignal(str)  # NEW: Signal for unit changes
+    performancePresetChanged = pyqtSignal(str)  # NEW: Performance preset changes
 
     def __init__(self, initial_anim_duration: float = 2.0, parent=None):
         super().__init__(parent)
@@ -113,6 +115,33 @@ class OptionsTab(QWidget):
 
         layout.addWidget(simulation_group)
 
+        # --- Performance Settings ---
+        performance_group = QGroupBox("Performance")
+        perf_layout = QFormLayout(performance_group)
+        perf_layout.setSpacing(10)
+
+        self.perf_preset_combo = QComboBox()
+        self.perf_preset_combo.addItems(["Fast", "Balanced", "High"])  # Presets
+        self.perf_preset_combo.setCurrentText("Balanced")
+        self.perf_preset_combo.currentTextChanged.connect(self._on_performance_preset_changed)
+        self.perf_preset_combo.currentTextChanged.connect(
+            lambda val: self.setting_changed.emit("performance_preset", val)
+        )
+        self.perf_preset_combo.setToolTip(
+            "Choose a performance preset for mechanism simulation (Fast/Balanced/High)."
+        )
+        perf_layout.addRow("Preset:", self.perf_preset_combo)
+
+        self.perf_help_label = QLabel(
+            "Fast: smoother FPS, simpler visuals\n"
+            "Balanced: default settings\n"
+            "High: finer visuals, more updates"
+        )
+        self.perf_help_label.setStyleSheet("color: #666; font-size: 10px;")
+        perf_layout.addRow(self.perf_help_label)
+
+        layout.addWidget(performance_group)
+
         # --- Debug Settings ---
         debug_group = QGroupBox("Debugging")
         debug_layout = QFormLayout(debug_group)
@@ -185,6 +214,10 @@ class OptionsTab(QWidget):
             "Ease-In-Out": "ease_in_out",
         }
         self.timingProfileChanged.emit(mapping.get(text, "linear"))
+
+    def _on_performance_preset_changed(self, preset_text: str):
+        # Normalize to code-friendly names if needed; emit raw for now
+        self.performancePresetChanged.emit(preset_text)
 
 
 
