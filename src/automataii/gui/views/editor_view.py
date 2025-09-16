@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsPathItem,
     QGraphicsView,
+    QGraphicsView,
     QMenu,
 )
 
@@ -94,12 +95,19 @@ class EditorView(QGraphicsView):
         super().__init__(scene, parent_window)
         self.parent_window = parent_window  # Reference to the main window if needed
         self.mechanism_mode = mechanism_mode  # Flag for mechanism design tab context
-        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Rendering hints: favor performance in mechanism mode
+        if self.mechanism_mode:
+            # Disable antialiasing for faster redraws in mechanism preview
+            self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        else:
+            self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         # Set background color to gray
         # self.setBackgroundBrush(QBrush(QColor(200, 200, 200), Qt.BrushStyle.SolidPattern)) # REMOVED
 
-        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        # Reduce overdraw: update only affected regions (performance win)
+        # Use BoundingRectViewportUpdate to avoid artifacts common with Minimal mode
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)

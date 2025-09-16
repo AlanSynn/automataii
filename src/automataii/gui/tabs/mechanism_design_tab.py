@@ -205,6 +205,11 @@ class MechanismDesignTab(QWidget):
         self.mechanism_trace_items: dict[str, QGraphicsPathItem] = {}  # Visual path items
         self.mechanism_trace_points: dict[str, list[QPointF]] = {}  # Store trace points
 
+        # Performance controls (Phase 0 quick wins)
+        self.trace_max_points: int = 500  # cap trace points to reduce rebuild cost
+        self.trace_update_stride: int = 2  # update visual path every N frames
+        self._trace_frame_tick: int = 0
+
         # Initialize new visualization system if available
         self.visualization_adapter: VisualizationAdapter | None = None
         if VISUALIZATION_AVAILABLE:
@@ -1948,6 +1953,8 @@ class MechanismDesignTab(QWidget):
         self.animation_time += dt
         if self.animation_time > 2 * math.pi:
             self.animation_time -= 2 * math.pi
+        # Advance trace frame tick for stride gating
+        self._trace_frame_tick = (self._trace_frame_tick + 1) % 1000000
 
         active_joint_updates = {}
 
@@ -3305,20 +3312,24 @@ class MechanismDesignTab(QWidget):
         self.mechanism_trace_points[mechanism_id].append(position)
 
         # Limit trace length to prevent memory issues
-        max_points = 1000
+        max_points = getattr(self, 'trace_max_points', 500)
         if len(self.mechanism_trace_points[mechanism_id]) > max_points:
             self.mechanism_trace_points[mechanism_id] = self.mechanism_trace_points[mechanism_id][-max_points:]
 
-        # Update visual path
-        trace_points = self.mechanism_trace_points[mechanism_id]
-        if len(trace_points) > 1:
-            path = QPainterPath()
-            path.moveTo(trace_points[0])
-            for point in trace_points[1:]:
-                path.lineTo(point)
-
-            self.mechanism_trace_paths[mechanism_id] = path
-            self.mechanism_trace_items[mechanism_id].setPath(path)
+        # Update visual path with stride gating to reduce per-frame cost
+        # Always ensure first 2 points draw immediately; thereafter, stride applies
+        stride = max(1, getattr(self, 'trace_update_stride', 2))
+        if (self._trace_frame_tick % stride == 0) or (len(self.mechanism_trace_points[mechanism_id]) <= 2):
+            trace_points = self.mechanism_trace_points[mechanism_id]
+            if len(trace_points) > 1:
+                path = QPainterPath()
+                path.moveTo(trace_points[0])
+                for point in trace_points[1:]:
+                    path.lineTo(point)
+                self.mechanism_trace_paths[mechanism_id] = path
+                item = self.mechanism_trace_items.get(mechanism_id)
+                if item is not None:
+                    item.setPath(path)
 
     def _clear_mechanism_trace(self, mechanism_id: str):
         """Clear trace path for a specific mechanism to prevent old paths from persisting."""

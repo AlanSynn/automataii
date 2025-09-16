@@ -83,6 +83,11 @@ class MechanismDesignTabLayout:
 
         # Create mechanism scene and view (right side, resizable)
         mechanism_scene = QGraphicsScene(tab_widget)
+        # Performance: reduce indexing overhead for many moving items
+        try:
+            mechanism_scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
+        except Exception:
+            pass
         mechanism_view = EditorView(mechanism_scene, tab_widget, mechanism_mode=True)
         
         # Store references on tab_widget for backward compatibility
