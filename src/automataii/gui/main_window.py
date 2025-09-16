@@ -168,29 +168,29 @@ class AutomataDesigner(QMainWindow):
             )
 
         # Setup status bar
-        if self.experiment_mode:
-            # Add permanent experiment indicator to status bar
-            experiment_label = QLabel("🧪 Experiment")
-            experiment_label.setStyleSheet("""
-                QLabel {
-                    color: #1982c4;
-                    font-weight: bold;
-                    padding: 2px 8px;
-                }
-            """)
-            self.statusBar().addPermanentWidget(experiment_label)
+        # if self.experiment_mode:
+        #     # Add permanent experiment indicator to status bar
+        #     experiment_label = QLabel("🧪 Experiment")
+        #     experiment_label.setStyleSheet("""
+        #         QLabel {
+        #             color: #1982c4;
+        #             font-weight: bold;
+        #             padding: 2px 8px;
+        #         }
+        #     """)
+        #     self.statusBar().addPermanentWidget(experiment_label)
 
-        if self.editing_mode:
-            # Add permanent editing mode indicator to status bar
-            editing_label = QLabel("✏️ Editing Mode")
-            editing_label.setStyleSheet("""
-                QLabel {
-                    color: #e63946;
-                    font-weight: bold;
-                    padding: 2px 8px;
-                }
-            """)
-            self.statusBar().addPermanentWidget(editing_label)
+        # if self.editing_mode:
+        #     # Add permanent editing mode indicator to status bar
+        #     editing_label = QLabel("✏️ Editing Mode")
+        #     editing_label.setStyleSheet("""
+        #         QLabel {
+        #             color: #e63946;
+        #             font-weight: bold;
+        #             padding: 2px 8px;
+        #         }
+        #     """)
+        #     self.statusBar().addPermanentWidget(editing_label)
 
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
@@ -247,9 +247,13 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.addTab(self.mechanism_design_tab, mechanism_title)
 
         # --- Tab 4: Mechanism Foundry ---
-        self.mechanism_foundry_tab = EnhancedMacanismTab(self)
-        foundry_title = "5. Mechanism Foundry" if self.experiment_mode else "Mechanism Foundry"
-        self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
+        # Hide this tab in experiment mode
+        if not self.experiment_mode:
+            self.mechanism_foundry_tab = EnhancedMacanismTab(self)
+            foundry_title = "Mechanism Foundry"
+            self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
+        else:
+            self.mechanism_foundry_tab = None
 
         # --- Tab 5: Options ---
         self.options_tab = OptionsTab(
@@ -294,6 +298,8 @@ class AutomataDesigner(QMainWindow):
         self.options_tab.animationDurationChanged.connect(
             self.ik_manager.set_animation_duration
         )
+        if hasattr(self.options_tab, 'timingProfileChanged') and hasattr(self.ik_manager, 'set_timing_profile'):
+            self.options_tab.timingProfileChanged.connect(self.ik_manager.set_timing_profile)
         self.options_tab.themeChanged.connect(self._apply_theme)
         self.options_tab.toolbarVisibilityChanged.connect(
             self._toggle_toolbar_visibility
@@ -1339,6 +1345,11 @@ class AutomataDesigner(QMainWindow):
             self.ik_manager.set_animation_duration(
                 int(float(value) * 1000)
             )  # Convert seconds to ms
+        elif setting_name == "timing_profile":
+            if hasattr(self.ik_manager, 'set_timing_profile'):
+                # Value may be human-readable or normalized
+                val = str(value).lower().replace('-', '_').replace(' ', '_')
+                self.ik_manager.set_timing_profile(val)
         elif setting_name == "toolbar_visibility":
             self._toggle_toolbar_visibility(bool(value))
         elif setting_name == "part_properties_visibility":

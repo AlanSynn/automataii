@@ -19,8 +19,8 @@ ULTRATHINK Architecture: Composition over inheritance, clear separation of conce
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton, 
-    QScrollArea, QStyle, QVBoxLayout, QWidget
+    QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton,
+    QScrollArea, QStyle, QVBoxLayout, QWidget, QSplitter, QSizePolicy
 )
 from automataii.gui.views.editor_view import EditorView
 from PyQt6.QtWidgets import QGraphicsScene
@@ -68,15 +68,20 @@ class MechanismDesignTabLayout:
             # Delete the old layout
             existing_layout.setParent(None)
         
-        # Set layout on the tab widget
+        # Set layout on the tab widget with a splitter
         main_layout = QHBoxLayout()
         tab_widget.setLayout(main_layout)
-        
-        # Create and add control panel (left side)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # Create and add control panel (left side, fixed width)
         control_panel_area = self._create_control_panel_area()
-        main_layout.addWidget(control_panel_area)
-        
-        # Create mechanism scene and view (right side)
+        control_panel_area.setMinimumWidth(300)
+        control_panel_area.setMaximumWidth(300)
+        control_panel_area.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        splitter.addWidget(control_panel_area)
+
+        # Create mechanism scene and view (right side, resizable)
         mechanism_scene = QGraphicsScene(tab_widget)
         mechanism_view = EditorView(mechanism_scene, tab_widget, mechanism_mode=True)
         
@@ -84,8 +89,14 @@ class MechanismDesignTabLayout:
         tab_widget.mechanism_scene = mechanism_scene
         tab_widget.mechanism_view = mechanism_view
         
-        # Add mechanism view to layout
-        main_layout.addWidget(mechanism_view, 1)
+        splitter.addWidget(mechanism_view)
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 900])
+
+        main_layout.addWidget(splitter)
         
     def _create_control_panel_area(self) -> QScrollArea:
         """Create the scrollable control panel area."""

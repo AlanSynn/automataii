@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QStyle,
     QVBoxLayout,
     QWidget,
+    QSplitter,
+    QSizePolicy,
 )
 
 from automataii.core.models import PartInfo
@@ -552,8 +554,25 @@ class EditorTab(QWidget):
         control_panel.setMinimumWidth(280)
 
         scroll_area.setWidget(control_panel)
-        layout.addWidget(scroll_area)
-        layout.addWidget(self.editor_view, 1)
+
+        # Use a splitter so that when the window width shrinks, only the right canvas shrinks
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Keep left control panel width steady (fixed width)
+        scroll_area.setMinimumWidth(300)
+        scroll_area.setMaximumWidth(300)
+        scroll_area.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        splitter.addWidget(scroll_area)
+
+        # Right canvas (resizable); absorbs width changes when the window is resized
+        splitter.addWidget(self.editor_view)
+
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        splitter.setStretchFactor(0, 0)  # left stays fixed
+        splitter.setStretchFactor(1, 1)  # right takes remaining space and shrinks when window shrinks
+        splitter.setSizes([300, 900])
+
+        layout.addWidget(splitter)
 
         # Connect signals
         self.parts_list.currentItemChanged.connect(self._handle_part_selection_change)

@@ -15,6 +15,7 @@ class OptionsTab(QWidget):
 
     themeChanged = pyqtSignal(str)
     animationDurationChanged = pyqtSignal(float)
+    timingProfileChanged = pyqtSignal(str)
     toolbarVisibilityChanged = pyqtSignal(bool)
     partPropertiesVisibilityChanged = pyqtSignal(bool)  # New signal
     debugModeChanged = pyqtSignal(bool)  # Signal for debug mode
@@ -97,6 +98,19 @@ class OptionsTab(QWidget):
         )
         simulation_layout.addRow("Animation Duration (s):", self.anim_duration_spin)
 
+        # Timing profile selector (Linear / Ease-In / Ease-Out / Ease-In-Out)
+        self.timing_combo = QComboBox()
+        self.timing_combo.addItems(["Linear", "Ease-In", "Ease-Out", "Ease-In-Out"])
+        self.timing_combo.setCurrentText("Linear")
+        self.timing_combo.currentTextChanged.connect(self._on_timing_profile_changed)
+        self.timing_combo.currentTextChanged.connect(
+            lambda val: self.setting_changed.emit("timing_profile", val)
+        )
+        self.timing_combo.setToolTip(
+            "Select the timing curve used to map animation progress (pacing)."
+        )
+        simulation_layout.addRow("Timing Profile:", self.timing_combo)
+
         layout.addWidget(simulation_group)
 
         # --- Debug Settings ---
@@ -161,6 +175,16 @@ class OptionsTab(QWidget):
         self.setting_changed.emit(
             "unit_system", unit_text
         )  # Also emit through generic signal
+
+    def _on_timing_profile_changed(self, text: str):
+        # Normalize to code-friendly names
+        mapping = {
+            "Linear": "linear",
+            "Ease-In": "ease_in",
+            "Ease-Out": "ease_out",
+            "Ease-In-Out": "ease_in_out",
+        }
+        self.timingProfileChanged.emit(mapping.get(text, "linear"))
 
 
 

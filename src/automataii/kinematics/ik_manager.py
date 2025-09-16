@@ -23,6 +23,9 @@ from automataii.core.models_skeleton import (
 )
 from automataii.gui.graphics_items.part_item import CharacterPartItem
 
+# Use module-level logger for fine-grained control
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from ..core.skeleton_manager import SkeletonManager
 
@@ -90,6 +93,7 @@ class IKManager(QObject):
         self.animation_duration: int = 3000
         self._animation_start_time_qelapsed: QElapsedTimer | None = None
         self._current_animation_progress: float = 0.0
+        self._timing_profile: str = "linear"  # linear | ease_in | ease_out | ease_in_out
 
         self.skeleton_manager_ref: SkeletonManager | None = None
         self.project_dir: Path | None = None
@@ -137,6 +141,38 @@ class IKManager(QObject):
         """Sets the total duration for one loop of the IK animation."""
         if duration_ms > 0:
             self.animation_duration = duration_ms
+
+    def set_timing_profile(self, profile: str):
+        """Set the timing profile used to map normalized progress for path sampling."""
+        allowed = {"linear", "ease_in", "ease_out", "ease_in_out"}
+        p = str(profile).lower().replace('-', '_').replace(' ', '_')
+        if p in allowed:
+            self._timing_profile = p
+        else:
+            self._timing_profile = "linear"
+
+    def _apply_timing_curve(self, t: float) -> float:
+        """Apply the selected timing curve to normalized t in [0,1]."""
+        try:
+            if self._timing_profile == "linear":
+                return max(0.0, min(1.0, t))
+            elif self._timing_profile == "ease_in":
+                # Cubic ease-in
+                tt = max(0.0, min(1.0, t))
+                return tt * tt * tt
+            elif self._timing_profile == "ease_out":
+                # Cubic ease-out
+                tt = max(0.0, min(1.0, t))
+                inv = 1.0 - tt
+                return 1.0 - inv * inv * inv
+            elif self._timing_profile == "ease_in_out":
+                # Smoothstep-ish (3t^2 - 2t^3)
+                tt = max(0.0, min(1.0, t))
+                return (3 * tt * tt) - (2 * tt * tt * tt)
+            else:
+                return max(0.0, min(1.0, t))
+        except Exception:
+            return max(0.0, min(1.0, t))
 
     def set_skeleton_manager(self, skeleton_manager_instance: Optional["SkeletonManager"]):
         if self.skeleton_manager_ref:
@@ -307,9 +343,9 @@ class IKManager(QObject):
         existing_bend_directions = self.sim_joint_bend_directions.copy()
 
         # Debug logging
-        logging.info(f"IKManager.initialize_ik_solver: Existing bend directions: {existing_bend_directions}")
+        logger.debug("IKManager.initialize_ik_solver: Existing bend directions: %s", existing_bend_directions)
         if self._current_skeleton_data and "joint_map" in self._current_skeleton_data:
-            logging.info(f"IKManager.initialize_ik_solver: joint_map = {self._current_skeleton_data['joint_map']}")
+            logger.debug("IKManager.initialize_ik_solver: joint_map = %s", self._current_skeleton_data['joint_map'])
 
         middle_joints_to_process = [
             "left_elbow",
@@ -320,10 +356,10 @@ class IKManager(QObject):
 
         # First, check if skeleton has bend_direction values and use them
         for middle_joint_abstract_name in middle_joints_to_process:
-            logging.info(f"IKManager.initialize_ik_solver: Processing joint '{middle_joint_abstract_name}'")
+            logger.debug("IKManager.initialize_ik_solver: Processing joint '%s'", middle_joint_abstract_name)
 
             p1_std_id = self._get_standardized_joint_id(middle_joint_abstract_name)
-            logging.info(f"IKManager.initialize_ik_solver: '{middle_joint_abstract_name}' -> standardized ID: '{p1_std_id}'")
+            logger.debug("IKManager.initialize_ik_solver: '%s' -> standardized ID: '%s'", middle_joint_abstract_name, p1_std_id)
 
             if not p1_std_id or p1_std_id not in self.sim_joints_config:
                 logging.warning(f"IKManager.initialize_ik_solver: Could not find standardized ID for '{middle_joint_abstract_name}'")
@@ -334,14 +370,14 @@ class IKManager(QObject):
             if self._current_skeleton_data and "joints" in self._current_skeleton_data:
                 joint_data = self._current_skeleton_data["joints"].get(p1_std_id, {})
                 bend_dir_from_skeleton = joint_data.get("bend_direction")
-                logging.info(f"IKManager.initialize_ik_solver: Skeleton bend_direction for '{p1_std_id}': {bend_dir_from_skeleton}")
+                logger.debug("IKManager.initialize_ik_solver: Skeleton bend_direction for '%s': %s", p1_std_id, bend_dir_from_skeleton)
 
             if bend_dir_from_skeleton is not None:
                 # Use the bend direction from skeleton (user-defined or default)
                 self.sim_joint_bend_directions[middle_joint_abstract_name] = bend_dir_from_skeleton
                 # Also store with standardized ID for compatibility
                 self.sim_joint_bend_directions[p1_std_id] = bend_dir_from_skeleton
-                logging.info(f"IKManager: Using bend_direction {bend_dir_from_skeleton} from skeleton for joint '{middle_joint_abstract_name}' (ID: '{p1_std_id}')")
+                logger.debug("IKManager: Using bend_direction %s from skeleton for joint '%s' (ID: '%s')", bend_dir_from_skeleton, middle_joint_abstract_name, p1_std_id)
                 continue
 
             # Check if we have an existing bend direction (from previous initialization or user action)
@@ -350,16 +386,16 @@ class IKManager(QObject):
                 # Also store with standardized ID
                 if p1_std_id:
                     self.sim_joint_bend_directions[p1_std_id] = existing_bend_directions[middle_joint_abstract_name]
-                logging.info(f"IKManager: Preserving existing bend_direction {existing_bend_directions[middle_joint_abstract_name]} for joint '{middle_joint_abstract_name}'")
+                logger.debug("IKManager: Preserving existing bend_direction %s for joint '%s'", existing_bend_directions[middle_joint_abstract_name], middle_joint_abstract_name)
                 continue
             elif p1_std_id in existing_bend_directions:
                 self.sim_joint_bend_directions[p1_std_id] = existing_bend_directions[p1_std_id]
                 self.sim_joint_bend_directions[middle_joint_abstract_name] = existing_bend_directions[p1_std_id]
-                logging.info(f"IKManager: Preserving existing bend_direction {existing_bend_directions[p1_std_id]} for joint '{p1_std_id}'")
+                logger.debug("IKManager: Preserving existing bend_direction %s for joint '%s'", existing_bend_directions[p1_std_id], p1_std_id)
                 continue
 
             # If no bend_direction in skeleton or existing values, calculate it geometrically
-            logging.info(f"IKManager.initialize_ik_solver: Calculating bend_direction geometrically for '{middle_joint_abstract_name}'")
+            logger.debug("IKManager.initialize_ik_solver: Calculating bend_direction geometrically for '%s'", middle_joint_abstract_name)
             p1_pos = self.sim_joints_config[p1_std_id]["position"]
 
             middle_joint_limb_config = self.sim_limb_configs.get(middle_joint_abstract_name)
@@ -412,9 +448,9 @@ class IKManager(QObject):
             # Also store with standardized ID
             if p1_std_id:
                 self.sim_joint_bend_directions[p1_std_id] = direction
-            logging.info(f"IKManager.initialize_ik_solver: Calculated bend_direction = {direction} for '{middle_joint_abstract_name}' (ID: '{p1_std_id}')")
+            logger.debug("IKManager.initialize_ik_solver: Calculated bend_direction = %s for '%s' (ID: '%s')", direction, middle_joint_abstract_name, p1_std_id)
 
-        logging.info(f"IKManager.initialize_ik_solver: Final sim_joint_bend_directions = {self.sim_joint_bend_directions}")
+        logger.debug("IKManager.initialize_ik_solver: Final sim_joint_bend_directions = %s", self.sim_joint_bend_directions)
 
         if not hasattr(self, "sim_joint_rest_angles"):
             self.sim_joint_rest_angles = {
@@ -496,7 +532,7 @@ class IKManager(QObject):
                 for joint_id, joint_data in standardized_skeleton_dict["joints"].items():
                     if "elbow" in joint_id or "knee" in joint_id:
                         bend_dir = joint_data.get("bend_direction")
-                        logging.info(f"IKManager.on_skeleton_data_updated: Joint '{joint_id}' has bend_direction = {bend_dir}")
+                        logger.debug("IKManager.on_skeleton_data_updated: Joint '%s' has bend_direction = %s", joint_id, bend_dir)
 
             standardized_model = StandardizedSkeletonModel.model_validate(
                 standardized_skeleton_dict
@@ -509,7 +545,7 @@ class IKManager(QObject):
                 for joint_id, joint_data in self._current_skeleton_data["joints"].items():
                     if "elbow" in joint_id or "knee" in joint_id:
                         bend_dir = joint_data.get("bend_direction")
-                        logging.info(f"IKManager.on_skeleton_data_updated (after model_dump): Joint '{joint_id}' has bend_direction = {bend_dir}")
+                        logger.debug("IKManager.on_skeleton_data_updated (after model_dump): Joint '%s' has bend_direction = %s", joint_id, bend_dir)
 
             # Update bend directions if IK solver is already initialized
             if hasattr(self, 'sim_joint_bend_directions') and self.sim_joint_bend_directions:
@@ -530,7 +566,7 @@ class IKManager(QObject):
         """Update bend directions from the current skeleton data or skeleton_manager."""
         # First try to get from skeleton_manager (most authoritative source)
         if self.skeleton_manager_ref:
-            logging.info("IKManager._update_bend_directions_from_skeleton: Getting bend directions from skeleton_manager")
+            logger.debug("IKManager._update_bend_directions_from_skeleton: Getting bend directions from skeleton_manager")
             bend_directions = self.skeleton_manager_ref.get_all_joint_bend_directions()
 
             if bend_directions:
@@ -546,9 +582,9 @@ class IKManager(QObject):
                         abstract_name = '_'.join(joint_id.split('_')[:-1])
                         self.sim_joint_bend_directions[abstract_name] = bend_dir
 
-                    logging.info(f"IKManager: Updated bend_direction for '{joint_id}' to {bend_dir} from skeleton_manager")
+                    logger.debug("IKManager: Updated bend_direction for '%s' to %s from skeleton_manager", joint_id, bend_dir)
 
-                logging.info(f"IKManager._update_bend_directions_from_skeleton: Final bend_directions from skeleton_manager = {self.sim_joint_bend_directions}")
+                logger.debug("IKManager._update_bend_directions_from_skeleton: Final bend_directions from skeleton_manager = %s", self.sim_joint_bend_directions)
                 return
 
         # Fallback to skeleton data if skeleton_manager not available
@@ -557,20 +593,20 @@ class IKManager(QObject):
             return
 
         # Debug: log all joints with bend_direction in skeleton
-        logging.info("IKManager._update_bend_directions_from_skeleton: Using skeleton data (fallback)...")
+        logger.debug("IKManager._update_bend_directions_from_skeleton: Using skeleton data (fallback)...")
         joints_with_bend_dir = {}
         for joint_id, joint_data in self._current_skeleton_data["joints"].items():
             bend_dir = joint_data.get("bend_direction")
             if bend_dir is not None:
                 joints_with_bend_dir[joint_id] = bend_dir
 
-        logging.info(f"IKManager._update_bend_directions_from_skeleton: Found {len(joints_with_bend_dir)} joints with bend_direction in skeleton: {joints_with_bend_dir}")
+        logger.debug("IKManager._update_bend_directions_from_skeleton: Found %d joints with bend_direction in skeleton: %s", len(joints_with_bend_dir), joints_with_bend_dir)
 
         # Clear ALL existing bend directions first to avoid stale values
         # We'll only keep those that are explicitly set in the skeleton
         old_directions = self.sim_joint_bend_directions.copy()
         self.sim_joint_bend_directions.clear()
-        logging.info(f"IKManager._update_bend_directions_from_skeleton: Cleared old directions: {old_directions}")
+        logger.debug("IKManager._update_bend_directions_from_skeleton: Cleared old directions: %s", old_directions)
 
         # Store bend directions for both standardized IDs and abstract names
         for joint_id, joint_data in self._current_skeleton_data["joints"].items():
@@ -587,10 +623,10 @@ class IKManager(QObject):
 
                     # Only log for actual middle joints
                     if 'elbow' in joint_id or 'knee' in joint_id:
-                        logging.info(f"IKManager: Updated bend_direction for '{joint_id}' (and '{abstract_name}') to {bend_dir}")
+                        logger.debug("IKManager: Updated bend_direction for '%s' (and '%s') to %s", joint_id, abstract_name, bend_dir)
 
         # Log the final state
-        logging.info(f"IKManager._update_bend_directions_from_skeleton: Final bend_directions = {self.sim_joint_bend_directions}")
+        logger.debug("IKManager._update_bend_directions_from_skeleton: Final bend_directions = %s", self.sim_joint_bend_directions)
 
         # Double-check: Are there any unexpected values?
         for key, value in self.sim_joint_bend_directions.items():
@@ -788,7 +824,7 @@ class IKManager(QObject):
             # First try the exact standardized ID
             if middle_joint_std_id in self.sim_joint_bend_directions:
                 bend_direction = float(self.sim_joint_bend_directions[middle_joint_std_id])
-                logging.info(f"IK: Using bend_direction {bend_direction} for middle joint '{middle_joint_std_id}'")
+                logger.debug("IK: Using bend_direction %s for middle joint '%s'", bend_direction, middle_joint_std_id)
             else:
                 # Try the abstract name (e.g., 'left_elbow' without the number)
                 abstract_name = None
@@ -796,10 +832,10 @@ class IKManager(QObject):
                     abstract_name = '_'.join(middle_joint_std_id.split('_')[:-1])
                     if abstract_name in self.sim_joint_bend_directions:
                         bend_direction = float(self.sim_joint_bend_directions[abstract_name])
-                        logging.info(f"IK: Using bend_direction {bend_direction} for middle joint '{abstract_name}' (from '{middle_joint_std_id}')")
+                        logger.debug("IK: Using bend_direction %s for middle joint '%s' (from '%s')", bend_direction, abstract_name, middle_joint_std_id)
 
                 if abstract_name is None or abstract_name not in self.sim_joint_bend_directions:
-                    logging.debug(f"IK: No bend_direction found for '{middle_joint_std_id}', using default {bend_direction}")
+                    logger.debug("IK: No bend_direction found for '%s', using default %s", middle_joint_std_id, bend_direction)
 
         _max_elbow_flexion_deg = getattr(self, "_max_elbow_flexion_deg", 160.0)
         _epsilon_dist = getattr(self, "_epsilon_dist", 1.0)
@@ -1035,7 +1071,8 @@ class IKManager(QObject):
                         abstract_name = std_id
 
                     converted_bend_directions[abstract_name] = bend_dir
-                    logging.info(f"IK: Passing bend direction to FABRIK: '{abstract_name}' = {bend_dir}")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("IK: Passing bend direction to FABRIK: '%s' = %s", abstract_name, bend_dir)
 
             solve_ik_ccd(chain, target_pos, original_lengths, bend_directions=converted_bend_directions, iterations=10, tolerance=1.0)
 
@@ -1170,7 +1207,7 @@ class IKManager(QObject):
         # This ensures user-set bend directions are used during animation
         if hasattr(self, 'sim_joint_bend_directions') and self._current_skeleton_data:
             self._update_bend_directions_from_skeleton()
-            logging.info(f"IKManager.start_animation: Updated bend directions: {self.sim_joint_bend_directions}")
+            logger.debug("IKManager.start_animation: Updated bend directions: %s", self.sim_joint_bend_directions)
 
         if self._animation_start_time_qelapsed is None:
             self._animation_start_time_qelapsed = QElapsedTimer()
@@ -1210,7 +1247,7 @@ class IKManager(QObject):
         if self.skeleton_manager_ref:
             bend_directions = self.skeleton_manager_ref.get_all_joint_bend_directions()
             if bend_directions:
-                logging.info(f"IKManager.reset_animation_state: Restoring bend directions from skeleton_manager: {bend_directions}")
+                logger.debug("IKManager.reset_animation_state: Restoring bend directions from skeleton_manager: %s", bend_directions)
                 self.sim_joint_bend_directions.clear()
 
                 for joint_id, bend_dir in bend_directions.items():
@@ -1222,7 +1259,7 @@ class IKManager(QObject):
                         abstract_name = '_'.join(joint_id.split('_')[:-1])
                         self.sim_joint_bend_directions[abstract_name] = bend_dir
 
-                    logging.info(f"IKManager.reset_animation_state: Restored bend_direction for '{joint_id}' to {bend_dir}")
+                    logger.debug("IKManager.reset_animation_state: Restored bend_direction for '%s' to %s", joint_id, bend_dir)
 
         if hasattr(self.main_window, "editor_tab") and self.main_window.editor_tab:
             editor_items = self.main_window.editor_tab.current_editor_items
@@ -1396,6 +1433,9 @@ class IKManager(QObject):
             elif mech_joint_id in self.sim_joints_config:
                 self.sim_joints_config[mech_joint_id]["position"] = mech_target_pos
 
+        # Compute eased progress once per frame
+        progress_for_paths = self._apply_timing_curve(self._current_animation_progress)
+
         for component in self.sim_selectable_components:
             target_ik_joint_abstract_name = component.get("targetJointId")
             if not target_ik_joint_abstract_name:
@@ -1412,7 +1452,7 @@ class IKManager(QObject):
             elif part_info and part_info.motion_path_data:
                 motion_path_obj = part_info.motion_path_data
                 target_pos_on_path = self._get_point_on_path(
-                    motion_path_obj, self._current_animation_progress
+                    motion_path_obj, progress_for_paths
                 )
 
             if target_pos_on_path:

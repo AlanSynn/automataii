@@ -53,7 +53,7 @@ def main():
         "--debug", action="store_true", help="Enable debug logging and features."
     )
     parser.add_argument(
-        "--experiment", action="store_true", help="Enable experimental mode (hides Options tab)."
+        "--experiment", action="store_true", help="Enable experimental mode (hides Mechanism Foundry and Options tabs)."
     )
     parser.add_argument(
         "--editing", action="store_true", help="Enable interactive segmentation editing mode."

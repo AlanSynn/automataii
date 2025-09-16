@@ -3,6 +3,9 @@ import math
 
 from PyQt6.QtCore import QLineF, QPointF
 
+# Module-level logger
+logger = logging.getLogger(__name__)
+
 # Maximum allowed bone length deviation from original extracted lengths
 # 🔧 LENGTH TOLERANCE FIX: Allow 10% deviation for natural bone extension
 # Updated from 5% to match the two-bone and single-bone IK systems
@@ -38,7 +41,7 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
 
         joint_key = part_to_joint_mapping.get(part_name)
         if not joint_key or joint_key not in bend_directions:
-            logging.debug(f"No bend direction for joint '{joint_key}' (from part '{part_name}'). Skipping hint.")
+            logger.debug("No bend direction for joint '%s' (from part '%s'). Skipping hint.", joint_key, part_name)
             continue
 
         # Use the stable bend direction provided by IKManager. Do NOT recalculate it.
@@ -73,7 +76,8 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
             hint_position = curr_pos + perp_vec
             # CRITICAL FIX: Use joint_key (e.g., 'left_elbow') as the key, not part_name
             bend_hints[joint_key] = hint_position
-            logging.info(f"Bend hint for '{joint_key}' set with direction {bend_dir}. Hint pos: {hint_position}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Bend hint for '%s' set with direction %s. Hint pos: %s", joint_key, bend_dir, hint_position)
 
     return bend_hints
 
