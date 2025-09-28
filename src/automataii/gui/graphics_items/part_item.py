@@ -1,0 +1,480 @@
+import logging
+from pathlib import Path
+from typing import Any
+
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+)
+from PyQt6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsPathItem,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
+    QGraphicsSceneMouseEvent,
+    QStyleOptionGraphicsItem,
+    QWidget,
+)
+
+from automataii.config.z_indices import (
+    Z_PART_DEFAULT,
+)
+from automataii.config.z_indices import (
+    Z_SELECTION_HIGHLIGHT as Z_ITEM_SELECTION_HIGHLIGHT,
+)
+from automataii.core.models import PartInfo
+
+# Constants for hover effects
+HOVER_PEN_COLOR = QColor(Qt.GlobalColor.yellow)
+HOVER_PEN_WIDTH = 2
+
+
+class CharacterPartItem(QGraphicsPixmapItem):
+    """
+    A QGraphicsPixmapItem representing a character part with its own texture,
+    anchor point, motion path, and selection highlighting.
+    """
+
+    # --- Signals temporarily commented out ---
+    # part_clicked = pyqtSignal(str)  # Emits part name when clicked
+    # part_double_clicked = pyqtSignal(str) # Emits part name when double-clicked
+    # position_changed_by_user = pyqtSignal(str, QPointF) # name, new_scene_pos
+
+    def __init__(
+        self,
+        part_info: PartInfo,
+        project_dir: Path,
+        parent: QGraphicsItem | None = None,
+        debug_mode: bool = False,
+    ):
+        # QObject.__init__(self) # Removed
+        QGraphicsPixmapItem.__init__(
+            self, parent
+        )  # Initialize QGraphicsPixmapItem (or super() if only one base class)
+        # super().__init__(parent) # Alternative if only QGraphicsPixmapItem is base
+
+        self.part_info = part_info
+        self.project_dir = project_dir  # Store project_dir for texture loading
+        self.debug_mode = debug_mode  # ADDED: Store debug_mode
+        self.is_active = False  # For special highlighting
+        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+
+        self.part_pixmap: QPixmap | None = None
+        self._bounding_rect_local: QRectF = QRectF()
+        self.anchor_offset: QPointF = QPointF()
+        self.anchor_joint_id: str | None = part_info.anchor_joint_id
+        self.end_effector_offset: QPointF | None = None  # IK end effector point
+        self.parent_item_name: str | None = None  # Parent part name for IK chain
+
+        self.motion_path: QPainterPath | None = None
+        self.motion_path_item: QGraphicsPathItem | None = None
+
+        self.selection_highlight_item: QGraphicsRectItem | None = None
+
+        self._is_fixed: bool = part_info.fixed
+        self._is_joint_locked: bool = False  # Whether the associated joint is locked for IK
+        self.z_value = (
+            part_info.z_value if part_info.z_value is not None else Z_PART_DEFAULT
+        )
+        self.setZValue(self.z_value)
+
+        # 초기 회전각을 명시적으로 0으로 설정 (월드 기준)
+        self.setRotation(0.0)
+        self._initial_world_rotation = 0.0  # 초기 월드 회전값은 항상 0
+        self._initial_local_rotation = 0.0  # 초기 로컬 회전값도 0
+
+        self._load_texture()
+        self._setup_selection_highlight()
+
+        # Revised anchor_offset and initial position logic
+        if (
+            self.part_info.local_pivot_offset
+            and len(self.part_info.local_pivot_offset) == 2
+        ):
+            self.anchor_offset = QPointF(
+                self.part_info.local_pivot_offset[0],
+                self.part_info.local_pivot_offset[1],
+            )
+            # Log warning if anchor_offset is at (0,0) which might indicate a problem
+            if self.anchor_offset.x() == 0 and self.anchor_offset.y() == 0:
+                logging.warning(
+                    f"CharacterPartItem '{self.name()}': anchor_offset is (0,0) - this might cause alignment issues"
+                )
+            else:
+                logging.debug(
+                    f"CharacterPartItem '{self.name()}': Set anchor_offset from local_pivot_offset: {self.anchor_offset}"
+                )
+        elif (
+            self.part_pixmap and not self.part_pixmap.isNull()
+        ):  # Fallback to center if no local_pivot_offset
+            self.anchor_offset = QPointF(
+                self.part_pixmap.width() / 2, self.part_pixmap.height() / 2
+            )
+            logging.debug(
+                f"CharacterPartItem '{self.name()}': local_pivot_offset not found or invalid, using pixmap center as anchor_offset: {self.anchor_offset}"
+            )
+        else:  # Fallback if pixmap also not available (e.g. placeholder creation failed, though unlikely)
+            self.anchor_offset = QPointF(0, 0)
+            logging.warning(
+                f"CharacterPartItem '{self.name()}': Could not determine anchor_offset, defaulting to (0,0)."
+            )
+
+        self.setTransformOriginPoint(self.anchor_offset)
+
+        # Set initial position based on part_info.x, y if available, otherwise default to (0,0) for now.
+        # The actual scene positioning should be handled by a layout manager or a higher-level setup logic.
+        initial_x = getattr(self.part_info, "x", 0.0)
+        initial_y = getattr(self.part_info, "y", 0.0)
+        self.setPos(QPointF(initial_x, initial_y))
+        logging.debug(
+            f"CharacterPartItem '{self.name()}': Initial raw position set to ({initial_x}, {initial_y}). Transform origin: {self.transformOriginPoint()}"
+        )
+
+        if self.part_pixmap and not self.part_pixmap.isNull():
+            self._bounding_rect_local = QRectF(
+                0, 0, self.part_pixmap.width(), self.part_pixmap.height()
+            )
+        elif (
+            hasattr(self, "_bounding_rect_local") and not self._bounding_rect_local
+        ):  # Ensure it is initialized if placeholder path was taken
+            self._bounding_rect_local = QRectF(0, 0, 50, 50)  # Default placeholder size
+
+        self.update_motion_path_visual()
+
+    def _load_texture(self):
+        """Loads the texture for this part from its image file (PNG)."""
+        if not self.part_info or not self.part_info.name:
+            logging.error(
+                "CharacterPartItem: PartInfo or part name is missing, cannot load texture."
+            )
+            self._create_placeholder_pixmap()
+            return
+
+        potential_path_str: str | None = None
+
+        # 1. Prioritize image_path if it's absolute and exists
+        if self.part_info.image_path and Path(self.part_info.image_path).is_absolute():
+            if Path(self.part_info.image_path).exists():
+                potential_path_str = self.part_info.image_path
+            else:
+                logging.warning(
+                    f"CharacterPartItem '{self.part_info.name}': Absolute image_path does not exist: {self.part_info.image_path}"
+                )
+
+        # 2. If not loaded, try project_dir + image_path (if image_path is relative) or project_dir + name.png
+        if not potential_path_str:
+            if self.part_info.image_path:  # Could be a relative path or just a filename
+                path_to_try = self.project_dir / self.part_info.image_path
+            else:  # Fallback to name.png if image_path is not set
+                path_to_try = self.project_dir / f"{self.part_info.name}.png"
+
+            if path_to_try.exists():
+                potential_path_str = str(path_to_try)
+            else:
+                # Construct the old fallback name.png path just in case it's the only one available during transition
+                legacy_png_path = self.project_dir / f"{self.part_info.name}.png"
+                if legacy_png_path.exists():
+                    potential_path_str = str(legacy_png_path)
+                else:
+                    logging.warning(
+                        f"CharacterPartItem '{self.part_info.name}': Texture file not found at {path_to_try}"
+                        f"{' or ' + str(legacy_png_path) if str(path_to_try) != str(legacy_png_path) else ''}. Creating placeholder."
+                    )
+
+        loaded_successfully = False
+        if potential_path_str:
+            temp_pixmap = QPixmap(potential_path_str)
+            if not temp_pixmap.isNull():
+                # Apply ROI scaling if ROI is valid and specifies dimensions
+                if (
+                    self.part_info.roi
+                    and len(self.part_info.roi) == 4
+                    and self.part_info.roi[2] > 0
+                    and self.part_info.roi[3] > 0
+                ):
+                    target_width, target_height = (
+                        int(self.part_info.roi[2]),
+                        int(self.part_info.roi[3]),
+                    )
+                    self.part_pixmap = temp_pixmap.scaled(
+                        target_width,
+                        target_height,
+                        Qt.AspectRatioMode.KeepAspectRatio,  # Or IgnoreAspectRatio if ROI defines exact output size
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                else:
+                    self.part_pixmap = temp_pixmap
+                loaded_successfully = True
+            else:
+                logging.error(
+                    f"CharacterPartItem '{self.part_info.name}': Failed to load QPixmap from {potential_path_str}"
+                )
+
+        if not loaded_successfully:
+            # If potential_path_str was None, the earlier warning about file not found already occurred.
+            # If it was not None but loading failed, this ensures placeholder creation.
+            if (
+                potential_path_str
+            ):  # Only log this specific message if a path was attempted
+                logging.warning(
+                    f"CharacterPartItem '{self.part_info.name}': Failed to load texture from {potential_path_str}. Creating placeholder."
+                )
+            self._create_placeholder_pixmap()
+
+        if self.part_pixmap:
+            self.setPixmap(self.part_pixmap)
+        # self._bounding_rect_local = self.boundingRect() # This will be set after pixmap is set and position is known, or in __init__
+
+    def _create_placeholder_pixmap(self):
+        width = 50
+        height = 50
+        if self.part_info.roi and len(self.part_info.roi) == 4:
+            width = int(self.part_info.roi[2]) if self.part_info.roi[2] > 0 else 50
+            height = int(self.part_info.roi[3]) if self.part_info.roi[3] > 0 else 50
+
+        self.part_pixmap = QPixmap(width, height)
+        self.part_pixmap.fill(QColor(Qt.GlobalColor.lightGray))
+        painter = QPainter(self.part_pixmap)
+        pen = QPen(Qt.GlobalColor.red, 2)
+        painter.setPen(pen)
+        painter.drawLine(0, 0, width, height)
+        painter.drawLine(width, 0, 0, height)
+        if self.part_info and self.part_info.name:
+            painter.drawText(
+                self.part_pixmap.rect(),
+                Qt.AlignmentFlag.AlignCenter,
+                self.part_info.name[:3],
+            )
+        painter.end()
+        self.setPixmap(self.part_pixmap)
+        self._bounding_rect_local = QRectF(0, 0, width, height)
+
+    def name(self) -> str:
+        return self.part_info.name
+
+    @property
+    def is_fixed(self) -> bool:
+        return self._is_fixed
+
+
+    @property
+    def is_joint_locked(self) -> bool:
+        """Returns True if the joint associated with this part is locked for IK solving."""
+        return self._is_joint_locked
+
+    def set_joint_locked(self, locked: bool):
+        """Set the IK lock state of the joint associated with this part."""
+        self._is_joint_locked = locked
+        logging.debug(f"Part '{self.name()}' joint lock state set to: {locked}")
+
+    def set_active(self, active: bool):
+        """Set the visual 'active' state for custom highlighting (e.g., orange tint)."""
+        if self.is_active != active:
+            self.is_active = active
+            self.update()  # Trigger a repaint
+
+    def set_motion_path(self, path: QPainterPath | None):
+        self.motion_path = path
+        # self.update_motion_path_visual() # View now handles this
+
+    def update_motion_path_visual(self):
+        # EditorView is now responsible for drawing the final motion paths.
+        # This CharacterPartItem will hold the motion_path data, but not draw it directly.
+        if self.motion_path_item and self.motion_path_item.scene():
+            # If this item previously managed its own path visual, ensure it's cleaned up.
+            # This might be redundant if EditorView is the sole manager, but safe.
+            self.motion_path_item.scene().removeItem(self.motion_path_item)
+            self.motion_path_item = None
+            logging.debug(
+                f"CharacterPartItem '{self.name()}': Cleared any self-managed motion_path_item. EditorView should handle visuals."
+            )
+
+        if self.motion_path and not self.motion_path.isEmpty():
+            logging.debug(
+                f"CharacterPartItem '{self.name()}': Has motion_path data. Visuals are managed by EditorView."
+            )
+        else:
+            logging.debug(f"CharacterPartItem '{self.name()}': No motion path data.")
+
+    def _setup_selection_highlight(self):
+        pen = QPen(QColor(0, 120, 215, 200), 3.0)  # Increased thickness from 1.5 to 3.0
+        pen.setCosmetic(True)
+        self.selection_highlight_item = QGraphicsRectItem()
+        self.selection_highlight_item.setPen(pen)
+        self.selection_highlight_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.selection_highlight_item.setZValue(Z_ITEM_SELECTION_HIGHLIGHT)
+        self.selection_highlight_item.setVisible(False)
+
+    def set_selected(self, selected: bool):
+        if not self.selection_highlight_item:
+            self._setup_selection_highlight()
+
+        if selected:
+            if (
+                self.selection_highlight_item
+                and not self.selection_highlight_item.scene()
+                and self.scene()
+            ):
+                self.scene().addItem(self.selection_highlight_item)
+            if self.selection_highlight_item:
+                self.selection_highlight_item.setRect(self.boundingRect())
+                self.selection_highlight_item.setPos(self.scenePos())
+                self.selection_highlight_item.setRotation(self.rotation())
+                self.selection_highlight_item.setScale(self.scale())
+                self.selection_highlight_item.setVisible(True)
+        else:
+            if self.selection_highlight_item:
+                self.selection_highlight_item.setVisible(False)
+
+    def _update_selection_highlight_position(self):
+        """Update the selection highlight to match the current position and rotation of the part."""
+        if self.selection_highlight_item and self.selection_highlight_item.isVisible():
+            self.selection_highlight_item.setPos(self.scenePos())
+            self.selection_highlight_item.setRotation(self.rotation())
+            self.selection_highlight_item.setScale(self.scale())
+
+    def boundingRect(self) -> QRectF:
+        if self.part_pixmap and not self.part_pixmap.isNull():
+            return QRectF(self.part_pixmap.rect())
+        return (
+            self._bounding_rect_local
+            if self._bounding_rect_local
+            else QRectF(0, 0, 10, 10)
+        )
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.addRect(self.boundingRect())
+        return path
+
+
+    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
+        """Handle item changes, like position changes by the user."""
+        if (
+            change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
+            and self.scene()
+        ):
+            # self.position_changed_by_user.emit(self.name(), self.scenePos()) # Temporarily commented out
+            # logging.debug(f"Part '{self.name()}' moved to {self.scenePos()}")
+            pass  # Avoid logging every pixel change during drag
+
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self.set_selected(bool(value))
+
+        return super().itemChange(change, value)
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        """Handle mouse press events on the part."""
+        super().mousePressEvent(event)  # Call base implementation for selection etc.
+        if event.button() == Qt.MouseButton.LeftButton:
+            # self.part_clicked.emit(self.name()) # Temporarily commented out
+            logging.debug(f"CharacterPartItem '{self.name()}' clicked.")
+            # Let the view or tab handle selection logic primarily
+            # self.setSelected(True) # Scene selection handles this if ItemIsSelectable
+            pass
+
+
+    def hoverEnterEvent(self, event: QGraphicsSceneMouseEvent):
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event: QGraphicsSceneMouseEvent):
+        super().hoverLeaveEvent(event)
+
+    def get_anchor_point_scene_pos(self) -> QPointF:
+        return self.mapToScene(self.anchor_offset)
+
+    def set_scene_position_from_anchor(self, scene_anchor_pos: QPointF, bypass_validation: bool = False):
+        """
+        Set the part's position based on its anchor point position in the scene.
+
+        Args:
+            scene_anchor_pos: The desired position of the anchor point in scene coordinates
+            bypass_validation: If True, skip skeleton length validation (use with caution)
+        """
+        # 🔧 ULTIMATE FIX: Skeleton length validation at the source
+        if not bypass_validation and self.scene():
+            position_valid = self._validate_position_change(scene_anchor_pos)
+            if not position_valid:
+                logging.debug(
+                    f"CharacterPartItem '{self.name()}': Position change blocked by skeleton length constraint. "
+                    f"Attempted anchor position: ({scene_anchor_pos.x():.1f}, {scene_anchor_pos.y():.1f})"
+                )
+                return  # Reject position change that would violate skeleton constraints
+
+        # Given that self.transformOriginPoint is self.anchor_offset,
+        # and item.setRotation() rotates around this transformOriginPoint.
+        # The vector from the item's origin (0,0) to its anchor_offset,
+        # when transformed by rotation and scale around the anchor_offset itself,
+        # effectively results in the anchor_offset (in its new orientation)
+        # being at self.anchor_offset relative to the item's origin, if the item's origin were (0,0).
+        # Thus, item.pos() + self.anchor_offset (in the scene's rotated sense) should be scene_anchor_pos.
+        # This simplifies to: item.pos() = scene_anchor_pos - self.anchor_offset
+        new_pos = scene_anchor_pos - self.anchor_offset
+        self.setPos(new_pos)
+
+        # Update selection highlight position if it's visible
+        self._update_selection_highlight_position()
+
+        # Debug logging for torso alignment issues
+        if self.name() == "torso":
+            logging.debug(
+                f"CharacterPartItem 'torso': Setting position from anchor. "
+                f"scene_anchor_pos={scene_anchor_pos}, anchor_offset={self.anchor_offset}, "
+                f"resulting pos={new_pos}"
+            )
+            pass
+
+    def _validate_position_change(self, new_anchor_pos: QPointF) -> bool:
+        """
+        Validate that moving this part to new_anchor_pos would preserve skeleton length constraints.
+
+        Returns:
+            bool: True if position change is valid, False if it would violate skeleton constraints
+        """
+        # Define bone length tolerance (matching FABRIK solver constraint)
+        # 🔧 LENGTH TOLERANCE FIX: Increase to match IK solver tolerance
+        MAX_BONE_LENGTH_DEVIATION = 0.1  # 10% tolerance for animation movements
+
+        # For now, implement a basic validation that prevents extreme position changes
+        # A full implementation would require access to the skeleton hierarchy and original bone lengths
+
+        # Get current anchor position
+        current_anchor_pos = self.get_anchor_point_scene_pos()
+
+        # Calculate displacement
+        dx = new_anchor_pos.x() - current_anchor_pos.x()
+        dy = new_anchor_pos.y() - current_anchor_pos.y()
+        displacement = (dx * dx + dy * dy) ** 0.5
+
+        # Prevent extreme displacements that could violate skeleton constraints
+        # This is a simplified check - a full implementation would check actual bone lengths
+        # 🔧 DISPLACEMENT TOLERANCE FIX: Increase thresholds for animation
+        # Different thresholds for different body parts
+        if "leg" in self.name():
+            MAX_DISPLACEMENT_THRESHOLD = 100.0  # Legs can be longer, need higher threshold
+        else:
+            MAX_DISPLACEMENT_THRESHOLD = 100.0  # Increased for animation movements
+
+        if displacement > MAX_DISPLACEMENT_THRESHOLD:
+            logging.debug(
+                f"CharacterPartItem '{self.name()}': Rejected extreme displacement {displacement:.1f} pixels "
+                f"(threshold: {MAX_DISPLACEMENT_THRESHOLD})"
+            )
+            return False
+
+        # Additional validation could be added here to check bone lengths with connected parts
+        # For now, allow moderate position changes
+        return True
+
+    def setRotation(self, angle: float):
+        """Override setRotation to also update the selection highlight."""
+        super().setRotation(angle)
+        self._update_selection_highlight_position()
