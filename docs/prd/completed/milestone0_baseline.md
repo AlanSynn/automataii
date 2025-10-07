@@ -6,7 +6,7 @@ _Scope_: `src/automataii`
 ## 1. LOC Snapshot
 - Top oversized modules (≥600 LOC):
   - `automataii/gui/tabs/mechanism_design_tab.py` — 4,648
-  - `automataii/ui/tabs/mechanism_foundry/enhanced_macanism_tab.py` — 3,484
+  - `automataii/ui/tabs/mechanism_foundry/enhanced_macanism_tab.py` — 3,483
   - `automataii/generation/blueprint_optimizer.py` — 2,355
   - `automataii/gui/tabs/editor_tab.py` — 2,294
   - `automataii/kinematics/ik_manager.py` — 1,888
@@ -14,9 +14,9 @@ _Scope_: `src/automataii`
   - `automataii/gui/tabs` — 11,185
   - `automataii/generation` — 5,221
   - `automataii/gui` — 4,934
-  - `automataii/ui/tabs/mechanism_foundry` — 3,505
-  - `automataii/animate` — 3,254
-  - `automataii/core` — 2,871
+  - `automataii/ui/tabs/mechanism_foundry` — 3,504
+  - `automataii/core` — 2,897
+  - `automataii/animate` — 2,503
 
 ## 2. Naive Complexity Indicator
 - AST branch counts highlight hotspots:
@@ -44,6 +44,7 @@ _Scope_: `src/automataii`
 - Manual test case inventory mapped to scenario automation plan.
 - Asset size and render time stats for representative scenes.
 - Dead-code verification: confirm import graph findings (99 modules without inbound static references) and classify into entry points, dynamic loads, or removal targets.
+- Automate vulture runs via `scripts/run_dead_code_scan.sh` (uses `uv run --with vulture` and writes `docs/prd/vulture_<date>.txt`).
 
 ## 5. Notes
 - Data gathered via ad-hoc Python scripts (available in shell history). Integrate into repeatable tooling during Milestone 1.
@@ -52,3 +53,6 @@ _Scope_: `src/automataii`
   - Legacy tooling: `carsegnet/`, `generate_animations.py`, `generate_comprehensive_dataset.py`, `print_sys_path.py`, `visualize_dataset.py`, `services/inference_service.py`
   - Unused GUI/manual artifacts: `gui/tabs/mechanism_design_tab.bak*`, `ui/tabs/mechanism_foundry/hci/`
   - Dormant utils: `utils/helpers.py`, `utils/image_utils.py`, `utils/path_utils.py`, `utils/svg_utils.py`
+- Telemetry scaffolding landed via `automataii.core.telemetry.telemetry_span`; initial hooks wired for image processing and blueprint export.
+- Workflow inventory tracked in `docs/prd/milestone0_workflow_inventory.md` for automation planning.
+- Use `scripts/run_dead_code_scan.sh` (uv) to regenerate Vulture report artifacts on a host machine.

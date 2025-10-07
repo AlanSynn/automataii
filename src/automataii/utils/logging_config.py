@@ -51,3 +51,14 @@ def setup_logging(console_log_level: int = logging.INFO):
     # logging.info("Logging system initialized") # This will log with the new settings
     # Initial log to confirm setup, will go to both handlers based on their levels.
     # logging.getLogger(__name__).info(f"Logging configured. Console level: {logging.getLevelName(console_log_level)}, File level: DEBUG")
+
+    # Configure dedicated telemetry logger for structured span output
+    telemetry_logger = logging.getLogger("automataii.telemetry")
+    telemetry_logger.setLevel(logging.INFO)
+    telemetry_logger.handlers.clear()
+
+    telemetry_handler = logging.FileHandler(log_dir / "telemetry.log", mode="a")
+    telemetry_handler.setLevel(logging.INFO)
+    telemetry_handler.setFormatter(logging.Formatter("%(message)s"))
+    telemetry_logger.addHandler(telemetry_handler)
+    telemetry_logger.propagate = False

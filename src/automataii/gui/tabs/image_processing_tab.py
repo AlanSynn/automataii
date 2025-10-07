@@ -29,6 +29,8 @@ from automataii.gui.dialogs.camera_dialog import CameraDialog
 from automataii.gui.image_view import ImageProcessingView
 from automataii.gui.widgets.processing_steps_group import ProcessingStepsGroup
 
+from automataii.core.telemetry import telemetry_span
+
 
 class ImageProcessingTab(QWidget):
     parts_generated = pyqtSignal(dict, str)
@@ -642,65 +644,77 @@ class ImageProcessingTab(QWidget):
             self.update_button_states()
             return
 
-        self.main_window.statusBar().showMessage("Processing image...")
-        QApplication.processEvents()  # Ensure UI updates
+        with telemetry_span(
+            "ui.image_processing.process_image",
+            editing_mode=self.editing_mode,
+            input_source="file",
+        ) as span:
+            self.main_window.statusBar().showMessage("Processing image...")
+            QApplication.processEvents()  # Ensure UI updates
 
-        progress_dialog = QProgressDialog(
-            "Processing image, please wait...", None, 0, 0, self
-        )
-        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        progress_dialog.setCancelButton(None)  # No cancel button for now
-        progress_dialog.show()
-        QApplication.processEvents()
+            progress_dialog = QProgressDialog(
+                "Processing image, please wait...", None, 0, 0, self
+            )
+            progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            progress_dialog.setCancelButton(None)  # No cancel button for now
+            progress_dialog.show()
+            QApplication.processEvents()
 
-        try:
-            # Call the refactored image_to_annotations
-            annotation_results = image_to_annotations(self.input_image_path)
+            try:
+                annotation_results = image_to_annotations(self.input_image_path)
 
-            if annotation_results and annotation_results.get("char_cfg_path"):
-                self.current_annotation_results = annotation_results
-                self.current_temp_char_dir = annotation_results["output_dir"]
-                char_cfg_file_path = annotation_results["char_cfg_path"]
+                if annotation_results and annotation_results.get("char_cfg_path"):
+                    self.current_annotation_results = annotation_results
+                    self.current_temp_char_dir = annotation_results["output_dir"]
+                    char_cfg_file_path = annotation_results["char_cfg_path"]
 
-                self.main_window.statusBar().showMessage(
-                    f"Image processed. Temp files at {self.current_temp_char_dir}", 5000
-                )
-
-                # Load skeleton data from the generated char_cfg.yaml
-                if self.load_skeleton_data_from_config(char_cfg_file_path):
-                    # Skeleton data is loaded into self.skeleton_data and skeleton_updated emitted
-                    # Update view with the new texture from temp dir
-                    if self.image_proc_view.load_image(
-                        annotation_results["texture_path"]
-                    ):  # Load the cropped texture
-                        # And the skeleton for visualization
-                        self.image_proc_view.load_skeleton(self.skeleton_data)
-                else:
-                    QMessageBox.critical(
-                        self,
-                        "Error",
-                        f"Failed to load skeleton from {char_cfg_file_path}",
+                    self.main_window.statusBar().showMessage(
+                        f"Image processed. Temp files at {self.current_temp_char_dir}",
+                        5000,
                     )
-            else:
+
+                    if self.load_skeleton_data_from_config(char_cfg_file_path):
+                        if self.image_proc_view.load_image(
+                            annotation_results["texture_path"]
+                        ):
+                            self.image_proc_view.load_skeleton(self.skeleton_data)
+                            span.set(
+                                status="success",
+                                skeleton_loaded=bool(self.skeleton_data),
+                                output_dir=self.current_temp_char_dir,
+                            )
+                        else:
+                            span.set(status="failure", reason="texture_load_failed")
+                    else:
+                        span.set(status="failure", reason="skeleton_load_failed")
+                        QMessageBox.critical(
+                            self,
+                            "Error",
+                            f"Failed to load skeleton from {char_cfg_file_path}",
+                        )
+                else:
+                    self.current_annotation_results = None
+                    self.current_temp_char_dir = None
+                    span.set(status="failure", reason="annotation_failure")
+                    QMessageBox.critical(
+                        self, "Error", "Image processing (image_to_annotations) failed."
+                    )
+                    self.main_window.statusBar().showMessage(
+                        "Image processing failed.", 5000
+                    )
+
+            except Exception as e:
+                span.set(status="error", error=str(e))
                 self.current_annotation_results = None
                 self.current_temp_char_dir = None
                 QMessageBox.critical(
-                    self, "Error", "Image processing (image_to_annotations) failed."
+                    self, "Processing Error", f"An unexpected error occurred: {e}"
                 )
-                self.main_window.statusBar().showMessage(
-                    "Image processing failed.", 5000
-                )
+                self.main_window.statusBar().showMessage(f"Processing error: {e}", 5000)
+            finally:
+                progress_dialog.close()
 
-        except Exception as e:
-            self.current_annotation_results = None
-            self.current_temp_char_dir = None
-            QMessageBox.critical(
-                self, "Processing Error", f"An unexpected error occurred: {e}"
-            )
-            self.main_window.statusBar().showMessage(f"Processing error: {e}", 5000)
-        finally:
-            progress_dialog.close()
-            self.update_button_states()
+        self.update_button_states()
 
     def load_skeleton_data_from_config(self, char_cfg_filepath: str) -> bool:
         if not char_cfg_filepath or not os.path.exists(char_cfg_filepath):

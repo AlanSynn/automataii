@@ -1079,7 +1079,7 @@ class EditorView(QGraphicsView):
         self._show_status_message("Motion path definition cancelled.")
 
     def _cleanup_motion_path_visuals(
-        self, keep_target=False
+        self, _keep_target=False
     ):  # keep_target not used currently
         """Clears temporary visuals used for motion path definition (preview path)."""
         if self._motion_preview_path_item:

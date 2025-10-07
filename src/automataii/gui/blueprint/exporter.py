@@ -8,6 +8,8 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
+from automataii.core.telemetry import telemetry_span
+
 
 class BlueprintExporter:
     """Encapsulates blueprint-related functionality for MechanismDesignTab.
@@ -157,14 +159,21 @@ class BlueprintExporter:
                 f"[BLUEPRINT] Legacy export: {len(part_items)} parts, {len(mechanism_layers)} mechanisms, unit_system={unit_system}"
             )
 
-            success = blueprint_manager.export_blueprint(
-                part_items=part_items,
-                mechanism_layers=mechanism_layers,
-                parent_widget=self._parent,
-                single_large_page=True,
-                snapshot_png_bytes=None,
-                unit_system=unit_system,  # Pass unit system to blueprint manager
-            )
+            with telemetry_span(
+                "ui.blueprint.export_all",
+                unit_system=unit_system,
+                mechanism_count=len(mechanism_layers),
+                part_count=len(part_items),
+            ) as span:
+                success = blueprint_manager.export_blueprint(
+                    part_items=part_items,
+                    mechanism_layers=mechanism_layers,
+                    parent_widget=self._parent,
+                    single_large_page=True,
+                    snapshot_png_bytes=None,
+                    unit_system=unit_system,  # Pass unit system to blueprint manager
+                )
+                span.set(status="success" if success else "failure")
 
             if success:
                 logging.info("[BLUEPRINT] Legacy blueprint export successful")
@@ -288,62 +297,74 @@ class BlueprintExporter:
             logging.info(f"[BLUEPRINT] Scale enhanced mechanism data: "
                         f"total_scale_factor={mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A')}")
 
-            if filename:
-                import os
+            with telemetry_span(
+                "ui.blueprint.export_mechanism",
+                mechanism_id=mechanism_id,
+                unit_system=unit_system,
+                mode="file" if filename else "dialog",
+                mechanism_count=len(mechanism_layers),
+                part_count=len(part_items),
+            ) as span:
+                if filename:
+                    import os
 
-                from automataii.generation.blueprint import generate_single_large_blueprint
-                from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
+                    from automataii.generation.blueprint import generate_single_large_blueprint
+                    from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
 
-                optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
-                layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers, unit_system)
+                    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
+                    layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers, unit_system)
 
-                page_width_mm = 800.0
-                page_height_mm = 600.0
+                    page_width_mm = 800.0
+                    page_height_mm = 600.0
 
-                svg_content = generate_single_large_blueprint(
-                    layout_items,
-                    page_width_mm,
-                    page_height_mm,
-                    title=f"Mechanism Blueprint - {layer_data.get('type', 'Unknown')}",
-                    scale_info=f"Screen-to-Blueprint Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel",
-                    snapshot_data_uri=None,
-                    unit_system=unit_system,
-                )
+                    svg_content = generate_single_large_blueprint(
+                        layout_items,
+                        page_width_mm,
+                        page_height_mm,
+                        title=f"Mechanism Blueprint - {layer_data.get('type', 'Unknown')}",
+                        scale_info=f"Screen-to-Blueprint Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel",
+                        snapshot_data_uri=None,
+                        unit_system=unit_system,
+                    )
 
-                os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(svg_content)
+                    os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
+                    with open(filename, "w", encoding="utf-8") as f:
+                        f.write(svg_content)
 
-                logging.info(f"[BLUEPRINT] Blueprint exported to {filename}")
-                from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.information(
-                    self._parent,
-                    "Export Successful",
-                    f"Blueprint exported using legacy system:\n{filename}\n\n"
-                    f"Mechanism: {layer_data.get('type', 'Unknown')}\n"
-                    f"Parts included: {len(part_items)}\n"
-                    f"Scale Factor: {mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A'):.3f}\n"
-                    f"Units: {unit_label}\n\n"
-                    "Fixed: Now uses screen-calculated dimensions instead of defaults.",
-                )
-            else:
-                success = blueprint_manager.export_blueprint(
-                    part_items=part_items,
-                    mechanism_layers=mechanism_layers,
-                    parent_widget=self._parent,
-                    single_large_page=True,
-                    snapshot_png_bytes=None,
-                    unit_system=unit_system,
-                )
+                    span.set(status="success", output_path=filename)
 
-                if success:
-                    logging.info(
-                        f"[BLUEPRINT] Legacy blueprint export successful for mechanism {mechanism_id}"
+                    logging.info(f"[BLUEPRINT] Blueprint exported to {filename}")
+                    from PyQt6.QtWidgets import QMessageBox
+                    QMessageBox.information(
+                        self._parent,
+                        "Export Successful",
+                        f"Blueprint exported using legacy system:\n{filename}\n\n"
+                        f"Mechanism: {layer_data.get('type', 'Unknown')}\n"
+                        f"Parts included: {len(part_items)}\n"
+                        f"Scale Factor: {mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A'):.3f}\n"
+                        f"Units: {unit_label}\n\n"
+                        "Fixed: Now uses screen-calculated dimensions instead of defaults.",
                     )
                 else:
-                    logging.warning(
-                        f"[BLUEPRINT] Legacy blueprint export failed for mechanism {mechanism_id}"
+                    success = blueprint_manager.export_blueprint(
+                        part_items=part_items,
+                        mechanism_layers=mechanism_layers,
+                        parent_widget=self._parent,
+                        single_large_page=True,
+                        snapshot_png_bytes=None,
+                        unit_system=unit_system,
                     )
+
+                    span.set(status="success" if success else "failure")
+
+                    if success:
+                        logging.info(
+                            f"[BLUEPRINT] Legacy blueprint export successful for mechanism {mechanism_id}"
+                        )
+                    else:
+                        logging.warning(
+                            f"[BLUEPRINT] Legacy blueprint export failed for mechanism {mechanism_id}"
+                        )
 
         except Exception as e:
             logging.error(f"[BLUEPRINT] Failed to export blueprint for mechanism {mechanism_id}: {e}")
@@ -703,4 +724,3 @@ class BlueprintExporter:
         except Exception as e:
             logging.error(f"[BLUEPRINT] Error collecting part items: {e}")
         return part_items
-

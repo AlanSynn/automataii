@@ -597,7 +597,7 @@ class EditorTab(QWidget):
         # Removed zoom_reset_btn connection (1:1 button removed)
 
     def _handle_part_selection_change(
-        self, current: QListWidgetItem | None, previous: QListWidgetItem | None
+        self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
     ):
         """Handles selection changes from the parts_list QListWidget."""
         logging.debug(f"EditorTab: Part selection changed. Current item: {current}")
