@@ -43,6 +43,7 @@ dependencies = [
     "requests>=2.32.4",
     "pyinstaller>=6.15.0",
     "dmgbuild>=1.6.5",
+    "onnx>=1.19.1",
 ]
 
 [project.optional-dependencies]
