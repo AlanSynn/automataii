@@ -27,16 +27,11 @@ Automataii is a sophisticated platform for designing, simulating, and animating 
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/automataii.git
+git clone https://github.com/alansynn/automataii.git
 cd automataii
 
 # Recommended: use uv for reproducible environments
 uv sync
-
-# Or create a virtual environment manually
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -e .
 ```
 
 ### Running the Application
@@ -44,8 +39,6 @@ pip install -e .
 ```bash
 # Launch Automataii GUI
 uv run automataii
-# or, with an activated virtualenv
-python -m automataii
 ```
 
 ### Repository Layout
@@ -74,7 +67,7 @@ pytest tests/manual/test_cam_mechanism.py
 
 #### **✅ 4-Bar Linkage Parametric Editing**
 - **Ground Pivot Manipulation**: Bright red anchor handles for easy identification
-- **Real-time Visual Feedback**: Immediate mechanism recalculation during manipulation  
+- **Real-time Visual Feedback**: Immediate mechanism recalculation during manipulation
 - **Constraint Validation**: Grashof's criterion and geometric constraints enforced
 - **Performance Optimized**: 50ms update throttling for smooth interaction
 - **Undo/Redo Support**: Command pattern implementation for parameter changes
@@ -107,7 +100,7 @@ The foundation is in place for a revolutionary parametric playground experience:
 - **Real-time Path Preview**: Ghost path overlay during parameter manipulation
 - **Advanced Constraints**: Workspace boundaries, manufacturability limits
 
-#### **🎯 Phase 2: Multi-Mechanism Support**  
+#### **🎯 Phase 2: Multi-Mechanism Support**
 - **Cam Profile Editing**: Direct manipulation of cam profiles and follower motion
 - **Gear System Controls**: Interactive gear ratio, center distance, and tooth profile editing
 - **Planetary Gear Design**: Complete planetary gear system designer
@@ -125,7 +118,7 @@ Automataii is built on a modern, modular architecture designed for performance a
 
 ### **Core Systems**
 - **Dependency Injection Container**: Manages component lifecycle and dependencies
-- **Event-Driven Architecture**: Loose coupling with typed events and async processing  
+- **Event-Driven Architecture**: Loose coupling with typed events and async processing
 - **Redux-like State Management**: Immutable state with time-travel debugging
 - **Qt Compatibility Layer**: Seamless PyQt6/PySide6 interoperability
 
@@ -171,7 +164,7 @@ pytest --cov=src/automataii tests/
 ### **Development Environment**
 ```bash
 # Install development dependencies
-pip install -e ".[dev]"
+uv sync
 
 # Run linting
 flake8 src/
@@ -223,7 +216,7 @@ VISUAL_SETTINGS = {
     'mechanism_line_width': 3.0,
     'handle_colors': {
         'anchor': '#FF0000',  # Bright red
-        'link': '#0080FF',    # Blue  
+        'link': '#0080FF',    # Blue
         'constraint': '#FFD700'  # Gold
     }
 }
@@ -248,7 +241,7 @@ We welcome contributions to enhance the parametric playground and expand mechani
 
 ### **Contribution Areas**
 1. **Parametric Handle Types**: Implement new manipulation handles (link length, angle, etc.)
-2. **Mechanism Support**: Add cam profile and gear manipulation capabilities  
+2. **Mechanism Support**: Add cam profile and gear manipulation capabilities
 3. **Constraint Systems**: Develop advanced constraint validation and optimization
 4. **Performance Optimization**: Improve real-time update performance
 5. **User Experience**: Enhance interaction paradigms and visual feedback
