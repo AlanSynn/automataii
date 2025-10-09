@@ -33,6 +33,19 @@
   - Mechanism recommendation and blueprint export median latency reduced by 25 %.
   - App startup (when run with `uv run automataii --editing`) improved by ≥20 %.
 
+## 3.1 Current Progress (MM-3 complete, MM-4 in flight)
+- MM-3.1/3.2/3.3 delivered: Foundry catalog/service/controller stack and the feature-flagged blueprint composer with passing unit coverage (`src/automataii/application/mechanism_foundry/*`, `src/automataii/application/blueprint/composer.py`).
+- Blueprint export flow now defaults to `BlueprintComposer` end-to-end. `core/blueprint_manager.py` delegates through `compose_single_page`, and `gui/blueprint/exporter.py` writes composer output directly for both dialog and direct-file paths.
+- Regression tests guard the composer delegation (`tests/test_blueprint_composer.py`, `tests/test_blueprint_manager.py`); broader `pytest` suite still needs to run locally because sandbox cache permission errors persist.
+- Mechanism Foundry parameter UI now consumes controller `ParameterSpec` metadata; the slider-crank option is provided via a synthesized fallback entry until it lands in the catalog.
+- Introduced the first automation scenario (`automataii.scenarios.blueprint`) to exercise blueprint export via controllers/composer, emitting SVG, manifest, and metrics with telemetry spans; runnable via `uv run automataii --scenario blueprint-export`.
+- Added `scripts/collect_scenario_metrics.py` to aggregate scenario runs for downstream dashboards.
+- Added `scripts/verify_onnx_models.py` to sanity-check ONNX assets ahead of the image-processing automation work.
+- Stood up the image-processing automation scenario (`automataii.scenarios.image_processing`) with ONNX inference, parts extraction, telemetry, and manifest/metrics outputs via `uv run automataii --scenario image-processing`.
+- MM-4.1 progressing: blueprint shims removed; next items are Foundry slider cleanup and flipping feature flags once telemetry validates usage.
+- MM-4.2 (Scenario Automation Pack) queued; automation will target image-processing and blueprint-export UI paths using the new controllers/composer.
+- Outstanding blocker: ONNX detector/pose weights still fail protobuf parsing; validate models before enabling automated image scenarios.
+
 ## 4. Architecture Overview
 - **UI Layer (unchanged)**: Existing PyQt widgets remain entry points. New facades/adapters wrap refactored logic and expose the same methods/signals.
 - **Presentation Layer (new)**:
@@ -131,7 +144,7 @@
 | MM-3.1 | Mechanism Foundry Catalog Service | Create service for catalog data, remove inline definitions | Catalog service, snapshot tests |
 | MM-3.2 | Foundry Interaction Controller | Move controls/physics updates into controller; UI binds signals only | Controller, tests, instrumentation |
 | MM-3.3 | Blueprint Composition Pipeline | Break out `BlueprintOptimizer` into composer + layout service | Composer module, regression SVG tests |
-| MM-4.1 | Legacy Shim Cleanup | Remove unused legacy helpers replaced by services | Deleted modules list, documentation update |
+| MM-4.1 | Legacy Shim Cleanup | Remove unused legacy helpers replaced by services | Composer-default blueprint flow (done), Foundry slider legacy paths removed, documentation update |
 | MM-4.2 | Scenario Automation Pack | Add automated scripts for recomposed workflows (image processing, recommendation, export) | Scenario files, CI job |
 | MM-4.3 | Final Review & Hand-off | ADR updates, architecture diagrams, knowledge share session | Updated ADRs, diagrams, retro notes |
 

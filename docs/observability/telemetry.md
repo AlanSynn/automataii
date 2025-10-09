@@ -31,6 +31,8 @@ def generate_blueprint(request):
 | Image processing (segmentation) | `ui.image_processing.process_image` | ✅ |
 | Blueprint export (all) | `ui.blueprint.export_all` | ✅ |
 | Blueprint export (single mechanism) | `ui.blueprint.export_mechanism` | ✅ |
+| Scenario: blueprint automation | `scenario.blueprint_export` | ✅ |
+| Scenario: image automation | `scenario.image_processing` | ✅ |
 | Mechanism recommendation | `application.mechanism.recommend` | ⏳ (planned MM-1.2) |
 | Motion path definition | `application.editor.define_motion_path` | ⏳ |
 | Mechanism Foundry catalog load | `application.foundry.catalog_load` | ⏳ |
