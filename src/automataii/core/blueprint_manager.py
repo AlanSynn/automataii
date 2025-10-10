@@ -223,7 +223,7 @@ class BlueprintExportManager(QObject):
             self.logger.error(f"Failed to save PDF file: {e}")
             return False
 
-def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
+    def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
         """Generate SVG for gear mechanism."""
         return self.gear_generator.generate_svg(gear_data)
 
@@ -236,29 +236,43 @@ def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
         return self.cam_generator.generate_svg(cam_data)
 
     def _generate_single_large_page_blueprint(
-        self, part_items: List[Any], mechanism_layers: Dict[str, Any], snapshot_png_bytes: Optional[bytes] = None, unit_system: str = "metric"
+        self,
+        part_items: List[Any],
+        mechanism_layers: Dict[str, Any],
+        snapshot_png_bytes: Optional[bytes] = None,
+        unit_system: str = "metric",
     ) -> str:
         """
         Generate single large page blueprint SVG with all parts and mechanisms.
-        
+
         Args:
             part_items: List of part items to include
             mechanism_layers: Dictionary of mechanism data
             snapshot_png_bytes: Optional snapshot image data
             unit_system: "metric" for mm, "imperial" for inches
-            
+
         Returns:
             SVG string for the complete blueprint
         """
         try:
-            from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
             from automataii.generation.blueprint import generate_single_large_blueprint
+            from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
 
-            self.logger.info(f"Starting blueprint generation with {len(part_items)} parts and {len(mechanism_layers)} mechanisms")
-            
+            self.logger.info(
+                "Starting blueprint generation with %s parts and %s mechanisms",
+                len(part_items),
+                len(mechanism_layers),
+            )
+
             # Log mechanism details
             for mech_id, mech_data in mechanism_layers.items():
-                self.logger.info(f"Mechanism {mech_id}: type={mech_data.get('type', 'unknown')}, has_params={bool(mech_data.get('params'))}, has_scale={bool(mech_data.get('total_scale_factor'))}")
+                self.logger.info(
+                    "Mechanism %s: type=%s, has_params=%s, has_scale=%s",
+                    mech_id,
+                    mech_data.get("type", "unknown"),
+                    bool(mech_data.get("params")),
+                    bool(mech_data.get("total_scale_factor")),
+                )
 
             # Optimize layout with enhanced mechanism processing
             optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
@@ -266,7 +280,12 @@ def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
                 part_items, mechanism_layers, unit_system
             )
 
-            self.logger.info(f"Layout optimization complete: {len(layout_items)} items, {total_width_mm:.1f}x{total_height_mm:.1f}mm")
+            self.logger.info(
+                "Layout optimization complete: %s items, %.1fx%.1fmm",
+                len(layout_items),
+                total_width_mm,
+                total_height_mm,
+            )
 
             if not layout_items:
                 self.logger.warning("No layout items generated - creating minimal blueprint")
@@ -276,6 +295,7 @@ def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
             snapshot_data_uri = None
             if snapshot_png_bytes:
                 import base64
+
                 snapshot_data_uri = f"data:image/png;base64,{base64.b64encode(snapshot_png_bytes).decode()}"
 
             # Generate blueprint with proper scaling and unit system
@@ -283,22 +303,28 @@ def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
             svg_content = generate_single_large_blueprint(
                 layout_items,
                 max(total_width_mm, 800),  # Minimum width
-                max(total_height_mm, 600),  # Minimum height  
+                max(total_height_mm, 600),  # Minimum height
                 title=f"Character Manufacturing Blueprint ({unit_label})",
                 scale_info=f"Character Height: 300mm | Units: {unit_label}",
                 snapshot_data_uri=snapshot_data_uri,
                 unit_system=unit_system,
             )
 
-            self.logger.info(f"Generated blueprint: {len(layout_items)} items, {total_width_mm:.0f}x{total_height_mm:.0f}mm, units: {unit_system}")
+            self.logger.info(
+                "Generated blueprint: %s items, %.0fx%.0fmm, units: %s",
+                len(layout_items),
+                total_width_mm,
+                total_height_mm,
+                unit_system,
+            )
             return svg_content
 
         except Exception as e:
-            self.logger.error(f"Error generating single large page blueprint: {e}")
+            self.logger.error("Error generating single large page blueprint: %s", e)
             import traceback
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return ""
 
+            self.logger.error("Traceback: %s", traceback.format_exc())
+            return ""
 
 
 

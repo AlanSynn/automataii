@@ -37,8 +37,8 @@ class MechanismManager(QObject):
         mechanism_type: str,
         params: dict[str, Any],
         target_part_info: PartInfo,
-        all_parts_info: dict[str, PartInfo],
-        editor_scene_center: QPointF,  # Example: center of the editor scene or a key reference point
+        _all_parts_info: dict[str, PartInfo],
+        _editor_scene_center: QPointF,  # Example: center of the editor scene or a key reference point
     ) -> None:
         """
         Generates the specified type of mechanism.

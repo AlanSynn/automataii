@@ -202,7 +202,7 @@ class ONNXImageProcessor:
 
             # Extract keypoints from heatmap
             heatmap = outputs[0]  # Assume first output is heatmap
-            keypoints = self.extract_keypoints_from_heatmap(heatmap, bbox, image.shape[:2])
+            keypoints = self.extract_keypoints_from_heatmap(heatmap, bbox)
 
             logging.info(f"Pose estimation complete, extracted {len(keypoints)} keypoints")
             return keypoints, cropped_image
@@ -211,7 +211,7 @@ class ONNXImageProcessor:
             logging.error(f"Pose estimation failed: {e}")
             return None, None
 
-    def extract_keypoints_from_heatmap(self, heatmap, bbox, original_size):
+    def extract_keypoints_from_heatmap(self, heatmap, bbox):
         """Extract keypoints from pose heatmap output"""
         if len(heatmap.shape) == 4:
             heatmap = heatmap[0]  # Remove batch dimension

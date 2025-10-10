@@ -316,7 +316,7 @@ class ProjectSerializer:
         self,
         obj: Any,
         compress: bool = False,
-        validate_schema: bool = True
+        _validate_schema: bool = True
     ) -> bytes:
         """
         Serialize object to bytes.
@@ -411,7 +411,6 @@ class ProjectSerializer:
         except Exception as e:
             self._logger.error(f"Deserialization failed: {e}", exc_info=True)
             raise SerializationError(f"Deserialization failed: {e}") from e
-
 
 
 

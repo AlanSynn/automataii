@@ -1064,7 +1064,7 @@ class EnhancedMechanismProcessor:
 
         return ''.join(parts)
 
-    def _generate_detailed_gear(self, center, radius, teeth, pitch_diameter, hub_ratio,
+    def _generate_detailed_gear(self, center, radius, teeth, _pitch_diameter, hub_ratio,
                                keyway_width, shaft_diameter, tooth_height, mounting_holes,
                                gradient_id, gear_name, actual_radius_mm):
         """Generate a detailed gear with teeth, hub, keyway, and mounting holes"""

@@ -2036,7 +2036,7 @@ class InteractiveMechanismWidget(QGraphicsView):
         self.mechanism_items[f"{gear_name}_axis"] = axis
         self.mechanism_items[f"{gear_name}_label"] = text
 
-    def _draw_simple_rotation_arrow(self, center, radius, angle, color, direction_label, clockwise):
+    def _draw_simple_rotation_arrow(self, center, radius, angle, color, _direction_label, clockwise):
         """Ultra-simple rotation arrow - just one line with arrowhead"""
         arrow_length = 40
         arrow_angle = angle + (math.pi/3 if clockwise else -math.pi/3)
@@ -3460,7 +3460,7 @@ class EnhancedMacanismTab(QWidget):
         self.mechanism_widget.animation_speed = actual_speed
         print(f"Animation speed changed to {actual_speed} (slider: {value})")
 
-    def _on_component_selected(self, component_id: str):
+    def _on_component_selected(self, _component_id: str):
         """Handle component selection"""
         # Could highlight the component or show detailed info
         pass
@@ -3481,4 +3481,3 @@ class EnhancedMacanismTab(QWidget):
             for i, app in enumerate(content['applications'][:3]):  # Show first 3
                 apps_text += f"• {app}\n"
             self.applications_display.setText(apps_text.strip())
-

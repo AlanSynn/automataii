@@ -737,7 +737,7 @@ class AutomataDesigner(QMainWindow):
             logging.warning("Could not find EditorTab to switch to.")
 
     # --- Styling and Themes ---
-    def _apply_theme(self, theme_name: str):
+    def _apply_theme(self, _theme_name: str):
         """Applies the selected theme (stylesheet) to the application."""
         # ... existing code ...
 
