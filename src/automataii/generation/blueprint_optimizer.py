@@ -2302,10 +2302,13 @@ class BlueprintLayoutOptimizer:
 
         # Store clip path definition for collection by parent
         clip_def = f'<clipPath id="{clip_id}"><path d="{offset_path}" /></clipPath>'
+        escaped_clip_def = clip_def.replace('"', '&quot;')
 
         # Build SVG group with image and outline (no nested defs)
         parts = []
-        parts.append(f'<g class="scaled-part" data-name="{part_name}" data-clip-def="{clip_def.replace('"', '&quot;')}">')
+        parts.append(
+            f'<g class="scaled-part" data-name="{part_name}" data-clip-def="{escaped_clip_def}">'
+        )
 
         # Embedded texture image clipped to contour
         if image_href:

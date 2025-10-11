@@ -3,11 +3,12 @@
 
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog, QWidget
 
+from automataii.application.blueprint import BlueprintComposer, BlueprintCompositionResult
 from automataii.generation.blueprint import generate_detailed_part_content
 from automataii.generation.cam import CamGenerator
 from automataii.generation.gear import GearGenerator
@@ -63,6 +64,9 @@ class BlueprintExportManager(QObject):
         self.gear_generator = GearGenerator()
         self.linkage_generator = LinkageGenerator()
         self.cam_generator = CamGenerator()
+
+        # Application-layer blueprint composer replaces legacy optimizer flow.
+        self._composer = BlueprintComposer()
 
         self.logger.debug("BlueprintExportManager singleton initialized")
 
@@ -235,6 +239,22 @@ class BlueprintExportManager(QObject):
         """Generate SVG for cam mechanism."""
         return self.cam_generator.generate_svg(cam_data)
 
+    def compose_single_page(
+        self,
+        part_items: List[Any],
+        mechanism_layers: Dict[str, Any],
+        *,
+        snapshot_png_bytes: Optional[bytes] = None,
+        unit_system: str = "metric",
+    ) -> BlueprintCompositionResult:
+        """Compose a single-page blueprint using the shared composer."""
+        return self._composer.compose_single_page(
+            part_items,
+            mechanism_layers,
+            unit_system=unit_system,
+            snapshot_png_bytes=snapshot_png_bytes,
+        )
+
     def _generate_single_large_page_blueprint(
         self,
         part_items: List[Any],
@@ -255,69 +275,31 @@ class BlueprintExportManager(QObject):
             SVG string for the complete blueprint
         """
         try:
-            from automataii.generation.blueprint import generate_single_large_blueprint
-            from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
+            mechanism_layers = mechanism_layers or {}
+            part_count = len(part_items)
+            mechanism_count = len(mechanism_layers)
 
             self.logger.info(
-                "Starting blueprint generation with %s parts and %s mechanisms",
-                len(part_items),
-                len(mechanism_layers),
-            )
-
-            # Log mechanism details
-            for mech_id, mech_data in mechanism_layers.items():
-                self.logger.info(
-                    "Mechanism %s: type=%s, has_params=%s, has_scale=%s",
-                    mech_id,
-                    mech_data.get("type", "unknown"),
-                    bool(mech_data.get("params")),
-                    bool(mech_data.get("total_scale_factor")),
-                )
-
-            # Optimize layout with enhanced mechanism processing
-            optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
-            layout_items, total_width_mm, total_height_mm = optimizer.optimize_blueprint_layout(
-                part_items, mechanism_layers, unit_system
-            )
-
-            self.logger.info(
-                "Layout optimization complete: %s items, %.1fx%.1fmm",
-                len(layout_items),
-                total_width_mm,
-                total_height_mm,
-            )
-
-            if not layout_items:
-                self.logger.warning("No layout items generated - creating minimal blueprint")
-                return '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg"><text x="50" y="150">No items to export</text></svg>'
-
-            # Convert snapshot to data URI if provided
-            snapshot_data_uri = None
-            if snapshot_png_bytes:
-                import base64
-
-                snapshot_data_uri = f"data:image/png;base64,{base64.b64encode(snapshot_png_bytes).decode()}"
-
-            # Generate blueprint with proper scaling and unit system
-            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
-            svg_content = generate_single_large_blueprint(
-                layout_items,
-                max(total_width_mm, 800),  # Minimum width
-                max(total_height_mm, 600),  # Minimum height
-                title=f"Character Manufacturing Blueprint ({unit_label})",
-                scale_info=f"Character Height: 300mm | Units: {unit_label}",
-                snapshot_data_uri=snapshot_data_uri,
-                unit_system=unit_system,
-            )
-
-            self.logger.info(
-                "Generated blueprint: %s items, %.0fx%.0fmm, units: %s",
-                len(layout_items),
-                total_width_mm,
-                total_height_mm,
+                "Composing blueprint via BlueprintComposer (parts=%s, mechanisms=%s, unit=%s)",
+                part_count,
+                mechanism_count,
                 unit_system,
             )
-            return svg_content
+
+            result = self.compose_single_page(
+                part_items,
+                mechanism_layers,
+                unit_system=unit_system,
+                snapshot_png_bytes=snapshot_png_bytes,
+            )
+
+            self.logger.info(
+                "Blueprint composed (%s items, %.1fx%.1fmm)",
+                result.item_count,
+                result.width_mm,
+                result.height_mm,
+            )
+            return result.svg
 
         except Exception as e:
             self.logger.error("Error generating single large page blueprint: %s", e)
@@ -325,6 +307,3 @@ class BlueprintExportManager(QObject):
 
             self.logger.error("Traceback: %s", traceback.format_exc())
             return ""
-
-
-

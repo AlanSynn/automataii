@@ -12,11 +12,16 @@ Key Features:
 - Simplified, intuitive UI with no clipping issues
 """
 
+from __future__ import annotations
+
+import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Sequence
 
 from PyQt6.QtCore import (
+    QCoreApplication,
     QPointF,
     Qt,
     QTimer,
@@ -49,6 +54,13 @@ from PyQt6.QtWidgets import (
     QToolTip,
     QVBoxLayout,
     QWidget,
+)
+
+from automataii.application.mechanism_foundry import (
+    MechanismCatalogService,
+    MechanismFoundryController,
+    MechanismItem,
+    ParameterSpec,
 )
 
 
@@ -2752,6 +2764,20 @@ class EnhancedMacanismTab(QWidget):
         self.mechanism_widget = None
         self.control_panel = None
         self.info_panel = None
+        self.catalog_controller = None
+        self._parameter_specs: dict[str, ParameterSpec] = {}
+        self._parameter_sliders: dict[str, QSlider] = {}
+        self._parameter_value_labels: dict[str, QLabel] = {}
+        self._parameter_scales: dict[str, int] = {}
+        self.parameter_group: QGroupBox | None = None
+        self.parameter_layout: QVBoxLayout | None = None
+
+        try:
+            service = MechanismCatalogService()
+            self.catalog_controller = MechanismFoundryController(service)
+        except Exception as exc:
+            logging.warning("Failed to initialize mechanism catalog: %s", exc)
+            self.catalog_controller = None
 
         # Setup our own UI directly
         self._setup_ui()
@@ -2760,6 +2786,77 @@ class EnhancedMacanismTab(QWidget):
         # Initialize educational content for default mechanism
         if self.mechanism_widget:
             self._update_educational_content(self.mechanism_widget.mechanism_type)
+
+        if self.mechanism_type_combo.count():
+            self._apply_catalog_selection()
+
+    def _apply_catalog_selection(self) -> bool:
+        if not self.mechanism_widget:
+            return False
+
+        item = self.mechanism_type_combo.currentData()
+        if not item or not hasattr(item, "mechanism_type"):
+            return False
+
+        entry = None
+        config = None
+        if self.catalog_controller:
+            entry = self.catalog_controller.select_mechanism(item.category_key, item.mechanism_key)  # type: ignore[attr-defined]
+            config = self.catalog_controller.get_configuration(item.mechanism_type)
+        else:
+            entry = getattr(item, "entry", None)
+            config = MechanismFoundryController.default_configuration(getattr(item, "mechanism_type", None))
+
+        if entry is None or config is None:
+            logging.warning("Mechanism configuration unavailable for selection %s", getattr(item, "display_name", item))
+            return False
+
+        was_animating = self.mechanism_widget.animation_timer.isActive()
+        if was_animating:
+            self.mechanism_widget.stop_animation()
+
+        self._parameter_specs = {spec.key: spec for spec in config.parameter_specs}
+        self._parameter_sliders.clear()
+        self._parameter_value_labels.clear()
+        self._parameter_scales.clear()
+
+        self._update_parameters_for_mechanism(config.mechanism_type, specs=config.parameter_specs)
+        params = config.initial_parameters()
+
+        if hasattr(self.mechanism_widget, "clear_all_mechanism_graphics"):
+            self.mechanism_widget.clear_all_mechanism_graphics()
+        self.mechanism_widget.physics_error_count = 0
+        self.mechanism_widget.safety_status = "safe"
+        self.mechanism_widget.safety_message = ""
+        self.mechanism_widget.animation_angle = params.get("input_angle", 30.0)
+        self.mechanism_widget.motion_trail.clear()
+
+        params.setdefault("input_angle", self.mechanism_widget.animation_angle)
+        self.mechanism_widget.mechanism_params = params
+        self.mechanism_widget.mechanism_type = config.mechanism_type
+
+        self._update_educational_from_entry(entry)
+
+        try:
+            self.mechanism_widget.draw_mechanism()
+        except Exception as exc:
+            logging.warning("Failed to draw mechanism %s: %s", entry.key, exc)
+
+        self.mechanism_widget.scene.update()
+
+        if was_animating:
+            QTimer.singleShot(200, self.mechanism_widget.start_animation)
+
+        return True
+
+    def _update_educational_from_entry(self, entry):
+        if hasattr(self, 'mechanism_title'):
+            self.mechanism_title.setText(entry.name)
+        if hasattr(self, 'mechanism_desc'):
+            self.mechanism_desc.setText(entry.description)
+        if hasattr(self, 'applications_display'):
+            tags_text = "\n".join(f"• {tag}" for tag in entry.tags)
+            self.applications_display.setText(tags_text or "")
 
         # Note: _setup_ui and _connect_signals are called by setup_tab_specific_ui
         # which is called by the base class
@@ -2893,12 +2990,15 @@ class EnhancedMacanismTab(QWidget):
         type_layout.setContentsMargins(10, 10, 10, 8)
 
         type_combo = QComboBox()
-        type_combo.addItems([
-            "Four-Bar Linkage",
-            "Slider-Crank",
-            "Cam-Follower",
-            "Gear Train"
-        ])
+        if self.catalog_controller:
+            mechanism_items = list(self.catalog_controller.list_mechanisms())
+        else:
+            mechanism_items = list(MechanismFoundryController.fallback_items())
+        if mechanism_items:
+            for item in mechanism_items:
+                type_combo.addItem(item.display_name, item)
+        else:
+            type_combo.addItem("No mechanisms available", None)
         type_combo.currentTextChanged.connect(self._on_mechanism_changed)
         type_layout.addWidget(type_combo)
 
@@ -2928,11 +3028,8 @@ class EnhancedMacanismTab(QWidget):
         params_layout = QVBoxLayout(params_group)
         params_layout.setContentsMargins(10, 10, 10, 8)
 
-        # Updated default four-bar parameters to match the image with expanded ranges
-        self._add_parameter_slider(params_layout, "Ground Link", 30, 300, 150)      # Default: 150, Range: 30-300
-        self._add_parameter_slider(params_layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150
-        self._add_parameter_slider(params_layout, "Coupler Link", 20, 250, 120)     # Default: 120, Range: 20-250
-        self._add_parameter_slider(params_layout, "Output Link", 20, 250, 130)      # Default: 130, Range: 20-250
+        self.parameter_group = params_group
+        self.parameter_layout = params_layout
 
         content_layout.addWidget(params_group)
 
@@ -2982,14 +3079,18 @@ class EnhancedMacanismTab(QWidget):
 
         return main_container
 
-    def _add_parameter_slider(self, layout, label: str, min_val: int, max_val: int, default: int):
-        """Add a parameter slider with label and value display - improved text visibility"""
-        # Use vertical layout for better text visibility
+    def _add_parameter_slider(
+        self,
+        layout: QVBoxLayout,
+        spec: ParameterSpec,
+        *,
+        current_value: float | None = None,
+    ) -> None:
+        """Add a parameter slider with label and value display."""
         param_container = QVBoxLayout()
 
-        # Parameter label on top
-        label_widget = QLabel(f"{label}:")
-        label_widget.setWordWrap(True)  # Allow text wrapping
+        label_widget = QLabel(f"{spec.label}:")
+        label_widget.setWordWrap(True)
         label_widget.setStyleSheet("""
             QLabel {
                 font-weight: bold;
@@ -3000,18 +3101,27 @@ class EnhancedMacanismTab(QWidget):
         """)
         param_container.addWidget(label_widget)
 
-        # Slider and value on same line
         slider_layout = QHBoxLayout()
         slider_layout.setContentsMargins(0, 0, 0, 5)
 
+        scale = 1
+        if spec.step < 1.0:
+            scale = max(1, int(round(1 / spec.step)))
+
+        min_tick = int(round(spec.min_value * scale))
+        max_tick = int(round(spec.max_value * scale))
+        value = current_value if current_value is not None else spec.default_value
+        value_tick = int(round(value * scale))
+        value_tick = max(min_tick, min(max_tick, value_tick))
+
         slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(min_val, max_val)
-        slider.setValue(default)
-        slider.setObjectName(label.lower().replace(" ", "_").replace("(", "").replace(")", ""))
+        slider.setRange(min_tick, max_tick)
+        slider.setValue(value_tick)
+        slider.setSingleStep(max(1, int(round(spec.step * scale))))
         slider_layout.addWidget(slider)
 
-        value_label = QLabel(str(default))
-        value_label.setMinimumWidth(40)  # Slightly wider for larger numbers
+        value_label = QLabel(self._format_parameter_value(spec, value))
+        value_label.setMinimumWidth(60)
         value_label.setStyleSheet("""
             QLabel {
                 font-weight: bold;
@@ -3027,12 +3137,13 @@ class EnhancedMacanismTab(QWidget):
         slider_layout.addWidget(value_label)
 
         param_container.addLayout(slider_layout)
-
-        # Connect slider events
-        slider.valueChanged.connect(lambda v: value_label.setText(str(v)))
-        slider.valueChanged.connect(lambda v: self._on_parameter_changed(label, v))
-
         layout.addLayout(param_container)
+
+        self._parameter_sliders[spec.key] = slider
+        self._parameter_value_labels[spec.key] = value_label
+        self._parameter_scales[spec.key] = scale
+
+        slider.valueChanged.connect(lambda ticks, key=spec.key: self._on_parameter_changed(key, ticks))
 
     def _create_info_panel(self) -> QWidget:
         """Create information panel with enhanced visibility and concise content"""
@@ -3197,6 +3308,14 @@ class EnhancedMacanismTab(QWidget):
 
     def _on_mechanism_changed(self, mechanism_type: str):
         """Handle mechanism type change with parameter updates"""
+        if self._apply_catalog_selection():
+            return
+
+        logging.warning(
+            "Mechanism catalog selection failed for '%s'; falling back to legacy controls",
+            mechanism_type,
+        )
+
         if not self.mechanism_widget:
             print("Warning: mechanism_widget is None in _on_mechanism_changed")
             return
@@ -3220,11 +3339,17 @@ class EnhancedMacanismTab(QWidget):
 
         # STEP 1: Clear parameters FIRST to avoid lingering UI
         print("DEBUG: Clearing old parameter UI...")
-        self._update_parameters_for_mechanism(mechanism_key)
-
-        # STEP 2: Process events to ensure UI clearing is complete
-        from PyQt6.QtCore import QCoreApplication
-        QCoreApplication.processEvents()
+        config = MechanismFoundryController.default_configuration(mechanism_key)
+        if config:
+            self._parameter_specs = {spec.key: spec for spec in config.parameter_specs}
+            self._update_parameters_for_mechanism(mechanism_key, specs=config.parameter_specs)
+            params = config.initial_parameters()
+        else:
+            self._parameter_specs.clear()
+            self._parameter_sliders.clear()
+            self._parameter_value_labels.clear()
+            self._parameter_scales.clear()
+            params = {}
 
         # STEP 3: Clear all graphics
         print("DEBUG: Clearing mechanism graphics...")
@@ -3252,38 +3377,42 @@ class EnhancedMacanismTab(QWidget):
         print(f"DEBUG: Set mechanism type to {mechanism_key}")
 
         # STEP 7.5: Initialize mechanism parameters for the new type
-        if mechanism_key == "gear_train":
-            self.mechanism_widget.mechanism_params = {
-                "gear1_teeth": 12,  # Match the slider default
-                "gear2_teeth": 18,  # Match the slider default
-                "input_torque": 200,
-                "input_angle": self.mechanism_widget.animation_angle
-            }
-            # Increase animation speed for gear train
-            self.mechanism_widget.animation_speed = 5.0  # Faster for gears
-        elif mechanism_key == "four_bar":
-            self.mechanism_widget.mechanism_params = {
-                "ground_link": 150,
-                "input_link": 40,
-                "coupler_link": 120,
-                "output_link": 130,
-                "input_angle": self.mechanism_widget.animation_angle
-            }
-        elif mechanism_key == "slider_crank":
-            self.mechanism_widget.mechanism_params = {
-                "crank_length": 80,
-                "rod_length": 140,
-                "gas_pressure": 500,
-                "input_angle": self.mechanism_widget.animation_angle
-            }
-        elif mechanism_key == "cam_follower":
-            self.mechanism_widget.mechanism_params = {
-                "cam_radius": 60,
-                "cam_offset": 20,
-                "follower_length": 100,
-                "spring_constant": 300,
-                "input_angle": self.mechanism_widget.animation_angle
-            }
+        if params:
+            params.setdefault("input_angle", self.mechanism_widget.animation_angle)
+            self.mechanism_widget.mechanism_params = params
+        else:
+            # Fallback hard-coded defaults if configuration unavailable.
+            if mechanism_key == "gear_train":
+                self.mechanism_widget.mechanism_params = {
+                    "gear1_teeth": 12,
+                    "gear2_teeth": 18,
+                    "input_torque": 200,
+                    "input_angle": self.mechanism_widget.animation_angle,
+                }
+                self.mechanism_widget.animation_speed = 5.0
+            elif mechanism_key == "four_bar":
+                self.mechanism_widget.mechanism_params = {
+                    "ground_link": 150,
+                    "input_link": 40,
+                    "coupler_link": 120,
+                    "output_link": 130,
+                    "input_angle": self.mechanism_widget.animation_angle,
+                }
+            elif mechanism_key == "slider_crank":
+                self.mechanism_widget.mechanism_params = {
+                    "crank_length": 80,
+                    "rod_length": 140,
+                    "gas_pressure": 500,
+                    "input_angle": self.mechanism_widget.animation_angle,
+                }
+            elif mechanism_key == "cam_follower":
+                self.mechanism_widget.mechanism_params = {
+                    "cam_radius": 60,
+                    "cam_offset": 20,
+                    "follower_length": 100,
+                    "spring_constant": 300,
+                    "input_angle": self.mechanism_widget.animation_angle,
+                }
 
         # STEP 8: Update educational content
         self._update_educational_content(mechanism_key)
@@ -3303,137 +3432,106 @@ class EnhancedMacanismTab(QWidget):
         # STEP 11: Restart animation if it was running
         if was_animating:
             # Use a timer to restart animation after a brief delay
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(200, self.mechanism_widget.start_animation)
 
         print(f"DEBUG: Mechanism switch to {mechanism_key} completed successfully")
 
-    def _update_parameters_for_mechanism(self, mechanism_type: str):
-        """Update parameter controls based on mechanism type"""
-        # Find the parameters group box in the scrollable content
-        params_group = None
-
-        # Search more thoroughly for the Parameters group
-        all_group_boxes = self.control_panel.findChildren(QGroupBox)
-        for group_box in all_group_boxes:
-            if group_box.title() == "Parameters":
-                params_group = group_box
-                break
-
-        if not params_group:
-            print(f"Warning: Could not find Parameters group box. Found groups: {[g.title() for g in all_group_boxes]}")
+    def _update_parameters_for_mechanism(
+        self,
+        mechanism_type: str,
+        *,
+        specs: Sequence[ParameterSpec] | None = None,
+        entry=None,
+    ) -> None:
+        """Update parameter controls for the active mechanism."""
+        layout = self.parameter_layout
+        params_group = self.parameter_group
+        if layout is None or params_group is None:
             return
 
-        # COMPLETE WIDGET CLEANUP: Find and remove ALL child widgets recursively
-        # This is necessary because we have nested layouts
-        all_widgets = params_group.findChildren(QWidget)
-        for widget in all_widgets:
-            widget.hide()
-            widget.setParent(None)
-            widget.deleteLater()
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
 
-        # Process events to ensure widgets are fully removed
-        from PyQt6.QtCore import QCoreApplication
-        QCoreApplication.processEvents()
+        self._parameter_value_labels.clear()
+        self._parameter_sliders.clear()
+        self._parameter_scales.clear()
 
-        # Get or create layout
-        layout = params_group.layout()
-        if layout:
-            # Clear the layout structure
-            while layout.count():
-                item = layout.takeAt(0)
-                if item:
-                    # Don't need to handle widgets here since we already deleted them all above
-                    pass
+        resolved_specs: list[ParameterSpec] = list(specs) if specs else []
+        if not resolved_specs and entry is not None and entry.parameters:
+            resolved_specs = [
+                ParameterSpec(
+                    key=param.key,
+                    label=param.name,
+                    min_value=float(param.min) if param.min is not None else 0.0,
+                    max_value=float(param.max) if param.max is not None else float(param.default or 100.0),
+                    default_value=float(param.default) if param.default is not None else 0.0,
+                    value_type=(param.type or "float"),
+                    unit=param.unit,
+                )
+                for param in entry.parameters.values()
+            ]
+
+        if not resolved_specs:
+            config = MechanismFoundryController.default_configuration(mechanism_type)
+            if config:
+                resolved_specs = list(config.parameter_specs)
+
+        if resolved_specs:
+            self._parameter_specs = {spec.key: spec for spec in resolved_specs}
+            for spec in resolved_specs:
+                self._add_parameter_slider(layout, spec)
         else:
-            # Create new layout if none exists
-            layout = QVBoxLayout()
-            params_group.setLayout(layout)
+            placeholder = QLabel("No parameters available for this mechanism.")
+            placeholder.setStyleSheet("color: #555; font-size: 11px;")
+            layout.addWidget(placeholder)
 
-        # Configure the layout
-        layout.setContentsMargins(10, 10, 10, 8)
-        layout.setSpacing(5)
+        layout.addStretch()
 
-        # Add mechanism-specific parameters with proper mapping and expanded ranges
-        if mechanism_type == "four_bar":
-            # Updated defaults to match the image and expanded ranges for better control
-            self._add_parameter_slider(layout, "Ground Link", 30, 300, 150)      # Default: 150, Range: 30-300
-            self._add_parameter_slider(layout, "Input Link", 10, 150, 40)        # Default: 40, Range: 10-150
-            self._add_parameter_slider(layout, "Coupler Link", 20, 250, 120)     # Default: 120, Range: 20-250
-            self._add_parameter_slider(layout, "Output Link", 20, 250, 130)      # Default: 130, Range: 20-250
-
-        elif mechanism_type == "slider_crank":
-            self._add_parameter_slider(layout, "Crank Length", 20, 150, 80)
-            self._add_parameter_slider(layout, "Rod Length", 60, 300, 140)
-            self._add_parameter_slider(layout, "Gas Pressure (kPa)", 50, 2000, 500)
-
-        elif mechanism_type == "cam_follower":
-            self._add_parameter_slider(layout, "Cam Radius", 20, 150, 60)
-            self._add_parameter_slider(layout, "Cam Offset", 5, 60, 20)
-            self._add_parameter_slider(layout, "Follower Length", 30, 200, 100)
-            self._add_parameter_slider(layout, "Spring Force (N)", 50, 2000, 300)
-
-        elif mechanism_type == "gear_train":
-            self._add_parameter_slider(layout, "Drive Gear Teeth", 8, 24, 12)      # Realistic range: 8-24
-            self._add_parameter_slider(layout, "Driven Gear Teeth", 8, 24, 18)     # Realistic range: 8-24
-            self._add_parameter_slider(layout, "Input Torque (Nm)", 10, 1000, 200)
-
-
-
-        # Force immediate layout update and repaint
         params_group.updateGeometry()
         params_group.update()
         params_group.repaint()
         self.control_panel.updateGeometry()
         self.control_panel.update()
         self.control_panel.repaint()
-
-        # Process events to ensure UI updates are applied immediately
         QCoreApplication.processEvents()
 
-    def _on_parameter_changed(self, param_name: str, value: int):
-        """Handle parameter slider change with comprehensive mapping"""
+    def _on_parameter_changed(self, param_key: str, tick_value: int):
+        """Handle parameter slider change."""
         if not self.mechanism_widget:
-            print("Warning: mechanism_widget is None in _on_parameter_changed")
+            logging.warning("mechanism_widget is None in _on_parameter_changed")
             return
 
-        # Comprehensive parameter mapping for all mechanisms
-        param_map = {
-            # Four-bar linkage
-            "Ground Link": "ground_link",
-            "Input Link": "input_link",
-            "Coupler Link": "coupler_link",
-            "Output Link": "output_link",
+        spec = self._parameter_specs.get(param_key)
+        if spec is None:
+            logging.warning("Unknown parameter key '%s'", param_key)
+            return
 
-            # Slider-crank
-            "Crank Length": "crank_length",
-            "Rod Length": "rod_length",
-            "Gas Pressure (kPa)": "gas_pressure",
+        scale = self._parameter_scales.get(param_key, 1)
+        value = tick_value / scale
+        if spec.is_integer:
+            value = int(round(value))
 
-            # Cam-follower
-            "Cam Radius": "cam_radius",
-            "Cam Offset": "cam_offset",
-            "Follower Length": "follower_length",
-            "Spring Force (N)": "spring_constant",
+        label = self._parameter_value_labels.get(param_key)
+        if label:
+            label.setText(self._format_parameter_value(spec, value))
 
-            # Gear train
-            "Drive Gear Teeth": "gear1_teeth",
-            "Driven Gear Teeth": "gear2_teeth",
-            "Input Torque (Nm)": "input_torque",
+        self.mechanism_widget.mechanism_params[param_key] = value
+        self.mechanism_widget.draw_mechanism()
 
-            # Scotch yoke
-            "Crank Radius": "crank_radius",
-            "Yoke Mass (kg)": "yoke_mass",
-            "Applied Force (N)": "applied_force"
-        }
-
-        param_key = param_map.get(param_name)
-        if param_key:
-            self.mechanism_widget.mechanism_params[param_key] = value
-            print(f"Updated {param_key} = {value}")
-            self.mechanism_widget.draw_mechanism()
-        else:
-            print(f"Warning: Unknown parameter '{param_name}'")
+    @staticmethod
+    def _format_parameter_value(spec: ParameterSpec, value: float) -> str:
+        if spec.is_integer:
+            return f"{int(round(value))}"
+        if spec.step >= 1:
+            return f"{value:.0f}"
+        if spec.step >= 0.1:
+            return f"{value:.1f}"
+        return f"{value:.2f}"
 
     def _on_speed_changed(self, value: int):
         """Handle animation speed change - convert slider value to appropriate speed"""
@@ -3467,6 +3565,10 @@ class EnhancedMacanismTab(QWidget):
 
     def _update_educational_content(self, mechanism_type: str):
         """Update educational content based on current mechanism"""
+        if self.catalog_controller and self.catalog_controller.selected_entry:
+            self._update_educational_from_entry(self.catalog_controller.selected_entry)
+            return
+
         content = self.mechanism_widget.get_mechanism_educational_content(mechanism_type)
 
         # Update title and description

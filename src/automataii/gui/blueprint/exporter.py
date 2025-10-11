@@ -14,9 +14,8 @@ from automataii.core.telemetry import telemetry_span
 class BlueprintExporter:
     """Encapsulates blueprint-related functionality for MechanismDesignTab.
 
-    This class extracts legacy blueprint export logic and helpers from the
-    tab into a self-contained module. It avoids behavioral changes and can be
-    reused from the tab by delegating calls.
+    Provides a thin UI adapter around the application-layer blueprint composer
+    so the tab can drive exports without embedding layout logic.
     """
 
     def __init__(
@@ -37,7 +36,7 @@ class BlueprintExporter:
     # ---------- Public API ----------
 
     def export_all(self) -> None:
-        """Export all parts and mechanisms using the legacy simple system."""
+        """Export all parts and mechanisms using the composer-driven pipeline."""
         try:
             from PyQt6.QtWidgets import (
                 QButtonGroup,
@@ -52,7 +51,7 @@ class BlueprintExporter:
 
             from automataii.core.blueprint_manager import BlueprintExportManager
 
-            logging.info("[BLUEPRINT] Using legacy simple blueprint export system")
+            logging.info("[BLUEPRINT] Using composer-backed blueprint export flow")
 
             # Show unit system selection dialog
             unit_dialog = QDialog(self._parent)
@@ -156,7 +155,10 @@ class BlueprintExporter:
                 logging.info(f"[BLUEPRINT] Enhanced mechanism {mech_id}: scale_factor={scale_factor}")
 
             logging.info(
-                f"[BLUEPRINT] Legacy export: {len(part_items)} parts, {len(mechanism_layers)} mechanisms, unit_system={unit_system}"
+                "[BLUEPRINT] Export request: %s parts, %s mechanisms, unit_system=%s",
+                len(part_items),
+                len(mechanism_layers),
+                unit_system,
             )
 
             with telemetry_span(
@@ -176,12 +178,12 @@ class BlueprintExporter:
                 span.set(status="success" if success else "failure")
 
             if success:
-                logging.info("[BLUEPRINT] Legacy blueprint export successful")
+                logging.info("[BLUEPRINT] Blueprint export completed via composer pipeline")
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.information(
                     self._parent,
                     "Blueprint Export Complete",
-                    f"Blueprint exported successfully using the legacy system!\n\n"
+                    f"Blueprint exported successfully!\n\n"
                     f"Parts: {len(part_items)}\n"
                     f"Mechanisms: {len(mechanism_layers)}\n"
                     f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n"
@@ -191,39 +193,39 @@ class BlueprintExporter:
                     "with proper part outlines and mechanism details.",
                 )
             else:
-                logging.warning("[BLUEPRINT] Legacy blueprint export failed")
+                logging.warning("[BLUEPRINT] Blueprint export failed")
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
                     self._parent,
                     "Blueprint Export Failed",
-                    "Blueprint export failed using the legacy system.\n"
+                    "Blueprint export failed.\n"
                     "Check the console for details.",
                 )
 
         except ImportError as e:
-            logging.error(f"[BLUEPRINT] Legacy import error: {e}")
+            logging.error(f"[BLUEPRINT] Blueprint import error: {e}")
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
                 self._parent,
                 "Blueprint Export Error",
-                "Legacy blueprint export functionality is not available.\n"
+                "Blueprint export functionality is not available.\n"
                 "Some required modules may be missing.\n\n"
                 f"Error: {str(e)}",
             )
         except Exception as e:
-            logging.error(f"[BLUEPRINT] Legacy unexpected error: {e}")
+            logging.error(f"[BLUEPRINT] Blueprint export unexpected error: {e}")
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
                 self._parent,
                 "Blueprint Export Error",
-                f"An unexpected error occurred with legacy export:\n\n{str(e)}",
+                f"An unexpected error occurred while exporting:\n\n{str(e)}",
             )
 
     def export_mechanism(self, mechanism_id: str, filename: str | None = None) -> None:
-        """Export a single mechanism using the legacy system.
+        """Export a single mechanism using the composer-backed system.
 
         If `filename` is provided, saves directly to that SVG path using the
-        legacy layout/generation. Otherwise delegates to the manager's dialog.
+        shared blueprint composer. Otherwise delegates to the manager's dialog.
         """
         try:
             from PyQt6.QtWidgets import (
@@ -235,7 +237,7 @@ class BlueprintExporter:
                 QVBoxLayout,
             )
 
-            logging.info(f"[BLUEPRINT] Exporting mechanism {mechanism_id} using legacy system")
+            logging.info(f"[BLUEPRINT] Exporting mechanism {mechanism_id} via composer pipeline")
 
             mechanism_layers_all = self._get_mechanism_layers()
             layer_data = mechanism_layers_all.get(mechanism_id) if mechanism_layers_all else None
@@ -308,37 +310,36 @@ class BlueprintExporter:
                 if filename:
                     import os
 
-                    from automataii.generation.blueprint import generate_single_large_blueprint
-                    from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
-
-                    optimizer = BlueprintLayoutOptimizer(target_character_height_mm=300.0)
-                    layout_items, _, _ = optimizer.optimize_blueprint_layout(part_items, mechanism_layers, unit_system)
-
-                    page_width_mm = 800.0
-                    page_height_mm = 600.0
-
-                    svg_content = generate_single_large_blueprint(
-                        layout_items,
-                        page_width_mm,
-                        page_height_mm,
-                        title=f"Mechanism Blueprint - {layer_data.get('type', 'Unknown')}",
-                        scale_info=f"Screen-to-Blueprint Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel",
-                        snapshot_data_uri=None,
+                    os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
+                    result = blueprint_manager.compose_single_page(
+                        part_items=part_items,
+                        mechanism_layers=mechanism_layers,
+                        snapshot_png_bytes=None,
                         unit_system=unit_system,
                     )
-
-                    os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
                     with open(filename, "w", encoding="utf-8") as f:
-                        f.write(svg_content)
+                        f.write(result.svg)
 
-                    span.set(status="success", output_path=filename)
+                    span.set(
+                        status="success",
+                        output_path=filename,
+                        width_mm=result.width_mm,
+                        height_mm=result.height_mm,
+                        item_count=result.item_count,
+                    )
 
-                    logging.info(f"[BLUEPRINT] Blueprint exported to {filename}")
+                    logging.info(
+                        "[BLUEPRINT] Blueprint exported to %s (items=%s, size=%.1fx%.1fmm)",
+                        filename,
+                        result.item_count,
+                        result.width_mm,
+                        result.height_mm,
+                    )
                     from PyQt6.QtWidgets import QMessageBox
                     QMessageBox.information(
                         self._parent,
                         "Export Successful",
-                        f"Blueprint exported using legacy system:\n{filename}\n\n"
+                        f"Blueprint exported successfully:\n{filename}\n\n"
                         f"Mechanism: {layer_data.get('type', 'Unknown')}\n"
                         f"Parts included: {len(part_items)}\n"
                         f"Scale Factor: {mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A'):.3f}\n"
@@ -359,18 +360,18 @@ class BlueprintExporter:
 
                     if success:
                         logging.info(
-                            f"[BLUEPRINT] Legacy blueprint export successful for mechanism {mechanism_id}"
+                            f"[BLUEPRINT] Blueprint export successful for mechanism {mechanism_id}"
                         )
                     else:
                         logging.warning(
-                            f"[BLUEPRINT] Legacy blueprint export failed for mechanism {mechanism_id}"
+                            f"[BLUEPRINT] Blueprint export failed for mechanism {mechanism_id}"
                         )
 
         except Exception as e:
             logging.error(f"[BLUEPRINT] Failed to export blueprint for mechanism {mechanism_id}: {e}")
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
-                self._parent, "Export Failed", f"Failed to export blueprint using legacy system:\n{str(e)}"
+                self._parent, "Export Failed", f"Failed to export blueprint:\n{str(e)}"
             )
 
 

@@ -20,6 +20,7 @@ except ImportError:
         sys.exit(1)
 
 from automataii.gui.main_window import AutomataDesigner
+from automataii.scenarios import run_blueprint_export_scenario
 from automataii.utils.auto_updater import setup_auto_updater
 from automataii.utils.config import AppConfig
 from automataii.utils.logging_config import setup_logging
@@ -58,10 +59,24 @@ def main():
     parser.add_argument(
         "--editing", action="store_true", help="Enable interactive segmentation editing mode."
     )
+    parser.add_argument(
+        "--scenario",
+        choices=["blueprint-export", "image-processing"],
+        help="Run an automation scenario (non-interactive) and exit.",
+    )
+    parser.add_argument(
+        "--scenario-output",
+        type=Path,
+        help="Destination directory for scenario artifacts (defaults to ./artifacts/<scenario>).",
+    )
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.debug else logging.INFO
     setup_logging(console_log_level=log_level)
+
+    if args.scenario:
+        _run_scenario(args)
+        return
 
     try:
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
@@ -128,6 +143,39 @@ def main():
     logging.info("Application started.")
 
     sys.exit(app.exec())
+
+
+def _run_scenario(args) -> None:
+    scenario_name = args.scenario
+    output_root = Path(args.scenario_output) if args.scenario_output else Path("artifacts") / scenario_name
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    if scenario_name == "blueprint-export":
+        svg_path = run_blueprint_export_scenario(output_root)
+        manifest_path = output_root / "foundry_blueprint_manifest.json"
+        metrics_path = output_root / "foundry_blueprint_metrics.json"
+        logging.info(
+            "Blueprint export scenario completed: svg=%s manifest=%s metrics=%s",
+            svg_path,
+            manifest_path,
+            metrics_path,
+        )
+        print(f"[scenario:{scenario_name}] artifacts={svg_path}, {manifest_path}, {metrics_path}")
+    elif scenario_name == "image-processing":
+        from automataii.scenarios import run_image_processing_scenario
+
+        parts_dir = run_image_processing_scenario(output_root)
+        manifest_path = output_root / "image_processing_manifest.json"
+        metrics_path = output_root / "image_processing_metrics.json"
+        logging.info(
+            "Image-processing scenario completed: parts=%s manifest=%s metrics=%s",
+            parts_dir,
+            manifest_path,
+            metrics_path,
+        )
+        print(f"[scenario:{scenario_name}] artifacts={parts_dir}, {manifest_path}, {metrics_path}")
+    else:
+        raise ValueError(f"Unsupported scenario: {scenario_name}")
 
 
 if __name__ == "__main__":
