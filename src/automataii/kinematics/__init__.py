@@ -1,1 +1,0 @@
-"""Kinematics module for Automataii."""
