@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QBrush, QColor, QPen
+from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
+from PyQt6.QtGui import QAction, QBrush, QColor, QMouseEvent, QPen
 from PyQt6.QtWidgets import (
     QComboBox,
     QGraphicsScene,
@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSlider,
     QSplitter,
+    QStackedWidget,
     QTextEdit,
     QToolBar,
     QVBoxLayout,
@@ -34,21 +35,30 @@ from PyQt6.QtWidgets import (
 )
 
 from automataii.application.mechanism_foundry import (
+    ContentLoader,
     MechanismFoundryController,
     ParameterSpec,
 )
+from automataii.ui.tabs.mechanism_foundry.educational_info_panel import (
+    EducationalInfoPanel,
+)
+from automataii.ui.tabs.mechanism_foundry.gallery_view import GalleryView
 
 if TYPE_CHECKING:
+    from automataii.application.mechanism_foundry.path_cache import PathCache
     from automataii.mechanisms.cam.compute import CamFollowerMechanism
     from automataii.mechanisms.core.protocols import Mechanism
     from automataii.mechanisms.core.state import MechanismState, RenderConfig, SafetyLevel
     from automataii.mechanisms.fourbar.compute import FourBarMechanism
     from automataii.mechanisms.fourbar.render import LinkageRenderer
+    from automataii.ui.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 else:
+    from automataii.application.mechanism_foundry.path_cache import PathCache
     from automataii.mechanisms.cam.compute import CamFollowerMechanism
     from automataii.mechanisms.core.state import MechanismState, RenderConfig, SafetyLevel
     from automataii.mechanisms.fourbar.compute import FourBarMechanism
     from automataii.mechanisms.fourbar.render import LinkageRenderer
+    from automataii.ui.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 
 
 class MechanismFoundryView(QWidget):
@@ -76,6 +86,8 @@ class MechanismFoundryView(QWidget):
         self.graphics_view = QGraphicsView(self.scene)
         self.graphics_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.graphics_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.graphics_view.setMouseTracking(True)
+        self.graphics_view.viewport().installEventFilter(self)
 
         self.parameter_sliders: dict[str, tuple[QSlider, QLabel]] = {}
         self.mechanism_selector: QComboBox | None = None
@@ -83,18 +95,44 @@ class MechanismFoundryView(QWidget):
         self.animation_timer.timeout.connect(self._on_animation_tick)
         self.is_playing = False
 
+        self.path_cache = PathCache()
+        self.path_preview_overlay = PathPreviewOverlay(self.scene, self.path_cache)
+        self.content_loader = ContentLoader()
+
+        self.gallery_view: GalleryView | None = None
+        self.editor_widget: QWidget | None = None
+        self.stacked_widget: QStackedWidget | None = None
+
         self._build_ui()
-        self._draw_grid()
-        self._select_initial_mechanism()
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
+        self.stacked_widget = QStackedWidget()
+
+        self.gallery_view = GalleryView(self)
+        self.gallery_view.mechanism_selected.connect(self._on_gallery_mechanism_selected)
+        self.stacked_widget.addWidget(self.gallery_view)
+
+        self.editor_widget = self._create_editor_widget()
+        self.stacked_widget.addWidget(self.editor_widget)
+
+        main_layout.addWidget(self.stacked_widget)
+
+        self.stacked_widget.setCurrentIndex(0)
+
+    def _create_editor_widget(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+
         toolbar = self._create_toolbar()
-        main_layout.addWidget(toolbar)
+        layout.addWidget(toolbar)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(8)
+        splitter.setChildrenCollapsible(False)
 
         controls_widget = self._create_controls_panel()
         splitter.addWidget(controls_widget)
@@ -111,12 +149,35 @@ class MechanismFoundryView(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
         splitter.setStretchFactor(2, 1)
+        splitter.setSizes([350, 600, 300])
 
-        main_layout.addWidget(splitter)
+        layout.addWidget(splitter)
+
+        self._draw_grid()
+        self._select_initial_mechanism()
+
+        return widget
+
+    def _on_gallery_mechanism_selected(self, mechanism_type: str) -> None:
+        self._load_mechanism(mechanism_type)
+        if self.stacked_widget:
+            self.stacked_widget.setCurrentIndex(1)
+
+    def _go_back_to_gallery(self) -> None:
+        if self.is_playing:
+            self._toggle_play()
+        if self.stacked_widget:
+            self.stacked_widget.setCurrentIndex(0)
 
     def _create_toolbar(self) -> QToolBar:
         toolbar = QToolBar()
         toolbar.setMovable(False)
+
+        back_action = QAction("← Back to Gallery", self)
+        back_action.triggered.connect(self._go_back_to_gallery)
+        toolbar.addAction(back_action)
+
+        toolbar.addSeparator()
 
         self.play_action = QAction("▶ Play", self)
         self.play_action.setCheckable(True)
@@ -145,6 +206,14 @@ class MechanismFoundryView(QWidget):
 
         toolbar.addSeparator()
 
+        self.path_preview_action = QAction("🔍 Path Preview", self)
+        self.path_preview_action.setCheckable(True)
+        self.path_preview_action.setChecked(True)
+        self.path_preview_action.triggered.connect(self._toggle_path_preview)
+        toolbar.addAction(self.path_preview_action)
+
+        toolbar.addSeparator()
+
         reset_action = QAction("🔄 Reset", self)
         reset_action.triggered.connect(self._reset_animation)
         toolbar.addAction(reset_action)
@@ -156,18 +225,10 @@ class MechanismFoundryView(QWidget):
         panel.setMinimumWidth(250)
         panel.setMaximumWidth(350)
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        info_group = QGroupBox("Mechanism Info")
-        info_layout = QVBoxLayout()
-
-        self.info_text = QTextEdit()
-        self.info_text.setReadOnly(True)
-        self.info_text.setPlainText("Select a mechanism to view details")
-        info_layout.addWidget(self.info_text)
-
-        info_group.setLayout(info_layout)
-        layout.addWidget(info_group)
-        layout.addStretch()
+        self.info_panel = EducationalInfoPanel()
+        layout.addWidget(self.info_panel)
 
         return panel
 
@@ -187,6 +248,9 @@ class MechanismFoundryView(QWidget):
     def _toggle_trail(self) -> None:
         self.show_trail = self.trail_action.isChecked()
         self._render_mechanism()
+
+    def _toggle_path_preview(self) -> None:
+        self.path_preview_overlay.set_enabled(self.path_preview_action.isChecked())
 
     def _create_controls_panel(self) -> QWidget:
         panel = QWidget()
@@ -285,48 +349,8 @@ class MechanismFoundryView(QWidget):
         self._render_mechanism()
 
     def _update_info_panel(self, mechanism_type: str, config) -> None:
-        catalog_item = next(
-            (
-                item
-                for item in self.controller.list_mechanisms()
-                if item.mechanism_type == mechanism_type
-            ),
-            None,
-        )
-
-        if not catalog_item:
-            self.info_text.setPlainText("No information available")
-            return
-
-        info = f"<h3>{catalog_item.display_name}</h3>"
-
-        entry = catalog_item.entry
-        if hasattr(entry, "description") and entry.description:
-            info += f"<p>{entry.description}</p>"
-
-        info += "<h4>Current Parameters:</h4><ul>"
-        for spec in config.parameter_specs:
-            value = self.current_parameters.get(spec.key)
-            if value is None:
-                value = spec.default_value
-
-            if spec.is_integer:
-                value_str = f"{int(value)}"
-            else:
-                value_str = f"{value:.1f}"
-
-            unit_str = f" {spec.unit}" if spec.unit else ""
-            param_name = spec.key.replace("_", " ").title()
-            info += f"<li><b>{param_name}:</b> {value_str}{unit_str}</li>"
-        info += "</ul>"
-
-        info += "<h4>Applications:</h4><ul>"
-        info += "<li>Mechanical design and analysis</li>"
-        info += "<li>Motion study and simulation</li>"
-        info += "<li>Educational demonstrations</li>"
-        info += "</ul>"
-
-        self.info_text.setHtml(info)
+        content = self.content_loader.load_content(mechanism_type)
+        self.info_panel.set_content(content)
 
     def _rebuild_parameter_sliders(self, specs: tuple[ParameterSpec, ...]) -> None:
         for slider, label in self.parameter_sliders.values():
@@ -452,6 +476,7 @@ class MechanismFoundryView(QWidget):
             for item in items:
                 if item:
                     item.setData(0, "mechanism_item")
+            self._show_default_paths(state)
         elif mechanism_type == "cam_follower":
             self._draw_cam_mechanism(state)
 
@@ -573,3 +598,71 @@ class MechanismFoundryView(QWidget):
 
         origin = self.scene.addEllipse(-3, -3, 6, 6, axis_pen, QBrush(axis_color))
         origin.setZValue(-97)
+
+    def _show_default_paths(self, state: MechanismState) -> None:
+        """Show default paths for all tracked points."""
+        if not self.current_mechanism or not self.path_preview_overlay.enabled:
+            return
+
+        mechanism_type = self.current_mechanism.mechanism_type
+        if mechanism_type == "fourbar":
+            default_points = ["A", "B"]
+        elif mechanism_type == "cam_follower":
+            default_points = ["follower_end", "contact_point"]
+        else:
+            return
+
+        for point_name in default_points:
+            if point_name in state.positions:
+                self.path_preview_overlay.show_path(
+                    self.current_mechanism, self.current_parameters, point_name
+                )
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        if a1 and a1.type() == QEvent.Type.MouseMove:
+            if self.current_mechanism and self.path_preview_overlay.enabled:
+                if isinstance(a1, QMouseEvent):
+                    point_name = self._get_hovered_point_name(a1.pos())
+                    if point_name:
+                        self.path_preview_overlay.show_path(
+                            self.current_mechanism,
+                            self.current_parameters,
+                            point_name,
+                            auto_fade=True,
+                        )
+                    else:
+                        pass
+        return super().eventFilter(a0, a1)
+
+    def _get_hovered_point_name(self, view_pos: QPoint) -> str | None:
+        scene_pos = self.graphics_view.mapToScene(view_pos)
+        threshold = 20.0
+
+        if not self.current_mechanism:
+            return None
+
+        try:
+            state = self.current_mechanism.compute_state(
+                self.current_parameters, self.current_angle
+            )
+        except Exception:
+            return None
+
+        mechanism_type = self.current_mechanism.mechanism_type
+
+        if mechanism_type == "fourbar":
+            test_points = ["A", "B"]
+        elif mechanism_type == "cam_follower":
+            test_points = ["follower_end", "contact_point"]
+        else:
+            return None
+
+        for point_name in test_points:
+            position = state.positions.get(point_name)
+            if position:
+                px, py = position
+                distance = ((scene_pos.x() - px) ** 2 + (scene_pos.y() - py) ** 2) ** 0.5
+                if distance < threshold:
+                    return point_name
+
+        return None

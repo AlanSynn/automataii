@@ -1,0 +1,38 @@
+{
+  "title": "Four-Bar Linkage",
+  "goal": "A four-bar linkage is one of the fundamental mechanisms in mechanical engineering. It converts rotational motion into complex curved trajectories, enabling versatile motion patterns with simple construction.",
+  "parts": [
+    "Ground Link: Fixed base connecting two pivot points",
+    "Input Link (Crank): Rotating driver link providing input motion",
+    "Coupler: Floating link connecting input and output",
+    "Output Link (Rocker): Driven link producing output motion"
+  ],
+  "advantages": [
+    "Simple and robust mechanical construction",
+    "Reliable motion transmission with minimal wear",
+    "Wide range of achievable motion paths",
+    "Easy to manufacture and assemble",
+    "Predictable and repeatable motion patterns"
+  ],
+  "disadvantages": [
+    "Limited to planar (2D) motion only",
+    "May have singular positions (dead points)",
+    "Output motion depends on all link ratios",
+    "Difficult to achieve precise straight-line motion"
+  ],
+  "materials": [
+    "Metal bars or rods for structural links",
+    "Precision bearings or bushings for pivot joints",
+    "Fasteners and pins for assembly",
+    "Lubricants for smooth operation"
+  ],
+  "cautions": [
+    "Verify clearances to avoid link collisions",
+    "Check for full rotation capability before assembly",
+    "Ensure proper joint lubrication for longevity",
+    "Consider mechanical advantage at extreme positions"
+  ],
+  "parameter_options": {},
+  "diagram_path": null,
+  "tags": ["linkage", "basic", "planar", "four-bar"]
+}
