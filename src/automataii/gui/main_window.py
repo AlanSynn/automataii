@@ -5,6 +5,7 @@ from typing import Any
 
 from PyQt6.QtCore import (
     QPointF,
+    Qt,
     pyqtSlot,
 )
 from PyQt6.QtGui import QPainterPath
@@ -68,14 +69,22 @@ class AutomataDesigner(QMainWindow):
     simulation, and blueprint generation.
     """
 
-    def __init__(self, parent: QWidget | None = None, debug_mode: bool = False, experiment_mode: bool = False, editing_mode: bool = False):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        debug_mode: bool = False,
+        experiment_mode: bool = False,
+        editing_mode: bool = False,
+    ):
         super().__init__(parent)
         self.debug_mode = debug_mode
         self.experiment_mode = experiment_mode
         self.editing_mode = editing_mode
-        logging.info(f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}, Editing mode: {self.editing_mode}")
+        logging.info(
+            f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}, Editing mode: {self.editing_mode}"
+        )
         self.resize(1200, 680)
-        self.setMinimumHeight(600)
+        self.setMinimumSize(800, 600)
         logging.info("Initializing AutomataDesigner...")
 
         # Initialize updater (will be set from main)
@@ -128,9 +137,7 @@ class AutomataDesigner(QMainWindow):
         self.light_style = LIGHT_STYLE
         self.dark_style = DARK_STYLE
 
-        self.visualization_layer_x_offset = (
-            10.0  # Horizontal offset for visualization layers
-        )
+        self.visualization_layer_x_offset = 10.0  # Horizontal offset for visualization layers
 
         # Load Parts and Styles
 
@@ -201,7 +208,7 @@ class AutomataDesigner(QMainWindow):
         logging.info("Auto-updater set in main window")
 
         # Update the action manager with updater
-        if hasattr(self.action_manager, 'set_updater'):
+        if hasattr(self.action_manager, "set_updater"):
             self.action_manager.set_updater(updater)
 
     def check_for_updates(self):
@@ -210,9 +217,7 @@ class AutomataDesigner(QMainWindow):
             self.updater.check_for_updates(show_ui=True)
         else:
             QMessageBox.information(
-                self,
-                "Updates",
-                "Auto-updater is not available on this platform."
+                self, "Updates", "Auto-updater is not available on this platform."
             )
 
     # --- UI Initialization ---
@@ -224,6 +229,8 @@ class AutomataDesigner(QMainWindow):
         main_layout = QVBoxLayout(main_widget)
 
         self.tab_widget = QTabWidget()
+        self.tab_widget.setUsesScrollButtons(True)
+        self.tab_widget.setElideMode(Qt.TextElideMode.ElideNone)
         main_layout.addWidget(self.tab_widget)
 
         # --- Tab 0: Landing Page ---
@@ -233,7 +240,9 @@ class AutomataDesigner(QMainWindow):
 
         # --- Tab 1: Image Processing ---
         self.image_proc_tab = ImageProcessingTab(self, editing_mode=self.editing_mode)
-        character_title = "2. Character Selection" if self.experiment_mode else "Character Selection"
+        character_title = (
+            "2. Character Selection" if self.experiment_mode else "Character Selection"
+        )
         self.tab_widget.addTab(self.image_proc_tab, character_title)
 
         # --- Tab 2: Editor & Simulation ---
@@ -256,9 +265,7 @@ class AutomataDesigner(QMainWindow):
             self.mechanism_foundry_tab = None
 
         # --- Tab 5: Options ---
-        self.options_tab = OptionsTab(
-            initial_anim_duration=self.ik_manager.animation_duration
-        )
+        self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         if not self.experiment_mode:
             self.tab_widget.addTab(self.options_tab, "Options")
 
@@ -266,24 +273,16 @@ class AutomataDesigner(QMainWindow):
         self.landing_tab.image_selected.connect(self._handle_landing_image_selected)
 
         # --- Connect Signals from ImageProcessingTab ---
-        self.image_proc_tab.parts_generated.connect(
-            self.handle_parts_generated_from_tab
-        )
-        self.image_proc_tab.skeleton_updated.connect(
-            self.handle_skeleton_updated_from_tab
-        )
+        self.image_proc_tab.parts_generated.connect(self.handle_parts_generated_from_tab)
+        self.image_proc_tab.skeleton_updated.connect(self.handle_skeleton_updated_from_tab)
         self.image_proc_tab.request_editor_tab_switch.connect(self.switch_to_editor_tab)
 
         # --- Connect Signals from EditorTab ---
         self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation)
         self.editor_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)
-        self.editor_tab.request_reset_simulation.connect(
-            self.ik_manager.reset_animation_state
-        )
+        self.editor_tab.request_reset_simulation.connect(self.ik_manager.reset_animation_state)
         self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
-        self.editor_tab.request_save_alignment.connect(
-            self.save_character_alignment_impl
-        )
+        self.editor_tab.request_save_alignment.connect(self.save_character_alignment_impl)
         # Connect path data sharing between editor and mechanism design tabs
         self.editor_tab.path_data_changed.connect(
             self.mechanism_design_tab.set_path_data_from_editor
@@ -295,15 +294,13 @@ class AutomataDesigner(QMainWindow):
         )
         self.mechanism_design_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
         # --- Connect Signals from OptionsTab ---
-        self.options_tab.animationDurationChanged.connect(
-            self.ik_manager.set_animation_duration
-        )
-        if hasattr(self.options_tab, 'timingProfileChanged') and hasattr(self.ik_manager, 'set_timing_profile'):
+        self.options_tab.animationDurationChanged.connect(self.ik_manager.set_animation_duration)
+        if hasattr(self.options_tab, "timingProfileChanged") and hasattr(
+            self.ik_manager, "set_timing_profile"
+        ):
             self.options_tab.timingProfileChanged.connect(self.ik_manager.set_timing_profile)
         self.options_tab.themeChanged.connect(self._apply_theme)
-        self.options_tab.toolbarVisibilityChanged.connect(
-            self._toggle_toolbar_visibility
-        )
+        self.options_tab.toolbarVisibilityChanged.connect(self._toggle_toolbar_visibility)
         self.options_tab.partPropertiesVisibilityChanged.connect(
             self._toggle_part_properties_visibility
         )
@@ -329,12 +326,16 @@ class AutomataDesigner(QMainWindow):
         # Physics snap mode from OptionsTab → ParametricEditingManager
         if hasattr(self.options_tab, "physicsSnapModeChanged"):
             try:
-                setter = getattr(self.mechanism_design_tab.parametric_manager, 'set_physics_snap_mode', None)
+                setter = getattr(
+                    self.mechanism_design_tab.parametric_manager, "set_physics_snap_mode", None
+                )
                 if callable(setter):
                     self.options_tab.physicsSnapModeChanged.connect(setter)
                     # Initialize UI to manager's default
-                    if hasattr(self.options_tab, 'set_physics_snap_mode_input'):
-                        self.options_tab.set_physics_snap_mode_input(self.mechanism_design_tab.parametric_manager.physics_snap_mode)
+                    if hasattr(self.options_tab, "set_physics_snap_mode_input"):
+                        self.options_tab.set_physics_snap_mode_input(
+                            self.mechanism_design_tab.parametric_manager.physics_snap_mode
+                        )
             except Exception:
                 logging.exception("Failed to connect physics snap mode option")
 
@@ -439,7 +440,7 @@ class AutomataDesigner(QMainWindow):
         previous_tab = self.tab_widget.widget(self._previous_tab_index)
 
         # Call deactivate_tab on the previous tab if it has the method
-        if previous_tab and hasattr(previous_tab, 'deactivate_tab'):
+        if previous_tab and hasattr(previous_tab, "deactivate_tab"):
             previous_tab.deactivate_tab()
 
         # --- Camera State Sharing ---
@@ -448,7 +449,9 @@ class AutomataDesigner(QMainWindow):
 
         # Save camera state if leaving a shared-view tab
         if previous_tab in tabs_with_shared_view:
-            view = getattr(previous_tab, 'editor_view', None) or getattr(previous_tab, 'mechanism_view', None)
+            view = getattr(previous_tab, "editor_view", None) or getattr(
+                previous_tab, "mechanism_view", None
+            )
             if view:
                 try:
                     # CRITICAL: Check if view is still valid before using it
@@ -457,7 +460,9 @@ class AutomataDesigner(QMainWindow):
 
                     # Save both shared and tab-specific camera state
                     self.shared_camera_state = camera_state
-                    previous_tab._last_camera_state = camera_state  # Save tab-specific state as backup
+                    previous_tab._last_camera_state = (
+                        camera_state  # Save tab-specific state as backup
+                    )
 
                     logging.info(f"Saved camera state from {previous_tab.__class__.__name__}")
                 except RuntimeError as e:
@@ -466,7 +471,9 @@ class AutomataDesigner(QMainWindow):
 
         # Apply camera state if entering a shared-view tab
         if current_tab in tabs_with_shared_view:
-            view = getattr(current_tab, 'editor_view', None) or getattr(current_tab, 'mechanism_view', None)
+            view = getattr(current_tab, "editor_view", None) or getattr(
+                current_tab, "mechanism_view", None
+            )
             if view:
                 try:
                     # CRITICAL: Check if view is still valid before using it
@@ -475,16 +482,25 @@ class AutomataDesigner(QMainWindow):
                     # Try to apply shared camera state first
                     if self.shared_camera_state:
                         view.set_camera_state(self.shared_camera_state)
-                        logging.info(f"Applied shared camera state to {current_tab.__class__.__name__}")
+                        logging.info(
+                            f"Applied shared camera state to {current_tab.__class__.__name__}"
+                        )
                         camera_state_applied = True
                     else:
                         # No shared state, but check if tab has its own previous state
-                        if hasattr(current_tab, '_last_camera_state') and current_tab._last_camera_state:
+                        if (
+                            hasattr(current_tab, "_last_camera_state")
+                            and current_tab._last_camera_state
+                        ):
                             view.set_camera_state(current_tab._last_camera_state)
-                            logging.info(f"Applied tab-specific camera state to {current_tab.__class__.__name__}")
+                            logging.info(
+                                f"Applied tab-specific camera state to {current_tab.__class__.__name__}"
+                            )
                             camera_state_applied = True
                         else:
-                            logging.debug(f"No camera state available for {current_tab.__class__.__name__}")
+                            logging.debug(
+                                f"No camera state available for {current_tab.__class__.__name__}"
+                            )
 
                 except RuntimeError as e:
                     logging.error(f"View was deleted by Qt, cannot apply camera state: {e}")
@@ -502,46 +518,51 @@ class AutomataDesigner(QMainWindow):
             # Check if this tab has been initialized before
             tab_needs_initial_zoom = False
 
-            if hasattr(current_tab, 'editor_view') and current_tab.editor_view:
+            if hasattr(current_tab, "editor_view") and current_tab.editor_view:
                 # Only zoom if view has no previous transform (first time setup)
-                if not hasattr(current_tab, '_view_initialized'):
+                if not hasattr(current_tab, "_view_initialized"):
                     tab_needs_initial_zoom = True
                     current_tab._view_initialized = True
-            elif hasattr(current_tab, 'mechanism_view') and current_tab.mechanism_view:
+            elif hasattr(current_tab, "mechanism_view") and current_tab.mechanism_view:
                 # Only zoom if view has no previous transform (first time setup)
-                if not hasattr(current_tab, '_view_initialized'):
+                if not hasattr(current_tab, "_view_initialized"):
                     tab_needs_initial_zoom = True
                     current_tab._view_initialized = True
-            elif hasattr(current_tab, 'image_proc_view'):
+            elif hasattr(current_tab, "image_proc_view"):
                 # Image processing tab should zoom to fit each time (different behavior)
                 tab_needs_initial_zoom = True
 
             # Apply zoom only when needed
             if tab_needs_initial_zoom:
-                logging.debug(f"Applying initial zoom for tab: {getattr(current_tab, 'tab_name', 'Unknown')}")
-                if hasattr(current_tab, 'editor_view') and current_tab.editor_view:
+                logging.debug(
+                    f"Applying initial zoom for tab: {getattr(current_tab, 'tab_name', 'Unknown')}"
+                )
+                if hasattr(current_tab, "editor_view") and current_tab.editor_view:
                     current_tab.editor_view.zoom_to_fit()
-                elif hasattr(current_tab, 'mechanism_view') and current_tab.mechanism_view:
+                elif hasattr(current_tab, "mechanism_view") and current_tab.mechanism_view:
                     current_tab.mechanism_view.zoom_to_fit()
-                elif hasattr(current_tab, 'image_proc_view'):
-                    if hasattr(current_tab.image_proc_view, 'zoom_to_fit'):
+                elif hasattr(current_tab, "image_proc_view"):
+                    if hasattr(current_tab.image_proc_view, "zoom_to_fit"):
                         current_tab.image_proc_view.zoom_to_fit()
-                    elif hasattr(current_tab.image_proc_view, 'fit_in_view'):
+                    elif hasattr(current_tab.image_proc_view, "fit_in_view"):
                         current_tab.image_proc_view.fit_in_view()
             else:
-                logging.debug(f"Preserving camera position for tab: {getattr(current_tab, 'tab_name', 'Unknown')}")
+                logging.debug(
+                    f"Preserving camera position for tab: {getattr(current_tab, 'tab_name', 'Unknown')}"
+                )
 
         # Data synchronization for mechanism tab - now uses editor data directly
         if current_tab == self.mechanism_design_tab:
             logging.info("MechanismDesignTab: Now uses editor tab data directly - no sync needed")
 
         # Call activate_tab on the current tab if it has the method
-        if current_tab and hasattr(current_tab, 'activate_tab'):
+        if current_tab and hasattr(current_tab, "activate_tab"):
             current_tab.activate_tab()
 
-            if (hasattr(self.skeleton_manager, 'get_current_skeleton_data') and
-                (not hasattr(self.mechanism_design_tab, '_initial_skeleton_data_cache') or
-                 not self.mechanism_design_tab._initial_skeleton_data_cache)):
+            if hasattr(self.skeleton_manager, "get_current_skeleton_data") and (
+                not hasattr(self.mechanism_design_tab, "_initial_skeleton_data_cache")
+                or not self.mechanism_design_tab._initial_skeleton_data_cache
+            ):
                 current_skeleton = self.skeleton_manager.get_current_skeleton_data()
                 if current_skeleton:
                     self.mechanism_design_tab.cache_initial_skeleton(current_skeleton)
@@ -567,9 +588,7 @@ class AutomataDesigner(QMainWindow):
             logging.error(
                 "handle_parts_generated_from_tab: 'char_cfg_path' not found in annotation_results."
             )
-            QMessageBox.critical(
-                self, "Error", "char_cfg.yaml path not found in annotation data."
-            )
+            QMessageBox.critical(self, "Error", "char_cfg.yaml path not found in annotation data.")
             return
 
         source_char_cfg_path = Path(source_char_cfg_path_str)
@@ -599,14 +618,10 @@ class AutomataDesigner(QMainWindow):
                             f"Source mask.png not found at {source_mask_path}, cannot copy."
                         )
                 else:
-                    logging.warning(
-                        "'mask_path' not in annotation_results, cannot copy mask.png."
-                    )
+                    logging.warning("'mask_path' not in annotation_results, cannot copy mask.png.")
 
             except Exception as e:
-                logging.error(
-                    f"Failed to copy files to BPE output dir: {e}", exc_info=True
-                )
+                logging.error(f"Failed to copy files to BPE output dir: {e}", exc_info=True)
                 QMessageBox.warning(
                     self,
                     "File Copy Error",
@@ -631,9 +646,7 @@ class AutomataDesigner(QMainWindow):
         logging.info(
             f"Attempting to load project data from parts_info.json: {parts_info_json_path}"
         )
-        success = self.project_data_manager.load_project_from_file(
-            str(parts_info_json_path)
-        )
+        success = self.project_data_manager.load_project_from_file(str(parts_info_json_path))
 
         if success:
             self.statusBar().showMessage("Part data loaded successfully.", 3000)
@@ -666,9 +679,7 @@ class AutomataDesigner(QMainWindow):
                 skeleton_data, source_format="animated_drawings"
             )
         else:
-            logging.error(
-                "MainWindow: SkeletonManager not available to handle skeleton update."
-            )
+            logging.error("MainWindow: SkeletonManager not available to handle skeleton update.")
             QMessageBox.warning(
                 self,
                 "Error",
@@ -692,17 +703,13 @@ class AutomataDesigner(QMainWindow):
                         logging.info(
                             f"MainWindow: Switched to Image Processing Tab and loaded {Path(image_path).name}"
                         )
-                        self.statusBar().showMessage(
-                            f"Loaded: {Path(image_path).name}", 3000
-                        )
+                        self.statusBar().showMessage(f"Loaded: {Path(image_path).name}", 3000)
                         # Ensure detailed processing group is hidden on this specific transition
                         if hasattr(
                             self.image_proc_tab,
                             "_toggle_detailed_processing_visibility",
                         ):
-                            self.image_proc_tab._toggle_detailed_processing_visibility(
-                                False
-                            )
+                            self.image_proc_tab._toggle_detailed_processing_visibility(False)
                         break
             else:
                 logging.error(
@@ -714,13 +721,8 @@ class AutomataDesigner(QMainWindow):
                     f"Could not load the selected image: {Path(image_path).name}",
                 )
         else:
-            logging.error(
-                "MainWindow: image_proc_tab is not available or not initialized."
-            )
-            QMessageBox.critical(
-                self, "Error", "Image Processing Tab is not available."
-            )
-
+            logging.error("MainWindow: image_proc_tab is not available or not initialized.")
+            QMessageBox.critical(self, "Error", "Image Processing Tab is not available.")
 
     @pyqtSlot()
     def switch_to_editor_tab(self):
@@ -747,9 +749,7 @@ class AutomataDesigner(QMainWindow):
             self.main_toolbar.setVisible(visible)
             logging.info(f"Main toolbar visibility set to: {visible}")
         else:
-            logging.warning(
-                "_toggle_toolbar_visibility called but main_toolbar is None."
-            )
+            logging.warning("_toggle_toolbar_visibility called but main_toolbar is None.")
 
     def _toggle_part_properties_visibility(self, visible: bool):
         """Toggles the visibility of the part properties panel in the EditorTab."""
@@ -789,7 +789,6 @@ class AutomataDesigner(QMainWindow):
             # MainWindow's load_parts is now just a trigger
             self.project_data_manager.load_project_from_file(filepath)
             # The UI updates will be triggered by project_data_manager.project_data_loaded signal
-
 
     # REFACTORED: The old content of load_parts is now largely in ProjectDataManager.
     # UI updates and manager notifications will be handled by a slot connected to
@@ -855,9 +854,7 @@ class AutomataDesigner(QMainWindow):
                 )
 
         else:
-            logging.error(
-                f"MainWindow: Project loading failed from {project_directory_path}"
-            )
+            logging.error(f"MainWindow: Project loading failed from {project_directory_path}")
             self._clear_ui_for_failed_load()
             QMessageBox.critical(
                 self,
@@ -903,13 +900,8 @@ class AutomataDesigner(QMainWindow):
         if hasattr(self.project_data_manager, "save_project_dialog"):
             self.project_data_manager.save_project_dialog()
         else:
-            logging.error(
-                "ProjectDataManager does not have save_project_dialog method."
-            )
-            QMessageBox.critical(
-                self, "Error", "Save project functionality is not available."
-            )
-
+            logging.error("ProjectDataManager does not have save_project_dialog method.")
+            QMessageBox.critical(self, "Error", "Save project functionality is not available.")
 
     # --- Slots for EditorTab Signals (Implement these) ---
     @pyqtSlot(str, dict)
@@ -939,9 +931,7 @@ class AutomataDesigner(QMainWindow):
 
         # TODO: Get editor scene center or relevant reference point
         # For now, using a default QPointF(0,0) or center of target part bounding box
-        editor_scene_ref_point = QPointF(
-            target_part_info.x, target_part_info.y
-        )  # Simplistic
+        editor_scene_ref_point = QPointF(target_part_info.x, target_part_info.y)  # Simplistic
         if self.editor_tab and self.editor_tab.editor_view:
             scene_rect = self.editor_tab.editor_view.sceneRect()
             editor_scene_ref_point = scene_rect.center()
@@ -979,9 +969,7 @@ class AutomataDesigner(QMainWindow):
         if hasattr(self.project_data_manager, "clear_all_motion_paths"):
             self.project_data_manager.clear_all_motion_paths()
         else:
-            logging.warning(
-                "ProjectDataManager does not have clear_all_motion_paths method."
-            )
+            logging.warning("ProjectDataManager does not have clear_all_motion_paths method.")
             # Fallback to old direct manipulation if method doesn't exist (for safety during refactor)
             current_parts_data = self.project_data_manager.get_current_parts_data()
             if current_parts_data:
@@ -994,14 +982,10 @@ class AutomataDesigner(QMainWindow):
                 logging.warning("Cannot clear motion path data: No parts data loaded.")
 
         # Instruct EditorTab to clear its visual motion paths
-        if self.editor_tab and hasattr(
-            self.editor_tab, "clear_all_visual_motion_paths"
-        ):
+        if self.editor_tab and hasattr(self.editor_tab, "clear_all_visual_motion_paths"):
             self.editor_tab.clear_all_visual_motion_paths()
         else:
-            logging.warning(
-                "EditorTab or its clear_all_visual_motion_paths method not found."
-            )
+            logging.warning("EditorTab or its clear_all_visual_motion_paths method not found.")
 
         # Reset character pose to initial skeleton definition via IKManager
         self.ik_manager.reset_animation_state()  # This should reset poses to initial
@@ -1022,14 +1006,10 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
 
         # Connect SkeletonManager signals
-        self.skeleton_manager.skeleton_updated.connect(
-            self._on_skeleton_manager_updated
-        )
+        self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
 
         # Connect IKManager signals
-        self.ik_manager.character_visuals_updated.connect(
-            self._handle_ik_visuals_update
-        )
+        self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
         if (
             hasattr(self, "editor_tab")
             and self.editor_tab
@@ -1051,9 +1031,7 @@ class AutomataDesigner(QMainWindow):
                 self.ik_manager.animation_duration / 1000.0
             )
             # Connect advanced processing visibility toggle
-            if hasattr(
-                self.options_tab, "advancedProcessingVisibilityChanged"
-            ) and hasattr(
+            if hasattr(self.options_tab, "advancedProcessingVisibilityChanged") and hasattr(
                 self.image_proc_tab, "_toggle_detailed_processing_visibility"
             ):
                 self.options_tab.advancedProcessingVisibilityChanged.connect(
@@ -1070,27 +1048,26 @@ class AutomataDesigner(QMainWindow):
             # Physics snap mode from OptionsTab → ParametricEditingManager (redundant safety connect)
             if hasattr(self.options_tab, "physicsSnapModeChanged"):
                 try:
-                    setter = getattr(self.mechanism_design_tab.parametric_manager, 'set_physics_snap_mode', None)
+                    setter = getattr(
+                        self.mechanism_design_tab.parametric_manager, "set_physics_snap_mode", None
+                    )
                     if callable(setter):
                         self.options_tab.physicsSnapModeChanged.connect(setter)
                         # Initialize UI to manager's default
-                        if hasattr(self.options_tab, 'set_physics_snap_mode_input'):
-                            self.options_tab.set_physics_snap_mode_input(self.mechanism_design_tab.parametric_manager.physics_snap_mode)
+                        if hasattr(self.options_tab, "set_physics_snap_mode_input"):
+                            self.options_tab.set_physics_snap_mode_input(
+                                self.mechanism_design_tab.parametric_manager.physics_snap_mode
+                            )
                 except Exception:
                     logging.exception("Failed to connect physics snap mode option (global connect)")
 
         # EditorTab signals
         if hasattr(self, "editor_tab") and self.editor_tab:
-
             # More robust connections to IKManager, checking method existence
             if hasattr(self.ik_manager, "start_animation"):
-                self.editor_tab.request_play_simulation.connect(
-                    self.ik_manager.start_animation
-                )
+                self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation)
             if hasattr(self.ik_manager, "stop_animation"):
-                self.editor_tab.request_stop_simulation.connect(
-                    self.ik_manager.stop_animation
-                )
+                self.editor_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)
             if hasattr(
                 self.ik_manager, "reset_animation_state"
             ):  # Ensure this method name is correct in IKManager
@@ -1100,15 +1077,11 @@ class AutomataDesigner(QMainWindow):
 
             # If save_character_alignment_impl is the final destination for the signal from EditorTab
             if hasattr(self, "save_character_alignment_impl"):
-                self.editor_tab.request_save_alignment.connect(
-                    self.save_character_alignment_impl
-                )
+                self.editor_tab.request_save_alignment.connect(self.save_character_alignment_impl)
 
             # If generate_blueprint_impl is the final destination
             if hasattr(self, "generate_blueprint_impl"):
-                self.editor_tab.request_generate_blueprint.connect(
-                    self.generate_blueprint_impl
-                )
+                self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
 
             # Connect the new request_reset_all_animations signal
             if hasattr(self.editor_tab, "request_reset_all_animations") and hasattr(
@@ -1166,9 +1139,7 @@ class AutomataDesigner(QMainWindow):
                 )
             except TypeError:
                 pass
-            self.project_data_manager.project_data_loaded.connect(
-                self._handle_project_data_loaded
-            )
+            self.project_data_manager.project_data_loaded.connect(self._handle_project_data_loaded)
 
             try:
                 self.project_data_manager.project_data_cleared.disconnect(
@@ -1186,22 +1157,16 @@ class AutomataDesigner(QMainWindow):
                 )
             except TypeError:
                 pass
-            self.project_data_manager.error_occurred.connect(
-                self._handle_project_manager_error
-            )
+            self.project_data_manager.error_occurred.connect(self._handle_project_manager_error)
 
         # SkeletonManager signals
         if self.skeleton_manager:
             # Connect to a slot in MainWindow that might update UI or pass to other relevant managers
             try:
-                self.skeleton_manager.skeleton_updated.disconnect(
-                    self._on_skeleton_manager_updated
-                )
+                self.skeleton_manager.skeleton_updated.disconnect(self._on_skeleton_manager_updated)
             except TypeError:
                 pass
-            self.skeleton_manager.skeleton_updated.connect(
-                self._on_skeleton_manager_updated
-            )
+            self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
 
             # If IKManager needs direct skeleton updates from SkeletonManager
             if self.ik_manager:
@@ -1222,14 +1187,10 @@ class AutomataDesigner(QMainWindow):
         if self.ik_manager:
             # Connect IK visuals update to a handler in MainWindow (or directly to EditorTab if appropriate)
             try:
-                self.ik_manager.character_visuals_updated.disconnect(
-                    self._handle_ik_visuals_update
-                )
+                self.ik_manager.character_visuals_updated.disconnect(self._handle_ik_visuals_update)
             except TypeError:
                 pass
-            self.ik_manager.character_visuals_updated.connect(
-                self._handle_ik_visuals_update
-            )
+            self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
             logging.info(
                 "MainWindow: Connected IKManager.character_visuals_updated to self._handle_ik_visuals_update"
             )
@@ -1288,9 +1249,7 @@ class AutomataDesigner(QMainWindow):
             return False
 
     @pyqtSlot(dict)
-    def _on_skeleton_manager_updated(
-        self, standardized_skeleton_data_dict: dict | None
-    ):
+    def _on_skeleton_manager_updated(self, standardized_skeleton_data_dict: dict | None):
         """Slot called when SkeletonManager has new processed skeleton data (dictionary format)."""
         logging.info(
             "MainWindow: SkeletonManager updated. Notifying tabs. IKManager will handle its own re-initialization if needed."
@@ -1300,9 +1259,7 @@ class AutomataDesigner(QMainWindow):
         if hasattr(self.editor_tab, "cache_initial_skeleton"):
             self.editor_tab.cache_initial_skeleton(standardized_skeleton_data_dict)
         else:
-            logging.warning(
-                "MainWindow: EditorTab does not have cache_initial_skeleton method."
-            )
+            logging.warning("MainWindow: EditorTab does not have cache_initial_skeleton method.")
 
         # Cache the initial skeleton data in MechanismDesignTab as well
         if hasattr(self.mechanism_design_tab, "cache_initial_skeleton"):
@@ -1314,9 +1271,7 @@ class AutomataDesigner(QMainWindow):
 
         # Notify tabs that might need the direct standardized skeleton data for display
         if hasattr(self.image_proc_tab, "on_skeleton_updated_externally"):
-            self.image_proc_tab.on_skeleton_updated_externally(
-                standardized_skeleton_data_dict
-            )
+            self.image_proc_tab.on_skeleton_updated_externally(standardized_skeleton_data_dict)
 
         if hasattr(self.editor_tab, "on_skeleton_updated"):
             self.editor_tab.on_skeleton_updated(standardized_skeleton_data_dict)
@@ -1328,9 +1283,7 @@ class AutomataDesigner(QMainWindow):
     def update_status_bar_with_skeleton_info(self, skeleton_data_dict: dict | None):
         if skeleton_data_dict and skeleton_data_dict.get("joints"):
             num_joints = len(skeleton_data_dict.get("joints", {}))
-            self.statusBar().showMessage(
-                f"Skeleton loaded/updated: {num_joints} joints.", 3000
-            )
+            self.statusBar().showMessage(f"Skeleton loaded/updated: {num_joints} joints.", 3000)
         else:
             self.statusBar().showMessage("Skeleton cleared or not loaded.", 3000)
 
@@ -1347,11 +1300,13 @@ class AutomataDesigner(QMainWindow):
             self.editor_tab.handle_ik_update(part_transforms)
 
         # CRITICAL FIX: Send IK updates to mechanism design tab with safety checks
-        if (self.mechanism_design_tab and
-            hasattr(self.mechanism_design_tab, 'handle_ik_update') and
-            self.mechanism_design_tab.isVisible() and
-            hasattr(self.mechanism_design_tab, '_tab_active') and
-            self.mechanism_design_tab._tab_active):
+        if (
+            self.mechanism_design_tab
+            and hasattr(self.mechanism_design_tab, "handle_ik_update")
+            and self.mechanism_design_tab.isVisible()
+            and hasattr(self.mechanism_design_tab, "_tab_active")
+            and self.mechanism_design_tab._tab_active
+        ):
             self.mechanism_design_tab.handle_ik_update(part_transforms)
         elif self.mechanism_design_tab:
             # Tab exists but is not active - this is normal during tab switching
@@ -1370,9 +1325,9 @@ class AutomataDesigner(QMainWindow):
                 int(float(value) * 1000)
             )  # Convert seconds to ms
         elif setting_name == "timing_profile":
-            if hasattr(self.ik_manager, 'set_timing_profile'):
+            if hasattr(self.ik_manager, "set_timing_profile"):
                 # Value may be human-readable or normalized
-                val = str(value).lower().replace('-', '_').replace(' ', '_')
+                val = str(value).lower().replace("-", "_").replace(" ", "_")
                 self.ik_manager.set_timing_profile(val)
         elif setting_name == "toolbar_visibility":
             self._toggle_toolbar_visibility(bool(value))
@@ -1385,8 +1340,8 @@ class AutomataDesigner(QMainWindow):
         elif setting_name == "performance_preset":
             try:
                 preset = str(value)
-                if hasattr(self, 'mechanism_design_tab') and self.mechanism_design_tab:
-                    apply = getattr(self.mechanism_design_tab, 'apply_performance_preset', None)
+                if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+                    apply = getattr(self.mechanism_design_tab, "apply_performance_preset", None)
                     if callable(apply):
                         apply(preset)
             except Exception:
@@ -1396,9 +1351,7 @@ class AutomataDesigner(QMainWindow):
             if hasattr(self.image_proc_tab, "set_debug_mode"):
                 self.image_proc_tab.set_debug_mode(bool(value))
             else:
-                logging.warning(
-                    "ImageProcessingTab does not have set_debug_mode method."
-                )
+                logging.warning("ImageProcessingTab does not have set_debug_mode method.")
         else:
             logging.warning(f"Unhandled option change: {setting_name}")
 
@@ -1413,7 +1366,6 @@ class AutomataDesigner(QMainWindow):
             "<p>This application helps design and simulate automata mechanisms.</p>",
         )
 
-
     @pyqtSlot(str)
     def _handle_unit_changed(self, unit: str):
         """Handles the unit system change from OptionsTab."""
@@ -1424,9 +1376,7 @@ class AutomataDesigner(QMainWindow):
         ):
             self.editor_tab.editor_view.set_display_unit(unit)
         else:
-            logging.warning(
-                "MainWindow: EditorView or its set_display_unit method not found."
-            )
+            logging.warning("MainWindow: EditorView or its set_display_unit method not found.")
 
         # Pass the new unit to ImageProcessingView (via ImageProcessingTab)
         if hasattr(self.image_proc_tab, "image_proc_view") and hasattr(
@@ -1443,10 +1393,7 @@ class AutomataDesigner(QMainWindow):
     def _handle_project_manager_error(self, error_message: str):
         """Handles error signals from the ProjectDataManager."""
         logging.error(f"ProjectDataManager error: {error_message}")
-        QMessageBox.critical(
-            self, "Project Error", f"An error occurred: {error_message}"
-        )
-
+        QMessageBox.critical(self, "Project Error", f"An error occurred: {error_message}")
 
     @pyqtSlot(str, QPainterPath)
     def _handle_part_motion_path_update_from_editor_tab(
@@ -1454,19 +1401,13 @@ class AutomataDesigner(QMainWindow):
     ):
         """Handles the motion_path_updated signal from EditorTab and passes it to IKManager."""
         if not self.ik_manager:
-            logging.warning(
-                "MainWindow: IKManager not available to handle motion path update."
-            )
+            logging.warning("MainWindow: IKManager not available to handle motion path update.")
             return
         if hasattr(self.ik_manager, "update_part_motion_path"):
             self.ik_manager.update_part_motion_path(part_name, motion_qpath)
-            logging.info(
-                f"MainWindow: Relayed motion path update for '{part_name}' to IKManager."
-            )
+            logging.info(f"MainWindow: Relayed motion path update for '{part_name}' to IKManager.")
         else:
-            logging.warning(
-                "MainWindow: IKManager does not have 'update_part_motion_path' method."
-            )
+            logging.warning("MainWindow: IKManager does not have 'update_part_motion_path' method.")
 
     @pyqtSlot(dict)
     def _handle_skeleton_pose_updated_from_ik(
@@ -1478,9 +1419,7 @@ class AutomataDesigner(QMainWindow):
         )
         if self.editor_tab and self.editor_tab.editor_view:
             # Pass the raw animated data directly
-            self.editor_tab.editor_view.update_skeleton_animation(
-                animated_pose_data_dict
-            )
+            self.editor_tab.editor_view.update_skeleton_animation(animated_pose_data_dict)
         else:
             logging.warning(
                 "MainWindow: Cannot relay skeleton pose update, EditorTab or EditorView not available."
