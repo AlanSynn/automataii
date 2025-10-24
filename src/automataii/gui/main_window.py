@@ -53,7 +53,7 @@ from automataii.gui.views.editor_view import EditorView  # ADD THIS IMPORT
 from automataii.kinematics.ik_manager import IKManager
 
 # Import mechanism foundry tab
-from automataii.ui.tabs.mechanism_foundry import EnhancedMacanismTab
+from automataii.ui.tabs.mechanism_foundry import MechanismFoundryView
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 
 # from qframelesswindow import FramelessMainWindow
@@ -249,7 +249,7 @@ class AutomataDesigner(QMainWindow):
         # --- Tab 4: Mechanism Foundry ---
         # Hide this tab in experiment mode
         if not self.experiment_mode:
-            self.mechanism_foundry_tab = EnhancedMacanismTab(self)
+            self.mechanism_foundry_tab = MechanismFoundryView(self)
             foundry_title = "Mechanism Foundry"
             self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
         else:

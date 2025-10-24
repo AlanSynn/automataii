@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
+from automataii.application.mechanism_transfer import (
+    MechanismTransferPackage,
+    MechanismTransferService,
+    TransferValidationError,
+)
+
 from .catalog import MechanismEntry, MechanismParameter
 from .service import MechanismCatalogService
 
@@ -48,29 +54,59 @@ MECHANISM_CONFIGS: Dict[str, MechanismConfiguration] = {
     "four_bar": MechanismConfiguration(
         mechanism_type="four_bar",
         parameter_specs=(
-            ParameterSpec("ground_link", "Ground Link (mm)", 30.0, 300.0, 150.0, "float", "mm", step=1.0),
-            ParameterSpec("input_link", "Input Link (mm)", 10.0, 150.0, 40.0, "float", "mm", step=1.0),
-            ParameterSpec("coupler_link", "Coupler Link (mm)", 20.0, 250.0, 120.0, "float", "mm", step=1.0),
-            ParameterSpec("output_link", "Output Link (mm)", 20.0, 250.0, 130.0, "float", "mm", step=1.0),
+            ParameterSpec(
+                "ground_link", "Ground Link (mm)", 30.0, 300.0, 150.0, "float", "mm", step=1.0
+            ),
+            ParameterSpec(
+                "input_link", "Input Link (mm)", 10.0, 150.0, 40.0, "float", "mm", step=1.0
+            ),
+            ParameterSpec(
+                "coupler_link", "Coupler Link (mm)", 20.0, 250.0, 120.0, "float", "mm", step=1.0
+            ),
+            ParameterSpec(
+                "output_link", "Output Link (mm)", 20.0, 250.0, 130.0, "float", "mm", step=1.0
+            ),
         ),
         extra_defaults={"input_angle": 30.0},
     ),
     "slider_crank": MechanismConfiguration(
         mechanism_type="slider_crank",
         parameter_specs=(
-            ParameterSpec("crank_length", "Crank Length (mm)", 40.0, 160.0, 80.0, "float", "mm", step=1.0),
-            ParameterSpec("rod_length", "Rod Length (mm)", 50.0, 220.0, 140.0, "float", "mm", step=1.0),
-            ParameterSpec("gas_pressure", "Gas Pressure (kPa)", 50.0, 2000.0, 500.0, "float", "kPa", step=10.0),
+            ParameterSpec(
+                "crank_length", "Crank Length (mm)", 40.0, 160.0, 80.0, "float", "mm", step=1.0
+            ),
+            ParameterSpec(
+                "rod_length", "Rod Length (mm)", 50.0, 220.0, 140.0, "float", "mm", step=1.0
+            ),
+            ParameterSpec(
+                "gas_pressure", "Gas Pressure (kPa)", 50.0, 2000.0, 500.0, "float", "kPa", step=10.0
+            ),
         ),
         extra_defaults={"input_angle": 30.0},
     ),
     "cam_follower": MechanismConfiguration(
         mechanism_type="cam_follower",
         parameter_specs=(
-            ParameterSpec("cam_radius", "Cam Radius (mm)", 20.0, 150.0, 60.0, "float", "mm", step=1.0),
-            ParameterSpec("cam_offset", "Cam Offset (mm)", 5.0, 60.0, 20.0, "float", "mm", step=1.0),
-            ParameterSpec("follower_length", "Follower Length (mm)", 30.0, 200.0, 100.0, "float", "mm", step=1.0),
-            ParameterSpec("spring_constant", "Spring Force (N)", 50.0, 2000.0, 300.0, "float", "N", step=10.0),
+            ParameterSpec(
+                "cam_radius", "Cam Radius (mm)", 20.0, 150.0, 60.0, "float", "mm", step=1.0
+            ),
+            ParameterSpec(
+                "cam_offset", "Cam Offset (mm)", 5.0, 60.0, 20.0, "float", "mm", step=1.0
+            ),
+            ParameterSpec(
+                "follower_length",
+                "Follower Length (mm)",
+                30.0,
+                200.0,
+                100.0,
+                "float",
+                "mm",
+                step=1.0,
+            ),
+            ParameterSpec("cam_lobes", "Cam Lobes", 1, 4, 1, "int", "lobes", step=1.0),
+            ParameterSpec(
+                "profile_harmonic", "Profile Variation", 0.0, 0.8, 0.3, "float", "ratio", step=0.05
+            ),
         ),
         extra_defaults={"input_angle": 30.0},
     ),
@@ -79,7 +115,9 @@ MECHANISM_CONFIGS: Dict[str, MechanismConfiguration] = {
         parameter_specs=(
             ParameterSpec("gear1_teeth", "Drive Gear Teeth", 8, 24, 12, "int", "teeth", step=1.0),
             ParameterSpec("gear2_teeth", "Driven Gear Teeth", 8, 24, 18, "int", "teeth", step=1.0),
-            ParameterSpec("input_torque", "Input Torque (Nm)", 10.0, 1000.0, 200.0, "float", "Nm", step=10.0),
+            ParameterSpec(
+                "input_torque", "Input Torque (Nm)", 10.0, 1000.0, 200.0, "float", "Nm", step=10.0
+            ),
         ),
         extra_defaults={"input_angle": 30.0},
     ),
@@ -264,3 +302,18 @@ class MechanismFoundryController:
         if mech_type is None:
             return None
         return CATALOG_TYPE_TO_MECHANISM_TYPE.get(mech_type)
+
+    def export_mechanism_to_design(
+        self,
+        parameters: Mapping[str, float],
+        pivot_point: tuple[float, float],
+    ) -> MechanismTransferPackage:
+        if not self._selection:
+            raise TransferValidationError("No mechanism selected for export")
+
+        transfer_service = MechanismTransferService()
+        return transfer_service.create_export_package(
+            mechanism_type=self._selection.mechanism_type,
+            parameters=parameters,
+            pivot_point=pivot_point,
+        )

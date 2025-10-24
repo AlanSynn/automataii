@@ -8,6 +8,8 @@ from PyQt6.QtGui import QPainterPath
 from automataii.application.mechanism_design import (
     MechanismDesignController,
     MechanismDesignState,
+    MechanismLayer,
+    MechanismDesignPresenter,
     PartPath,
     Recommendation,
 )
@@ -25,7 +27,7 @@ def feature_enabled() -> bool:
     return flag in {"1", "true", "yes", "on"}
 
 
-def _convert_paths(paths: Mapping[str, QPainterPath]) -> Dict[str, PartPath]:
+def convert_paths(paths: Mapping[str, QPainterPath]) -> Dict[str, PartPath]:
     converted: Dict[str, PartPath] = {}
     for name, path in paths.items():
         if path is None or path.isEmpty():
@@ -37,42 +39,42 @@ def _convert_paths(paths: Mapping[str, QPainterPath]) -> Dict[str, PartPath]:
     return converted
 
 
-class MechanismDesignControllerAdapter:
-    """Bridge between legacy MechanismDesignTab and new controller."""
+class _LegacyRecommendationService(MechanismRecommendationService):
+    """Placeholder recommendation service until presenter wiring is complete."""
 
-    def __init__(
-        self,
-        controller: MechanismDesignController,
-    ) -> None:
-        self._controller = controller
+    def __init__(self, tab) -> None:
+        self._tab = tab
 
-    @property
-    def state(self) -> MechanismDesignState:
-        return self._controller.state
-
-    def update_from_editor_paths(
-        self, paths: Mapping[str, QPainterPath]
-    ) -> MechanismDesignState:
-        converted = _convert_paths(paths)
-        return self._controller.update_paths(converted)
-
-    def enable_part(self, part_name: str, enabled: bool) -> MechanismDesignState:
-        return self._controller.enable_part(part_name, enabled)
-
-    def request_recommendations(self, part_name: str) -> tuple[Recommendation, ...]:
-        recs = tuple(self._controller.request_recommendations(part_name))
-        return recs
-
-    def apply_recommendation(self, part_name: str, recommendation_id: str):
-        return self._controller.apply_recommendation(part_name, recommendation_id)
+    def recommend(self, part_name: str, path: PartPath):
+        # TODO: Integrate with MechanismService once legacy flow is migrated.
+        return ()
 
 
-def build_controller_adapter(
-    recommendation_service: MechanismRecommendationService,
-    generation_service: MechanismGenerationService,
-) -> MechanismDesignControllerAdapter:
+class _LegacyGenerationService(MechanismGenerationService):
+    """Placeholder generation service that creates stub layers."""
+
+    def __init__(self, tab) -> None:
+        self._tab = tab
+        self._counter = 0
+
+    def build_layer(self, part_name: str, recommendation: Recommendation) -> MechanismLayer:
+        self._counter += 1
+        layer_id = f"{part_name}:{recommendation.type or 'legacy'}:{self._counter}"
+        return MechanismLayer(
+            id=layer_id,
+            type=recommendation.type or "legacy",
+            params=dict(recommendation.params),
+            metadata=dict(recommendation.metadata),
+        )
+
+    def clear_layers_for_part(self, part_name: str) -> None:
+        # Legacy tab still manages layer removal; no-op here.
+        return
+
+
+def build_presenter(tab) -> MechanismDesignPresenter:
     controller = MechanismDesignController(
-        recommendation_service=recommendation_service,
-        generation_service=generation_service,
+        recommendation_service=_LegacyRecommendationService(tab),
+        generation_service=_LegacyGenerationService(tab),
     )
-    return MechanismDesignControllerAdapter(controller)
+    return MechanismDesignPresenter(controller)

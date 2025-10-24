@@ -5,17 +5,17 @@ A unified, interactive learning system for understanding mechanical systems thro
 hands-on interaction and exploration.
 
 Architecture:
-- A single, immersive workshop view (`MechanismFoundryTab`) provides all functionality,
-  including mechanism selection, parametric controls, and real-time analysis.
-- This replaces the previous hierarchical, multi-level navigation system.
+- Clean, modular view using Controller pattern for mechanism visualization
+- Protocol-based design for extensibility (Mechanism, MechanismRenderer protocols)
+- Separation of concerns: UI → Controller → Domain Logic
 
 Components:
-- foundry_tab.py: Main entry widget and the core of the user experience.
-- hci/: Advanced human-computer interaction components (controls, physics interaction).
-- panels/: Reusable UI panels for controls and analysis.
-- views/: (Legacy) Previously contained different views, now consolidated.
+- foundry_view.py: Main UI widget (380 LOC, replaces 3,771 LOC monolith)
+- MechanismFoundryController: Configuration and catalog management
+- Mechanism implementations: fourbar, cam_follower (fourbar.compute, cam.compute)
+- Renderers: LinkageRenderer for fourbar, custom rendering for cam
 """
 
-from .enhanced_macanism_tab import EnhancedMacanismTab
+from .foundry_view import MechanismFoundryView
 
-__all__ = ['EnhancedMacanismTab']
+__all__ = ['MechanismFoundryView']

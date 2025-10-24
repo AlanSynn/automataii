@@ -107,6 +107,11 @@ from automataii.gui.tabs.mechanism_design.mechanism_design_tab_ui_state import (
     MechanismDesignTabUIState, UIState, AnimationState
 )
 from automataii.gui.tabs.mechanism_design.mechanism_design_tab_signals import MechanismDesignTabSignals
+from automataii.gui.tabs.mechanism_design.controller_adapter import (
+    feature_enabled as controller_feature_enabled,
+    build_presenter,
+    convert_paths,
+)
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -204,6 +209,13 @@ class MechanismDesignTab(QWidget):
         self._tab_active = False  # Critical: Track if tab is active to prevent race conditions
         self._scene_recently_cleared = False  # Track scene clear operations to prevent redundant cleanup
 
+        # Presenter / controller (feature-flagged)
+        self._presenter = None
+        self._presenter_view_model = None
+        if controller_feature_enabled():
+            self._presenter = build_presenter(self)
+            self._presenter.add_view_listener(self._on_presenter_view_update)
+
         # Mechanism path tracing
         self.mechanism_trace_paths: dict[str, QPainterPath] = {}  # Store traced paths
 
@@ -280,16 +292,34 @@ class MechanismDesignTab(QWidget):
         # PHASE 1: Initialize UI state management
         self._current_ui_state = UIState()
         self._update_all_ui_states()
-    
+
+    def _on_presenter_view_update(self, view_model):
+        """Receive presenter view-model updates and sync lightweight state."""
+        self._presenter_view_model = view_model
+        self.part_enabled_state = {part.name: part.enabled for part in view_model.parts}
+        selected_part = next((p.name for p in view_model.parts if p.is_selected), None)
+        if selected_part is not None:
+            self.selected_part_name = selected_part
+        self._update_all_ui_states()
+
     def _update_all_ui_states(self) -> None:
         """Update all UI component states based on current data."""
         # Update UI state based on current mechanism and path data
-        ui_state = UIState(
-            has_paths=bool(getattr(self, 'path_data', {})),
-            has_mechanisms=bool(getattr(self, 'mechanism_layers', {})),
-            has_enabled_parts=any(
+        if self._presenter_view_model is not None:
+            parts = self._presenter_view_model.parts
+            has_paths = any(part.enabled for part in parts)
+            has_mechanisms = any(part.has_layers for part in parts)
+            has_enabled_parts = any(part.enabled for part in parts)
+        else:
+            has_paths = bool(getattr(self, 'path_data', {}))
+            has_mechanisms = bool(getattr(self, 'mechanism_layers', {}))
+            has_enabled_parts = any(
                 getattr(self, 'part_enabled_state', {}).values()
-            ),
+            )
+        ui_state = UIState(
+            has_paths=has_paths,
+            has_mechanisms=has_mechanisms,
+            has_enabled_parts=has_enabled_parts,
             animation_running=getattr(self, 'animation_timer', None) and 
                             getattr(self.animation_timer, 'isActive', lambda: False)(),
             parametric_mode=getattr(self, 'parametric_mode_enabled', False),
@@ -377,6 +407,9 @@ class MechanismDesignTab(QWidget):
 
     def set_path_data_from_editor(self, path_data: dict[str, QPainterPath]):
         """Receive path data from editor tab"""
+        if self._presenter:
+            converted_paths = convert_paths(path_data or {})
+            self._presenter.update_paths(converted_paths)
         if path_data:
 
             # Debug individual path data
@@ -1014,6 +1047,8 @@ class MechanismDesignTab(QWidget):
 
         target_path = enabled_parts_with_paths[target_part_name]
         self.selected_part_name = target_part_name
+        if self._presenter:
+            self._presenter.select_part(target_part_name)
 
         from automataii.utils.paths import resolve_path
         generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
@@ -2674,10 +2709,39 @@ class MechanismDesignTab(QWidget):
         # Get the widget from UI system
         if hasattr(self, 'ui_widgets') and 'mechanism_layers_list' in self.ui_widgets:
             mechanism_layers_list = self.ui_widgets['mechanism_layers_list']
-            
+
             # Simple clear and repopulate
             mechanism_layers_list.clear()
-            
+
+            # Use presenter view-model when feature flag is enabled
+            if self._presenter_view_model:
+                from PyQt6.QtWidgets import QListWidgetItem
+                from PyQt6.QtGui import QFont
+                from PyQt6.QtCore import Qt
+
+                for part_vm in self._presenter_view_model.parts:
+                    part_name = part_vm.name
+                    enabled = part_vm.enabled
+                    has_layers = part_vm.has_layers or self._part_has_mechanism(part_name)
+
+                    self.part_enabled_state[part_name] = enabled
+
+                    item = QListWidgetItem(part_name)
+                    item.setData(Qt.ItemDataRole.UserRole, part_name)
+                    item.setForeground(Qt.GlobalColor.black if enabled else Qt.GlobalColor.gray)
+                    if has_layers:
+                        font = QFont(item.font())
+                        font.setBold(True)
+                        item.setFont(font)
+                        item.setToolTip(f"{part_name} — mechanism layers active")
+                    elif not enabled:
+                        item.setToolTip(f"{part_name} — disabled")
+                    else:
+                        item.setToolTip(f"{part_name} — no mechanism applied")
+                    item.setSelected(part_vm.is_selected)
+                    mechanism_layers_list.addItem(item)
+                return
+
             # Get editor parts data and path data
             editor_parts_data = None
             editor_path_data = None
@@ -2726,6 +2790,10 @@ class MechanismDesignTab(QWidget):
 
     def _part_has_mechanism(self, part_name: str) -> bool:
         """Check if a part has any mechanism assigned to it."""
+        if self._presenter_view_model:
+            part_vm = self._presenter_view_model.find_part(part_name)
+            if part_vm is not None and part_vm.has_layers:
+                return True
         for layer_data in self.mechanism_layers.values():
             if layer_data.get("part_name") == part_name:
                 return True
@@ -3138,6 +3206,8 @@ class MechanismDesignTab(QWidget):
 
             # Start mechanism animation timer for visuals and path tracing
             self.animation_timer.start(33)  # ~30 FPS
+            if self._presenter:
+                self._presenter.set_animation_running(True)
 
             # PHASE 1 REFACTORING: Use centralized UI state management instead of direct button updates
             from automataii.gui.tabs.mechanism_design.mechanism_design_tab_ui_state import AnimationState
@@ -3151,6 +3221,8 @@ class MechanismDesignTab(QWidget):
     def _on_stop_animation(self):
         """Stop the animation timer and IK animation with proper cleanup."""
         self.animation_timer.stop()
+        if self._presenter:
+            self._presenter.set_animation_running(False)
 
         # Stop IK animation for skeleton integration
         if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
@@ -3176,6 +3248,8 @@ class MechanismDesignTab(QWidget):
         self.animation_time = 0
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        if self._presenter:
+            self._presenter.set_animation_running(False)
 
         # Clear all traced paths
         for mechanism_id in list(self.mechanism_trace_items.keys()):
@@ -3240,16 +3314,18 @@ class MechanismDesignTab(QWidget):
 
         if is_selection_valid:
             part_name = selected_items[0].data(Qt.ItemDataRole.UserRole)
-            self.selected_part_name = part_name  # CRITICAL: Set selected part for mechanism operations
+            if self._presenter:
+                self._presenter.select_part(part_name)
+            self.selected_part_name = part_name
 
-            # In parametric mode, update handles for the newly selected mechanism
             if self.parametric_mode_enabled:
                 self._update_parametric_handles_for_selection(part_name)
 
         else:
-            self.selected_part_name = None  # Clear selection
+            if self._presenter:
+                self._presenter.select_part(None)
+            self.selected_part_name = None
 
-            # In parametric mode, hide all handles when nothing is selected
             if self.parametric_mode_enabled:
                 self._hide_all_parametric_handles()
 
@@ -3272,14 +3348,19 @@ class MechanismDesignTab(QWidget):
             return
 
         # Normal mode: Toggle enabled/disabled state
-        current_state = self.part_enabled_state.get(part_name, True)
+        if self._presenter_view_model and self._presenter:
+            part_vm = self._presenter_view_model.find_part(part_name)
+            current_state = part_vm.enabled if part_vm else True
+        else:
+            current_state = self.part_enabled_state.get(part_name, True)
+
         new_state = not current_state
+
+        if self._presenter:
+            self._presenter.enable_part(part_name, new_state)
         self.part_enabled_state[part_name] = new_state
 
-        # Update visual representation and animation control
         self._update_part_visibility_and_animation(part_name, new_state)
-
-        # Update the list display to reflect new state
         self._update_mechanism_layers_list()
 
     def _update_part_visibility_and_animation(self, part_name: str, enabled: bool):
@@ -3507,10 +3588,18 @@ class MechanismDesignTab(QWidget):
     def toggle_parametric_mode(self, enabled: bool | None = None):
         """Toggle parametric editing mode on/off by delegating to the manager."""
         self.parametric_manager.toggle_parametric_mode(enabled)
+        self.parametric_mode_enabled = self.parametric_manager.parametric_mode_enabled
+        if self._presenter:
+            self._presenter.set_parametric_mode(self.parametric_mode_enabled)
+        self._update_all_ui_states()
 
     def _enable_parametric_mode(self):
         """Enable parametric editing mode by delegating to the manager."""
         self.parametric_manager._enable_parametric_mode()
+        self.parametric_mode_enabled = True
+        if self._presenter:
+            self._presenter.set_parametric_mode(True)
+        self._update_all_ui_states()
 
     def _disable_animation_controls_for_parametric(self):
         """
@@ -3548,6 +3637,10 @@ class MechanismDesignTab(QWidget):
     def _disable_parametric_mode(self):
         """Disable parametric editing mode by delegating to the manager."""
         self.parametric_manager._disable_parametric_mode()
+        self.parametric_mode_enabled = False
+        if self._presenter:
+            self._presenter.set_parametric_mode(False)
+        self._update_all_ui_states()
 
     def _create_rotation_handle(self, mechanism_id: str, center_pos: QPointF, radius: float = 60) -> QGraphicsItem:
         """
