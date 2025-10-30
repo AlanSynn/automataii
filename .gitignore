@@ -353,3 +353,5 @@ tmp/
 .ruff-cache
 .uv-cache
 .cursor
+
+!src/automataii/mechanism_catalog.json
