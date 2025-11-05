@@ -107,12 +107,14 @@ class LinkageConfig:
             Role of the link
 
         Raises:
-            ValueError: If index is out of range
+            ValueError: If index is out of range or roles not initialized
         """
         if not 0 <= index < len(self.link_lengths):
             raise ValueError(
                 f"Link index must be between 0 and {len(self.link_lengths) - 1}, got {index}"
             )
+        if self.roles is None:
+            raise ValueError("Roles not initialized")
         return self.roles[index]
 
     @staticmethod

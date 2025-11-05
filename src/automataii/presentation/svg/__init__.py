@@ -6,14 +6,13 @@ Re-exports from infrastructure/generation for convenience.
 """
 
 # Re-export from infrastructure
+# Import domain types
+from automataii.domain.generation.layout import ScaledBounds
 from automataii.infrastructure.generation.svg.generators import (
     CamSVGGenerator,
     GearSVGGenerator,
     LinkageSVGGenerator,
 )
-
-# Import domain types
-from automataii.domain.generation.layout import ScaledBounds
 
 __all__ = [
     # SVG Generators

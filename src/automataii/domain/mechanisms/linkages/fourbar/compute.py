@@ -88,11 +88,11 @@ class FourBarMechanism(Mechanism):
         params = self._parameters
 
         if params.ground_pivot1 is not None and params.ground_pivot2 is not None:
-            O1 = params.ground_pivot1
-            O4 = params.ground_pivot2
+            O1: Point2D = params.ground_pivot1
+            O4: Point2D = params.ground_pivot2
         else:
-            O1: Point2D = (-params.ground_link / 2, 0.0)
-            O4: Point2D = (params.ground_link / 2, 0.0)
+            O1 = (-params.ground_link / 2, 0.0)
+            O4 = (params.ground_link / 2, 0.0)
 
         input_angle_rad = math.radians(params.input_angle)
         A: Point2D = (

@@ -22,8 +22,8 @@ class EditorViewState:
     animation_running: bool = False
     skeleton_visible: bool = True
     hovered_control: str | None = None
-    raw_paths: Mapping[str, tuple[Point, ...]] = None
-    corrected_paths: Mapping[str, tuple[Point, ...]] = None
+    raw_paths: Mapping[str, tuple[Point, ...]] | None = None
+    corrected_paths: Mapping[str, tuple[Point, ...]] | None = None
 
     def with_mode(self, mode: str) -> EditorViewState:
         return replace(self, mode=mode)

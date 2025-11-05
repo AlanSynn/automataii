@@ -9,14 +9,14 @@ Submodules:
 - contour: Computer vision contour extraction
 """
 
+from automataii.domain.generation.contour import (
+    AdvancedContourExtractor,
+    ManufacturingContour,
+)
 from automataii.domain.generation.layout import (
     LayoutItem,
     ScaleNormalizer,
     SmartLayoutManager,
-)
-from automataii.domain.generation.contour import (
-    AdvancedContourExtractor,
-    ManufacturingContour,
 )
 
 __all__ = [
