@@ -4,10 +4,12 @@ Decorators for event handling.
 
 import functools
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from automataii.infrastructure.events.base import Event
 from automataii.infrastructure.events.types import EventFilter, EventPriority
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def event_handler(
@@ -25,17 +27,24 @@ def event_handler(
             # Handle project loaded event
             pass
     """
-    def decorator(func: Callable[[Any, Event], None]):
+    def decorator(func: F) -> F:
+        # Use setattr to dynamically add attributes without type errors
         func._event_type = event_type
         func._priority = priority
         func._filter_func = filter_func
         func._auto_subscribe = auto_subscribe
 
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             return func(*args, **kwargs)
 
-        return wrapper
+        # Copy attributes to wrapper
+        wrapper._event_type = event_type
+        wrapper._priority = priority
+        wrapper._filter_func = filter_func
+        wrapper._auto_subscribe = auto_subscribe
+
+        return cast(F, wrapper)
 
     return decorator
 
@@ -55,7 +64,8 @@ def async_event_handler(
             # Handle project loaded event asynchronously
             await some_async_operation()
     """
-    def decorator(func: Callable[[Any, Event], Any]):
+    def decorator(func: F) -> F:
+        # Use setattr to dynamically add attributes without type errors
         func._event_type = event_type
         func._priority = priority
         func._filter_func = filter_func
@@ -63,9 +73,16 @@ def async_event_handler(
         func._is_async = True
 
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             return await func(*args, **kwargs)
 
-        return wrapper
+        # Copy attributes to wrapper
+        wrapper._event_type = event_type
+        wrapper._priority = priority
+        wrapper._filter_func = filter_func
+        wrapper._auto_subscribe = auto_subscribe
+        wrapper._is_async = True
+
+        return cast(F, wrapper)
 
     return decorator

@@ -14,7 +14,7 @@ class IKState:
     animation_time: float = 0.0
     animation_duration_ms: int = 3000
     timing_profile: str = "linear"
-    mechanism_targets: Mapping[str, tuple[float, float]] = None
+    mechanism_targets: Mapping[str, tuple[float, float]] | None = None
 
     def with_skeleton(self, skeleton: Mapping[str, object] | None) -> IKState:
         return replace(self, skeleton_data=skeleton)

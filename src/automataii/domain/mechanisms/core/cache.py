@@ -218,7 +218,9 @@ def compute_transmission_angle(
 
 def get_cache_stats() -> dict[str, dict]:
     """Return cache statistics for all cached functions."""
-    cached_funcs = [
+    from typing import Any, cast
+
+    cached_funcs: list[tuple[str, Any]] = [
         ("fourbar_geometry", compute_fourbar_geometry),
         ("grashof_condition", compute_grashof_condition),
         ("cam_profile_points", compute_cam_profile_points),
@@ -228,7 +230,7 @@ def get_cache_stats() -> dict[str, dict]:
 
     stats = {}
     for name, func in cached_funcs:
-        info = func.cache_info()
+        info = cast(Any, func).cache_info()
         stats[name] = {
             "hits": info.hits,
             "misses": info.misses,

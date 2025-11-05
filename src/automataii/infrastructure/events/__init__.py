@@ -25,7 +25,11 @@ from automataii.infrastructure.events.base import (
     UIEvent,
 )
 from automataii.infrastructure.events.decorators import async_event_handler, event_handler
-from automataii.infrastructure.events.event_bus import EventBus, FunctionEventHandler, get_global_event_bus
+from automataii.infrastructure.events.event_bus import (
+    EventBus,
+    FunctionEventHandler,
+    get_global_event_bus,
+)
 from automataii.infrastructure.events.types import (
     AsyncEventCallback,
     EventCallback,

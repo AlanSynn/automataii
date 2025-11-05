@@ -154,9 +154,13 @@ class MechanismLifecycleCoordinator:
             return False
 
         try:
+            # Capture callback references for closure (enables mypy type narrowing)
+            calculate_output = self._calculate_output_fn
+            get_target_joint = self._get_target_joint_fn
+
             # Create callback for mechanism output calculation
             def mechanism_joint_callback(time: float) -> Any:
-                return self._calculate_output_fn(
+                return calculate_output(
                     layer_data.get("type"),
                     layer_data.get("params", {}),
                     time,
@@ -171,7 +175,7 @@ class MechanismLifecycleCoordinator:
 
             # Get target joint for this part
             part_name = layer_data.get("part_name", "")
-            target_joint = self._get_target_joint_fn(part_name, joint_id)
+            target_joint = get_target_joint(part_name, joint_id)
 
             # Register position target
             if hasattr(ik_manager, 'register_mechanism_position_target'):

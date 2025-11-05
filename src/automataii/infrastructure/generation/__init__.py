@@ -17,6 +17,11 @@ from automataii.infrastructure.generation.mechanism import (
     Linkage,
 )
 
+# Import processors
+from automataii.infrastructure.generation.processors import (
+    PNGBlueprintProcessor,
+)
+
 # Import SVG generators
 from automataii.infrastructure.generation.svg import (
     CamSVGGenerator,
@@ -26,14 +31,9 @@ from automataii.infrastructure.generation.svg import (
 
 # Import blueprint functions
 from automataii.infrastructure.generation.svg.blueprint import (
-    generate_single_large_blueprint,
     generate_detailed_part_content,
+    generate_single_large_blueprint,
     get_timestamp,
-)
-
-# Import processors
-from automataii.infrastructure.generation.processors import (
-    PNGBlueprintProcessor,
 )
 
 __all__ = [
