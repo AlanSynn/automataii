@@ -5,11 +5,11 @@ from dataclasses import dataclass
 
 from automataii.domain.mechanisms.core.protocols import Mechanism
 from automataii.domain.mechanisms.core.state import MechanismState, SafetyLevel, SafetyStatus
+from automataii.domain.mechanisms.linkage.config import LinkageConfig, LinkageType
 from automataii.domain.mechanisms.linkages.fivebar.compute import (
     FiveBarMechanism,
     FiveBarParameters,
 )
-from automataii.domain.mechanisms.linkage.config import LinkageConfig, LinkageType
 
 
 @dataclass(frozen=True)
