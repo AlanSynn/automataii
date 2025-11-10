@@ -36,10 +36,14 @@ class BlueprintGenerator:
         """Initialize blueprint generator."""
         self.mechanism_type = mechanism_type
         self.views: list[ViewPort] = []
+        self.viewports: dict[str, ViewPort] = {}  # Named viewport access
         self.svg_elements: list[str] = []
         self.dimensions: list[str] = []
         self.annotations: list[str] = []
         self.title_block: dict[str, str] = {}
+        # Drawing dimensions (A3 landscape)
+        self.drawing_width: float = 420.0
+        self.drawing_height: float = 297.0
 
     def generate_blueprint(self, mechanism_data: dict[str, Any]) -> str:
         """
@@ -81,41 +85,52 @@ class BlueprintGenerator:
     def _setup_layout(self):
         """Setup standard drawing layout with viewports."""
         # A3 landscape layout (420mm x 297mm)
-        drawing_width = 420
-        drawing_height = 297
         margin = 10
 
         # Define viewports for different views
-        self.views = [
-            ViewPort(
-                x=margin,
-                y=margin,
-                width=(drawing_width - 3*margin) / 2,
-                height=(drawing_height - 3*margin) / 2,
-                label="FRONT VIEW"
-            ),
-            ViewPort(
-                x=(drawing_width + margin) / 2,
-                y=margin,
-                width=(drawing_width - 3*margin) / 2,
-                height=(drawing_height - 3*margin) / 2,
-                label="TOP VIEW"
-            ),
-            ViewPort(
-                x=margin,
-                y=(drawing_height + margin) / 2,
-                width=(drawing_width - 3*margin) / 2,
-                height=(drawing_height - 3*margin) / 2,
-                label="SIDE VIEW"
-            ),
-            ViewPort(
-                x=(drawing_width + margin) / 2,
-                y=(drawing_height + margin) / 2,
-                width=(drawing_width - 3*margin) / 2,
-                height=(drawing_height - 3*margin) / 2,
-                label="ISOMETRIC VIEW"
-            )
-        ]
+        front_view = ViewPort(
+            x=margin,
+            y=margin,
+            width=(self.drawing_width - 3*margin) / 2,
+            height=(self.drawing_height - 3*margin) / 2,
+            scale=1.0,
+            label="FRONT VIEW"
+        )
+        top_view = ViewPort(
+            x=(self.drawing_width + margin) / 2,
+            y=margin,
+            width=(self.drawing_width - 3*margin) / 2,
+            height=(self.drawing_height - 3*margin) / 2,
+            scale=1.0,
+            label="TOP VIEW"
+        )
+        side_view = ViewPort(
+            x=margin,
+            y=(self.drawing_height + margin) / 2,
+            width=(self.drawing_width - 3*margin) / 2,
+            height=(self.drawing_height - 3*margin) / 2,
+            scale=1.0,
+            label="SIDE VIEW"
+        )
+        isometric_view = ViewPort(
+            x=(self.drawing_width + margin) / 2,
+            y=(self.drawing_height + margin) / 2,
+            width=(self.drawing_width - 3*margin) / 2,
+            height=(self.drawing_height - 3*margin) / 2,
+            scale=1.0,
+            label="ISOMETRIC VIEW"
+        )
+
+        # List-based access (for backward compatibility)
+        self.views = [front_view, top_view, side_view, isometric_view]
+
+        # Named access (for convenience)
+        self.viewports = {
+            'front': front_view,
+            'top': top_view,
+            'side': side_view,
+            'isometric': isometric_view
+        }
 
     def _add_title_block(self, mechanism_data: dict[str, Any]):
         """Add standard title block with drawing information."""
@@ -285,6 +300,15 @@ class BlueprintGenerator:
         svg += '</svg>'
 
         return svg
+
+    def _add_dimension_line(self, x1: float, y1: float, x2: float, y2: float,
+                            value: str, offset: float = 10) -> None:
+        """Add a dimension line directly to svg_elements.
+
+        Convenience method for child classes.
+        """
+        dimension_svg = self.create_dimension_line(x1, y1, x2, y2, value, offset)
+        self.svg_elements.append(dimension_svg)
 
     def create_dimension_line(self, x1: float, y1: float, x2: float, y2: float,
                             value: str, offset: float = 10) -> str:

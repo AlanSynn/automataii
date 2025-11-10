@@ -14,8 +14,8 @@ from automataii.application.mechanism_foundry import (
     MechanismFoundryController,
     MechanismItem,
 )
-from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
 from automataii.domain.generation.layout import ScaledBounds
+from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
 
 # ---------------------------------------------------------------------------
 # Scenario-specific optimizer & layout helpers

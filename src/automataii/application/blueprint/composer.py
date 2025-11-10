@@ -6,9 +6,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from automataii.infrastructure.telemetry import telemetry_span
 from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
 from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
+from automataii.infrastructure.telemetry import telemetry_span
 
 
 @dataclass(frozen=True)
