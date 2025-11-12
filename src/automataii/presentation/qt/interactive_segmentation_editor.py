@@ -1,4 +1,5 @@
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ from PyQt6.QtWidgets import (
 )
 
 from automataii.domain.animation.part_definitions import BODY_PARTS
+
+logger = logging.getLogger(__name__)
 
 
 class ClickableGraphicsView(QGraphicsView):
@@ -156,7 +159,7 @@ class InteractiveSegmentationEditor(QDialog):
         self.segmentation_results = {}  # Final results
 
         # Load and process image
-        print(f"Attempting to load image from: {image_path}")
+        logger.info("Attempting to load image from: %s", image_path)
 
         # Try different image loading approaches
         self.original_image = None
@@ -165,18 +168,18 @@ class InteractiveSegmentationEditor(QDialog):
         try:
             self.original_image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
             if self.original_image is not None:
-                print(f"Successfully loaded image with IMREAD_UNCHANGED: shape {self.original_image.shape}")
+                logger.debug("Successfully loaded image with IMREAD_UNCHANGED: shape %s", self.original_image.shape)
         except Exception as e:
-            print(f"IMREAD_UNCHANGED failed: {e}")
+            logger.debug("IMREAD_UNCHANGED failed: %s", e)
 
         # Method 2: If that fails, try IMREAD_COLOR
         if self.original_image is None:
             try:
                 self.original_image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
                 if self.original_image is not None:
-                    print(f"Successfully loaded image with IMREAD_COLOR: shape {self.original_image.shape}")
+                    logger.debug("Successfully loaded image with IMREAD_COLOR: shape %s", self.original_image.shape)
             except Exception as e:
-                print(f"IMREAD_COLOR failed: {e}")
+                logger.debug("IMREAD_COLOR failed: %s", e)
 
         # Method 3: If that fails, try using PIL as fallback
         if self.original_image is None:
@@ -185,7 +188,7 @@ class InteractiveSegmentationEditor(QDialog):
                 from PIL import Image
 
                 pil_image = Image.open(str(image_path))
-                print(f"PIL loaded image: mode={pil_image.mode}, size={pil_image.size}")
+                logger.debug("PIL loaded image: mode=%s, size=%s", pil_image.mode, pil_image.size)
 
                 # Convert PIL to OpenCV format
                 if pil_image.mode == 'RGBA':
@@ -200,16 +203,16 @@ class InteractiveSegmentationEditor(QDialog):
                     self.original_image = cv2.cvtColor(np.array(rgb_image), cv2.COLOR_RGB2BGR)
 
                 if self.original_image is not None:
-                    print(f"Successfully loaded image with PIL fallback: shape {self.original_image.shape}")
+                    logger.debug("Successfully loaded image with PIL fallback: shape %s", self.original_image.shape)
 
             except Exception as e:
-                print(f"PIL fallback failed: {e}")
+                logger.debug("PIL fallback failed: %s", e)
 
         if self.original_image is None:
             raise ValueError(f"Could not load image from any method: {image_path}")
 
         self.height, self.width = self.original_image.shape[:2]
-        print(f"Final image dimensions: {self.width}x{self.height}")
+        logger.debug("Final image dimensions: %sx%s", self.width, self.height)
 
         # Initialize boundary points for all parts
         for part_name in BODY_PARTS.keys():
@@ -410,9 +413,9 @@ class InteractiveSegmentationEditor(QDialog):
 
     def _load_image(self):
         """Load image into the graphics view"""
-        print(f"Loading image: {self.image_path}")
-        print(f"Image shape: {self.original_image.shape}")
-        print(f"Image type: {self.original_image.dtype}")
+        logger.debug("Loading image: %s", self.image_path)
+        logger.debug("Image shape: %s", self.original_image.shape)
+        logger.debug("Image type: %s", self.original_image.dtype)
 
         # Convert OpenCV image (BGR) to RGB for proper Qt display
         if len(self.original_image.shape) == 3:
@@ -435,7 +438,7 @@ class InteractiveSegmentationEditor(QDialog):
             q_image = QImage(self.original_image.data, width, height, bytes_per_line, QImage.Format.Format_Grayscale8)
 
         pixmap = QPixmap.fromImage(q_image)
-        print(f"Pixmap created: {pixmap.width()}x{pixmap.height()}")
+        logger.debug("Pixmap created: %sx%s", pixmap.width(), pixmap.height())
 
         # Add to scene
         self.pixmap_item = QGraphicsPixmapItem(pixmap)
@@ -447,7 +450,7 @@ class InteractiveSegmentationEditor(QDialog):
         # Fit image in view
         self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
-        print("Image loaded successfully into view")
+        logger.debug("Image loaded successfully into view")
 
     def _draw_skeleton(self):
         """Draw skeleton joints on the image"""

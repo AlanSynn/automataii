@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import os
 import random
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,8 @@ from scipy.spatial.distance import cdist
 from automataii.domain.animation.body_parts_animation import animate_body_part, save_animation
 from automataii.domain.animation.part_definitions import BODY_PARTS
 from automataii.domain.animation.templates import HTML_VIEWER_TEMPLATE, PART_CARD_TEMPLATE
+
+logger = logging.getLogger(__name__)
 
 
 class FastSkeletonSegmenter:
@@ -583,7 +586,7 @@ class BodyPartsExtractor:
 
         start_time = time.time()
         self.part_masks = self._segment_body_parts()
-        print(f"Segmentation took {time.time() - start_time:.2f} seconds")
+        logger.info(f"Segmentation took {time.time() - start_time:.2f} seconds")
 
         if not self.part_masks:
             return

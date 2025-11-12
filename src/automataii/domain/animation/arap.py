@@ -324,7 +324,6 @@ class ARAP:
             # point is outside mesh. Log a warning and continue
             if not len(containing_t_idxs):
                 msg = f"point {p_xy} not inside or on edge of any triangle in mesh. Skipping it"
-                print(msg)
                 logging.warning(msg)
                 pin_mask.append(False)
                 continue
