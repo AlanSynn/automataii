@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 
+import logging
 
 import cv2
 import numpy as np
 
 from automataii.domain.animation.arap import ARAP
+
+logger = logging.getLogger(__name__)
 
 
 def deform_body_part(part_image, part_mask, control_points, target_points):
@@ -124,7 +127,7 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
         deformed_vertices = arap.solve(np_target_points)
     except Exception as e:
         # ARAP 계산 실패 시 원본 이미지 반환
-        print(f"ARAP 변형 계산 실패: {e}")
+        logger.error(f"ARAP 변형 계산 실패: {e}")
         return part_image
 
     # 변형 맵 생성
@@ -184,7 +187,7 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
         deformed_image = cv2.remap(part_image, map_x, map_y, cv2.INTER_LINEAR)
         return deformed_image
     except Exception as e:
-        print(f"변형 맵 계산 실패: {e}")
+        logger.error(f"변형 맵 계산 실패: {e}")
         return part_image
 
 
@@ -208,7 +211,7 @@ def animate_body_part(
     keyframe_count = len(animation_keyframes)
 
     if keyframe_count < 2:
-        print("애니메이션을 위해서는 최소 2개의 키프레임이 필요합니다.")
+        logger.warning("애니메이션을 위해서는 최소 2개의 키프레임이 필요합니다.")
         return [part_image]
 
     # 각 키프레임 쌍에 대해 보간된 프레임 생성
@@ -225,7 +228,7 @@ def animate_body_part(
                     )
                 )
             except Exception as e:
-                print(f"시작 프레임 생성 실패: {e}")
+                logger.error(f"시작 프레임 생성 실패: {e}")
                 frames.append(part_image)
 
         # 키프레임 사이의 보간된 프레임 생성
@@ -251,7 +254,7 @@ def animate_body_part(
                 )
                 frames.append(deformed_frame)
             except Exception as e:
-                print(f"보간 프레임 생성 실패: {e}")
+                logger.error(f"보간 프레임 생성 실패: {e}")
                 frames.append(part_image)
 
         # 마지막 키프레임만 추가 (마지막 반복에서)
@@ -263,7 +266,7 @@ def animate_body_part(
                     )
                 )
             except Exception as e:
-                print(f"마지막 프레임 생성 실패: {e}")
+                logger.error(f"마지막 프레임 생성 실패: {e}")
                 frames.append(part_image)
 
     return frames
@@ -279,7 +282,7 @@ def save_animation(frames, output_path, fps=24):
         fps: 초당 프레임 수
     """
     if not frames:
-        print("저장할 프레임이 없습니다.")
+        logger.warning("저장할 프레임이 없습니다.")
         return False
 
     if output_path.endswith(".gif"):
@@ -299,7 +302,7 @@ def save_animation(frames, output_path, fps=24):
                 rgb_frames.append(frame[:, :, :3])
 
         imageio.mimsave(output_path, rgb_frames, fps=fps)
-        print(f"GIF 저장 완료: {output_path}")
+        logger.info(f"GIF 저장 완료: {output_path}")
         return True
 
     elif output_path.endswith(".mp4"):
@@ -320,9 +323,9 @@ def save_animation(frames, output_path, fps=24):
                 video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 
         video.release()
-        print(f"비디오 저장 완료: {output_path}")
+        logger.info(f"비디오 저장 완료: {output_path}")
         return True
 
     else:
-        print(f"지원되지 않는 파일 형식: {output_path}")
+        logger.error(f"지원되지 않는 파일 형식: {output_path}")
         return False

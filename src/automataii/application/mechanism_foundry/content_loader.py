@@ -1,7 +1,10 @@
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -52,7 +55,7 @@ class ContentLoader:
             return content
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            print(f"Error loading content for {mechanism_type}: {e}")
+            logger.error(f"Error loading content for {mechanism_type}: {e}")
             return self._create_default_content(mechanism_type)
 
     def _parse_content(self, data: dict[str, Any]) -> MechanismContent:

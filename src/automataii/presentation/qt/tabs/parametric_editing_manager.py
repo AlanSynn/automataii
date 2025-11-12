@@ -128,8 +128,8 @@ class ParametricEditingManager:
         Args:
             enabled: Explicit enable/disable, or None to toggle current state
         """
-        print(
-            f"🔧 ParametricEditingManager: toggle_parametric_mode called with enabled={enabled}"
+        self._logger.debug(
+            "ParametricEditingManager: toggle_parametric_mode called with enabled=%s", enabled
         )
 
         try:
@@ -138,22 +138,22 @@ class ParametricEditingManager:
             parent_module = sys.modules[self.parent_tab.__class__.__module__]
             PARAMETRIC_AVAILABLE = getattr(parent_module, "PARAMETRIC_AVAILABLE", False)
             if not PARAMETRIC_AVAILABLE:
-                print("❌ Parametric functionality not available")
+                self._logger.warning("Parametric functionality not available")
                 return
         except Exception as e:
-            print(f"❌ Error checking parametric availability: {e}")
+            self._logger.error("Error checking parametric availability: %s", e)
             return
 
-        print(
-            f"🔧 parametric_editor exists: {self.parent_tab.parametric_editor is not None}"
+        self._logger.debug(
+            "parametric_editor exists: %s", self.parent_tab.parametric_editor is not None
         )
         if not self.parent_tab.parametric_editor:
             try:
                 self._initialize_parametric_system()
             except Exception as e:
-                print(f"❌ Lazy init failed: {e}")
+                self._logger.error("Lazy init failed: %s", e)
             if not self.parent_tab.parametric_editor:
-                print("❌ No parametric editor available after init")
+                self._logger.warning("No parametric editor available after init")
                 try:
                     from PyQt6.QtWidgets import QMessageBox
 
@@ -167,12 +167,12 @@ class ParametricEditingManager:
         if enabled is None:
             enabled = not self.parametric_mode_enabled
 
-        print(f"🔧 Current parametric_mode_enabled: {self.parametric_mode_enabled}")
-        print(f"🔧 Setting parametric mode to: {enabled}")
-        print(f"🔧 Mechanism layers count: {len(self.parent_tab.mechanism_layers)}")
+        self._logger.debug("Current parametric_mode_enabled: %s", self.parametric_mode_enabled)
+        self._logger.debug("Setting parametric mode to: %s", enabled)
+        self._logger.debug("Mechanism layers count: %s", len(self.parent_tab.mechanism_layers))
 
         if enabled and not self.parent_tab.mechanism_layers:
-            print("ℹ️  No mechanisms available for parametric editing")
+            self._logger.info("No mechanisms available for parametric editing")
             if hasattr(self.parent_tab, "main_window"):
                 from PyQt6.QtWidgets import QMessageBox
 
@@ -202,23 +202,23 @@ class ParametricEditingManager:
             if hasattr(self, "_animation_state_before_parametric"):
                 delattr(self, "_animation_state_before_parametric")
 
-        print(f"🔧 Setting parametric_mode_enabled to: {enabled}")
+        self._logger.debug("Setting parametric_mode_enabled to: %s", enabled)
         self.parametric_mode_enabled = enabled
 
         if enabled:
-            print("🔧 Enabling parametric mode...")
+            self._logger.debug("Enabling parametric mode...")
             self._enable_parametric_mode()
         else:
-            print("🔧 Disabling parametric mode...")
+            self._logger.debug("Disabling parametric mode...")
             self._disable_parametric_mode()
 
             if should_restore_animation:
                 QTimer.singleShot(100, self.parent_tab._on_start_animation)
 
-        print("🔧 Updating UI state...")
+        self._logger.debug("Updating UI state...")
         self.parent_tab.ui_state_manager.set_parametric_mode(enabled)
         self.parent_tab._update_all_ui_states()
-        print("✅ toggle_parametric_mode completed")
+        self._logger.debug("toggle_parametric_mode completed")
 
     def _enable_parametric_mode(self) -> None:
         """Enable parametric editing mode - show interactive handles."""
@@ -259,8 +259,8 @@ class ParametricEditingManager:
                 except Exception as e:
                     import traceback
 
-                    print(f"Error creating parametric editor for {mechanism_id}: {e}")
-                    print(traceback.format_exc())
+                    self._logger.error("Error creating parametric editor for %s: %s", mechanism_id, e)
+                    self._logger.debug(traceback.format_exc())
 
             self.parent_tab.parametric_editor.enable_editing()
             self._set_active_editor_from_selection()
@@ -278,8 +278,8 @@ class ParametricEditingManager:
         except Exception as e:
             import traceback
 
-            print(f"Error enabling parametric mode: {e}")
-            print(traceback.format_exc())
+            self._logger.error("Error enabling parametric mode: %s", e)
+            self._logger.debug(traceback.format_exc())
 
     def _set_active_editor_from_selection(self) -> None:
         """Set active editor based on currently selected part in the UI."""
@@ -321,8 +321,8 @@ class ParametricEditingManager:
         except Exception as e:
             import traceback
 
-            print(f"Error disabling parametric mode: {e}")
-            print(traceback.format_exc())
+            self._logger.error("Error disabling parametric mode: %s", e)
+            self._logger.debug(traceback.format_exc())
 
     def _disable_mechanism_visual_interaction(self) -> None:
         """Disable mechanism visual interaction to allow handle interaction."""
@@ -337,7 +337,7 @@ class ParametricEditingManager:
                             item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, False)
                             item.setFlag(item.GraphicsItemFlag.ItemIsMovable, False)
         except Exception as e:
-            print(f"Error disabling mechanism visual interaction: {e}")
+            self._logger.error("Error disabling mechanism visual interaction: %s", e)
 
     def _enable_mechanism_visual_interaction(self) -> None:
         """Re-enable mechanism visual interaction."""
@@ -352,7 +352,7 @@ class ParametricEditingManager:
                             item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, True)
                             item.setFlag(item.GraphicsItemFlag.ItemIsMovable, True)
         except Exception as e:
-            print(f"Error enabling mechanism visual interaction: {e}")
+            self._logger.error("Error enabling mechanism visual interaction: %s", e)
 
     @pyqtSlot(str, dict)
     def _on_parametric_mechanism_update(
@@ -383,11 +383,17 @@ class ParametricEditingManager:
             self._regenerate_mechanism_simulation(mechanism_id, layer_data)
             self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
 
+            # Emit signal to propagate changes to StateManager (for undo/redo)
+            if hasattr(self.parent_tab, 'mechanism_parameters_changed'):
+                self.parent_tab.mechanism_parameters_changed.emit(
+                    mechanism_id, dict(layer_data.get("params", {}))
+                )
+
         except Exception as e:
             import traceback
 
-            print(f"Error handling parametric mechanism update: {e}")
-            print(traceback.format_exc())
+            self._logger.error("Error handling parametric mechanism update: %s", e)
+            self._logger.debug(traceback.format_exc())
 
     @pyqtSlot(str)
     def _on_parametric_visual_refresh(self, mechanism_id: str) -> None:
@@ -402,8 +408,8 @@ class ParametricEditingManager:
         except Exception as e:
             import traceback
 
-            print(f"Error handling parametric visual refresh: {e}")
-            print(traceback.format_exc())
+            self._logger.error("Error handling parametric visual refresh: %s", e)
+            self._logger.debug(traceback.format_exc())
 
     def _regenerate_mechanism_simulation(
         self, mechanism_id: str, layer_data: dict[str, Any]
@@ -429,7 +435,7 @@ class ParametricEditingManager:
                 self._regenerate_planetary_gear_simulation(layer_data, params)
 
         except Exception as e:
-            print(f"Error regenerating mechanism simulation: {e}")
+            self._logger.error("Error regenerating mechanism simulation: %s", e)
 
     def _enforce_grashof_and_snap(self, layer_data: dict[str, Any]) -> bool:
         """Enforce Grashof condition with minimal snapping."""
@@ -1017,7 +1023,7 @@ class ParametricEditingManager:
                 self.parent_tab._on_start_animation()
 
         except Exception as e:
-            print(f"Error updating mechanism visuals: {e}")
+            self._logger.error("Error updating mechanism visuals: %s", e)
 
     def _is_item_valid(self, item: Any) -> bool:
         """Check if a graphics item is valid and not deleted."""
@@ -1058,7 +1064,7 @@ class ParametricEditingManager:
             ):
                 new_items = vf.create_planetary_gear_visuals(layer_data, transform_func)
         except Exception as e:
-            print(f"Error creating visuals for {mechanism_type}: {e}")
+            self._logger.error("Error creating visuals for %s: %s", mechanism_type, e)
 
         return new_items
 
@@ -1072,7 +1078,7 @@ class ParametricEditingManager:
                     mechanism_id, layer_data
                 )
         except Exception as e:
-            print(f"Error updating handle positions for mechanism {mechanism_id}: {e}")
+            self._logger.error("Error updating handle positions for mechanism %s: %s", mechanism_id, e)
 
     def is_parametric_mode_enabled(self) -> bool:
         """Check if parametric mode is currently enabled."""
@@ -1088,4 +1094,4 @@ class ParametricEditingManager:
                 delattr(self, "_animation_state_before_parametric")
 
         except Exception as e:
-            print(f"Error during parametric editing manager cleanup: {e}")
+            self._logger.error("Error during parametric editing manager cleanup: %s", e)

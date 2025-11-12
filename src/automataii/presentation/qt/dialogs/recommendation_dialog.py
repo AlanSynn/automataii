@@ -1,4 +1,5 @@
 import json  # Add json import
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ from scipy.spatial.distance import directed_hausdorff  # Add scipy import
 
 from automataii.utils.paths import resolve_path
 
+logger = logging.getLogger(__name__)
 
 # --- Time-aware matching helpers ---
 def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
@@ -160,10 +162,10 @@ def calculate_hausdorff_distance(
     try:
         # Ensure both paths have 2D coordinates
         if len(path1_points.shape) != 2 or path1_points.shape[1] != 2:
-            print(f"Warning: path1 has invalid shape {path1_points.shape}")
+            logger.warning("path1 has invalid shape %s", path1_points.shape)
             return float("inf")
         if len(path2_points.shape) != 2 or path2_points.shape[1] != 2:
-            print(f"Warning: path2 has invalid shape {path2_points.shape}")
+            logger.warning("path2 has invalid shape %s", path2_points.shape)
             return float("inf")
 
         # Calculate bidirectional Hausdorff distance
@@ -173,7 +175,7 @@ def calculate_hausdorff_distance(
 
         return distance
     except Exception as e:
-        print(f"Error calculating Hausdorff distance: {e}")
+        logger.error("Error calculating Hausdorff distance: %s", e)
         return float("inf")
 
 
@@ -283,7 +285,7 @@ class MechanismPreviewWidget(QGraphicsView):
         mech_path_points = self.mechanism_data.get("mech_path_aligned_np")
 
         if user_path_points is None or mech_path_points is None:
-            print("Debug: Aligned paths not found for preview.")
+            logger.debug("Aligned paths not found for preview.")
             text_item = self.scene.addText(
                 "Path data not available", QFont("Arial", 14)
             )
@@ -787,6 +789,8 @@ class PreviewContainer(QWidget):
         """)
         layout.addWidget(match_label)
 
+        logger.debug("PreviewContainer: overall_score = %s", score)
+
         select_button = QPushButton("Apply this")
         select_button.setFixedSize(140, 40)
         select_button.setStyleSheet("""
@@ -832,7 +836,6 @@ class PreviewContainer(QWidget):
                     border: 3px solid #3498db;
                     border-radius: 8px;
                     background-color: #ffffff;
-                    box-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
                 }
             """)
             self.setStyleSheet("""
@@ -878,7 +881,7 @@ class MechanismRecommendationDialog(QDialog):
 
         self.generated_paths_filepath = generated_paths_filepath
         self.generated_paths_data = self._load_generated_paths(generated_paths_filepath)
-        print(f"Debug: Loaded {len(self.generated_paths_data)} mechanism paths from JSON")
+        logger.debug("Loaded %s mechanism paths from JSON", len(self.generated_paths_data))
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -1046,20 +1049,22 @@ class MechanismRecommendationDialog(QDialog):
                         item["path_coordinates_np"] = np.array(path_coords, dtype=float)
                         loaded_paths.append(item)
                     except ValueError as e:
-                        print(
-                            f"Warning: Could not convert path_coordinates to numpy array for item: {item.get('type', 'N/A')}. Error: {e}"
+                        logger.warning(
+                            "Could not convert path_coordinates to numpy array for item: %s. Error: %s",
+                            item.get('type', 'N/A'), e
                         )
                 else:
-                    print(
-                        f"Warning: Missing or invalid 'path_coordinates' for item: {item.get('type', 'N/A')}"
+                    logger.warning(
+                        "Missing or invalid 'path_coordinates' for item: %s",
+                        item.get('type', 'N/A')
                     )
 
         except FileNotFoundError:
-            print(f"Error: Generated paths file not found at {filepath}")
+            logger.error("Generated paths file not found at %s", filepath)
         except json.JSONDecodeError:
-            print(f"Error: Could not decode JSON from {filepath}")
+            logger.error("Could not decode JSON from %s", filepath)
         except Exception as e:
-            print(f"An unexpected error occurred while loading generated paths: {e}")
+            logger.error("An unexpected error occurred while loading generated paths: %s", e)
         return loaded_paths
 
     def _get_best_recommendations(self) -> list[dict[str, Any] | None]:
@@ -1068,14 +1073,14 @@ class MechanismRecommendationDialog(QDialog):
         Families: Four-Bar Linkage, Cam & Follower, Gears (includes Planetary).
         """
         if self.user_motion_path_np is None:
-            print("Error: User motion path is not processed or no generated paths loaded.")
+            logger.error("User motion path is not processed or no generated paths loaded.")
             return []
         if not self.generated_paths_data:
-            print("Error: No generated paths loaded.")
+            logger.error("No generated paths loaded.")
             return []
 
-        print(f"Debug: User path has {len(self.user_motion_path_np)} points")
-        print(f"Debug: Total mechanisms in database: {len(self.generated_paths_data)}")
+        logger.debug("User path has %s points", len(self.user_motion_path_np))
+        logger.debug("Total mechanisms in database: %s", len(self.generated_paths_data))
 
         type_mapping = {
             "4-bar Coupler": "Four-Bar Linkage",
@@ -1115,8 +1120,8 @@ class MechanismRecommendationDialog(QDialog):
                 continue
 
             if total_comparisons <= 5:
-                print(
-                    f"Debug sample {total_comparisons}: {json_type_str} - distance: {distance:.2f}"
+                logger.debug(
+                    "sample %s: %s - distance: %.2f", total_comparisons, json_type_str, distance
                 )
 
             family = type_mapping.get(json_type_str, None)
@@ -1173,8 +1178,8 @@ class MechanismRecommendationDialog(QDialog):
             if family not in best_by_family or preview_data["overall_score"] < best_by_family[family]["overall_score"]:
                 best_by_family[family] = preview_data
 
-        print(f"Debug: Made {total_comparisons} path comparisons")
-        print(f"Debug: Families found: {list(best_by_family.keys())}")
+        logger.debug("Made %s path comparisons", total_comparisons)
+        logger.debug("Families found: %s", list(best_by_family.keys()))
 
         # Return exactly one per family in fixed order
         families_order = ["Four-Bar Linkage", "Cam & Follower", "Gears"]
@@ -1184,12 +1189,13 @@ class MechanismRecommendationDialog(QDialog):
 
         for i, mech in enumerate(results):
             if mech:
-                print(
-                    f"Debug: Recommendation {i+1}: {mech['type']} - {mech['name']} "
-                    f"(time_score: {mech['scores']['time_aware']:.2f}, shape_score: {mech['scores']['shape_only']:.2f})"
+                logger.debug(
+                    "Recommendation %s: %s - %s (time_score: %.2f, shape_score: %.2f)",
+                    i+1, mech['type'], mech['name'],
+                    mech['scores']['time_aware'], mech['scores']['shape_only']
                 )
             else:
-                print(f"Debug: Recommendation {i+1}: None (no candidate in family)")
+                logger.debug("Recommendation %s: None (no candidate in family)", i+1)
 
         return results
 
