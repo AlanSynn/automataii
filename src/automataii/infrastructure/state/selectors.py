@@ -90,7 +90,8 @@ class Selector(Generic[T, R]):
         """Check if two states are equal."""
         try:
             return state1 == state2
-        except:
+        except (TypeError, ValueError, AttributeError):
+            # Fallback to string comparison for non-comparable types
             return str(state1) == str(state2)
 
     def clear_cache(self) -> None:

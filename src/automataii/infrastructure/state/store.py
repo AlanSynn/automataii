@@ -117,10 +117,10 @@ class StateStore(Generic[StateType]):
         with self._lock:
             self._subscribers.add(subscriber)
 
-            def unsubscribe():
+            def unsubscribe() -> None:
                 try:
                     self._subscribers.discard(subscriber)
-                except:
+                except (KeyError, ReferenceError):
                     pass  # Already removed or weakref expired
 
             return unsubscribe

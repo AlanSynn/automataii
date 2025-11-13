@@ -275,7 +275,7 @@ class BodyPartsExtractor:
         try:
             with open(config_path) as f:
                 return yaml.safe_load(f)
-        except:
+        except (OSError, yaml.YAMLError):
             return None
 
     def _create_joint_map(self, skeleton_data: Any) -> dict[str, tuple[int, int]]:
