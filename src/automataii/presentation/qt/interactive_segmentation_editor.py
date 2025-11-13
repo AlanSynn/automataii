@@ -602,8 +602,8 @@ class InteractiveSegmentationEditor(QDialog):
             }
             with open(auto_save_path, 'w') as f:
                 json.dump(save_data, f, indent=4)
-        except:
-            pass  # Ignore auto-save errors
+        except (OSError, TypeError, ValueError):
+            pass  # Ignore auto-save errors (file access, JSON serialization)
 
     def get_segmentation_results(self) -> dict[str, np.ndarray]:
         """Get final segmentation results"""

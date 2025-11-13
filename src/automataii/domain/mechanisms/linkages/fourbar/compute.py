@@ -299,7 +299,8 @@ class FourBarMechanism(Mechanism):
                         if 20 <= transmission_angle <= 160
                         else "critical"
                     )
-                except:
+                except (ValueError, ZeroDivisionError):
+                    # Math domain error or division by zero
                     transmission_angle = 90
                     transmission_quality = "unknown"
             else:

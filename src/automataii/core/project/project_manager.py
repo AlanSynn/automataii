@@ -309,8 +309,8 @@ class ProjectManager(Injectable):
             for old_backup in auto_saves[5:]:
                 try:
                     old_backup.unlink()
-                except:
-                    pass
+                except OSError as e:
+                    self._logger.debug(f"Failed to delete old backup {old_backup}: {e}")
 
             return backup_path
 

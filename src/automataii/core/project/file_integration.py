@@ -176,7 +176,7 @@ class FileIntegration(Injectable):
         try:
             # Try to load a font
             font = ImageFont.truetype("arial.ttf", 16)
-        except:
+        except (OSError, IOError):
             font = ImageFont.load_default()
 
         text = project.name or "Automataii Project"

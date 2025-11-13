@@ -82,13 +82,13 @@ class AutoUpdater:
 
             # Setup cleanup on app quit
             if self.app_instance:
-                def cleanup_sparkle():
+                def cleanup_sparkle() -> None:
                     try:
                         if self.updater:
                             # Sparkle cleanup is automatic
                             pass
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Sparkle cleanup: {e}")
 
                 self.app_instance.aboutToQuit.connect(cleanup_sparkle)
 
@@ -152,11 +152,11 @@ class AutoUpdater:
 
             # Setup cleanup
             if self.app_instance:
-                def cleanup_winsparkle():
+                def cleanup_winsparkle() -> None:
                     try:
                         winsparkle.win_sparkle_cleanup()
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"WinSparkle cleanup: {e}")
 
                 self.app_instance.aboutToQuit.connect(cleanup_winsparkle)
 
