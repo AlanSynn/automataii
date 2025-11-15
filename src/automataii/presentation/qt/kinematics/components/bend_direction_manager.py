@@ -8,7 +8,6 @@ This is a presentation-layer component due to Qt type dependencies (QPointF).
 """
 
 import logging
-import math
 from typing import Any, Protocol
 
 from PyQt6.QtCore import QPointF

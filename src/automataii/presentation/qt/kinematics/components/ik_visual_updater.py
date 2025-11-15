@@ -10,8 +10,9 @@ Design Pattern: Updater (compute visual state from IK state)
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from PyQt6.QtCore import QPointF
 
