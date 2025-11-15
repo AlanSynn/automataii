@@ -23,27 +23,24 @@ import numpy as np
 from PyQt6.QtCore import QElapsedTimer, QLineF, QObject, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainterPath
 
-from automataii.presentation.qt.models import PartInfo
-from automataii.domain.skeleton import (
-    StandardizedJointModel,
-    StandardizedSkeletonModel,
-)
-
 # Domain components (pure logic, no Qt dependency)
 from automataii.domain.kinematics import (
     IK_JOINT_TO_SOURCE_NAME,
     IK_PART_TO_ACTUAL_PART,
     IKAnimationController,
-    IKSolverCore,
+)
+from automataii.domain.skeleton import (
+    StandardizedJointModel,
+    StandardizedSkeletonModel,
 )
 
 # Presentation components (Qt-coupled)
 from automataii.presentation.qt.kinematics.components import (
     BendDirectionManager,
     IKPathHandler,
-    IKVisualUpdater,
     TwoBoneIKSolver,
 )
+from automataii.presentation.qt.models import PartInfo
 
 from ..graphics_items.part_item import CharacterPartItem
 
@@ -84,7 +81,6 @@ class IKManager(QObject):
 
         # --- Extracted Components (SRP) ---
         self._path_handler = IKPathHandler()
-        self._visual_updater = IKVisualUpdater()
         self._two_bone_solver = TwoBoneIKSolver()
         self._bend_direction_manager = BendDirectionManager()
 
@@ -116,7 +112,6 @@ class IKManager(QObject):
         self._init_attempts = 0
 
         # Extracted components (god class decomposition)
-        self._ik_solver = IKSolverCore()
         self._animation_controller = IKAnimationController()
         self._animation_controller.duration_ms = self.animation_duration
 
@@ -166,20 +161,7 @@ class IKManager(QObject):
 
     def _apply_timing_curve(self, t: float) -> float:
         """Apply timing curve. Delegates to IKAnimationController."""
-        if hasattr(self, '_animation_controller'):
-            return self._animation_controller.apply_timing(max(0.0, min(1.0, t)))
-        # Fallback for backwards compatibility
-        try:
-            tt = max(0.0, min(1.0, t))
-            if self._timing_profile == "ease_in":
-                return tt * tt * tt
-            elif self._timing_profile == "ease_out":
-                return 1.0 - (1.0 - tt) ** 3
-            elif self._timing_profile == "ease_in_out":
-                return (3 * tt * tt) - (2 * tt * tt * tt)
-            return tt
-        except Exception:
-            return max(0.0, min(1.0, t))
+        return self._animation_controller.apply_timing(max(0.0, min(1.0, t)))
 
     def set_skeleton_manager(self, skeleton_manager_instance: Optional["SkeletonManager"]):
         if self.skeleton_manager_ref:
