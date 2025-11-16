@@ -8,6 +8,7 @@ NO Qt dependencies allowed in this module.
 from automataii.domain.project.models import (
     CharacterDataModel,
     MotionPathDataModel,
+    Part,
     PartInfoModel,
     Point2DModel,
     ProjectFileModel,
@@ -16,6 +17,7 @@ from automataii.domain.project.models import (
 )
 
 __all__ = [
+    "Part",
     "Point2DModel",
     "MotionPathDataModel",
     "PartInfoModel",
