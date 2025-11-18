@@ -1,3 +1,10 @@
+"""
+EditorView - Custom QGraphicsView for the editor.
+
+Responsibilities delegated to extracted components:
+- MotionPathManager: Motion path drawing, preview, splines, overlays
+"""
+
 import logging
 from typing import Any
 
@@ -24,19 +31,14 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 
-# from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
-from automataii.config.z_indices import (
-    Z_MOTION_PATH_LINE,
-    Z_MOTION_PATH_PREVIEW,
-    Z_SKELETON_OVERLAY,
-)  # Z-indices for paths and overlays
+from automataii.config.z_indices import Z_MOTION_PATH_PREVIEW, Z_SKELETON_OVERLAY
 from automataii.presentation.qt.animation import ViewportConfig, ViewportController
-from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem  # UPDATED
-from automataii.presentation.qt.graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
-
-# from automataii.presentation.qt.widgets.view_controls import HoverViewControls  # DISABLED
-
-TARGET_PATH_POINTS = 12
+from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
+from automataii.presentation.qt.graphics_items.skeleton_item import SkeletonGraphicsItem
+from automataii.presentation.qt.views.motion_path_manager import (
+    MotionPathManager,
+    TARGET_PATH_POINTS,
+)
 
 
 class EditorView(QGraphicsView):
@@ -185,10 +187,21 @@ class EditorView(QGraphicsView):
         self.selection_markers: dict[
             str, QGraphicsEllipseItem
         ] = {}  # For mechanism point markers
-        self.final_paths_map: dict[str, QGraphicsPathItem] = {}  # Final smoothed paths
-        # Overlays for dual-track/diagnostics
-        self._raw_paths_map: dict[str, QGraphicsPathItem] = {}
-        self._corrected_paths_map: dict[str, QGraphicsPathItem] = {}
+
+        # MotionPathManager handles path drawing, visualization, and overlays
+        self._motion_path_manager = MotionPathManager(self.scene(), parent=self)
+        self._motion_path_manager.freehand_path_completed.connect(
+            lambda points: self.freehandPathCompleted.emit(points)
+        )
+        self._motion_path_manager.drawing_cancelled.connect(
+            lambda: self.drawing_cancelled.emit()
+        )
+        self._motion_path_manager.path_data_cleared.connect(
+            lambda key: self.path_data_cleared_for_component.emit(key)
+        )
+
+        # Expose final_paths_map for backward compatibility
+        self.final_paths_map = self._motion_path_manager.final_paths_map
 
         # Rounded corners and white background for the viewport
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
@@ -208,73 +221,22 @@ class EditorView(QGraphicsView):
             f"EditorView initialized with DPI: {self.dpi}, default unit: {self.display_unit}"
         )
 
-    # ---- Overlay path helpers (dual-track preview, diagnostics) ----
+    # ---- Overlay path helpers (delegated to MotionPathManager) ----
     def set_raw_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
         """Set or clear the raw path overlay for a component key (part name)."""
-        # Remove existing
-        if key in self._raw_paths_map:
-            old = self._raw_paths_map.pop(key)
-            try:
-                self.scene().removeItem(old)
-            except Exception:
-                pass
-        if path is None or path.isEmpty():
-            return
-        item = QGraphicsPathItem(path)
-        if pen is None:
-            # Default: dashed purple, medium thickness (raw overlay)
-            p = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
-        else:
-            p = pen
-        item.setPen(p)
-        item.setZValue(Z_MOTION_PATH_LINE)  # Keep above parts but below skeleton overlay
-        self.scene().addItem(item)
-        self._raw_paths_map[key] = item
+        self._motion_path_manager.set_raw_overlay_path(key, path, pen)
 
     def set_corrected_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
         """Set or clear the feasibility-corrected path overlay for a component key."""
-        if key in self._corrected_paths_map:
-            old = self._corrected_paths_map.pop(key)
-            try:
-                self.scene().removeItem(old)
-            except Exception:
-                pass
-        if path is None or path.isEmpty():
-            return
-        item = QGraphicsPathItem(path)
-        if pen is None:
-            # Default: semi-transparent orange solid
-            p = QPen(QColor(255, 140, 0, 220), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        else:
-            p = pen
-        item.setPen(p)
-        item.setZValue(Z_MOTION_PATH_LINE)
-        self.scene().addItem(item)
-        self._corrected_paths_map[key] = item
+        self._motion_path_manager.set_corrected_overlay_path(key, path, pen)
 
     def clear_overlays_for(self, key: str) -> None:
         """Clear raw and corrected overlays for a component key."""
-        if key in self._raw_paths_map:
-            try:
-                self.scene().removeItem(self._raw_paths_map[key])
-            except Exception:
-                pass
-            self._raw_paths_map.pop(key, None)
-        if key in self._corrected_paths_map:
-            try:
-                self.scene().removeItem(self._corrected_paths_map[key])
-            except Exception:
-                pass
-            self._corrected_paths_map.pop(key, None)
+        self._motion_path_manager.clear_overlays_for(key)
 
     def clear_corrected_overlay_for(self, key: str) -> None:
         """Clear only the corrected overlay for a component key, keeping raw overlay intact."""
-        if key in self._corrected_paths_map:
-            try:
-                self.scene().removeItem(self._corrected_paths_map[key])
-            except Exception:
-                pass
-            self._corrected_paths_map.pop(key, None)
+        self._motion_path_manager.clear_corrected_overlay_for(key)
 
     def set_display_unit(self, unit: str):
         """Sets the display unit for the grid and updates the view."""
@@ -917,84 +879,56 @@ class EditorView(QGraphicsView):
 
     def start_define_motion_path(self, target_item: CharacterPartItem | None, is_closed: bool = True):
         """Starts the freehand motion path definition mode."""
-        # For the new IK system, target_item might be None if AutomataDesigner
-        # is managing the selected component via sim_selected_component_key.
-        # The path is drawn on the scene, and AutomataDesigner will associate it.
         if self.current_mode == "define_motion_path":
             return  # Already in this mode
 
         if target_item is None and not getattr(self.parent_window, 'selected_part_name', None):
-            # This case would be an issue: no CharacterPartItem and no selected part means no context for the path.
             logging.warning(
                 "EditorView: start_define_motion_path called with no target_item and no selected part."
             )
-            # Optionally, prevent entering mode or show a message.
-            # For now, allow proceeding, as AutomataDesigner might handle it or log separately.
 
-        # Clear any existing path for this component before starting new drawing
+        # Determine component key for path clearing
+        component_key = None
         if target_item and target_item.part_info and target_item.part_info.name:
             component_key = target_item.part_info.name
-            logging.info(f"🔄 PATH CLEAR: Checking for existing path for component '{component_key}' (via target_item)")
-            if component_key in self.final_paths_map:
-                old_path_item = self.final_paths_map.pop(component_key)
-                if old_path_item and old_path_item.scene():
-                    self.scene().removeItem(old_path_item)
-                    logging.info(f"✅ PATH CLEAR: Removed existing green path for {component_key} before starting new drawing")
-                else:
-                    logging.warning(f"⚠️  PATH CLEAR: Found path item for {component_key} but couldn't remove it (item={old_path_item}, scene={old_path_item.scene() if old_path_item else None})")
-            else:
-                logging.info(f"ℹ️  PATH CLEAR: No existing path found for {component_key}")
         elif hasattr(self.parent_window, 'selected_part_name') and self.parent_window.selected_part_name:
             component_key = self.parent_window.selected_part_name
-            logging.info(f"🔄 PATH CLEAR: Checking for existing path for component '{component_key}' (via selected_part_name)")
-            if component_key in self.final_paths_map:
-                old_path_item = self.final_paths_map.pop(component_key)
-                if old_path_item and old_path_item.scene():
-                    self.scene().removeItem(old_path_item)
-                    logging.info(f"✅ PATH CLEAR: Removed existing green path for {component_key} before starting new drawing")
-                else:
-                    logging.warning(f"⚠️  PATH CLEAR: Found path item for {component_key} but couldn't remove it (item={old_path_item}, scene={old_path_item.scene() if old_path_item else None})")
-            else:
-                logging.info(f"ℹ️  PATH CLEAR: No existing path found for {component_key}")
-        else:
-            logging.warning("⚠️  PATH CLEAR: No target_item or selected_part_name available for path clearing")
 
-        self.current_target_item_for_path = target_item  # Can be None
-        self.current_path_is_closed = is_closed  # Store path type preference
+        # Delegate to MotionPathManager - it handles clearing existing paths
+        self._motion_path_manager.start_drawing(target_item, is_closed, component_key)
+
+        # Update EditorView state for compatibility
+        self.current_target_item_for_path = target_item
+        self.current_path_is_closed = is_closed
         self.current_freehand_path = QPainterPath()
         self.current_freehand_path_item = None
         self.set_mode("define_motion_path")
         self.setCursor(Qt.CursorShape.CrossCursor)
         logging.info("EditorView: Entered freehand motion path definition mode.")
         if target_item:
-            logging.info(
-                f"EditorView: Motion path target: {target_item.part_info.name}"
-            )
+            logging.info(f"EditorView: Motion path target: {target_item.part_info.name}")
 
 
     def _cancel_motion_path_drawing(self):
         """Cancels the current motion path drawing operation and cleans up."""
         logging.debug("Motion path drawing cancelled.")
+        # Delegate to MotionPathManager - it handles cleanup and emits drawing_cancelled
+        self._motion_path_manager.cancel_drawing()
+        # Also reset EditorView state for compatibility
         self.current_target_item_for_path = None
         self._is_drawing_freehand = False
         self._motion_path_points.clear()
         self._cleanup_motion_path_visuals()
-        self.drawing_cancelled.emit()  # Notify MainWindow if needed
-        if (
-            self.current_mode == "define_motion_path"
-        ):  # Avoid recursive set_mode if called from set_mode
+        if self.current_mode == "define_motion_path":
             self.set_mode("select")
         self._show_status_message("Motion path definition cancelled.")
 
-    def _cleanup_motion_path_visuals(
-        self, _keep_target=False
-    ):  # keep_target not used currently
+    def _cleanup_motion_path_visuals(self, _keep_target: bool = False) -> None:
         """Clears temporary visuals used for motion path definition (preview path)."""
         if self._motion_preview_path_item:
             if self._motion_preview_path_item.scene():
                 self.scene().removeItem(self._motion_preview_path_item)
             self._motion_preview_path_item = None
-        # self._path_points.clear() # This is now _motion_path_points, cleared in start/cancel
         logging.debug("Cleaned up motion path preview visuals.")
 
     # --- End Effector Selection --- #
@@ -1108,8 +1042,8 @@ class EditorView(QGraphicsView):
             # Disconnect existing signal connections to avoid duplicates
             try:
                 self.skeleton_graphics_item.joint_clicked.disconnect()
-            except:
-                pass  # No connections to disconnect
+            except (TypeError, RuntimeError):
+                pass  # No connections to disconnect or object deleted
 
             # Call load_skeleton_data with both skeleton_data and hierarchy_data
             self.skeleton_graphics_item.load_skeleton_data(
@@ -1553,48 +1487,9 @@ class EditorView(QGraphicsView):
 
     def clear_visual_path_for_component(self, component_key: str):
         """Removes the final visual path associated with the given component_key from the scene and map."""
-        if not component_key:
-            logging.warning(
-                "EditorView: clear_visual_path_for_component called with no component_key."
-            )
-            return
-
-        logging.info(
-            f"EditorView: Attempting to clear visual path for component '{component_key}'."
-        )
-        path_item_to_remove = self.final_paths_map.pop(component_key, None)
-
-        if path_item_to_remove:
-            if path_item_to_remove.scene():
-                self.scene().removeItem(path_item_to_remove)
-                logging.debug(
-                    f"Removed visual path for component '{component_key}' from scene."
-                )
-            else:
-                logging.debug(
-                    f"Visual path for component '{component_key}' was in map but not in scene."
-                )
-
-            # Also clear overlays (raw/corrected) if present
-            try:
-                self.clear_overlays_for(component_key)
-            except Exception:
-                pass
-            self.path_data_cleared_for_component.emit(component_key)
-            self._show_status_message(f"Path cleared for {component_key}.")
-        else:
-            logging.debug(
-                f"No visual path found in map for component '{component_key}' to clear."
-            )
-            # Still emit, as IKManager might have data even if visual wasn't shown or was already cleared
-            try:
-                self.clear_overlays_for(component_key)
-            except Exception:
-                pass
-            self.path_data_cleared_for_component.emit(component_key)
-            self._show_status_message(
-                f"No visual path to clear for {component_key}, ensuring data is cleared."
-            )
+        # Delegate to MotionPathManager - it handles final path, overlays, and emits signal
+        self._motion_path_manager.clear_visual_path_for_component(component_key)
+        self._show_status_message(f"Path cleared for {component_key}.")
 
     def get_camera_state(self) -> dict[str, Any]:
         """Get current camera state including transform and center position.
