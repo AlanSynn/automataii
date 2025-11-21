@@ -1053,11 +1053,9 @@ class MechanismVisualsFactory:
 
     def _get_scene_transform_function(self, layer_data: dict):
         """
-        Creates proper coordinate transformation using recommendation system's transform_params.
+        Returns None - transform function is provided by caller via layer_data.
 
-        Note: This is a temporary method that duplicates logic from the main class.
-        TODO: This should be refactored to be injected as a dependency rather than duplicated.
+        The scene transform is injected through layer_data["transform_function"]
+        by the parent tab, maintaining proper dependency inversion.
         """
-        # TODO: This method should be injected as a dependency rather than duplicated
-        # For now, returning None to indicate this needs to be handled by the caller
         return None

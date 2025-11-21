@@ -22,6 +22,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+# Import MechanismManager
+# Import ProjectDataManager
+# Import SkeletonManager
+from automataii.application.managers import MechanismManager, ProjectDataManager, SkeletonManager
+
 # Import ProjectStateManager, adapters, and serializer (SSOT architecture)
 from automataii.application.project import (
     ProjectSerializer,
@@ -33,16 +38,6 @@ from automataii.application.project.adapters import (
     MechanismDesignTabAdapter,
 )
 
-# Import MechanismManager
-from automataii.application.managers import MechanismManager
-from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in models_pydantic
-
-# Import ProjectDataManager
-from automataii.application.managers import ProjectDataManager
-
-# Import SkeletonManager
-from automataii.application.managers import SkeletonManager
-
 # Import ActionManager for centralized action management
 from automataii.presentation.qt.actions.action_manager import ActionManager
 
@@ -52,6 +47,7 @@ from automataii.presentation.qt.graphics_items.part_item import CharacterPartIte
 
 # Import IKManager (Qt-coupled, in presentation layer)
 from automataii.presentation.qt.kinematics.ik_manager import IKManager
+from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in models_pydantic
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
 
@@ -427,22 +423,9 @@ class AutomataDesigner(QMainWindow):
                 else None
             ),
         )
-        self.action_manager.connect_action(
-            "undo",
-            lambda: (
-                self.editor_tab.editor_view.undo()  # Call on EditorTab's view
-                if self.tab_widget.currentWidget() == self.editor_tab
-                else None
-            ),
-        )
-        self.action_manager.connect_action(
-            "redo",
-            lambda: (
-                self.editor_tab.editor_view.redo()  # Call on EditorTab's view
-                if self.tab_widget.currentWidget() == self.editor_tab
-                else None
-            ),
-        )
+        # Connect undo/redo to SSOT ProjectStateManager (Ctrl+Z, Ctrl+Y)
+        self.action_manager.connect_action("undo", self.undo_ssot)
+        self.action_manager.connect_action("redo", self.redo_ssot)
         self.action_manager.connect_action("about", self.show_about_dialog)
 
         # Test Anchors Button Connection (This button is now in EditorTab, EditorTab should handle its toggled signal)
@@ -739,9 +722,6 @@ class AutomataDesigner(QMainWindow):
     # --- Project Data Handling ---
     def load_parts_dialog(self):
         """Opens a file dialog to load parts from a JSON file."""
-        # TODO: Use QFileDialog.getOpenFileName
-        # For now, let's assume a fixed path for testing or use previous logic
-        # We should ideally get project_dir from a settings/config or last used
         start_dir = (
             str(self.project_data_manager.project_dir)
             if self.project_data_manager.project_dir
@@ -941,9 +921,8 @@ class AutomataDesigner(QMainWindow):
 
         target_part_info = current_parts_data[target_part_name]
 
-        # TODO: Get editor scene center or relevant reference point
-        # For now, using a default QPointF(0,0) or center of target part bounding box
-        editor_scene_ref_point = QPointF(target_part_info.x, target_part_info.y)  # Simplistic
+        # Use editor scene center as reference point
+        editor_scene_ref_point = QPointF(target_part_info.x, target_part_info.y)
         if self.editor_tab and self.editor_tab.editor_view:
             scene_rect = self.editor_tab.editor_view.sceneRect()
             editor_scene_ref_point = scene_rect.center()
