@@ -45,7 +45,9 @@ class _LegacyRecommendationService(MechanismRecommendationService):
         self._tab = tab
 
     def recommend(self, part_name: str, path: PartPath):
-        # TODO: Integrate with MechanismService once legacy flow is migrated.
+        # Placeholder: Returns empty until MVP migration is complete.
+        # Legacy flow uses MechanismRecommendationDialog directly.
+        # Enable via AUTOMATAII_MECH_CONTROLLER=1 env var.
         return ()
 
 
