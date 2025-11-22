@@ -39,6 +39,7 @@ from automataii.domain.kinematics import (
 
 # Presentation components (Qt-coupled)
 from automataii.presentation.qt.kinematics.components import (
+    BendDirectionManager,
     IKPathHandler,
     IKVisualUpdater,
     TwoBoneIKSolver,
@@ -73,7 +74,7 @@ class IKManager(QObject):
         self.sim_limb_lengths: dict[str, float] = {}
         self.sim_selectable_components: list[dict[str, Any]] = []
         self.sim_two_bone_ik_effectors: list[str] = []
-        self.sim_joint_bend_directions: dict[str, int] = {}
+        # sim_joint_bend_directions is now a property delegating to _bend_direction_manager
         self._sim_dynamic_joints_data: dict[str, dict[str, Any]] = {}
         self.scene_joints_snapshot: dict[str, Any] = {}
 
@@ -85,6 +86,7 @@ class IKManager(QObject):
         self._path_handler = IKPathHandler()
         self._visual_updater = IKVisualUpdater()
         self._two_bone_solver = TwoBoneIKSolver()
+        self._bend_direction_manager = BendDirectionManager()
 
         self._active_path_definition_target_joint_id: str | None = None
 
@@ -794,50 +796,13 @@ class IKManager(QObject):
     def _get_bend_direction_for_root(self, root_joint_std_id: str) -> float:
         """
         Get bend direction for a limb based on its root joint.
-
-        Looks up the middle joint (elbow/knee) from hierarchy and returns
-        its bend direction.
+        Delegates to BendDirectionManager.
         """
-        bend_direction = 1.0
-        middle_joint_std_id = None
-
-        # Try to find the middle joint from skeleton hierarchy
+        hierarchy = None
         if self._current_skeleton_data and "hierarchy" in self._current_skeleton_data:
             hierarchy = self._current_skeleton_data.get("hierarchy", {})
-            children = hierarchy.get(root_joint_std_id, [])
 
-            for child_id in children:
-                if "shoulder" in root_joint_std_id and "elbow" in child_id:
-                    middle_joint_std_id = child_id
-                    break
-                elif "hip" in root_joint_std_id and "knee" in child_id:
-                    middle_joint_std_id = child_id
-                    break
-
-        # Fallback to hardcoded mapping
-        if not middle_joint_std_id:
-            joint_mapping = {
-                "left_shoulder_7": "left_elbow_8",
-                "right_shoulder_4": "right_elbow_5",
-                "left_hip_13": "left_knee_14",
-                "right_hip_10": "right_knee_11",
-            }
-            middle_joint_std_id = joint_mapping.get(root_joint_std_id)
-
-        # Look up bend direction
-        if middle_joint_std_id:
-            if middle_joint_std_id in self.sim_joint_bend_directions:
-                bend_direction = float(self.sim_joint_bend_directions[middle_joint_std_id])
-                logger.debug("IK: Using bend_direction %s for '%s'", bend_direction, middle_joint_std_id)
-            else:
-                # Try abstract name (e.g., 'left_elbow' without number)
-                if '_' in middle_joint_std_id and middle_joint_std_id.split('_')[-1].isdigit():
-                    abstract_name = '_'.join(middle_joint_std_id.split('_')[:-1])
-                    if abstract_name in self.sim_joint_bend_directions:
-                        bend_direction = float(self.sim_joint_bend_directions[abstract_name])
-                        logger.debug("IK: Using bend_direction %s from '%s'", bend_direction, abstract_name)
-
-        return bend_direction
+        return self._bend_direction_manager.get_for_root_joint(root_joint_std_id, hierarchy)
 
     def _apply_ik_to_limb_chains(
         self, editor_items: dict[str, CharacterPartItem]
@@ -894,27 +859,8 @@ class IKManager(QObject):
 
             original_lengths = self._get_bone_lengths_for_chain(chain_parts)
 
-            # Convert bend_directions from standardized IDs to abstract names for FABRIK solver
-            # FABRIK expects keys like 'left_elbow', but we have 'left_elbow_8'
-            # Only pass bend directions for actual middle joints (elbow, knee)
-            converted_bend_directions = {}
-            for std_id, bend_dir in self.sim_joint_bend_directions.items():
-                # Only process joints that are actually middle joints (elbow, knee)
-                if 'elbow' in std_id or 'knee' in std_id:
-                    # For standardized IDs like 'left_elbow_8', extract 'left_elbow'
-                    if '_' in std_id:
-                        parts = std_id.split('_')
-                        # Assuming format is like 'left_elbow_8' or 'right_knee_11'
-                        if len(parts) >= 3 and parts[-1].isdigit():
-                            abstract_name = '_'.join(parts[:-1])  # Join all parts except the last digit
-                        else:
-                            abstract_name = std_id
-                    else:
-                        abstract_name = std_id
-
-                    converted_bend_directions[abstract_name] = bend_dir
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("IK: Passing bend direction to FABRIK: '%s' = %s", abstract_name, bend_dir)
+            # Get bend directions formatted for FABRIK (abstract names like 'left_elbow')
+            converted_bend_directions = self._bend_direction_manager.get_for_fabrik()
 
             solve_ik_ccd(chain, target_pos, original_lengths, bend_directions=converted_bend_directions, iterations=10, tolerance=1.0)
 
@@ -1453,6 +1399,16 @@ class IKManager(QObject):
     @dynamic_joints.setter
     def dynamic_joints(self, value: dict[str, dict[str, Any]]):
         self._sim_dynamic_joints_data = value
+
+    @property
+    def sim_joint_bend_directions(self) -> dict[str, int]:
+        """Bend directions for IK joints. Delegates to BendDirectionManager."""
+        return self._bend_direction_manager._bend_directions
+
+    @sim_joint_bend_directions.setter
+    def sim_joint_bend_directions(self, value: dict[str, int]):
+        """Set bend directions. For backwards compatibility."""
+        self._bend_direction_manager._bend_directions = value
 
     def _recalculate_all_bone_angles_after_ik(self):
         """Recalculate all bone angles after IK position updates to ensure natural skeleton movement."""
