@@ -112,6 +112,10 @@ from automataii.gui.tabs.mechanism_design.controller_adapter import (
     build_presenter,
     convert_paths,
 )
+from automataii.ui.tabs.mechanism_design.path_trace_manager import (
+    PathTraceManager,
+    PathTraceConfig,
+)
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -217,7 +221,6 @@ class MechanismDesignTab(QWidget):
             self._presenter.add_view_listener(self._on_presenter_view_update)
 
         # Mechanism path tracing
-        self.mechanism_trace_paths: dict[str, QPainterPath] = {}  # Store traced paths
 
         # Parametric Design System (ULTRATHINK Architecture)
         self.parametric_editor: ParametricEditor | None = None
@@ -225,13 +228,20 @@ class MechanismDesignTab(QWidget):
 
         # Initialize parametric editing manager (will be fully initialized after UI setup)
         self.parametric_manager = ParametricEditingManager(self)
-        self.mechanism_trace_items: dict[str, QGraphicsPathItem] = {}  # Visual path items
-        self.mechanism_trace_points: dict[str, list[QPointF]] = {}  # Store trace points
+
+        # Path trace visualization (extracted responsibility)
+        self._path_trace_manager = PathTraceManager(
+            config=PathTraceConfig(
+                max_points=500,
+                update_stride=5,
+                pen_color=QColor(255, 0, 0, 150),
+                pen_width=2.0,
+                z_value=100,
+            )
+        )
+        self._trace_frame_tick: int = 0  # Animation frame counter
 
         # Performance controls (Phase 0 quick wins)
-        self.trace_max_points: int = 500  # cap trace points to reduce rebuild cost
-        self.trace_update_stride: int = 2  # update visual path every N frames
-        self._trace_frame_tick: int = 0
 
         # Initialize new visualization system if available
         self.visualization_adapter: VisualizationAdapter | None = None
@@ -805,7 +815,7 @@ class MechanismDesignTab(QWidget):
                 layer_data["visual_items"] = []
 
         # 2. Clear other visual tracking structures
-        self.mechanism_trace_items.clear()
+        self._path_trace_manager.clear_all(self.mechanism_scene)
         if hasattr(self, 'path_visual_items'):
             self.path_visual_items.clear()
 
@@ -980,9 +990,7 @@ class MechanismDesignTab(QWidget):
         self.parts_data.clear()
 
         # Clear mechanism path tracing
-        self.mechanism_trace_paths.clear()
-        self.mechanism_trace_items.clear()
-        self.mechanism_trace_points.clear()
+        self._path_trace_manager.clear_all(self.mechanism_scene)
 
         # Clear UI elements
         if self.mechanism_layers_list:
@@ -1289,7 +1297,7 @@ class MechanismDesignTab(QWidget):
                 self._safe_remove_visual_items(visual_items)
 
                 # CRITICAL FIX: Clear mechanism trace completely using dedicated function
-                self._clear_mechanism_trace(mechanism_id)
+                self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
 
         # Remove from mechanism_layers
         for mechanism_id in mechanisms_to_remove:
@@ -1314,10 +1322,10 @@ class MechanismDesignTab(QWidget):
 
             # CRITICAL: Also clear any old trace paths for ALL mechanisms of this part
             # This ensures no duplicate paths remain when switching mechanisms
-            for mechanism_id in list(self.mechanism_trace_items.keys()):
+            for mechanism_id in self._path_trace_manager.get_all_mechanism_ids():
                 layer_data = self.mechanism_layers.get(mechanism_id)
                 if layer_data and layer_data.get("part_name") == self.selected_part_name:
-                    self._clear_mechanism_trace(mechanism_id)
+                    self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
         else:
             pass
 
@@ -1498,7 +1506,7 @@ class MechanismDesignTab(QWidget):
         self._update_mechanism_layers_list()
 
         # Initialize path tracing for this mechanism
-        self._init_mechanism_path_trace(mechanism_id)
+        self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene)
 
         # Sync UI state so Parametric Edit becomes enabled immediately
         try:
@@ -2072,7 +2080,7 @@ class MechanismDesignTab(QWidget):
 
                     # Update mechanism visuals and path trace
                     self._update_mechanism_visuals_for_animation(mechanism_id, self.animation_time, layer_data)
-                    self._update_mechanism_path_trace(mechanism_id, output_pos)
+                    self._path_trace_manager.update_trace(mechanism_id, output_pos, self.mechanism_scene)
 
             except Exception as e:
                 pass
@@ -2606,15 +2614,8 @@ class MechanismDesignTab(QWidget):
             for mechanism_id, layer_data in list(self.mechanism_layers.items()):
                 if layer_data.get("part_name") == part_name:
                     # Only clear the trace path visual, not the entire mechanism
-                    if mechanism_id in self.mechanism_trace_items:
-                        trace_item = self.mechanism_trace_items[mechanism_id]
-                        if trace_item and trace_item.scene():
-                            self.mechanism_scene.removeItem(trace_item)
-                        del self.mechanism_trace_items[mechanism_id]
-                    if mechanism_id in self.mechanism_trace_paths:
-                        del self.mechanism_trace_paths[mechanism_id]
-                    if mechanism_id in self.mechanism_trace_points:
-                        del self.mechanism_trace_points[mechanism_id]
+                    # Clear trace using manager
+                    self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
 
         # Calculate combined bounds of all paths to set scene rect properly
         combined_bounds = None
@@ -3000,7 +3001,7 @@ class MechanismDesignTab(QWidget):
                 layer_data["visual_items"] = []
 
             # 2. Clear other tracking structures
-            self.mechanism_trace_items.clear()
+            self._path_trace_manager.clear_all(self.mechanism_scene)
             if hasattr(self, 'path_visual_items'):
                 self.path_visual_items.clear()
 
@@ -3058,25 +3059,19 @@ class MechanismDesignTab(QWidget):
                                 )
 
                             # CRITICAL FIX: Regenerate trace items (red paths) if missing or invalid
-                            trace_item = self.mechanism_trace_items.get(mechanism_id)
-                            trace_needs_regeneration = (
-                                trace_item is None or
-                                self._is_visual_item_invalid(trace_item)
-                            )
-
-                            if trace_needs_regeneration:
-                                self._init_mechanism_path_trace(mechanism_id)
-
-                                # Restore trace points if they exist in data
-                                if mechanism_id in self.mechanism_trace_points and self.mechanism_trace_points[mechanism_id]:
-                                    trace_points = self.mechanism_trace_points[mechanism_id]
-                                    if len(trace_points) > 1:
-                                        path = QPainterPath()
-                                        path.moveTo(trace_points[0])
-                                        for point in trace_points[1:]:
-                                            path.lineTo(point)
-                                        self.mechanism_trace_paths[mechanism_id] = path
-                                        self.mechanism_trace_items[mechanism_id].setPath(path)
+                            # Check if trace needs regeneration using manager
+                            trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
+                            if trace_item is None or self._is_visual_item_invalid(trace_item):
+                                self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene)
+                                # Restore trace points if they exist
+                                trace_points = self._path_trace_manager.get_trace_points(mechanism_id)
+                                if len(trace_points) > 1:
+                                    path = QPainterPath()
+                                    path.moveTo(trace_points[0])
+                                    for point in trace_points[1:]:
+                                        path.lineTo(point)
+                                    if trace_item:
+                                        trace_item.setPath(path)
 
                         except Exception as e:
                             pass
@@ -3252,8 +3247,8 @@ class MechanismDesignTab(QWidget):
             self._presenter.set_animation_running(False)
 
         # Clear all traced paths
-        for mechanism_id in list(self.mechanism_trace_items.keys()):
-            self._init_mechanism_path_trace(mechanism_id)
+        for mechanism_id in self._path_trace_manager.get_all_mechanism_ids():
+            self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene)
 
         # CRITICAL: Reset skeleton to initial state first
         self._reset_skeleton_to_initial_state()
@@ -3286,11 +3281,8 @@ class MechanismDesignTab(QWidget):
                 pass
 
             # Clear mechanism traces
-            if mechanism_id in self.mechanism_trace_points:
-                self.mechanism_trace_points[mechanism_id].clear()
-                self.mechanism_trace_paths[mechanism_id] = QPainterPath()
-                if mechanism_id in self.mechanism_trace_items:
-                    self.mechanism_trace_items[mechanism_id].setPath(QPainterPath())
+            # Clear mechanism trace using manager
+            self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
 
     def _on_layer_selection_changed(self):
         """Handle selection changes in the mechanism layers list."""
@@ -3298,8 +3290,8 @@ class MechanismDesignTab(QWidget):
         self._clear_animation_cache()
 
         # CRITICAL: Clear all mechanism traces when switching selection to prevent old paths from lingering
-        for mechanism_id in list(self.mechanism_trace_items.keys()):
-            self._clear_mechanism_trace(mechanism_id)
+        for mechanism_id in self._path_trace_manager.get_all_mechanism_ids():
+            self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
 
         # ISSUE #11: Reset skeleton when selection changes while preserving view
         current_view_transform = self.mechanism_view.transform()  # Save current view
@@ -3408,82 +3400,14 @@ class MechanismDesignTab(QWidget):
                         item.setVisible(enabled)
 
                 # Update trace item visibility if it exists
-                if mechanism_id in self.mechanism_trace_items:
-                    trace_item = self.mechanism_trace_items[mechanism_id]
-                    if hasattr(trace_item, 'setVisible'):
-                        trace_item.setVisible(enabled)
+                # Update trace visibility using manager
+                trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
+                if trace_item and hasattr(trace_item, 'setVisible'):
+                    trace_item.setVisible(enabled)
 
 
 
 
-    def _init_mechanism_path_trace(self, mechanism_id: str):
-        """Initialize path tracing for a mechanism."""
-        # Clear any existing trace for this mechanism first
-        if mechanism_id in self.mechanism_trace_items:
-            old_item = self.mechanism_trace_items[mechanism_id]
-            if old_item and old_item.scene() == self.mechanism_scene:
-                self.mechanism_scene.removeItem(old_item)
-
-        self.mechanism_trace_points[mechanism_id] = []
-        self.mechanism_trace_paths[mechanism_id] = QPainterPath()
-
-        # Create visual trace item with thicker, more visible pen
-        trace_item = QGraphicsPathItem()
-        trace_pen = QPen(QColor("#ff3030"), 3.0)  # Red trace path, thinner
-        trace_pen.setStyle(Qt.PenStyle.SolidLine)  # Solid line for better visibility
-        trace_pen.setCosmetic(True)
-        trace_item.setPen(trace_pen)
-        trace_item.setZValue(Z_SELECTION_MARKER)  # Use standardized Z-level for selection markers
-        self.mechanism_scene.addItem(trace_item)
-        self.mechanism_trace_items[mechanism_id] = trace_item
-
-    def _update_mechanism_path_trace(self, mechanism_id: str, position: QPointF):
-        """Update the traced path for a mechanism."""
-        if mechanism_id not in self.mechanism_trace_points:
-            self._init_mechanism_path_trace(mechanism_id)
-
-        # Add point to trace
-        self.mechanism_trace_points[mechanism_id].append(position)
-
-        # Limit trace length to prevent memory issues
-        max_points = getattr(self, 'trace_max_points', 500)
-        if len(self.mechanism_trace_points[mechanism_id]) > max_points:
-            self.mechanism_trace_points[mechanism_id] = self.mechanism_trace_points[mechanism_id][-max_points:]
-
-        # Update visual path with stride gating to reduce per-frame cost
-        # Always ensure first 2 points draw immediately; thereafter, stride applies
-        stride = max(1, getattr(self, 'trace_update_stride', 2))
-        if (self._trace_frame_tick % stride == 0) or (len(self.mechanism_trace_points[mechanism_id]) <= 2):
-            trace_points = self.mechanism_trace_points[mechanism_id]
-            if len(trace_points) > 1:
-                path = QPainterPath()
-                path.moveTo(trace_points[0])
-                for point in trace_points[1:]:
-                    path.lineTo(point)
-                self.mechanism_trace_paths[mechanism_id] = path
-                item = self.mechanism_trace_items.get(mechanism_id)
-                if item is not None:
-                    item.setPath(path)
-
-    def _clear_mechanism_trace(self, mechanism_id: str):
-        """Clear trace path for a specific mechanism to prevent old paths from persisting."""
-        try:
-            # Remove trace visual item from scene
-            if mechanism_id in self.mechanism_trace_items:
-                trace_item = self.mechanism_trace_items[mechanism_id]
-                if trace_item and hasattr(trace_item, 'scene') and trace_item.scene():
-                    self.mechanism_scene.removeItem(trace_item)
-                del self.mechanism_trace_items[mechanism_id]
-
-            # Clear trace data
-            if mechanism_id in self.mechanism_trace_points:
-                del self.mechanism_trace_points[mechanism_id]
-
-            if mechanism_id in self.mechanism_trace_paths:
-                del self.mechanism_trace_paths[mechanism_id]
-
-        except Exception:
-            pass
 
     # ====== Performance Utilities ======
     def _set_line_if_changed(self, line_item: QGraphicsLineItem, p1: QPointF, p2: QPointF, eps: float = 0.1) -> None:
