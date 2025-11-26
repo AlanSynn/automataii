@@ -19,6 +19,13 @@ from automataii.presentation.qt.tabs.editor.components.motion_path_manager impor
 from automataii.presentation.qt.tabs.editor.components.parts_data_manager import (
     PartsDataManager,
 )
+from automataii.presentation.qt.tabs.editor.components.path_geometry import (
+    create_interpolated_path,
+    create_perfect_ellipse_path,
+    create_raw_path,
+    extract_points_from_path,
+    resample_path_points,
+)
 from automataii.presentation.qt.tabs.editor.components.path_query_service import (
     PathQueryService,
 )
@@ -28,18 +35,11 @@ from automataii.presentation.qt.tabs.editor.components.simulation_controller imp
 from automataii.presentation.qt.tabs.editor.components.skeleton_ik_handler import (
     SkeletonIKHandler,
 )
-from automataii.presentation.qt.tabs.editor.components.view_controls import ViewControls
-from automataii.presentation.qt.tabs.editor.components.path_geometry import (
-    create_raw_path,
-    create_perfect_ellipse_path,
-    create_interpolated_path,
-    extract_points_from_path,
-    resample_path_points,
-)
 from automataii.presentation.qt.tabs.editor.components.ui_builder import (
     EditorTabUIBuilder,
     EditorTabUIRefs,
 )
+from automataii.presentation.qt.tabs.editor.components.view_controls import ViewControls
 
 __all__ = [
     "MotionPathManager",

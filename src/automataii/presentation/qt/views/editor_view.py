@@ -36,8 +36,8 @@ from automataii.presentation.qt.animation import ViewportConfig, ViewportControl
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
 from automataii.presentation.qt.graphics_items.skeleton_item import SkeletonGraphicsItem
 from automataii.presentation.qt.views.motion_path_manager import (
-    MotionPathDrawer,
     TARGET_PATH_POINTS,
+    MotionPathDrawer,
 )
 
 
