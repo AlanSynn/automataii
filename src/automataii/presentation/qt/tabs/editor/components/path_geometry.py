@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath
-
-import numpy as np
 
 
 def create_raw_path(points: list[QPointF], closed: bool = True) -> QPainterPath:
