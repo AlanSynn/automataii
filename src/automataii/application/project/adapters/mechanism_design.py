@@ -217,19 +217,97 @@ class MechanismDesignTabAdapter(TabAdapter):
         Handle mechanism changes from state manager.
 
         This is for cases where mechanisms are modified externally
-        (e.g., loaded from project file).
+        (e.g., loaded from project file, undo/redo).
+
+        Syncs the tab's mechanism_layers with the state by:
+        1. Removing mechanisms no longer in state
+        2. Adding new mechanisms from state
+        3. Updating existing mechanisms with changed params
         """
         if not self._tab:
             return
 
-        logger.debug(f"MechanismDesignTabAdapter: State mechanisms changed ({len(mechanisms)})")
+        logger.info(f"MechanismDesignTabAdapter: Syncing {len(mechanisms)} mechanisms from state")
 
-        # TODO: Implement mechanism reload if needed
-        # This would update the tab's mechanism_layers from state
+        try:
+            # Get current mechanism IDs from tab
+            current_ids = set(self._tab.mechanism_layers.keys()) if hasattr(self._tab, 'mechanism_layers') else set()
+            state_ids = set(mechanisms.keys())
+
+            # Remove mechanisms that are no longer in state
+            ids_to_remove = current_ids - state_ids
+            for mech_id in ids_to_remove:
+                logger.debug(f"Removing mechanism '{mech_id}' (not in state)")
+                if hasattr(self._tab, '_mvp_presenter') and hasattr(self._tab._mvp_presenter, 'remove_mechanism_layer'):
+                    self._tab._mvp_presenter.remove_mechanism_layer(mech_id)
+                elif hasattr(self._tab, 'mechanism_layers'):
+                    # Fallback: direct removal
+                    self._tab.mechanism_layers.pop(mech_id, None)
+                    if hasattr(self._tab, 'mechanism_enabled_state'):
+                        self._tab.mechanism_enabled_state.pop(mech_id, None)
+
+            # Add or update mechanisms from state
+            for mech_id, mech_data in mechanisms.items():
+                layer_data = self._transform_mechanism_to_layer_data(mech_data)
+
+                if mech_id in current_ids:
+                    # Update existing mechanism
+                    if hasattr(self._tab, 'mechanism_layers'):
+                        existing = self._tab.mechanism_layers.get(mech_id, {})
+                        # Preserve visual_items from existing layer_data
+                        layer_data["visual_items"] = existing.get("visual_items", [])
+                        self._tab.mechanism_layers[mech_id] = layer_data
+                        logger.debug(f"Updated mechanism '{mech_id}'")
+                else:
+                    # Add new mechanism
+                    logger.debug(f"Adding mechanism '{mech_id}' from state")
+                    if hasattr(self._tab, '_mvp_presenter') and hasattr(self._tab._mvp_presenter, 'add_mechanism_layer'):
+                        self._tab._mvp_presenter.add_mechanism_layer(mech_id, layer_data)
+                    elif hasattr(self._tab, 'mechanism_layers'):
+                        self._tab.mechanism_layers[mech_id] = layer_data
+                        if hasattr(self._tab, 'mechanism_enabled_state'):
+                            self._tab.mechanism_enabled_state[mech_id] = mech_data.enabled
+
+            # Update the UI list
+            if hasattr(self._tab, '_update_mechanism_layers_list'):
+                self._tab._update_mechanism_layers_list()
+
+            # Regenerate visuals for updated/new mechanisms
+            for mech_id, mech_data in mechanisms.items():
+                layer_data = self._tab.mechanism_layers.get(mech_id) if hasattr(self._tab, 'mechanism_layers') else None
+                if layer_data and hasattr(self._tab, '_generate_mechanism_visuals_directly'):
+                    self._tab._generate_mechanism_visuals_directly(
+                        mech_id,
+                        mech_data.type,
+                        dict(mech_data.params) if mech_data.params else {},
+                        layer_data
+                    )
+
+        except Exception as e:
+            logger.exception(f"Error syncing mechanisms from state: {e}")
 
     # =========================================================================
     # DATA TRANSFORMATIONS
     # =========================================================================
+
+    def _transform_mechanism_to_layer_data(self, mech_data: MechanismData) -> dict[str, Any]:
+        """
+        Transform MechanismData to layer_data dict format used by MechanismDesignTab.
+
+        Args:
+            mech_data: MechanismData from state manager
+
+        Returns:
+            Dict in layer_data format for the tab
+        """
+        return {
+            "id": mech_data.id,
+            "part_name": mech_data.part_name,
+            "type": mech_data.type,
+            "params": dict(mech_data.params) if mech_data.params else {},
+            "enabled": mech_data.enabled,
+            "visual_items": [],  # Will be populated by visual generation
+        }
 
     def _transform_parts_to_partinfo(
         self,

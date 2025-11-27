@@ -5,4 +5,4 @@
 # from .cam_strategy import CamStrategy
 # from .gear_strategy import GearStrategy
 
-__all__ = []
+__all__: list[str] = []

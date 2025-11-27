@@ -18,8 +18,8 @@ from PyQt6.QtCore import QObject, QPointF, pyqtSignal, pyqtSlot
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
 
-    from automataii.presentation.qt.models import PartInfo
     from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
+    from automataii.presentation.qt.models import PartInfo
     from automataii.presentation.qt.views.editor_view import EditorView
 
 
