@@ -10,9 +10,13 @@ Comprehensive test script for all blueprint fixes:
 import sys
 import logging
 from pathlib import Path
+import pytest
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+# Manual/interactive test; skip in automated runs.
+pytest.skip("Manual blueprint comprehensive test; skipping in automated pytest.", allow_module_level=True)
 
 def test_comprehensive_blueprint_fixes():
     """Test all blueprint fixes comprehensively"""

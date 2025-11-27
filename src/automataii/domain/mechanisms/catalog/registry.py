@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.protocols import Mechanism
+    from automataii.domain.mechanisms.core.protocols import Mechanism
 
 logger = logging.getLogger(__name__)
 

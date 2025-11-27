@@ -1,13 +1,17 @@
-"""Mechanism catalog - registry and metadata"""
+"""
+Compatibility layer: This module has moved to automataii.domain.mechanisms.catalog
 
-from automataii.mechanisms.catalog.registry import (
-    MechanismRegistry,
-    get_mechanism,
-    list_mechanism_types,
+This file provides backwards compatibility by re-exporting from the new location.
+This will be removed in a future version.
+"""
+
+# Re-export everything from new location
+from automataii.domain.mechanisms.catalog import *  # noqa: F401, F403
+
+import warnings
+warnings.warn(
+    "Importing from 'src/automataii/mechanisms/catalog' is deprecated. "
+    "Use 'automataii.domain.mechanisms.catalog' instead.",
+    DeprecationWarning,
+    stacklevel=2
 )
-
-__all__ = [
-    "MechanismRegistry",
-    "get_mechanism",
-    "list_mechanism_types",
-]

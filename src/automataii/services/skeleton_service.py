@@ -1,13 +1,3 @@
-# SkeletonService
-# - Lines: ~50
-# - Public API: position_parts_at_anchor_joints
-# - Deps In (Afferent): 1 [MechanismDesignTab]
-# - Deps Out (Efferent): 1 [PyQt6]
-# - Coupling: Low (skeleton positioning logic only)
-# - Cohesion: Feature (skeleton-related operations)
-# - Owner: Alan Synn, Reviewers: TBD
-# - Last Updated: 2025-01-26
-
 """
 Service class for skeleton-related business logic.
 

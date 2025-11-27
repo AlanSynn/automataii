@@ -3,10 +3,14 @@
 
 import sys
 import logging
+import pytest
 from PyQt6.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView
 from PyQt6.QtCore import QPointF, QTimer
 from PyQt6.QtGui import QPainterPath
 import numpy as np
+
+# Manual CAM mechanism positioning test; skip in automated pytest.
+pytest.skip("Manual CAM mechanism test; skipping in automated pytest.", allow_module_level=True)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

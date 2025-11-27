@@ -352,3 +352,4 @@ tmp/
 .ruff-cache
 .uv-cache
 .cursor
+.refactor_backup/

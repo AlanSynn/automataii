@@ -1,13 +1,4 @@
 """Base abstraction for linkage computation strategies.
-
-Lines: ~80
-Public API: LinkageStrategy (ABC)
-Deps In: 0 (strategies implement this)
-Deps Out: 1 (core.types)
-Coupling: Low (ABC only)
-Cohesion: Feature (strategy contract)
-Owner: Alan Synn
-Last Updated: 2025-11-14
 """
 
 from __future__ import annotations
@@ -16,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.types import ForceVector
+    from automataii.domain.mechanisms.core.types import ForceVector
 
 
 class LinkageStrategy(ABC):

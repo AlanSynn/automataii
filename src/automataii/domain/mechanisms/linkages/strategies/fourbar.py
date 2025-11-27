@@ -1,13 +1,4 @@
 """Four-bar linkage computation strategy.
-
-Lines: ~200
-Public API: FourBarStrategy
-Deps In: 0 (implements LinkageStrategy)
-Deps Out: 3 (math, core.types, strategies.base)
-Coupling: Low (single strategy)
-Cohesion: Feature (four-bar kinematics)
-Owner: Alan Synn
-Last Updated: 2025-11-14
 """
 
 from __future__ import annotations
@@ -15,10 +6,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from automataii.mechanisms.linkages.strategies.base import LinkageStrategy
+from automataii.domain.mechanisms.linkages.strategies.base import LinkageStrategy
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.types import ForceVector, ForceType
+    from automataii.domain.mechanisms.core.types import ForceVector, ForceType
 
 
 class FourBarStrategy(LinkageStrategy):
@@ -105,7 +96,7 @@ class FourBarStrategy(LinkageStrategy):
         Returns:
             Force vectors: {input, reaction_O1}
         """
-        from automataii.mechanisms.core.state import ForceType, ForceVector
+        from automataii.domain.mechanisms.core.state import ForceType, ForceVector
         from PyQt6.QtCore import QPointF
 
         o1_x, o1_y = positions["O1"]

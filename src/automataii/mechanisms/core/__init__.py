@@ -1,18 +1,17 @@
-"""Core mechanism abstractions and protocols"""
+"""
+Compatibility layer: This module has moved to automataii.domain.mechanisms.core
 
-from automataii.mechanisms.core.protocols import Mechanism, MechanismRenderer
-from automataii.mechanisms.core.state import (
-    ForceVector,
-    MechanismState,
-    RenderConfig,
-    SafetyStatus,
+This file provides backwards compatibility by re-exporting from the new location.
+This will be removed in a future version.
+"""
+
+# Re-export everything from new location
+from automataii.domain.mechanisms.core import *  # noqa: F401, F403
+
+import warnings
+warnings.warn(
+    "Importing from 'src/automataii/mechanisms/core' is deprecated. "
+    "Use 'automataii.domain.mechanisms.core' instead.",
+    DeprecationWarning,
+    stacklevel=2
 )
-
-__all__ = [
-    "Mechanism",
-    "MechanismRenderer",
-    "MechanismState",
-    "ForceVector",
-    "SafetyStatus",
-    "RenderConfig",
-]

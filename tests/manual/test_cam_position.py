@@ -2,6 +2,10 @@
 """Test CAM position relative to character."""
 
 import numpy as np
+import pytest
+
+# Manual CAM position exploration; skip during automated pytest.
+pytest.skip("Manual CAM position test; skipping in automated pytest.", allow_module_level=True)
 
 def test_character_position():
     """Test character position detection."""

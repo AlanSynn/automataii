@@ -1,14 +1,5 @@
 """Five-bar linkage validation (placeholder for future workspace analysis).
 
-Lines: ~65
-Public API: FiveBarValidator
-Deps In: 0 (implements LinkageValidator)
-Deps Out: 2 (core.types, validators.base)
-Coupling: Low (single validator)
-Cohesion: Feature (five-bar validation)
-Owner: Alan Synn
-Last Updated: 2025-11-14
-
 TODO: Implement proper five-bar validation:
 - Workspace boundary analysis
 - Singularity detection (Jacobian determinant)
@@ -19,10 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from automataii.mechanisms.linkages.validators.base import LinkageValidator
+from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.types import SafetyStatus
+    from automataii.domain.mechanisms.core.types import SafetyStatus
 
 
 class FiveBarValidator(LinkageValidator):
@@ -60,7 +51,7 @@ class FiveBarValidator(LinkageValidator):
 
         TODO: Implement proper validation rules
         """
-        from automataii.mechanisms.core.state import SafetyLevel, SafetyStatus
+        from automataii.domain.mechanisms.core.state import SafetyLevel, SafetyStatus
 
         # Placeholder: always safe for now
         return SafetyStatus(
