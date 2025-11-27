@@ -24,13 +24,12 @@ a = Analysis(
     binaries=[],
     datas=[
         ('models/onnx', 'models/onnx'),
-        ('src/automataii/gui/fonts', 'automataii/gui/fonts'),
+        ('src/automataii/presentation/qt/fonts', 'automataii/presentation/qt/fonts'),
         ('config', 'config'),
-        ('src/automataii/kinematics/generated_mechanism_paths.json', 'automataii/kinematics'),
         ('src/automataii/modules', 'automataii/modules'),
         # Only include root-level images from examples directory
         ('src/examples/*.png', 'examples/'),
-        ('resources/', 'resources/'),
+        ('resources/', 'resources/'),  # Includes resources/data/*.json
     ],
     hiddenimports=[
         'PyQt6.sip',

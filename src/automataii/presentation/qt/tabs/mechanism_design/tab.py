@@ -338,7 +338,7 @@ class MechanismDesignTab(QWidget):
         # Signals are connected in _initialize_parametric_system for the new ParametricEditor
 
         # Load generated paths (support both dev and bundled layouts)
-        generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
+        generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
         # Initialize with empty QPainterPath since no user path is drawn yet
         empty_path = QPainterPath()
         self.recommendation_dialog = MechanismRecommendationDialog(empty_path, generated_paths_file, parent=self)
@@ -1049,7 +1049,7 @@ class MechanismDesignTab(QWidget):
             self._presenter.select_part(target_part_name)
 
         from automataii.utils.paths import resolve_path
-        generated_paths_file = resolve_path("automataii/kinematics/generated_mechanism_paths.json")
+        generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
 
         if not generated_paths_file.exists():
             QMessageBox.critical(self, "Error", "Generated mechanism paths file not found.")
