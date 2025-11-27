@@ -47,8 +47,19 @@ class TabCallbackConfigurator:
 
     def _configure_anchor_movement_handler(self) -> None:
         """Configure callbacks for the anchor movement handler."""
+
+        def on_params_updated_with_signal(mechanism_id: str, layer_data: dict) -> None:
+            """Handle parameter updates: regenerate visuals AND emit signal for undo support."""
+            # 1. Regenerate mechanism simulation for visual feedback
+            self._tab.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
+
+            # 2. Emit signal to propagate changes to StateManager (for undo/redo)
+            if hasattr(self._tab, 'mechanism_parameters_changed'):
+                params = layer_data.get("params", {})
+                self._tab.mechanism_parameters_changed.emit(mechanism_id, dict(params))
+
         self._tab._anchor_movement_handler.configure_callbacks(
-            on_params_updated=lambda mid, ld: self._tab.parametric_manager._regenerate_mechanism_simulation(mid, ld),
+            on_params_updated=on_params_updated_with_signal,
             on_visuals_recreate=self._tab._recreate_mechanism_visuals,
             on_handles_update=self._tab._update_other_handles,
             on_view_refresh=self._tab.mechanism_view.update,

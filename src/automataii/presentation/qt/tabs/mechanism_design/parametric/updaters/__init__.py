@@ -4,4 +4,4 @@
 # from .real_time_updater import RealTimeUpdater
 # from .visual_synchronizer import VisualSynchronizer
 
-__all__ = []
+__all__: list[str] = []

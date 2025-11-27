@@ -15,6 +15,8 @@ from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainterPath
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene
 
+from automataii.application.mechanisms.mechanism_service import MechanismService
+from automataii.application.mechanisms.skeleton_service import SkeletonService
 from automataii.domain.kinematics.mechanism import MechanismCandidate
 from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import (
     PathTraceConfig,
@@ -28,8 +30,6 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     TransformService,
     VisualItemManager,
 )
-from automataii.application.mechanisms.mechanism_service import MechanismService
-from automataii.application.mechanisms.skeleton_service import SkeletonService
 
 if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
@@ -582,8 +582,15 @@ class MechanismDesignPresenter(QObject):
     # === CALLBACK HANDLERS ===
 
     def _on_params_updated(self, mechanism_id: str, layer_data: dict) -> None:
-        """Handle parameter updates from anchor movement."""
-        pass  # State is updated in-place
+        """Handle parameter updates from anchor movement.
+
+        Emits mechanism_parameters_changed signal to propagate changes
+        to ProjectStateManager for undo/redo support.
+        """
+        # Emit signal to propagate changes to state manager (for undo/redo)
+        if self._tab and hasattr(self._tab, 'mechanism_parameters_changed'):
+            params = layer_data.get("params", {})
+            self._tab.mechanism_parameters_changed.emit(mechanism_id, dict(params))
 
     def _on_visuals_recreate(self, mechanism_id: str, layer_data: dict) -> None:
         """Handle visual recreation request."""

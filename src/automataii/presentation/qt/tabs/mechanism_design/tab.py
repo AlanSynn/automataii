@@ -40,7 +40,6 @@ from automataii.application.mechanism_foundry.mechanism_generation_service impor
 from automataii.application.mechanism_foundry.mechanism_lifecycle_coordinator import (
     MechanismLifecycleCoordinator,
 )
-from automataii.presentation.qt.models import PartInfo
 
 # Domain and Application layer imports (Hexagonal Architecture)
 from automataii.domain.kinematics.joint_mapping_service import JointMappingService
@@ -48,6 +47,7 @@ from automataii.domain.kinematics.mechanism import MechanismCandidate
 from automataii.domain.kinematics.motion_path_generator import MotionPathGenerator
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
+from automataii.presentation.qt.models import PartInfo
 from automataii.presentation.qt.tabs.mechanism_design.components import (
     AnimationLifecycleController,
     MechanismOutputCalculator,
