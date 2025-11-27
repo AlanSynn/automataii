@@ -1,5 +1,12 @@
 """
-Project serialization system with support for multiple formats.
+Project serialization system for JSON format.
+
+This module provides:
+- ProjectJSONEncoder/Decoder: Custom JSON handling for complex types
+- QtTypeEncoder: Handles Qt type serialization (QPoint, QSize, QRect, QColor)
+- ReferenceResolver: Handles circular references (UUID-based)
+
+Note: msgpack/bson support was removed as it was never used in the codebase.
 """
 
 import base64
@@ -7,21 +14,8 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Any
-
-try:
-    import msgpack
-    HAS_MSGPACK = True
-except ImportError:
-    HAS_MSGPACK = False
-
-try:
-    import bson
-    HAS_BSON = True
-except ImportError:
-    HAS_BSON = False
 
 # Qt imports (optional)
 try:
@@ -66,13 +60,6 @@ except ImportError:
             def alpha(self): return self._a
 
 from automataii.core.serialization.base import Serializable
-
-
-class SerializationFormat(Enum):
-    """Supported serialization formats."""
-    JSON = "json"
-    MSGPACK = "msgpack"
-    BSON = "bson"
 
 
 class SerializationError(Exception):
@@ -289,42 +276,30 @@ class ProjectJSONDecoder(json.JSONDecoder):
 
 class ProjectSerializer:
     """
-    Handles complex object serialization with references and validation.
+    Handles complex object serialization to JSON with references and validation.
 
     Features:
-    - Multiple format support (JSON, MessagePack, BSON)
     - Reference resolution for circular dependencies
     - Qt type serialization
-    - Binary data handling
-    - Schema validation
+    - Binary data handling (base64)
     - Compression support
     """
 
-    def __init__(self, format: SerializationFormat = SerializationFormat.JSON):
-        self.format = format
+    def __init__(self) -> None:
         self.reference_resolver = ReferenceResolver()
         self._logger = logging.getLogger(__name__)
-
-        # Validate format availability
-        if format == SerializationFormat.MSGPACK and not HAS_MSGPACK:
-            raise SerializationError("MessagePack not available. Install msgpack package.")
-
-        if format == SerializationFormat.BSON and not HAS_BSON:
-            raise SerializationError("BSON not available. Install pymongo package.")
 
     def serialize(
         self,
         obj: Any,
         compress: bool = False,
-        _validate_schema: bool = True
     ) -> bytes:
         """
-        Serialize object to bytes.
+        Serialize object to JSON bytes.
 
         Args:
             obj: Object to serialize
-            compress: Apply compression
-            validate_schema: Validate against schema
+            compress: Apply gzip compression
 
         Returns:
             Serialized data as bytes
@@ -332,27 +307,15 @@ class ProjectSerializer:
         try:
             self.reference_resolver.clear()
 
-            if self.format == SerializationFormat.JSON:
-                encoder = ProjectJSONEncoder(self.reference_resolver, indent=2)
-                json_str = encoder.encode(obj)
-                data = json_str.encode('utf-8')
-
-            elif self.format == SerializationFormat.MSGPACK:
-                data = msgpack.packb(obj, use_bin_type=True)
-
-            elif self.format == SerializationFormat.BSON:
-                if not isinstance(obj, dict):
-                    obj = {'data': obj}
-                data = bson.encode(obj)
-
-            else:
-                raise SerializationError(f"Unsupported format: {self.format}")
+            encoder = ProjectJSONEncoder(self.reference_resolver, indent=2)
+            json_str = encoder.encode(obj)
+            data = json_str.encode('utf-8')
 
             if compress:
                 import gzip
                 data = gzip.compress(data)
 
-            self._logger.debug(f"Serialized {len(data)} bytes in {self.format.value} format")
+            self._logger.debug(f"Serialized {len(data)} bytes")
             return data
 
         except Exception as e:
@@ -366,12 +329,12 @@ class ProjectSerializer:
         compressed: bool = False
     ) -> Any:
         """
-        Deserialize bytes to object.
+        Deserialize JSON bytes to object.
 
         Args:
             data: Serialized data
-            expected_type: Expected object type
-            compressed: Data is compressed
+            expected_type: Expected object type (for validation logging)
+            compressed: Data is gzip compressed
 
         Returns:
             Deserialized object
@@ -383,20 +346,9 @@ class ProjectSerializer:
 
             self.reference_resolver.clear()
 
-            if self.format == SerializationFormat.JSON:
-                decoder = ProjectJSONDecoder(self.reference_resolver)
-                json_str = data.decode('utf-8')
-                obj = decoder.decode(json_str)
-
-            elif self.format == SerializationFormat.MSGPACK:
-                obj = msgpack.unpackb(data, raw=False)
-
-            elif self.format == SerializationFormat.BSON:
-                decoded = bson.decode(data)
-                obj = decoded.get('data', decoded)
-
-            else:
-                raise SerializationError(f"Unsupported format: {self.format}")
+            decoder = ProjectJSONDecoder(self.reference_resolver)
+            json_str = data.decode('utf-8')
+            obj = decoder.decode(json_str)
 
             # Resolve pending references
             self.reference_resolver.resolve_pending_references()

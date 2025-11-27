@@ -7,7 +7,7 @@ Handles .atii project files, serialization, and project lifecycle management.
 from .file_integration import FileIntegration
 from .project_format import AtiiProject
 from .project_manager import ProjectManager
-from .serialization import ProjectSerializer, SerializationFormat
+from .serialization import ProjectSerializer
 
 # Global project manager instance
 _global_project_manager = None
@@ -27,7 +27,7 @@ def set_global_project_manager(manager: ProjectManager) -> None:
 __all__ = [
     'ProjectManager',
     'AtiiProject',
-    'ProjectSerializer', 'SerializationFormat',
+    'ProjectSerializer',
     'FileIntegration',
     'get_global_project_manager', 'set_global_project_manager'
 ]
