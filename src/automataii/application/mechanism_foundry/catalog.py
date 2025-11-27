@@ -52,7 +52,7 @@ class MechanismCatalog:
 def load_catalog(catalog_path: Path | None = None) -> MechanismCatalog:
     if catalog_path is None:
         project_root = get_project_root()
-        catalog_path = project_root / "src" / "automataii" / "mechanism_catalog.json"
+        catalog_path = project_root / "resources" / "data" / "mechanism_catalog.json"
     with catalog_path.open("r", encoding="utf-8") as f:
         raw = json.load(f)
 

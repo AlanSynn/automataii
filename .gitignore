@@ -300,7 +300,6 @@ torchserve/logs/
 
 # Do not ignore JSONs that are required at runtime
 *.json
-!src/automataii/kinematics/generated_mechanism_paths.json
 !resources/**/*.json
 *.pth
 *.pt
@@ -353,5 +352,3 @@ tmp/
 .ruff-cache
 .uv-cache
 .cursor
-
-!src/automataii/mechanism_catalog.json
