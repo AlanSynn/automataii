@@ -19,7 +19,7 @@ except ImportError:
         )
         sys.exit(1)
 
-from automataii.gui.main_window import AutomataDesigner
+from automataii.presentation.qt.main_window import AutomataDesigner
 from automataii.scenarios import run_blueprint_export_scenario
 from automataii.utils.auto_updater import setup_auto_updater
 from automataii.utils.config import AppConfig

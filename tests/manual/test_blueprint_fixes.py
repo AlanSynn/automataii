@@ -6,9 +6,13 @@ Test script to verify blueprint scaling and texture fixes
 import sys
 import logging
 from pathlib import Path
+import pytest
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+# Manual blueprint verification; skip under automated pytest.
+pytest.skip("Manual blueprint fixes test; skipping in automated pytest.", allow_module_level=True)
 
 def test_blueprint_fixes():
     """Test the blueprint scaling and texture enhancement fixes"""

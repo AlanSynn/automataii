@@ -1,13 +1,4 @@
 """Color constants and utilities for linkage rendering.
-
-Lines: ~60
-Public API: LINK_COLORS, PATH_COLOR, get_link_color, get_link_pen
-Deps In: 0 [fourbar renderer]
-Deps Out: 2 [PyQt6, config]
-Coupling: Low (minimal external deps)
-Cohesion: Feature (color utilities)
-Owner: Alan Synn
-Last Updated: 2025-10-27
 """
 
 from PyQt6.QtGui import QColor, QPen

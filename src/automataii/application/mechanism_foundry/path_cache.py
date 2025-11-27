@@ -1,14 +1,5 @@
 """
 Path Cache - LRU cache for computed mechanism motion paths
-
-Lines: ~100
-Public API: PathCache, PathCacheKey, CachedPath
-Deps In: 0 [controller, view]
-Deps Out: 2 [mechanisms, dataclasses]
-Coupling: Low (pure caching logic)
-Cohesion: Feature (path caching)
-Owner: Alan Synn
-Last Updated: 2025-10-24
 """
 
 from __future__ import annotations
@@ -21,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.protocols import Mechanism
+    from automataii.domain.mechanisms.core.protocols import Mechanism
 
 
 @dataclass(frozen=True)

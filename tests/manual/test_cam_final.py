@@ -3,6 +3,10 @@
 
 import numpy as np
 import math
+import pytest
+
+# Manual CAM scaling exploration; skip during automated pytest.
+pytest.skip("Manual CAM scaling test; skipping in automated pytest.", allow_module_level=True)
 
 def test_cam_scaling():
     """Test new CAM scaling parameters."""

@@ -1,0 +1,763 @@
+"""
+Motion Path Manager - Drawing, smoothing, and path manipulation.
+
+Extracted from EditorTab god class. Handles all motion path operations
+including freehand drawing, smoothness adjustment, RDP simplification,
+ellipse fitting, and feasibility snapping.
+
+Design Pattern: Manager (coordinates path operations)
+Time Complexity: O(n) for path operations, O(n²) for RDP simplification
+"""
+from __future__ import annotations
+
+import logging
+import math
+from typing import TYPE_CHECKING, Any, Callable
+
+from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor, QPainterPath, QPen
+
+if TYPE_CHECKING:
+    from PyQt6.QtWidgets import QGraphicsScene, QLabel, QPushButton, QRadioButton, QSlider
+
+    from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
+    from automataii.presentation.qt.views.editor_view import EditorView
+
+
+class MotionPathManager(QObject):
+    """
+    Manages motion path drawing, smoothing, and manipulation.
+
+    Responsibilities:
+    - Toggle drawing mode on/off
+    - Handle freehand path completion
+    - Smooth paths using RDP algorithm
+    - Fit ellipses to paths
+    - Apply feasibility corrections based on IK constraints
+    - Update paths across data structures
+
+    Signals:
+        motion_path_updated: Emitted when a path is updated (part_name, path)
+        path_data_changed: Emitted when any path data changes (dict of paths)
+        drawing_mode_changed: Emitted when drawing mode toggles (is_drawing)
+    """
+
+    motion_path_updated = pyqtSignal(str, QPainterPath)
+    path_data_changed = pyqtSignal(dict)
+    drawing_mode_changed = pyqtSignal(bool)
+
+    def __init__(
+        self,
+        editor_view: EditorView,
+        editor_scene: QGraphicsScene,
+        parent: QObject | None = None,
+    ) -> None:
+        """
+        Initialize motion path manager.
+
+        Args:
+            editor_view: The EditorView for path visualization
+            editor_scene: The graphics scene
+            parent: Optional parent QObject
+        """
+        super().__init__(parent)
+        self._editor_view = editor_view
+        self._editor_scene = editor_scene
+
+        # Corrected paths cache (feasibility-adjusted)
+        self._corrected_paths: dict[str, QPainterPath] = {}
+
+        # UI references (set via configure_ui)
+        self._define_btn: QPushButton | None = None
+        self._clear_btn: QPushButton | None = None
+        self._status_label: QLabel | None = None
+        self._info_label: QLabel | None = None
+        self._smoothness_slider: QSlider | None = None
+        self._smoothness_label: QLabel | None = None
+        self._closed_path_radio: QRadioButton | None = None
+
+        # Callbacks for external state/operations
+        self._get_selected_part: Callable[[], str | None] = lambda: None
+        self._get_editor_items: Callable[[], dict[str, CharacterPartItem]] = lambda: {}
+        self._get_parts_info: Callable[[], dict[str, Any]] = lambda: {}
+        self._get_main_window: Callable[[], Any] = lambda: None
+        self._update_button_states: Callable[[], None] = lambda: None
+        self._has_motion_path: Callable[[str], bool] = lambda x: False
+        self._emit_path_data: Callable[[], None] = lambda: None
+
+    def configure_ui(
+        self,
+        define_btn: QPushButton,
+        clear_btn: QPushButton,
+        status_label: QLabel,
+        info_label: QLabel,
+        smoothness_slider: QSlider,
+        smoothness_label: QLabel,
+        closed_path_radio: QRadioButton,
+    ) -> None:
+        """Configure UI element references."""
+        self._define_btn = define_btn
+        self._clear_btn = clear_btn
+        self._status_label = status_label
+        self._info_label = info_label
+        self._smoothness_slider = smoothness_slider
+        self._smoothness_label = smoothness_label
+        self._closed_path_radio = closed_path_radio
+
+    def configure_callbacks(
+        self,
+        get_selected_part: Callable[[], str | None],
+        get_editor_items: Callable[[], dict[str, CharacterPartItem]],
+        get_parts_info: Callable[[], dict[str, Any]],
+        get_main_window: Callable[[], Any],
+        update_button_states: Callable[[], None],
+        has_motion_path: Callable[[str], bool],
+        emit_path_data: Callable[[], None],
+    ) -> None:
+        """Configure callback functions for external state access."""
+        self._get_selected_part = get_selected_part
+        self._get_editor_items = get_editor_items
+        self._get_parts_info = get_parts_info
+        self._get_main_window = get_main_window
+        self._update_button_states = update_button_states
+        self._has_motion_path = has_motion_path
+        self._emit_path_data = emit_path_data
+
+    @property
+    def corrected_paths(self) -> dict[str, QPainterPath]:
+        """Get the corrected paths cache."""
+        return self._corrected_paths
+
+    # --- Drawing Mode Control ---
+
+    def toggle_define_mode(self, checked: bool) -> None:
+        """
+        Handle the 'Start/Stop Drawing' button toggle.
+
+        Args:
+            checked: Whether drawing mode is being enabled
+        """
+        part_name = self._get_selected_part()
+        if not part_name or not checked:
+            self._editor_view.set_mode("select")
+            if self._define_btn:
+                self._define_btn.setText("Start Drawing")
+            if self._info_label:
+                self._info_label.setVisible(False)
+            if checked and self._define_btn:
+                self._define_btn.setChecked(False)
+            self.drawing_mode_changed.emit(False)
+            return
+
+        logging.debug(f"Toggling drawing mode for part: {part_name}")
+
+        # Clear existing mechanism visuals and motion path before new drawing
+        main_window = self._get_main_window()
+        if main_window and hasattr(main_window, "mechanism_design_tab"):
+            mechanism_tab = main_window.mechanism_design_tab
+            if hasattr(mechanism_tab, "_clear_mechanism_for_part"):
+                mechanism_tab._clear_mechanism_for_part(part_name)
+                logging.info(
+                    f"🔄 MotionPathManager: Cleared mechanism visuals for '{part_name}'"
+                )
+
+        # Clear existing motion path visuals
+        if hasattr(self._editor_view, "clear_visual_path_for_component"):
+            self._editor_view.clear_visual_path_for_component(part_name)
+            logging.info(
+                f"🔄 MotionPathManager: Cleared motion path visuals for '{part_name}'"
+            )
+
+        # Clear from project data manager
+        if main_window and hasattr(main_window, "project_data_manager"):
+            parts_data = main_window.project_data_manager.get_current_parts_data()
+            if parts_data and part_name in parts_data:
+                parts_data[part_name].motion_path_data = None
+                logging.info(
+                    f"🔄 MotionPathManager: Cleared motion_path_data for '{part_name}'"
+                )
+
+        # Set drawing mode
+        self._editor_view.set_mode("define_motion_path")
+        editor_items = self._get_editor_items()
+        if part_name in editor_items:
+            target_item = editor_items[part_name]
+            is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+            self._editor_view.start_define_motion_path(target_item, is_closed=is_closed)
+
+        if self._define_btn:
+            self._define_btn.setText("Stop Drawing")
+        if self._info_label:
+            self._info_label.setVisible(True)
+
+        self.drawing_mode_changed.emit(True)
+
+    def clear_selected_motion_path(self) -> None:
+        """Clear motion path for the currently selected part."""
+        part_name = self._get_selected_part()
+        if not part_name:
+            logging.warning("No part selected for motion path clearing")
+            return
+
+        logging.info(f"Clearing motion path for selected part: {part_name}")
+
+        editor_items = self._get_editor_items()
+        parts_info = self._get_parts_info()
+
+        # Clear from CharacterPartItem
+        if part_name in editor_items:
+            part_item = editor_items[part_name]
+            part_item.motion_path = None
+
+            if hasattr(part_item, "motion_path_item") and part_item.motion_path_item:
+                if part_item.motion_path_item.scene():
+                    self._editor_scene.removeItem(part_item.motion_path_item)
+                part_item.motion_path_item = None
+
+            if hasattr(part_item, "motion_path_points"):
+                part_item.motion_path_points = []
+
+            if hasattr(part_item, "original_path_points"):
+                part_item.original_path_points = []
+
+        # Clear from parts_info
+        if part_name in parts_info:
+            parts_info[part_name].motion_path = None
+
+        # Clear from EditorView's final paths map
+        if hasattr(self._editor_view, "final_paths_map"):
+            if part_name in self._editor_view.final_paths_map:
+                path_item = self._editor_view.final_paths_map[part_name]
+                if path_item and path_item.scene():
+                    self._editor_scene.removeItem(path_item)
+                del self._editor_view.final_paths_map[part_name]
+
+        # Clear from corrected paths cache
+        self._corrected_paths.pop(part_name, None)
+
+        # Clear overlays
+        if hasattr(self._editor_view, "clear_raw_overlay_for"):
+            self._editor_view.clear_raw_overlay_for(part_name)
+        if hasattr(self._editor_view, "clear_corrected_overlay_for"):
+            self._editor_view.clear_corrected_overlay_for(part_name)
+
+        main_window = self._get_main_window()
+        if main_window:
+            main_window.statusBar().showMessage(
+                f"Motion path cleared for part: {part_name}"
+            )
+
+        self._update_button_states()
+        self._editor_view.viewport().update()
+        self._emit_path_data()
+
+    # --- Path Completion Handling ---
+
+    @pyqtSlot(list)
+    def handle_freehand_path_completed(self, path_points: list[QPointF]) -> None:
+        """
+        Handle completion of freehand drawing from EditorView.
+
+        Args:
+            path_points: List of QPointF points from the drawing
+        """
+        part_name = self._get_selected_part()
+        if not part_name:
+            logging.warning("handle_freehand_path_completed: No part selected.")
+            return
+
+        # Get final spline path from EditorView
+        final_path_item = self._editor_view.final_paths_map.get(part_name)
+
+        if not final_path_item:
+            logging.error(
+                f"Could not find final spline path for {part_name} in final_paths_map."
+            )
+            motion_qpath = QPainterPath()
+            if path_points:
+                motion_qpath.moveTo(path_points[0])
+                for point in path_points[1:]:
+                    motion_qpath.lineTo(point)
+        else:
+            motion_qpath = final_path_item.path()
+            logging.info(f"Retrieved final spline path for '{part_name}'")
+
+        # Update project data manager
+        main_window = self._get_main_window()
+        if main_window and hasattr(main_window, "project_data_manager"):
+            current_parts_info = main_window.project_data_manager.parts
+            if part_name in current_parts_info:
+                current_parts_info[part_name].motion_path = motion_qpath
+
+        # Update CharacterPartItem
+        editor_items = self._get_editor_items()
+        if part_name in editor_items:
+            char_part_item = editor_items[part_name]
+            char_part_item.set_motion_path(motion_qpath)
+            char_part_item.original_path_points = path_points.copy()
+
+        # Emit signals
+        self.motion_path_updated.emit(part_name, motion_qpath)
+        self._emit_path_data()
+
+        if main_window:
+            main_window.statusBar().showMessage(
+                f"Motion path completed for part: {part_name}"
+            )
+
+        self._update_button_states()
+        logging.info(f"Completed spline motion path for part: {part_name}")
+
+    def handle_drawing_cancelled(self) -> None:
+        """Handle cancellation of drawing mode."""
+        logging.debug("Drawing mode cancelled")
+        if self._define_btn:
+            self._define_btn.setChecked(False)
+            self._define_btn.setText("Start Drawing")
+            self._define_btn.setStyleSheet("")
+        if self._info_label:
+            self._info_label.setVisible(False)
+        self.drawing_mode_changed.emit(False)
+
+    # --- Smoothness Control ---
+
+    def on_smoothness_changed(self, value: int) -> None:
+        """
+        Handle smoothness slider value change.
+
+        Args:
+            value: Smoothness percentage (0-100)
+        """
+        if self._smoothness_label:
+            self._smoothness_label.setText(f"{value}%")
+
+        part_name = self._get_selected_part()
+        if part_name and self._has_motion_path(part_name):
+            self._regenerate_path_with_smoothness(part_name, value)
+
+    def _regenerate_path_with_smoothness(
+        self, part_name: str, smoothness_percentage: int
+    ) -> None:
+        """
+        Regenerate motion path using tolerance-based smoothing.
+
+        Uses RDP algorithm to simplify while preserving extremes.
+
+        Args:
+            part_name: Name of the part
+            smoothness_percentage: Smoothness level (0=raw, 100=smooth)
+        """
+        original_points = self._get_original_path_points(part_name)
+        if not original_points or len(original_points) < 3:
+            logging.warning(
+                f"Cannot regenerate path for {part_name}: insufficient points"
+            )
+            return
+
+        # Smoothness 0: raw path
+        if smoothness_percentage == 0:
+            raw_path = self._create_raw_path(original_points)
+            if hasattr(self._editor_view, "set_raw_overlay_path"):
+                raw_pen = QPen(
+                    QColor("#6a4c93"),
+                    3.0,
+                    Qt.PenStyle.DashLine,
+                    Qt.PenCapStyle.RoundCap,
+                )
+                self._editor_view.set_raw_overlay_path(part_name, raw_path, raw_pen)
+
+            # Try feasibility correction
+            try:
+                corrected = self._apply_feasibility_snapping(part_name, raw_path)
+                if corrected and hasattr(self._editor_view, "set_corrected_overlay_path"):
+                    self._editor_view.set_corrected_overlay_path(part_name, corrected)
+                    self._corrected_paths[part_name] = corrected
+            except Exception as e:
+                logging.debug(f"Feasibility snapping skipped: {e}")
+
+            self._update_part_path(part_name, raw_path)
+            logging.info(f"Regenerated path (RAW) for {part_name}")
+            return
+
+        # Calculate tolerance based on path size
+        bbox_min_x = min(p.x() for p in original_points)
+        bbox_max_x = max(p.x() for p in original_points)
+        bbox_min_y = min(p.y() for p in original_points)
+        bbox_max_y = max(p.y() for p in original_points)
+        diag = math.hypot(bbox_max_x - bbox_min_x, bbox_max_y - bbox_min_y)
+        epsilon = max(0.1, 0.05 * diag * (smoothness_percentage / 100.0))
+
+        # Compute extreme indices to preserve
+        keep_indices = self._compute_extreme_indices(original_points)
+
+        # RDP simplify while preserving extremes
+        simplified = self._rdp_preserve(original_points, epsilon, keep_indices)
+        if len(simplified) < 3:
+            simplified = original_points
+
+        # Build smoothed path via spline
+        try:
+            tension = 0.5
+            new_path = self._editor_view._create_spline_path(
+                simplified, closed_loop=True, tension=tension
+            )
+        except Exception:
+            new_path = self._create_raw_path(simplified)
+
+        # Show dual-track overlays
+        raw_overlay = self._create_raw_path(original_points)
+        if hasattr(self._editor_view, "set_raw_overlay_path"):
+            raw_pen = QPen(
+                QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap
+            )
+            self._editor_view.set_raw_overlay_path(part_name, raw_overlay, raw_pen)
+
+        # Feasibility snapping
+        try:
+            corrected = self._apply_feasibility_snapping(part_name, new_path)
+            if corrected and hasattr(self._editor_view, "set_corrected_overlay_path"):
+                self._editor_view.set_corrected_overlay_path(part_name, corrected)
+                self._corrected_paths[part_name] = corrected
+        except Exception as e:
+            logging.debug(f"Feasibility snapping skipped: {e}")
+
+        self._update_part_path(part_name, new_path)
+        logging.info(f"Regenerated path (RDP) for {part_name} with epsilon={epsilon:.2f}")
+
+    # --- Geometry Helpers ---
+
+    def _compute_extreme_indices(self, points: list[QPointF]) -> set[int]:
+        """
+        Detect indices of extremes along principal axis.
+
+        Uses PCA to find major axis and picks local maxima/minima.
+
+        Time Complexity: O(n) for projection, O(n) for extrema detection
+        """
+        try:
+            import numpy as np
+
+            arr = np.array([[p.x(), p.y()] for p in points], dtype=float)
+            arr_centered = arr - np.mean(arr, axis=0)
+            cov = np.cov(arr_centered.T)
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            major = eigvecs[:, np.argmax(eigvals)]
+            proj = arr_centered @ major
+            idxs = self._local_extrema_indices(proj.tolist())
+        except Exception:
+            # Fallback: use x-axis projection
+            vals = [p.x() for p in points]
+            idxs = self._local_extrema_indices(vals)
+
+        # Always include endpoints
+        idxs.update({0, len(points) - 1})
+        return idxs
+
+    @staticmethod
+    def _local_extrema_indices(values: list[float]) -> set[int]:
+        """Return indices that are local minima or maxima."""
+        idxs: set[int] = set()
+        n = len(values)
+        for i in range(1, n - 1):
+            if (values[i] >= values[i - 1] and values[i] >= values[i + 1]) or (
+                values[i] <= values[i - 1] and values[i] <= values[i + 1]
+            ):
+                idxs.add(i)
+        return idxs
+
+    def _rdp_preserve(
+        self, points: list[QPointF], epsilon: float, keep_indices: set[int]
+    ) -> list[QPointF]:
+        """
+        Ramer-Douglas-Peucker simplification preserving specific indices.
+
+        Time Complexity: O(n²) worst case, O(n log n) average
+        """
+
+        def point_line_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
+            ax, ay = a.x(), a.y()
+            bx, by = b.x(), b.y()
+            px, py = p.x(), p.y()
+            dx, dy = bx - ax, by - ay
+            if dx == 0 and dy == 0:
+                return math.hypot(px - ax, py - ay)
+            t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+            t = max(0.0, min(1.0, t))
+            projx, projy = ax + t * dx, ay + t * dy
+            return math.hypot(px - projx, py - projy)
+
+        def rdp_segment(start_idx: int, end_idx: int) -> list[int]:
+            if end_idx <= start_idx + 1:
+                return [start_idx, end_idx]
+
+            a, b = points[start_idx], points[end_idx]
+            max_dist = -1.0
+            index = -1
+            for i in range(start_idx + 1, end_idx):
+                d = point_line_distance(points[i], a, b)
+                if d > max_dist:
+                    max_dist = d
+                    index = i
+
+            if max_dist > epsilon or any(
+                (start_idx < k < end_idx) for k in keep_indices
+            ):
+                left = rdp_segment(start_idx, index)
+                right = rdp_segment(index, end_idx)
+                return left[:-1] + right
+            else:
+                return [start_idx, end_idx]
+
+        n = len(points)
+        internal_keeps = sorted([k for k in keep_indices if 0 < k < n - 1])
+        segments = []
+        prev = 0
+        for k in internal_keeps:
+            segments.append((prev, k))
+            prev = k
+        segments.append((prev, n - 1))
+
+        selected: set[int] = set()
+        for s, e in segments:
+            seg_idxs = rdp_segment(s, e)
+            selected.update(seg_idxs)
+
+        final_indices = sorted(selected)
+        return [points[i] for i in final_indices]
+
+    def _apply_feasibility_snapping(
+        self, part_name: str, path: QPainterPath
+    ) -> QPainterPath | None:
+        """
+        Apply feasibility correction based on IK constraints.
+
+        Projects path points onto the reachable annulus defined by
+        the two-bone IK chain (root->mid->effector).
+        """
+        try:
+            main_window = self._get_main_window()
+            ik = getattr(main_window, "ik_manager", None) if main_window else None
+            if not ik or not hasattr(ik, "sim_joints_config"):
+                return None
+
+            # Find end-effector joint for this part
+            eff_abs = None
+            for comp in getattr(ik, "sim_selectable_components", []) or []:
+                if comp.get("partName") == part_name:
+                    eff_abs = comp.get("targetJointId")
+                    break
+
+            if not eff_abs:
+                return None
+
+            # Resolve parent and root anchors
+            mid_abs = ik.sim_limb_configs.get(eff_abs, {}).get("parentAnchor")
+            if not mid_abs:
+                return None
+            root_abs = (
+                ik.sim_limb_configs.get(mid_abs, {}).get("parentAnchor") or mid_abs
+            )
+
+            # Get standardized joint IDs
+            def std_id_of(abs_name: str) -> str:
+                try:
+                    return ik._get_standardized_joint_id(abs_name)
+                except Exception:
+                    return abs_name
+
+            eff_id = std_id_of(eff_abs)
+            mid_id = std_id_of(mid_abs)
+            root_id = std_id_of(root_abs)
+
+            for jid in (eff_id, mid_id, root_id):
+                if jid not in ik.sim_joints_config:
+                    return None
+
+            root_pos = ik.sim_joints_config[root_id]["position"]
+            mid_pos = ik.sim_joints_config[mid_id]["position"]
+            eff_pos = ik.sim_joints_config[eff_id]["position"]
+
+            # Calculate bone lengths
+            l1 = math.hypot(root_pos.x() - mid_pos.x(), root_pos.y() - mid_pos.y())
+            l2 = math.hypot(mid_pos.x() - eff_pos.x(), mid_pos.y() - eff_pos.y())
+
+            if l1 <= 1e-6 or l2 <= 1e-6:
+                return None
+
+            # Feasible radii with tolerance
+            tol = 0.05
+            r_min = max(0.0, abs(l1 - l2) * (1.0 - tol))
+            r_max = (l1 + l2) * (1.0 + tol)
+
+            # Project sampled points onto annulus
+            corrected = QPainterPath()
+            any_change = False
+            samples = 100
+
+            for i in range(samples):
+                t = i / (samples - 1) if samples > 1 else 0.0
+                p = path.pointAtPercent(t)
+                dx = p.x() - root_pos.x()
+                dy = p.y() - root_pos.y()
+                d = math.hypot(dx, dy)
+
+                if d < 1e-6:
+                    nx, ny = r_min, 0.0
+                    any_change = True
+                elif d < r_min:
+                    s = r_min / d
+                    nx, ny = dx * s, dy * s
+                    any_change = True
+                elif d > r_max:
+                    s = r_max / d
+                    nx, ny = dx * s, dy * s
+                    any_change = True
+                else:
+                    nx, ny = dx, dy
+
+                cx = root_pos.x() + nx
+                cy = root_pos.y() + ny
+
+                if i == 0:
+                    corrected.moveTo(cx, cy)
+                else:
+                    corrected.lineTo(cx, cy)
+
+            corrected.closeSubpath()
+            return corrected if any_change else None
+
+        except Exception as e:
+            logging.debug(f"Feasibility snapping error: {e}")
+            return None
+
+    def apply_corrections_for_all_parts(self) -> None:
+        """Auto-apply feasibility-corrected paths for all cached parts."""
+        if not self._corrected_paths:
+            return
+
+        for part, corrected in list(self._corrected_paths.items()):
+            try:
+                if corrected is None:
+                    continue
+                self._update_part_path(part, corrected)
+                if hasattr(self._editor_view, "clear_corrected_overlay_for"):
+                    self._editor_view.clear_corrected_overlay_for(part)
+                self._corrected_paths.pop(part, None)
+            except Exception as e:
+                logging.debug(f"Failed to apply correction for {part}: {e}")
+
+    # --- Path Data Access ---
+
+    def _get_original_path_points(self, part_name: str) -> list[QPointF]:
+        """Get original drawn points for a part."""
+        editor_items = self._get_editor_items()
+
+        if part_name in editor_items:
+            part_item = editor_items[part_name]
+            if hasattr(part_item, "original_path_points") and part_item.original_path_points:
+                return part_item.original_path_points
+
+            if hasattr(part_item, "motion_path") and part_item.motion_path:
+                return self._extract_points_from_path(part_item.motion_path)
+
+        return []
+
+    @staticmethod
+    def _extract_points_from_path(path: QPainterPath) -> list[QPointF]:
+        """Extract points from a QPainterPath by sampling."""
+        points = []
+        length = path.length()
+        if length > 0:
+            num_samples = min(12, max(6, int(length / 20)))
+            for i in range(num_samples):
+                percent = i / (num_samples - 1) if num_samples > 1 else 0
+                points.append(path.pointAtPercent(percent))
+        return points
+
+    @staticmethod
+    def _create_raw_path(points: list[QPointF]) -> QPainterPath:
+        """Create a path from raw points connected by lines."""
+        path = QPainterPath()
+        if points:
+            path.moveTo(points[0])
+            for point in points[1:]:
+                path.lineTo(point)
+            if len(points) > 2:
+                path.lineTo(points[0])
+        return path
+
+    def _create_perfect_ellipse_path(self, points: list[QPointF]) -> QPainterPath:
+        """Create a perfect ellipse fitted to points using PCA."""
+        if not points:
+            return QPainterPath()
+
+        import numpy as np
+
+        coords = np.array([[p.x(), p.y()] for p in points])
+        center = np.mean(coords, axis=0)
+        center_x, center_y = center[0], center[1]
+
+        centered_coords = coords - center
+        cov_matrix = np.cov(centered_coords.T)
+        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+
+        sorted_indices = np.argsort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[sorted_indices]
+        eigenvectors = eigenvectors[:, sorted_indices]
+
+        major_axis = eigenvectors[:, 0]
+
+        major_projections = np.dot(centered_coords, major_axis)
+        minor_projections = np.dot(centered_coords, eigenvectors[:, 1])
+
+        major_radius = max(10.0, 1.2 * np.std(major_projections))
+        minor_radius = max(10.0, 1.2 * np.std(minor_projections))
+
+        rotation_angle = math.atan2(major_axis[1], major_axis[0])
+
+        path = QPainterPath()
+        num_points = max(36, len(points) * 3)
+
+        for i in range(num_points + 1):
+            t = 2 * math.pi * i / num_points
+            local_x = major_radius * math.cos(t)
+            local_y = minor_radius * math.sin(t)
+
+            cos_rot = math.cos(rotation_angle)
+            sin_rot = math.sin(rotation_angle)
+            rotated_x = local_x * cos_rot - local_y * sin_rot
+            rotated_y = local_x * sin_rot + local_y * cos_rot
+
+            x = center_x + rotated_x
+            y = center_y + rotated_y
+
+            if i == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+
+        return path
+
+    def _update_part_path(self, part_name: str, new_path: QPainterPath) -> None:
+        """Update motion path across all data structures."""
+        editor_items = self._get_editor_items()
+
+        # Update CharacterPartItem
+        if part_name in editor_items:
+            editor_items[part_name].set_motion_path(new_path)
+
+        # Update project data
+        main_window = self._get_main_window()
+        if main_window and hasattr(main_window, "project_data_manager"):
+            current_parts = main_window.project_data_manager.get_current_parts_data()
+            if current_parts and part_name in current_parts:
+                current_parts[part_name].motion_path = new_path
+
+        # Update visual path in EditorView
+        if (
+            hasattr(self._editor_view, "final_paths_map")
+            and part_name in self._editor_view.final_paths_map
+        ):
+            path_item = self._editor_view.final_paths_map[part_name]
+            if path_item:
+                path_item.setPath(new_path)

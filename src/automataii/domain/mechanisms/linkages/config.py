@@ -1,13 +1,4 @@
 """Linkage configuration dataclass with role-based identification.
-
-Lines: ~120
-Public API: LinkageConfig, LinkageType, LinkRole
-Deps In: 0 [fourbar mechanism]
-Deps Out: 0 [pure Python]
-Coupling: Low (no external deps)
-Cohesion: Feature (linkage config)
-Owner: Alan Synn
-Last Updated: 2025-11-14
 """
 
 from __future__ import annotations

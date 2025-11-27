@@ -1,13 +1,4 @@
 """Six-bar linkage computation strategy.
-
-Lines: ~135
-Public API: SixBarStrategy
-Deps In: 0 (implements LinkageStrategy)
-Deps Out: 4 (math, core.types, strategies.base, fivebar)
-Coupling: Medium (depends on FiveBarStrategy)
-Cohesion: Feature (six-bar kinematics)
-Owner: Alan Synn
-Last Updated: 2025-11-14
 """
 
 from __future__ import annotations
@@ -15,11 +6,11 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from automataii.mechanisms.linkages.strategies.base import LinkageStrategy
-from automataii.mechanisms.linkages.strategies.fivebar import FiveBarStrategy
+from automataii.domain.mechanisms.linkages.strategies.base import LinkageStrategy
+from automataii.domain.mechanisms.linkages.strategies.fivebar import FiveBarStrategy
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.types import ForceVector
+    from automataii.domain.mechanisms.core.types import ForceVector
 
 
 class SixBarStrategy(LinkageStrategy):

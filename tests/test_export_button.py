@@ -19,8 +19,8 @@ try:
         pivot_point=(400.0, 300.0),
     )
     print(f"\n✓ Export successful!")
-    print(f"  Type: {package.mechanism_data.mechanism_type}")
-    print(f"  Pivot: {package.mechanism_data.pivot_point}")
-    print(f"  Parameters: {package.mechanism_data.parameters}")
+    print(f"  Type: {package.export_data.mechanism_type}")
+    print(f"  Pivot: {package.export_data.visual_config.pivot_point}")
+    print(f"  Parameters: {package.export_data.parameters}")
 except TransferValidationError as e:
     print(f"\n✗ Export failed: {e}")

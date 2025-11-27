@@ -1,14 +1,5 @@
 """Six-bar linkage validation (placeholder for future configuration analysis).
 
-Lines: ~70
-Public API: SixBarValidator
-Deps In: 0 (implements LinkageValidator)
-Deps Out: 2 (core.types, validators.base)
-Coupling: Low (single validator)
-Cohesion: Feature (six-bar validation)
-Owner: Alan Synn
-Last Updated: 2025-11-14
-
 TODO: Implement proper six-bar validation:
 - Stephenson vs. Watt type classification
 - Branch defect detection
@@ -20,10 +11,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from automataii.mechanisms.linkages.validators.base import LinkageValidator
+from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.types import SafetyStatus
+    from automataii.domain.mechanisms.core.types import SafetyStatus
 
 
 class SixBarValidator(LinkageValidator):
@@ -62,7 +53,7 @@ class SixBarValidator(LinkageValidator):
 
         TODO: Implement proper validation rules
         """
-        from automataii.mechanisms.core.state import SafetyLevel, SafetyStatus
+        from automataii.domain.mechanisms.core.state import SafetyLevel, SafetyStatus
 
         # Placeholder: always safe for now
         return SafetyStatus(

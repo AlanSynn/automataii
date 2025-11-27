@@ -1,51 +1,16 @@
-"""Unified linkage mechanisms with modular strategy and validation.
+"""
+Compatibility layer: This module has moved to automataii.domain.mechanisms.linkages
 
-Public API for linkage mechanisms (4-bar, 5-bar, 6-bar) with:
-- Strategy pattern for type-specific kinematics
-- Validator pattern for type-specific safety checks
-- Unified interface via UnifiedLinkageMechanism
-
-Example:
-    from automataii.mechanisms.linkages import UnifiedLinkageMechanism
-
-    params = {
-        "bar_count": 4,
-        "ground_link": 100.0,
-        "input_link": 40.0,
-        "coupler_link": 120.0,
-        "output_link": 130.0,
-    }
-
-    linkage = UnifiedLinkageMechanism(params)
-    state = linkage.compute_state(params, input_angle=45.0)
+This file provides backwards compatibility by re-exporting from the new location.
 """
 
-from automataii.mechanisms.linkages.compute import UnifiedLinkageMechanism
-from automataii.mechanisms.linkages.config import LinkageConfig, LinkageType, LinkRole
-from automataii.mechanisms.linkages.strategies.base import LinkageStrategy
-from automataii.mechanisms.linkages.strategies.fourbar import FourBarStrategy
-from automataii.mechanisms.linkages.strategies.fivebar import FiveBarStrategy
-from automataii.mechanisms.linkages.strategies.sixbar import SixBarStrategy
-from automataii.mechanisms.linkages.validators.base import LinkageValidator
-from automataii.mechanisms.linkages.validators.fourbar import FourBarValidator
-from automataii.mechanisms.linkages.validators.fivebar import FiveBarValidator
-from automataii.mechanisms.linkages.validators.sixbar import SixBarValidator
+# Re-export everything from new location
+from automataii.domain.mechanisms.linkages import *  # noqa: F401, F403
 
-__all__ = [
-    # Main entry point
-    "UnifiedLinkageMechanism",
-    # Configuration
-    "LinkageConfig",
-    "LinkageType",
-    "LinkRole",
-    # Strategies
-    "LinkageStrategy",
-    "FourBarStrategy",
-    "FiveBarStrategy",
-    "SixBarStrategy",
-    # Validators
-    "LinkageValidator",
-    "FourBarValidator",
-    "FiveBarValidator",
-    "SixBarValidator",
-]
+import warnings
+warnings.warn(
+    "Importing from 'automataii.mechanisms.linkages' is deprecated. "
+    "Use 'automataii.domain.mechanisms.linkages' instead.",
+    DeprecationWarning,
+    stacklevel=2
+)

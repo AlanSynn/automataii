@@ -1,13 +1,3 @@
-# MechanismService
-# - Lines: ~160
-# - Public API: verify_coupler_joint_connection, adjust_mechanism_to_target_joint, calculate_mechanism_output
-# - Deps In (Afferent): 1 [MechanismDesignTab]
-# - Deps Out (Efferent): 2 [numpy, PyQt6]
-# - Coupling: Low (mechanism business logic only)
-# - Cohesion: Feature (mechanism calculations and adjustments)
-# - Owner: Alan Synn, Reviewers: TBD
-# - Last Updated: 2025-01-26
-
 """
 Service class for mechanism-related business logic.
 
@@ -18,7 +8,7 @@ that were previously embedded in the MechanismDesignTab class.
 import numpy as np
 from PyQt6.QtCore import QPointF
 
-from automataii.gui.tabs.mechanism_design.mechanism_design_utils import (
+from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils import (
     qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
 )
 

@@ -111,13 +111,16 @@ class EventBus:
                         self._logger.debug(f"Unsubscribed {handler} from {event_type.__name__}")
                         return True
             else:
-                # Find by handler instance
-                try:
-                    handlers.remove(handler)
-                    self._logger.debug(f"Unsubscribed {handler} from {event_type.__name__}")
-                    return True
-                except ValueError:
-                    pass
+                # Find by handler instance or wrapped function
+                for i, h in enumerate(list(handlers)):
+                    if h is handler:
+                        del handlers[i]
+                        self._logger.debug(f"Unsubscribed {handler} from {event_type.__name__}")
+                        return True
+                    if isinstance(h, FunctionEventHandler) and getattr(h, "func", None) is handler:
+                        del handlers[i]
+                        self._logger.debug(f"Unsubscribed {handler} from {event_type.__name__}")
+                        return True
 
             return False
 
@@ -264,5 +267,4 @@ def get_global_event_bus() -> EventBus:
     if _global_event_bus is None:
         _global_event_bus = EventBus()
     return _global_event_bus
-
 

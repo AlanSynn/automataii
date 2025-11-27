@@ -11,9 +11,13 @@ Comprehensive test for ALL mechanism types with enhanced manufacturing visualiza
 import sys
 import logging
 from pathlib import Path
+import pytest
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+# This is an interactive/manual-style test; skip during automated runs.
+pytest.skip("Manual enhanced mechanisms test; skipping in CI/automated pytest.", allow_module_level=True)
 
 def test_all_enhanced_mechanisms():
     """Test all mechanism types with enhanced manufacturing details"""

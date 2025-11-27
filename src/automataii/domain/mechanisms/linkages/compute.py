@@ -1,28 +1,19 @@
 """Unified linkage mechanism with modular strategy and validator pattern.
-
-Lines: ~180
-Public API: UnifiedLinkageMechanism
-Deps In: 0 (entry point for linkages)
-Deps Out: 5 (strategies, validators, core, config)
-Coupling: Medium (coordinates strategies/validators)
-Cohesion: Feature (unified linkage mechanism)
-Owner: Alan Synn
-Last Updated: 2025-11-14
 """
 
 from __future__ import annotations
 
-from automataii.mechanisms.core.protocols import Mechanism
-from automataii.mechanisms.core.state import MechanismState
-from automataii.mechanisms.linkages.config import LinkageConfig, LinkageType
-from automataii.mechanisms.linkages.strategies.base import LinkageStrategy
-from automataii.mechanisms.linkages.strategies.fourbar import FourBarStrategy
-from automataii.mechanisms.linkages.strategies.fivebar import FiveBarStrategy
-from automataii.mechanisms.linkages.strategies.sixbar import SixBarStrategy
-from automataii.mechanisms.linkages.validators.base import LinkageValidator
-from automataii.mechanisms.linkages.validators.fourbar import FourBarValidator
-from automataii.mechanisms.linkages.validators.fivebar import FiveBarValidator
-from automataii.mechanisms.linkages.validators.sixbar import SixBarValidator
+from automataii.domain.mechanisms.core.protocols import Mechanism
+from automataii.domain.mechanisms.core.state import MechanismState
+from automataii.domain.mechanisms.linkages.config import LinkageConfig, LinkageType
+from automataii.domain.mechanisms.linkages.strategies.base import LinkageStrategy
+from automataii.domain.mechanisms.linkages.strategies.fourbar import FourBarStrategy
+from automataii.domain.mechanisms.linkages.strategies.fivebar import FiveBarStrategy
+from automataii.domain.mechanisms.linkages.strategies.sixbar import SixBarStrategy
+from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
+from automataii.domain.mechanisms.linkages.validators.fourbar import FourBarValidator
+from automataii.domain.mechanisms.linkages.validators.fivebar import FiveBarValidator
+from automataii.domain.mechanisms.linkages.validators.sixbar import SixBarValidator
 
 
 class UnifiedLinkageMechanism(Mechanism):

@@ -7,10 +7,14 @@ Test script to verify Mechanism Foundry improvements:
 """
 
 import sys
+import pytest
 
 from PyQt6.QtWidgets import QApplication
 
 from automataii.ui.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+# Manual GUI verification; skip during automated pytest runs.
+pytest.skip("Manual foundry improvements test; skipping in automated pytest.", allow_module_level=True)
 
 
 def test_foundry_improvements():

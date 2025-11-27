@@ -3,12 +3,16 @@
 
 import sys
 import logging
+import pytest
 from PyQt6.QtCore import QPointF, QTimer
 from PyQt6.QtWidgets import QApplication
 from automataii.core.skeleton_manager import SkeletonManager
 from automataii.kinematics.ik_manager import IKManager
 from automataii.core.models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
 from automataii.core.models import PartInfo
+
+# Skip this manual/integration test in automated runs
+pytest.skip("Manual bend direction integration test; skipping in automated pytest.", allow_module_level=True)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')

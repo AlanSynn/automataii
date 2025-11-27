@@ -1,13 +1,4 @@
 """Four-bar linkage validation with Grashof and transmission angle analysis.
-
-Lines: ~200
-Public API: FourBarValidator
-Deps In: 0 (implements LinkageValidator)
-Deps Out: 3 (math, core.types, validators.base)
-Coupling: Low (single validator)
-Cohesion: Feature (four-bar validation)
-Owner: Alan Synn
-Last Updated: 2025-11-14
 """
 
 from __future__ import annotations
@@ -15,10 +6,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from automataii.mechanisms.linkages.validators.base import LinkageValidator
+from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.types import SafetyStatus, SafetyLevel
+    from automataii.domain.mechanisms.core.types import SafetyStatus, SafetyLevel
 
 
 class FourBarValidator(LinkageValidator):
@@ -53,7 +44,7 @@ class FourBarValidator(LinkageValidator):
         Returns:
             SafetyStatus with SAFE/WARNING/DANGER and detailed message
         """
-        from automataii.mechanisms.core.state import SafetyLevel, SafetyStatus
+        from automataii.domain.mechanisms.core.state import SafetyLevel, SafetyStatus
 
         try:
             ground = parameters["ground_link"]
@@ -98,7 +89,7 @@ class FourBarValidator(LinkageValidator):
             )
 
         except Exception as e:
-            from automataii.mechanisms.core.state import SafetyLevel, SafetyStatus
+            from automataii.domain.mechanisms.core.state import SafetyLevel, SafetyStatus
             return SafetyStatus(
                 level=SafetyLevel.DANGER,
                 message=f"Validation error: {str(e)}",
@@ -214,7 +205,7 @@ class FourBarValidator(LinkageValidator):
         ratio_messages: list[str],
     ) -> SafetyStatus:
         """Build final SafetyStatus based on all checks."""
-        from automataii.mechanisms.core.state import SafetyLevel, SafetyStatus
+        from automataii.domain.mechanisms.core.state import SafetyLevel, SafetyStatus
 
         # Priority: most severe issue determines level
         if not grashof_ok and grashof_ratio > 1.1:

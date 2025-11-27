@@ -11,7 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene
 
-from automataii.mechanisms.core.state import MechanismState, RenderConfig
+from .state import MechanismState, RenderConfig
 
 
 @runtime_checkable

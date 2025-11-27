@@ -1,13 +1,4 @@
 """Five-bar linkage computation strategy.
-
-Lines: ~160
-Public API: FiveBarStrategy
-Deps In: 0 (implements LinkageStrategy)
-Deps Out: 3 (math, core.types, strategies.base)
-Coupling: Low (single strategy)
-Cohesion: Feature (five-bar kinematics)
-Owner: Alan Synn
-Last Updated: 2025-11-14
 """
 
 from __future__ import annotations
@@ -15,10 +6,10 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from automataii.mechanisms.linkages.strategies.base import LinkageStrategy
+from automataii.domain.mechanisms.linkages.strategies.base import LinkageStrategy
 
 if TYPE_CHECKING:
-    from automataii.mechanisms.core.types import ForceVector
+    from automataii.domain.mechanisms.core.types import ForceVector
 
 
 class FiveBarStrategy(LinkageStrategy):
