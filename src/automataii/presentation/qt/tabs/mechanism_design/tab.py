@@ -88,6 +88,7 @@ from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils imp
 from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnchorMovementHandler,
     AnchorPositionService,
+    AnimationFrameCoordinator,
     HandlePositionCoordinator,
     MechanismInstantiationService,
     TransformService,
@@ -152,6 +153,32 @@ class MechanismDesignTab(QWidget):
         "Planetary Gear": "planetary_gear",
     }
 
+    # Properties delegating to AnimationFrameCoordinator (god class decomposition)
+    @property
+    def animation_time(self) -> float:
+        """Current animation time. Delegates to AnimationFrameCoordinator."""
+        return self._animation_frame_coordinator.animation_time
+
+    @animation_time.setter
+    def animation_time(self, value: float) -> None:
+        """Set animation time."""
+        self._animation_frame_coordinator.animation_time = value
+
+    @property
+    def animation_speed(self) -> float:
+        """Animation speed. Delegates to AnimationFrameCoordinator."""
+        return self._animation_frame_coordinator.animation_speed
+
+    @animation_speed.setter
+    def animation_speed(self, value: float) -> None:
+        """Set animation speed."""
+        self._animation_frame_coordinator.animation_speed = value
+
+    @property
+    def _trace_frame_tick(self) -> int:
+        """Frame tick for path tracing. Delegates to AnimationFrameCoordinator."""
+        return self._animation_frame_coordinator.trace_frame_tick
+
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
@@ -190,6 +217,11 @@ class MechanismDesignTab(QWidget):
         self._mechanism_instantiation.set_path_converter(utils_qpainterpath_to_numpy_array)
         self._handle_position_coordinator = HandlePositionCoordinator()
         self._handle_position_coordinator.set_rotation_handle_class(self.RotationHandle)
+        self._animation_frame_coordinator = AnimationFrameCoordinator(
+            ik_update_rate_hz=30,
+            mechanism_update_fraction=0.5,
+            pos_epsilon_px=0.5,
+        )
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -208,22 +240,13 @@ class MechanismDesignTab(QWidget):
         self.parametric_edit_mode = False  # For interactive parameter adjustment
         self.selected_mechanism_id: str | None = None
 
-        # Animation state
+        # Animation state (timer connects to coordinator via _update_animation)
         self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self._update_animation)
-        self.animation_time = 0.0
-        self.animation_speed = 1.0  # radians per second
         self.animating_mechanisms = {}  # Store original positions for animation
 
-        # Phase 1 performance: IK throttling and mechanism update batching
-        self.ik_update_rate_hz: int = 30  # target IK updates per second
-        self._ik_min_interval_ms: int = int(1000 / max(1, self.ik_update_rate_hz))
-        self._ik_throttle_timer: QElapsedTimer = QElapsedTimer()
-        self._ik_throttle_timer.invalidate()
-        self._last_target_pos_by_joint: dict[str, QPointF] = {}
-        self._pos_epsilon_px: float = 0.5  # minimum movement to trigger IK update
-        self.mechanism_update_fraction: float = 0.5  # update only 50% mechanisms per frame
-        self._mech_rr_cursor: int = 0
+        # Animation time/speed properties delegate to coordinator
+        # Kept for backward compatibility with external access
 
         # Tab state tracking for safe Qt object lifecycle management
         self._tab_visible = False
@@ -356,6 +379,9 @@ class MechanismDesignTab(QWidget):
         # PHASE 8: Configure anchor movement handler callbacks
         self._configure_anchor_movement_callbacks()
 
+        # PHASE 9: Configure animation frame coordinator callbacks
+        self._configure_animation_frame_coordinator()
+
     def _configure_anchor_movement_callbacks(self) -> None:
         """Configure callbacks for the anchor movement handler."""
         self._anchor_movement_handler.configure_callbacks(
@@ -393,6 +419,16 @@ class MechanismDesignTab(QWidget):
             reset_skeleton_to_initial_state=self._reset_skeleton_to_initial_state,
             position_parts_at_anchor_joints=self._position_parts_at_anchor_joints,
             clear_animation_cache=self._clear_animation_cache,
+        )
+
+    def _configure_animation_frame_coordinator(self) -> None:
+        """Configure callbacks for the animation frame coordinator (god class decomposition)."""
+        self._animation_frame_coordinator.configure_callbacks(
+            calculate_output=self._calculate_mechanism_output,
+            get_target_joint=self._get_target_joint_for_mechanism_control,
+            get_standardized_joint=self._get_standardized_joint_id,
+            update_visuals=self._update_mechanism_visuals_for_animation,
+            stop_timer=self.animation_timer.stop,
         )
 
     def _on_presenter_view_update(self, view_model):
@@ -1213,103 +1249,20 @@ class MechanismDesignTab(QWidget):
             return None
 
     def _update_animation(self):
-        """
-        Update animation frame by calculating mechanism outputs and setting them as targets for the IK system.
-        The IK system is the single source of truth for skeleton and part animation.
-        """
-        # CRITICAL: Prevent animation updates when tab is not active
-        if not hasattr(self, '_tab_active') or not self._tab_active:
-            if hasattr(self, 'animation_timer') and self.animation_timer.isActive():
-                self.animation_timer.stop()
-            return
+        """Update animation frame. Delegates to AnimationFrameCoordinator (god class decomposition)."""
+        ik_manager = getattr(self.main_window, 'ik_manager', None)
+        skeleton_cache = getattr(self, '_initial_skeleton_data_cache', None)
 
-        dt = 0.05 * self.animation_speed
-        self.animation_time += dt
-        if self.animation_time > 2 * math.pi:
-            self.animation_time -= 2 * math.pi
-        # Advance trace frame tick for stride gating
-        self._trace_frame_tick = (self._trace_frame_tick + 1) % 1000000
-
-        active_joint_updates = {}
-
-        # DEBUG: Check if mechanism_layers has any data
-        if not self.mechanism_layers:
-            pass
-        else:
-            for mech_id, layer_data in self.mechanism_layers.items():
-                part_name = layer_data.get("part_name", "unknown")
-
-        # 1. Calculate mechanism outputs (round-robin subset) and determine IK targets
-        mech_items = list(self.mechanism_layers.items())
-        total_mechs = len(mech_items)
-        if total_mechs > 0:
-            batch_count = max(1, int(math.ceil(total_mechs * max(0.05, min(1.0, self.mechanism_update_fraction)))))
-            start = self._mech_rr_cursor % total_mechs
-            end = start + batch_count
-            if end <= total_mechs:
-                selected = mech_items[start:end]
-            else:
-                selected = mech_items[start:] + mech_items[: (end % total_mechs)]
-            self._mech_rr_cursor = (self._mech_rr_cursor + batch_count) % total_mechs
-        else:
-            selected = []
-
-        for mechanism_id, layer_data in selected:
-            if not layer_data or not layer_data.get("part_name"):
-                continue
-
-            part_name = layer_data["part_name"]
-            # Check if this part is enabled in the parts list
-            is_enabled = self.part_enabled_state.get(part_name, True)
-            if not is_enabled:
-                continue
-
-            try:
-                output_pos = self._calculate_mechanism_output(
-                    layer_data["type"], layer_data["params"], self.animation_time, layer_data
-                )
-
-                if output_pos:
-                    # Get the correct end effector joint for this part
-                    part_info = self.parts_data.get(part_name)
-                    if part_info and part_info.anchor_joint_id:
-                        target_joint_id = self._get_target_joint_for_mechanism_control(part_name, part_info.anchor_joint_id)
-
-                        # Find the standardized joint ID for the IK system
-                        std_joint_id = self._get_standardized_joint_id(target_joint_id)
-
-                        # DEBUG: Log target joint conversion for all parts
-
-                        if std_joint_id:
-                            # This is the target for the IK system
-                            active_joint_updates[std_joint_id] = output_pos
-                        else:
-                            pass
-
-                    # Update mechanism visuals and path trace
-                    self._update_mechanism_visuals_for_animation(mechanism_id, self.animation_time, layer_data)
-                    self._path_trace_manager.update_trace(mechanism_id, output_pos, self.mechanism_scene)
-
-            except Exception as e:
-                pass
-
-        # 2. Throttled IK target updates with epsilon-based skipping
-        if active_joint_updates and hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            if not self._ik_throttle_timer.isValid():
-                self._ik_throttle_timer.start()
-            if self._ik_throttle_timer.elapsed() >= self._ik_min_interval_ms:
-                ik_manager = self.main_window.ik_manager
-                eps = max(0.0, float(getattr(self, '_pos_epsilon_px', 0.5)))
-                for joint_id, target_pos in active_joint_updates.items():
-                    last = self._last_target_pos_by_joint.get(joint_id)
-                    if last is None or (abs(target_pos.x() - last.x()) > eps or abs(target_pos.y() - last.y()) > eps):
-                        ik_manager.set_mechanism_position_target(joint_id, target_pos)
-                        self._last_target_pos_by_joint[joint_id] = target_pos
-                self._ik_throttle_timer.restart()
-
-        # NOTE: All part and skeleton visual updates are now handled by the signal/slot connection
-        # to on_skeleton_updated, which is called after the IK manager solves the pose.
-        # This simplifies the flow and makes IK the single source of truth.
+        self._animation_frame_coordinator.update_frame(
+            tab_active=self._tab_active,
+            mechanism_layers=self.mechanism_layers,
+            part_enabled_state=self.part_enabled_state,
+            parts_data=self.parts_data,
+            ik_manager=ik_manager,
+            path_trace_manager=self._path_trace_manager,
+            scene=self.mechanism_scene,
+            initial_skeleton_cache=skeleton_cache,
+        )
 
     def _get_standardized_joint_id(self, abstract_joint_id: str) -> str | None:
         """Helper to find the standardized joint ID from an abstract name."""
