@@ -105,6 +105,9 @@ from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import 
     PathTraceManager,
     PathTraceConfig,
 )
+from automataii.presentation.qt.tabs.mechanism_design.components import (
+    AnimationLifecycleController,
+)
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -291,6 +294,34 @@ class MechanismDesignTab(QWidget):
         # PHASE 1: Initialize UI state management
         self._current_ui_state = UIState()
         self._update_all_ui_states()
+
+        # PHASE 4: Initialize AnimationLifecycleController (extracted component)
+        self._animation_controller = AnimationLifecycleController(
+            mechanism_scene=self.mechanism_scene,
+            path_trace_manager=self._path_trace_manager,
+            parent=self,
+        )
+        self._configure_animation_controller_callbacks()
+
+    def _configure_animation_controller_callbacks(self) -> None:
+        """Configure callbacks for the animation lifecycle controller."""
+        self._animation_controller.configure_callbacks(
+            get_main_window=lambda: self.main_window,
+            get_mechanism_layers=lambda: self.mechanism_layers,
+            get_part_enabled_state=lambda: self.part_enabled_state,
+            get_parts_data=lambda: self.parts_data,
+            get_presenter=lambda: self._presenter,
+            get_ui_state_manager=lambda: self.ui_state_manager,
+            calculate_mechanism_output=self._calculate_mechanism_output,
+            update_mechanism_visuals_for_animation=self._update_mechanism_visuals_for_animation,
+            get_target_joint_for_mechanism_control=self._get_target_joint_for_mechanism_control,
+            get_standardized_joint_id=self._get_standardized_joint_id,
+            ensure_skeleton_visualization=self._ensure_skeleton_visualization,
+            setup_mechanism_ik_integration=self._setup_mechanism_ik_integration,
+            reset_skeleton_to_initial_state=self._reset_skeleton_to_initial_state,
+            position_parts_at_anchor_joints=self._position_parts_at_anchor_joints,
+            clear_animation_cache=self._clear_animation_cache,
+        )
 
     def _on_presenter_view_update(self, view_model):
         """Receive presenter view-model updates and sync lightweight state."""
