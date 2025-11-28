@@ -3429,22 +3429,6 @@ class MechanismDesignTab(QWidget):
             self._presenter.set_parametric_mode(self.parametric_mode_enabled)
         self._update_all_ui_states()
 
-    def _enable_parametric_mode(self):
-        """Enable parametric editing mode by delegating to the manager."""
-        self.parametric_manager._enable_parametric_mode()
-        self.parametric_mode_enabled = True
-        if self._presenter:
-            self._presenter.set_parametric_mode(True)
-        self._update_all_ui_states()
-
-    def _disable_parametric_mode(self):
-        """Disable parametric editing mode by delegating to the manager."""
-        self.parametric_manager._disable_parametric_mode()
-        self.parametric_mode_enabled = False
-        if self._presenter:
-            self._presenter.set_parametric_mode(False)
-        self._update_all_ui_states()
-
     def _create_rotation_handle(self, mechanism_id: str, center_pos: QPointF, radius: float = 60) -> QGraphicsItem:
         """
         Create a rotation handle using custom class with built-in drag logic.
@@ -3677,17 +3661,6 @@ class MechanismDesignTab(QWidget):
 
         except Exception as e:
             pass
-
-    def _show_current_mechanism_dimensions(self):
-        """Delegate to BlueprintExporter to show dimensions for a mechanism."""
-        try:
-            self.blueprint_exporter.show_current_mechanism_dimensions()
-        except Exception as e:
-            pass
-
-    def _export_current_mechanism_blueprint(self):
-        """Delegate to BlueprintExporter to export all content."""
-        self.blueprint_exporter.export_all()
 
     def _create_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
         """Create handles for gear mechanism with rotation."""
