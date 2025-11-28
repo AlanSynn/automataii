@@ -152,19 +152,9 @@ class MechanismDesignTab(QWidget):
         self.mechanism_enabled_state: dict[str, bool] = {}  # Track which mechanisms are enabled
         self.interactive_handles: dict[str, list[QGraphicsItem]] = {}  # Drag handles for params
 
-        # Graphics scene for mechanism preview - will be created by layout manager
-        # self.mechanism_scene = QGraphicsScene(self)
-        # self.mechanism_view = EditorView(self.mechanism_scene, self, mechanism_mode=True)
-
-        # Mechanism visuals factory for creating visual representations - will be created after layout setup
-        # self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
-
         # Business logic services
         self.mechanism_service = MechanismService()
         self.skeleton_service = SkeletonService()
-
-        # Blueprint exporter - will be initialized after layout setup
-        # self.blueprint_exporter = BlueprintExporter(...)
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -536,7 +526,6 @@ class MechanismDesignTab(QWidget):
                     self.mechanism_scene.addItem(item)
                     self.current_editor_items[part_name] = item
             self._position_parts_at_anchor_joints()
-            # self.mechanism_view.zoom_to_fit()
 
         # Update mechanism layers list to show parts
         self._update_mechanism_layers_list()
