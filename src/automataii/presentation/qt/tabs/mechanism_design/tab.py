@@ -91,6 +91,7 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     SceneManagementService,
     TabDataCoordinator,
     TransformService,
+    ViewUtilitiesService,
     VisualItemManager,
 )
 from automataii.presentation.qt.views.editor_view import EditorView
@@ -124,6 +125,7 @@ from automataii.presentation.qt.tabs.mechanism_design.presenter import Mechanism
 
 # Domain and Application layer imports (Hexagonal Architecture)
 from automataii.domain.kinematics.joint_mapping_service import JointMappingService
+from automataii.domain.kinematics.motion_path_generator import MotionPathGenerator
 from automataii.application.mechanism_foundry.mechanism_lifecycle_coordinator import (
     MechanismLifecycleCoordinator,
     MechanismLifecycleContext,
@@ -219,6 +221,7 @@ class MechanismDesignTab(QWidget):
 
         # Application Layer coordinators (Hexagonal Architecture)
         self._lifecycle_coordinator = MechanismLifecycleCoordinator()
+        self._motion_path_generator = MotionPathGenerator()
 
         # Extracted services (god class decomposition)
         self._transform_service = TransformService()
@@ -236,6 +239,7 @@ class MechanismDesignTab(QWidget):
         )
         self._tab_data_coordinator = TabDataCoordinator()
         self._scene_management_service = SceneManagementService()
+        self._view_utilities_service = ViewUtilitiesService()
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -789,69 +793,46 @@ class MechanismDesignTab(QWidget):
 
     @pyqtSlot()
     def _on_get_recommendations(self):
-        """Show mechanism recommendation dialog"""
-        # Get enabled parts with paths
-        enabled_parts_with_paths = {
-            name: path for name, path in self.path_data.items()
-            if self.part_enabled_state.get(name, True)
-        }
-
-        if not enabled_parts_with_paths:
+        """Show mechanism recommendation dialog. Uses TabDataCoordinator for part resolution."""
+        enabled_parts = self._tab_data_coordinator.get_enabled_parts_with_paths(
+            self.path_data, self.part_enabled_state
+        )
+        if not enabled_parts:
             QMessageBox.warning(self, "Warning", "No enabled parts with motion paths available.")
             return
 
-        # Check if a part is selected from the list
-        selected_items = self.mechanism_layers_list.selectedItems()
-        target_part_name = None
+        target_part_name = self._tab_data_coordinator.resolve_target_part(
+            enabled_parts, self.selected_part_name, self.mechanism_layers_list
+        )
 
-        if selected_items:
-            # Get the part name from UserRole data
-            selected_part = selected_items[0].data(Qt.ItemDataRole.UserRole)
-            if selected_part and selected_part in enabled_parts_with_paths:
-                target_part_name = selected_part
-
-        # If no valid part selected or part is not enabled, show selection dialog
-        if not target_part_name:
-            if len(enabled_parts_with_paths) > 1:
-                from PyQt6.QtWidgets import QInputDialog
-                enabled_part_names = list(enabled_parts_with_paths.keys())
-                selected_part, ok = QInputDialog.getItem(
-                    self,
-                    "Select Part",
-                    "Select which enabled part to generate mechanism for:",
-                    enabled_part_names,
-                    0,  # default selection
-                    False  # not editable
-                )
-                if not ok:
-                    return
-                target_part_name = selected_part
-            elif len(enabled_parts_with_paths) == 1:
-                # Only one enabled part available, use it
-                target_part_name = next(iter(enabled_parts_with_paths.keys()))
-            else:
-                QMessageBox.warning(self, "Warning", "No enabled parts with motion paths available.")
+        # If multiple parts and no resolution, show selection dialog
+        if not target_part_name and len(enabled_parts) > 1:
+            from PyQt6.QtWidgets import QInputDialog
+            selected_part, ok = QInputDialog.getItem(
+                self, "Select Part", "Select which enabled part to generate mechanism for:",
+                list(enabled_parts.keys()), 0, False
+            )
+            if not ok:
                 return
+            target_part_name = selected_part
 
-        target_path = enabled_parts_with_paths[target_part_name]
+        if not target_part_name:
+            return
+
         self.selected_part_name = target_part_name
         if self._presenter:
             self._presenter.select_part(target_part_name)
 
         generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
-
         if not generated_paths_file.exists():
             QMessageBox.critical(self, "Error", "Generated mechanism paths file not found.")
             return
 
-        dialog = MechanismRecommendationDialog(target_path, generated_paths_file, parent=self)
+        dialog = MechanismRecommendationDialog(enabled_parts[target_part_name], generated_paths_file, parent=self)
         dialog.setWindowTitle(f"Mechanism Recommendations for {target_part_name}")
-        # Connect the preview signal to handle mechanism previews
         dialog.mechanism_preview_selected.connect(self._on_mechanism_preview_selected)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            selected_mechanism = dialog.selected_mechanism_data
-            if selected_mechanism:
-                self._generate_mechanism_from_candidate(selected_mechanism)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_mechanism_data:
+            self._generate_mechanism_from_candidate(dialog.selected_mechanism_data)
 
     def _on_mechanism_preview_selected(self, mechanism_data: dict[str, Any]):
         """Handle mechanism preview selection from dialog."""
@@ -1194,33 +1175,8 @@ class MechanismDesignTab(QWidget):
         self.mechanism_scene.update()
 
     def _clear_animation_cache(self):
-        """Clear cached animation state variables when mechanism changes, but preserve skeleton data."""
-        # List of specific animation cache attributes to clear (mechanism-specific only)
-        animation_cache_attrs = [
-            '_initial_cam_center_scene',  # Cam animation cache
-        ]
-
-        # Clear only animation-specific cached states, not skeleton data
-        for attr in animation_cache_attrs:
-            if hasattr(self, attr):
-                try:
-                    delattr(self, attr)
-                except AttributeError:
-                    pass  # Already cleared
-
-        # Also clear any additional _animation_ or _cam_ prefixed caches
-        all_attrs = [attr for attr in dir(self) if
-                     attr.startswith('_animation_') or
-                     attr.startswith('_cam_') or
-                     attr.startswith('_gear_') or
-                     attr.startswith('_fourbar_')]
-
-        for attr in all_attrs:
-            if hasattr(self, attr) and not attr.endswith('_cache'):  # Preserve important caches
-                try:
-                    delattr(self, attr)
-                except AttributeError:
-                    pass
+        """Clear animation caches. Delegates to AnimationFrameCoordinator."""
+        self._animation_frame_coordinator.clear_animation_cache(self)
 
     def _safe_remove_visual_items(self, visual_items: list):
         """Safely remove visual items from scene.
@@ -1454,14 +1410,10 @@ class MechanismDesignTab(QWidget):
                     if hasattr(item, 'setVisible'):
                         item.setVisible(enabled)
 
-                # Update trace item visibility if it exists
                 # Update trace visibility using manager
                 trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
                 if trace_item and hasattr(trace_item, 'setVisible'):
                     trace_item.setVisible(enabled)
-
-
-
 
 
     # ====== Performance Utilities ======
@@ -1480,80 +1432,27 @@ class MechanismDesignTab(QWidget):
                 pass
 
     def apply_performance_preset(self, preset: str) -> None:
-        """Apply performance preset to mechanism simulation and view.
+        """Apply performance preset. Delegates to AnimationFrameCoordinator."""
+        view_hints = self._animation_frame_coordinator.apply_performance_preset(preset)
 
-        Presets:
-        - Fast: fewer updates, simpler trace, lower IK rate
-        - Balanced: defaults
-        - High: more updates, longer trace, higher IK rate
-        """
-        p = (preset or '').strip().lower()
-        if p == 'fast':
-            self.ik_update_rate_hz = 15
-            self._ik_min_interval_ms = int(1000 / self.ik_update_rate_hz)
-            self._pos_epsilon_px = 1.0
-            self.mechanism_update_fraction = 0.33
-            self.trace_update_stride = 4
-            self.trace_max_points = 250
-            # Render hint: prefer speed (no AA)
-            if hasattr(self, 'mechanism_view') and self.mechanism_view:
-                try:
-                    self.mechanism_view.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-                except Exception:
-                    pass
-        elif p == 'high':
-            self.ik_update_rate_hz = 60
-            self._ik_min_interval_ms = int(1000 / self.ik_update_rate_hz)
-            self._pos_epsilon_px = 0.2
-            self.mechanism_update_fraction = 1.0
-            self.trace_update_stride = 1
-            self.trace_max_points = 1000
-            # Enable AA for nicer visuals
-            if hasattr(self, 'mechanism_view') and self.mechanism_view:
-                try:
-                    self.mechanism_view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                except Exception:
-                    pass
-        else:  # balanced/default
-            self.ik_update_rate_hz = 30
-            self._ik_min_interval_ms = int(1000 / self.ik_update_rate_hz)
-            self._pos_epsilon_px = 0.5
-            self.mechanism_update_fraction = 0.5
-            self.trace_update_stride = 2
-            self.trace_max_points = 500
-            if hasattr(self, 'mechanism_view') and self.mechanism_view:
-                try:
-                    self.mechanism_view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                except Exception:
-                    pass
+        # Apply view-specific hints
+        if hasattr(self, 'mechanism_view') and self.mechanism_view:
+            self._view_utilities_service.apply_render_hints(
+                self.mechanism_view,
+                antialiasing=view_hints.get("antialiasing", True),
+            )
+
+        # Update trace settings
+        if "trace_stride" in view_hints:
+            self.trace_update_stride = view_hints["trace_stride"]
+        if "trace_max_points" in view_hints:
+            self.trace_max_points = view_hints["trace_max_points"]
 
     def _generate_joint_motion_path(self, layer_data: dict, joint_id: str) -> QPainterPath | None:
-        """Generate a motion path specifically for a skeleton joint using mechanism calculations."""
-        joint_motion_path = QPainterPath()
-        num_points = 180  # High resolution for smooth joint motion
-
-        try:
-            for i in range(num_points + 1):
-                # Calculate angle for this point (full rotation)
-                angle = (i / num_points) * 2 * math.pi
-
-                # Calculate mechanism output position for joint
-                joint_pos = self._calculate_mechanism_output(
-                    layer_data.get("type"), layer_data.get("params", {}), angle, layer_data
-                )
-
-                if joint_pos:
-                    if i == 0:
-                        joint_motion_path.moveTo(joint_pos)
-                    else:
-                        joint_motion_path.lineTo(joint_pos)
-                else:
-                    return None
-
-            return joint_motion_path
-
-        except Exception:
-            return None
+        """Delegate to domain service (Hexagonal Architecture)."""
+        return self._motion_path_generator.generate_joint_motion_path(
+            layer_data, joint_id, self._calculate_mechanism_output
+        )
 
     # ================================================================================
     # PARAMETRIC DESIGN SYSTEM (ULTRATHINK Architecture)
@@ -1569,40 +1468,12 @@ class MechanismDesignTab(QWidget):
         self._update_all_ui_states()
 
     def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
-        """
-        Recreate visual items for a mechanism after parameters have changed.
-        """
+        """Recreate visuals after parameter changes. Uses visuals_factory."""
         try:
-
-            # Remove existing visual items
-            existing_items = layer_data.get("visual_items", [])
-            self._safe_remove_visual_items(existing_items)
-
-            # Create new visual items based on mechanism type
-            mech_type = layer_data.get("type")
-            mechanism_graphics_data = layer_data.copy()
-
-            visual_items = []
-            if mech_type == "4_bar_linkage":
-                visual_items.extend(self._create_4bar_linkage_visuals(mechanism_graphics_data))
-            elif mech_type == "5_bar_linkage":
-                visual_items.extend(self._create_5bar_linkage_visuals(mechanism_graphics_data))
-            elif mech_type == "6_bar_linkage":
-                visual_items.extend(self._create_6bar_linkage_visuals(mechanism_graphics_data))
-            elif mech_type == "cam":
-                # Use centralized visuals factory for cam
-                transform_func = self._get_scene_transform_function(mechanism_graphics_data)
-                char_pos = self._get_character_position() if hasattr(self, '_get_character_position') else None
-                visual_items.extend(self.visuals_factory.create_cam_visuals(mechanism_graphics_data, transform_func, char_pos))
-            elif mech_type == "gear":
-                visual_items.extend(self._create_gear_visuals(mechanism_graphics_data))
-            elif mech_type == "planetary_gear":
-                visual_items.extend(self._create_planetary_gear_visuals(mechanism_graphics_data))
-
-            # Store new visual items
-            layer_data["visual_items"] = visual_items
-
-        except Exception as e:
+            self._safe_remove_visual_items(layer_data.get("visual_items", []))
+            mechanism_graphics_data = {"mechanism_id": mechanism_id, **layer_data}
+            self.handle_mechanism_visuals(mechanism_graphics_data)
+        except Exception:
             pass
 
     def _update_other_handles(self, mechanism_id: str, moved_handle: str):
@@ -1647,47 +1518,19 @@ class MechanismDesignTab(QWidget):
             self.mechanism_scene.update()
 
     def _update_parametric_handles_for_selection(self, part_name: str):
-        """
-        Update parametric handles visibility based on selected part.
-        Shows handles only for the mechanism associated with the selected part.
-
-        Args:
-            part_name: Name of the selected part
-        """
+        """Update parametric handles for selected part."""
         if not self.parametric_mode_enabled or not self.parametric_editor:
             return
-
-        try:
-            # Debug: Log all mechanism-part mappings
-            for mid, mdata in self.mechanism_layers.items():
-                pass
-
-            # Find ALL mechanism_ids for this part
-            selected_mechanism_ids = []
-            for mechanism_id, layer_data in self.mechanism_layers.items():
-                mechanism_part = layer_data.get("part_name")
-                if mechanism_part == part_name:
-                    selected_mechanism_ids.append(mechanism_id)
-                else:
-                    pass
-
-            if not selected_mechanism_ids:
-                # Hide all editors
-                self.parametric_editor.set_active_editor(None)
-                return
-
-            # FIXED: Properly activate the mechanism for the selected part
-            # If multiple mechanisms exist for same part, use the first one
-            # But most importantly, activate the correct mechanism for the selected part
-            if selected_mechanism_ids:
-                # Store the selected part to properly identify its mechanism
-                self.selected_part_name = part_name
-                # Activate the editor for this part's mechanism
-                mechanism_to_activate = selected_mechanism_ids[0]
-                self.parametric_editor.set_active_editor(mechanism_to_activate)
-
-        except Exception as e:
-            pass
+        # Find first mechanism for this part
+        mech_id = next(
+            (mid for mid, ld in self.mechanism_layers.items() if ld.get("part_name") == part_name),
+            None
+        )
+        if mech_id:
+            self.selected_part_name = part_name
+            self.parametric_editor.set_active_editor(mech_id)
+        else:
+            self.parametric_editor.set_active_editor(None)
 
     def _hide_all_parametric_handles(self):
         """
@@ -1789,41 +1632,14 @@ class MechanismDesignTab(QWidget):
         self.blueprint_exporter.export_all()
 
     def center_on_character(self):
-        """Center the view on the character (all parts and mechanisms)."""
-        if not self.mechanism_scene:
+        """Center the view on the character. Delegates to ViewUtilitiesService."""
+        if not self.mechanism_view:
             return
-
-        # Calculate bounding box of all parts and mechanisms
-        combined_rect = None
-
-        # Include parts (current_editor_items stores CharacterPartItem objects directly)
-        if self.current_editor_items:
-            for part_name, part_item in self.current_editor_items.items():
-                if part_item and part_item.scene():
-                    part_rect = part_item.sceneBoundingRect()
-                    if combined_rect is None:
-                        combined_rect = part_rect
-                    else:
-                        combined_rect = combined_rect.united(part_rect)
-
-        # Include skeleton joints and bones
-        if hasattr(self, 'skeleton_joint_items'):
-            for joint_item in self.skeleton_joint_items.values():
-                if joint_item and joint_item.scene():
-                    joint_rect = joint_item.sceneBoundingRect()
-                    if combined_rect is None:
-                        combined_rect = joint_rect
-                    else:
-                        combined_rect = combined_rect.united(joint_rect)
-
-        if combined_rect:
-            # Add some padding
-            padding = 50
-            combined_rect.adjust(-padding, -padding, padding, padding)
-
-            # Center on the character without changing zoom
-            center = combined_rect.center()
-            self.mechanism_view.centerOn(center)
+        self._view_utilities_service.center_view_on_character(
+            self.mechanism_view,
+            current_editor_items=self.current_editor_items,
+            skeleton_joint_items=getattr(self, 'skeleton_joint_items', None),
+        )
 
 # Keep this part for running the tab standalone for testing if required.
 # if __name__ == "__main__":

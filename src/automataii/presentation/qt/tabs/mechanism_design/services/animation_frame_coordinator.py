@@ -408,3 +408,101 @@ class AnimationFrameCoordinator:
             self._last_target_pos_by_joint[joint_id] = target_pos
 
         self._ik_throttle_timer.restart()
+
+    def apply_performance_preset(self, preset: str) -> dict[str, Any]:
+        """
+        Apply performance preset and return view rendering hints.
+
+        Presets:
+        - fast: Fewer updates, simpler trace, lower IK rate
+        - balanced: Default settings
+        - high: More updates, longer trace, higher IK rate
+
+        Args:
+            preset: Preset name ('fast', 'balanced', 'high')
+
+        Returns:
+            Dict with view hints (antialiasing, trace settings)
+        """
+        p = (preset or "").strip().lower()
+        view_hints: dict[str, Any] = {}
+
+        if p == "fast":
+            self._ik_update_rate_hz = 15
+            self._ik_min_interval_ms = int(1000 / self._ik_update_rate_hz)
+            self._pos_epsilon_px = 1.0
+            self._mechanism_update_fraction = 0.33
+            view_hints["antialiasing"] = False
+            view_hints["trace_stride"] = 4
+            view_hints["trace_max_points"] = 250
+
+        elif p == "high":
+            self._ik_update_rate_hz = 60
+            self._ik_min_interval_ms = int(1000 / self._ik_update_rate_hz)
+            self._pos_epsilon_px = 0.2
+            self._mechanism_update_fraction = 1.0
+            view_hints["antialiasing"] = True
+            view_hints["trace_stride"] = 1
+            view_hints["trace_max_points"] = 1000
+
+        else:  # balanced/default
+            self._ik_update_rate_hz = 30
+            self._ik_min_interval_ms = int(1000 / self._ik_update_rate_hz)
+            self._pos_epsilon_px = 0.5
+            self._mechanism_update_fraction = 0.5
+            view_hints["antialiasing"] = True
+            view_hints["trace_stride"] = 2
+            view_hints["trace_max_points"] = 500
+
+        return view_hints
+
+    @property
+    def ik_update_rate_hz(self) -> int:
+        """Current IK update rate in Hz."""
+        return self._ik_update_rate_hz
+
+    @property
+    def mechanism_update_fraction(self) -> float:
+        """Fraction of mechanisms updated per frame."""
+        return self._mechanism_update_fraction
+
+    @property
+    def pos_epsilon_px(self) -> float:
+        """Minimum position change in pixels to trigger update."""
+        return self._pos_epsilon_px
+
+    def clear_animation_cache(self, target_object: Any) -> None:
+        """
+        Clear cached animation state variables from target object.
+
+        Clears mechanism-specific animation caches while preserving skeleton data.
+
+        Args:
+            target_object: Object to clear cached attributes from
+        """
+        # Specific animation cache attributes to clear
+        explicit_attrs = [
+            '_initial_cam_center_scene',
+        ]
+
+        for attr in explicit_attrs:
+            if hasattr(target_object, attr):
+                try:
+                    delattr(target_object, attr)
+                except AttributeError:
+                    pass
+
+        # Clear prefixed caches (but preserve important _*_cache attributes)
+        prefixes = ('_animation_', '_cam_', '_gear_', '_fourbar_')
+        try:
+            all_attrs = [attr for attr in dir(target_object)
+                        if attr.startswith(prefixes)]
+
+            for attr in all_attrs:
+                if not attr.endswith('_cache') and hasattr(target_object, attr):
+                    try:
+                        delattr(target_object, attr)
+                    except AttributeError:
+                        pass
+        except Exception:
+            pass

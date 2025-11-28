@@ -11,6 +11,7 @@ from .tab_data_coordinator import TabDataCoordinator
 from .scene_management_service import SceneManagementService
 from .mechanism_instantiation_service import MechanismInstantiationService
 from .transform_service import TransformService
+from .view_utilities_service import ViewUtilitiesService
 from .visual_item_manager import VisualItemManager
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "SceneManagementService",
     "TabDataCoordinator",
     "TransformService",
+    "ViewUtilitiesService",
     "VisualItemManager",
 ]
