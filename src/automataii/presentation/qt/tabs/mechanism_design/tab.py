@@ -3243,111 +3243,33 @@ class MechanismDesignTab(QWidget):
 
     # Animation control methods
     def _on_start_animation(self):
-        """Start the animation timer and IK animation with enhanced mechanism-IK integration."""
+        """Start the animation timer and IK animation with enhanced mechanism-IK integration.
+
+        Delegated to AnimationLifecycleController for god class decomposition.
+        """
         if self.mechanism_enabled_state:
-            # Ensure skeleton is properly initialized before starting animation
-            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
-                self._ensure_skeleton_visualization(self._initial_skeleton_data_cache)
-
-            # Setup comprehensive mechanism-IK integration
-            integration_success = self._setup_mechanism_ik_integration()
-
-            if integration_success:
-                try:
-                    # Start IK animation for skeleton integration
-                    if hasattr(self.main_window.ik_manager, 'start_animation'):
-                        self.main_window.ik_manager.start_animation()
-
-                except Exception:
-                    # Continue with basic mechanism animation even if IK fails
-                    pass
-            else:
-                pass
-
-            # Start mechanism animation timer for visuals and path tracing
-            self.animation_timer.start(33)  # ~30 FPS
-            if self._presenter:
-                self._presenter.set_animation_running(True)
-
-            # PHASE 1 REFACTORING: Use centralized UI state management instead of direct button updates
-            from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_ui_state import AnimationState
-            animation_state = AnimationState(can_play=False, can_stop=True, can_reset=True, is_running=True)
-            self.ui_state_manager.set_animation_state(animation_state)
-
+            initial_data = getattr(self, '_initial_skeleton_data_cache', None)
+            self._animation_controller.start_animation(
+                mechanism_enabled_state=self.mechanism_enabled_state,
+                initial_skeleton_data=initial_data,
+            )
         else:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Warning", "No mechanisms are enabled for animation.")
 
     def _on_stop_animation(self):
-        """Stop the animation timer and IK animation with proper cleanup."""
-        self.animation_timer.stop()
-        if self._presenter:
-            self._presenter.set_animation_running(False)
+        """Stop the animation timer and IK animation with proper cleanup.
 
-        # Stop IK animation for skeleton integration
-        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            try:
-                if hasattr(self.main_window.ik_manager, 'stop_animation'):
-                    self.main_window.ik_manager.stop_animation()
-
-                # Clear all mechanism position targets
-                self.main_window.ik_manager.clear_mechanism_position_targets()
-
-            except Exception:
-                pass
-
-        # PHASE 1 REFACTORING: Use centralized UI state management instead of direct button updates
-        from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_ui_state import AnimationState
-        animation_state = AnimationState(can_play=True, can_stop=False, can_reset=True, is_running=False)
-        self.ui_state_manager.set_animation_state(animation_state)
+        Delegated to AnimationLifecycleController for god class decomposition.
+        """
+        self._animation_controller.stop_animation()
 
     def _on_reset_animation(self):
-        """Reset animation to start position with comprehensive IK reset."""
+        """Reset animation to start position with comprehensive IK reset.
 
-        self.animation_timer.stop()
-        self.animation_time = 0
-        self.play_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        if self._presenter:
-            self._presenter.set_animation_running(False)
-
-        # Clear all traced paths
-        for mechanism_id in self._path_trace_manager.get_all_mechanism_ids():
-            self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene)
-
-        # CRITICAL: Reset skeleton to initial state first
-        self._reset_skeleton_to_initial_state()
-
-        # Reset skeleton and IK system
-        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            try:
-                # Stop any running animation
-                if hasattr(self.main_window.ik_manager, 'stop_animation'):
-                    self.main_window.ik_manager.stop_animation()
-
-                # Clear all mechanism position targets
-                self.main_window.ik_manager.clear_mechanism_position_targets()
-
-                # Reset IK system to initial state
-                if hasattr(self.main_window.ik_manager, 'reset_animation_state'):
-                    self.main_window.ik_manager.reset_animation_state()
-
-            except Exception as e:
-                pass
-
-        # Reset parts to initial positions
-        self._position_parts_at_anchor_joints()
-
-        # Reset mechanism visuals to initial state (time=0)
-        for mechanism_id, layer_data in self.mechanism_layers.items():
-            try:
-                self._update_mechanism_visuals_for_animation(mechanism_id, 0, layer_data)
-            except Exception:
-                pass
-
-            # Clear mechanism traces
-            # Clear mechanism trace using manager
-            self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
+        Delegated to AnimationLifecycleController for god class decomposition.
+        """
+        self._animation_controller.reset_animation()
 
     def _on_layer_selection_changed(self):
         """Handle selection changes in the mechanism layers list."""
