@@ -86,6 +86,7 @@ from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils imp
     qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
 )
 from automataii.presentation.qt.tabs.mechanism_design.services import (
+    AnchorMovementHandler,
     AnchorPositionService,
     TransformService,
 )
@@ -179,6 +180,7 @@ class MechanismDesignTab(QWidget):
         # Extracted services (god class decomposition)
         self._transform_service = TransformService()
         self._anchor_position_service = AnchorPositionService(self._transform_service)
+        self._anchor_movement_handler = AnchorMovementHandler()
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -332,6 +334,18 @@ class MechanismDesignTab(QWidget):
         self._visual_animator = MechanismVisualAnimator(
             get_scene_transform=self._get_scene_transform_function,
             set_line_if_changed=self._set_line_if_changed,
+        )
+
+        # PHASE 8: Configure anchor movement handler callbacks
+        self._configure_anchor_movement_callbacks()
+
+    def _configure_anchor_movement_callbacks(self) -> None:
+        """Configure callbacks for the anchor movement handler."""
+        self._anchor_movement_handler.configure_callbacks(
+            on_params_updated=lambda mid, ld: self.parametric_manager._regenerate_mechanism_simulation(mid, ld),
+            on_visuals_recreate=self._recreate_mechanism_visuals,
+            on_handles_update=self._update_other_handles,
+            on_view_refresh=self.mechanism_view.update,
         )
 
     def _configure_skeleton_handler_callbacks(self) -> None:
@@ -2632,165 +2646,19 @@ class MechanismDesignTab(QWidget):
     def _on_anchor_moved(self, anchor_name: str, new_position: QPointF):
         """
         Handle anchor point movement from interactive manipulation.
-        Updates both key points and regenerates mechanism visuals.
+        Delegates to AnchorMovementHandler (god class decomposition).
 
         Args:
             anchor_name: Name of anchor that was moved
             new_position: New position in scene coordinates
         """
-        try:
-            # Skip if we're updating handles programmatically to prevent recursion
-            if getattr(self, '_updating_handles_programmatically', False):
-                return
-
-            # Find which mechanism this anchor belongs to
-            found_mechanism = False
-            for mechanism_id, layer_data in self.mechanism_layers.items():
-                key_points = layer_data.get("key_points", {})
-
-                if anchor_name in key_points:
-                    found_mechanism = True
-
-                    # Update the anchor position in mechanism data
-                    to_mech = self._get_inverse_scene_transform_function(layer_data)
-                    old_pos = key_points.get(anchor_name)
-                    if to_mech:
-                        mech_xy = to_mech(new_position)
-                        key_points[anchor_name] = [float(mech_xy[0]), float(mech_xy[1])]
-                    else:
-                        key_points[anchor_name] = [new_position.x(), new_position.y()]
-
-                    mech_type = layer_data.get("type")
-                    params = layer_data.get("params", {})
-
-                    # Update mechanism parameters based on new key points
-                    if mech_type == "4_bar_linkage":
-                        # Update the 4-bar linkage parameters from key points
-                        if all(k in key_points for k in ["ground_pivot_1", "ground_pivot_2", "crank_end", "rocker_end"]):
-                            p1 = np.array(key_points["ground_pivot_1"])
-                            p2 = np.array(key_points["ground_pivot_2"])
-                            p3 = np.array(key_points["crank_end"])
-                            p4 = np.array(key_points["rocker_end"])
-
-                            # Calculate new link lengths
-                            L1 = np.linalg.norm(p2 - p1)  # Ground link
-                            L2 = np.linalg.norm(p3 - p1)  # Crank
-                            L3 = np.linalg.norm(p4 - p3)  # Coupler
-                            L4 = np.linalg.norm(p4 - p2)  # Rocker
-
-                            # Update parameters
-                            params["L1"] = float(L1)
-                            params["L2"] = float(L2)
-                            params["L3"] = float(L3)
-                            params["L4"] = float(L4)
-
-                            # Update ground pivot positions
-                            params["ground_pivot_1"] = key_points["ground_pivot_1"]
-                            params["ground_pivot_2"] = key_points["ground_pivot_2"]
-
-                    elif mech_type == "5_bar_linkage":
-                        # Update 5-bar linkage parameters from key points
-                        if all(k in key_points for k in ["ground_pivot_1", "ground_pivot_2"]):
-                            p1 = np.array(key_points["ground_pivot_1"])
-                            p2 = np.array(key_points["ground_pivot_2"])
-                            params["ground_pivot_1"] = key_points["ground_pivot_1"]
-                            params["ground_pivot_2"] = key_points["ground_pivot_2"]
-
-                            # Update link lengths if intermediate joints are available
-                            if all(k in key_points for k in ["joint_3", "joint_4", "joint_5"]):
-                                p3 = np.array(key_points["joint_3"])
-                                p4 = np.array(key_points["joint_4"])
-                                p5 = np.array(key_points["joint_5"])
-
-                                params["L2"] = float(np.linalg.norm(p3 - p1))  # Input link
-                                params["L3"] = float(np.linalg.norm(p4 - p3))  # Coupler 1
-                                params["L4"] = float(np.linalg.norm(p5 - p4))  # Coupler 2
-                                params["L5"] = float(np.linalg.norm(p5 - p2))  # Output link
-
-                    elif mech_type == "6_bar_linkage":
-                        # Update 6-bar linkage parameters from key points
-                        if all(k in key_points for k in ["ground_pivot_1", "ground_pivot_2", "ground_pivot_3"]):
-                            p1 = np.array(key_points["ground_pivot_1"])
-                            p2 = np.array(key_points["ground_pivot_2"])
-                            p6 = np.array(key_points["ground_pivot_3"])
-
-                            params["ground_pivot_1"] = key_points["ground_pivot_1"]
-                            params["ground_pivot_2"] = key_points["ground_pivot_2"]
-                            params["ground_pivot_3"] = key_points["ground_pivot_3"]
-
-                            # Update link lengths if intermediate joints are available
-                            if all(k in key_points for k in ["joint_3", "joint_4", "joint_5"]):
-                                p3 = np.array(key_points["joint_3"])
-                                p4 = np.array(key_points["joint_4"])
-                                p5 = np.array(key_points["joint_5"])
-
-                                params["L2"] = float(np.linalg.norm(p3 - p1))
-                                params["L3"] = float(np.linalg.norm(p4 - p3))
-                                params["L4"] = float(np.linalg.norm(p4 - p2))
-                                params["L5"] = float(np.linalg.norm(p5 - p4))
-                                params["L6"] = float(np.linalg.norm(p5 - p6))
-
-                    elif mech_type == "cam":
-                        # Update cam mechanism parameters
-                        if "cam_center" in key_points:
-                            cam_center = np.array(key_points["cam_center"])
-                            params["cam_center"] = key_points["cam_center"]
-
-                            # If follower position is also in key_points, update eccentricity
-                            if "follower_base" in key_points:
-                                follower = np.array(key_points["follower_base"])
-                                distance = np.linalg.norm(follower - cam_center)
-                                params["base_radius"] = max(10, distance - 20)  # Maintain minimum radius
-
-                    elif mech_type == "gear":
-                        # Update gear positions and radii if needed
-                        if "gear1_center" in key_points and "gear2_center" in key_points:
-                            g1 = np.array(key_points["gear1_center"])
-                            g2 = np.array(key_points["gear2_center"])
-                            distance = np.linalg.norm(g2 - g1)
-
-                            # Maintain gear ratio but adjust sizes to fit distance
-                            ratio = params.get("r2", 50) / params.get("r1", 30)
-                            params["r1"] = distance / (1 + ratio)
-                            params["r2"] = params["r1"] * ratio
-
-                    elif mech_type == "planetary_gear":
-                        # Update planetary gear parameters
-                        if "sun_center" in key_points:
-                            sun_center = np.array(key_points["sun_center"])
-                            params["sun_center"] = key_points["sun_center"]
-
-                            # If planet position is also in key_points, update radii
-                            if "planet_center" in key_points:
-                                planet = np.array(key_points["planet_center"])
-                                orbital_radius = np.linalg.norm(planet - sun_center)
-
-                                # Maintain ratio but adjust sizes
-                                ratio = params.get("r_planet", 30) / params.get("r_sun", 20)
-                                params["r_sun"] = orbital_radius / (1 + ratio)
-                                params["r_planet"] = params["r_sun"] * ratio
-
-                    # Regenerate simulation data for the new configuration
-                    self.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
-
-                    # Recreate the visual items with new configuration
-                    self._recreate_mechanism_visuals(mechanism_id, layer_data)
-
-                    # Update other parametric handles to reflect the new positions
-                    self._update_other_handles(mechanism_id, anchor_name)
-
-                    # Force view update
-                    self.mechanism_view.update()
-
-                    break
-
-            if not found_mechanism:
-                pass
-
-        except Exception as e:
-            import traceback
-
-      # Safe fallback
+        self._anchor_movement_handler.handle_anchor_moved(
+            anchor_name=anchor_name,
+            new_position=new_position,
+            mechanism_layers=self.mechanism_layers,
+            inverse_transform_fn=self._get_inverse_scene_transform_function,
+            is_updating_programmatically=getattr(self, '_updating_handles_programmatically', False),
+        )
 
     def _update_handle_positions_from_key_points(self, mechanism_id: str, layer_data: dict):
         """
