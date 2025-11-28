@@ -165,84 +165,27 @@ class MechanismDesignTab(QWidget):
         return self._animation_frame_coordinator.trace_frame_tick
 
     # === STATE DELEGATION TO PRESENTER (Passive View Pattern) ===
+    # These attributes are delegated to _mvp_presenter when available
+    _DELEGATED_ATTRS = frozenset({
+        'mechanism_layers', 'mechanism_enabled_state', 'parametric_handles',
+        'path_data', 'part_enabled_state', 'parts_data'
+    })
 
-    @property
-    def mechanism_layers(self) -> dict[str, Any]:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            return self._mvp_presenter.mechanism_layers
-        return getattr(self, '_local_mechanism_layers', {})
+    def __getattr__(self, name: str):
+        if name in MechanismDesignTab._DELEGATED_ATTRS:
+            if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+                return getattr(self._mvp_presenter, name)
+            return getattr(self, f'_local_{name}', {})
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
-    @mechanism_layers.setter
-    def mechanism_layers(self, value: dict[str, Any]) -> None:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            self._mvp_presenter.mechanism_layers = value
+    def __setattr__(self, name: str, value) -> None:
+        if name in MechanismDesignTab._DELEGATED_ATTRS:
+            if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+                setattr(self._mvp_presenter, name, value)
+            else:
+                super().__setattr__(f'_local_{name}', value)
         else:
-            self._local_mechanism_layers = value
-
-    @property
-    def mechanism_enabled_state(self) -> dict[str, bool]:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            return self._mvp_presenter.mechanism_enabled_state
-        return getattr(self, '_local_mechanism_enabled_state', {})
-
-    @mechanism_enabled_state.setter
-    def mechanism_enabled_state(self, value: dict[str, bool]) -> None:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            self._mvp_presenter.mechanism_enabled_state = value
-        else:
-            self._local_mechanism_enabled_state = value
-
-    @property
-    def parametric_handles(self) -> dict[str, list]:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            return self._mvp_presenter.parametric_handles
-        return getattr(self, '_local_parametric_handles', {})
-
-    @parametric_handles.setter
-    def parametric_handles(self, value: dict[str, list]) -> None:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            self._mvp_presenter.parametric_handles = value
-        else:
-            self._local_parametric_handles = value
-
-    @property
-    def path_data(self) -> dict[str, QPainterPath]:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            return self._mvp_presenter.path_data
-        return getattr(self, '_local_path_data', {})
-
-    @path_data.setter
-    def path_data(self, value: dict[str, QPainterPath]) -> None:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            self._mvp_presenter.path_data = value
-        else:
-            self._local_path_data = value
-
-    @property
-    def part_enabled_state(self) -> dict[str, bool]:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            return self._mvp_presenter.part_enabled_state
-        return getattr(self, '_local_part_enabled_state', {})
-
-    @part_enabled_state.setter
-    def part_enabled_state(self, value: dict[str, bool]) -> None:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            self._mvp_presenter.part_enabled_state = value
-        else:
-            self._local_part_enabled_state = value
-
-    @property
-    def parts_data(self) -> dict[str, Any]:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            return self._mvp_presenter.parts_data
-        return getattr(self, '_local_parts_data', {})
-
-    @parts_data.setter
-    def parts_data(self, value: dict[str, Any]) -> None:
-        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
-            self._mvp_presenter.parts_data = value
-        else:
-            self._local_parts_data = value
+            super().__setattr__(name, value)
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
