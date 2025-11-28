@@ -107,6 +107,8 @@ from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import 
 )
 from automataii.presentation.qt.tabs.mechanism_design.components import (
     AnimationLifecycleController,
+    MechanismOutputCalculator,
+    SceneTransformManager,
 )
 
 class MechanismDesignTab(QWidget):
@@ -295,13 +297,21 @@ class MechanismDesignTab(QWidget):
         self._current_ui_state = UIState()
         self._update_all_ui_states()
 
-        # PHASE 4: Initialize AnimationLifecycleController (extracted component)
+        # PHASE 4: Initialize extracted components
         self._animation_controller = AnimationLifecycleController(
             mechanism_scene=self.mechanism_scene,
             path_trace_manager=self._path_trace_manager,
             parent=self,
         )
         self._configure_animation_controller_callbacks()
+
+        # Scene transform manager for coordinate transformations
+        self._scene_transform_manager = SceneTransformManager()
+
+        # Mechanism output calculator for position calculations
+        self._mechanism_output_calculator = MechanismOutputCalculator(
+            get_scene_transform=self._get_scene_transform_function,
+        )
 
     def _configure_animation_controller_callbacks(self) -> None:
         """Configure callbacks for the animation lifecycle controller."""
