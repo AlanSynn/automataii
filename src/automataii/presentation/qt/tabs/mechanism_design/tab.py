@@ -122,6 +122,13 @@ from automataii.presentation.qt.tabs.mechanism_design.components import (
 from automataii.presentation.qt.tabs.mechanism_design.handles import RotationHandle
 from automataii.presentation.qt.tabs.mechanism_design.presenter import MechanismDesignPresenter
 
+# Domain and Application layer imports (Hexagonal Architecture)
+from automataii.domain.kinematics.joint_mapping_service import JointMappingService
+from automataii.application.mechanism_foundry.mechanism_lifecycle_coordinator import (
+    MechanismLifecycleCoordinator,
+    MechanismLifecycleContext,
+)
+
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
 
@@ -203,9 +210,15 @@ class MechanismDesignTab(QWidget):
         self.mechanism_enabled_state: dict[str, bool] = {}  # Track which mechanisms are enabled
         self.interactive_handles: dict[str, list[QGraphicsItem]] = {}  # Drag handles for params
 
-        # Business logic services
+        # Business logic services (Application Layer)
         self.mechanism_service = MechanismService()
         self.skeleton_service = SkeletonService()
+
+        # Domain Layer services (Hexagonal Architecture)
+        self._joint_mapping_service = JointMappingService()
+
+        # Application Layer coordinators (Hexagonal Architecture)
+        self._lifecycle_coordinator = MechanismLifecycleCoordinator()
 
         # Extracted services (god class decomposition)
         self._transform_service = TransformService()
@@ -684,121 +697,55 @@ class MechanismDesignTab(QWidget):
                     self.mechanism_view.skeleton_graphics_item = None
 
     def _get_target_joint_for_mechanism_control(self, part_name: str, anchor_joint_id: str) -> str:
-        """Get the correct target joint (end effector) for mechanism control based on part name.
-        ALL PARTS ARE END EFFECTORS - every part should control its furthest joint.
-        """
-        # Import BODY_PARTS to get joint definitions
-        try:
-            from automataii.domain.animation.part_definitions import BODY_PARTS
-        except ImportError:
-            BODY_PARTS = {}
-
-        # CRITICAL FIX: Always use neck for head mechanism control
-        if part_name == "head":
-            return "neck"
-
-        # Check if this part has joint definitions
-        part_definition = BODY_PARTS.get(part_name, {})
-        part_joints = part_definition.get("joints", [])
-
-        # All parts are end effectors
-        # Every part should control its FURTHEST joint (last in the joint chain)
-        if part_joints and len(part_joints) > 0:
-            # Always use the LAST joint as the end effector for this part
-            end_effector = part_joints[-1]
-            return end_effector
-
-        # Fallback mapping for parts without joint definitions
-        FALLBACK_PART_TO_TARGET_JOINT = {
-            # Arms - target should be hands (end effectors)
-            "left_arm_upper": "left_elbow",     # shoulder → elbow (end of upper arm)
-            "left_arm_lower": "left_hand",     # elbow → hand (end of lower arm)
-            "right_arm_upper": "right_elbow",  # shoulder → elbow (end of upper arm)
-            "right_arm_lower": "right_hand",   # elbow → hand (end of lower arm)
-
-            # Legs - target should be feet (end effectors)
-            "left_leg_upper": "left_knee",     # hip → knee (end of upper leg)
-            "left_leg_lower": "left_foot",     # knee → foot (end of lower leg)
-            "right_leg_upper": "right_knee",   # hip → knee (end of upper leg)
-            "right_leg_lower": "right_foot",   # knee → foot (end of lower leg)
-
-            # Special cases
-            "head": "neck",                    # head is controlled via neck joint
-            "torso": "torso",                  # torso → torso (center)
-        }
-
-        target_joint = FALLBACK_PART_TO_TARGET_JOINT.get(part_name, anchor_joint_id)
-
-        return target_joint
+        """Delegate to domain service (Hexagonal Architecture)."""
+        return self._joint_mapping_service.get_target_joint(part_name, anchor_joint_id)
 
     def _setup_mechanism_ik_integration(self):
         """Setup integration between mechanism animation and IK system."""
-        if not hasattr(self.main_window, 'ik_manager') or not self.main_window.ik_manager:
+        ik_manager = getattr(self.main_window, 'ik_manager', None)
+        if not ik_manager:
             return False
 
-        try:
-            # Set up parts data in IK manager
-            if self.parts_data:
-                if hasattr(self.main_window.ik_manager, 'set_project_parts_data'):
-                    self.main_window.ik_manager.set_project_parts_data(self.parts_data)
+        context = MechanismLifecycleContext(
+            mechanism_layers=self.mechanism_layers,
+            mechanism_enabled_state=self.mechanism_enabled_state,
+            parts_data=self.parts_data,
+            skeleton_cache=getattr(self, '_initial_skeleton_data_cache', None),
+        )
 
-            # Set skeleton data if available
-            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
-                if hasattr(self.main_window.ik_manager, 'on_skeleton_data_updated_from_manager'):
-                    self.main_window.ik_manager.on_skeleton_data_updated_from_manager(self._initial_skeleton_data_cache)
-
-            # Register mechanism controllers for each active mechanism
-            for mech_id, layer_data in self.mechanism_layers.items():
-                if self.mechanism_enabled_state.get(mech_id, False):
-                    part_name = layer_data.get("part_name")
-                    if part_name and part_name in self.parts_data:
-                        part_info = self.parts_data[part_name]
-                        if part_info.anchor_joint_id:
-                            self._register_mechanism_controller(mech_id, layer_data, part_info.anchor_joint_id)
-
-            return True
-
-        except Exception:
-            pass
-            return False
+        return self._lifecycle_coordinator.setup_ik_integration(
+            ik_manager=ik_manager,
+            context=context,
+            register_controller_fn=self._register_mechanism_controller,
+        )
 
     def _register_mechanism_controller(self, mech_id: str, layer_data: dict, joint_id: str):
-        """Register a mechanism as a controller for a specific joint with enhanced IK integration."""
-        try:
-            # Create a callback function that calculates mechanism output for the joint
-            def mechanism_joint_callback(time: float) -> QPointF | None:
-                return self._calculate_mechanism_output(
-                    layer_data.get("type"),
-                    layer_data.get("params", {}),
-                    time,
-                    layer_data
-                )
+        """Register mechanism as IK controller. Delegates to application coordinator."""
+        ik_manager = getattr(self.main_window, 'ik_manager', None)
+        if not ik_manager:
+            return
 
-            # Method 1: Generate complete motion path for IK system
-            joint_motion_path = self._generate_joint_motion_path(layer_data, joint_id)
-            if joint_motion_path:
-                # Set motion path directly (most effective for IK)
-                if hasattr(self.main_window.ik_manager, 'set_joint_motion_path'):
-                    self.main_window.ik_manager.set_joint_motion_path(joint_id, joint_motion_path)
-
-                # Set motion path for part name as well (alternative interface)
-                part_name = layer_data.get("part_name")
-                if part_name and hasattr(self.main_window.ik_manager, 'set_part_motion_path'):
-                    self.main_window.ik_manager.set_part_motion_path(part_name, joint_motion_path)
-
-            # Method 2: Register mechanism controller callback
-            if hasattr(self.main_window.ik_manager, 'register_mechanism_controller'):
-                self.main_window.ik_manager.register_mechanism_controller(
-                    joint_id, mech_id, mechanism_joint_callback
-                )
-
-            # Method 3: Enable IK for the affected body part
+        # Generate motion path callback
+        joint_motion_path = self._generate_joint_motion_path(layer_data, joint_id)
+        if joint_motion_path and hasattr(ik_manager, 'set_joint_motion_path'):
+            ik_manager.set_joint_motion_path(joint_id, joint_motion_path)
             part_name = layer_data.get("part_name")
-            if part_name and hasattr(self.main_window.ik_manager, 'enable_ik_for_part'):
-                self.main_window.ik_manager.enable_ik_for_part(part_name, True)
+            if part_name and hasattr(ik_manager, 'set_part_motion_path'):
+                ik_manager.set_part_motion_path(part_name, joint_motion_path)
 
-        except Exception:
-            pass
+        # Register controller callback
+        def mechanism_callback(time: float) -> QPointF | None:
+            return self._calculate_mechanism_output(
+                layer_data.get("type"), layer_data.get("params", {}), time, layer_data
+            )
+
+        if hasattr(ik_manager, 'register_mechanism_controller'):
+            ik_manager.register_mechanism_controller(joint_id, mech_id, mechanism_callback)
+
+        # Enable IK for affected part
+        part_name = layer_data.get("part_name")
+        if part_name and hasattr(ik_manager, 'enable_ik_for_part'):
+            ik_manager.enable_ik_for_part(part_name, True)
 
     def clear_mechanism_data(self):
         """Clear all mechanism-related data. Delegates to SceneManagementService (god class decomposition)."""
@@ -912,46 +859,9 @@ class MechanismDesignTab(QWidget):
         self._preview_mechanism(mechanism_data)
 
     def _get_character_position(self):
-        """Get the character's position for mechanism placement."""
-        if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
-            joints = self._initial_skeleton_data_cache.get("joints", {})
-            if joints:
-                # Look specifically for foot joints
-                foot_joints = []
-                lowest_y = float('-inf')
-
-                for joint_id, joint_data in joints.items():
-                    pos = joint_data.get("position", [0, 0])
-                    # Check if this is likely a foot joint (lowest joints)
-                    if "foot" in joint_id.lower() or "ankle" in joint_id.lower():
-                        foot_joints.append(pos)
-                    # Track the lowest Y position
-                    if pos[1] > lowest_y:  # In Qt, y increases downward
-                        lowest_y = pos[1]
-
-                # If we found foot joints, use their average X
-                if foot_joints:
-                    avg_x = sum(pos[0] for pos in foot_joints) / len(foot_joints)
-                    avg_y = sum(pos[1] for pos in foot_joints) / len(foot_joints)
-                    # CAM should be directly below feet
-                    return [avg_x, avg_y + 50]  # Place CAM 50 units below feet
-
-                # Otherwise, find the lowest joints (likely feet)
-                lowest_joints = []
-                for joint_id, joint_data in joints.items():
-                    pos = joint_data.get("position", [0, 0])
-                    # Consider joints near the lowest position as feet
-                    if abs(pos[1] - lowest_y) < 20:  # Within 20 units of lowest
-                        lowest_joints.append(pos)
-
-                if lowest_joints:
-                    # Average X position of lowest joints
-                    avg_x = sum(pos[0] for pos in lowest_joints) / len(lowest_joints)
-                    # CAM below the lowest point
-                    return [avg_x, lowest_y + 50]
-
-        # Fallback to center position
-        return [300, 400]
+        """Delegate to domain service (Hexagonal Architecture)."""
+        skeleton_data = getattr(self, '_initial_skeleton_data_cache', None)
+        return list(self._joint_mapping_service.get_character_ground_position(skeleton_data))
 
     def _handle_recommendation_selection(self, mechanism_data: dict[str, Any]):
         """Handle mechanism selection from recommendation dialog.
@@ -1003,33 +913,22 @@ class MechanismDesignTab(QWidget):
             self._preview_items.extend(visual_items)
 
     def _clear_mechanism_for_part(self, part_name: str):
-        """Clear mechanism for a specific part only, keeping others intact."""
-        # CRITICAL: Clear animation cache when clearing mechanism
+        """Clear mechanism for a specific part. Delegates to application coordinator."""
         self._clear_animation_cache()
 
-        mechanisms_to_remove = []
+        def on_visual_cleanup(mech_id: str, layer_data: dict) -> None:
+            visual_items = layer_data.get("visual_items", [])
+            self._safe_remove_visual_items(visual_items)
+            self._path_trace_manager.clear_trace(mech_id, self.mechanism_scene)
 
-        # Find mechanisms for this part
-        for mechanism_id, layer_data in self.mechanism_layers.items():
-            if layer_data.get("part_name") == part_name:
-                mechanisms_to_remove.append(mechanism_id)
+        self._lifecycle_coordinator.clear_mechanism_for_part(
+            part_name,
+            mechanism_layers=self.mechanism_layers,
+            mechanism_enabled_state=self.mechanism_enabled_state,
+            on_visual_cleanup=on_visual_cleanup,
+        )
 
-                # Remove visual items safely
-                visual_items = layer_data.get("visual_items", [])
-                self._safe_remove_visual_items(visual_items)
-
-                # CRITICAL FIX: Clear mechanism trace completely using dedicated function
-                self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
-
-        # Remove from mechanism_layers
-        for mechanism_id in mechanisms_to_remove:
-            del self.mechanism_layers[mechanism_id]
-
-        # Clear enabled state for this part
-        if part_name in self.mechanism_enabled_state:
-            del self.mechanism_enabled_state[part_name]
-
-        # CRITICAL: Clear any mechanism path items for this part to prevent duplicate paths
+        # Clear path items for this part
         if part_name in self.mechanism_path_items:
             path_item = self.mechanism_path_items[part_name]
             if path_item and path_item.scene():
@@ -1173,15 +1072,19 @@ class MechanismDesignTab(QWidget):
         )
 
     def _get_standardized_joint_id(self, abstract_joint_id: str) -> str | None:
-        """Helper to find the standardized joint ID from an abstract name."""
-        if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
+        """Delegate standardization, with skeleton cache fallback."""
+        # First try domain service standardization
+        std_id = self._joint_mapping_service.standardize_joint_id(abstract_joint_id)
+        if std_id and self._initial_skeleton_data_cache:
+            if std_id in self._initial_skeleton_data_cache.get("joints", {}):
+                return std_id
+        # Check skeleton cache joint_map
+        if self._initial_skeleton_data_cache:
             joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
-            for orig_name, std_name in joint_map.items():
-                if orig_name == abstract_joint_id:
-                    return std_name
-        # Fallback if not in map (e.g., might already be a std id)
-        if self._initial_skeleton_data_cache and abstract_joint_id in self._initial_skeleton_data_cache.get("joints", {}):
-            return abstract_joint_id
+            if abstract_joint_id in joint_map:
+                return joint_map[abstract_joint_id]
+            if abstract_joint_id in self._initial_skeleton_data_cache.get("joints", {}):
+                return abstract_joint_id
         return None
 
     def _update_mechanism_visuals_for_animation(self, mechanism_id: str, time: float, layer_data: dict):
@@ -1219,52 +1122,32 @@ class MechanismDesignTab(QWidget):
 
 
     def _reset_skeleton_to_initial_state(self):
-        """Reset skeleton to initial state (addresses issues #9, #10, #11)."""
+        """Reset skeleton to initial state. Delegates to application coordinator."""
+        ik_manager = getattr(self.main_window, 'ik_manager', None)
+        self.animation_time = 0
 
-        # Stop any animation first
-        if hasattr(self, 'animation_timer') and self.animation_timer.isActive():
-            self.animation_timer.stop()
-            self.animation_time = 0
-
-        # Reset IK system to initial pose
-        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            try:
-                # Stop any running animation
-                if hasattr(self.main_window.ik_manager, 'stop_animation'):
-                    self.main_window.ik_manager.stop_animation()
-
-                # Clear all mechanism position targets
-                if hasattr(self.main_window.ik_manager, 'clear_mechanism_position_targets'):
-                    self.main_window.ik_manager.clear_mechanism_position_targets()
-
-                # Reset to initial pose
-                if hasattr(self.main_window.ik_manager, 'reset_animation_state'):
-                    self.main_window.ik_manager.reset_animation_state()
-                elif hasattr(self.main_window.ik_manager, 'reset_all_ik_systems_and_data'):
-                    self.main_window.ik_manager.reset_all_ik_systems_and_data()
-
-            except Exception as e:
-                pass
-
-        # Reset skeleton visualization using cached initial state
-        if self._initial_skeleton_data_cache:
-
-            # First, position parts at their anchor joints
+        # Delegate IK reset to application layer
+        def on_skeleton_reset(skeleton_data: dict) -> None:
             self._position_parts_at_anchor_joints()
-
-            # Then update skeleton visualization with initial state
-            self.on_skeleton_updated(self._initial_skeleton_data_cache.copy())
-
-            # Force skeleton visualization update
+            self.on_skeleton_updated(skeleton_data)
             if hasattr(self.mechanism_view, 'skeleton_graphics_item') and self.mechanism_view.skeleton_graphics_item:
                 self.mechanism_view.skeleton_graphics_item.update()
 
-        elif hasattr(self.main_window, 'skeleton_manager') and self.main_window.skeleton_manager:
-            # If no cached data, try to get from skeleton manager
-            initial_skeleton = self.main_window.skeleton_manager.get_current_skeleton_data()
-            if initial_skeleton:
-                self.cache_initial_skeleton(initial_skeleton)
-                self.on_skeleton_updated(initial_skeleton.copy())
+        self._lifecycle_coordinator.reset_skeleton_state(
+            ik_manager=ik_manager,
+            skeleton_cache=self._initial_skeleton_data_cache,
+            animation_timer=self.animation_timer,
+            on_skeleton_reset=on_skeleton_reset,
+        )
+
+        # Fallback: try to get from skeleton manager if no cache
+        if not self._initial_skeleton_data_cache:
+            skeleton_mgr = getattr(self.main_window, 'skeleton_manager', None)
+            if skeleton_mgr:
+                initial_skeleton = skeleton_mgr.get_current_skeleton_data()
+                if initial_skeleton:
+                    self.cache_initial_skeleton(initial_skeleton)
+                    on_skeleton_reset(initial_skeleton)
 
     def handle_mechanism_visuals(self, mechanism_graphics_data: dict):
         """Handle mechanism visualization data"""
