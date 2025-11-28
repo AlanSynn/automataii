@@ -108,6 +108,7 @@ from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import 
 )
 from automataii.presentation.qt.tabs.mechanism_design.components import (
     AnimationLifecycleController,
+    SkeletonVisualizationHandler,
 )
 
 class MechanismDesignTab(QWidget):
@@ -295,6 +296,24 @@ class MechanismDesignTab(QWidget):
         )
         self._configure_animation_controller_callbacks()
 
+        # PHASE 5: Initialize skeleton visualization handler
+        self._skeleton_handler = SkeletonVisualizationHandler(
+            mechanism_view=self.mechanism_view,
+            mechanism_scene=self.mechanism_scene,
+            parent=self,
+        )
+        self._configure_skeleton_handler_callbacks()
+
+    def _configure_skeleton_handler_callbacks(self) -> None:
+        """Configure callbacks for the skeleton visualization handler."""
+        self._skeleton_handler.configure_callbacks(
+            get_main_window=lambda: self.main_window,
+            get_current_editor_items=lambda: self.current_editor_items,
+            get_parts_data=lambda: self.parts_data,
+            is_animation_running=self._is_animation_running,
+            position_parts_at_anchor_joints=self._position_parts_at_anchor_joints,
+        )
+
     def _configure_animation_controller_callbacks(self) -> None:
         """Configure callbacks for the animation lifecycle controller."""
         self._animation_controller.configure_callbacks(
@@ -386,46 +405,12 @@ class MechanismDesignTab(QWidget):
             self.main_window.skeleton_manager.set_joint_bend_direction(joint_id, new_direction)
 
     def on_skeleton_manager_updated(self, skeleton_data: dict | None):
-        """Handle skeleton updates from skeleton_manager (for bend_direction sync)."""
-        if not skeleton_data:
-            return
-
-        # Update skeleton visualization with new bend_direction values
-        if hasattr(self.mechanism_view, 'skeleton_graphics_item') and self.mechanism_view.skeleton_graphics_item:
-            try:
-                # Check if skeleton graphics item is valid
-                _ = self.mechanism_view.skeleton_graphics_item.boundingRect()
-
-                # Update bend directions in the skeleton graphics item
-                joints_dict = skeleton_data.get("joints", {})
-                for joint_id, joint_data in joints_dict.items():
-                    bend_dir = joint_data.get("bend_direction")
-                    if bend_dir is not None and ('elbow' in joint_id or 'knee' in joint_id):
-                        self.mechanism_view.skeleton_graphics_item.set_joint_bend_direction(joint_id, bend_dir)
-
-                # Update the visual
-                self.mechanism_view.skeleton_graphics_item.update()
-
-            except RuntimeError:
-                # Skeleton item was deleted, will be recreated on next update
-                pass
+        """Handle skeleton updates from skeleton_manager. Delegates to SkeletonVisualizationHandler."""
+        self._skeleton_handler.on_skeleton_manager_updated(skeleton_data)
 
     def _connect_to_ik_manager(self):
-        """Connect to IK manager signals for skeleton animation."""
-        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            try:
-                # Connect to skeleton pose updates
-                self.main_window.ik_manager.skeleton_pose_updated.connect(self.on_skeleton_updated)
-            except Exception as e:
-                pass
-
-        # Also connect to skeleton_manager for bend_direction updates
-        if hasattr(self.main_window, 'skeleton_manager') and self.main_window.skeleton_manager:
-            try:
-                # Connect to skeleton_manager updates to sync bend_direction changes
-                self.main_window.skeleton_manager.skeleton_updated.connect(self.on_skeleton_manager_updated)
-            except Exception as e:
-                pass
+        """Connect to IK manager signals. Delegates to SkeletonVisualizationHandler."""
+        self._skeleton_handler.connect_to_ik_manager()
 
     def set_path_data_from_editor(self, path_data: dict[str, QPainterPath]):
         """Receive path data from editor tab"""
@@ -547,256 +532,34 @@ class MechanismDesignTab(QWidget):
         )
 
     def cache_initial_skeleton(self, skeleton_data_dict: dict | None):
-        """Cache the initial skeleton data dictionary and ensure skeleton visualization is set up"""
-        self._initial_skeleton_data_cache = skeleton_data_dict.copy() if skeleton_data_dict else None
-        if self._initial_skeleton_data_cache:
-            if self.mechanism_view and hasattr(self.mechanism_view, "set_joint_map"):
-                self.mechanism_view.set_joint_map(self._initial_skeleton_data_cache.get("joint_map"))
-
-            # Ensure skeleton visualization is initialized with complete skeleton data
-            self._ensure_skeleton_visualization(self._initial_skeleton_data_cache)
-
-            # Only position parts at anchor joints if animation is NOT running
-            # This prevents parts from being reset to initial positions during animation
-            if self.current_editor_items and not self._is_animation_running():
-                self._position_parts_at_anchor_joints()
+        """Cache skeleton data. Delegates to SkeletonVisualizationHandler."""
+        self._skeleton_handler.cache_initial_skeleton(skeleton_data_dict)
+        # Keep local reference for backwards compatibility
+        self._initial_skeleton_data_cache = self._skeleton_handler.initial_skeleton_data_cache
 
     def _is_animation_running(self) -> bool:
         """Check if mechanism animation is currently running."""
         return self.animation_timer and self.animation_timer.isActive()
 
     def on_skeleton_updated(self, skeleton_data: dict | None):
-        """Handle skeleton updates from IK manager with improved error handling and mechanism integration."""
-        # Validate skeleton_data first
-        if not skeleton_data:
-            return
-
-        # Check if mechanism_view and its skeleton components exist
-        if not self.mechanism_view:
-            return
-
-        # Validate skeleton data structure
-        is_valid_data = False
-        if isinstance(skeleton_data, dict):
-            if skeleton_data.get("joints") and len(skeleton_data["joints"]) > 0:
-                is_valid_data = True
-            elif all(isinstance(v, (tuple, list)) and len(v) == 2 for v in skeleton_data.values()):
-                is_valid_data = True
-
-        if not is_valid_data:
-            return
-
-        try:
-            # Check if we received raw animation data from IK manager
-            if skeleton_data and all(isinstance(v, (tuple, list)) and len(v) == 2 for v in skeleton_data.values()):
-                # Convert IK manager format Dict[str, Tuple[float, float]] to expected format
-                transformed_data = {
-                    "joints": {
-                        joint_id: {
-                            "scene_position": list(pos),
-                            "id": joint_id
-                        }
-                        for joint_id, pos in skeleton_data.items()
-                    }
-                }
-
-                # Ensure skeleton is initialized before animation
-                self._ensure_skeleton_visualization(transformed_data)
-
-                # Now update skeleton animation using the transformed data
-                if hasattr(self.mechanism_view, 'update_skeleton_animation'):
-                    self.mechanism_view.update_skeleton_animation(skeleton_data)
-
-                skeleton_data = transformed_data
-            else:
-                # Standard skeleton model format - ensure skeleton visualization is set up
-                self._ensure_skeleton_visualization(skeleton_data)
-
-            # Update part positions from skeleton during animation
-            if self.animation_timer.isActive():
-                self._update_parts_from_skeleton(skeleton_data)
-            else:
-                # Even when not animating, update parts that aren't mechanism-controlled
-                self._update_parts_from_skeleton(skeleton_data)
-
-        except Exception:
-            # Don't let skeleton errors crash the mechanism animation
-            pass
+        """Handle skeleton updates from IK manager. Delegates to SkeletonVisualizationHandler."""
+        self._skeleton_handler.on_skeleton_updated(skeleton_data)
 
     def _update_parts_from_skeleton(self, skeleton_data: dict):
-        """Update part positions and rotations based on skeleton joint movements (matching editor tab behavior)."""
-        joints_dict = skeleton_data.get("joints", {})
-        # hierarchy = skeleton_data.get("hierarchy", {})
-
-        for part_name, part_item in self.current_editor_items.items():
-            part_info = self.parts_data.get(part_name)
-            if not part_info or not part_info.anchor_joint_id:
-                continue
-
-            anchor_joint_id = part_info.anchor_joint_id
-            if anchor_joint_id not in joints_dict:
-                continue
-
-            joint_data = joints_dict[anchor_joint_id]
-
-            # 1. UPDATE POSITION (unconditionally)
-            position_updated = False
-            scene_pos_to_set = None
-
-            position_data = joint_data.get("scene_position") or joint_data.get("position")
-            if isinstance(position_data, (list, tuple)) and len(position_data) >= 2:
-                scene_pos_to_set = QPointF(position_data[0], position_data[1])
-                part_item.set_scene_position_from_anchor(scene_pos_to_set)
-                position_updated = True
-
-            # 2. UPDATE ROTATION (CRITICAL: like editor tab)
-            rotation_updated = False
-
-            # Try multiple rotation data sources
-            if "world_rotation_degrees" in joint_data:
-                rotation = float(joint_data["world_rotation_degrees"])
-                part_item.setRotation(rotation)
-                rotation_updated = True
-            elif "angle" in joint_data:
-                angle = joint_data["angle"]
-                if isinstance(angle, (int, float)):
-                    rotation_degrees = math.degrees(angle) if abs(angle) <= 2*math.pi else angle
-                    part_item.setRotation(rotation_degrees)
-                    rotation_updated = True
-            elif "rotation" in joint_data:
-                rotation = joint_data["rotation"]
-                if isinstance(rotation, (int, float)):
-                    part_item.setRotation(rotation)
-                    rotation_updated = True
-            else:
-                # FALLBACK: Calculate bone angle from parent-child relationship
-                parent_joint_id = joint_data.get("parent_id") or joint_data.get("parent")
-                if parent_joint_id and parent_joint_id in joints_dict:
-                    parent_data = joints_dict[parent_joint_id]
-                    parent_pos_data = parent_data.get("scene_position") or parent_data.get("position")
-
-                    if (scene_pos_to_set and parent_pos_data and
-                        isinstance(parent_pos_data, (list, tuple)) and len(parent_pos_data) >= 2):
-
-                        dx = scene_pos_to_set.x() - parent_pos_data[0]
-                        dy = scene_pos_to_set.y() - parent_pos_data[1]
-
-                        if abs(dx) > 0.01 or abs(dy) > 0.01:
-                            bone_angle_rad = math.atan2(dy, dx)
-                            bone_angle_deg = math.degrees(bone_angle_rad)
-                            part_item.setRotation(bone_angle_deg)
-                            rotation_updated = True
+        """Update part positions from skeleton. Delegates to SkeletonVisualizationHandler."""
+        self._skeleton_handler._update_parts_from_skeleton(skeleton_data)
 
     def _ensure_skeleton_visualization(self, skeleton_data: dict):
-        """Ensure skeleton visualization is properly set up and updated."""
-        if not hasattr(self.mechanism_view, 'visualize_skeleton'):
-            return
-
-        try:
-            # Check if skeleton graphics item exists and is valid
-            skeleton_item = getattr(self.mechanism_view, 'skeleton_graphics_item', None)
-            needs_initialization = False
-
-            if not skeleton_item:
-                needs_initialization = True
-            else:
-                try:
-                    # Test if the skeleton item is still valid (not deleted by C++)
-                    _ = skeleton_item.boundingRect()
-                    # Check if skeleton has joint items for animation
-                    if not hasattr(skeleton_item, '_joint_items') or not skeleton_item._joint_items:
-                        needs_initialization = True
-                except RuntimeError as e:
-                    if "wrapped C/C++ object" in str(e):
-                        needs_initialization = True
-                    else:
-                        raise
-
-            if needs_initialization:
-                # Format skeleton data for visualize_skeleton like editor tab does
-                skeleton_for_view, hierarchy = self._format_skeleton_for_visualization(skeleton_data)
-                if skeleton_for_view:
-                    self.mechanism_view.visualize_skeleton(skeleton_for_view, hierarchy)
-
-                    # Ensure proper Z-order after creation
-                    if hasattr(self.mechanism_view, 'skeleton_graphics_item') and self.mechanism_view.skeleton_graphics_item:
-                        self.mechanism_view.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY)
-            else:
-                # Skeleton exists, just update animation
-                if skeleton_item and hasattr(skeleton_item, 'set_animated_pose'):
-                    # Convert skeleton_data to the format expected by set_animated_pose
-                    pose_data = self._convert_skeleton_data_for_animation(skeleton_data)
-                    if pose_data:
-                        skeleton_item.set_animated_pose(pose_data)
-
-        except Exception:
-            pass
+        """Ensure skeleton visualization is set up. Delegates to SkeletonVisualizationHandler."""
+        self._skeleton_handler.ensure_skeleton_visualization(skeleton_data)
 
     def _format_skeleton_for_visualization(self, skeleton_data: dict):
-        """Format skeleton data for visualize_skeleton method like editor tab does."""
-        skeleton_for_view = []
-        hierarchy: dict[str, list[str]] = {}
-
-        if "joints" in skeleton_data:
-            joints_dict = skeleton_data["joints"]
-            for joint_id, joint_info in joints_dict.items():
-                # Handle different joint data formats
-                if isinstance(joint_info, dict):
-                    position = joint_info.get("position") or joint_info.get("scene_position", [0, 0])
-                    parent_id = joint_info.get("parent")
-                    joint_name = joint_info.get("name", joint_id)
-                elif isinstance(joint_info, (list, tuple)) and len(joint_info) >= 2:
-                    position = joint_info[:2]
-                    parent_id = None
-                    joint_name = joint_id
-                else:
-                    continue
-
-                # Convert position to QPointF
-                if isinstance(position, QPointF):
-                    pos_qpoint = position
-                elif isinstance(position, (list, tuple)) and len(position) >= 2:
-                    pos_qpoint = QPointF(float(position[0]), float(position[1]))
-                else:
-                    continue
-
-                joint_view_data = {
-                    "id": joint_id,
-                    "name": joint_name,
-                    "position": pos_qpoint,
-                    "parent": parent_id,
-                    "color": "blue",
-                    "label": joint_name
-                }
-                skeleton_for_view.append(joint_view_data)
-
-                # Build hierarchy
-                if parent_id:
-                    if parent_id not in hierarchy:
-                        hierarchy[parent_id] = []
-                    hierarchy[parent_id].append(joint_id)
-
-        # Also check hierarchy from skeleton_data
-        if "hierarchy" in skeleton_data:
-            hierarchy.update(skeleton_data["hierarchy"])
-
-        return skeleton_for_view, hierarchy
+        """Format skeleton data. Delegates to SkeletonVisualizationHandler."""
+        return self._skeleton_handler.format_skeleton_for_visualization(skeleton_data)
 
     def _convert_skeleton_data_for_animation(self, skeleton_data: dict):
-        """Convert skeleton data to format expected by set_animated_pose."""
-        pose_data = {}
-
-        if "joints" in skeleton_data:
-            joints_dict = skeleton_data["joints"]
-            for joint_id, joint_info in joints_dict.items():
-                if isinstance(joint_info, dict):
-                    position = joint_info.get("position") or joint_info.get("scene_position")
-                    if position and len(position) >= 2:
-                        pose_data[joint_id] = (float(position[0]), float(position[1]))
-                elif isinstance(joint_info, (list, tuple)) and len(joint_info) >= 2:
-                    pose_data[joint_id] = (float(joint_info[0]), float(joint_info[1]))
-
-        return pose_data
+        """Convert skeleton data. Delegates to SkeletonVisualizationHandler."""
+        return self._skeleton_handler.convert_skeleton_data_for_animation(skeleton_data)
 
     def _clear_scene_preserve_skeleton(self):
         """Clear the scene but preserve the skeleton graphics item."""
