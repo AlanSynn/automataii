@@ -122,6 +122,11 @@ from automataii.presentation.qt.tabs.mechanism_design.components import (
 )
 from automataii.presentation.qt.tabs.mechanism_design.handles import RotationHandle
 from automataii.presentation.qt.tabs.mechanism_design.presenter import MechanismDesignPresenter
+from automataii.presentation.qt.tabs.mechanism_design.controllers import (
+    AnimationModeController,
+    LayerSelectionController,
+    ParametricModeController,
+)
 
 # Domain and Application layer imports (Hexagonal Architecture)
 from automataii.domain.kinematics.joint_mapping_service import JointMappingService
@@ -404,6 +409,9 @@ class MechanismDesignTab(QWidget):
         # PHASE 11: Configure scene management service callbacks
         self._configure_scene_management_service()
 
+        # PHASE 12: Initialize and configure mode controllers
+        self._initialize_mode_controllers()
+
     def _configure_anchor_movement_callbacks(self) -> None:
         """Configure callbacks for the anchor movement handler."""
         self._anchor_movement_handler.configure_callbacks(
@@ -465,6 +473,54 @@ class MechanismDesignTab(QWidget):
         self._scene_management_service.configure_callbacks(
             is_visual_item_invalid=self._is_visual_item_invalid,
             safe_remove_visual_items=self._safe_remove_visual_items,
+        )
+
+    def _initialize_mode_controllers(self) -> None:
+        """Initialize and configure mode controllers (god class decomposition - Phase 12)."""
+        # Layer Selection Controller
+        self._layer_selection_controller = LayerSelectionController(
+            path_trace_manager=self._path_trace_manager,
+            parent=self,
+        )
+        self._configure_layer_selection_controller()
+
+        # Parametric Mode Controller
+        self._parametric_mode_controller = ParametricModeController(parent=self)
+        self._configure_parametric_mode_controller()
+
+    def _configure_layer_selection_controller(self) -> None:
+        """Configure callbacks for layer selection controller."""
+        self._layer_selection_controller.configure_callbacks(
+            get_mechanism_layers_list=lambda: self.mechanism_layers_list,
+            get_mechanism_layers=lambda: self.mechanism_layers,
+            get_path_data=lambda: self.path_data,
+            get_part_enabled_state=lambda: self.part_enabled_state,
+            get_current_editor_items=lambda: self.current_editor_items,
+            get_mechanism_view=lambda: self.mechanism_view,
+            get_scene=lambda: self.mechanism_scene,
+            get_parametric_mode_enabled=lambda: self.parametric_mode_enabled,
+            get_presenter=lambda: self._presenter,
+            get_presenter_view_model=lambda: self._presenter_view_model,
+            clear_animation_cache=self._clear_animation_cache,
+            reset_skeleton=self._reset_skeleton_to_initial_state,
+            update_parametric_handles=self._update_parametric_handles_for_selection,
+            hide_parametric_handles=self._hide_all_parametric_handles,
+            update_mechanism_layers_list=self._update_mechanism_layers_list,
+            update_all_ui_states=self._update_all_ui_states,
+            part_has_mechanism=self._part_has_mechanism,
+            set_selected_part_name=lambda name: setattr(self, 'selected_part_name', name),
+            set_part_enabled_state=lambda name, val: self.part_enabled_state.__setitem__(name, val),
+        )
+
+    def _configure_parametric_mode_controller(self) -> None:
+        """Configure callbacks for parametric mode controller."""
+        self._parametric_mode_controller.configure_callbacks(
+            get_parametric_manager=lambda: self.parametric_manager,
+            get_parametric_editor=lambda: self.parametric_editor,
+            get_mechanism_layers=lambda: self.mechanism_layers,
+            get_presenter=lambda: self._presenter,
+            update_all_ui_states=self._update_all_ui_states,
+            set_selected_part_name=lambda name: setattr(self, 'selected_part_name', name),
         )
 
     def _on_presenter_view_update(self, view_model):
@@ -779,17 +835,12 @@ class MechanismDesignTab(QWidget):
         self.mechanism_path_points.clear()
         self.current_editor_items.clear()
         self.parts_data.clear()
+        self.selected_mechanism_id = None
 
-        # Clear UI elements
+        # Update UI
         if self.mechanism_layers_list:
             self.mechanism_layers_list.clear()
-
-        # Reset UI state
-        self.play_btn.setEnabled(False)
-        self.stop_btn.setEnabled(False)
-        self.reset_btn.setEnabled(False)
-        self.recommendation_btn.setEnabled(False)
-        self.selected_mechanism_id = None
+        self._update_all_ui_states()
 
     @pyqtSlot()
     def _on_get_recommendations(self):
@@ -992,27 +1043,14 @@ class MechanismDesignTab(QWidget):
             )
 
     def _add_mechanism_layer(self, layer_name: str, layer_data: Any):
-        """Add a mechanism layer to the internal data structure (no separate UI display)"""
+        """Add a mechanism layer to the internal data structure."""
         mechanism_id = layer_data["id"]
         self.mechanism_layers[mechanism_id] = layer_data
-        # Don't add separate mechanism item to list - mechanisms are shown through part highlighting
-        self.play_btn.setEnabled(True)
-        self.reset_btn.setEnabled(True)
 
-        # Update UI state
-        self._update_all_ui_states()
-
-        # Refresh the parts list to show mechanism assignment
-        self._update_mechanism_layers_list()
-
-        # Initialize path tracing for this mechanism
+        # Initialize path tracing and update UI
         self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene)
-
-        # Sync UI state so Parametric Edit becomes enabled immediately
-        try:
-            self._update_all_ui_states()
-        except Exception:
-            pass
+        self._update_mechanism_layers_list()
+        self._update_all_ui_states()
 
     def _get_scene_transform_function(self, layer_data: dict) -> Callable | None:
         """
@@ -1313,107 +1351,20 @@ class MechanismDesignTab(QWidget):
         self._animation_controller.reset_animation()
 
     def _on_layer_selection_changed(self):
-        """Handle selection changes in the mechanism layers list."""
-        # CRITICAL: Clear animation cache when layer selection changes
-        self._clear_animation_cache()
-
-        # CRITICAL: Clear all mechanism traces when switching selection to prevent old paths from lingering
-        for mechanism_id in self._path_trace_manager.get_all_mechanism_ids():
-            self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
-
-        # ISSUE #11: Reset skeleton when selection changes while preserving view
-        current_view_transform = self.mechanism_view.transform()  # Save current view
-
-        self._reset_skeleton_to_initial_state()
-
-        # Restore the view transform to maintain user's current view
-        self.mechanism_view.setTransform(current_view_transform)
-
-        selected_items = self.mechanism_layers_list.selectedItems()
-        is_selection_valid = bool(selected_items)
-
-        if is_selection_valid:
-            part_name = selected_items[0].data(Qt.ItemDataRole.UserRole)
-            if self._presenter:
-                self._presenter.select_part(part_name)
-            self.selected_part_name = part_name
-
-            if self.parametric_mode_enabled:
-                self._update_parametric_handles_for_selection(part_name)
-
-        else:
-            if self._presenter:
-                self._presenter.select_part(None)
-            self.selected_part_name = None
-
-            if self.parametric_mode_enabled:
-                self._hide_all_parametric_handles()
+        """Handle selection changes. Delegates to LayerSelectionController."""
+        self._layer_selection_controller.on_selection_changed()
 
     def _on_layer_item_clicked(self, item):
-        """Handle clicking on a layer item.
-
-        In normal mode: Toggle part enabled/disabled state
-        In parametric mode: Just allow selection change without toggling state
-        """
-        part_name = item.data(Qt.ItemDataRole.UserRole)
-
-        # Only process clicks on parts with motion paths
-        if part_name not in self.path_data:
-            return
-
-        # In parametric mode, don't toggle enabled/disabled state
-        # Just allow the selection to change for parametric editing
-        if self.parametric_mode_enabled:
-            # The selection change is handled by _on_layer_selection_changed
-            return
-
-        # Normal mode: Toggle enabled/disabled state
-        if self._presenter_view_model and self._presenter:
-            part_vm = self._presenter_view_model.find_part(part_name)
-            current_state = part_vm.enabled if part_vm else True
-        else:
-            current_state = self.part_enabled_state.get(part_name, True)
-
-        new_state = not current_state
-
-        if self._presenter:
-            self._presenter.enable_part(part_name, new_state)
-        self.part_enabled_state[part_name] = new_state
-
-        self._update_part_visibility_and_animation(part_name, new_state)
-        self._update_mechanism_layers_list()
+        """Handle layer item click. Delegates to LayerSelectionController."""
+        self._layer_selection_controller.on_item_clicked(item)
 
     def _update_part_visibility_and_animation(self, part_name: str, enabled: bool):
-        """Update part visibility and animation control based on enabled state."""
-        # Control part visibility in the scene
-        if hasattr(self, 'current_editor_items') and part_name in self.current_editor_items:
-            part_item = self.current_editor_items[part_name]
-            if hasattr(part_item, 'setVisible'):
-                part_item.setVisible(enabled)
-
-        # Control mechanism visuals if they exist
-        has_mechanism = self._part_has_mechanism(part_name)
-        if has_mechanism:
-            self._toggle_mechanism_visuals(part_name, enabled)
-
-        # Update UI state
-        self._update_all_ui_states()
+        """Update part visibility. Delegates to LayerSelectionController."""
+        self._layer_selection_controller.update_part_visibility_and_animation(part_name, enabled)
 
     def _toggle_mechanism_visuals(self, part_name: str, enabled: bool):
-        """Toggle visibility of mechanism visuals for a specific part."""
-        # Find mechanism(s) for this part
-        for mechanism_id, layer_data in self.mechanism_layers.items():
-            if layer_data.get("part_name") == part_name:
-                # Update visual items visibility
-                visual_items = layer_data.get("visual_items", [])
-                for item in visual_items:
-                    if hasattr(item, 'setVisible'):
-                        item.setVisible(enabled)
-
-                # Update trace visibility using manager
-                trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
-                if trace_item and hasattr(trace_item, 'setVisible'):
-                    trace_item.setVisible(enabled)
+        """Toggle mechanism visuals. Delegates to LayerSelectionController."""
+        self._layer_selection_controller.toggle_mechanism_visuals(part_name, enabled)
 
 
     # ====== Performance Utilities ======
@@ -1460,12 +1411,8 @@ class MechanismDesignTab(QWidget):
     # ================================================================================
 
     def toggle_parametric_mode(self, enabled: bool | None = None):
-        """Toggle parametric editing mode on/off by delegating to the manager."""
-        self.parametric_manager.toggle_parametric_mode(enabled)
-        self.parametric_mode_enabled = self.parametric_manager.parametric_mode_enabled
-        if self._presenter:
-            self._presenter.set_parametric_mode(self.parametric_mode_enabled)
-        self._update_all_ui_states()
+        """Toggle parametric mode. Delegates to ParametricModeController."""
+        self.parametric_mode_enabled = self._parametric_mode_controller.toggle_mode(enabled)
 
     def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
         """Recreate visuals after parameter changes. Uses visuals_factory."""
@@ -1518,28 +1465,12 @@ class MechanismDesignTab(QWidget):
             self.mechanism_scene.update()
 
     def _update_parametric_handles_for_selection(self, part_name: str):
-        """Update parametric handles for selected part."""
-        if not self.parametric_mode_enabled or not self.parametric_editor:
-            return
-        # Find first mechanism for this part
-        mech_id = next(
-            (mid for mid, ld in self.mechanism_layers.items() if ld.get("part_name") == part_name),
-            None
-        )
-        if mech_id:
-            self.selected_part_name = part_name
-            self.parametric_editor.set_active_editor(mech_id)
-        else:
-            self.parametric_editor.set_active_editor(None)
+        """Update handles for selection. Delegates to ParametricModeController."""
+        self._parametric_mode_controller.update_handles_for_selection(part_name)
 
     def _hide_all_parametric_handles(self):
-        """
-        Hide all parametric handles when no part is selected.
-
-        DEPRECATED: This functionality is now handled by ParametricEditor.set_active_editor(None)
-        """
-        if self.parametric_editor:
-            self.parametric_editor.set_active_editor(None)
+        """Hide all handles. Delegates to ParametricModeController."""
+        self._parametric_mode_controller.hide_all_handles()
 
     # Parametric Event Handlers
 
