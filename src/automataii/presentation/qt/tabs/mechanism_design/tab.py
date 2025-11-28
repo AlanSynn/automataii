@@ -526,8 +526,8 @@ class MechanismDesignTab(QWidget):
         for part_name in parts_to_remove:
             del self.part_enabled_state[part_name]
 
-        # Update recommendation button state based on enabled parts
-        self._update_recommendation_button_state()
+        # Update UI state based on enabled parts
+        self._update_all_ui_states()
 
         # Update tooltip with part information
         if self.path_data:
@@ -1510,8 +1510,8 @@ class MechanismDesignTab(QWidget):
             if current_parts_data:
                 self.set_parts_data(current_parts_data)
 
-        # Update blueprint button state now that parts are available
-        self._update_blueprint_button_state()
+        # Update UI state now that parts are available
+        self._update_all_ui_states()
 
         # Log mechanism attachment information
         skeleton_attachment = layer_data.get("skeleton_attachment", {})
@@ -1564,8 +1564,8 @@ class MechanismDesignTab(QWidget):
         self.play_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
 
-        # Update parametric edit button state
-        self._update_parametric_button_state()
+        # Update UI state
+        self._update_all_ui_states()
 
         # Refresh the parts list to show mechanism assignment
         self._update_mechanism_layers_list()
@@ -2759,13 +2759,6 @@ class MechanismDesignTab(QWidget):
             self.control_point_items = {}
         self.control_point_items[part_name] = control_point_items
 
-    def _update_recommendation_button_state(self):
-        """Update the recommendation button state based on parts with motion paths.
-        
-        PHASE 1 REFACTORING: Replaced with centralized UI state management.
-        """
-        self._update_all_ui_states()
-
     def _update_mechanism_layers_list(self):
         """Update the mechanism layers list to show all parts with simple path-based coloring and toggle functionality.
         
@@ -3355,24 +3348,7 @@ class MechanismDesignTab(QWidget):
         if has_mechanism:
             self._toggle_mechanism_visuals(part_name, enabled)
 
-        # Update animation control buttons if needed
-        self._update_animation_button_states()
-
-        # Update parametric edit button state
-        self._update_parametric_button_state()
-
-    def _update_animation_button_states(self):
-        """Update animation button states based on enabled parts.
-        
-        PHASE 1 REFACTORING: Replaced with centralized UI state management.
-        """
-        self._update_all_ui_states()
-
-    def _update_parametric_button_state(self):
-        """Update parametric edit button state based on available mechanisms.
-        
-        PHASE 1 REFACTORING: Replaced with centralized UI state management.
-        """
+        # Update UI state
         self._update_all_ui_states()
 
     def _toggle_mechanism_visuals(self, part_name: str, enabled: bool):
@@ -3661,45 +3637,6 @@ class MechanismDesignTab(QWidget):
     def _regenerate_mechanism_simulation(self, mechanism_id: str, layer_data: dict):
         """Regenerate mechanism simulation by delegating to the manager."""
         self.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
-
-    def _solve_circle_intersection(self, center1: np.ndarray, radius1: float,
-                                   center2: np.ndarray, radius2: float) -> np.ndarray:
-        """
-        Find the intersection point of two circles.
-        Returns the intersection point that maintains linkage continuity.
-        """
-        try:
-            d = np.linalg.norm(center2 - center1)
-
-            # Check if circles intersect
-            if d > radius1 + radius2 or d < abs(radius1 - radius2) or d == 0:
-                # No intersection - return approximate position
-                direction = (center2 - center1) / d if d > 0 else np.array([1, 0])
-                return center1 + direction * radius1
-
-            # Calculate intersection points
-            a = (radius1**2 - radius2**2 + d**2) / (2 * d)
-            h = np.sqrt(radius1**2 - a**2)
-
-            # Point on line between centers
-            p = center1 + a * (center2 - center1) / d
-
-            # Perpendicular offset
-            offset = h * np.array([-(center2[1] - center1[1]), center2[0] - center1[0]]) / d
-
-            # Two possible intersection points
-            intersection1 = p + offset
-            intersection2 = p - offset
-
-            # Choose the one that maintains continuity (typically the upper one for 4-bar)
-            if intersection1[1] >= intersection2[1]:
-                return intersection1
-            else:
-                return intersection2
-
-        except Exception as e:
-            # Return a fallback position
-            return center1 + np.array([radius1, 0])
 
     def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
         """
@@ -4638,11 +4575,6 @@ class MechanismDesignTab(QWidget):
             # Center on the character without changing zoom
             center = combined_rect.center()
             self.mechanism_view.centerOn(center)
-
-    def _update_blueprint_button_state(self):
-        """Update blueprint button enabled state based on available parts."""
-        # PHASE 1 REFACTORING: Use new UI state management
-        self._update_all_ui_states()
 
 # Keep this part for running the tab standalone for testing if required.
 # if __name__ == "__main__":
