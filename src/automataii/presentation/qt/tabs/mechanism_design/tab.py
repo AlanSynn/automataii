@@ -45,8 +45,7 @@ from automataii.config.z_indices import (
     Z_SKELETON_OVERLAY,
 )
 from automataii.utils.paths import get_project_root, resolve_path
-from automataii.services.mechanism_service import MechanismService
-from automataii.services.skeleton_service import SkeletonService
+from automataii.application.mechanisms import MechanismService, SkeletonService
 
 # New Visualization System
 try:
