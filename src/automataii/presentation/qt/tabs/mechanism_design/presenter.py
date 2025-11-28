@@ -36,17 +36,6 @@ if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 
 
-class IViewFacade(Protocol):
-    """Protocol defining what Presenter can request from View."""
-
-    def get_scene(self) -> QGraphicsScene: ...
-    def get_main_window(self) -> Any: ...
-    def update_mechanism_list(self, items: list[dict]) -> None: ...
-    def update_animation_ui(self, playing: bool) -> None: ...
-    def update_all_ui_states(self) -> None: ...
-    def show_message(self, message: str) -> None: ...
-
-
 class MechanismDesignPresenter(QObject):
     """
     Presenter for MechanismDesignTab following MVP pattern.
@@ -68,18 +57,18 @@ class MechanismDesignPresenter(QObject):
     animation_state_changed = pyqtSignal(bool)  # is_playing
     mechanism_list_changed = pyqtSignal(list)  # mechanism items
 
-    def __init__(self, view: IViewFacade, parent: QObject | None = None) -> None:
+    def __init__(self, tab: "MechanismDesignTab", parent: QObject | None = None) -> None:
         """
-        Initialize presenter with view facade.
+        Initialize presenter with tab reference.
 
         Args:
-            view: View facade providing UI access
+            tab: The MechanismDesignTab view
             parent: Parent QObject for memory management
         """
         super().__init__(parent)
-        self._view = view
-        self._main_window = view.get_main_window()
-        self._scene = view.get_scene()
+        self._tab = tab
+        self._main_window = tab.main_window
+        self._scene: QGraphicsScene | None = None  # Set after tab UI is initialized
 
         # === BUSINESS STATE (migrated from Tab) ===
 
@@ -175,7 +164,7 @@ class MechanismDesignPresenter(QObject):
         """Called when tab becomes active."""
         self._tab_active = True
         self._prepare_activation()
-        self._view.update_all_ui_states()
+        self._tab._update_all_ui_states()
 
     def deactivate(self) -> None:
         """Called when tab becomes inactive."""
@@ -183,23 +172,72 @@ class MechanismDesignPresenter(QObject):
         self._cleanup_resources()
 
     def _prepare_activation(self) -> None:
-        """Prepare tab for activation."""
-        # Restore skeleton visualization
-        if self._initial_skeleton_data_cache:
-            self.view_update_requested.emit(
-                'ensure_skeleton',
-                self._initial_skeleton_data_cache
-            )
+        """Prepare tab for activation.
 
-        # Regenerate mechanism visuals if needed
-        for mechanism_id, enabled in self.mechanism_enabled_state.items():
-            if enabled:
-                layer_data = self.mechanism_layers.get(mechanism_id)
+        Uses Tab's state directly for proper delegation pattern.
+        Handles skeleton visualization and mechanism visual regeneration.
+        """
+        try:
+            # Restore skeleton visualization
+            if hasattr(self._tab, '_initial_skeleton_data_cache') and self._tab._initial_skeleton_data_cache:
+                try:
+                    if hasattr(self._tab, '_ensure_skeleton_visualization'):
+                        self._tab._ensure_skeleton_visualization(self._tab._initial_skeleton_data_cache)
+                except Exception:
+                    pass
+
+            # Regenerate mechanism visuals if needed
+            enabled_mechanisms = [
+                mid for mid, enabled in self._tab.mechanism_enabled_state.items()
+                if enabled
+            ]
+
+            for mechanism_id in enabled_mechanisms:
+                layer_data = self._tab.mechanism_layers.get(mechanism_id)
                 if layer_data:
-                    self._regenerate_visuals_if_needed(mechanism_id, layer_data)
+                    try:
+                        # Check if visuals need regeneration
+                        visual_items = layer_data.get("visual_items", [])
+                        needs_regeneration = not visual_items or any(
+                            item is None or self._visual_item_manager.is_visual_item_invalid(item)
+                            for item in visual_items
+                        )
+
+                        if needs_regeneration and hasattr(self._tab, '_generate_mechanism_visuals_directly'):
+                            self._tab._generate_mechanism_visuals_directly(
+                                mechanism_id,
+                                layer_data.get("type"),
+                                layer_data.get("params", {}),
+                                layer_data
+                            )
+
+                        # Regenerate trace items if missing
+                        trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
+                        if trace_item is None or self._visual_item_manager.is_visual_item_invalid(trace_item):
+                            self._path_trace_manager.init_trace(mechanism_id, self._scene)
+                            # Restore trace points if they exist
+                            from PyQt6.QtGui import QPainterPath
+                            trace_points = self._path_trace_manager.get_trace_points(mechanism_id)
+                            if len(trace_points) > 1:
+                                path = QPainterPath()
+                                path.moveTo(trace_points[0])
+                                for point in trace_points[1:]:
+                                    path.lineTo(point)
+                                new_trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
+                                if new_trace_item:
+                                    new_trace_item.setPath(path)
+
+                    except Exception:
+                        pass
+
+        except Exception:
+            pass
 
     def _cleanup_resources(self) -> None:
-        """Clean up resources when deactivating."""
+        """Clean up resources when deactivating.
+
+        Uses Tab's state directly for proper delegation pattern.
+        """
         # Stop IK manager
         if hasattr(self._main_window, 'ik_manager') and self._main_window.ik_manager:
             try:
@@ -207,13 +245,13 @@ class MechanismDesignPresenter(QObject):
             except Exception:
                 pass
 
-        # Stop animation timer
-        if self._animation_timer and self._animation_timer.isActive():
-            self._animation_timer.stop()
+        # Stop animation timer (from Tab)
+        if hasattr(self._tab, 'animation_timer') and self._tab.animation_timer.isActive():
+            self._tab.animation_timer.stop()
 
-        # Collect and clear visual items
+        # Collect and clear visual items (from Tab's mechanism_layers)
         all_visual_items = []
-        for mechanism_id, layer_data in self.mechanism_layers.items():
+        for mechanism_id, layer_data in self._tab.mechanism_layers.items():
             visual_items = layer_data.get("visual_items", [])
             all_visual_items.extend(visual_items)
             layer_data["visual_items"] = []
@@ -221,9 +259,20 @@ class MechanismDesignPresenter(QObject):
         # Clear traces
         self._path_trace_manager.clear_all_traces(self._scene)
 
+        # Clear path visual items
+        if hasattr(self._tab, 'path_visual_items'):
+            self._tab.path_visual_items.clear()
+
         # Safe remove visual items
         if all_visual_items:
             self._visual_item_manager.safe_remove_visual_items(all_visual_items)
+
+        # Update scene
+        if self._scene:
+            try:
+                self._scene.update()
+            except Exception:
+                pass
 
     def _regenerate_visuals_if_needed(
         self,
@@ -436,7 +485,7 @@ class MechanismDesignPresenter(QObject):
             if name not in self.path_data:
                 del self.part_enabled_state[name]
 
-        self._view.update_all_ui_states()
+        self._tab._update_all_ui_states()
 
     def _clear_mechanism_for_part(self, part_name: str) -> None:
         """Clear mechanism associated with a part."""
