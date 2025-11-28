@@ -11,75 +11,46 @@ for character animation. It coordinates multiple subsystems including:
 The class has been refactored to extract the parametric editing system into a separate
 manager for better modularity and maintainability.
 """
-
-import math
-import uuid
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
-import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF, QPainter
-from PyQt6 import sip
+from PyQt6.QtGui import QColor, QPainterPath
 from PyQt6.QtWidgets import (
-    QDialog,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsLineItem,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
-    QVBoxLayout,
     QWidget,
 )
 
-from automataii.config.z_indices import (
-    Z_MECHANISM_PIVOT,
-    Z_MOTION_PATH_LINE,
-    Z_PART_DEFAULT,
-    Z_SELECTION_MARKER,
-    Z_SKELETON_OVERLAY,
-)
-from automataii.utils.paths import get_project_root, resolve_path
+from automataii.config.z_indices import Z_PART_DEFAULT, Z_SKELETON_OVERLAY
 from automataii.application.mechanisms import MechanismService, SkeletonService
 
 # New Visualization System
 try:
-    from automataii.presentation.qt.mechanisms.visualization import (
-        VisualizationAdapter,
-        VisualizationConfig,
-        VisualizerFactory
-    )
-    from automataii.presentation.qt.mechanisms.visualization.adapter import VisualizationAdapter
+    from automataii.presentation.qt.mechanisms.visualization import VisualizationAdapter
     VISUALIZATION_AVAILABLE = True
-except ImportError as e:
+except ImportError:
     VISUALIZATION_AVAILABLE = False
     VisualizationAdapter = None
 
-# Parametric Design System (ULTRATHINK Architecture)
+# Parametric Design System
 from automataii.presentation.qt.tabs.parametric_editing_manager import ParametricEditingManager
 
 try:
-    from automataii.presentation.qt.parametric_editor import (
-        ParametricEditor, MechanismEditor, FourBarEditor,
-        CamEditor, GearEditor, ParametricHandle
-    )
+    from automataii.presentation.qt.parametric_editor import ParametricEditor
     PARAMETRIC_AVAILABLE = True
-except ImportError as e:
+except ImportError:
     PARAMETRIC_AVAILABLE = False
 
-from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsScene
+from PyQt6.QtWidgets import QGraphicsPathItem
 
 from automataii.core.models import PartInfo
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
-from automataii.presentation.qt.dialogs.recommendation_dialog import (
-    MechanismRecommendationDialog,
-    qpainterpath_to_numpy_array,
-)
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
-from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils import convert_json_params_to_internal
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils import (
+    convert_json_params_to_internal,
     qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
 )
 from automataii.presentation.qt.tabs.mechanism_design.services import (
@@ -89,17 +60,14 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     HandlePositionCoordinator,
     MechanismInstantiationService,
     SceneManagementService,
+    TabCallbackConfigurator,
     TabDataCoordinator,
     TransformService,
     ViewUtilitiesService,
     VisualItemManager,
 )
-from automataii.presentation.qt.views.editor_view import EditorView
-from automataii.domain.kinematics.mechanism import (
-    MechanismCandidate,
-)
+from automataii.domain.kinematics.mechanism import MechanismCandidate
 from automataii.presentation.qt.tabs.mechanism_visuals_factory import MechanismVisualsFactory
-from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_ui import MechanismDesignUI
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_layout import MechanismDesignTabLayout
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_ui_state import (
     MechanismDesignTabUIState, UIState,
@@ -126,6 +94,7 @@ from automataii.presentation.qt.tabs.mechanism_design.controllers import (
     AnimationModeController,
     LayerSelectionController,
     ParametricModeController,
+    RecommendationController,
 )
 
 # Domain and Application layer imports (Hexagonal Architecture)
@@ -344,54 +313,31 @@ class MechanismDesignTab(QWidget):
         if PARAMETRIC_AVAILABLE:
             self.parametric_manager._initialize_parametric_system()
         
-        # PHASE 1: Initialize UI state management
+        # Initialize UI state
         self._current_ui_state = UIState()
         self._update_all_ui_states()
 
-        # PHASE 4: Initialize animation controller (only used extracted component)
+        # Initialize extracted components
         self._animation_controller = AnimationLifecycleController(
-            mechanism_scene=self.mechanism_scene,
-            path_trace_manager=self._path_trace_manager,
-            parent=self,
+            mechanism_scene=self.mechanism_scene, path_trace_manager=self._path_trace_manager, parent=self
         )
-        self._configure_animation_controller_callbacks()
-
-        # PHASE 5: Initialize skeleton visualization handler
         self._skeleton_handler = SkeletonVisualizationHandler(
-            mechanism_view=self.mechanism_view,
-            mechanism_scene=self.mechanism_scene,
-            parent=self,
+            mechanism_view=self.mechanism_view, mechanism_scene=self.mechanism_scene, parent=self
         )
-        self._configure_skeleton_handler_callbacks()
-
-        # PHASE 6: Initialize mechanism output calculator
-        self._output_calculator = MechanismOutputCalculator(
-            get_scene_transform=self._get_scene_transform_function,
-        )
-
-        # PHASE 7: Initialize mechanism visual animator
+        self._output_calculator = MechanismOutputCalculator(get_scene_transform=self._get_scene_transform_function)
         self._visual_animator = MechanismVisualAnimator(
-            get_scene_transform=self._get_scene_transform_function,
-            set_line_if_changed=self._set_line_if_changed,
+            get_scene_transform=self._get_scene_transform_function, set_line_if_changed=self._set_line_if_changed
         )
 
-        # PHASE 8: Configure anchor movement handler callbacks
-        self._configure_anchor_movement_callbacks()
+        # Initialize mode controllers
+        self._layer_selection_controller = LayerSelectionController(
+            path_trace_manager=self._path_trace_manager, parent=self
+        )
+        self._parametric_mode_controller = ParametricModeController(parent=self)
+        self._recommendation_controller = RecommendationController(parent=self)
 
-        # PHASE 9: Configure animation frame coordinator callbacks
-        self._configure_animation_frame_coordinator()
-
-        # PHASE 10: Configure tab data coordinator callbacks
-        self._configure_tab_data_coordinator()
-
-        # PHASE 11: Configure scene management service callbacks
-        self._configure_scene_management_service()
-
-        # PHASE 12: Initialize and configure mode controllers
-        self._initialize_mode_controllers()
-
-        # PHASE 13: Configure mechanism generation service
-        self._configure_mechanism_generation_service()
+        # Configure all service/controller callbacks via configurator
+        TabCallbackConfigurator(self).configure_all()
 
     def _initialize_services(self) -> None:
         """Initialize all domain, application, and presentation services."""
@@ -415,138 +361,13 @@ class MechanismDesignTab(QWidget):
         self._mechanism_instantiation = MechanismInstantiationService()
         self._mechanism_instantiation.set_path_converter(utils_qpainterpath_to_numpy_array)
         self._handle_position_coordinator = HandlePositionCoordinator()
-        self._handle_position_coordinator.set_rotation_handle_class(self.RotationHandle)
+        self._handle_position_coordinator.set_rotation_handle_class(RotationHandle)
         self._animation_frame_coordinator = AnimationFrameCoordinator(
             ik_update_rate_hz=30, mechanism_update_fraction=0.5, pos_epsilon_px=0.5
         )
         self._tab_data_coordinator = TabDataCoordinator()
         self._scene_management_service = SceneManagementService()
         self._view_utilities_service = ViewUtilitiesService()
-
-    def _configure_anchor_movement_callbacks(self) -> None:
-        """Configure callbacks for the anchor movement handler."""
-        self._anchor_movement_handler.configure_callbacks(
-            on_params_updated=lambda mid, ld: self.parametric_manager._regenerate_mechanism_simulation(mid, ld),
-            on_visuals_recreate=self._recreate_mechanism_visuals,
-            on_handles_update=self._update_other_handles,
-            on_view_refresh=self.mechanism_view.update,
-        )
-
-    def _configure_skeleton_handler_callbacks(self) -> None:
-        """Configure callbacks for the skeleton visualization handler."""
-        self._skeleton_handler.configure_callbacks(
-            get_main_window=lambda: self.main_window,
-            get_current_editor_items=lambda: self.current_editor_items,
-            get_parts_data=lambda: self.parts_data,
-            is_animation_running=self._is_animation_running,
-            position_parts_at_anchor_joints=self._position_parts_at_anchor_joints,
-        )
-
-    def _configure_animation_controller_callbacks(self) -> None:
-        """Configure callbacks for the animation lifecycle controller."""
-        self._animation_controller.configure_callbacks(
-            get_main_window=lambda: self.main_window,
-            get_mechanism_layers=lambda: self.mechanism_layers,
-            get_part_enabled_state=lambda: self.part_enabled_state,
-            get_parts_data=lambda: self.parts_data,
-            get_presenter=lambda: self._presenter,
-            get_ui_state_manager=lambda: self.ui_state_manager,
-            calculate_mechanism_output=self._calculate_mechanism_output,
-            update_mechanism_visuals_for_animation=self._update_mechanism_visuals_for_animation,
-            get_target_joint_for_mechanism_control=self._get_target_joint_for_mechanism_control,
-            get_standardized_joint_id=self._get_standardized_joint_id,
-            ensure_skeleton_visualization=self._ensure_skeleton_visualization,
-            setup_mechanism_ik_integration=self._setup_mechanism_ik_integration,
-            reset_skeleton_to_initial_state=self._reset_skeleton_to_initial_state,
-            position_parts_at_anchor_joints=self._position_parts_at_anchor_joints,
-            clear_animation_cache=self._clear_animation_cache,
-        )
-
-    def _configure_animation_frame_coordinator(self) -> None:
-        """Configure callbacks for the animation frame coordinator (god class decomposition)."""
-        self._animation_frame_coordinator.configure_callbacks(
-            calculate_output=self._calculate_mechanism_output,
-            get_target_joint=self._get_target_joint_for_mechanism_control,
-            get_standardized_joint=self._get_standardized_joint_id,
-            update_visuals=self._update_mechanism_visuals_for_animation,
-            stop_timer=self.animation_timer.stop,
-        )
-
-    def _configure_tab_data_coordinator(self) -> None:
-        """Configure callbacks for the tab data coordinator (god class decomposition)."""
-        self._tab_data_coordinator.configure_callbacks(
-            clear_mechanism_for_part=self._clear_mechanism_for_part,
-            part_has_mechanism=self._part_has_mechanism,
-        )
-
-    def _configure_scene_management_service(self) -> None:
-        """Configure callbacks for the scene management service (god class decomposition)."""
-        self._scene_management_service.configure_callbacks(
-            is_visual_item_invalid=self._is_visual_item_invalid,
-            safe_remove_visual_items=self._safe_remove_visual_items,
-        )
-
-    def _initialize_mode_controllers(self) -> None:
-        """Initialize and configure mode controllers (god class decomposition - Phase 12)."""
-        # Layer Selection Controller
-        self._layer_selection_controller = LayerSelectionController(
-            path_trace_manager=self._path_trace_manager,
-            parent=self,
-        )
-        self._configure_layer_selection_controller()
-
-        # Parametric Mode Controller
-        self._parametric_mode_controller = ParametricModeController(parent=self)
-        self._configure_parametric_mode_controller()
-
-    def _configure_layer_selection_controller(self) -> None:
-        """Configure callbacks for layer selection controller."""
-        self._layer_selection_controller.configure_callbacks(
-            get_mechanism_layers_list=lambda: self.mechanism_layers_list,
-            get_mechanism_layers=lambda: self.mechanism_layers,
-            get_path_data=lambda: self.path_data,
-            get_part_enabled_state=lambda: self.part_enabled_state,
-            get_current_editor_items=lambda: self.current_editor_items,
-            get_mechanism_view=lambda: self.mechanism_view,
-            get_scene=lambda: self.mechanism_scene,
-            get_parametric_mode_enabled=lambda: self.parametric_mode_enabled,
-            get_presenter=lambda: self._presenter,
-            get_presenter_view_model=lambda: self._presenter_view_model,
-            clear_animation_cache=self._clear_animation_cache,
-            reset_skeleton=self._reset_skeleton_to_initial_state,
-            update_parametric_handles=self._update_parametric_handles_for_selection,
-            hide_parametric_handles=self._hide_all_parametric_handles,
-            update_mechanism_layers_list=self._update_mechanism_layers_list,
-            update_all_ui_states=self._update_all_ui_states,
-            part_has_mechanism=self._part_has_mechanism,
-            set_selected_part_name=lambda name: setattr(self, 'selected_part_name', name),
-            set_part_enabled_state=lambda name, val: self.part_enabled_state.__setitem__(name, val),
-        )
-
-    def _configure_parametric_mode_controller(self) -> None:
-        """Configure callbacks for parametric mode controller."""
-        self._parametric_mode_controller.configure_callbacks(
-            get_parametric_manager=lambda: self.parametric_manager,
-            get_parametric_editor=lambda: self.parametric_editor,
-            get_mechanism_layers=lambda: self.mechanism_layers,
-            get_presenter=lambda: self._presenter,
-            update_all_ui_states=self._update_all_ui_states,
-            set_selected_part_name=lambda name: setattr(self, 'selected_part_name', name),
-        )
-
-    def _configure_mechanism_generation_service(self) -> None:
-        """Configure callbacks for mechanism generation service."""
-        self._mechanism_generation_service.configure_callbacks(
-            create_layer_data=self._mechanism_instantiation.create_layer_data_from_candidate,
-            verify_coupler=lambda ld, pd, sc: self.mechanism_service.verify_coupler_joint_connection(
-                ld, pd, sc, self._get_scene_transform_function, self._calculate_mechanism_output
-            ) if hasattr(self, '_initial_skeleton_data_cache') else False,
-            adjust_mechanism=lambda ld, pd, sc: self.mechanism_service.adjust_mechanism_to_target_joint(
-                ld, pd, sc, self._calculate_mechanism_output
-            ) if hasattr(self, '_initial_skeleton_data_cache') else False,
-            extract_key_points=self._extract_key_points_from_simulation,
-            convert_params=convert_json_params_to_internal,
-        )
 
     def _on_presenter_view_update(self, view_model):
         """Receive presenter view-model updates and sync lightweight state."""
@@ -586,16 +407,6 @@ class MechanismDesignTab(QWidget):
 
         # Ensure IK connection
         self._connect_to_ik_manager()
-
-    def load_generated_paths(self, file_path):
-        """Loads generated mechanism paths from a JSON file."""
-        # ... existing code ...
-
-    # PHASE 1 REFACTORING: Old _setup_ui method removed - now handled by MechanismDesignTabLayout
-    # This massive 400+ line method has been extracted into focused, single-responsibility classes
-
-    # PHASE 1 REFACTORING: Old _connect_signals method removed - now handled by MechanismDesignTabSignals
-    # Signal connections are now centralized and organized by functional area
 
     def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
         """Handle joint bend direction change from EditorView."""
@@ -855,51 +666,8 @@ class MechanismDesignTab(QWidget):
 
     @pyqtSlot()
     def _on_get_recommendations(self):
-        """Show mechanism recommendation dialog. Uses TabDataCoordinator for part resolution."""
-        enabled_parts = self._tab_data_coordinator.get_enabled_parts_with_paths(
-            self.path_data, self.part_enabled_state
-        )
-        if not enabled_parts:
-            QMessageBox.warning(self, "Warning", "No enabled parts with motion paths available.")
-            return
-
-        target_part_name = self._tab_data_coordinator.resolve_target_part(
-            enabled_parts, self.selected_part_name, self.mechanism_layers_list
-        )
-
-        # If multiple parts and no resolution, show selection dialog
-        if not target_part_name and len(enabled_parts) > 1:
-            from PyQt6.QtWidgets import QInputDialog
-            selected_part, ok = QInputDialog.getItem(
-                self, "Select Part", "Select which enabled part to generate mechanism for:",
-                list(enabled_parts.keys()), 0, False
-            )
-            if not ok:
-                return
-            target_part_name = selected_part
-
-        if not target_part_name:
-            return
-
-        self.selected_part_name = target_part_name
-        if self._presenter:
-            self._presenter.select_part(target_part_name)
-
-        generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
-        if not generated_paths_file.exists():
-            QMessageBox.critical(self, "Error", "Generated mechanism paths file not found.")
-            return
-
-        dialog = MechanismRecommendationDialog(enabled_parts[target_part_name], generated_paths_file, parent=self)
-        dialog.setWindowTitle(f"Mechanism Recommendations for {target_part_name}")
-        dialog.mechanism_preview_selected.connect(self._on_mechanism_preview_selected)
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_mechanism_data:
-            self._generate_mechanism_from_candidate(dialog.selected_mechanism_data)
-
-    def _on_mechanism_preview_selected(self, mechanism_data: dict[str, Any]):
-        """Handle mechanism preview selection from dialog."""
-        # Temporarily show the mechanism in the view
-        self._preview_mechanism(mechanism_data)
+        """Show mechanism recommendation dialog. Delegates to RecommendationController."""
+        self._recommendation_controller.show_recommendations(self)
 
     def _get_character_position(self):
         """Delegate to domain service (Hexagonal Architecture)."""
@@ -907,53 +675,8 @@ class MechanismDesignTab(QWidget):
         return list(self._joint_mapping_service.get_character_ground_position(skeleton_data))
 
     def _handle_recommendation_selection(self, mechanism_data: dict[str, Any]):
-        """Handle mechanism selection from recommendation dialog.
-        Delegates to MechanismInstantiationService (god class decomposition)."""
-        # Get target path for this part
-        target_path = None
-        if hasattr(self, 'selected_part_name') and self.selected_part_name:
-            target_path = self.path_data.get(self.selected_part_name)
-
-        # Fallback: create path from coordinates if no user path
-        if not target_path:
-            path_coords = mechanism_data.get("path_coordinates")
-            if path_coords and isinstance(path_coords, list) and len(path_coords) > 0:
-                target_path = QPainterPath()
-                target_path.moveTo(path_coords[0][0], path_coords[0][1])
-                for coord in path_coords[1:]:
-                    target_path.lineTo(coord[0], coord[1])
-
-        # Create layer and graphics data via service
-        layer_data, graphics_data = self._mechanism_instantiation.create_layer_data_from_recommendation(
-            mechanism_data=mechanism_data,
-            target_path=target_path,
-            fallback_position=self._get_character_position(),
-        )
-
-        # Add mechanism layer and create visuals
-        self._add_mechanism_layer(graphics_data["name"], layer_data)
-        self.handle_mechanism_visuals(graphics_data)
-
-    def _preview_mechanism(self, mechanism_data: dict[str, Any]):
-        """Preview a mechanism without adding it to the layers."""
-        # Clear any existing preview items safely
-        if hasattr(self, '_preview_items'):
-            for item in self._preview_items:
-                try:
-                    if item and hasattr(item, 'scene') and item.scene():
-                        self.mechanism_scene.removeItem(item)
-                except RuntimeError:
-                    # Item was already deleted by Qt - ignore
-                    pass
-        self._preview_items = []
-
-        # Create temporary visuals for the preview
-        mechanism_type_value = mechanism_data.get('type', 'Unknown')
-        internal_type = self.MECHANISM_TYPE_MAPPING.get(mechanism_type_value, "4_bar_linkage")
-
-        if internal_type == "4_bar_linkage":
-            visual_items = self._create_4bar_linkage_visuals(mechanism_data)
-            self._preview_items.extend(visual_items)
+        """Handle mechanism selection. Delegates to RecommendationController."""
+        self._recommendation_controller.handle_recommendation_selection(mechanism_data, self)
 
     def _clear_mechanism_for_part(self, part_name: str):
         """Clear mechanism for a specific part. Delegates to application coordinator."""

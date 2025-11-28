@@ -6,6 +6,7 @@ This module contains extracted services from the god class refactoring.
 from .anchor_movement_handler import AnchorMovementHandler
 from .anchor_position_service import AnchorPositionService
 from .animation_frame_coordinator import AnimationFrameCoordinator
+from .callback_configurator import TabCallbackConfigurator
 from .handle_position_coordinator import HandlePositionCoordinator
 from .tab_data_coordinator import TabDataCoordinator
 from .scene_management_service import SceneManagementService
@@ -21,6 +22,7 @@ __all__ = [
     "HandlePositionCoordinator",
     "MechanismInstantiationService",
     "SceneManagementService",
+    "TabCallbackConfigurator",
     "TabDataCoordinator",
     "TransformService",
     "ViewUtilitiesService",
