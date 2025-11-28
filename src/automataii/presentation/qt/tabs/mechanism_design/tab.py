@@ -89,6 +89,7 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnchorMovementHandler,
     AnchorPositionService,
     TransformService,
+    VisualItemManager,
 )
 from automataii.presentation.qt.views.editor_view import EditorView
 from automataii.domain.kinematics.mechanism import (
@@ -181,6 +182,7 @@ class MechanismDesignTab(QWidget):
         self._transform_service = TransformService()
         self._anchor_position_service = AnchorPositionService(self._transform_service)
         self._anchor_movement_handler = AnchorMovementHandler()
+        self._visual_item_manager = VisualItemManager()
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -1831,52 +1833,12 @@ class MechanismDesignTab(QWidget):
                     pass
 
     def _safe_remove_visual_items(self, visual_items: list):
-        """Safely remove visual items from scene, handling Qt object lifecycle issues."""
-        if not visual_items:
-            return
-
-        # CRITICAL: Don't attempt individual removal if scene was already cleared
-        # This prevents the "Visual item already deleted by Qt" flood
-        if hasattr(self, '_scene_recently_cleared') and self._scene_recently_cleared:
-            return
-
-        valid_items_count = 0
-        deleted_items_count = 0
-
-        for item in visual_items:
-            if item is None:
-                continue
-
-            try:
-                # Quick validity check without accessing properties that might crash
-                if hasattr(item, 'scene'):
-                    scene = item.scene()
-
-                    # Only try to remove if item is actually in a scene
-                    if scene is not None:
-                        try:
-                            # Quick check if scene is still valid
-                            _ = scene.itemsBoundingRect()
-                            scene.removeItem(item)
-                            valid_items_count += 1
-                        except RuntimeError as e:
-                            if "wrapped C/C++ object" in str(e):
-                                deleted_items_count += 1
-                            else:
-                                pass
-
-            except RuntimeError as e:
-                if "wrapped C/C++ object" in str(e):
-                    deleted_items_count += 1
-                else:
-                    pass
-            except Exception as e:
-                pass
-
-        if deleted_items_count > 0:
-            pass
-        elif valid_items_count > 0:
-            pass
+        """Safely remove visual items from scene.
+        Delegates to VisualItemManager (god class decomposition)."""
+        self._visual_item_manager.set_scene_cleared_flag(
+            getattr(self, '_scene_recently_cleared', False)
+        )
+        self._visual_item_manager.safe_remove_visual_items(visual_items)
 
     def cleanup_tab_resources(self):
         """Clean up resources when switching away from mechanism tab."""
@@ -1983,21 +1945,9 @@ class MechanismDesignTab(QWidget):
             pass
 
     def _is_visual_item_invalid(self, item) -> bool:
-        """Check if a visual item is invalid (deleted by Qt)."""
-        try:
-            if item is None:
-                return True
-
-            # Try to access a simple property
-            _ = item.isVisible()
-            return False
-
-        except RuntimeError as e:
-            if "wrapped C/C++ object" in str(e):
-                return True
-            raise
-        except:
-            return True
+        """Check if a visual item is invalid.
+        Delegates to VisualItemManager (god class decomposition)."""
+        return self._visual_item_manager.is_visual_item_invalid(item)
 
     def deactivate_tab(self):
         """Called when user switches away from mechanism tab."""
@@ -2521,33 +2471,12 @@ class MechanismDesignTab(QWidget):
             pass
 
     def _show_free_edit_feedback(self, mechanism_id: str):
-        """
-        Show visual feedback for free editing mode - always allow user freedom.
-        ULTRATHINK: Blue color for "user-controlled" mode - no physics constraints.
-
-        Args:
-            mechanism_id: ID of the mechanism to show feedback for
-        """
-        try:
-            if mechanism_id not in self.parametric_handles:
-                return
-
-            handles = self.parametric_handles[mechanism_id]
-
-            # Update handle colors to show "free edit" mode
-            for handle in handles:
-                if hasattr(handle, 'handle_type') and handle.handle_type == 'rotation':
-                    continue  # Skip rotation handle
-
-                # Blue color for free editing mode
-                handle.setBrush(QBrush(QColor(50, 150, 255)))    # Blue - user controlled
-                handle.setPen(QPen(QColor(40, 120, 200), 3))
-                handle.setToolTip("🆓 Free Edit Mode: Any position allowed")
-
-            self.mechanism_scene.update()
-
-        except Exception as e:
-            pass
+        """Show visual feedback for free editing mode.
+        Delegates to VisualItemManager (god class decomposition)."""
+        if mechanism_id not in self.parametric_handles:
+            return
+        handles = self.parametric_handles[mechanism_id]
+        self._visual_item_manager.show_free_edit_feedback(handles, self.mechanism_scene)
 
     def _create_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
         """Create handles for gear mechanism with rotation."""
@@ -2833,42 +2762,14 @@ class MechanismDesignTab(QWidget):
         return self._anchor_position_service.get_anchor_positions(layer_data)
 
     def _disable_mechanism_visual_interaction(self):
-        """Disable mouse interaction on mechanism visual items to allow handle interaction."""
-        try:
-            for mechanism_id, layer_data in self.mechanism_layers.items():
-                visual_items = layer_data.get("visual_items", [])
-                for item in visual_items:
-                    if hasattr(item, 'setFlag'):
-                        # Disable all mouse interaction flags
-                        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-                        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-                        if hasattr(item, 'setAcceptedMouseButtons'):
-                            item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-                        if hasattr(item, 'setAcceptHoverEvents'):
-                            item.setAcceptHoverEvents(False)
-
-        except Exception as e:
-            pass
+        """Disable mouse interaction on mechanism visual items.
+        Delegates to VisualItemManager (god class decomposition)."""
+        self._visual_item_manager.disable_mechanism_visual_interaction(self.mechanism_layers)
 
     def _enable_mechanism_visual_interaction(self):
-        """Re-enable mouse interaction on mechanism visual items."""
-        try:
-            for mechanism_id, layer_data in self.mechanism_layers.items():
-                visual_items = layer_data.get("visual_items", [])
-                for item in visual_items:
-                    if hasattr(item, 'setFlag'):
-                        # Restore default interaction flags for mechanism visuals
-                        # Mechanism visuals should be selectable but not necessarily movable
-                        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-                        if hasattr(item, 'setAcceptedMouseButtons'):
-                            # Restore mouse button acceptance
-                            item.setAcceptedMouseButtons(Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton)
-                        if hasattr(item, 'setAcceptHoverEvents'):
-                            item.setAcceptHoverEvents(True)
-
-        except Exception as e:
-            pass
+        """Re-enable mouse interaction on mechanism visual items.
+        Delegates to VisualItemManager (god class decomposition)."""
+        self._visual_item_manager.enable_mechanism_visual_interaction(self.mechanism_layers)
 
         # Re-enable animation controls if we have enabled mechanisms
         has_enabled_mechanisms = any(self.mechanism_enabled_state.values()) if self.mechanism_enabled_state else False
