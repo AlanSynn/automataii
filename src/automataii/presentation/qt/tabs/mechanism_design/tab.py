@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, QElapsedTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QLineF, QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF, QPainter
 from PyQt6 import sip
 from PyQt6.QtWidgets import (
@@ -27,9 +27,6 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsLineItem,
-    QGraphicsRectItem,
-    QGroupBox,
-    QHBoxLayout, 
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -72,7 +69,7 @@ try:
 except ImportError as e:
     PARAMETRIC_AVAILABLE = False
 
-from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsPolygonItem, QGraphicsScene
+from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsScene
 
 from automataii.core.models import PartInfo
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
@@ -104,7 +101,7 @@ from automataii.presentation.qt.tabs.mechanism_visuals_factory import MechanismV
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_ui import MechanismDesignUI
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_layout import MechanismDesignTabLayout
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_ui_state import (
-    MechanismDesignTabUIState, UIState, AnimationState
+    MechanismDesignTabUIState, UIState,
 )
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_signals import MechanismDesignTabSignals
 from automataii.presentation.qt.tabs.mechanism_design.controller_adapter import (
