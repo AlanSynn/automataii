@@ -7,7 +7,7 @@ import pytest
 from PyQt6.QtCore import QPointF, QTimer
 from PyQt6.QtWidgets import QApplication
 from automataii.core.skeleton_manager import SkeletonManager
-from automataii.kinematics.ik_manager import IKManager
+from automataii.presentation.qt.kinematics import IKManager
 from automataii.core.models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
 from automataii.core.models import PartInfo
 
