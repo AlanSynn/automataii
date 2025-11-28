@@ -400,3 +400,62 @@ class TabDataCoordinator:
                 if control_point.scene():
                     scene.removeItem(control_point)
         self._control_point_items.clear()
+
+    def get_enabled_parts_with_paths(
+        self,
+        path_data: dict[str, QPainterPath],
+        part_enabled_state: dict[str, bool],
+    ) -> dict[str, QPainterPath]:
+        """
+        Get enabled parts that have motion paths.
+
+        Args:
+            path_data: All path data
+            part_enabled_state: Part enabled states
+
+        Returns:
+            Dict of enabled parts with their paths
+        """
+        return {
+            name: path for name, path in path_data.items()
+            if part_enabled_state.get(name, True)
+        }
+
+    def resolve_target_part(
+        self,
+        enabled_parts_with_paths: dict[str, QPainterPath],
+        selected_part: str | None,
+        list_widget: QListWidget | None,
+    ) -> str | None:
+        """
+        Resolve the target part for mechanism generation.
+
+        Args:
+            enabled_parts_with_paths: Dict of enabled parts with paths
+            selected_part: Currently selected part name (from list)
+            list_widget: List widget to check selection
+
+        Returns:
+            Target part name, or None if selection needed/cancelled
+        """
+        if not enabled_parts_with_paths:
+            return None
+
+        # Check if a part is selected from the list
+        target_part_name = None
+        if list_widget:
+            selected_items = list_widget.selectedItems()
+            if selected_items:
+                sel_part = selected_items[0].data(Qt.ItemDataRole.UserRole)
+                if sel_part and sel_part in enabled_parts_with_paths:
+                    target_part_name = sel_part
+
+        # Use provided selection if valid
+        if not target_part_name and selected_part and selected_part in enabled_parts_with_paths:
+            target_part_name = selected_part
+
+        # If still no target and only one part, use it
+        if not target_part_name and len(enabled_parts_with_paths) == 1:
+            target_part_name = next(iter(enabled_parts_with_paths.keys()))
+
+        return target_part_name
