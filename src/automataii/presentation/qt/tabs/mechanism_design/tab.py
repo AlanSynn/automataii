@@ -85,6 +85,7 @@ from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils imp
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils import (
     qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
 )
+from automataii.presentation.qt.tabs.mechanism_design.services import TransformService
 from automataii.presentation.qt.views.editor_view import EditorView
 from automataii.domain.kinematics.mechanism import (
     MechanismCandidate,
@@ -155,6 +156,9 @@ class MechanismDesignTab(QWidget):
         # Business logic services
         self.mechanism_service = MechanismService()
         self.skeleton_service = SkeletonService()
+
+        # Extracted services (god class decomposition)
+        self._transform_service = TransformService()
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -1520,204 +1524,17 @@ class MechanismDesignTab(QWidget):
 
     def _get_scene_transform_function(self, layer_data: dict) -> Callable | None:
         """
-        Creates proper coordinate transformation using recommendation system's transform_params.
-        This ensures mechanism animations match the recommended mechanism orientation and scale.
-
-        ULTRATHINK: Added safety checks to prevent abnormal coordinate values.
+        Creates coordinate transformation from mechanism space to scene space.
+        Delegates to TransformService (god class decomposition).
         """
-        # Get transformation parameters from recommendation system
-        transform_params = layer_data.get("transform_params")
-        target_path = layer_data.get("generated_path")
-
-        if not transform_params or not target_path:
-            # Fallback: simple centering
-            scene_center = QPointF(400, 300)
-            return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
-
-        try:
-            # Extract transformation parameters (same as recommendation dialog)
-            center = np.array(transform_params["center"])
-            scale = transform_params["scale"]
-            rotation_angle = transform_params["rotation"]
-
-            # ULTRATHINK SAFETY CHECK: Validate scale
-            if np.isclose(scale, 0) or scale < 1e-6 or scale > 1e6:
-                scene_center = QPointF(400, 300)
-                return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
-
-            # ULTRATHINK SAFETY CHECK: Validate center
-            if np.any(np.abs(center) > 1e6):
-                scene_center = QPointF(400, 300)
-                return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
-
-            # Create rotation matrix (same as recommendation dialog)
-            rotation_matrix = np.array([
-                [np.cos(rotation_angle), -np.sin(rotation_angle)],
-                [np.sin(rotation_angle), np.cos(rotation_angle)]
-            ])
-
-            # Get user path bounds for mapping to scene space (use original path)
-            try:
-                user_path_np = utils_qpainterpath_to_numpy_array(target_path)
-            except Exception as e:
-                user_path_np = None
-
-            if user_path_np is None or len(user_path_np) == 0:
-                scene_center = QPointF(400, 300)
-                return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
-
-            # Calculate user path properties for mapping
-            user_center = np.mean(user_path_np, axis=0)
-            user_bbox = np.max(user_path_np, axis=0) - np.min(user_path_np, axis=0)
-            user_scale = np.max(user_bbox) / 2.0 if np.max(user_bbox) > 0 else 100.0
-
-            # ULTRATHINK SAFETY CHECK: Validate user_scale
-            if user_scale < 10 or user_scale > 10000:
-                user_scale = np.clip(user_scale, 50, 1000)
-
-            def to_scene_coords(p_orig: np.ndarray) -> QPointF:
-                """
-                Apply the EXACT same transformation as recommendation system:
-                1. Center the point (subtract mechanism center)
-                2. Scale down to normalized space
-                3. Apply rotation
-                4. Map to user path space
-
-                ULTRATHINK: Added safety checks at each step.
-                """
-                if p_orig is None or len(p_orig) != 2:
-                    return QPointF(user_center[0], user_center[1])
-
-                try:
-                    # ULTRATHINK SAFETY CHECK: Validate input point
-                    if np.any(np.abs(p_orig) > 1e6):
-                        return QPointF(user_center[0], user_center[1])
-
-                    # Apply same transformation as align_and_compare_paths
-                    p_centered = p_orig - center                    # Center
-
-                    # ULTRATHINK SAFETY CHECK: Check centered result
-                    if np.any(np.abs(p_centered) > 1e6):
-                        p_centered = np.clip(p_centered, -1e4, 1e4)
-
-                    p_scaled = p_centered / scale                   # Scale to normalized space
-
-                    # ULTRATHINK SAFETY CHECK: Check scaled result
-                    if np.any(np.abs(p_scaled) > 1e4):
-                        p_scaled = np.clip(p_scaled, -1e3, 1e3)
-
-                    p_rotated = p_scaled @ rotation_matrix.T        # Apply rotation
-
-                    # Transform from normalized space to user path space
-                    final_point = p_rotated * user_scale + user_center
-
-                    # ULTRATHINK SAFETY CHECK: Final validation
-                    if np.any(np.abs(final_point) > 1e5):
-                        return QPointF(user_center[0], user_center[1])
-
-                    result = QPointF(float(final_point[0]), float(final_point[1]))
-
-                    # Log first few transforms for debugging
-                    if not hasattr(to_scene_coords, '_debug_count'):
-                        to_scene_coords._debug_count = 0
-
-                    if to_scene_coords._debug_count < 5:
-                        to_scene_coords._debug_count += 1
-
-                    return result
-
-                except (ValueError, TypeError, IndexError, ZeroDivisionError, OverflowError) as e:
-                    # Robust fallback
-                    return QPointF(user_center[0], user_center[1])
-
-            return to_scene_coords
-
-        except (KeyError, ValueError, TypeError) as e:
-            # Fallback: simple centering
-            scene_center = QPointF(400, 300)
-            return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
+        return self._transform_service.get_scene_transform(layer_data)
 
     def _get_inverse_scene_transform_function(self, layer_data: dict) -> Callable | None:
         """
-        Returns a function that converts a scene-space QPointF back to the mechanism's
-        original coordinate space used by the recommendation system. This is the
-        exact inverse of `_get_scene_transform_function`.
-
-        ULTRATHINK: Added safety checks to prevent abnormal coordinate values.
+        Creates coordinate transformation from scene space to mechanism space.
+        Delegates to TransformService (god class decomposition).
         """
-        transform_params = layer_data.get("transform_params")
-        target_path = layer_data.get("generated_path")
-
-        if not transform_params or not target_path:
-            return None
-
-        try:
-            center = np.array(transform_params["center"])
-            scale = transform_params["scale"]
-            rotation_angle = transform_params["rotation"]
-
-            # ULTRATHINK SAFETY CHECK: Same validations as forward transform
-            if np.isclose(scale, 0) or scale < 1e-6 or scale > 1e6:
-                return None
-
-            if np.any(np.abs(center) > 1e6):
-                return None
-
-            # Rotation matrix is orthonormal; inverse is transpose
-            rotation_matrix = np.array([
-                [np.cos(rotation_angle), -np.sin(rotation_angle)],
-                [np.sin(rotation_angle),  np.cos(rotation_angle)],
-            ])
-
-            user_path_np = utils_qpainterpath_to_numpy_array(target_path)
-            if user_path_np is None or len(user_path_np) == 0:
-                return None
-
-            user_center = np.mean(user_path_np, axis=0)
-            user_bbox = np.max(user_path_np, axis=0) - np.min(user_path_np, axis=0)
-            user_scale = np.max(user_bbox) / 2.0 if np.max(user_bbox) > 0 else 100.0
-
-            # ULTRATHINK SAFETY CHECK: Validate user_scale
-            if user_scale < 10 or user_scale > 10000:
-                user_scale = np.clip(user_scale, 50, 1000)
-
-            def to_mechanism_coords(scene_point: QPointF) -> np.ndarray:
-                """
-                Inverse transformation with safety checks.
-                """
-                try:
-                    # ULTRATHINK SAFETY CHECK: Validate input scene point
-                    if abs(scene_point.x()) > 1e5 or abs(scene_point.y()) > 1e5:
-                        scene_point = QPointF(
-                            np.clip(scene_point.x(), -1e4, 1e4),
-                            np.clip(scene_point.y(), -1e4, 1e4)
-                        )
-
-                    # g = (scene - user_center)/user_scale
-                    g = np.array([scene_point.x(), scene_point.y()])
-                    g = (g - user_center) / user_scale
-
-                    # ULTRATHINK SAFETY CHECK: Check intermediate result
-                    if np.any(np.abs(g) > 1e3):
-                        g = np.clip(g, -1e3, 1e3)
-
-                    # ((p - center)/scale) = g @ R
-                    p_scaled = g @ rotation_matrix
-                    p_orig = center + scale * p_scaled
-
-                    # ULTRATHINK SAFETY CHECK: Validate final result
-                    if np.any(np.abs(p_orig) > 1e5):
-                        p_orig = np.clip(p_orig, -1e4, 1e4)
-
-                    return p_orig
-
-                except (ValueError, TypeError, ZeroDivisionError, OverflowError) as e:
-                    return center  # Return mechanism center as fallback
-
-            return to_mechanism_coords
-
-        except (KeyError, ValueError, TypeError) as e:
-            return None
+        return self._transform_service.get_inverse_scene_transform(layer_data)
 
     def _extract_key_points_from_simulation(self, full_sim_data: dict, mechanism_type: str) -> dict:
         """Extract key_points from full_simulation_data to enable proper animation."""
