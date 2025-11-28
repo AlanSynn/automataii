@@ -88,6 +88,7 @@ from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils imp
 from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnchorMovementHandler,
     AnchorPositionService,
+    MechanismInstantiationService,
     TransformService,
     VisualItemManager,
 )
@@ -183,6 +184,8 @@ class MechanismDesignTab(QWidget):
         self._anchor_position_service = AnchorPositionService(self._transform_service)
         self._anchor_movement_handler = AnchorMovementHandler()
         self._visual_item_manager = VisualItemManager()
+        self._mechanism_instantiation = MechanismInstantiationService()
+        self._mechanism_instantiation.set_path_converter(utils_qpainterpath_to_numpy_array)
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -939,21 +942,13 @@ class MechanismDesignTab(QWidget):
 
     def _handle_recommendation_selection(self, mechanism_data: dict[str, Any]):
         """Handle mechanism selection from recommendation dialog.
-        Converts the recommendation data format to the format expected by handle_mechanism_visuals."""
-
-        # Extract mechanism type and map it to internal type
-        mechanism_type_value = mechanism_data.get('type', 'Unknown')
-        internal_type = self.MECHANISM_TYPE_MAPPING.get(mechanism_type_value, "4_bar_linkage")
-
-        # Generate unique mechanism ID
-        mechanism_id = str(uuid.uuid4())
-
-        # Get the actual user-drawn path for this part
+        Delegates to MechanismInstantiationService (god class decomposition)."""
+        # Get target path for this part
         target_path = None
         if hasattr(self, 'selected_part_name') and self.selected_part_name:
             target_path = self.path_data.get(self.selected_part_name)
 
-        # If no user path available, try to create from path_coordinates
+        # Fallback: create path from coordinates if no user path
         if not target_path:
             path_coords = mechanism_data.get("path_coordinates")
             if path_coords and isinstance(path_coords, list) and len(path_coords) > 0:
@@ -962,96 +957,15 @@ class MechanismDesignTab(QWidget):
                 for coord in path_coords[1:]:
                     target_path.lineTo(coord[0], coord[1])
 
-        # Convert recommendation data to the format expected by handle_mechanism_visuals
-        graphics_data = {
-            "mechanism_id": mechanism_id,
-            "mechanism_type": internal_type,
-            "params": mechanism_data.get("parameters", {}),
-            "transform_params": mechanism_data.get("transform_params"),
-            "generated_path": target_path if target_path else QPainterPath(),  # Use actual user path
-            "visualization_params": mechanism_data.get("visualization_params"),
-            "full_simulation_data": mechanism_data.get("full_simulation_data", {}),
-            "key_points": mechanism_data.get("key_points", {}),
-            "name": mechanism_data.get("name", f"{mechanism_type_value} Mechanism"),
-            "type": mechanism_type_value
-        }
+        # Create layer and graphics data via service
+        layer_data, graphics_data = self._mechanism_instantiation.create_layer_data_from_recommendation(
+            mechanism_data=mechanism_data,
+            target_path=target_path,
+            fallback_position=self._get_character_position(),
+        )
 
-        # Create mechanism layer data
-        layer_data = {
-            "id": mechanism_id,
-            "name": graphics_data["name"],
-            "type": internal_type,
-            "params": graphics_data["params"],
-            "transform_params": graphics_data["transform_params"],
-            "generated_path": graphics_data["generated_path"],
-            "visualization_params": graphics_data["visualization_params"],
-            "full_simulation_data": graphics_data["full_simulation_data"],
-            "key_points": graphics_data["key_points"],
-            "visual_items": []
-        }
-
-        # Add scaling factors for CAM mechanisms
-        # TODO: Calculate based on character size (see CAM_DECOUPLING_ANALYSIS.md)
-        if internal_type == "cam":
-            # Adjust scaling for better visibility near character
-            layer_data["cam_scale_factor"] = 1.0  # Normal CAM size for visibility
-            layer_data["rod_length_multiplier"] = 1.0  # Direct rod length control (no scaling)
-
-            # Ensure params dictionary exists and contains center coordinates
-            if "params" not in layer_data:
-                layer_data["params"] = {}
-
-            # For CAM, we need to position it directly below the drawn path
-            # The generated_path contains the actual drawn path in scene coordinates
-            if layer_data.get("generated_path"):
-                # If we have a generated path, get its scene bounds
-                try:
-                    from automataii.generation.utils import utils_qpainterpath_to_numpy_array
-                    path_np = utils_qpainterpath_to_numpy_array(layer_data["generated_path"])
-                    if path_np is not None and len(path_np) > 0:
-                        # Get the X center of the path and the lowest Y point
-                        path_x_center = np.mean(path_np[:, 0])
-                        path_y_max = np.max(path_np[:, 1])  # Maximum Y (lowest point in Qt coordinates)
-
-                        # Place CAM directly below the path
-                        # Use the X center of the path and position Y below the lowest point
-                        cam_pos = [float(path_x_center), float(path_y_max) + 80]
-                        layer_data["cam_position"] = cam_pos
-
-                        # Set center_x and center_y in params for the CamEditor
-                        layer_data["params"]["center_x"] = cam_pos[0]
-                        layer_data["params"]["center_y"] = cam_pos[1]
-
-                    else:
-                        # Fallback to character position
-                        char_pos = self._get_character_position()
-                        layer_data["cam_position"] = char_pos
-                        layer_data["params"]["center_x"] = char_pos[0]
-                        layer_data["params"]["center_y"] = char_pos[1]
-                except Exception as e:
-                    char_pos = self._get_character_position()
-                    layer_data["cam_position"] = char_pos
-                    layer_data["params"]["center_x"] = char_pos[0]
-                    layer_data["params"]["center_y"] = char_pos[1]
-            else:
-                # Fallback to character position if no path data
-                char_pos = self._get_character_position()
-                layer_data["cam_position"] = char_pos
-                layer_data["params"]["center_x"] = char_pos[0]
-                layer_data["params"]["center_y"] = char_pos[1]
-
-            # Create custom transform for CAM placement
-            if not graphics_data.get("transform_params"):
-                graphics_data["transform_params"] = {
-                    "center": [0, 0],
-                    "scale": 1.0,
-                    "rotation": 0
-                }
-
-        # Add mechanism layer
+        # Add mechanism layer and create visuals
         self._add_mechanism_layer(graphics_data["name"], layer_data)
-
-        # Handle visual creation
         self.handle_mechanism_visuals(graphics_data)
 
     def _preview_mechanism(self, mechanism_data: dict[str, Any]):
@@ -1110,141 +1024,49 @@ class MechanismDesignTab(QWidget):
             del self.mechanism_path_items[part_name]
 
     def _generate_mechanism_from_candidate(self, candidate_data: dict[str, Any]):
-        """Generates a mechanism layer and visuals from a selected candidate."""
-        # CHANGED: Support multiple mechanisms - only clear mechanism for current part
+        """Generates a mechanism layer and visuals from a selected candidate.
+        Uses MechanismInstantiationService for layer creation (god class decomposition)."""
+        # Clear existing mechanism for current part
         if hasattr(self, 'selected_part_name') and self.selected_part_name:
             self._clear_mechanism_for_part(self.selected_part_name)
-
-            # CRITICAL: Also clear any old trace paths for ALL mechanisms of this part
-            # This ensures no duplicate paths remain when switching mechanisms
+            # Clear old trace paths for this part
             for mechanism_id in self._path_trace_manager.get_all_mechanism_ids():
-                layer_data = self.mechanism_layers.get(mechanism_id)
-                if layer_data and layer_data.get("part_name") == self.selected_part_name:
+                ld = self.mechanism_layers.get(mechanism_id)
+                if ld and ld.get("part_name") == self.selected_part_name:
                     self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
-        else:
-            pass
 
-        mechanism_id = str(uuid.uuid4())[:8]
-        mechanism_type_value = candidate_data.get('type', 'Unknown')
-        raw_params = candidate_data.get('parameters', {})
-        params = convert_json_params_to_internal(mechanism_type_value, raw_params)
+        # Create layer data via service
+        target_path = self.path_data.get(self.selected_part_name) if self.selected_part_name else None
+        layer_data = self._mechanism_instantiation.create_layer_data_from_candidate(
+            candidate_data=candidate_data,
+            selected_part_name=self.selected_part_name or "",
+            target_path=target_path,
+            convert_params_fn=convert_json_params_to_internal,
+            extract_key_points_fn=self._extract_key_points_from_simulation,
+        )
 
-        internal_type = self.MECHANISM_TYPE_MAPPING.get(mechanism_type_value, "4_bar_linkage")
-
-        layer_name = self.selected_part_name
-        target_path = self.path_data.get(self.selected_part_name)
-
-        layer_data = {
-            "id": mechanism_id,
-            "type": internal_type,
-            "part_name": self.selected_part_name,
-            "params": params,
-            "visual_items": [],
-            "generated_path": target_path,
-            "transform_params": candidate_data.get("transform_params"),
-            "visualization_params": candidate_data.get("visualization_params"),
-            "key_points": candidate_data.get("key_points"),
-            "original_json_type": candidate_data.get("original_json_type"),
-            "path_normalization": candidate_data.get("path_normalization", {}),
-            "full_simulation_data": candidate_data.get("full_simulation_data", {}),
-            "reverse_direction": False,  # Can be set to True to reverse mechanism animation direction
-        }
-
-        # Generate key_points from full_simulation_data if missing (critical for animation)
-        if not layer_data.get("key_points") and layer_data.get("full_simulation_data"):
-            layer_data["key_points"] = self._extract_key_points_from_simulation(
-                layer_data["full_simulation_data"], internal_type
-            )
-
-        # CRITICAL FIX: For CAM mechanisms, ensure center_x and center_y are in params
-        if internal_type == "cam":
-            # Calculate CAM position based on the drawn path
-            if target_path and not target_path.isEmpty():
-                try:
-                    path_np = utils_qpainterpath_to_numpy_array(target_path)
-                    if path_np is not None and len(path_np) > 0:
-                        # Get the X center of the path and the lowest Y point
-                        path_x_center = np.mean(path_np[:, 0])
-                        path_y_max = np.max(path_np[:, 1])  # Maximum Y (lowest point in Qt coordinates)
-
-                        # Place CAM directly below the path
-                        cam_pos = [float(path_x_center), float(path_y_max) + 80]
-                        layer_data["cam_position"] = cam_pos
-
-                        # Set center_x and center_y in params for the CamEditor
-                        layer_data["params"]["center_x"] = cam_pos[0]
-                        layer_data["params"]["center_y"] = cam_pos[1]
-
-                        # Compute total lift from target path (use Y-range)
-                        path_y_min = np.min(path_np[:, 1])
-                        total_lift_screen = float(path_y_max - path_y_min)
-
-                        # Normalize eccentricity to mechanism space used by transform (avoid double scaling)
-                        # Match _get_scene_transform_function: user_scale = max(user_bbox)/2
-                        x_min, y_min = np.min(path_np[:, 0]), np.min(path_np[:, 1])
-                        x_max, y_max = np.max(path_np[:, 0]), np.max(path_np[:, 1])
-                        user_bbox_w = float(x_max - x_min)
-                        user_bbox_h = float(y_max - y_min)
-                        user_scale = max(user_bbox_w, user_bbox_h) / 2.0 if max(user_bbox_w, user_bbox_h) > 0 else 1.0
-                        ecc_norm = total_lift_screen / user_scale if user_scale > 0 else total_lift_screen
-
-                        # Set normalized parameters
-                        layer_data["params"]["eccentricity"] = max(1e-6, ecc_norm)
-                        # If base_radius missing or too large, choose a reasonable default relative to lift
-                        br = layer_data["params"].get("base_radius")
-                        if (br is None) or (br <= 0) or (br > 3 * ecc_norm):
-                            layer_data["params"]["base_radius"] = 0.3 * ecc_norm
-
-                except Exception as e:
-                    # Fallback to default position
-                    layer_data["params"]["center_x"] = 400
-                    layer_data["params"]["center_y"] = 300
-            else:
-                # No path available, use default position
-                layer_data["params"]["center_x"] = 400
-                layer_data["params"]["center_y"] = 300
-
-            # Set default cam template SVG path for template-driven cam design (pear cam)
-            try:
-                template_rel = Path("resources/blueprints/tom/pear_cam_4.3in.svg")
-                template_path = resolve_path(template_rel)
-                if template_path.exists():
-                    template_str = str(template_path)
-                    layer_data["cam_template_svg_path"] = template_str
-                    layer_data["params"]["cam_template_svg_path"] = template_str
-            except Exception:
-                pass
-
-        # Verify and adjust coupler point connection to skeleton joint
+        # Verify and adjust coupler point connection
         self._verify_coupler_joint_connection(layer_data)
         self._adjust_mechanism_to_target_joint(layer_data)
 
-        self._add_mechanism_layer(layer_name, layer_data)
+        # Add layer and generate visuals
+        mechanism_id = layer_data["id"]
+        internal_type = layer_data["type"]
+        params = layer_data["params"]
+
+        self._add_mechanism_layer(self.selected_part_name, layer_data)
         self.mechanism_enabled_state[mechanism_id] = True
         self._generate_mechanism_visuals_directly(mechanism_id, internal_type, params, layer_data)
 
-        # Ensure current_editor_items is populated with parts data for blueprint export
+        # Ensure parts data for blueprint export
         if not self.current_editor_items and self.parts_data:
-            # Get current parts data from project manager if not already populated
             current_parts_data = self.main_window.project_data_manager.get_current_parts_data()
             if current_parts_data:
                 self.set_parts_data(current_parts_data)
 
-        # Update UI state now that parts are available
         self._update_all_ui_states()
 
-        # Log mechanism attachment information
-        skeleton_attachment = layer_data.get("skeleton_attachment", {})
-        mechanism_layout = layer_data.get("mechanism_layout", {})
-        if skeleton_attachment:
-            attachment_point = skeleton_attachment.get("attachment_point", "unknown")
-            attachment_desc = skeleton_attachment.get("description", "")
-
-        if mechanism_layout:
-            layout_desc = mechanism_layout.get("description", "")
-            coord_system = mechanism_layout.get("coordinate_system", {})
-
-        # Select the part that got the mechanism in the list
+        # Select the part in the list
         part_name = layer_data.get("part_name")
         if part_name:
             for i in range(self.mechanism_layers_list.count()):
