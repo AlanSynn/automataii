@@ -107,11 +107,6 @@ from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import 
 )
 from automataii.presentation.qt.tabs.mechanism_design.components import (
     AnimationLifecycleController,
-    MechanismOutputCalculator,
-    MechanismVisualAnimator,
-    RecommendationHandler,
-    SceneTransformManager,
-    SkeletonVisualizationHandler,
 )
 
 class MechanismDesignTab(QWidget):
@@ -298,53 +293,13 @@ class MechanismDesignTab(QWidget):
         self._current_ui_state = UIState()
         self._update_all_ui_states()
 
-        # PHASE 4: Initialize extracted components
+        # PHASE 4: Initialize animation controller (only used extracted component)
         self._animation_controller = AnimationLifecycleController(
             mechanism_scene=self.mechanism_scene,
             path_trace_manager=self._path_trace_manager,
             parent=self,
         )
         self._configure_animation_controller_callbacks()
-
-        # Scene transform manager for coordinate transformations
-        self._scene_transform_manager = SceneTransformManager()
-
-        # Mechanism output calculator for position calculations
-        self._mechanism_output_calculator = MechanismOutputCalculator(
-            get_scene_transform=self._get_scene_transform_function,
-        )
-
-        # Skeleton visualization handler
-        self._skeleton_handler = SkeletonVisualizationHandler(
-            mechanism_view=self.mechanism_view,
-            mechanism_scene=self.mechanism_scene,
-            parent=self,
-        )
-        self._configure_skeleton_handler_callbacks()
-
-        # Mechanism visual animator for animation visual updates
-        self._visual_animator = MechanismVisualAnimator(
-            get_scene_transform=self._get_scene_transform_function,
-            set_line_if_changed=self._set_line_if_changed,
-        )
-
-        # Recommendation handler for mechanism recommendations
-        self._recommendation_handler = RecommendationHandler(
-            get_parts_data=lambda: self.parts_data,
-            get_path_data=lambda: self.path_data,
-            get_character_position=self._get_character_position,
-            add_mechanism_layer=self._add_mechanism_layer,
-        )
-
-    def _configure_skeleton_handler_callbacks(self) -> None:
-        """Configure callbacks for skeleton visualization handler."""
-        self._skeleton_handler.configure_callbacks(
-            get_main_window=lambda: self.main_window,
-            get_current_editor_items=lambda: self.current_editor_items,
-            get_parts_data=lambda: self.parts_data,
-            is_animation_running=self._is_animation_running,
-            position_parts_at_anchor_joints=self._position_parts_at_anchor_joints,
-        )
 
     def _configure_animation_controller_callbacks(self) -> None:
         """Configure callbacks for the animation lifecycle controller."""
