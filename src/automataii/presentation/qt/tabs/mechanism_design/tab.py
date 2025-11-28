@@ -292,8 +292,6 @@ class MechanismDesignTab(QWidget):
         
         # Initialize parametric system now that mechanism_scene is available
         if PARAMETRIC_AVAILABLE:
-            self._initialize_parametric_system()
-            # Also initialize the manager's parametric system
             self.parametric_manager._initialize_parametric_system()
         
         # PHASE 1: Initialize UI state management
@@ -3468,10 +3466,6 @@ class MechanismDesignTab(QWidget):
     # Jeff Dean Performance + Kent Beck Simplicity + Rob Pike Clarity
     # ================================================================================
 
-    def _initialize_parametric_system(self):
-        """Initialize the parametric design system by delegating to the manager."""
-        self.parametric_manager._initialize_parametric_system()
-
     def toggle_parametric_mode(self, enabled: bool | None = None):
         """Toggle parametric editing mode on/off by delegating to the manager."""
         self.parametric_manager.toggle_parametric_mode(enabled)
@@ -3487,39 +3481,6 @@ class MechanismDesignTab(QWidget):
         if self._presenter:
             self._presenter.set_parametric_mode(True)
         self._update_all_ui_states()
-
-    def _disable_animation_controls_for_parametric(self):
-        """
-        Disable animation controls when parametric mode is active.
-        ULTRATHINK: Prevent conflicts between parametric editing and animation.
-        
-        PHASE 1 REFACTORING: Simplified to use centralized UI state management.
-        """
-        try:
-            # Disable any running animation
-            if hasattr(self, '_is_animation_running') and self._is_animation_running():
-                if hasattr(self, '_on_stop_animation'):
-                    self._on_stop_animation()
-
-            # Animation controls are now handled by UI state manager
-            
-        except Exception as e:
-            pass
-
-    def _enable_animation_controls_after_parametric(self):
-        """
-        Re-enable animation controls when exiting parametric mode.
-        ULTRATHINK: Restore normal functionality after parametric editing.
-        
-        PHASE 1 REFACTORING: Simplified to use centralized UI state management.
-        """
-        try:
-            # Animation controls are now handled by UI state manager
-            # Just trigger a full UI state update
-            self._update_all_ui_states()
-            
-        except Exception as e:
-            pass
 
     def _disable_parametric_mode(self):
         """Disable parametric editing mode by delegating to the manager."""
