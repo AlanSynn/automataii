@@ -112,6 +112,7 @@ from automataii.presentation.qt.tabs.mechanism_design.components import (
     MechanismVisualAnimator,
     SkeletonVisualizationHandler,
 )
+from automataii.presentation.qt.tabs.mechanism_design.handles import RotationHandle
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -2569,110 +2570,6 @@ class MechanismDesignTab(QWidget):
 
         except Exception as e:
             pass
-
-    class RotationHandle(QGraphicsEllipseItem):
-        """
-        Simple rotation handle that just moves around the center.
-        ULTRATHINK: Don't modify the actual mechanism - just move the handle.
-        """
-        def __init__(self, parent_tab, mechanism_id: str, center_pos: QPointF, radius: float = 60):
-            super().__init__(-25, -25, 50, 50)  # Large yellow circle
-
-            self.parent_tab = parent_tab
-            self.mechanism_id = mechanism_id
-            self.rotation_center = center_pos
-            self.is_dragging = False
-            self.current_rotation = 0
-
-            # Position handle
-            handle_pos = QPointF(center_pos.x() + radius, center_pos.y())
-            self.setPos(handle_pos)
-
-            # Visual styling
-            self.setBrush(QBrush(QColor(255, 255, 0)))    # Bright yellow
-            self.setPen(QPen(QColor(255, 140, 0), 5))     # Orange thick border
-
-            # Enable drag
-            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-            self.setZValue(1000002)
-
-            # Add identification
-            self.handle_id = f"{mechanism_id}_rotation"
-            self.handle_type = "rotation"
-            self.setToolTip("🔄 Rotation Handle: Drag to set rotation angle (visual only)")
-
-        def mousePressEvent(self, event):
-            """Handle mouse press - start rotation tracking."""
-            if event.button() == Qt.MouseButton.LeftButton:
-                self.is_dragging = True
-
-                # Initialize previous angle for rotation calculation
-                scene_pos = event.scenePos()
-                dx = scene_pos.x() - self.rotation_center.x()
-                dy = scene_pos.y() - self.rotation_center.y()
-                self.previous_angle = math.atan2(dy, dx)
-
-                event.accept()
-            else:
-                super().mousePressEvent(event)
-
-        def mouseMoveEvent(self, event):
-            """Handle mouse move - rotate mechanism and move handle in circle."""
-            if self.is_dragging:
-                scene_pos = event.scenePos()
-
-                # Calculate position relative to center
-                dx = scene_pos.x() - self.rotation_center.x()
-                dy = scene_pos.y() - self.rotation_center.y()
-
-                # Calculate current angle
-                current_angle = math.atan2(dy, dx)
-
-                # Check if we have a previous angle to calculate difference
-                if hasattr(self, 'previous_angle'):
-                    # Calculate angle difference for mechanism rotation
-                    angle_diff = current_angle - self.previous_angle
-
-                    # Handle angle wrap-around (crossing 180° boundary)
-                    if angle_diff > math.pi:
-                        angle_diff -= 2 * math.pi
-                    elif angle_diff < -math.pi:
-                        angle_diff += 2 * math.pi
-
-                    # Apply rotation to mechanism if significant movement
-                    if abs(angle_diff) > 0.01:  # Lower threshold for responsive rotation
-                        # Use current mouse position as rotation center for maximum user control
-                        current_rotation_center = scene_pos
-                        self.parent_tab._rotate_mechanism(self.mechanism_id, current_rotation_center, angle_diff)
-
-                # Store current angle for next movement
-                self.previous_angle = current_angle
-
-                # Allow free positioning of rotation handle - not constrained to circle!
-                # User can place it anywhere for maximum control
-                self.setPos(scene_pos)
-
-                # Update display angle
-                self.current_rotation = math.degrees(current_angle)
-                self.setToolTip(f"🔄 Rotation Handle: {self.current_rotation:.1f}° (drag to rotate)")
-
-                event.accept()
-            else:
-                # Allow normal movement when not dragging
-                super().mouseMoveEvent(event)
-
-        def mouseReleaseEvent(self, event):
-            """Handle mouse release - end rotation tracking."""
-            if event.button() == Qt.MouseButton.LeftButton and self.is_dragging:
-                self.is_dragging = False
-                # Clear previous angle tracking
-                if hasattr(self, 'previous_angle'):
-                    del self.previous_angle
-                event.accept()
-            else:
-                super().mouseReleaseEvent(event)
 
     def _update_parametric_handles_for_selection(self, part_name: str):
         """
