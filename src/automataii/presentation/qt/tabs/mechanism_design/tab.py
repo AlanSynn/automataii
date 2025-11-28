@@ -416,15 +416,12 @@ class MechanismDesignTab(QWidget):
             self.main_window.skeleton_manager.set_joint_bend_direction(joint_id, new_direction)
 
     def on_skeleton_manager_updated(self, skeleton_data: dict | None):
-        """Handle skeleton updates from skeleton_manager. Delegates to SkeletonVisualizationHandler."""
         self._skeleton_handler.on_skeleton_manager_updated(skeleton_data)
 
     def _connect_to_ik_manager(self):
-        """Connect to IK manager signals. Delegates to SkeletonVisualizationHandler."""
         self._skeleton_handler.connect_to_ik_manager()
 
     def set_path_data_from_editor(self, path_data: dict[str, QPainterPath]):
-        """Receive path data from editor tab. Delegates to TabDataCoordinator (god class decomposition)."""
         # Presenter integration
         if self._presenter:
             converted_paths = convert_paths(path_data or {})
@@ -506,25 +503,19 @@ class MechanismDesignTab(QWidget):
         )
 
     def cache_initial_skeleton(self, skeleton_data_dict: dict | None):
-        """Cache skeleton data. Delegates to SkeletonVisualizationHandler."""
         self._skeleton_handler.cache_initial_skeleton(skeleton_data_dict)
-        # Keep local reference for backwards compatibility
         self._initial_skeleton_data_cache = self._skeleton_handler.initial_skeleton_data_cache
 
     def _is_animation_running(self) -> bool:
-        """Check if mechanism animation is currently running."""
         return self.animation_timer and self.animation_timer.isActive()
 
     def on_skeleton_updated(self, skeleton_data: dict | None):
-        """Handle skeleton updates from IK manager. Delegates to SkeletonVisualizationHandler."""
         self._skeleton_handler.on_skeleton_updated(skeleton_data)
 
     def _update_parts_from_skeleton(self, skeleton_data: dict):
-        """Update part positions from skeleton. Delegates to SkeletonVisualizationHandler."""
         self._skeleton_handler._update_parts_from_skeleton(skeleton_data)
 
     def _ensure_skeleton_visualization(self, skeleton_data: dict):
-        """Ensure skeleton visualization is set up. Delegates to SkeletonVisualizationHandler."""
         self._skeleton_handler.ensure_skeleton_visualization(skeleton_data)
 
 
@@ -579,7 +570,6 @@ class MechanismDesignTab(QWidget):
                     self.mechanism_view.skeleton_graphics_item = None
 
     def _get_target_joint_for_mechanism_control(self, part_name: str, anchor_joint_id: str) -> str:
-        """Delegate to domain service (Hexagonal Architecture)."""
         return self._joint_mapping_service.get_target_joint(part_name, anchor_joint_id)
 
     def _setup_mechanism_ik_integration(self):
@@ -602,7 +592,6 @@ class MechanismDesignTab(QWidget):
         )
 
     def _register_mechanism_controller(self, mech_id: str, layer_data: dict, joint_id: str):
-        """Register mechanism as IK controller. Delegates to application coordinator."""
         ik_manager = getattr(self.main_window, 'ik_manager', None)
         if not ik_manager:
             return
@@ -630,7 +619,6 @@ class MechanismDesignTab(QWidget):
             ik_manager.enable_ik_for_part(part_name, True)
 
     def clear_mechanism_data(self):
-        """Clear all mechanism-related data. Delegates to SceneManagementService (god class decomposition)."""
         # Stop animation
         if self.animation_timer.isActive():
             self.animation_timer.stop()
@@ -666,20 +654,16 @@ class MechanismDesignTab(QWidget):
 
     @pyqtSlot()
     def _on_get_recommendations(self):
-        """Show mechanism recommendation dialog. Delegates to RecommendationController."""
         self._recommendation_controller.show_recommendations(self)
 
     def _get_character_position(self):
-        """Delegate to domain service (Hexagonal Architecture)."""
         skeleton_data = getattr(self, '_initial_skeleton_data_cache', None)
         return list(self._joint_mapping_service.get_character_ground_position(skeleton_data))
 
     def _handle_recommendation_selection(self, mechanism_data: dict[str, Any]):
-        """Handle mechanism selection. Delegates to RecommendationController."""
         self._recommendation_controller.handle_recommendation_selection(mechanism_data, self)
 
     def _clear_mechanism_for_part(self, part_name: str):
-        """Clear mechanism for a specific part. Delegates to application coordinator."""
         self._clear_animation_cache()
 
         def on_visual_cleanup(mech_id: str, layer_data: dict) -> None:
@@ -1060,19 +1044,15 @@ class MechanismDesignTab(QWidget):
         self._animation_controller.reset_animation()
 
     def _on_layer_selection_changed(self):
-        """Handle selection changes. Delegates to LayerSelectionController."""
         self._layer_selection_controller.on_selection_changed()
 
     def _on_layer_item_clicked(self, item):
-        """Handle layer item click. Delegates to LayerSelectionController."""
         self._layer_selection_controller.on_item_clicked(item)
 
     def _update_part_visibility_and_animation(self, part_name: str, enabled: bool):
-        """Update part visibility. Delegates to LayerSelectionController."""
         self._layer_selection_controller.update_part_visibility_and_animation(part_name, enabled)
 
     def _toggle_mechanism_visuals(self, part_name: str, enabled: bool):
-        """Toggle mechanism visuals. Delegates to LayerSelectionController."""
         self._layer_selection_controller.toggle_mechanism_visuals(part_name, enabled)
 
 
@@ -1114,17 +1094,12 @@ class MechanismDesignTab(QWidget):
             layer_data, joint_id, self._calculate_mechanism_output
         )
 
-    # ================================================================================
-    # PARAMETRIC DESIGN SYSTEM (ULTRATHINK Architecture)
-    # Jeff Dean Performance + Kent Beck Simplicity + Rob Pike Clarity
-    # ================================================================================
+    # PARAMETRIC DESIGN SYSTEM
 
     def toggle_parametric_mode(self, enabled: bool | None = None):
-        """Toggle parametric mode. Delegates to ParametricModeController."""
         self.parametric_mode_enabled = self._parametric_mode_controller.toggle_mode(enabled)
 
     def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
-        """Recreate visuals after parameter changes. Uses visuals_factory."""
         try:
             self._safe_remove_visual_items(layer_data.get("visual_items", []))
             mechanism_graphics_data = {"mechanism_id": mechanism_id, **layer_data}
@@ -1133,10 +1108,6 @@ class MechanismDesignTab(QWidget):
             pass
 
     def _update_other_handles(self, mechanism_id: str, moved_handle: str):
-        """
-        Update positions of other parametric handles when one handle is moved.
-        Delegates to HandlePositionCoordinator (god class decomposition).
-        """
         handles = self.parametric_handles.get(mechanism_id, []) if hasattr(self, 'parametric_handles') else []
         layer_data = self.mechanism_layers.get(mechanism_id)
         if not handles or not layer_data:
@@ -1153,16 +1124,12 @@ class MechanismDesignTab(QWidget):
         self._update_handle_positions_from_key_points(mechanism_id, layer_data)
 
     def _show_free_edit_feedback(self, mechanism_id: str):
-        """Show visual feedback for free editing mode.
-        Delegates to VisualItemManager (god class decomposition)."""
         if mechanism_id not in self.parametric_handles:
             return
         handles = self.parametric_handles[mechanism_id]
         self._visual_item_manager.show_free_edit_feedback(handles, self.mechanism_scene)
 
     def _create_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
-        """Create handles for gear mechanism with rotation.
-        Delegates to HandlePositionCoordinator (god class decomposition)."""
         handles = self._handle_position_coordinator.create_gear_handles(
             mechanism_id=mechanism_id,
             layer_data=layer_data,
@@ -1174,24 +1141,12 @@ class MechanismDesignTab(QWidget):
             self.mechanism_scene.update()
 
     def _update_parametric_handles_for_selection(self, part_name: str):
-        """Update handles for selection. Delegates to ParametricModeController."""
         self._parametric_mode_controller.update_handles_for_selection(part_name)
 
     def _hide_all_parametric_handles(self):
-        """Hide all handles. Delegates to ParametricModeController."""
         self._parametric_mode_controller.hide_all_handles()
 
-    # Parametric Event Handlers
-
     def _update_handle_positions_from_key_points(self, mechanism_id: str, layer_data: dict):
-        """
-        Update scene handle positions to match updated key_points after kinematic constraints.
-        Delegates to HandlePositionCoordinator (god class decomposition).
-
-        Args:
-            mechanism_id: Mechanism ID
-            layer_data: Layer data with updated key_points
-        """
         handles = self.parametric_handles.get(mechanism_id, [])
         if not handles:
             return
@@ -1205,27 +1160,16 @@ class MechanismDesignTab(QWidget):
 
     @pyqtSlot(str, dict)
     def _on_parametric_mechanism_update(self, mechanism_id: str, params: dict[str, Any]):
-        """Handle mechanism update by delegating to the manager."""
         self.parametric_manager._on_parametric_mechanism_update(mechanism_id, params)
 
     @pyqtSlot(str)
     def _on_parametric_visual_refresh(self, mechanism_id: str):
-        """Handle visual refresh by delegating to the manager."""
         self.parametric_manager._on_parametric_visual_refresh(mechanism_id)
 
     def _update_mechanism_visuals_realtime(self, mechanism_id: str, mechanism_data: dict[str, Any]):
-        """Update mechanism visuals in real-time by delegating to the manager."""
         self.parametric_manager._update_mechanism_visuals_realtime(mechanism_id, mechanism_data)
 
     def _update_handle_positions_for_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
-        """
-        Update handle positions to match mechanism's current state.
-        Delegates to HandlePositionCoordinator (god class decomposition).
-
-        Args:
-            mechanism_id: Mechanism ID
-            layer_data: Current mechanism data
-        """
         handles = self.parametric_handles.get(mechanism_id, [])
         if not handles:
             return
@@ -1239,26 +1183,12 @@ class MechanismDesignTab(QWidget):
         )
 
     def _get_anchor_positions_for_mechanism(self, layer_data: dict[str, Any]) -> dict[str, QPointF]:
-        """
-        Get anchor positions for mechanism handles.
-        Delegates to AnchorPositionService (god class decomposition).
-
-        Args:
-            layer_data: Mechanism layer data
-
-        Returns:
-            Dictionary mapping anchor names to QPointF positions
-        """
         return self._anchor_position_service.get_anchor_positions(layer_data)
 
     def _disable_mechanism_visual_interaction(self):
-        """Disable mouse interaction on mechanism visual items.
-        Delegates to VisualItemManager (god class decomposition)."""
         self._visual_item_manager.disable_mechanism_visual_interaction(self.mechanism_layers)
 
     def _enable_mechanism_visual_interaction(self):
-        """Re-enable mouse interaction on mechanism visual items.
-        Delegates to VisualItemManager (god class decomposition)."""
         self._visual_item_manager.enable_mechanism_visual_interaction(self.mechanism_layers)
 
         # Re-enable animation controls if we have enabled mechanisms
@@ -1268,11 +1198,9 @@ class MechanismDesignTab(QWidget):
             self.reset_btn.setEnabled(True)
 
     def _on_export_blueprint(self):
-        """Delegate to BlueprintExporter to export all content."""
         self.blueprint_exporter.export_all()
 
     def center_on_character(self):
-        """Center the view on the character. Delegates to ViewUtilitiesService."""
         if not self.mechanism_view:
             return
         self._view_utilities_service.center_view_on_character(
