@@ -1,47 +1,21 @@
 """
-Service class for skeleton-related business logic.
+DEPRECATED: SkeletonService has moved to application layer.
 
-This service handles skeleton operations and part positioning
-that were previously embedded in the MechanismDesignTab class.
+SkeletonService has been relocated to:
+    automataii.application.mechanisms.skeleton_service
+
+This stub exists for backwards compatibility during migration.
 """
+import warnings
 
-from PyQt6.QtCore import QPointF
+warnings.warn(
+    "SkeletonService has moved to automataii.application.mechanisms. "
+    "Update your imports to use the new location.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
+# Re-export from new location for backwards compatibility
+from automataii.application.mechanisms.skeleton_service import SkeletonService
 
-class SkeletonService:
-    """Service for handling skeleton business logic."""
-    
-    def __init__(self):
-        """Initialize the skeleton service."""
-        pass
-    
-    def position_parts_at_anchor_joints(self, current_editor_items: dict, parts_data: dict,
-                                      initial_skeleton_data_cache: dict) -> int:
-        """
-        Position parts at their anchor joints using cached skeleton data.
-        
-        Args:
-            current_editor_items: Dictionary of current editor items
-            parts_data: Parts data dictionary
-            initial_skeleton_data_cache: Cached skeleton data
-            
-        Returns:
-            Number of parts successfully positioned
-        """
-        if not initial_skeleton_data_cache:
-            return 0
-
-        positioned_count = 0
-        joints_dict = initial_skeleton_data_cache.get("joints", {})
-        
-        for part_name, part_item in current_editor_items.items():
-            part_info = parts_data.get(part_name)
-            if part_info and part_info.anchor_joint_id in joints_dict:
-                joint_data = joints_dict[part_info.anchor_joint_id]
-                joint_pos = joint_data.get("position", [0, 0])
-                if len(joint_pos) >= 2:
-                    scene_pos = QPointF(joint_pos[0], joint_pos[1])
-                    part_item.set_scene_position_from_anchor(scene_pos)
-                    positioned_count += 1
-        
-        return positioned_count
+__all__ = ["SkeletonService"]
