@@ -131,6 +131,18 @@ class MechanismDesignTab(QWidget):
     mechanism_path_generated = pyqtSignal(str, QPainterPath)  # part_name, generated_path
     mechanism_parameters_changed = pyqtSignal(str, dict)  # mechanism_id, params
 
+    # Mapping from display names to internal mechanism types (extracted from duplicates)
+    MECHANISM_TYPE_MAPPING: dict[str, str] = {
+        "4-Bar Linkage": "4_bar_linkage",
+        "4-bar Coupler": "4_bar_linkage",
+        "Cam & Follower": "cam",
+        "Cam-Follower": "cam",
+        "Gears (Simple Pair)": "gear",
+        "Gear Contact": "gear",
+        "Simple Gear": "gear",
+        "Planetary Gear": "planetary_gear",
+    }
+
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self.main_window = main_window
@@ -842,7 +854,6 @@ class MechanismDesignTab(QWidget):
         if self._presenter:
             self._presenter.select_part(target_part_name)
 
-        from automataii.utils.paths import resolve_path
         generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
 
         if not generated_paths_file.exists():
@@ -911,20 +922,9 @@ class MechanismDesignTab(QWidget):
 
         # Extract mechanism type and map it to internal type
         mechanism_type_value = mechanism_data.get('type', 'Unknown')
-        mechanism_type_mapping = {
-            "4-Bar Linkage": "4_bar_linkage",
-            "4-bar Coupler": "4_bar_linkage",
-            "Cam & Follower": "cam",
-            "Cam-Follower": "cam",
-            "Gears (Simple Pair)": "gear",
-            "Gear Contact": "gear",
-            "Simple Gear": "gear",
-            "Planetary Gear": "planetary_gear",
-        }
-        internal_type = mechanism_type_mapping.get(mechanism_type_value, "4_bar_linkage")
+        internal_type = self.MECHANISM_TYPE_MAPPING.get(mechanism_type_value, "4_bar_linkage")
 
         # Generate unique mechanism ID
-        import uuid
         mechanism_id = str(uuid.uuid4())
 
         # Get the actual user-drawn path for this part
@@ -1048,17 +1048,7 @@ class MechanismDesignTab(QWidget):
 
         # Create temporary visuals for the preview
         mechanism_type_value = mechanism_data.get('type', 'Unknown')
-        mechanism_type_mapping = {
-            "4-Bar Linkage": "4_bar_linkage",
-            "4-bar Coupler": "4_bar_linkage",  # From dataset
-            "Cam & Follower": "cam",
-            "Cam-Follower": "cam",  # From dataset
-            "Gears (Simple Pair)": "gear",
-            "Gear Contact": "gear",
-            "Simple Gear": "gear",  # From dataset
-            "Planetary Gear": "planetary_gear",
-        }
-        internal_type = mechanism_type_mapping.get(mechanism_type_value, "4_bar_linkage")
+        internal_type = self.MECHANISM_TYPE_MAPPING.get(mechanism_type_value, "4_bar_linkage")
 
         if internal_type == "4_bar_linkage":
             visual_items = self._create_4bar_linkage_visuals(mechanism_data)
@@ -1118,17 +1108,7 @@ class MechanismDesignTab(QWidget):
         raw_params = candidate_data.get('parameters', {})
         params = convert_json_params_to_internal(mechanism_type_value, raw_params)
 
-        mechanism_type_mapping = {
-            "4-Bar Linkage": "4_bar_linkage",
-            "4-bar Coupler": "4_bar_linkage",  # From dataset
-            "Cam & Follower": "cam",
-            "Cam-Follower": "cam",  # From dataset
-            "Gears (Simple Pair)": "gear",
-            "Gear Contact": "gear",
-            "Simple Gear": "gear",  # From dataset
-            "Planetary Gear": "planetary_gear",
-        }
-        internal_type = mechanism_type_mapping.get(mechanism_type_value, "4_bar_linkage")
+        internal_type = self.MECHANISM_TYPE_MAPPING.get(mechanism_type_value, "4_bar_linkage")
 
         layer_name = self.selected_part_name
         target_path = self.path_data.get(self.selected_part_name)
