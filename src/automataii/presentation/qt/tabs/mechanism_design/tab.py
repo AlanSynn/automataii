@@ -88,6 +88,7 @@ from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils imp
 from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnchorMovementHandler,
     AnchorPositionService,
+    HandlePositionCoordinator,
     MechanismInstantiationService,
     TransformService,
     VisualItemManager,
@@ -186,6 +187,8 @@ class MechanismDesignTab(QWidget):
         self._visual_item_manager = VisualItemManager()
         self._mechanism_instantiation = MechanismInstantiationService()
         self._mechanism_instantiation.set_path_converter(utils_qpainterpath_to_numpy_array)
+        self._handle_position_coordinator = HandlePositionCoordinator()
+        self._handle_position_coordinator.set_rotation_handle_class(self.RotationHandle)
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -2095,7 +2098,7 @@ class MechanismDesignTab(QWidget):
     def _create_rotation_handle(self, mechanism_id: str, center_pos: QPointF, radius: float = 60) -> QGraphicsItem:
         """
         Create a rotation handle using custom class with built-in drag logic.
-        ULTRATHINK: Use custom RotationHandle class for proper event handling.
+        Delegates to HandlePositionCoordinator (god class decomposition).
 
         Args:
             mechanism_id: ID of the mechanism
@@ -2105,97 +2108,36 @@ class MechanismDesignTab(QWidget):
         Returns:
             QGraphicsItem: The rotation handle with built-in rotation logic
         """
-        try:
-
-            # Create custom rotation handle with built-in logic
-            rotation_handle = self.RotationHandle(
-                parent_tab=self,
-                mechanism_id=mechanism_id,
-                center_pos=center_pos,
-                radius=radius
-            )
-
-            return rotation_handle
-
-        except Exception as e:
-            import traceback
-            return None
+        return self._handle_position_coordinator.create_rotation_handle(
+            parent_tab=self,
+            mechanism_id=mechanism_id,
+            center_pos=center_pos,
+            radius=radius,
+        )
 
     def _rotate_mechanism(self, mechanism_id: str, center: QPointF, angle_radians: float):
         """
         Rotate all anchor points freely - no physics constraints.
-        ULTRATHINK: User freedom mode - allow any configuration even if physically impossible.
+        Delegates to HandlePositionCoordinator (god class decomposition).
 
         Args:
             mechanism_id: ID of the mechanism to rotate
             center: Center point for rotation (user's drag position)
             angle_radians: Angle to rotate in radians
         """
-        try:
-            if mechanism_id not in self.parametric_handles:
-                return
+        if mechanism_id not in self.parametric_handles:
+            return
 
-            handles = self.parametric_handles[mechanism_id]
-
-            cos_angle = math.cos(angle_radians)
-            sin_angle = math.sin(angle_radians)
-
-            rotated_count = 0
-
-            # Apply rotation to all anchor handles - no constraints!
-            for handle in handles:
-                # Skip the rotation handle itself
-                if hasattr(handle, 'handle_type') and handle.handle_type == 'rotation':
-                    continue
-
-                current_pos = handle.pos()
-
-                # Translate to rotation center
-                dx = current_pos.x() - center.x()
-                dy = current_pos.y() - center.y()
-
-                # Apply rotation matrix
-                new_dx = dx * cos_angle - dy * sin_angle
-                new_dy = dx * sin_angle + dy * cos_angle
-
-                # Translate back
-                new_pos = QPointF(center.x() + new_dx, center.y() + new_dy)
-
-                # Apply new position immediately - no validation!
-                handle.setPos(new_pos)
-                rotated_count += 1
-
-                # Update key_points in layer_data
-                if hasattr(handle, 'anchor_name') and mechanism_id in self.mechanism_layers:
-                    layer_data = self.mechanism_layers[mechanism_id]
-                    if "key_points" not in layer_data:
-                        layer_data["key_points"] = {}
-                    layer_data["key_points"][handle.anchor_name] = [new_pos.x(), new_pos.y()]
-
-            # Update visual feedback (always show as "approximate" in free mode)
-            if rotated_count > 0:
-                self._show_free_edit_feedback(mechanism_id)
-
-            # Force scene update
-            self.mechanism_scene.update()
-
-        except Exception as e:
-            import traceback
-
-        # Create rotation handle at the geometric center
-        rotation_handle = self._create_rotation_handle(mechanism_id, mechanism_center, radius=100)
-
-        if rotation_handle:
-            # Store the calculated center in the rotation handle for consistent reference
-            rotation_handle.true_mechanism_center = mechanism_center
-
-            # Add rotation handle to scene
-            self.mechanism_scene.addItem(rotation_handle)
-            handles.append(rotation_handle)
-
-            return True
-        else:
-            return False
+        handles = self.parametric_handles[mechanism_id]
+        self._handle_position_coordinator.rotate_mechanism_handles(
+            mechanism_id=mechanism_id,
+            center=center,
+            angle_radians=angle_radians,
+            handles=handles,
+            mechanism_layers=self.mechanism_layers,
+            scene=self.mechanism_scene,
+            show_feedback_fn=self._show_free_edit_feedback,
+        )
 
     def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
         """
@@ -2237,60 +2179,22 @@ class MechanismDesignTab(QWidget):
     def _update_other_handles(self, mechanism_id: str, moved_handle: str):
         """
         Update positions of other parametric handles when one handle is moved.
-        Syncs all handles for the given mechanism using current key_points.
+        Delegates to HandlePositionCoordinator (god class decomposition).
         """
-        try:
-            handles = self.parametric_handles.get(mechanism_id, []) if hasattr(self, 'parametric_handles') else []
-            if not handles:
-                return
+        handles = self.parametric_handles.get(mechanism_id, []) if hasattr(self, 'parametric_handles') else []
+        layer_data = self.mechanism_layers.get(mechanism_id)
+        if not handles or not layer_data:
+            return
 
-            layer_data = self.mechanism_layers.get(mechanism_id)
-            if not layer_data:
-                return
-
-            key_points = layer_data.get("key_points", {})
-            to_scene = self._get_scene_transform_function(layer_data)
-
-            # Guard against missing transform; still update with raw coords if needed
-            def _scene_pos_from_mech(pos_list):
-                if to_scene:
-                    return to_scene(np.array(pos_list))
-                return QPointF(float(pos_list[0]), float(pos_list[1]))
-
-            # Prevent recursive callbacks during programmatic moves
-            self._updating_handles_programmatically = True
-            try:
-                for handle in handles:
-                    if getattr(handle, 'handle_type', '') == 'rotation':
-                        continue
-
-                    anchor_name = getattr(handle, 'anchor_name', '')
-                    if not anchor_name:
-                        handle_id = getattr(handle, 'handle_id', '')
-                        parts = handle_id.split('_', 1)
-                        anchor_name = parts[1] if len(parts) > 1 else ''
-
-                    if not anchor_name or anchor_name == moved_handle:
-                        continue
-
-                    if anchor_name in key_points:
-                        new_scene_pos = _scene_pos_from_mech(key_points[anchor_name])
-
-                        # Temporarily disable callback if present
-                        original_cb = getattr(handle, 'update_callback', None)
-                        if original_cb is not None:
-                            handle.update_callback = None
-                        handle.setPos(new_scene_pos)
-                        if original_cb is not None:
-                            handle.update_callback = original_cb
-            finally:
-                self._updating_handles_programmatically = False
-
-            # Ensure all handles are correct relative to full key_points state
-            self._update_handle_positions_from_key_points(mechanism_id, layer_data)
-
-        except Exception as e:
-            pass
+        self._handle_position_coordinator.update_other_handles(
+            mechanism_id=mechanism_id,
+            moved_handle=moved_handle,
+            handles=handles,
+            layer_data=layer_data,
+            transform_fn=self._get_scene_transform_function,
+        )
+        # Ensure all handles are correct relative to full key_points state
+        self._update_handle_positions_from_key_points(mechanism_id, layer_data)
 
     def _show_free_edit_feedback(self, mechanism_id: str):
         """Show visual feedback for free editing mode.
@@ -2301,44 +2205,17 @@ class MechanismDesignTab(QWidget):
         self._visual_item_manager.show_free_edit_feedback(handles, self.mechanism_scene)
 
     def _create_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
-        """Create handles for gear mechanism with rotation."""
-        try:
-            handles = []
-
-            # Define gear control points
-            center_x, center_y = 400, 300
-            anchor_positions = {
-                "gear_center_1": QPointF(center_x - 60, center_y),
-                "gear_center_2": QPointF(center_x + 60, center_y),
-                "radius_control_1": QPointF(center_x - 60, center_y - 50),
-                "radius_control_2": QPointF(center_x + 60, center_y - 50)
-            }
-
-            # Create anchor handles
-            for anchor_name, anchor_pos in anchor_positions.items():
-                anchor_handle = QGraphicsEllipseItem(-15, -15, 30, 30)
-                anchor_handle.setPos(anchor_pos)
-                anchor_handle.setBrush(QBrush(QColor(255, 50, 50)))
-                anchor_handle.setPen(QPen(QColor(200, 40, 40), 2))
-                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-                anchor_handle.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                anchor_handle.setZValue(1000000)
-
-                anchor_handle.handle_id = f"{mechanism_id}_{anchor_name}"
-                anchor_handle.anchor_name = anchor_name
-                anchor_handle.setToolTip(f"Gear Mechanism: {anchor_name}")
-
-                self.mechanism_scene.addItem(anchor_handle)
-                handles.append(anchor_handle)
-
-            # Add rotation handle
-            self._add_rotation_handle_to_mechanism(mechanism_id, handles, anchor_positions)
-
+        """Create handles for gear mechanism with rotation.
+        Delegates to HandlePositionCoordinator (god class decomposition)."""
+        handles = self._handle_position_coordinator.create_gear_handles(
+            mechanism_id=mechanism_id,
+            layer_data=layer_data,
+            scene=self.mechanism_scene,
+            add_rotation_handle_fn=self._add_rotation_handle_to_mechanism,
+        )
+        if handles:
             self.parametric_handles[mechanism_id] = handles
             self.mechanism_scene.update()
-
-        except Exception as e:
-            pass
 
     def _update_parametric_handles_for_selection(self, part_name: str):
         """
@@ -2414,76 +2291,22 @@ class MechanismDesignTab(QWidget):
     def _update_handle_positions_from_key_points(self, mechanism_id: str, layer_data: dict):
         """
         Update scene handle positions to match updated key_points after kinematic constraints.
-
-        ULTRATHINK: Prevents infinite recursion by temporarily disabling callbacks.
+        Delegates to HandlePositionCoordinator (god class decomposition).
 
         Args:
             mechanism_id: Mechanism ID
             layer_data: Layer data with updated key_points
         """
-        try:
+        handles = self.parametric_handles.get(mechanism_id, [])
+        if not handles:
+            return
 
-            # Get handles for this mechanism
-            handles = self.parametric_handles.get(mechanism_id, [])
-            if not handles:
-                return
-
-            # Get transform function
-            to_scene = self._get_scene_transform_function(layer_data)
-            key_points = layer_data.get("key_points", {})
-
-            # ULTRATHINK: Set flag to prevent callback recursion
-            self._updating_handles_programmatically = True
-
-            # Update each handle position
-            updated_count = 0
-            for handle in handles:
-                handle_id = getattr(handle, 'handle_id', '')
-                anchor_name = getattr(handle, 'anchor_name', '')
-
-                # Extract anchor name from handle_id if anchor_name not available
-                if not anchor_name and handle_id:
-                    # Format: "{mechanism_id}_{anchor_name}"
-                    parts = handle_id.split('_', 1)
-                    if len(parts) > 1:
-                        anchor_name = parts[1]
-
-                if anchor_name in key_points:
-                    # Get new position in mechanism coordinates
-                    mech_pos = key_points[anchor_name]
-
-                    # Transform to scene coordinates
-                    if to_scene:
-                        scene_pos = to_scene(np.array(mech_pos))
-                    else:
-                        scene_pos = QPointF(mech_pos[0], mech_pos[1])
-
-                    # Update handle position (avoid triggering callbacks during programmatic move)
-                    old_pos = handle.pos()
-
-                    # ULTRATHINK: Temporarily disable callback for DraggableHandle
-                    original_callback = None
-                    if hasattr(handle, 'update_callback'):
-                        original_callback = handle.update_callback
-                        handle.update_callback = None
-
-                    # Update position
-                    handle.setPos(scene_pos)
-
-                    # Restore callback
-                    if original_callback:
-                        handle.update_callback = original_callback
-
-                    updated_count += 1
-                else:
-                    pass
-
-            # Clear the flag
-            self._updating_handles_programmatically = False
-
-        except Exception as e:
-            # Make sure to clear the flag even if error occurs
-            self._updating_handles_programmatically = False
+        self._handle_position_coordinator.update_handles_from_key_points(
+            mechanism_id=mechanism_id,
+            handles=handles,
+            layer_data=layer_data,
+            transform_fn=self._get_scene_transform_function,
+        )
 
     @pyqtSlot(str, dict)
     def _on_parametric_mechanism_update(self, mechanism_id: str, params: dict[str, Any]):
@@ -2502,62 +2325,23 @@ class MechanismDesignTab(QWidget):
     def _update_handle_positions_for_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
         """
         Update handle positions to match mechanism's current state.
+        Delegates to HandlePositionCoordinator (god class decomposition).
 
         Args:
             mechanism_id: Mechanism ID
             layer_data: Current mechanism data
         """
-        try:
-            handles = self.parametric_handles.get(mechanism_id, [])
-            if not handles:
-                return
+        handles = self.parametric_handles.get(mechanism_id, [])
+        if not handles:
+            return
 
-            mechanism_type = layer_data.get("type")
-
-            # Get updated anchor positions based on mechanism type
-            anchor_positions = self._get_anchor_positions_for_mechanism(layer_data)
-
-            # Update each handle's position based on its ID
-            for handle in handles:
-                handle_id = getattr(handle, 'handle_id', None)
-                if not handle_id:
-                    continue
-
-                new_pos = None
-
-                # Map handle IDs to anchor positions based on mechanism type
-                if mechanism_type == "cam":
-                    if "rod_length" in handle_id:
-                        new_pos = anchor_positions.get("cam_rod_length")
-                    elif "cam_size" in handle_id:
-                        new_pos = anchor_positions.get("cam_size")
-
-                elif mechanism_type == "gear":
-                    if "gear1_center" in handle_id:
-                        new_pos = anchor_positions.get("gear1_center")
-                    elif "gear2_center" in handle_id:
-                        new_pos = anchor_positions.get("gear2_center")
-
-                elif mechanism_type == "planetary_gear":
-                    if "sun_center" in handle_id:
-                        new_pos = anchor_positions.get("sun_center")
-                    elif "planet_center" in handle_id:
-                        new_pos = anchor_positions.get("planet_center")
-
-                elif mechanism_type == "4_bar_linkage":
-                    # Original 4-bar logic
-                    anchor_name = getattr(handle, 'anchor_name', None)
-                    if anchor_name and anchor_name in anchor_positions:
-                        new_pos = anchor_positions[anchor_name]
-
-                # Update handle position if we found a match
-                if new_pos:
-                    handle.setPos(new_pos)
-                else:
-                    pass
-
-        except Exception as e:
-            pass
+        anchor_positions = self._get_anchor_positions_for_mechanism(layer_data)
+        self._handle_position_coordinator.update_handles_for_mechanism(
+            mechanism_id=mechanism_id,
+            handles=handles,
+            layer_data=layer_data,
+            anchor_positions=anchor_positions,
+        )
 
     def _refresh_mechanism_visuals(self, mechanism_id: str, layer_data: dict[str, Any]):
         """
