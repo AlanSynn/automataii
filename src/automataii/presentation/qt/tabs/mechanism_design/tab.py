@@ -120,6 +120,7 @@ from automataii.presentation.qt.tabs.mechanism_design.components import (
     SkeletonVisualizationHandler,
 )
 from automataii.presentation.qt.tabs.mechanism_design.handles import RotationHandle
+from automataii.presentation.qt.tabs.mechanism_design.presenter import MechanismDesignPresenter
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
