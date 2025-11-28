@@ -50,8 +50,8 @@ from automataii.presentation.qt.tabs.options_tab import OptionsTab
 # Local imports (adjust paths as needed)
 from automataii.presentation.qt.views.editor_view import EditorView  # ADD THIS IMPORT
 
-# Import IKManager
-from automataii.domain.kinematics.ik_manager import IKManager
+# Import IKManager (Qt-coupled, in presentation layer)
+from automataii.presentation.qt.kinematics.ik_manager import IKManager
 
 # Import mechanism foundry tab
 from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView

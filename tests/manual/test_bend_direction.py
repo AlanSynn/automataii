@@ -6,7 +6,7 @@ import time
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QPointF
 from automataii.core.skeleton_manager import SkeletonManager
-from automataii.kinematics.ik_manager import IKManager
+from automataii.presentation.qt.kinematics import IKManager
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
