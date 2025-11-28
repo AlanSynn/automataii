@@ -108,6 +108,7 @@ from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import 
 )
 from automataii.presentation.qt.tabs.mechanism_design.components import (
     AnimationLifecycleController,
+    MechanismOutputCalculator,
     SkeletonVisualizationHandler,
 )
 
@@ -303,6 +304,11 @@ class MechanismDesignTab(QWidget):
             parent=self,
         )
         self._configure_skeleton_handler_callbacks()
+
+        # PHASE 6: Initialize mechanism output calculator
+        self._output_calculator = MechanismOutputCalculator(
+            get_scene_transform=self._get_scene_transform_function,
+        )
 
     def _configure_skeleton_handler_callbacks(self) -> None:
         """Configure callbacks for the skeleton visualization handler."""
@@ -1300,236 +1306,12 @@ class MechanismDesignTab(QWidget):
         return self._transform_service.get_inverse_scene_transform(layer_data)
 
     def _extract_key_points_from_simulation(self, full_sim_data: dict, mechanism_type: str) -> dict:
-        """Extract key_points from full_simulation_data to enable proper animation."""
-        key_points = {}
-
-        try:
-            if mechanism_type == "4_bar_linkage" and "joint_positions" in full_sim_data:
-                joint_pos = full_sim_data["joint_positions"]
-                # Extract initial positions as key points
-                if "p1_positions" in joint_pos and len(joint_pos["p1_positions"]) > 0:
-                    key_points["ground_pivot_1"] = joint_pos["p1_positions"][0]
-                if "p2_positions" in joint_pos and len(joint_pos["p2_positions"]) > 0:
-                    key_points["ground_pivot_2"] = joint_pos["p2_positions"][0]
-                if "p3_positions" in joint_pos and len(joint_pos["p3_positions"]) > 0:
-                    key_points["crank_end"] = joint_pos["p3_positions"][0]
-                if "p4_positions" in joint_pos and len(joint_pos["p4_positions"]) > 0:
-                    key_points["rocker_end"] = joint_pos["p4_positions"][0]
-
-            elif mechanism_type == "cam" and "cam_data" in full_sim_data:
-                cam_data = full_sim_data["cam_data"]
-                if "cam_centers" in cam_data and len(cam_data["cam_centers"]) > 0:
-                    key_points["cam_center"] = cam_data["cam_centers"][0]
-                if "follower_y_positions" in cam_data and len(cam_data["follower_y_positions"]) > 0:
-                    key_points["follower_position"] = [0, cam_data["follower_y_positions"][0]]
-
-            elif mechanism_type in ["gear", "planetary_gear"] and "gear_positions" in full_sim_data:
-                gear_pos = full_sim_data["gear_positions"]
-                if "sun_centers" in gear_pos and len(gear_pos["sun_centers"]) > 0:
-                    key_points["sun_center"] = gear_pos["sun_centers"][0]
-                if "planet_centers" in gear_pos and len(gear_pos["planet_centers"]) > 0:
-                    key_points["planet_center"] = gear_pos["planet_centers"][0]
-
-            elif mechanism_type == "simple_gear" and "gear_data" in full_sim_data:
-                gear_data = full_sim_data["gear_data"]
-                if "gear1_centers" in gear_data and len(gear_data["gear1_centers"]) > 0:
-                    key_points["gear1_center"] = gear_data["gear1_centers"][0]
-                if "gear2_centers" in gear_data and len(gear_data["gear2_centers"]) > 0:
-                    key_points["gear2_center"] = gear_data["gear2_centers"][0]
-
-        except (KeyError, IndexError, TypeError) as e:
-            # Fallback key points
-            key_points = {"center": [0, 0], "reference": [50, 0]}
-
-        return key_points
+        """Extract key_points from simulation. Delegates to MechanismOutputCalculator."""
+        return self._output_calculator.extract_key_points_from_simulation(full_sim_data, mechanism_type)
 
     def _calculate_mechanism_output(self, mech_type: str, params: dict, time: float, layer_data: dict) -> QPointF | None:
-        """Calculates mechanism output point using dataset's joint positions for perfect consistency with visuals."""
-        full_sim_data = layer_data.get("full_simulation_data", {})
-
-        if mech_type == "4_bar_linkage" and "joint_positions" in full_sim_data:
-            # Use joint positions to calculate coupler point - SAME AS VISUALS
-            joint_positions = full_sim_data["joint_positions"]
-            to_scene_coords = self._get_scene_transform_function(layer_data)
-
-            if "p1_positions" in joint_positions and to_scene_coords:
-                num_frames = len(joint_positions["p1_positions"])
-                normalized_time = time / (2 * math.pi)
-
-                # MECHANISM DIRECTION FIX: Check if mechanism should run in reverse
-                # Try both directions and pick the one that matches expected motion
-                reverse_direction = layer_data.get("reverse_direction", False)
-                if reverse_direction:
-                    normalized_time = 1.0 - normalized_time
-
-                frame_index = int(normalized_time * (num_frames - 1))
-                frame_index = max(0, min(frame_index, num_frames - 1))
-
-                # Get exact positions from dataset (SAME AS VISUALS)
-                p3 = np.array(joint_positions["p3_positions"][frame_index])
-                p4 = np.array(joint_positions["p4_positions"][frame_index])
-
-                # Calculate coupler point using same method as dataset generation
-                coupler_point_x = params.get("coupler_point_x", 0.0)
-                coupler_point_y = params.get("coupler_point_y", 0.0)
-
-                # Calculate coupler point position relative to the coupler link (p3-p4)
-                coupler_vec = p4 - p3
-                coupler_length = np.linalg.norm(coupler_vec)
-                if coupler_length > 0:
-                    coupler_unit = coupler_vec / coupler_length
-                    coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
-                    p_coupler = p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
-                else:
-                    p_coupler = p3
-
-                # Apply the same transformation as the visuals
-                scene_point = to_scene_coords(p_coupler)
-                return scene_point
-            else:
-                pass
-                return None
-
-        elif mech_type == "cam":
-            # Physical contact under gravity with vertical follower constraint (fixed X in scene)
-            params = layer_data.get("params", {})
-            follower_rod_length = params.get("follower_rod_length", 40.0)
-            rod_len_mul = layer_data.get('rod_length_multiplier', 1.0)
-            cam_points_local = layer_data.get('cam_points_local') or layer_data.get('cam_profile_local_points')
-            cam_to_scene = layer_data.get('cam_transform_function') or self._get_scene_transform_function(layer_data)
-            if cam_points_local is None or cam_to_scene is None:
-                return None
-
-            # Rotate local cam profile
-            angle = time
-            cos_r, sin_r = np.cos(angle), np.sin(angle)
-            rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-            rotated = np.array(cam_points_local) @ rot.T
-
-            # Map to scene
-            scene_pts = [cam_to_scene(p) for p in rotated]
-            if not scene_pts:
-                return None
-
-            # Contact point at max scene y (gravity down)
-            idx = max(range(len(scene_pts)), key=lambda i: scene_pts[i].y())
-            y_contact = scene_pts[idx].y()
-
-            # Convert rod length to scene units
-            try:
-                u0 = cam_to_scene(np.array([0.0, 0.0])); u1 = cam_to_scene(np.array([0.0, 1.0]))
-                unit_scale = ((u1.x()-u0.x())**2 + (u1.y()-u0.y())**2) ** 0.5
-            except Exception:
-                unit_scale = 1.0
-            rod_scene = follower_rod_length * rod_len_mul * unit_scale
-
-            # Fixed X for vertical follower motion
-            follower_x = layer_data.get('follower_fixed_x_scene')
-            if follower_x is None:
-                center_scene = cam_to_scene(np.array([0.0, 0.0]))
-                follower_x = center_scene.x()
-
-            # Follower above cam
-            return QPointF(float(follower_x), y_contact - rod_scene)
-
-        elif mech_type == "gear":
-            # First try to use full_simulation_data from dataset
-            full_sim_data = layer_data.get("full_simulation_data", {})
-            gear_data = full_sim_data.get("gear_data", {})
-            to_scene_coords = self._get_scene_transform_function(layer_data)
-
-            if gear_data and "tracking_points" in gear_data and to_scene_coords:
-                tracking_points = gear_data["tracking_points"]
-                num_frames = len(tracking_points)
-                if num_frames > 0:
-                    # Fix frame index calculation - remove modulo to prevent jumping
-                    normalized_time = (time / (2 * np.pi)) % 1.0  # Keep in [0, 1] range
-                    frame_index = int(normalized_time * (num_frames - 1))
-                    frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
-
-                    # Use the tracking point directly from dataset
-                    tracking_point = np.array(tracking_points[frame_index])
-
-                    scene_point = to_scene_coords(tracking_point)
-                    return scene_point
-
-            # Fallback to manual calculation if no simulation data
-            params = layer_data.get("params", {})
-            r1 = params.get("r1", 30)
-            key_points = layer_data.get("key_points", {})
-
-            if to_scene_coords:
-                # Use gear center from key_points if available
-                if "gear1_center" in key_points:
-                    gear1_center = np.array(key_points["gear1_center"])
-                else:
-                    gear1_center = np.array([0, 0])  # Default - match dataset generator
-
-                # Calculate point on gear 1 circumference
-                theta1 = time
-                output_point_orig = gear1_center + np.array([r1 * np.cos(theta1), r1 * np.sin(theta1)])
-
-                scene_point = to_scene_coords(output_point_orig)
-                return scene_point
-            else:
-                return None
-
-        elif mech_type == "planetary_gear":
-            # Handle planetary gear using full_simulation_data
-            full_sim_data = layer_data.get("full_simulation_data", {})
-            gear_positions = full_sim_data.get("gear_positions", {})
-            to_scene_coords = self._get_scene_transform_function(layer_data)
-
-            if gear_positions and "tracking_points" in gear_positions and to_scene_coords:
-                tracking_points = gear_positions["tracking_points"]
-                num_frames = len(tracking_points)
-                if num_frames > 0:
-                    # Fix frame index calculation - remove modulo to prevent jumping
-                    normalized_time = (time / (2 * np.pi)) % 1.0  # Keep in [0, 1] range
-                    frame_index = int(normalized_time * (num_frames - 1))
-                    frame_index = max(0, min(frame_index, num_frames - 1))  # Clamp to valid range
-
-                    # Use the tracking point directly from dataset
-                    tracking_point = np.array(tracking_points[frame_index])
-
-                    scene_point = to_scene_coords(tracking_point)
-                    return scene_point
-
-            # Fallback calculation for planetary gear
-            params = layer_data.get("params", {})
-            r_sun = params.get("r_sun", 20)
-            r_planet = params.get("r_planet", 30)
-            arm_length = params.get("arm_length", 15)
-
-            if to_scene_coords:
-                # Calculate planetary gear positions manually
-                planet_orbital_angle = time
-                planet_rotation_angle = -time * (r_sun / r_planet)
-
-                # Sun is stationary at origin
-                sun_center_orig = np.array([0, 0])
-
-                # Planet center orbits around sun
-                planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([
-                    np.cos(planet_orbital_angle),
-                    np.sin(planet_orbital_angle)
-                ])
-
-                # Tracking point on planet
-                tracking_point_orig = planet_center_orig + arm_length * np.array([
-                    np.cos(planet_rotation_angle),
-                    np.sin(planet_rotation_angle)
-                ])
-
-                scene_point = to_scene_coords(tracking_point_orig)
-                return scene_point
-
-            # Fallback calculation for planetary gear
-            return None
-
-        else:
-            # Fallback to manual calculation if no simulation data
-            return self._calculate_mechanism_output_manual(mech_type, params, time, layer_data)
+        """Calculate mechanism output. Delegates to MechanismOutputCalculator."""
+        return self._output_calculator.calculate_output(mech_type, params, time, layer_data)
 
     def _calculate_mechanism_output_manual(self, mech_type: str, params: dict, time: float, layer_data: dict) -> QPointF | None:
         """Manual calculation fallback (original implementation)."""
