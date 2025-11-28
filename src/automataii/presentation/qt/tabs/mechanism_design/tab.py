@@ -258,6 +258,11 @@ class MechanismDesignTab(QWidget):
         )
         self._trace_frame_tick: int = 0  # Animation frame counter
 
+        # MVP Presenter (god class decomposition - Phase 2)
+        # Presenter owns business state and coordinates services
+        # Tab remains a thin UI wrapper (Passive View pattern)
+        self._mvp_presenter = MechanismDesignPresenter(tab=self, parent=self)
+
         # Performance controls (Phase 0 quick wins)
 
         # Initialize new visualization system if available
@@ -277,7 +282,10 @@ class MechanismDesignTab(QWidget):
         
         # Initialize mechanism visuals factory now that scene is created
         self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
-        
+
+        # Wire MVP Presenter to scene (now that UI is initialized)
+        self._mvp_presenter._scene = self.mechanism_scene
+
         # Blueprint exporter (now that mechanism_view is available)
         self.blueprint_exporter = BlueprintExporter(
             parent=self,
@@ -1667,108 +1675,18 @@ class MechanismDesignTab(QWidget):
         self._visual_item_manager.safe_remove_visual_items(visual_items)
 
     def cleanup_tab_resources(self):
-        """Clean up resources when switching away from mechanism tab."""
-        try:
+        """Clean up resources when switching away from mechanism tab.
 
-            # CRITICAL: Stop IK manager animations to prevent race conditions
-            if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-                try:
-                    self.main_window.ik_manager.stop_animation()
-                except Exception as e:
-                    pass
-
-            # Stop any running mechanism animations
-            if hasattr(self, 'animation_timer') and self.animation_timer.isActive():
-                self.animation_timer.stop()
-
-            # CRITICAL: Clear data structures FIRST, then attempt safe Qt cleanup
-
-            # 1. Store references to visual items before clearing data structures
-            all_visual_items = []
-            for mechanism_id, layer_data in self.mechanism_layers.items():
-                visual_items = layer_data.get("visual_items", [])
-                all_visual_items.extend(visual_items)
-                # Clear the visual items list FIRST
-                layer_data["visual_items"] = []
-
-            # 2. Clear other tracking structures
-            self._path_trace_manager.clear_all_traces(self.mechanism_scene)
-            if hasattr(self, 'path_visual_items'):
-                self.path_visual_items.clear()
-
-            # 3. NOW attempt safe removal of Qt objects (many may already be deleted)
-            if all_visual_items:
-                self._safe_remove_visual_items(all_visual_items)
-
-            # Clear scene if needed
-            if hasattr(self, 'mechanism_scene') and self.mechanism_scene:
-                try:
-                    # Don't clear the entire scene, just ensure it's stable
-                    self.mechanism_scene.update()
-                except Exception as e:
-                    pass
-
-        except Exception as e:
-            pass
+        Delegates to MVP Presenter (god class decomposition).
+        """
+        self._mvp_presenter._cleanup_resources()
 
     def prepare_tab_activation(self):
-        """Prepare tab for activation when switching back to mechanism tab."""
-        try:
+        """Prepare tab for activation when switching back to mechanism tab.
 
-            # Ensure skeleton is properly initialized if we have cached data
-            if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
-                try:
-                    self._ensure_skeleton_visualization(self._initial_skeleton_data_cache)
-                except Exception as e:
-                    pass
-
-            # Refresh mechanism visuals if any mechanisms are enabled
-            enabled_mechanisms = [mid for mid, enabled in self.mechanism_enabled_state.items() if enabled]
-            if enabled_mechanisms:
-                for mechanism_id in enabled_mechanisms:
-                    layer_data = self.mechanism_layers.get(mechanism_id)
-                    if layer_data:
-                        try:
-                            # Only regenerate visuals if they don't exist or are invalid
-                            visual_items = layer_data.get("visual_items", [])
-                            needs_regeneration = not visual_items or any(
-                                item is None or self._is_visual_item_invalid(item)
-                                for item in visual_items
-                            )
-
-                            if needs_regeneration:
-                                mechanism_graphics_data = {
-                                    "mechanism_id": mechanism_id,
-                                    "mechanism_type": layer_data.get("type"),
-                                    **layer_data
-                                }
-                                self._generate_mechanism_visuals_directly(
-                                    mechanism_id,
-                                    layer_data.get("type"),
-                                    layer_data.get("params", {}),
-                                    layer_data
-                                )
-
-                            # CRITICAL FIX: Regenerate trace items (red paths) if missing or invalid
-                            # Check if trace needs regeneration using manager
-                            trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
-                            if trace_item is None or self._is_visual_item_invalid(trace_item):
-                                self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene)
-                                # Restore trace points if they exist
-                                trace_points = self._path_trace_manager.get_trace_points(mechanism_id)
-                                if len(trace_points) > 1:
-                                    path = QPainterPath()
-                                    path.moveTo(trace_points[0])
-                                    for point in trace_points[1:]:
-                                        path.lineTo(point)
-                                    if trace_item:
-                                        trace_item.setPath(path)
-
-                        except Exception as e:
-                            pass
-
-        except Exception as e:
-            pass
+        Delegates to MVP Presenter (god class decomposition).
+        """
+        self._mvp_presenter._prepare_activation()
 
     def _is_visual_item_invalid(self, item) -> bool:
         """Check if a visual item is invalid.
