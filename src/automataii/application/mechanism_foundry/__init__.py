@@ -1,4 +1,4 @@
-"""Mechanism Foundry catalog abstractions."""
+"""Mechanism Foundry catalog abstractions and application services."""
 
 from .catalog import (
     MechanismCatalog,
@@ -16,6 +16,15 @@ from .controller import (
 )
 from .path_cache import CachedPath, PathCache, PathCacheKey
 from .service import MechanismCatalogService
+from .mechanism_lifecycle_coordinator import (
+    MechanismLifecycleCoordinator,
+    MechanismLifecycleContext,
+)
+from .mechanism_generation_service import (
+    MechanismGenerationService,
+    MechanismGenerationContext,
+    MechanismGenerationResult,
+)
 
 __all__ = [
     "MechanismCatalog",
@@ -34,4 +43,9 @@ __all__ = [
     "PathCache",
     "PathCacheKey",
     "CachedPath",
+    "MechanismLifecycleCoordinator",
+    "MechanismLifecycleContext",
+    "MechanismGenerationService",
+    "MechanismGenerationContext",
+    "MechanismGenerationResult",
 ]
