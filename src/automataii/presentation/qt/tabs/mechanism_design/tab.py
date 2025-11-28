@@ -91,6 +91,7 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnimationFrameCoordinator,
     HandlePositionCoordinator,
     MechanismInstantiationService,
+    TabDataCoordinator,
     TransformService,
     VisualItemManager,
 )
@@ -222,6 +223,7 @@ class MechanismDesignTab(QWidget):
             mechanism_update_fraction=0.5,
             pos_epsilon_px=0.5,
         )
+        self._tab_data_coordinator = TabDataCoordinator()
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -382,6 +384,9 @@ class MechanismDesignTab(QWidget):
         # PHASE 9: Configure animation frame coordinator callbacks
         self._configure_animation_frame_coordinator()
 
+        # PHASE 10: Configure tab data coordinator callbacks
+        self._configure_tab_data_coordinator()
+
     def _configure_anchor_movement_callbacks(self) -> None:
         """Configure callbacks for the anchor movement handler."""
         self._anchor_movement_handler.configure_callbacks(
@@ -429,6 +434,13 @@ class MechanismDesignTab(QWidget):
             get_standardized_joint=self._get_standardized_joint_id,
             update_visuals=self._update_mechanism_visuals_for_animation,
             stop_timer=self.animation_timer.stop,
+        )
+
+    def _configure_tab_data_coordinator(self) -> None:
+        """Configure callbacks for the tab data coordinator (god class decomposition)."""
+        self._tab_data_coordinator.configure_callbacks(
+            clear_mechanism_for_part=self._clear_mechanism_for_part,
+            part_has_mechanism=self._part_has_mechanism,
         )
 
     def _on_presenter_view_update(self, view_model):
@@ -510,55 +522,23 @@ class MechanismDesignTab(QWidget):
         self._skeleton_handler.connect_to_ik_manager()
 
     def set_path_data_from_editor(self, path_data: dict[str, QPainterPath]):
-        """Receive path data from editor tab"""
+        """Receive path data from editor tab. Delegates to TabDataCoordinator (god class decomposition)."""
+        # Presenter integration
         if self._presenter:
             converted_paths = convert_paths(path_data or {})
             self._presenter.update_paths(converted_paths)
-        if path_data:
 
-            # Debug individual path data
-            for part_name, path in path_data.items():
-                if path and not path.isEmpty():
-                    path_rect = path.boundingRect()
+        # Delegate data processing to coordinator
+        self.path_data = self._tab_data_coordinator.set_path_data_from_editor(
+            path_data,
+            current_path_data=self.path_data,
+            part_enabled_state=self.part_enabled_state,
+            mechanism_layers=self.mechanism_layers,
+            scene=self.mechanism_scene,
+            update_ui_fn=self._update_all_ui_states,
+        )
 
-                    # Check if path has any elements
-                    element_count = path.elementCount()
-                else:
-                    pass
-
-        # 🔧 PATH SYNC FIX: Clear mechanisms for parts that no longer have paths or have new paths
-        current_parts = set(path_data.keys()) if path_data else set()
-        previous_parts = set(self.path_data.keys()) if hasattr(self, 'path_data') and self.path_data else set()
-
-        # Find parts that were removed or changed
-        parts_to_clear = previous_parts - current_parts  # Parts that no longer have paths
-
-        # Also clear parts that have new/different paths
-        for part_name in current_parts:
-            if (hasattr(self, 'path_data') and part_name in self.path_data and
-                path_data.get(part_name) != self.path_data.get(part_name)):
-                parts_to_clear.add(part_name)
-
-        # Clear mechanisms for affected parts
-        for part_name in parts_to_clear:
-            self._clear_mechanism_for_part(part_name)
-
-        self.path_data = path_data.copy() if path_data else {}
-
-        # Initialize enabled state for new parts (default to enabled)
-        for part_name in self.path_data.keys():
-            if part_name not in self.part_enabled_state:
-                self.part_enabled_state[part_name] = True
-
-        # Remove enabled state for parts that no longer have paths
-        parts_to_remove = [name for name in self.part_enabled_state.keys() if name not in self.path_data]
-        for part_name in parts_to_remove:
-            del self.part_enabled_state[part_name]
-
-        # Update UI state based on enabled parts
-        self._update_all_ui_states()
-
-        # Update tooltip with part information
+        # Update tooltip
         if self.path_data:
             part_names = ", ".join(list(self.path_data.keys())[:3])
             if len(self.path_data) > 3:
@@ -569,9 +549,7 @@ class MechanismDesignTab(QWidget):
             if self.recommendation_btn:
                 self.recommendation_btn.setToolTip("No motion paths available")
 
-        self._display_paths_in_preview()
-
-        # 🔧 UI UPDATE: Update mechanism layers list to reflect cleared mechanisms
+        # Update mechanism layers list
         self._update_mechanism_layers_list()
 
     def set_parts_data(self, parts_data: dict[str, PartInfo]):
@@ -1289,76 +1267,28 @@ class MechanismDesignTab(QWidget):
         )
 
     def _display_paths_in_preview(self):
-        """Display motion paths from editor tab in the preview"""
+        """Display motion paths from editor tab in the preview.
 
-        # Clear ALL existing path-related items to prevent accumulation
-        # 1. Clear user path visual items
-        for item in self.path_visual_items.values():
-            if item.scene():
-                self.mechanism_scene.removeItem(item)
-        self.path_visual_items.clear()
-
-        # 2. Clear mechanism path items (paths generated by mechanisms)
+        Delegates path visualization to TabDataCoordinator (god class decomposition).
+        Handles mechanism trace clearing locally.
+        """
+        # Clear mechanism path items (paths generated by mechanisms)
         for part_name, item in list(self.mechanism_path_items.items()):
             if item and item.scene():
                 self.mechanism_scene.removeItem(item)
         self.mechanism_path_items.clear()
 
-        # 3. Clear existing control point items
-        if hasattr(self, 'control_point_items'):
-            for part_name, control_points in self.control_point_items.items():
-                for control_point in control_points:
-                    if control_point.scene():
-                        self.mechanism_scene.removeItem(control_point)
-            self.control_point_items.clear()
-
-        # 4. Clear any lingering mechanism traces for all parts
+        # Clear any lingering mechanism traces for all parts
         for part_name in self.path_data.keys():
-            # Find and clear any mechanism traces for this part
             for mechanism_id, layer_data in list(self.mechanism_layers.items()):
                 if layer_data.get("part_name") == part_name:
-                    # Only clear the trace path visual, not the entire mechanism
-                    # Clear trace using manager
                     self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
 
-        # Calculate combined bounds of all paths to set scene rect properly
-        combined_bounds = None
-
-        # Add new path items with enhanced debugging
-        paths_added = 0
-        for part_name, path in self.path_data.items():
-            if not path.isEmpty():
-                path_bounds = path.boundingRect()
-
-                # Track combined bounds
-                if combined_bounds is None:
-                    combined_bounds = path_bounds
-                else:
-                    combined_bounds = combined_bounds.united(path_bounds)
-
-                path_item = QGraphicsPathItem(path)
-                pen = QPen(QColor(0, 200, 0), 4.0)  # Thicker line
-                pen.setCosmetic(True)
-                path_item.setPen(pen)
-                path_item.setZValue(Z_MOTION_PATH_LINE)  # Use standardized Z-level for motion paths
-
-                # Ensure the path is visible by setting additional properties
-                path_item.setVisible(True)
-                path_item.setEnabled(True)
-
-                # Add to scene
-                self.mechanism_scene.addItem(path_item)
-                self.path_visual_items[part_name] = path_item
-                paths_added += 1
-
-                # Add control points for each path
-                self._add_control_points_for_path(part_name, path)
-
-            else:
-                pass
-
-        # Debug scene bounds
-        scene_rect = self.mechanism_scene.itemsBoundingRect()
+        # Delegate path display to coordinator
+        self._tab_data_coordinator.display_paths_in_preview(
+            path_data=self.path_data,
+            scene=self.mechanism_scene,
+        )
 
     def _add_control_points_for_path(self, part_name: str, path: QPainterPath):
         """Add control points (blue dots) for a motion path"""
@@ -1399,87 +1329,14 @@ class MechanismDesignTab(QWidget):
         self.control_point_items[part_name] = control_point_items
 
     def _update_mechanism_layers_list(self):
-        """Update the mechanism layers list to show all parts with simple path-based coloring and toggle functionality.
-        
-        PHASE 1 REFACTORING: UI list management is now handled by layout manager.
-        This method now updates the data and shows parts with motion paths in black, others in gray.
-        """
-        # Get the widget from UI system
-        if hasattr(self, 'ui_widgets') and 'mechanism_layers_list' in self.ui_widgets:
-            mechanism_layers_list = self.ui_widgets['mechanism_layers_list']
-
-            # Simple clear and repopulate
-            mechanism_layers_list.clear()
-
-            # Use presenter view-model when feature flag is enabled
-            if self._presenter_view_model:
-                from PyQt6.QtGui import QFont  # Only QFont not in top-level imports
-
-                for part_vm in self._presenter_view_model.parts:
-                    part_name = part_vm.name
-                    enabled = part_vm.enabled
-                    has_layers = part_vm.has_layers or self._part_has_mechanism(part_name)
-
-                    self.part_enabled_state[part_name] = enabled
-
-                    item = QListWidgetItem(part_name)
-                    item.setData(Qt.ItemDataRole.UserRole, part_name)
-                    item.setForeground(Qt.GlobalColor.black if enabled else Qt.GlobalColor.gray)
-                    if has_layers:
-                        font = QFont(item.font())
-                        font.setBold(True)
-                        item.setFont(font)
-                        item.setToolTip(f"{part_name} — mechanism layers active")
-                    elif not enabled:
-                        item.setToolTip(f"{part_name} — disabled")
-                    else:
-                        item.setToolTip(f"{part_name} — no mechanism applied")
-                    item.setSelected(part_vm.is_selected)
-                    mechanism_layers_list.addItem(item)
-                return
-
-            # Get editor parts data and path data
-            editor_parts_data = None
-            editor_path_data = None
-            
-            if hasattr(self, 'main_window') and self.main_window:
-                if hasattr(self.main_window, 'editor_tab') and self.main_window.editor_tab:
-                    editor_parts_data = self.main_window.editor_tab.current_parts_info
-                    editor_path_data = self.main_window.editor_tab.get_current_path_data()
-                    
-            if editor_parts_data:
-                # Filter out disabled parts
-                disabled_parts = {
-                    'torso',
-                    'left_arm_upper', 'right_arm_upper',
-                    'left_leg_upper', 'right_leg_upper'
-                }
-                
-                all_parts = [
-                    part for part in editor_parts_data.keys()
-                    if part not in disabled_parts
-                ]
-                
-                # Add items to the list
-                for part in all_parts:
-                    item = QListWidgetItem(part)
-                    item.setData(Qt.ItemDataRole.UserRole, part)
-                    
-                    # Color based on whether part has motion path (not mechanism)
-                    has_motion_path = (editor_path_data and 
-                                     part in editor_path_data and 
-                                     editor_path_data[part] is not None and
-                                     not editor_path_data[part].isEmpty())
-                    
-                    if has_motion_path:
-                        item.setForeground(Qt.GlobalColor.black)
-                        item.setToolTip(f"{part} - has motion path")
-                    else:
-                        item.setForeground(Qt.GlobalColor.gray) 
-                        item.setToolTip(f"{part} - no motion path")
-                        
-                    mechanism_layers_list.addItem(item)
-            # Don't set to None - keep existing widget if possible
+        """Update the mechanism layers list. Delegates to TabDataCoordinator (god class decomposition)."""
+        mechanism_layers_list = self.ui_widgets.get('mechanism_layers_list') if hasattr(self, 'ui_widgets') else None
+        self._tab_data_coordinator.update_mechanism_layers_list(
+            mechanism_layers_list,
+            presenter_view_model=self._presenter_view_model,
+            part_enabled_state=self.part_enabled_state,
+            main_window=self.main_window,
+        )
 
     def _part_has_mechanism(self, part_name: str) -> bool:
         """Check if a part has any mechanism assigned to it."""
