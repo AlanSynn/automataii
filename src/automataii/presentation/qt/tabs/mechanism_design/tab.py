@@ -741,8 +741,6 @@ class MechanismDesignTab(QWidget):
 
     def _format_skeleton_for_visualization(self, skeleton_data: dict):
         """Format skeleton data for visualize_skeleton method like editor tab does."""
-        from PyQt6.QtCore import QPointF
-
         skeleton_for_view = []
         hierarchy: dict[str, list[str]] = {}
 
@@ -842,7 +840,6 @@ class MechanismDesignTab(QWidget):
         self.mechanism_scene.clear()
 
         # Reset the flag after a short delay to allow normal operations
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(100, lambda: setattr(self, '_scene_recently_cleared', False))
 
         # 4. Re-add skeleton item if it was preserved
@@ -2727,9 +2724,7 @@ class MechanismDesignTab(QWidget):
 
             # Use presenter view-model when feature flag is enabled
             if self._presenter_view_model:
-                from PyQt6.QtWidgets import QListWidgetItem
-                from PyQt6.QtGui import QFont
-                from PyQt6.QtCore import Qt
+                from PyQt6.QtGui import QFont  # Only QFont not in top-level imports
 
                 for part_vm in self._presenter_view_model.parts:
                     part_name = part_vm.name
@@ -2777,9 +2772,6 @@ class MechanismDesignTab(QWidget):
                 ]
                 
                 # Add items to the list
-                from PyQt6.QtWidgets import QListWidgetItem
-                from PyQt6.QtCore import Qt
-                
                 for part in all_parts:
                     item = QListWidgetItem(part)
                     item.setData(Qt.ItemDataRole.UserRole, part)
@@ -3200,7 +3192,6 @@ class MechanismDesignTab(QWidget):
                 initial_skeleton_data=initial_data,
             )
         else:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Warning", "No mechanisms are enabled for animation.")
 
     def _on_stop_animation(self):
@@ -3533,10 +3524,6 @@ class MechanismDesignTab(QWidget):
             return True
         else:
             return False
-
-    def _regenerate_mechanism_simulation(self, mechanism_id: str, layer_data: dict):
-        """Regenerate mechanism simulation by delegating to the manager."""
-        self.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
 
     def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
         """
@@ -4002,7 +3989,7 @@ class MechanismDesignTab(QWidget):
                                 params["r_planet"] = params["r_sun"] * ratio
 
                     # Regenerate simulation data for the new configuration
-                    self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+                    self.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
 
                     # Recreate the visual items with new configuration
                     self._recreate_mechanism_visuals(mechanism_id, layer_data)
