@@ -91,6 +91,7 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnimationFrameCoordinator,
     HandlePositionCoordinator,
     MechanismInstantiationService,
+    SceneManagementService,
     TabDataCoordinator,
     TransformService,
     VisualItemManager,
@@ -224,6 +225,7 @@ class MechanismDesignTab(QWidget):
             pos_epsilon_px=0.5,
         )
         self._tab_data_coordinator = TabDataCoordinator()
+        self._scene_management_service = SceneManagementService()
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -387,6 +389,9 @@ class MechanismDesignTab(QWidget):
         # PHASE 10: Configure tab data coordinator callbacks
         self._configure_tab_data_coordinator()
 
+        # PHASE 11: Configure scene management service callbacks
+        self._configure_scene_management_service()
+
     def _configure_anchor_movement_callbacks(self) -> None:
         """Configure callbacks for the anchor movement handler."""
         self._anchor_movement_handler.configure_callbacks(
@@ -441,6 +446,13 @@ class MechanismDesignTab(QWidget):
         self._tab_data_coordinator.configure_callbacks(
             clear_mechanism_for_part=self._clear_mechanism_for_part,
             part_has_mechanism=self._part_has_mechanism,
+        )
+
+    def _configure_scene_management_service(self) -> None:
+        """Configure callbacks for the scene management service (god class decomposition)."""
+        self._scene_management_service.configure_callbacks(
+            is_visual_item_invalid=self._is_visual_item_invalid,
+            safe_remove_visual_items=self._safe_remove_visual_items,
         )
 
     def _on_presenter_view_update(self, view_model):
@@ -804,53 +816,43 @@ class MechanismDesignTab(QWidget):
             pass
 
     def clear_mechanism_data(self):
-        """Clear all mechanism-related data and reset the tab's state with IK cleanup."""
-        # Stop animation and clear IK connections first
+        """Clear all mechanism-related data. Delegates to SceneManagementService (god class decomposition)."""
+        # Stop animation
         if self.animation_timer.isActive():
             self.animation_timer.stop()
-            self.animation_time = 0.0
+        self._animation_frame_coordinator.reset_state()
 
-        # Clear IK system connections
-        if hasattr(self.main_window, 'ik_manager') and self.main_window.ik_manager:
-            try:
-                # Stop any running animation
-                if hasattr(self.main_window.ik_manager, 'stop_animation'):
-                    self.main_window.ik_manager.stop_animation()
+        # Delegate core clearing to service
+        ik_manager = getattr(self.main_window, 'ik_manager', None)
+        self._scene_management_service.clear_mechanism_data(
+            mechanism_layers=self.mechanism_layers,
+            mechanism_enabled_state=self.mechanism_enabled_state,
+            path_visual_items=self.path_visual_items,
+            mechanism_path_items=self.mechanism_path_items,
+            mechanism_instances=self.mechanism_instances,
+            parametric_handles=self.parametric_handles,
+            interactive_handles=self.interactive_handles,
+            path_trace_manager=self._path_trace_manager,
+            scene=self.mechanism_scene,
+            ik_manager=ik_manager,
+        )
 
-                # Clear all mechanism position targets
-                self.main_window.ik_manager.clear_mechanism_position_targets()
-
-            except Exception:
-                pass
-
-        # Clear mechanism data
+        # Clear additional local data
         self.path_data.clear()
         self.selected_part_name = None
-        self.mechanism_layers.clear()
-        self.mechanism_enabled_state.clear()
-        self.interactive_handles.clear()
-        self.path_visual_items.clear()
-        self.mechanism_path_items.clear()
         self.mechanism_path_points.clear()
         self.current_editor_items.clear()
         self.parts_data.clear()
 
-        # Clear mechanism path tracing
-        self._path_trace_manager.clear_all_traces(self.mechanism_scene)
-
         # Clear UI elements
         if self.mechanism_layers_list:
             self.mechanism_layers_list.clear()
-
-        if self.mechanism_scene:
-            self._clear_scene_preserve_skeleton()
 
         # Reset UI state
         self.play_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         self.reset_btn.setEnabled(False)
         self.recommendation_btn.setEnabled(False)
-
         self.selected_mechanism_id = None
 
     @pyqtSlot()
