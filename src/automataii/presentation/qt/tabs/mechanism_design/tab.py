@@ -135,6 +135,10 @@ from automataii.application.mechanism_foundry.mechanism_lifecycle_coordinator im
     MechanismLifecycleCoordinator,
     MechanismLifecycleContext,
 )
+from automataii.application.mechanism_foundry.mechanism_generation_service import (
+    MechanismGenerationService,
+    MechanismGenerationContext,
+)
 
 class MechanismDesignTab(QWidget):
     """Tab for mechanism design matching user-drawn paths from editor tab.
@@ -217,34 +221,8 @@ class MechanismDesignTab(QWidget):
         self.mechanism_enabled_state: dict[str, bool] = {}  # Track which mechanisms are enabled
         self.interactive_handles: dict[str, list[QGraphicsItem]] = {}  # Drag handles for params
 
-        # Business logic services (Application Layer)
-        self.mechanism_service = MechanismService()
-        self.skeleton_service = SkeletonService()
-
-        # Domain Layer services (Hexagonal Architecture)
-        self._joint_mapping_service = JointMappingService()
-
-        # Application Layer coordinators (Hexagonal Architecture)
-        self._lifecycle_coordinator = MechanismLifecycleCoordinator()
-        self._motion_path_generator = MotionPathGenerator()
-
-        # Extracted services (god class decomposition)
-        self._transform_service = TransformService()
-        self._anchor_position_service = AnchorPositionService(self._transform_service)
-        self._anchor_movement_handler = AnchorMovementHandler()
-        self._visual_item_manager = VisualItemManager()
-        self._mechanism_instantiation = MechanismInstantiationService()
-        self._mechanism_instantiation.set_path_converter(utils_qpainterpath_to_numpy_array)
-        self._handle_position_coordinator = HandlePositionCoordinator()
-        self._handle_position_coordinator.set_rotation_handle_class(self.RotationHandle)
-        self._animation_frame_coordinator = AnimationFrameCoordinator(
-            ik_update_rate_hz=30,
-            mechanism_update_fraction=0.5,
-            pos_epsilon_px=0.5,
-        )
-        self._tab_data_coordinator = TabDataCoordinator()
-        self._scene_management_service = SceneManagementService()
-        self._view_utilities_service = ViewUtilitiesService()
+        # Initialize all services (domain, application, presentation)
+        self._initialize_services()
 
         # Skeleton visualization items
         self.skeleton_joint_items: dict[str, QGraphicsEllipseItem] = {}
@@ -412,6 +390,39 @@ class MechanismDesignTab(QWidget):
         # PHASE 12: Initialize and configure mode controllers
         self._initialize_mode_controllers()
 
+        # PHASE 13: Configure mechanism generation service
+        self._configure_mechanism_generation_service()
+
+    def _initialize_services(self) -> None:
+        """Initialize all domain, application, and presentation services."""
+        # Business logic services (Application Layer)
+        self.mechanism_service = MechanismService()
+        self.skeleton_service = SkeletonService()
+
+        # Domain Layer services
+        self._joint_mapping_service = JointMappingService()
+
+        # Application Layer coordinators
+        self._lifecycle_coordinator = MechanismLifecycleCoordinator()
+        self._motion_path_generator = MotionPathGenerator()
+        self._mechanism_generation_service = MechanismGenerationService()
+
+        # Presentation services (extracted from god class)
+        self._transform_service = TransformService()
+        self._anchor_position_service = AnchorPositionService(self._transform_service)
+        self._anchor_movement_handler = AnchorMovementHandler()
+        self._visual_item_manager = VisualItemManager()
+        self._mechanism_instantiation = MechanismInstantiationService()
+        self._mechanism_instantiation.set_path_converter(utils_qpainterpath_to_numpy_array)
+        self._handle_position_coordinator = HandlePositionCoordinator()
+        self._handle_position_coordinator.set_rotation_handle_class(self.RotationHandle)
+        self._animation_frame_coordinator = AnimationFrameCoordinator(
+            ik_update_rate_hz=30, mechanism_update_fraction=0.5, pos_epsilon_px=0.5
+        )
+        self._tab_data_coordinator = TabDataCoordinator()
+        self._scene_management_service = SceneManagementService()
+        self._view_utilities_service = ViewUtilitiesService()
+
     def _configure_anchor_movement_callbacks(self) -> None:
         """Configure callbacks for the anchor movement handler."""
         self._anchor_movement_handler.configure_callbacks(
@@ -523,6 +534,20 @@ class MechanismDesignTab(QWidget):
             set_selected_part_name=lambda name: setattr(self, 'selected_part_name', name),
         )
 
+    def _configure_mechanism_generation_service(self) -> None:
+        """Configure callbacks for mechanism generation service."""
+        self._mechanism_generation_service.configure_callbacks(
+            create_layer_data=self._mechanism_instantiation.create_layer_data_from_candidate,
+            verify_coupler=lambda ld, pd, sc: self.mechanism_service.verify_coupler_joint_connection(
+                ld, pd, sc, self._get_scene_transform_function, self._calculate_mechanism_output
+            ) if hasattr(self, '_initial_skeleton_data_cache') else False,
+            adjust_mechanism=lambda ld, pd, sc: self.mechanism_service.adjust_mechanism_to_target_joint(
+                ld, pd, sc, self._calculate_mechanism_output
+            ) if hasattr(self, '_initial_skeleton_data_cache') else False,
+            extract_key_points=self._extract_key_points_from_simulation,
+            convert_params=convert_json_params_to_internal,
+        )
+
     def _on_presenter_view_update(self, view_model):
         """Receive presenter view-model updates and sync lightweight state."""
         self._presenter_view_model = view_model
@@ -534,7 +559,7 @@ class MechanismDesignTab(QWidget):
 
     def _update_all_ui_states(self) -> None:
         """Update all UI component states based on current data."""
-        # Update UI state based on current mechanism and path data
+        # Calculate UI state from presenter or local data
         if self._presenter_view_model is not None:
             parts = self._presenter_view_model.parts
             has_paths = any(part.enabled for part in parts)
@@ -543,38 +568,24 @@ class MechanismDesignTab(QWidget):
         else:
             has_paths = bool(getattr(self, 'path_data', {}))
             has_mechanisms = bool(getattr(self, 'mechanism_layers', {}))
-            has_enabled_parts = any(
-                getattr(self, 'part_enabled_state', {}).values()
-            )
+            has_enabled_parts = any(getattr(self, 'part_enabled_state', {}).values())
+
         ui_state = UIState(
             has_paths=has_paths,
             has_mechanisms=has_mechanisms,
             has_enabled_parts=has_enabled_parts,
-            animation_running=getattr(self, 'animation_timer', None) and 
-                            getattr(self.animation_timer, 'isActive', lambda: False)(),
+            animation_running=self.animation_timer.isActive() if self.animation_timer else False,
             parametric_mode=getattr(self, 'parametric_mode_enabled', False),
             has_parts_data=bool(getattr(self, 'parts_data', {}))
         )
-        
-        # Update UI state manager
+
+        # Update UI state manager and cache
         if hasattr(self, 'ui_state_manager'):
             self.ui_state_manager.update_button_states(ui_state)
-        
         self._current_ui_state = ui_state
-        # Connect to IK manager and other external systems
+
+        # Ensure IK connection
         self._connect_to_ik_manager()
-
-        # Connect parametric system signals if available
-        # Signals are connected in _initialize_parametric_system for the new ParametricEditor
-
-        # Load generated paths (support both dev and bundled layouts)
-        generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
-        # Initialize with empty QPainterPath since no user path is drawn yet
-        empty_path = QPainterPath()
-        self.recommendation_dialog = MechanismRecommendationDialog(empty_path, generated_paths_file, parent=self)
-        self.recommendation_dialog.mechanism_selected.connect(self._handle_recommendation_selection)
-
-        self.generated_paths = self.load_generated_paths(generated_paths_file)
 
     def load_generated_paths(self, file_path):
         """Loads generated mechanism paths from a JSON file."""
@@ -968,79 +979,54 @@ class MechanismDesignTab(QWidget):
             del self.mechanism_path_items[part_name]
 
     def _generate_mechanism_from_candidate(self, candidate_data: dict[str, Any]):
-        """Generates a mechanism layer and visuals from a selected candidate.
-        Uses MechanismInstantiationService for layer creation (god class decomposition)."""
-        # Clear existing mechanism for current part
-        if hasattr(self, 'selected_part_name') and self.selected_part_name:
+        """Generate mechanism from candidate. Delegates to MechanismGenerationService."""
+        # Clear existing mechanism and traces for current part
+        if self.selected_part_name:
             self._clear_mechanism_for_part(self.selected_part_name)
-            # Clear old trace paths for this part
-            for mechanism_id in self._path_trace_manager.get_all_mechanism_ids():
-                ld = self.mechanism_layers.get(mechanism_id)
+            for mech_id in self._path_trace_manager.get_all_mechanism_ids():
+                ld = self.mechanism_layers.get(mech_id)
                 if ld and ld.get("part_name") == self.selected_part_name:
-                    self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
+                    self._path_trace_manager.clear_trace(mech_id, self.mechanism_scene)
 
-        # Create layer data via service
-        target_path = self.path_data.get(self.selected_part_name) if self.selected_part_name else None
-        layer_data = self._mechanism_instantiation.create_layer_data_from_candidate(
-            candidate_data=candidate_data,
+        # Generate mechanism via application service
+        context = MechanismGenerationContext(
             selected_part_name=self.selected_part_name or "",
-            target_path=target_path,
-            convert_params_fn=convert_json_params_to_internal,
-            extract_key_points_fn=self._extract_key_points_from_simulation,
+            target_path=self.path_data.get(self.selected_part_name),
+            candidate_data=candidate_data,
+            parts_data=self.parts_data,
+            skeleton_cache=getattr(self, '_initial_skeleton_data_cache', None),
+        )
+        result = self._mechanism_generation_service.generate_mechanism(context)
+
+        if not result.success or not result.layer_data:
+            return
+
+        # Add layer and generate visuals (presentation concerns)
+        layer_data = result.layer_data
+        self._add_mechanism_layer(self.selected_part_name, layer_data)
+        self.mechanism_enabled_state[result.mechanism_id] = True
+        self._generate_mechanism_visuals_directly(
+            result.mechanism_id, layer_data["type"], layer_data["params"], layer_data
         )
 
-        # Verify and adjust coupler point connection
-        self._verify_coupler_joint_connection(layer_data)
-        self._adjust_mechanism_to_target_joint(layer_data)
-
-        # Add layer and generate visuals
-        mechanism_id = layer_data["id"]
-        internal_type = layer_data["type"]
-        params = layer_data["params"]
-
-        self._add_mechanism_layer(self.selected_part_name, layer_data)
-        self.mechanism_enabled_state[mechanism_id] = True
-        self._generate_mechanism_visuals_directly(mechanism_id, internal_type, params, layer_data)
-
-        # Ensure parts data for blueprint export
+        # Ensure parts data and update UI
         if not self.current_editor_items and self.parts_data:
             current_parts_data = self.main_window.project_data_manager.get_current_parts_data()
             if current_parts_data:
                 self.set_parts_data(current_parts_data)
 
         self._update_all_ui_states()
+        self._select_part_in_list(layer_data.get("part_name"))
 
-        # Select the part in the list
-        part_name = layer_data.get("part_name")
-        if part_name:
-            for i in range(self.mechanism_layers_list.count()):
-                item = self.mechanism_layers_list.item(i)
-                if item.data(Qt.ItemDataRole.UserRole) == part_name:
-                    self.mechanism_layers_list.setCurrentItem(item)
-                    break
-
-    def _verify_coupler_joint_connection(self, layer_data: dict):
-        """Verify that the mechanism attachment point is properly connected to the target skeleton joint."""
-        # Delegate to mechanism service
-        if hasattr(self, '_initial_skeleton_data_cache'):
-            is_connected = self.mechanism_service.verify_coupler_joint_connection(
-                layer_data,
-                self.parts_data,
-                self._initial_skeleton_data_cache,
-                self._get_scene_transform_function,
-                self._calculate_mechanism_output
-            )
-
-    def _adjust_mechanism_to_target_joint(self, layer_data: dict):
-        """Adjust mechanism positioning so coupler point aligns with target skeleton joint."""
-        # Delegate to mechanism service
-        if hasattr(self, '_initial_skeleton_data_cache'):
-            adjusted = self.mechanism_service.adjust_mechanism_to_target_joint(
-                layer_data,
-                self.parts_data,
-                self._initial_skeleton_data_cache,
-                self._calculate_mechanism_output
-            )
+    def _select_part_in_list(self, part_name: str | None) -> None:
+        """Select a part in the mechanism layers list."""
+        if not part_name or not self.mechanism_layers_list:
+            return
+        for i in range(self.mechanism_layers_list.count()):
+            item = self.mechanism_layers_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == part_name:
+                self.mechanism_layers_list.setCurrentItem(item)
+                break
 
     def _add_mechanism_layer(self, layer_name: str, layer_data: Any):
         """Add a mechanism layer to the internal data structure."""
