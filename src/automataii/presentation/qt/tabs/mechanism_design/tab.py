@@ -3665,10 +3665,6 @@ class MechanismDesignTab(QWidget):
     def _create_gear_handles(self, mechanism_id: str, layer_data: dict[str, Any]):
         """Create handles for gear mechanism with rotation."""
         try:
-
-            if mechanism_id in self.parametric_handles:
-                self._remove_parametric_handles_for_mechanism(mechanism_id)
-
             handles = []
 
             # Define gear control points
@@ -3809,20 +3805,6 @@ class MechanismDesignTab(QWidget):
                 event.accept()
             else:
                 super().mouseReleaseEvent(event)
-
-    def _remove_parametric_handles_for_mechanism(self, mechanism_id: str):
-        """
-        Remove all parametric handles for a specific mechanism.
-
-        DEPRECATED: This method is replaced by ParametricEditor.remove_editor()
-        in the new parametric system.
-
-        Args:
-            mechanism_id: Mechanism ID to remove handles for
-        """
-        # Deprecated - the new ParametricEditor handles this
-        # Kept for compatibility with any legacy code
-        pass
 
     def _update_parametric_handles_for_selection(self, part_name: str):
         """
