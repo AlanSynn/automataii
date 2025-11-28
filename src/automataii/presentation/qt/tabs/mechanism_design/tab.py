@@ -162,8 +162,87 @@ class MechanismDesignTab(QWidget):
 
     @property
     def _trace_frame_tick(self) -> int:
-        """Frame tick for path tracing. Delegates to AnimationFrameCoordinator."""
         return self._animation_frame_coordinator.trace_frame_tick
+
+    # === STATE DELEGATION TO PRESENTER (Passive View Pattern) ===
+
+    @property
+    def mechanism_layers(self) -> dict[str, Any]:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            return self._mvp_presenter.mechanism_layers
+        return getattr(self, '_local_mechanism_layers', {})
+
+    @mechanism_layers.setter
+    def mechanism_layers(self, value: dict[str, Any]) -> None:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            self._mvp_presenter.mechanism_layers = value
+        else:
+            self._local_mechanism_layers = value
+
+    @property
+    def mechanism_enabled_state(self) -> dict[str, bool]:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            return self._mvp_presenter.mechanism_enabled_state
+        return getattr(self, '_local_mechanism_enabled_state', {})
+
+    @mechanism_enabled_state.setter
+    def mechanism_enabled_state(self, value: dict[str, bool]) -> None:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            self._mvp_presenter.mechanism_enabled_state = value
+        else:
+            self._local_mechanism_enabled_state = value
+
+    @property
+    def parametric_handles(self) -> dict[str, list]:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            return self._mvp_presenter.parametric_handles
+        return getattr(self, '_local_parametric_handles', {})
+
+    @parametric_handles.setter
+    def parametric_handles(self, value: dict[str, list]) -> None:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            self._mvp_presenter.parametric_handles = value
+        else:
+            self._local_parametric_handles = value
+
+    @property
+    def path_data(self) -> dict[str, QPainterPath]:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            return self._mvp_presenter.path_data
+        return getattr(self, '_local_path_data', {})
+
+    @path_data.setter
+    def path_data(self, value: dict[str, QPainterPath]) -> None:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            self._mvp_presenter.path_data = value
+        else:
+            self._local_path_data = value
+
+    @property
+    def part_enabled_state(self) -> dict[str, bool]:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            return self._mvp_presenter.part_enabled_state
+        return getattr(self, '_local_part_enabled_state', {})
+
+    @part_enabled_state.setter
+    def part_enabled_state(self, value: dict[str, bool]) -> None:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            self._mvp_presenter.part_enabled_state = value
+        else:
+            self._local_part_enabled_state = value
+
+    @property
+    def parts_data(self) -> dict[str, Any]:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            return self._mvp_presenter.parts_data
+        return getattr(self, '_local_parts_data', {})
+
+    @parts_data.setter
+    def parts_data(self, value: dict[str, Any]) -> None:
+        if hasattr(self, '_mvp_presenter') and self._mvp_presenter:
+            self._mvp_presenter.parts_data = value
+        else:
+            self._local_parts_data = value
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
@@ -172,23 +251,18 @@ class MechanismDesignTab(QWidget):
 
         self.candidates: list[MechanismCandidate] = []
         self.selected_mechanism: MechanismCandidate | None = None
-
-        # Path data from editor tab
-        self.path_data: dict[str, QPainterPath] = {}
         self.selected_part_name: str | None = None
-        self.parts_data: dict[str, PartInfo] = {}  # Store parts data
         self.current_editor_items: dict[str, CharacterPartItem] = {}
-        self.part_enabled_state: dict[str, bool] = {}  # Track which parts are enabled for mechanism generation
 
-        # Mechanism generation state
+        # Non-delegated mechanism state
         self.current_mechanism_type: str | None = None
         self.mechanism_params: dict[str, Any] = {}
-        self.mechanism_layers: dict[str, Any] = {}  # Store mechanism layers with enable/disable state
-        self.path_visual_items: dict[str, QGraphicsPathItem] = {}  # Store path visuals
-        self.mechanism_paths: dict[str, QPainterPath] = {}  # Generated mechanism paths
-        self.mechanism_instances: dict[str, Any] = {}  # Store actual mechanism objects
-        self.mechanism_enabled_state: dict[str, bool] = {}  # Track which mechanisms are enabled
-        self.interactive_handles: dict[str, list[QGraphicsItem]] = {}  # Drag handles for params
+        self.path_visual_items: dict[str, QGraphicsPathItem] = {}
+        self.mechanism_paths: dict[str, QPainterPath] = {}
+        self.mechanism_instances: dict[str, Any] = {}
+        self.interactive_handles: dict[str, list[QGraphicsItem]] = {}
+        # Delegated to Presenter: mechanism_layers, mechanism_enabled_state,
+        # parametric_handles, path_data, part_enabled_state, parts_data
 
         # Initialize all services (domain, application, presentation)
         self._initialize_services()
