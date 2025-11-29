@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 from PyQt6.QtCore import QObject
 
 if TYPE_CHECKING:
-    from automataii.application.managers import MechanismManager
     from automataii.application.managers import ProjectDataManager
     from automataii.application.managers import SkeletonManager
     from automataii.presentation.qt.kinematics.ik_manager import IKManager

@@ -172,11 +172,9 @@ class SkeletonManager(QObject):
 
         # The _process_animated_drawings_format expects a dict like: {"skeleton": [...]}
         # It can also derive some limb lengths from parts_data if available.
-        wrapper_dict = {"skeleton": raw_skeleton_list}
+        wrapper_dict: dict[str, Any] = {"skeleton": raw_skeleton_list}
         if parts_data:
-            wrapper_dict["parts_data_for_limb_lengths"] = (
-                parts_data  # Pass for potential use
-            )
+            wrapper_dict["parts_data_for_limb_lengths"] = parts_data
 
         # This data typically comes from a parsed parts_info.json or char_cfg.yaml,
         # so it's likely 'animated_drawings' or a structure very close to it.
@@ -184,7 +182,7 @@ class SkeletonManager(QObject):
             wrapper_dict, source_format="animated_drawings"
         )
 
-    def clear_data(self):
+    def clear_data(self) -> None:
         """Clears all internal skeleton data and emits relevant signals."""
         logging.info("SkeletonManager: Clearing all internal skeleton data.")
         self._raw_input_skeleton_data = None
@@ -483,9 +481,10 @@ class SkeletonManager(QObject):
             self._standardized_skeleton_model
             and self._standardized_skeleton_model.limb_lengths
         ):
-            return self._standardized_skeleton_model.limb_lengths.get(
+            length = self._standardized_skeleton_model.limb_lengths.get(
                 descriptive_limb_name
             )
+            return float(length) if length is not None else None
         return None
 
     def extend_skeleton_lengths(self, scale_factor: float = 1.1) -> bool:
@@ -513,12 +512,15 @@ class SkeletonManager(QObject):
             # Process each joint starting from roots
             processed_joints = set()
 
-            def scale_joint_recursive(joint_id: str, parent_pos: tuple[float, float] | None = None):
+            # Cache the model reference to avoid None checks inside recursion
+            model = self._standardized_skeleton_model
+
+            def scale_joint_recursive(joint_id: str, parent_pos: tuple[float, float] | None = None) -> None:
                 if joint_id in processed_joints:
                     return
 
                 processed_joints.add(joint_id)
-                joint = self._standardized_skeleton_model.joints.get(joint_id)
+                joint = model.joints.get(joint_id)
                 if not joint:
                     return
 
@@ -537,15 +539,15 @@ class SkeletonManager(QObject):
                     joint.position = new_pos
 
                     # Update limb length if it exists
-                    parent_joint = self._standardized_skeleton_model.joints.get(joint.parent_id)
-                    if parent_joint and self._standardized_skeleton_model.limb_lengths:
+                    parent_joint = model.joints.get(joint.parent_id)
+                    if parent_joint and model.limb_lengths:
                         limb_key = f"{parent_joint.name}_to_{joint.name}"
-                        if limb_key in self._standardized_skeleton_model.limb_lengths:
-                            self._standardized_skeleton_model.limb_lengths[limb_key] *= scale_factor
+                        if limb_key in model.limb_lengths:
+                            model.limb_lengths[limb_key] *= scale_factor
 
                 # Process children
                 current_pos = joint.position
-                child_ids = self._standardized_skeleton_model.hierarchy.get(joint_id, [])
+                child_ids = model.hierarchy.get(joint_id, [])
                 for child_id in child_ids:
                     scale_joint_recursive(child_id, current_pos)
 
@@ -610,9 +612,10 @@ class SkeletonManager(QObject):
         """Returns the current skeleton data as a dictionary, or None if no skeleton is loaded."""
         if not self._standardized_skeleton_model:
             return None
-        return self._standardized_skeleton_model.model_dump()
+        result: dict[str, Any] = self._standardized_skeleton_model.model_dump()
+        return result
 
-    def set_joint_bend_direction(self, joint_id: str, direction: float):
+    def set_joint_bend_direction(self, joint_id: str, direction: float) -> None:
         """
         Set the bend direction for a specific joint.
 

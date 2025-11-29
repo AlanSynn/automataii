@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    import numpy as np
+    pass
 
 
 @dataclass

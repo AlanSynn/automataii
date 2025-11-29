@@ -127,14 +127,14 @@ if __name__ == "__main__":
 
     manager = MechanismManager()
 
-    def handle_visuals(items: list):
+    def handle_visuals(items: list[QGraphicsItem]) -> None:
         logging.info(f"Test: Received {len(items)} visual items.")
         for item in items:
             logging.info(
                 f"  Item type: {type(item)}, Tooltip: {item.toolTip() if hasattr(item, 'toolTip') else 'N/A'}"
             )
 
-    def handle_data(data: dict):
+    def handle_data(data: dict[str, Any]) -> None:
         logging.info(f"Test: Received mechanism data: {data}")
 
     manager.mechanism_visuals_ready.connect(handle_visuals)
@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
     # Mock PartInfo
     class MockPartInfo(PartInfo):
-        def __init__(self, name, x=0, y=0):
+        def __init__(self, name: str, x: float = 0, y: float = 0) -> None:
             super().__init__(
                 name=name,
                 path="",
@@ -168,8 +168,8 @@ if __name__ == "__main__":
         mechanism_type="4-Bar Linkage",
         params={"pivot_a": QPointF(10, 10), "pivot_d": QPointF(100, 10)},
         target_part_info=mock_target_part,
-        all_parts_info={"leg_lower": mock_target_part},
-        editor_scene_center=QPointF(0, 0),
+        _all_parts_info={"leg_lower": mock_target_part},
+        _editor_scene_center=QPointF(0, 0),
     )
 
     # app.exec() # Not needed for this non-GUI test of signals

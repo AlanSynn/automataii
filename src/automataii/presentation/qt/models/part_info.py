@@ -31,7 +31,6 @@ class PartInfo:
         model: "PartInfoModel",
         resolved_image_path: str | None = None,
     ) -> None:
-        from automataii.domain.project import QPointFModel
 
         self.name: str = model.name
         self.roi: list[float] | None = model.roi

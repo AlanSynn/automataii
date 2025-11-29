@@ -12,7 +12,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 if TYPE_CHECKING:
-    from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
 
 class VisualsFactory(Protocol):

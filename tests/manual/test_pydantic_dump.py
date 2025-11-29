@@ -3,7 +3,7 @@
 
 import sys
 import logging
-from automataii.core.models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
+from automataii.domain.skeleton import StandardizedJointModel, StandardizedSkeletonModel
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
