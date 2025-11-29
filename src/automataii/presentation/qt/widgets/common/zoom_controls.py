@@ -15,8 +15,8 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
 if TYPE_CHECKING:
-    from automataii.presentation.qt.views.editor_view import EditorView
     from automataii.presentation.qt.image_view import ImageProcessingView
+    from automataii.presentation.qt.views.editor_view import EditorView
 
 
 class ZoomControlsWidget(QWidget):

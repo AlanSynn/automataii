@@ -9,7 +9,8 @@ Design Pattern: Service (visual rendering coordination)
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView

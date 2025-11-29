@@ -9,8 +9,8 @@ Components:
 - StyleFactory: Consistent button and group box styling
 """
 
-from automataii.presentation.qt.widgets.common.zoom_controls import ZoomControlsWidget
 from automataii.presentation.qt.widgets.common.styles import StyleFactory
+from automataii.presentation.qt.widgets.common.zoom_controls import ZoomControlsWidget
 
 __all__ = [
     "ZoomControlsWidget",

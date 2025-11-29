@@ -8,6 +8,8 @@ from PyQt6.QtCore import QPointF
 
 from automataii.infrastructure.generation.mechanism.base import BaseMechanism
 
+logger = logging.getLogger(__name__)
+
 # Placeholder for more sophisticated data structures
 # from ...core.models import Gear, etc.
 

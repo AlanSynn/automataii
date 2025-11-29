@@ -38,7 +38,7 @@ class ScaledBounds:
         """Calculate the center point of the bounds."""
         return (self.x + self.width / 2, self.y + self.height / 2)
 
-    def overlaps_with(self, other: "ScaledBounds", padding: float = 0.0) -> bool:
+    def overlaps_with(self, other: ScaledBounds, padding: float = 0.0) -> bool:
         """Check if this bounds overlaps with another (with margin)."""
         return not (
             self.x + self.width + padding <= other.x

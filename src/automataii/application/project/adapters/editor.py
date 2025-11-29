@@ -177,7 +177,9 @@ class EditorTabAdapter(TabAdapter):
         Handle path changes from state manager (external updates).
 
         This is for cases where paths are modified externally
-        (e.g., loaded from project file).
+        (e.g., loaded from project file, undo/redo).
+
+        Syncs the tab's visual paths with the state.
         """
         if not self._tab:
             return
@@ -186,9 +188,50 @@ class EditorTabAdapter(TabAdapter):
         if not hasattr(self._tab, "current_editor_items"):
             return
 
-        # Convert PathData back to QPainterPath format if needed
-        # This would be used when loading a project
-        logger.debug(f"EditorTabAdapter: State paths changed ({len(paths)} paths)")
+        logger.info(f"EditorTabAdapter: Syncing {len(paths)} paths from state")
+
+        try:
+            # Get current part names that have paths in the tab
+            current_parts_with_paths = set()
+            if hasattr(self._tab, "_has_motion_path"):
+                for part_name in self._tab.current_editor_items.keys():
+                    if self._tab._has_motion_path(part_name):
+                        current_parts_with_paths.add(part_name)
+
+            state_parts_with_paths = set(paths.keys())
+
+            # Clear paths that are no longer in state
+            paths_to_clear = current_parts_with_paths - state_parts_with_paths
+            for part_name in paths_to_clear:
+                logger.debug(f"Clearing path for '{part_name}' (not in state)")
+                if hasattr(self._tab, "_motion_path_manager"):
+                    # Clear the path via motion path manager
+                    editor_items = self._tab.current_editor_items
+                    if part_name in editor_items:
+                        part_item = editor_items[part_name]
+                        if hasattr(part_item, "set_motion_path"):
+                            part_item.set_motion_path(None)
+
+            # Update/add paths from state
+            for part_name, path_data in paths.items():
+                if not path_data.enabled:
+                    continue
+
+                qpath = self._transform_pathdata_to_qpath(path_data)
+                if qpath and not qpath.isEmpty():
+                    logger.debug(f"Updating path for '{part_name}'")
+                    if hasattr(self._tab, "_update_part_path"):
+                        self._tab._update_part_path(part_name, qpath)
+                    elif hasattr(self._tab, "current_editor_items"):
+                        # Fallback: direct update
+                        editor_items = self._tab.current_editor_items
+                        if part_name in editor_items:
+                            part_item = editor_items[part_name]
+                            if hasattr(part_item, "set_motion_path"):
+                                part_item.set_motion_path(qpath)
+
+        except Exception as e:
+            logger.exception(f"Error syncing paths from state: {e}")
 
     # =========================================================================
     # DATA TRANSFORMATIONS
