@@ -1,11 +1,12 @@
 """
 Tests for mechanism state dataclasses.
+
+Note: The domain layer uses pure Python types (tuples) instead of Qt types
+to maintain architectural purity and avoid Qt dependencies in the domain.
 """
 
 import math
 import pytest
-from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor
 from automataii.domain.mechanisms.core.state import (
     SafetyLevel,
     ForceType,
@@ -13,6 +14,7 @@ from automataii.domain.mechanisms.core.state import (
     ForceVector,
     MechanismState,
     RenderConfig,
+    ColorRGBA,
 )
 
 
@@ -44,21 +46,21 @@ class TestSafetyStatus:
 class TestForceVector:
     def test_creation(self):
         force = ForceVector(
-            position=QPointF(10.0, 20.0),
+            position=(10.0, 20.0),
             magnitude=100.0,
             angle=45.0,
             force_type=ForceType.APPLIED,
-            color=QColor(255, 0, 0),
+            color=(255, 0, 0, 255),
         )
-        assert force.position == QPointF(10.0, 20.0)
+        assert force.position == (10.0, 20.0)
         assert force.magnitude == 100.0
         assert force.angle == 45.0
         assert force.force_type == ForceType.APPLIED
-        assert force.color == QColor(255, 0, 0)
+        assert force.color == (255, 0, 0, 255)
 
     def test_immutability(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=50.0,
             angle=0.0,
             force_type=ForceType.REACTION,
@@ -68,52 +70,52 @@ class TestForceVector:
 
     def test_default_color_reaction(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=50.0,
             angle=0.0,
             force_type=ForceType.REACTION,
         )
-        assert force.color == QColor(255, 69, 0, 200)
+        assert force.color == (255, 69, 0, 200)
 
     def test_default_color_applied(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=50.0,
             angle=0.0,
             force_type=ForceType.APPLIED,
         )
-        assert force.color == QColor(0, 123, 255, 200)
+        assert force.color == (0, 123, 255, 200)
 
     def test_default_color_constraint(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=50.0,
             angle=0.0,
             force_type=ForceType.CONSTRAINT,
         )
-        assert force.color == QColor(255, 140, 0, 200)
+        assert force.color == (255, 140, 0, 200)
 
     def test_default_color_friction(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=50.0,
             angle=0.0,
             force_type=ForceType.FRICTION,
         )
-        assert force.color == QColor(128, 128, 128, 200)
+        assert force.color == (128, 128, 128, 200)
 
     def test_default_color_gravity(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=50.0,
             angle=0.0,
             force_type=ForceType.GRAVITY,
         )
-        assert force.color == QColor(139, 69, 19, 200)
+        assert force.color == (139, 69, 19, 200)
 
     def test_to_components_zero_angle(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=100.0,
             angle=0.0,
             force_type=ForceType.APPLIED,
@@ -124,7 +126,7 @@ class TestForceVector:
 
     def test_to_components_90_degrees(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=100.0,
             angle=90.0,
             force_type=ForceType.APPLIED,
@@ -135,7 +137,7 @@ class TestForceVector:
 
     def test_to_components_45_degrees(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=100.0,
             angle=45.0,
             force_type=ForceType.APPLIED,
@@ -147,7 +149,7 @@ class TestForceVector:
 
     def test_to_components_180_degrees(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=100.0,
             angle=180.0,
             force_type=ForceType.APPLIED,
@@ -158,7 +160,7 @@ class TestForceVector:
 
     def test_to_components_270_degrees(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=100.0,
             angle=270.0,
             force_type=ForceType.APPLIED,
@@ -182,7 +184,7 @@ class TestMechanismState:
 
     def test_creation_full(self):
         force = ForceVector(
-            position=QPointF(0.0, 0.0),
+            position=(0.0, 0.0),
             magnitude=50.0,
             angle=0.0,
             force_type=ForceType.APPLIED,

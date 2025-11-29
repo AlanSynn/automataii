@@ -36,19 +36,19 @@ class Point2D(NamedTuple):
     x: float
     y: float
 
-    def __add__(self, other: Point2D) -> Point2D:
-        """Vector addition."""
+    def __add__(self, other: Point2D) -> Point2D:  # type: ignore[override]
+        """Vector addition (intentionally overrides tuple concatenation)."""
         return Point2D(self.x + other.x, self.y + other.y)
 
     def __sub__(self, other: Point2D) -> Point2D:
         """Vector subtraction."""
         return Point2D(self.x - other.x, self.y - other.y)
 
-    def __mul__(self, scalar: float) -> Point2D:
-        """Scalar multiplication."""
+    def __mul__(self, scalar: float) -> Point2D:  # type: ignore[override]
+        """Scalar multiplication (intentionally overrides tuple repetition)."""
         return Point2D(self.x * scalar, self.y * scalar)
 
-    def __rmul__(self, scalar: float) -> Point2D:
+    def __rmul__(self, scalar: float) -> Point2D:  # type: ignore[override]
         """Scalar multiplication (reversed)."""
         return self.__mul__(scalar)
 
@@ -56,11 +56,11 @@ class Point2D(NamedTuple):
         """Euclidean distance to another point."""
         dx = self.x - other.x
         dy = self.y - other.y
-        return (dx * dx + dy * dy) ** 0.5
+        return float((dx * dx + dy * dy) ** 0.5)
 
     def magnitude(self) -> float:
         """Distance from origin."""
-        return (self.x * self.x + self.y * self.y) ** 0.5
+        return float((self.x * self.x + self.y * self.y) ** 0.5)
 
     def normalized(self) -> Point2D:
         """Returns unit vector in same direction."""

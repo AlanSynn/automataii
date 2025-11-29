@@ -13,10 +13,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
-from PyQt6.QtCore import QPointF
 
 if TYPE_CHECKING:
-    from PyQt6.QtGui import QPainterPath
+    pass
 
 
 @dataclass

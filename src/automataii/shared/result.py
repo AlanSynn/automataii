@@ -27,7 +27,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Generic, TypeVar
+from typing import Callable, Generic, NoReturn, TypeVar
 
 T = TypeVar("T")
 E = TypeVar("E")
@@ -83,11 +83,11 @@ class Err(Generic[E]):
     def is_err(self) -> bool:
         return True
 
-    def unwrap(self) -> T:
+    def unwrap(self) -> NoReturn:
         """Raises an exception since this is an error."""
         raise ValueError(f"Called unwrap on Err: {self.error}")
 
-    def unwrap_or(self, default: T) -> T:
+    def unwrap_or(self, default: T) -> T:  # type: ignore[type-var]
         """Returns the default value."""
         return default
 
@@ -108,7 +108,10 @@ class Err(Generic[E]):
 Result = Ok[T] | Err[E]
 
 
-def try_result(fn: Callable[[], T], error_type: type[E] = Exception) -> Result[T, str]:
+def try_result(
+    fn: Callable[[], T],
+    error_type: type[BaseException] = Exception,
+) -> Result[T, str]:
     """
     Wraps a function call in a Result.
 

@@ -15,7 +15,6 @@ these specialized components.
 from __future__ import annotations
 
 import logging
-import math
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -31,7 +30,7 @@ from automataii.presentation.qt.tabs.parametric.components import (
 )
 
 if TYPE_CHECKING:
-    from PyQt6.QtWidgets import QMessageBox
+    pass
 
 
 class ParametricEditingManager:

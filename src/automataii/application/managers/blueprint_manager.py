@@ -35,18 +35,19 @@ class BlueprintExportManager(QObject):
 
     # Singleton instance
     _instance: Optional['BlueprintExportManager'] = None
+    _initialized: bool = False
 
     # Signals
     export_started = pyqtSignal()
     export_completed = pyqtSignal(bool, str)  # success, message
 
-    def __new__(cls):
+    def __new__(cls) -> 'BlueprintExportManager':
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._initialized:
             return
 
@@ -55,7 +56,7 @@ class BlueprintExportManager(QObject):
         self._initialized = True
 
         # Multi-page state management
-        self._current_blueprint_pages = []
+        self._current_blueprint_pages: list[str] = []
         self._current_page_index = 0
         self._last_export_base_path = ""
 
@@ -228,15 +229,15 @@ class BlueprintExportManager(QObject):
 
     def generate_gear_svg(self, gear_data: dict[str, Any]) -> str:
         """Generate SVG for gear mechanism."""
-        return self.gear_generator.generate_svg(gear_data)
+        return str(self.gear_generator.generate_svg(gear_data))
 
     def generate_linkage_svg(self, linkage_data: dict[str, Any]) -> str:
         """Generate SVG for linkage mechanism."""
-        return self.linkage_generator.generate_svg(linkage_data)
+        return str(self.linkage_generator.generate_svg(linkage_data))
 
     def generate_cam_svg(self, cam_data: dict[str, Any]) -> str:
         """Generate SVG for cam mechanism."""
-        return self.cam_generator.generate_svg(cam_data)
+        return str(self.cam_generator.generate_svg(cam_data))
 
     def compose_single_page(
         self,
@@ -298,7 +299,7 @@ class BlueprintExportManager(QObject):
                 result.width_mm,
                 result.height_mm,
             )
-            return result.svg
+            return str(result.svg)
 
         except Exception as e:
             self.logger.error("Error generating single large page blueprint: %s", e)

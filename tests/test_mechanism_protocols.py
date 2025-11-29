@@ -1,11 +1,13 @@
 """
 Tests for mechanism protocols.
+
+Note: MechanismRenderer is a concrete class in presentation layer, not a Protocol.
+Protocol tests only apply to Mechanism which is defined in domain.mechanisms.core.protocols.
 """
 
 import pytest
 from automataii.domain.mechanisms.core.protocols import Mechanism
 from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig
-from automataii.presentation.qt.tabs.mechanism_foundry.components.mechanism_renderer import MechanismRenderer
 
 
 class TestMechanismProtocol:
@@ -121,34 +123,23 @@ class TestMechanismProtocol:
         assert not isinstance(instance, Mechanism)
 
 
-class TestMechanismRendererProtocol:
-    def test_protocol_is_runtime_checkable(self):
-        # Verify @runtime_checkable decorator works by testing isinstance check
-        class MinimalRenderer:
-            def render(self, state, scene, config):
-                return []
+class TestMechanismRendererClass:
+    """
+    MechanismRenderer is a concrete class in the presentation layer.
+    These tests verify its basic functionality rather than Protocol behavior.
+    """
 
-        assert isinstance(MinimalRenderer(), MechanismRenderer)
+    def test_renderer_import(self):
+        """Verify MechanismRenderer can be imported from presentation layer."""
+        from automataii.presentation.qt.tabs.mechanism_foundry.components.mechanism_renderer import (
+            MechanismRenderer,
+        )
+        assert MechanismRenderer is not None
 
-    def test_valid_implementation(self):
-        class ValidRenderer:
-            def render(self, state: MechanismState, scene, config: RenderConfig) -> list:
-                return []
-
-        instance = ValidRenderer()
-        assert isinstance(instance, MechanismRenderer)
-
-    def test_missing_render_method(self):
-        class InvalidRenderer:
-            pass
-
-        instance = InvalidRenderer()
-        assert not isinstance(instance, MechanismRenderer)
-
-    def test_wrong_render_signature(self):
-        class InvalidRenderer:
-            def render(self) -> list:
-                return []
-
-        instance = InvalidRenderer()
-        assert isinstance(instance, MechanismRenderer)
+    def test_renderer_has_render_method(self):
+        """Verify MechanismRenderer class has render_mechanism method."""
+        from automataii.presentation.qt.tabs.mechanism_foundry.components.mechanism_renderer import (
+            MechanismRenderer,
+        )
+        assert hasattr(MechanismRenderer, "render_mechanism")
+        assert callable(getattr(MechanismRenderer, "render_mechanism", None))

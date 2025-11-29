@@ -1,24 +1,16 @@
 import logging
-import math
 from typing import Any
 
 from PyQt6.QtCore import QPointF, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath
 from PyQt6.QtWidgets import (
     QGraphicsScene,
-    QGroupBox,
-    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
     QSlider,
-    QSplitter,
-    QStyle,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -50,7 +42,6 @@ from automataii.presentation.qt.tabs.editor.components.path_geometry import (
 )
 from automataii.presentation.qt.tabs.editor.components.ui_builder import (
     EditorTabUIBuilder,
-    EditorTabUIRefs,
 )
 from automataii.presentation.qt.views.editor_view import EditorView
 

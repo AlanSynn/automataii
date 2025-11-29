@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QGraphicsScene,
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QMessageBox,
     QProgressDialog,
     QPushButton,

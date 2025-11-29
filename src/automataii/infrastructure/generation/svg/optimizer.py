@@ -21,7 +21,6 @@ from automataii.domain.generation.layout import (
     ScaleNormalizer,
     SmartLayoutManager,
 )
-from automataii.domain.generation.contour import ManufacturingContour
 
 # SVG generators
 from automataii.infrastructure.generation.svg.generators import (
