@@ -488,14 +488,28 @@ class MechanismDesignPresenter(QObject):
         self._tab._update_all_ui_states()
 
     def _clear_mechanism_for_part(self, part_name: str) -> None:
-        """Clear mechanism associated with a part."""
+        """Clear mechanism associated with a part. Full cleanup including visuals."""
+        self._tab._clear_animation_cache()
+
         mechanisms_to_remove = [
             mech_id for mech_id, layer_data in self.mechanism_layers.items()
             if layer_data.get("part_name") == part_name
         ]
 
         for mech_id in mechanisms_to_remove:
+            layer_data = self.mechanism_layers.get(mech_id)
+            if layer_data:
+                visual_items = layer_data.get("visual_items", [])
+                self._visual_item_manager.safe_remove_visual_items(visual_items)
+                self._path_trace_manager.clear_trace(mech_id, self._scene)
             self.remove_mechanism_layer(mech_id)
+
+        # Clear path items for this part
+        if part_name in self._tab.mechanism_path_items:
+            path_item = self._tab.mechanism_path_items[part_name]
+            if path_item and self._scene and path_item.scene() == self._scene:
+                self._scene.removeItem(path_item)
+            del self._tab.mechanism_path_items[part_name]
 
     # === CALLBACK HANDLERS ===
 
@@ -541,3 +555,301 @@ class MechanismDesignPresenter(QObject):
     def get_inverse_scene_transform_function(self, layer_data: dict):
         """Get inverse scene transform function."""
         return self._transform_service.get_inverse_transform(layer_data)
+
+    # === MECHANISM GENERATION (migrated from Tab) ===
+
+    def generate_mechanism_from_candidate(self, candidate_data: dict[str, Any]) -> None:
+        """Generate mechanism from candidate. Business logic moved from Tab."""
+        from automataii.application.mechanism_foundry.mechanism_generation_service import (
+            MechanismGenerationContext,
+        )
+
+        # Clear existing mechanism for current part
+        selected_part = self.selected_part_name
+        if selected_part:
+            self._clear_mechanism_for_part(selected_part)
+            self._path_trace_manager.clear_trace_for_part(
+                selected_part,
+                self.mechanism_layers,
+                self._scene,
+            )
+
+        # Build generation context
+        context = MechanismGenerationContext(
+            selected_part_name=selected_part or "",
+            target_path=self.path_data.get(selected_part) if selected_part else None,
+            candidate_data=candidate_data,
+            parts_data=self.parts_data,
+            skeleton_cache=self._initial_skeleton_data_cache,
+        )
+
+        # Delegate generation to application service
+        gen_service = self._tab._mechanism_generation_service
+        result = gen_service.generate_mechanism(context)
+
+        if not result.success or not result.layer_data:
+            return
+
+        # Store layer and enable
+        layer_data = result.layer_data
+        self.mechanism_layers[result.mechanism_id] = layer_data
+        self.mechanism_enabled_state[result.mechanism_id] = True
+
+        # Initialize path trace
+        self._path_trace_manager.init_trace(result.mechanism_id, self._scene)
+
+        # Request View to generate visuals
+        self.view_update_requested.emit(
+            'generate_mechanism_visuals',
+            {
+                'mechanism_id': result.mechanism_id,
+                'mechanism_type': layer_data["type"],
+                'params': layer_data["params"],
+                'layer_data': layer_data,
+            }
+        )
+
+        self._update_mechanism_list()
+
+    def handle_mechanism_visuals(self, mechanism_graphics_data: dict) -> None:
+        """Handle mechanism visualization data. Business logic moved from Tab."""
+        # Clear animation cache
+        self._tab._clear_animation_cache()
+        self._reset_skeleton_to_initial()
+
+        mechanism_id = mechanism_graphics_data.get("mechanism_id")
+        mechanism_type = mechanism_graphics_data.get("mechanism_type")
+        layer_data = self.mechanism_layers.get(mechanism_id)
+
+        if not layer_data:
+            return
+
+        # Remove existing visuals safely
+        existing = layer_data.get("visual_items", [])
+        self._visual_item_manager.safe_remove_visual_items(existing)
+
+        # Request View to create visuals
+        transform_func = self._transform_service.get_scene_transform(mechanism_graphics_data)
+        visual_items = self._create_mechanism_visuals(
+            mechanism_type, mechanism_graphics_data, transform_func
+        )
+
+        layer_data["visual_items"] = visual_items
+
+        # Merge computed fields back to layer_data
+        for key in (
+            'cam_profile_local_points', 'cam_points_local', 'cam_template_svg_path',
+            'cam_transform_function', 'cam_axis_local', 'cam_scale_factor',
+            'rod_length_multiplier', 'follower_fixed_x_scene',
+        ):
+            if key in mechanism_graphics_data:
+                layer_data[key] = mechanism_graphics_data[key]
+
+        # Update scene
+        if self._scene:
+            self._scene.update()
+
+    def _create_mechanism_visuals(
+        self,
+        mechanism_type: str,
+        data: dict,
+        transform_func,
+    ) -> list[QGraphicsItem]:
+        """Create visuals via Tab's visuals factory."""
+        factory = self._tab.visuals_factory
+        items: list[QGraphicsItem] = []
+
+        if mechanism_type == "4_bar_linkage":
+            items.extend(factory.create_4bar_linkage_visuals(data, transform_func))
+        elif mechanism_type == "cam":
+            char_pos = self._get_character_position()
+            items.extend(factory.create_cam_visuals(data, transform_func, char_pos))
+        elif mechanism_type == "gear":
+            items.extend(factory.create_gear_visuals(data, transform_func))
+        elif mechanism_type == "planetary_gear":
+            items.extend(factory.create_planetary_gear_visuals(data, transform_func))
+
+        return items
+
+    def _get_character_position(self) -> list[float]:
+        """Get character ground position from skeleton cache."""
+        from automataii.domain.kinematics.joint_mapping_service import JointMappingService
+        service = JointMappingService()
+        return list(service.get_character_ground_position(self._initial_skeleton_data_cache))
+
+    def clear_mechanism_data(self) -> None:
+        """Clear all mechanism data. Business logic moved from Tab."""
+        # Stop animation
+        if hasattr(self._tab, 'animation_timer') and self._tab.animation_timer.isActive():
+            self._tab.animation_timer.stop()
+        self._tab._animation_frame_coordinator.reset_state()
+
+        # Clear via scene management service
+        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        self._tab._scene_management_service.clear_mechanism_data(
+            mechanism_layers=self.mechanism_layers,
+            mechanism_enabled_state=self.mechanism_enabled_state,
+            path_visual_items=self._tab.path_visual_items,
+            mechanism_path_items=self._tab.mechanism_path_items,
+            mechanism_instances=self._tab.mechanism_instances,
+            parametric_handles=self.parametric_handles,
+            interactive_handles=self._tab.interactive_handles,
+            path_trace_manager=self._path_trace_manager,
+            scene=self._scene,
+            ik_manager=ik_manager,
+        )
+
+        # Clear local state
+        self.path_data.clear()
+        self.selected_part_name = None
+        self._tab.mechanism_path_points.clear()
+        self._tab.current_editor_items.clear()
+        self.parts_data.clear()
+        self._tab.selected_mechanism_id = None
+
+        # Update UI
+        if self._tab.mechanism_layers_list:
+            self._tab.mechanism_layers_list.clear()
+        self._tab._update_all_ui_states()
+
+    def setup_mechanism_ik_integration(self) -> bool:
+        """Setup IK integration. Business logic moved from Tab."""
+        from automataii.application.mechanism_foundry.mechanism_lifecycle_coordinator import (
+            MechanismLifecycleContext,
+        )
+
+        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        if not ik_manager:
+            return False
+
+        context = MechanismLifecycleContext(
+            mechanism_layers=self.mechanism_layers,
+            mechanism_enabled_state=self.mechanism_enabled_state,
+            parts_data=self.parts_data,
+            skeleton_cache=self._initial_skeleton_data_cache,
+        )
+
+        return self._tab._lifecycle_coordinator.setup_ik_integration(
+            ik_manager=ik_manager,
+            context=context,
+            register_controller_fn=self._register_mechanism_controller,
+        )
+
+    def _register_mechanism_controller(
+        self,
+        mech_id: str,
+        layer_data: dict,
+        joint_id: str,
+    ) -> None:
+        """Register mechanism as IK controller."""
+        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        if not ik_manager:
+            return
+
+        # Generate motion path
+        joint_motion_path = self._tab._generate_joint_motion_path(layer_data, joint_id)
+        if joint_motion_path and hasattr(ik_manager, 'set_joint_motion_path'):
+            ik_manager.set_joint_motion_path(joint_id, joint_motion_path)
+            part_name = layer_data.get("part_name")
+            if part_name and hasattr(ik_manager, 'set_part_motion_path'):
+                ik_manager.set_part_motion_path(part_name, joint_motion_path)
+
+        # Register callback
+        def mechanism_callback(time: float) -> QPointF | None:
+            return self._tab._calculate_mechanism_output(
+                layer_data.get("type"),
+                layer_data.get("params", {}),
+                time,
+                layer_data,
+            )
+
+        if hasattr(ik_manager, 'register_mechanism_controller'):
+            ik_manager.register_mechanism_controller(joint_id, mech_id, mechanism_callback)
+
+        # Enable IK for part
+        part_name = layer_data.get("part_name")
+        if part_name and hasattr(ik_manager, 'enable_ik_for_part'):
+            ik_manager.enable_ik_for_part(part_name, True)
+
+    def set_parts_data(self, parts_data: dict[str, Any]) -> dict[str, Any]:
+        """Set parts data. Returns sorted parts data."""
+        if parts_data:
+            sorted_names = sorted(
+                parts_data.keys(),
+                key=lambda name: name in self.path_data,
+                reverse=True,
+            )
+            self.parts_data = {name: parts_data[name] for name in sorted_names}
+        else:
+            self.parts_data = {}
+        return self.parts_data
+
+    def get_standardized_joint_id(self, abstract_joint_id: str) -> str | None:
+        """Standardize joint ID with skeleton cache fallback."""
+        from automataii.domain.kinematics.joint_mapping_service import JointMappingService
+        service = JointMappingService()
+        std_id = service.standardize_joint_id(abstract_joint_id)
+        cache = self._initial_skeleton_data_cache
+        if std_id and cache:
+            if std_id in cache.get("joints", {}):
+                return std_id
+        if cache:
+            joint_map = cache.get("joint_map", {})
+            if abstract_joint_id in joint_map:
+                return joint_map[abstract_joint_id]
+            if abstract_joint_id in cache.get("joints", {}):
+                return abstract_joint_id
+        return None
+
+    def handle_ik_update(self, ik_results: dict[str, dict[str, Any]]) -> bool:
+        """Handle IK update results. Returns True if update was processed."""
+        if not self._tab_active or not ik_results:
+            return False
+
+        view = self._tab.mechanism_view
+        if not view:
+            return False
+
+        try:
+            if hasattr(view, 'update_visuals_from_animation_data'):
+                view.update_visuals_from_animation_data(ik_results)
+
+            if self._scene and self._tab_active:
+                self._scene.update()
+            return True
+        except RuntimeError as e:
+            if "wrapped C/C++ object" not in str(e):
+                raise
+            return False
+        except Exception:
+            return False
+
+    def reset_skeleton_to_initial_state(self) -> None:
+        """Reset skeleton to initial state. Business logic moved from Tab."""
+        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        self.animation_time = 0.0
+
+        # Delegate IK reset to application layer
+        def on_skeleton_reset(skeleton_data: dict) -> None:
+            self._tab._position_parts_at_anchor_joints()
+            self._tab.on_skeleton_updated(skeleton_data)
+            view = self._tab.mechanism_view
+            if hasattr(view, 'skeleton_graphics_item') and view.skeleton_graphics_item:
+                view.skeleton_graphics_item.update()
+
+        self._tab._lifecycle_coordinator.reset_skeleton_state(
+            ik_manager=ik_manager,
+            skeleton_cache=self._initial_skeleton_data_cache,
+            animation_timer=self._tab.animation_timer,
+            on_skeleton_reset=on_skeleton_reset,
+        )
+
+        # Fallback: try to get from skeleton manager if no cache
+        if not self._initial_skeleton_data_cache:
+            skeleton_mgr = getattr(self._main_window, 'skeleton_manager', None)
+            if skeleton_mgr:
+                initial_skeleton = skeleton_mgr.get_current_skeleton_data()
+                if initial_skeleton:
+                    self._tab.cache_initial_skeleton(initial_skeleton)
+                    self._initial_skeleton_data_cache = initial_skeleton
+                    on_skeleton_reset(initial_skeleton)

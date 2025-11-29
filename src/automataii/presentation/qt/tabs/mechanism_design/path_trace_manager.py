@@ -217,6 +217,24 @@ class PathTraceManager:
 
         logger.debug("Cleared all traces")
 
+    def clear_trace_for_part(
+        self,
+        part_name: str,
+        mechanism_layers: dict[str, dict],
+        scene: QGraphicsScene,
+    ) -> None:
+        """Clear traces for all mechanisms associated with a part.
+
+        Args:
+            part_name: Name of the part to clear traces for.
+            mechanism_layers: Dict mapping mechanism_id to layer_data.
+            scene: QGraphicsScene to remove trace items from.
+        """
+        for mech_id in list(self._trace_items.keys()):
+            layer_data = mechanism_layers.get(mech_id)
+            if layer_data and layer_data.get("part_name") == part_name:
+                self.clear_trace(mech_id, scene)
+
     def get_trace_item(self, mechanism_id: str) -> QGraphicsPathItem | None:
         """Get trace item for mechanism.
 
