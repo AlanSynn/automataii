@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-
 # Mapping from IK part names to actual part names in the character
 IK_PART_TO_ACTUAL_PART: Final[dict[str, str]] = {
     "head": "head",

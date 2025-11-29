@@ -28,7 +28,7 @@ class PartInfo:
 
     def __init__(
         self,
-        model: "PartInfoModel",
+        model: PartInfoModel,
         resolved_image_path: str | None = None,
     ) -> None:
 
@@ -84,9 +84,9 @@ class PartInfo:
     @classmethod
     def from_pydantic(
         cls,
-        model: "PartInfoModel",
+        model: PartInfoModel,
         project_dir: Path | None = None,
-    ) -> "PartInfo":
+    ) -> PartInfo:
         """Creates a PartInfo instance from a validated PartInfoModel."""
         resolved_img_path = model.image_path
         if project_dir and model.image_path and not Path(model.image_path).is_absolute():

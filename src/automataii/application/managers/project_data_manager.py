@@ -10,12 +10,15 @@ from pydantic import (
 )
 from PyQt6.QtCore import QObject, QPointF, QRectF, pyqtSignal
 
-# Import runtime PartInfo and Pydantic models
-from automataii.presentation.qt.models import PartInfo
 from automataii.domain.project import (
     ProjectFileModel as PydanticProjectFileModel,
+)
+from automataii.domain.project import (
     SkeletonJointModel as PydanticSkeletonJointModel,
 )
+
+# Import runtime PartInfo and Pydantic models
+from automataii.presentation.qt.models import PartInfo
 
 
 class ProjectDataManager(QObject):

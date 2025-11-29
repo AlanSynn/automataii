@@ -26,4 +26,4 @@
 
 # __all__ = ['CamMechanism', 'CamEditor', 'CamSerializer']
 
-__all__ = []
+__all__: list[str] = []

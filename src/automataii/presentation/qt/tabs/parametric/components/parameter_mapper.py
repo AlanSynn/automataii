@@ -9,8 +9,9 @@ Design Pattern: Service (coordinate transformation and parameter initialization)
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 

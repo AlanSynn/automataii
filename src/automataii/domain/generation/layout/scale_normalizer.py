@@ -53,8 +53,8 @@ class ScaleNormalizer:
         return scale_factor
 
     def normalize_contour(
-        self, contour: "ManufacturingContour", scale_factor: float
-    ) -> "ManufacturingContour":
+        self, contour: ManufacturingContour, scale_factor: float
+    ) -> ManufacturingContour:
         """Normalize a manufacturing contour to real-world scale."""
         from automataii.domain.generation.contour import ManufacturingContour as MC
 

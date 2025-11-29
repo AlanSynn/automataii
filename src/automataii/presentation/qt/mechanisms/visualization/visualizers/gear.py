@@ -12,7 +12,7 @@ import math
 from typing import Any
 
 import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QBrush, QColor, QPen, QPolygonF
 from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,

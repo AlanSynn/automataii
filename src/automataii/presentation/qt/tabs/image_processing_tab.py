@@ -23,9 +23,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from automataii.infrastructure.telemetry import telemetry_span
 from automataii.domain.animation.body_parts_extractor import BodyPartsExtractor
 from automataii.domain.animation.image_to_annotations import AnnotationResults, image_to_annotations
+from automataii.infrastructure.telemetry import telemetry_span
 from automataii.presentation.qt.dialogs.camera_dialog import CameraDialog
 from automataii.presentation.qt.image_view import ImageProcessingView
 from automataii.presentation.qt.tabs.image_processing.components import SkeletonToolsHandler

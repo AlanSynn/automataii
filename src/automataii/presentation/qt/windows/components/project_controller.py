@@ -9,6 +9,7 @@ Design Pattern: Controller (handles project lifecycle operations)
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -17,6 +18,21 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 if TYPE_CHECKING:
     from automataii.application.project import ProjectSerializer, ProjectStateManager
+
+
+def get_default_project_dir() -> Path:
+    """
+    Get default project directory for temporary saves.
+
+    Returns a directory in the system's temp location for storing
+    projects before user explicitly saves to a custom location.
+
+    Returns:
+        Path to default project directory (created if not exists)
+    """
+    tmp_base = Path(tempfile.gettempdir()) / "automataii_projects"
+    tmp_base.mkdir(parents=True, exist_ok=True)
+    return tmp_base
 
 
 class StatusBarProvider(Protocol):
@@ -118,7 +134,8 @@ class ProjectController(QObject):
             if state.project_dir:
                 default_path = state.project_dir / f"{state.metadata.name}.automataii"
             else:
-                default_path = Path.home() / f"{state.metadata.name}.automataii"
+                # Default to tmp directory for temporary project storage
+                default_path = get_default_project_dir() / f"{state.metadata.name}.automataii"
 
             filepath_str, _ = QFileDialog.getSaveFileName(
                 self._parent_widget,
@@ -228,6 +245,35 @@ class ProjectController(QObject):
             )
             self._logger.error(f"Failed to load project: {result.error}")
             self.operation_failed.emit(str(result.error))
+            return False
+
+    def quick_save(self) -> bool:
+        """
+        Quick save to tmp directory without dialog.
+
+        Saves the project to the system's temp directory immediately.
+        Useful for periodic auto-saves or quick saves during work.
+
+        Returns:
+            True if save was successful
+        """
+        state = self._state_manager.state
+        project_name = state.metadata.name if state.metadata else "Untitled"
+
+        # Generate unique filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{project_name}_{timestamp}.automataii"
+        filepath = get_default_project_dir() / filename
+
+        result = self._serializer.save(state, filepath)
+
+        if result.success:
+            self._show_status(f"Quick saved to {result.path}", 2000)
+            self._logger.info(f"Quick save to tmp: {result.path}")
+            return True
+        else:
+            self._logger.error(f"Quick save failed: {result.error}")
             return False
 
     def undo(self) -> bool:

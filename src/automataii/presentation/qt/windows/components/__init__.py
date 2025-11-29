@@ -8,10 +8,12 @@ Components:
 - TabOrchestrator: Tab lifecycle and camera state sharing
 - SignalConnector: Centralized signal connection management
 - ProjectController: SSOT project operations (save/load/new/undo/redo)
+- get_default_project_dir: Utility for default tmp project directory
 """
 
 from automataii.presentation.qt.windows.components.project_controller import (
     ProjectController,
+    get_default_project_dir,
 )
 from automataii.presentation.qt.windows.components.signal_connector import (
     SignalConnector,
@@ -24,4 +26,5 @@ __all__ = [
     "ProjectController",
     "SignalConnector",
     "TabOrchestrator",
+    "get_default_project_dir",
 ]
