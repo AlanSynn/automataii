@@ -36,7 +36,7 @@ from automataii.presentation.qt.animation import ViewportConfig, ViewportControl
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
 from automataii.presentation.qt.graphics_items.skeleton_item import SkeletonGraphicsItem
 from automataii.presentation.qt.views.motion_path_manager import (
-    MotionPathManager,
+    MotionPathDrawer,
     TARGET_PATH_POINTS,
 )
 
@@ -188,20 +188,20 @@ class EditorView(QGraphicsView):
             str, QGraphicsEllipseItem
         ] = {}  # For mechanism point markers
 
-        # MotionPathManager handles path drawing, visualization, and overlays
-        self._motion_path_manager = MotionPathManager(self.scene(), parent=self)
-        self._motion_path_manager.freehand_path_completed.connect(
+        # MotionPathDrawer handles low-level path drawing, visualization, and overlays
+        self._motion_path_drawer = MotionPathDrawer(self.scene(), parent=self)
+        self._motion_path_drawer.freehand_path_completed.connect(
             lambda points: self.freehandPathCompleted.emit(points)
         )
-        self._motion_path_manager.drawing_cancelled.connect(
+        self._motion_path_drawer.drawing_cancelled.connect(
             lambda: self.drawing_cancelled.emit()
         )
-        self._motion_path_manager.path_data_cleared.connect(
+        self._motion_path_drawer.path_data_cleared.connect(
             lambda key: self.path_data_cleared_for_component.emit(key)
         )
 
         # Expose final_paths_map for backward compatibility
-        self.final_paths_map = self._motion_path_manager.final_paths_map
+        self.final_paths_map = self._motion_path_drawer.final_paths_map
 
         # Rounded corners and white background for the viewport
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
@@ -224,19 +224,19 @@ class EditorView(QGraphicsView):
     # ---- Overlay path helpers (delegated to MotionPathManager) ----
     def set_raw_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
         """Set or clear the raw path overlay for a component key (part name)."""
-        self._motion_path_manager.set_raw_overlay_path(key, path, pen)
+        self._motion_path_drawer.set_raw_overlay_path(key, path, pen)
 
     def set_corrected_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
         """Set or clear the feasibility-corrected path overlay for a component key."""
-        self._motion_path_manager.set_corrected_overlay_path(key, path, pen)
+        self._motion_path_drawer.set_corrected_overlay_path(key, path, pen)
 
     def clear_overlays_for(self, key: str) -> None:
         """Clear raw and corrected overlays for a component key."""
-        self._motion_path_manager.clear_overlays_for(key)
+        self._motion_path_drawer.clear_overlays_for(key)
 
     def clear_corrected_overlay_for(self, key: str) -> None:
         """Clear only the corrected overlay for a component key, keeping raw overlay intact."""
-        self._motion_path_manager.clear_corrected_overlay_for(key)
+        self._motion_path_drawer.clear_corrected_overlay_for(key)
 
     def set_display_unit(self, unit: str):
         """Sets the display unit for the grid and updates the view."""
@@ -895,7 +895,7 @@ class EditorView(QGraphicsView):
             component_key = self.parent_window.selected_part_name
 
         # Delegate to MotionPathManager - it handles clearing existing paths
-        self._motion_path_manager.start_drawing(target_item, is_closed, component_key)
+        self._motion_path_drawer.start_drawing(target_item, is_closed, component_key)
 
         # Update EditorView state for compatibility
         self.current_target_item_for_path = target_item
@@ -913,7 +913,7 @@ class EditorView(QGraphicsView):
         """Cancels the current motion path drawing operation and cleans up."""
         logging.debug("Motion path drawing cancelled.")
         # Delegate to MotionPathManager - it handles cleanup and emits drawing_cancelled
-        self._motion_path_manager.cancel_drawing()
+        self._motion_path_drawer.cancel_drawing()
         # Also reset EditorView state for compatibility
         self.current_target_item_for_path = None
         self._is_drawing_freehand = False
@@ -1488,7 +1488,7 @@ class EditorView(QGraphicsView):
     def clear_visual_path_for_component(self, component_key: str):
         """Removes the final visual path associated with the given component_key from the scene and map."""
         # Delegate to MotionPathManager - it handles final path, overlays, and emits signal
-        self._motion_path_manager.clear_visual_path_for_component(component_key)
+        self._motion_path_drawer.clear_visual_path_for_component(component_key)
         self._show_status_message(f"Path cleared for {component_key}.")
 
     def get_camera_state(self) -> dict[str, Any]:
