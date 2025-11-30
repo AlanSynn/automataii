@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
 from PyQt6.QtGui import QAction, QBrush, QColor, QMouseEvent, QPen
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -15,11 +15,9 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QSlider,
     QSplitter,
     QStackedWidget,
-    QTextEdit,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -41,14 +39,14 @@ if TYPE_CHECKING:
     from automataii.domain.mechanisms.core.protocols import Mechanism
     from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig, SafetyLevel
     from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
-    from automataii.domain.mechanisms.linkages.fourbar.render import LinkageRenderer
+    from automataii.presentation.qt.mechanisms.renderers import LinkageRenderer
     from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 else:
     from automataii.application.mechanism_foundry.path_cache import PathCache
     from automataii.domain.mechanisms.cam.compute import CamFollowerMechanism
     from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig, SafetyLevel
     from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
-    from automataii.domain.mechanisms.linkages.fourbar.render import LinkageRenderer
+    from automataii.presentation.qt.mechanisms.renderers import LinkageRenderer
     from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 
 
@@ -484,7 +482,7 @@ class MechanismFoundryView(QWidget):
         cam_profile = state.metadata.get("cam_profile", [])
         if cam_profile:
             cam_pen = QPen(QColor(70, 130, 180), 3)
-            cam_brush = QBrush(QColor(70, 130, 180, 100))
+            QBrush(QColor(70, 130, 180, 100))
             for i, (x, y) in enumerate(cam_profile):
                 next_idx = (i + 1) % len(cam_profile)
                 nx, ny = cam_profile[next_idx]

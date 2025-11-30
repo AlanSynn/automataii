@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 import time
@@ -23,13 +24,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from automataii.infrastructure.telemetry import telemetry_span
 from automataii.domain.animation.body_parts_extractor import BodyPartsExtractor
 from automataii.domain.animation.image_to_annotations import AnnotationResults, image_to_annotations
 from automataii.presentation.qt.dialogs.camera_dialog import CameraDialog
 from automataii.presentation.qt.image_view import ImageProcessingView
+from automataii.presentation.qt.tabs.image_processing.components import SkeletonToolsHandler
+from automataii.presentation.qt.widgets.common.styles import StyleFactory
 from automataii.presentation.qt.widgets.processing_steps_group import ProcessingStepsGroup
-
-from automataii.core.telemetry import telemetry_span
 
 
 class ImageProcessingTab(QWidget):
@@ -54,6 +56,16 @@ class ImageProcessingTab(QWidget):
 
         self.processing_steps_group = ProcessingStepsGroup()
         self.processing_steps_group.setVisible(False)
+
+        # Initialize extracted components
+        self._skeleton_tools = SkeletonToolsHandler(parent=self)
+        self._skeleton_tools.configure_callbacks(
+            get_skeleton_manager=lambda: self.main_window.skeleton_manager if self.main_window else None,
+            get_skeleton_data=lambda: self.skeleton_data,
+            update_view=self._update_skeleton_view,
+            get_status_bar=lambda: self.main_window.statusBar() if self.main_window else None,
+        )
+        self._skeleton_tools.skeleton_modified.connect(self._on_skeleton_modified)
 
         self._init_ui()
 
@@ -97,70 +109,33 @@ class ImageProcessingTab(QWidget):
             panel_layout.addWidget(editing_group)
 
         view_controls_group = QGroupBox("View Controls")
-        view_controls_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
+        view_controls_group.setStyleSheet(StyleFactory.group_box_style())
         view_controls_layout = QVBoxLayout(view_controls_group)
 
         zoom_controls_layout = QHBoxLayout()
         zoom_controls_layout.setSpacing(6)
 
-        zoom_button_style = """
-            QPushButton {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-weight: bold;
-                color: #495057;
-                min-height: 22px;
-                min-width: 30px;
-                font-size: 10pt;
-            }
-            QPushButton:hover {
-                background-color: #e9ecef;
-                border-color: #adb5bd;
-            }
-            QPushButton:pressed {
-                background-color: #dee2e6;
-                border-color: #6c757d;
-            }
-        """
+        # Use shared StyleFactory for consistent zoom button styling
+        zoom_style = StyleFactory.zoom_button_style()
 
         self.zoom_in_btn = QPushButton("+")
         self.zoom_in_btn.setToolTip("Zoom In")
-        self.zoom_in_btn.setStyleSheet(zoom_button_style)
+        self.zoom_in_btn.setStyleSheet(zoom_style)
         zoom_controls_layout.addWidget(self.zoom_in_btn)
 
         self.zoom_out_btn = QPushButton("−")
         self.zoom_out_btn.setToolTip("Zoom Out")
-        self.zoom_out_btn.setStyleSheet(zoom_button_style)
+        self.zoom_out_btn.setStyleSheet(zoom_style)
         zoom_controls_layout.addWidget(self.zoom_out_btn)
 
         self.zoom_fit_btn = QPushButton("⌖")
         self.zoom_fit_btn.setToolTip("Zoom to Fit")
-        self.zoom_fit_btn.setStyleSheet(zoom_button_style)
+        self.zoom_fit_btn.setStyleSheet(zoom_style)
         zoom_controls_layout.addWidget(self.zoom_fit_btn)
 
         self.zoom_reset_btn = QPushButton("1:1")
         self.zoom_reset_btn.setToolTip("Reset Zoom (100%)")
-        self.zoom_reset_btn.setStyleSheet(zoom_button_style)
+        self.zoom_reset_btn.setStyleSheet(zoom_style)
         self.zoom_reset_btn.setMinimumWidth(35)
         zoom_controls_layout.addWidget(self.zoom_reset_btn)
 
@@ -361,7 +336,9 @@ class ImageProcessingTab(QWidget):
             return
 
         try:
-            from automataii.presentation.qt.interactive_segmentation_editor import InteractiveSegmentationEditor
+            from automataii.presentation.qt.interactive_segmentation_editor import (
+                InteractiveSegmentationEditor,
+            )
 
             # Create dialog
             editor_dialog = InteractiveSegmentationEditor(
@@ -1029,122 +1006,32 @@ class ImageProcessingTab(QWidget):
         self.processing_steps_group.setVisible(visible)
 
     def extend_skeleton(self):
-        """Extends the skeleton lengths by 10%."""
-        if not self.main_window or not self.main_window.skeleton_manager:
-            QMessageBox.warning(
-                self,
-                "Extend Skeleton",
-                "No skeleton manager available."
-            )
-            return
+        """Extends the skeleton lengths by 10%.
 
-        if not self.main_window.skeleton_manager.standardized_model:
-            QMessageBox.warning(
-                self,
-                "Extend Skeleton",
-                "No skeleton loaded. Please process an image or load a skeleton first."
-            )
-            return
-
-        # Confirm action with user
-        reply = QMessageBox.question(
-            self,
-            "Extend Skeleton",
-            "This will increase all skeleton bone lengths by 10%. This action cannot be undone. Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            if self.main_window.skeleton_manager.extend_skeleton_lengths(1.1):
-                if self.skeleton_data and self.image_proc_view:
-                    updated_skeleton = self.main_window.skeleton_manager.standardized_model.model_dump()
-                    self.skeleton_data = updated_skeleton
-                    self.image_proc_view.load_skeleton(updated_skeleton)
-
-                QMessageBox.information(
-                    self,
-                    "Extend Skeleton",
-                    "Skeleton lengths extended by 10% successfully."
-                )
-                self.main_window.statusBar().showMessage("Skeleton extended by 10%", 3000)
-            else:
-                QMessageBox.critical(
-                    self,
-                    "Extend Skeleton",
-                    "Failed to extend skeleton lengths."
-                )
+        Delegates to SkeletonToolsHandler component.
+        """
+        self._skeleton_tools.extend_skeleton(factor=1.1)
 
     def show_lock_joints_dialog(self):
-        """Shows a dialog for locking/unlocking specific joints."""
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import (
-            QDialog,
-            QDialogButtonBox,
-            QListWidget,
-            QListWidgetItem,
-            QVBoxLayout,
-        )
+        """Shows a dialog for locking/unlocking specific joints.
 
-        if not self.main_window or not self.main_window.skeleton_manager:
-            QMessageBox.warning(
-                self,
-                "Lock/Unlock Joints",
-                "No skeleton manager available."
-            )
-            return
+        Delegates to SkeletonToolsHandler component.
+        """
+        self._skeleton_tools.show_lock_joints_dialog()
 
-        if not self.main_window.skeleton_manager.standardized_model:
-            QMessageBox.warning(
-                self,
-                "Lock/Unlock Joints",
-                "No skeleton loaded. Please process an image or load a skeleton first."
-            )
-            return
+    def _update_skeleton_view(self, skeleton_data: dict) -> None:
+        """Update skeleton in view after modification.
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Lock/Unlock Joints")
-        dialog.setModal(True)
-        dialog.resize(300, 400)
+        Callback for SkeletonToolsHandler.
+        """
+        self.skeleton_data = skeleton_data
+        if self.image_proc_view:
+            self.image_proc_view.load_skeleton(skeleton_data)
 
-        layout = QVBoxLayout(dialog)
+    def _on_skeleton_modified(self, skeleton_data: dict) -> None:
+        """Handle skeleton modification from SkeletonToolsHandler.
 
-        label = QLabel("Check joints to lock them during IK solving:")
-        layout.addWidget(label)
-
-        list_widget = QListWidget()
-
-
-        skeleton_model = self.main_window.skeleton_manager.standardized_model
-        for joint_id, joint in skeleton_model.joints.items():
-            item = QListWidgetItem(f"{joint.name} ({joint_id})")
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if joint.is_locked else Qt.CheckState.Unchecked)
-            item.setData(Qt.ItemDataRole.UserRole, joint_id)
-            list_widget.addItem(item)
-
-        layout.addWidget(list_widget)
-
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        layout.addWidget(button_box)
-
-        def accept_changes():
-            for i in range(list_widget.count()):
-                item = list_widget.item(i)
-                joint_id = item.data(Qt.ItemDataRole.UserRole)
-                is_locked = item.checkState() == Qt.CheckState.Checked
-                self.main_window.skeleton_manager.lock_joint(joint_id, is_locked)
-
-            if self.skeleton_data and self.image_proc_view:
-                updated_skeleton = self.main_window.skeleton_manager.standardized_model.model_dump()
-                self.skeleton_data = updated_skeleton
-                self.image_proc_view.load_skeleton(updated_skeleton)
-
-            dialog.accept()
-
-        button_box.accepted.connect(accept_changes)
-        button_box.rejected.connect(dialog.reject)
-
-        dialog.exec()
+        Updates internal state after skeleton tools modify the skeleton.
+        """
+        self.skeleton_data = skeleton_data
+        self.update_button_states()

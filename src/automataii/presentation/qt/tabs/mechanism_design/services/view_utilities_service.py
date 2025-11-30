@@ -51,7 +51,7 @@ class ViewUtilitiesService:
 
         # Include parts
         if current_editor_items:
-            for part_name, part_item in current_editor_items.items():
+            for _part_name, part_item in current_editor_items.items():
                 if part_item and hasattr(part_item, 'scene') and part_item.scene():
                     try:
                         part_rect = part_item.sceneBoundingRect()
@@ -83,7 +83,7 @@ class ViewUtilitiesService:
 
     def center_view_on_character(
         self,
-        view: "QGraphicsView",
+        view: QGraphicsView,
         *,
         current_editor_items: dict[str, Any],
         skeleton_joint_items: dict[str, Any] | None = None,
@@ -116,7 +116,7 @@ class ViewUtilitiesService:
 
     def apply_render_hints(
         self,
-        view: "QGraphicsView",
+        view: QGraphicsView,
         *,
         antialiasing: bool = True,
     ) -> None:
@@ -135,8 +135,8 @@ class ViewUtilitiesService:
 
     def fit_view_to_content(
         self,
-        view: "QGraphicsView",
-        scene: "QGraphicsScene",
+        view: QGraphicsView,
+        scene: QGraphicsScene,
         *,
         margin: float = 20,
     ) -> None:

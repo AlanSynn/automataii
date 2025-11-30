@@ -8,7 +8,7 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
-from automataii.core.telemetry import telemetry_span
+from automataii.infrastructure.telemetry import telemetry_span
 
 
 class BlueprintExporter:
@@ -49,7 +49,7 @@ class BlueprintExporter:
                 QVBoxLayout,
             )
 
-            from automataii.core.blueprint_manager import BlueprintExportManager
+            from automataii.application.managers import BlueprintExportManager
 
             logging.info("[BLUEPRINT] Using composer-backed blueprint export flow")
 
@@ -108,7 +108,7 @@ class BlueprintExporter:
             except Exception as e:
                 logging.error(f"[BLUEPRINT] Failed to collect part items: {e}")
                 part_items = []
-            
+
             # Safely get mechanism layers
             try:
                 mechanism_layers_raw = self._get_mechanism_layers() or {}
@@ -132,7 +132,7 @@ class BlueprintExporter:
                     "character_width_pixels": 400,
                     "mechanism_scale_factors": {},
                 }
-            
+
             try:
                 mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
             except Exception as e:
@@ -281,7 +281,7 @@ class BlueprintExporter:
             unit_system = "imperial" if imperial_radio.isChecked() else "metric"
             unit_label = "Imperial" if unit_system == "imperial" else "Metric"
 
-            from automataii.core.blueprint_manager import BlueprintExportManager
+            from automataii.application.managers import BlueprintExportManager
 
             blueprint_manager = BlueprintExportManager.get_instance()
 
@@ -289,7 +289,6 @@ class BlueprintExporter:
             logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale...")
             screen_scale_info = self.calculate_screen_to_blueprint_scale()
 
-            mechanism_layers_raw = {mechanism_id: layer_data}
             mechanism_layers = self.enhance_mechanism_layers_with_scale_info(screen_scale_info)
             # Filter to only the requested mechanism
             mechanism_layers = {mechanism_id: mechanism_layers.get(mechanism_id, layer_data)}

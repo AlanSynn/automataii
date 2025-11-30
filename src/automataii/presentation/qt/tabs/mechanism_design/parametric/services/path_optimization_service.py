@@ -27,7 +27,7 @@ class PathOptimizationService(QObject):
     - Real-time progress monitoring
     - Constraint validation during optimization
     - Integration with ParameterController for updates
-    
+
     Uses scipy.optimize.least_squares for robust optimization.
     """
 
@@ -42,7 +42,7 @@ class PathOptimizationService(QObject):
                  parent=None):
         """
         Initialize path optimization service.
-        
+
         Args:
             parameter_controller: Reference to ParameterController for mechanism updates
             parent: Qt parent object
@@ -74,10 +74,10 @@ class PathOptimizationService(QObject):
     def has_target_path(self, mechanism_id: str) -> bool:
         """
         Check if mechanism has target path set.
-        
+
         Args:
             mechanism_id: Mechanism ID
-            
+
         Returns:
             True if target path exists
         """
@@ -116,7 +116,7 @@ class PathOptimizationService(QObject):
                                mechanism_data: dict[str, Any]):
         """
         Run optimization asynchronously.
-        
+
         For now, this uses a simple timer-based approach. In a full implementation,
         this would use QThread or asyncio for true asynchronous execution.
         """
@@ -161,10 +161,10 @@ class PathOptimizationService(QObject):
     def _get_parameter_bounds(self, param_names: list[str]) -> tuple[list[float], list[float]]:
         """
         Get parameter bounds for optimization.
-        
+
         Args:
             param_names: List of parameter names
-            
+
         Returns:
             Tuple of (lower_bounds, upper_bounds)
         """
@@ -191,13 +191,13 @@ class PathOptimizationService(QObject):
                              mechanism_data: dict[str, Any], target_path: list[QPointF]) -> np.ndarray:
         """
         Calculate error between mechanism path and target path.
-        
+
         Args:
             x: Parameter values
             param_names: Parameter names
             mechanism_data: Mechanism data
             target_path: Target path points
-            
+
         Returns:
             Error vector for least squares optimization
         """
@@ -239,11 +239,11 @@ class PathOptimizationService(QObject):
                                 mechanism_data: dict[str, Any]) -> list[QPointF] | None:
         """
         Generate coupler path for current mechanism parameters.
-        
+
         Args:
             params: Mechanism parameters
             mechanism_data: Mechanism data
-            
+
         Returns:
             List of coupler path points or None if generation failed
         """
@@ -266,7 +266,7 @@ class PathOptimizationService(QObject):
             # Calculate ground link length
             dx = anchor2.x() - anchor1.x()
             dy = anchor2.y() - anchor1.y()
-            l1 = math.sqrt(dx * dx + dy * dy)
+            math.sqrt(dx * dx + dy * dy)
 
             # Generate coupler path by rotating crank
             path_points = []
@@ -302,13 +302,13 @@ class PathOptimizationService(QObject):
                            l3: float, l4: float) -> tuple[float, QPointF] | None:
         """
         Solve for rocker angle given crank position.
-        
+
         Args:
             anchor2: Ground pivot 2 position
             crank_joint: Crank joint position
             l3: Rocker length
             l4: Coupler length
-            
+
         Returns:
             Tuple of (theta3, rocker_joint_pos) or None
         """
@@ -348,11 +348,11 @@ class PathOptimizationService(QObject):
     def _sample_path_points(self, path: list[QPointF], target_count: int) -> list[QPointF]:
         """
         Sample path points to match target count.
-        
+
         Args:
             path: Original path points
             target_count: Desired number of points
-            
+
         Returns:
             Sampled path points
         """
@@ -376,7 +376,7 @@ class PathOptimizationService(QObject):
     def _process_optimization_result(self, mechanism_id: str, result, param_names: list[str]):
         """
         Process optimization result and update mechanism.
-        
+
         Args:
             mechanism_id: Mechanism ID
             result: Scipy optimization result
@@ -415,7 +415,7 @@ class PathOptimizationService(QObject):
     def _apply_optimized_parameters(self, mechanism_id: str, optimized_params: dict[str, float]):
         """
         Apply optimized parameters to mechanism through ParameterController.
-        
+
         Args:
             mechanism_id: Mechanism ID
             optimized_params: Optimized parameter values

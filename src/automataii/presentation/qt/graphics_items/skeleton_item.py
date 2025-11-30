@@ -1,9 +1,9 @@
 import logging
 import math
-from typing import Any, Optional
+from typing import Any
 
 from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
+from PyQt6.QtGui import QBrush, QColor, QPen, QPolygonF
 from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -144,7 +144,7 @@ class SkeletonGraphicsItem(QGraphicsObject):
             position = QPointF()
             if isinstance(pos_data, QPointF):
                 position = pos_data
-            elif isinstance(pos_data, (list, tuple)) and len(pos_data) == 2:
+            elif isinstance(pos_data, list | tuple) and len(pos_data) == 2:
                 try:
                     position = QPointF(float(pos_data[0]), float(pos_data[1]))
                 except (ValueError, TypeError):

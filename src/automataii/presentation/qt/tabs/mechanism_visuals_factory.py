@@ -6,7 +6,6 @@ separation between the main tab logic and visual rendering concerns.
 """
 
 import math
-from typing import Any
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -30,15 +29,15 @@ from automataii.config.z_indices import (
 
 class MechanismVisualsFactory:
     """Factory for creating visual representations of mechanisms."""
-    
+
     def __init__(self, scene: QGraphicsScene):
         """Initialize the factory with a graphics scene.
-        
+
         Args:
             scene: The QGraphicsScene where visual items will be added
         """
         self.scene = scene
-    
+
     def create_4bar_linkage_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
         """Create visual representation of 4-bar linkage with triangular coupler (like dataset generator)."""
         to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
@@ -266,7 +265,7 @@ class MechanismVisualsFactory:
                 # Calculate initial positions
                 L2 = params.get("L2", 40)
                 L3 = params.get("L3", 50)
-                L4 = params.get("L4", 45)
+                params.get("L4", 45)
                 L5 = params.get("L5", 55)
 
                 p3 = p1 + np.array([L2, 0])
@@ -367,7 +366,7 @@ class MechanismVisualsFactory:
             else:
                 # Calculate initial positions
                 L2 = params.get("L2", 40)
-                L3 = params.get("L3", 60)
+                params.get("L3", 60)
                 L4 = params.get("L4", 50)
                 L5 = params.get("L5", 45)
 
@@ -460,7 +459,7 @@ class MechanismVisualsFactory:
         - No dataset/template dependency: profile is built from base_radius and eccentricity (total lift).
         - Pear-cam lobe: single-sided rise/return with dwells; shape preserved under rotation.
         """
-        to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
+        transform_function or self._get_scene_transform_function(mechanism_data)
         params = mechanism_data.get("params", {})
 
         if not params:
@@ -516,7 +515,7 @@ class MechanismVisualsFactory:
             num_samples=360,
         )
         mechanism_data['cam_points_local'] = cam_points_local
-        
+
         # Determine placement: align follower center with bottom of user's path
         cam_pos = mechanism_data.get('cam_position')
         try:
@@ -717,7 +716,6 @@ class MechanismVisualsFactory:
                 # Very simple M/L tokenizer
                 tokens = d.replace(',', ' ').split()
                 i = 0
-                cur = None
                 while i < len(tokens):
                     cmd = tokens[i]
                     if cmd in ('M', 'L') and i + 2 < len(tokens):
@@ -725,7 +723,6 @@ class MechanismVisualsFactory:
                             x = float(tokens[i + 1])
                             y = float(tokens[i + 2])
                             poly_pts.append((x, y))
-                            cur = (x, y)
                             i += 3
                         except ValueError:
                             i += 1
@@ -735,7 +732,6 @@ class MechanismVisualsFactory:
                             x = float(cmd)
                             y = float(tokens[i + 1])
                             poly_pts.append((x, y))
-                            cur = (x, y)
                             i += 2
                         except Exception:
                             i += 1
@@ -1058,7 +1054,7 @@ class MechanismVisualsFactory:
     def _get_scene_transform_function(self, layer_data: dict):
         """
         Creates proper coordinate transformation using recommendation system's transform_params.
-        
+
         Note: This is a temporary method that duplicates logic from the main class.
         TODO: This should be refactored to be injected as a dependency rather than duplicated.
         """

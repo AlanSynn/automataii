@@ -33,7 +33,7 @@ class MechanismDesignView(Protocol):
     # === SCENE ACCESS ===
 
     @property
-    def mechanism_scene(self) -> "QGraphicsScene":
+    def mechanism_scene(self) -> QGraphicsScene:
         """The graphics scene for mechanism visualization."""
         ...
 
@@ -58,11 +58,11 @@ class MechanismDesignView(Protocol):
 
     # === VISUAL RENDERING ===
 
-    def add_visual_items_to_scene(self, items: list["QGraphicsItem"]) -> None:
+    def add_visual_items_to_scene(self, items: list[QGraphicsItem]) -> None:
         """Add visual items to the scene."""
         ...
 
-    def remove_visual_items_from_scene(self, items: list["QGraphicsItem"]) -> None:
+    def remove_visual_items_from_scene(self, items: list[QGraphicsItem]) -> None:
         """Remove visual items from the scene."""
         ...
 
@@ -74,7 +74,7 @@ class MechanismDesignView(Protocol):
 
     def create_mechanism_visuals(
         self, mechanism_type: str, data: dict, transform_func: Any
-    ) -> list["QGraphicsItem"]:
+    ) -> list[QGraphicsItem]:
         """Create visual items for a mechanism type."""
         ...
 
@@ -94,7 +94,7 @@ class MechanismDesignView(Protocol):
         """Get the CharacterPartItem for a part name."""
         ...
 
-    def set_part_position(self, part_name: str, position: "QPointF") -> None:
+    def set_part_position(self, part_name: str, position: QPointF) -> None:
         """Set position of a part item."""
         ...
 
@@ -167,7 +167,7 @@ class MechanismDesignPresenterProtocol(Protocol):
 
     # === DATA INPUT ===
 
-    def set_path_data(self, path_data: dict[str, "QPainterPath"]) -> None:
+    def set_path_data(self, path_data: dict[str, QPainterPath]) -> None:
         """Receive path data from editor."""
         ...
 

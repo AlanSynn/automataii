@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from automataii.utils.paths import get_project_root, resolve_path
+from automataii.utils.paths import resolve_path
 
 
 class ExampleImageWidget(QFrame):
@@ -291,7 +291,7 @@ class LandingTab(QWidget):
                             logging.debug(f"Found example image: {img_path}")
 
         # Remove duplicates and sort
-        image_paths = sorted(list(set(image_paths)))
+        image_paths = sorted(set(image_paths))
 
         if not image_paths:
             self.status_label.setText("No example images found")

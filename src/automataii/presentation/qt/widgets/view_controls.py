@@ -111,19 +111,19 @@ class HoverViewControls(QWidget):
                 border: 1px solid rgba(100, 100, 100, 200);
                 border-radius: 8px;
             }
-            
+
             QLabel#title {
                 color: white;
                 font-weight: bold;
                 font-size: 12px;
                 margin-bottom: 5px;
             }
-            
+
             QLabel {
                 color: white;
                 font-size: 10px;
             }
-            
+
             QPushButton {
                 background-color: rgba(70, 70, 70, 200);
                 border: 1px solid rgba(120, 120, 120, 150);
@@ -132,23 +132,23 @@ class HoverViewControls(QWidget):
                 font-weight: bold;
                 font-size: 11px;
             }
-            
+
             QPushButton:hover {
                 background-color: rgba(90, 90, 90, 220);
                 border: 1px solid rgba(140, 140, 140, 200);
             }
-            
+
             QPushButton:pressed {
                 background-color: rgba(110, 110, 110, 240);
             }
-            
+
             QSlider::groove:horizontal {
                 border: 1px solid rgba(100, 100, 100, 150);
                 height: 6px;
                 background: rgba(40, 40, 40, 200);
                 border-radius: 3px;
             }
-            
+
             QSlider::handle:horizontal {
                 background: rgba(150, 150, 150, 220);
                 border: 1px solid rgba(120, 120, 120, 200);
@@ -156,11 +156,11 @@ class HoverViewControls(QWidget):
                 margin: -4px 0;
                 border-radius: 7px;
             }
-            
+
             QSlider::handle:horizontal:hover {
                 background: rgba(180, 180, 180, 240);
             }
-            
+
             QSlider::sub-page:horizontal {
                 background: rgba(100, 150, 200, 180);
                 border-radius: 3px;

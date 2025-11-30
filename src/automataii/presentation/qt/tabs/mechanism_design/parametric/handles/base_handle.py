@@ -264,7 +264,7 @@ class BaseHandle(QGraphicsEllipseItem):
     def _show_constraint_feedback(self):
         """Show visual feedback for constraint violations."""
         # Temporarily change color to indicate constraint violation
-        original_brush = self.brush()
+        self.brush()
         error_brush = QBrush(self.COLOR_ERROR.lighter(140))
         self.setBrush(error_brush)
 

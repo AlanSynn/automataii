@@ -9,7 +9,8 @@ Design Pattern: Renderer (dedicated rendering responsibilities)
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QPen
@@ -17,8 +18,8 @@ from PyQt6.QtGui import QBrush, QColor, QPen
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene, QLabel
 
-    from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig, SafetyLevel
-    from automataii.domain.mechanisms.linkages.fourbar.render import LinkageRenderer
+    from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig
+    from automataii.presentation.qt.mechanisms.renderers import LinkageRenderer
     from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 
 

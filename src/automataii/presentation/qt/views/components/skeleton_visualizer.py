@@ -9,7 +9,8 @@ Design Pattern: Visualizer (rendering responsibilities)
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QLineF, QObject, QPointF, pyqtSignal
 from PyQt6.QtGui import QColor, QPen
@@ -115,7 +116,7 @@ class SkeletonVisualizer(QObject):
             if not pos:
                 continue
 
-            if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+            if isinstance(pos, list | tuple) and len(pos) >= 2:
                 x, y = pos[0], pos[1]
             else:
                 continue
@@ -174,7 +175,7 @@ class SkeletonVisualizer(QObject):
                 new_pos = pos
             elif hasattr(pos, "x") and hasattr(pos, "y"):
                 new_pos = QPointF(pos.x(), pos.y())
-            elif isinstance(pos, (list, tuple)) and len(pos) >= 2:
+            elif isinstance(pos, list | tuple) and len(pos) >= 2:
                 new_pos = QPointF(pos[0], pos[1])
             else:
                 continue

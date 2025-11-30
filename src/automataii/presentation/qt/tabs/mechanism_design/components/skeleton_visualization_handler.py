@@ -8,18 +8,19 @@ Design Pattern: Handler (processes external events and updates state)
 """
 from __future__ import annotations
 
-import math
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+import math
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QObject, QPointF, pyqtSignal, pyqtSlot
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
 
+    from automataii.presentation.qt.models import PartInfo
     from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
     from automataii.presentation.qt.views.editor_view import EditorView
-    from automataii.core.models import PartInfo
 
 
 class SkeletonVisualizationHandler(QObject):
@@ -168,7 +169,7 @@ class SkeletonVisualizationHandler(QObject):
         if isinstance(skeleton_data, dict):
             if skeleton_data.get("joints") and len(skeleton_data["joints"]) > 0:
                 is_valid_data = True
-            elif all(isinstance(v, (tuple, list)) and len(v) == 2 for v in skeleton_data.values()):
+            elif all(isinstance(v, tuple | list) and len(v) == 2 for v in skeleton_data.values()):
                 is_valid_data = True
 
         if not is_valid_data:
@@ -176,7 +177,7 @@ class SkeletonVisualizationHandler(QObject):
 
         try:
             # Check if we received raw animation data from IK manager
-            if skeleton_data and all(isinstance(v, (tuple, list)) and len(v) == 2 for v in skeleton_data.values()):
+            if skeleton_data and all(isinstance(v, tuple | list) and len(v) == 2 for v in skeleton_data.values()):
                 # Convert IK manager format Dict[str, Tuple[float, float]] to expected format
                 transformed_data = {
                     "joints": {
@@ -233,7 +234,7 @@ class SkeletonVisualizationHandler(QObject):
             # 1. UPDATE POSITION (unconditionally)
             scene_pos_to_set = None
             position_data = joint_data.get("scene_position") or joint_data.get("position")
-            if isinstance(position_data, (list, tuple)) and len(position_data) >= 2:
+            if isinstance(position_data, list | tuple) and len(position_data) >= 2:
                 scene_pos_to_set = QPointF(position_data[0], position_data[1])
                 part_item.set_scene_position_from_anchor(scene_pos_to_set)
 
@@ -258,14 +259,14 @@ class SkeletonVisualizationHandler(QObject):
 
         if "angle" in joint_data:
             angle = joint_data["angle"]
-            if isinstance(angle, (int, float)):
+            if isinstance(angle, int | float):
                 rotation_degrees = math.degrees(angle) if abs(angle) <= 2 * math.pi else angle
                 part_item.setRotation(rotation_degrees)
                 return
 
         if "rotation" in joint_data:
             rotation = joint_data["rotation"]
-            if isinstance(rotation, (int, float)):
+            if isinstance(rotation, int | float):
                 part_item.setRotation(rotation)
                 return
 
@@ -276,7 +277,7 @@ class SkeletonVisualizationHandler(QObject):
             parent_pos_data = parent_data.get("scene_position") or parent_data.get("position")
 
             if (scene_pos and parent_pos_data and
-                isinstance(parent_pos_data, (list, tuple)) and len(parent_pos_data) >= 2):
+                isinstance(parent_pos_data, list | tuple) and len(parent_pos_data) >= 2):
 
                 dx = scene_pos.x() - parent_pos_data[0]
                 dy = scene_pos.y() - parent_pos_data[1]
@@ -362,7 +363,7 @@ class SkeletonVisualizationHandler(QObject):
                 position = joint_info.get("position") or joint_info.get("scene_position", [0, 0])
                 parent_id = joint_info.get("parent")
                 joint_name = joint_info.get("name", joint_id)
-            elif isinstance(joint_info, (list, tuple)) and len(joint_info) >= 2:
+            elif isinstance(joint_info, list | tuple) and len(joint_info) >= 2:
                 position = joint_info[:2]
                 parent_id = None
                 joint_name = joint_id
@@ -372,7 +373,7 @@ class SkeletonVisualizationHandler(QObject):
             # Convert position to QPointF
             if isinstance(position, QPointF):
                 pos_qpoint = position
-            elif isinstance(position, (list, tuple)) and len(position) >= 2:
+            elif isinstance(position, list | tuple) and len(position) >= 2:
                 pos_qpoint = QPointF(float(position[0]), float(position[1]))
             else:
                 continue
@@ -422,7 +423,7 @@ class SkeletonVisualizationHandler(QObject):
                 position = joint_info.get("position") or joint_info.get("scene_position")
                 if position and len(position) >= 2:
                     pose_data[joint_id] = (float(position[0]), float(position[1]))
-            elif isinstance(joint_info, (list, tuple)) and len(joint_info) >= 2:
+            elif isinstance(joint_info, list | tuple) and len(joint_info) >= 2:
                 pose_data[joint_id] = (float(joint_info[0]), float(joint_info[1]))
 
         return pose_data

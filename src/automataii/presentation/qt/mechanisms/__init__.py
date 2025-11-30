@@ -3,20 +3,17 @@ Modular mechanism system with registry pattern.
 Each mechanism is a self-contained module with its own editor and serializer.
 """
 
-from .registry import MechanismRegistry
-from .interfaces.mechanism import MechanismInterface
-from .interfaces.editor import EditorInterface
-from .interfaces.serializer import BlueprintSerializer
-
 # Import mechanism modules to register them
-from . import four_bar
-from . import cam
-from . import gear
-from . import planetary_gear
+# Note: planetary_gear was removed (not implemented)
+from . import cam, four_bar, gear
+from .interfaces.editor import EditorInterface
+from .interfaces.mechanism import MechanismInterface
+from .interfaces.serializer import BlueprintSerializer
+from .registry import MechanismRegistry
 
 __all__ = [
     'MechanismRegistry',
-    'MechanismInterface', 
+    'MechanismInterface',
     'EditorInterface',
     'BlueprintSerializer'
 ]

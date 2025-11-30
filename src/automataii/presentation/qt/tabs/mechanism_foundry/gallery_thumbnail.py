@@ -113,7 +113,7 @@ class GalleryThumbnail(QFrame):
     def _load_mechanism(self) -> None:
         if self.mechanism_type == "four_bar":
             from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
-            from automataii.domain.mechanisms.linkages.fourbar.render import LinkageRenderer
+            from automataii.presentation.qt.mechanisms.renderers import LinkageRenderer
 
             self.mechanism = FourBarMechanism()
             self.renderer = LinkageRenderer()
@@ -159,7 +159,7 @@ class GalleryThumbnail(QFrame):
 
             if self.mechanism_type == "four_bar" and self.renderer:
                 config = RenderConfig(show_forces=False, show_labels=False, show_safety_zones=False)
-                items = self.renderer.render(state, self.scene, config)
+                self.renderer.render(state, self.scene, config)
             elif self.mechanism_type == "cam_follower":
                 self._draw_cam_preview(state)
             else:

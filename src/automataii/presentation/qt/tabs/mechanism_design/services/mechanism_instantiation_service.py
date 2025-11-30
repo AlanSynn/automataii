@@ -17,7 +17,6 @@ from PyQt6.QtGui import QPainterPath
 
 from automataii.utils.paths import resolve_path
 
-
 # Mapping from display names to internal mechanism types
 MECHANISM_TYPE_MAPPING: dict[str, str] = {
     "4-Bar Linkage": "4_bar_linkage",

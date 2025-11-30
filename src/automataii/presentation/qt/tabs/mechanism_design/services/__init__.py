@@ -8,9 +8,9 @@ from .anchor_position_service import AnchorPositionService
 from .animation_frame_coordinator import AnimationFrameCoordinator
 from .callback_configurator import TabCallbackConfigurator
 from .handle_position_coordinator import HandlePositionCoordinator
-from .tab_data_coordinator import TabDataCoordinator
-from .scene_management_service import SceneManagementService
 from .mechanism_instantiation_service import MechanismInstantiationService
+from .scene_management_service import SceneManagementService
+from .tab_data_coordinator import TabDataCoordinator
 from .transform_service import TransformService
 from .view_utilities_service import ViewUtilitiesService
 from .visual_item_manager import VisualItemManager

@@ -9,8 +9,8 @@ Design Pattern: Handler (processes segmentation workflow)
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QMessageBox
@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import QMessageBox
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QWidget
 
-    from automataii.core.models import PartInfo
+    from automataii.presentation.qt.models import PartInfo
 
 
 class ManualSegmentationHandler(QObject):
@@ -186,7 +186,6 @@ class ManualSegmentationHandler(QObject):
 
         Time Complexity: O(p * m) where p = parts, m = mask pixels
         """
-        from automataii.core.models import PartInfo
 
         parts_info: dict[str, PartInfo] = {}
 
@@ -218,7 +217,7 @@ class ManualSegmentationHandler(QObject):
         Returns:
             PartInfo object or None if extraction fails
         """
-        from automataii.core.models import PartInfo
+        from automataii.presentation.qt.models import PartInfo
 
         try:
             # Extract boundary and centroid from mask data

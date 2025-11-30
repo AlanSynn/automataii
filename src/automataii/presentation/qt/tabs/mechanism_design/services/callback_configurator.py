@@ -9,7 +9,7 @@ Architecture: Hexagonal - Presentation Layer
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
@@ -23,7 +23,7 @@ class TabCallbackConfigurator:
     extracted services/controllers in a single location, reducing boilerplate.
     """
 
-    def __init__(self, tab: "MechanismDesignTab") -> None:
+    def __init__(self, tab: MechanismDesignTab) -> None:
         """
         Initialize configurator with Tab reference.
 
@@ -168,13 +168,14 @@ class TabCallbackConfigurator:
         from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils import (
             convert_json_params_to_internal,
         )
+        from automataii.presentation.qt.utils.geometry import qpainterpath_to_numpy_array
         self._tab._mechanism_generation_service.configure_callbacks(
             create_layer_data=self._tab._mechanism_instantiation.create_layer_data_from_candidate,
             verify_coupler=lambda ld, pd, sc: self._tab.mechanism_service.verify_coupler_joint_connection(
                 ld, pd, sc, self._tab._get_scene_transform_function, self._tab._calculate_mechanism_output
             ) if hasattr(self._tab, '_initial_skeleton_data_cache') else False,
             adjust_mechanism=lambda ld, pd, sc: self._tab.mechanism_service.adjust_mechanism_to_target_joint(
-                ld, pd, sc, self._tab._calculate_mechanism_output
+                ld, pd, sc, self._tab._calculate_mechanism_output, qpainterpath_to_numpy_array
             ) if hasattr(self._tab, '_initial_skeleton_data_cache') else False,
             extract_key_points=self._tab._extract_key_points_from_simulation,
             convert_params=convert_json_params_to_internal,

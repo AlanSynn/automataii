@@ -17,8 +17,6 @@ from PyQt6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsSceneMouseEvent,
-    QStyleOptionGraphicsItem,
-    QWidget,
 )
 
 from automataii.config.z_indices import (
@@ -27,7 +25,7 @@ from automataii.config.z_indices import (
 from automataii.config.z_indices import (
     Z_SELECTION_HIGHLIGHT as Z_ITEM_SELECTION_HIGHLIGHT,
 )
-from automataii.core.models import PartInfo
+from automataii.presentation.qt.models import PartInfo
 
 # Constants for hover effects
 HOVER_PEN_COLOR = QColor(Qt.GlobalColor.yellow)
@@ -441,7 +439,6 @@ class CharacterPartItem(QGraphicsPixmapItem):
         """
         # Define bone length tolerance (matching FABRIK solver constraint)
         # 🔧 LENGTH TOLERANCE FIX: Increase to match IK solver tolerance
-        MAX_BONE_LENGTH_DEVIATION = 0.1  # 10% tolerance for animation movements
 
         # For now, implement a basic validation that prevents extreme position changes
         # A full implementation would require access to the skeleton hierarchy and original bone lengths

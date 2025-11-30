@@ -11,6 +11,7 @@ Extracted Modules:
 - MotionPathManager: Path drawing, smoothing, and manipulation
 - SkeletonIKHandler: Skeleton updates, IK, and joint management
 - PartsDataManager: Parts list and data management
+- path_geometry: Pure functions for path creation and interpolation
 """
 from automataii.presentation.qt.tabs.editor.components.motion_path_manager import (
     MotionPathManager,
@@ -28,6 +29,17 @@ from automataii.presentation.qt.tabs.editor.components.skeleton_ik_handler impor
     SkeletonIKHandler,
 )
 from automataii.presentation.qt.tabs.editor.components.view_controls import ViewControls
+from automataii.presentation.qt.tabs.editor.components.path_geometry import (
+    create_raw_path,
+    create_perfect_ellipse_path,
+    create_interpolated_path,
+    extract_points_from_path,
+    resample_path_points,
+)
+from automataii.presentation.qt.tabs.editor.components.ui_builder import (
+    EditorTabUIBuilder,
+    EditorTabUIRefs,
+)
 
 __all__ = [
     "MotionPathManager",
@@ -36,4 +48,11 @@ __all__ = [
     "SimulationController",
     "SkeletonIKHandler",
     "ViewControls",
+    "create_raw_path",
+    "create_perfect_ellipse_path",
+    "create_interpolated_path",
+    "extract_points_from_path",
+    "resample_path_points",
+    "EditorTabUIBuilder",
+    "EditorTabUIRefs",
 ]

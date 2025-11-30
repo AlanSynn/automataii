@@ -3,7 +3,7 @@ import math
 from typing import Any
 
 from PyQt6.QtCore import QPointF, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
+from PyQt6.QtGui import QBrush, QColor, QPainterPath
 from PyQt6.QtWidgets import (
     QGraphicsScene,
     QGroupBox,
@@ -14,26 +14,45 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
+    QSplitter,
     QStyle,
     QVBoxLayout,
     QWidget,
-    QSplitter,
-    QSizePolicy,
 )
 
-from automataii.core.models import PartInfo
+from automataii.presentation.qt.models import PartInfo
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
-from automataii.presentation.qt.views.editor_view import EditorView
 
 # Extracted components (god class decomposition)
+from automataii.presentation.qt.tabs.editor.components.motion_path_manager import (
+    MotionPathManager,
+)
+from automataii.presentation.qt.tabs.editor.components.parts_data_manager import (
+    PartsDataManager,
+)
 from automataii.presentation.qt.tabs.editor.components.path_query_service import (
     PathQueryService,
 )
 from automataii.presentation.qt.tabs.editor.components.simulation_controller import (
     SimulationController,
 )
+from automataii.presentation.qt.tabs.editor.components.skeleton_ik_handler import (
+    SkeletonIKHandler,
+)
 from automataii.presentation.qt.tabs.editor.components.view_controls import ViewControls
+from automataii.presentation.qt.tabs.editor.components.path_geometry import (
+    create_raw_path,
+    create_perfect_ellipse_path,
+    create_interpolated_path,
+    extract_points_from_path,
+)
+from automataii.presentation.qt.tabs.editor.components.ui_builder import (
+    EditorTabUIBuilder,
+    EditorTabUIRefs,
+)
+from automataii.presentation.qt.views.editor_view import EditorView
 
 
 class EditorTab(QWidget):
@@ -111,6 +130,12 @@ class EditorTab(QWidget):
         # Initialize extracted components
         self._init_extracted_components()
 
+        # Configure extracted components (must be after both _init_ui and _init_extracted_components)
+        self._configure_simulation_controller()
+        self._configure_motion_path_manager()
+        self._configure_parts_data_manager()
+        self._configure_skeleton_ik_handler()
+
     def _connect_editor_view_signals(self):
         """Connect signals from this tab's EditorView instance."""
         self.editor_view.freehandPathCompleted.connect(
@@ -168,6 +193,48 @@ class EditorTab(QWidget):
             self.request_reset_simulation.emit
         )
 
+        # Motion Path Manager - path drawing, smoothing, and manipulation
+        self._motion_path_manager = MotionPathManager(
+            editor_view=self.editor_view,
+            editor_scene=self.editor_scene,
+            parent=self,
+        )
+
+        # Wire motion path manager signals to EditorTab signals
+        self._motion_path_manager.motion_path_updated.connect(
+            self.motion_path_updated.emit
+        )
+        self._motion_path_manager.path_data_changed.connect(
+            self.path_data_changed.emit
+        )
+
+        # Parts Data Manager - parts list and data management
+        self._parts_data_manager = PartsDataManager(
+            editor_view=self.editor_view,
+            editor_scene=self.editor_scene,
+            parent=self,
+        )
+
+        # Wire parts data manager signals to EditorTab signals
+        self._parts_data_manager.parts_loaded.connect(
+            self.parts_loaded.emit
+        )
+        self._parts_data_manager.parts_cleared.connect(
+            self.parts_cleared.emit
+        )
+
+        # Skeleton IK Handler - skeleton updates, IK results, joint management
+        self._skeleton_ik_handler = SkeletonIKHandler(
+            editor_view=self.editor_view,
+            editor_scene=self.editor_scene,
+            parent=self,
+        )
+
+        # Wire skeleton handler signals (skeleton_updated used internally)
+        self._skeleton_ik_handler.skeleton_updated.connect(
+            self._update_button_states
+        )
+
     def _configure_simulation_controller(self):
         """Configure simulation controller after UI is built."""
         if not hasattr(self, '_simulation_controller'):
@@ -185,466 +252,102 @@ class EditorTab(QWidget):
             has_editor_items=lambda: bool(self.current_editor_items),
             has_any_path=self._has_any_motion_path,
             get_path_count=self._get_path_count,
-            apply_corrections=self._apply_corrections_for_all_parts,
+            apply_corrections=lambda: self._motion_path_manager.apply_corrections_for_all_parts() if hasattr(self, '_motion_path_manager') else None,
             position_parts_at_anchor=self._position_parts_at_anchor_joints,
             on_skeleton_updated=self.on_skeleton_updated,
             update_part_list_styles=self._update_part_list_styles,
             initial_skeleton_cache_getter=lambda: self._initial_skeleton_data_cache,
         )
 
+    def _configure_motion_path_manager(self):
+        """Configure motion path manager after UI is built."""
+        if not hasattr(self, '_motion_path_manager'):
+            return
+
+        self._motion_path_manager.configure_ui(
+            define_btn=self.define_motion_path_btn,
+            clear_btn=self.clear_motion_path_btn,
+            status_label=self.motion_path_status_label,
+            info_label=self.motion_path_info_label,
+            smoothness_slider=self.smoothness_slider,
+            smoothness_label=self.smoothness_value_label,
+            closed_path_radio=self.closed_path_radio,
+        )
+
+        self._motion_path_manager.configure_callbacks(
+            get_selected_part=lambda: self.selected_part_name,
+            get_editor_items=lambda: self.current_editor_items,
+            get_parts_info=lambda: self.current_parts_info,
+            get_main_window=lambda: self.main_window,
+            update_button_states=self._update_button_states,
+            has_motion_path=self._has_motion_path,
+            emit_path_data=self._emit_path_data,
+        )
+
+    def _configure_parts_data_manager(self):
+        """Configure parts data manager after UI is built."""
+        if not hasattr(self, '_parts_data_manager'):
+            return
+
+        self._parts_data_manager.configure_ui(parts_list=self.parts_list)
+
+        self._parts_data_manager.configure_callbacks(
+            get_main_window=lambda: self.main_window,
+            get_debug_mode=lambda: self.debug_mode,
+            get_skeleton_cache=lambda: self._initial_skeleton_data_cache,
+            set_skeleton_cache=lambda x: setattr(self, '_initial_skeleton_data_cache', x),
+            update_button_states=self._update_button_states,
+            update_part_list_styles=self._update_part_list_styles,
+            update_active_part_visuals=self._update_active_part_visuals,
+            emit_path_data=self._emit_path_data,
+            validate_position=self._validate_part_position,
+        )
+
+    def _configure_skeleton_ik_handler(self):
+        """Configure skeleton IK handler after UI is built."""
+        if not hasattr(self, '_skeleton_ik_handler'):
+            return
+
+        self._skeleton_ik_handler.configure_callbacks(
+            get_editor_items=lambda: self.current_editor_items,
+            get_parts_info=lambda: self.current_parts_info,
+            get_main_window=lambda: self.main_window,
+            update_button_states=self._update_button_states,
+            update_part_list_styles=self._update_part_list_styles,
+            update_active_part_visuals=self._update_active_part_visuals,
+        )
+
     def _init_ui(self):
-        layout = QHBoxLayout(self)
+        """Initialize the EditorTab UI using the UI builder."""
+        # Build UI using extracted builder
+        builder = EditorTabUIBuilder(self, self.editor_view)
+        refs = builder.build()
 
-        # Left Control Panel
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(300)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        control_panel = QWidget()
-        panel_layout = QVBoxLayout(control_panel)
-        panel_layout.setContentsMargins(10, 10, 10, 10)
-        panel_layout.setSpacing(15)
-
-        # 1. Parts List Group
-        parts_group = QGroupBox("1 Parts")
-        parts_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        parts_layout = QVBoxLayout(parts_group)
-        self.parts_list = QListWidget()
-        self.parts_list.setToolTip("List of loaded character parts")
-        self.parts_list.setMinimumHeight(180)  # Increased height
-        self.parts_list.setStyleSheet(
-            """
-            QListWidget {
-                background-color: white;
-                border: 1px solid #dee2e6;
-                border-radius: 6px;
-                padding: 4px;
-                font-size: 13px;
-            }
-            QListWidget::item {
-                padding: 8px 12px;
-                margin: 2px;
-                border-radius: 4px;
-                border: 1px solid transparent;
-            }
-            QListWidget::item:selected {
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                    stop: 0 #0078D7, stop: 1 #005a9e);
-                color: white;
-                border: 1px solid #004578;
-            }
-            QListWidget::item:selected:!active {
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                    stop: 0 #0078D7, stop: 1 #005a9e);
-                color: white;
-                border: 1px solid #004578;
-            }
-            QListWidget::item:hover {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-            }
-        """
-        )
-        parts_layout.addWidget(self.parts_list)
-        panel_layout.addWidget(parts_group)
-
-        # 2. Motion Path Definition Group
-        motion_path_group = QGroupBox("2 Motion Path")
-        motion_path_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        motion_path_layout = QVBoxLayout(motion_path_group)
-
-        self.motion_path_status_label = QLabel("Select a part")
-        self.motion_path_status_label.setStyleSheet("""
-            font-weight: bold;
-            font-size: 14px;
-            color: #495057;
-            padding: 8px;
-            text-align: center;
-        """)
-        self.motion_path_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        motion_path_layout.addWidget(self.motion_path_status_label)
-
-        motion_path_buttons_layout = QHBoxLayout()
-        motion_path_buttons_layout.setSpacing(8)  # Spacing between buttons
-
-        # Compact button styles for motion path buttons
-        motion_path_button_style = """
-            QPushButton {
-                background-color: #a7c7e7;
-                border: 1px solid #96b6d6;
-                font-weight: bold;
-                color: #ffffff;
-            }
-            QPushButton:hover {
-                background-color: #96b6d6;
-                border-color: #85a5c5;
-            }
-            QPushButton:pressed {
-                background-color: #85a5c5;
-                border-color: #7494b4;
-            }
-            QPushButton:disabled {
-                background-color: #e0e6ed;
-                color: #a0aab5;
-                border-color: #dbe4f0;
-            }
-        """
-
-        motion_path_button_checked_style = motion_path_button_style + """
-            QPushButton:checked {
-                background-color: #5c85d6;
-                border-color: #4b74c5;
-                color: white;
-            }
-        """
-
-        self.define_motion_path_btn = QPushButton("Start Drawing")
-        self.define_motion_path_btn.setCheckable(True)
-        self.define_motion_path_btn.setToolTip(
-            "Toggle mode to draw a motion path for the selected part."
-        )
-        self.define_motion_path_btn.setEnabled(False)
-        self.define_motion_path_btn.setStyleSheet(motion_path_button_checked_style)
-
-        self.clear_motion_path_btn = QPushButton("Clear")
-        self.clear_motion_path_btn.setToolTip(
-            "Clear the motion path for the selected part."
-        )
-        self.clear_motion_path_btn.setEnabled(False)
-        self.clear_motion_path_btn.setStyleSheet(motion_path_button_style.replace("#a7c7e7", "#e7a7a7"))
-
-        # Path type selection (Open/Closed)
-        from PyQt6.QtWidgets import QButtonGroup, QRadioButton
-
-        path_type_layout = QHBoxLayout()
-        path_type_layout.setSpacing(10)
-
-        path_type_label = QLabel("Path Type:")
-        path_type_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #495057;")
-        path_type_layout.addWidget(path_type_label)
-
-        self.path_type_group = QButtonGroup()
-
-        self.closed_path_radio = QRadioButton("Closed")
-        self.closed_path_radio.setToolTip("Create a closed loop path")
-        self.closed_path_radio.setChecked(True)  # Default to closed
-        self.path_type_group.addButton(self.closed_path_radio, 0)
-        path_type_layout.addWidget(self.closed_path_radio)
-
-        self.open_path_radio = QRadioButton("Open")
-        self.open_path_radio.setToolTip("Create an open path")
-        self.path_type_group.addButton(self.open_path_radio, 1)
-        path_type_layout.addWidget(self.open_path_radio)
-
-        path_type_layout.addStretch()
-        motion_path_layout.addLayout(path_type_layout)
-
-        motion_path_buttons_layout.addStretch()
-        motion_path_buttons_layout.addWidget(self.define_motion_path_btn)
-        motion_path_buttons_layout.addWidget(self.clear_motion_path_btn)
-        motion_path_buttons_layout.addStretch()
-        motion_path_layout.addLayout(motion_path_buttons_layout)
-
-        self.motion_path_info_label = QLabel(
-            "Click points in the view to draw path. Click 'Stop Drawing' when done."
-        )
-        self.motion_path_info_label.setWordWrap(True)
-        self.motion_path_info_label.setStyleSheet(
-            "background-color: #E6F7FF; border: 1px solid #BCE0FF; padding: 5px; border-radius: 3px;"
-        )
-        self.motion_path_info_label.setVisible(False)
-        motion_path_layout.addWidget(self.motion_path_info_label)
-
-        # Smoothness control
-        smoothness_layout = QHBoxLayout()
-        smoothness_layout.setSpacing(8)
-
-        smoothness_label = QLabel("Smoothness:")
-        smoothness_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #495057;")
-        smoothness_layout.addWidget(smoothness_label)
-
-        self.smoothness_slider = QSlider(Qt.Orientation.Horizontal)
-        self.smoothness_slider.setMinimum(0)  # 0% = original raw points
-        self.smoothness_slider.setMaximum(100)  # 100% = perfect ellipse
-        self.smoothness_slider.setValue(50)  # Default 50%
-        self.smoothness_slider.setEnabled(False)  # Initially disabled
-        self.smoothness_slider.setToolTip("Adjust path smoothness (0% = raw points, 100% = perfect ellipse)")
-        self.smoothness_slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                border: 1px solid #c5d9f0;
-                background: white;
-                height: 6px;
-                border-radius: 3px;
-            }
-            QSlider::handle:horizontal {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #e8f2ff, stop:1 #b8d4f0);
-                border: 1px solid #7ba7d1;
-                width: 15px;
-                margin-top: -4px;
-                margin-bottom: -4px;
-                border-radius: 7px;
-            }
-            QSlider::handle:horizontal:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #f0f7ff, stop:1 #d0e4f5);
-                border: 1px solid #5a8bb5;
-            }
-            QSlider::sub-page:horizontal {
-                background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                    stop: 0 #a7c7e7, stop: 1 #d4e7f7);
-                border: 1px solid #7ba7d1;
-                height: 6px;
-                border-radius: 3px;
-            }
-        """)
-        smoothness_layout.addWidget(self.smoothness_slider)
-
-        self.smoothness_value_label = QLabel("50%")
-        self.smoothness_value_label.setMinimumWidth(30)
-        self.smoothness_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.smoothness_value_label.setStyleSheet("font-size: 11px; color: #666;")
-        smoothness_layout.addWidget(self.smoothness_value_label)
-
-        motion_path_layout.addLayout(smoothness_layout)
-
-        # Note: Feasibility is now auto-applied on Play. Button removed per request.
-
-        panel_layout.addWidget(motion_path_group)
-        panel_layout.setStretchFactor(motion_path_group, 0)
-
-        # 3. Animation Group
-        animation_group = QGroupBox("3 Animation")
-        animation_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        animation_layout = QVBoxLayout(animation_group)
-
-        self.animation_status_label = QLabel("No motion paths defined")
-        animation_layout.addWidget(self.animation_status_label)
-
-        # TODO: Add slider here if needed in future. For now, skipping.
-
-        anim_button_layout = QHBoxLayout()
-        anim_button_layout.setSpacing(12)  # More spacing between compact buttons
-        style = self.style()
-
-        # Compact styling for animation buttons
-        animation_button_style = """
-            QPushButton {
-                background-color: #a7c7e7;
-                border: 1px solid #96b6d6;
-                border-radius: 5px;
-                padding: 4px 6px;
-                font-weight: bold;
-                color: #ffffff;
-                min-height: 24px;
-                min-width: 30px;
-                max-width: 35px;
-                font-size: 10pt;
-            }
-            QPushButton:hover {
-                background-color: #96b6d6;
-                border-color: #85a5c5;
-            }
-            QPushButton:pressed {
-                background-color: #85a5c5;
-                border-color: #7494b4;
-            }
-            QPushButton:disabled {
-                background-color: #e0e6ed;
-                color: #a0aab5;
-                border-color: #dbe4f0;
-            }
-        """
-
-        # Play button
-        self.play_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), ""
-        )
-        self.play_btn.setToolTip("Play Animation")
-        self.play_btn.setStyleSheet(animation_button_style)
-
-        # Stop button
-        self.stop_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), ""
-        )
-        self.stop_btn.setToolTip("Stop Animation")
-        self.stop_btn.setEnabled(False)
-        self.stop_btn.setStyleSheet(animation_button_style)
-
-        # Reset button
-        self.reset_sim_btn = QPushButton(
-            style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload), ""
-        )
-        self.reset_sim_btn.setToolTip("Reset Animation")
-        self.reset_sim_btn.setEnabled(False)
-        self.reset_sim_btn.setStyleSheet(animation_button_style)
-
-        anim_button_layout.addStretch()
-        anim_button_layout.addWidget(self.play_btn)
-        anim_button_layout.addWidget(self.stop_btn)
-        anim_button_layout.addWidget(self.reset_sim_btn)
-        anim_button_layout.addStretch()
-        animation_layout.addLayout(anim_button_layout)
-
-        panel_layout.addWidget(animation_group)
-
-        # 4. View Controls Group
-        view_controls_group = QGroupBox("4 View Controls")
-        view_controls_group.setStyleSheet("""
-            QGroupBox {
-                background-color: #ffffff;
-                border: 1px solid #e3e9f0;
-                border-radius: 9px;
-                padding: 18px;
-                margin-top: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 0 10px;
-                margin-left: 15px;
-                font-size: 12pt;
-                font-weight: bold;
-                color: #5c85d6;
-                background-color: #ffffff;
-            }
-        """)
-        view_controls_layout = QVBoxLayout(view_controls_group)
-
-        # Zoom controls
-        zoom_controls_layout = QHBoxLayout()
-        zoom_controls_layout.setSpacing(6)
-
-        zoom_button_style = """
-            QPushButton {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-weight: bold;
-                color: #495057;
-                min-height: 22px;
-                min-width: 30px;
-                font-size: 10pt;
-            }
-            QPushButton:hover {
-                background-color: #e9ecef;
-                border-color: #adb5bd;
-            }
-            QPushButton:pressed {
-                background-color: #dee2e6;
-                border-color: #6c757d;
-            }
-        """
-
-        self.zoom_in_btn = QPushButton("+")
-        self.zoom_in_btn.setToolTip("Zoom In")
-        self.zoom_in_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.zoom_in_btn)
-
-        self.zoom_out_btn = QPushButton("−")
-        self.zoom_out_btn.setToolTip("Zoom Out")
-        self.zoom_out_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.zoom_out_btn)
-
-        self.zoom_fit_btn = QPushButton("⌖")
-        self.zoom_fit_btn.setToolTip("Zoom to Fit")
-        self.zoom_fit_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.zoom_fit_btn)
-
-        # Center on Character button
-        self.center_character_btn = QPushButton("⎈")
-        self.center_character_btn.setToolTip("Center on Character")
-        self.center_character_btn.setStyleSheet(zoom_button_style)
-        zoom_controls_layout.addWidget(self.center_character_btn)
-
-        # Removed 1:1 zoom reset button as requested (Issue #4)
-
-        view_controls_layout.addLayout(zoom_controls_layout)
-        panel_layout.addWidget(view_controls_group)
-
-        panel_layout.addStretch(1)
-
-        control_panel.setMinimumWidth(280)
-
-        scroll_area.setWidget(control_panel)
-
-        # Use a splitter so that when the window width shrinks, only the right canvas shrinks
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        # Keep left control panel width steady (fixed width)
-        scroll_area.setMinimumWidth(300)
-        scroll_area.setMaximumWidth(300)
-        scroll_area.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        splitter.addWidget(scroll_area)
-
-        # Right canvas (resizable); absorbs width changes when the window is resized
-        splitter.addWidget(self.editor_view)
-
-        splitter.setCollapsible(0, False)
-        splitter.setCollapsible(1, False)
-        splitter.setStretchFactor(0, 0)  # left stays fixed
-        splitter.setStretchFactor(1, 1)  # right takes remaining space and shrinks when window shrinks
-        splitter.setSizes([300, 900])
-
-        layout.addWidget(splitter)
+        # Store widget references from builder
+        self.parts_list = refs.parts_list
+        self.define_motion_path_btn = refs.define_motion_path_btn
+        self.clear_motion_path_btn = refs.clear_motion_path_btn
+        self.motion_path_status_label = refs.motion_path_status_label
+        self.motion_path_info_label = refs.motion_path_info_label
+        self.smoothness_slider = refs.smoothness_slider
+        self.smoothness_value_label = refs.smoothness_value_label
+        self.closed_path_radio = refs.closed_path_radio
+        self.open_path_radio = refs.open_path_radio
+        self.path_type_group = refs.path_type_group
+        self.animation_status_label = refs.animation_status_label
+        self.play_btn = refs.play_btn
+        self.stop_btn = refs.stop_btn
+        self.reset_sim_btn = refs.reset_sim_btn
+        self.zoom_in_btn = refs.zoom_in_btn
+        self.zoom_out_btn = refs.zoom_out_btn
+        self.zoom_fit_btn = refs.zoom_fit_btn
+        self.center_character_btn = refs.center_character_btn
 
         # Connect signals
+        self._connect_ui_signals()
+
+    def _connect_ui_signals(self):
+        """Connect UI widget signals to handlers."""
         self.parts_list.currentItemChanged.connect(self._handle_part_selection_change)
         self.define_motion_path_btn.toggled.connect(
             self._toggle_define_motion_path_mode
@@ -664,10 +367,6 @@ class EditorTab(QWidget):
         self.zoom_out_btn.clicked.connect(lambda: self.editor_view.zoom(-1))
         self.zoom_fit_btn.clicked.connect(self.editor_view.zoom_to_fit)
         self.center_character_btn.clicked.connect(self.center_on_character)
-        # Removed zoom_reset_btn connection (1:1 button removed)
-
-        # Configure extracted components now that UI is built
-        self._configure_simulation_controller()
 
     def _handle_part_selection_change(
         self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
@@ -713,127 +412,19 @@ class EditorTab(QWidget):
 
 
     def _toggle_define_motion_path_mode(self, checked: bool):
-        """Handle the 'Start/Stop Drawing' button toggle."""
-        part_name = self.selected_part_name
-        if not part_name or not checked:
-            self.editor_view.set_mode("select")
-            self.define_motion_path_btn.setText("Start Drawing")
-            self.motion_path_info_label.setVisible(False)
-            if checked:
-                self.define_motion_path_btn.setChecked(False)
-            return
-
-        logging.debug(f"Toggling drawing mode for part: {part_name}")
-
-        # CRITICAL FIX: Clear any existing mechanism visuals AND motion path for this part before starting new path
-        if hasattr(self.main_window, 'mechanism_design_tab'):
-            mechanism_tab = self.main_window.mechanism_design_tab
-            if hasattr(mechanism_tab, '_clear_mechanism_for_part'):
-                mechanism_tab._clear_mechanism_for_part(part_name)
-                logging.info(f"🔄 EDITOR TAB: Cleared mechanism visuals for part '{part_name}' before new path drawing")
-
-        # ALSO CLEAR existing motion path visuals from editor view
-        if hasattr(self.editor_view, 'clear_visual_path_for_component'):
-            self.editor_view.clear_visual_path_for_component(part_name)
-            logging.info(f"🔄 EDITOR TAB: Cleared motion path visuals for part '{part_name}' before new drawing")
-
-        # Clear from path data (check if exists first)
-        if hasattr(self, 'path_data') and part_name in self.path_data:
-            del self.path_data[part_name]
-            logging.info(f"🔄 EDITOR TAB: Removed path data for part '{part_name}'")
-
-        # Also clear from project data manager if available
-        if hasattr(self.main_window, 'project_data_manager'):
-            parts_data = self.main_window.project_data_manager.get_current_parts_data()
-            if parts_data and part_name in parts_data:
-                parts_data[part_name].motion_path_data = None
-                logging.info(f"🔄 EDITOR TAB: Cleared motion_path_data for part '{part_name}' in project data")
-
-        # Set the drawing mode and start motion path definition
-        self.editor_view.set_mode("define_motion_path")
-        # Find the target part item for path drawing
-        if part_name in self.current_editor_items:
-            target_item = self.current_editor_items[part_name]
-            # Pass path type information to editor view
-            is_closed = self.closed_path_radio.isChecked()
-            self.editor_view.start_define_motion_path(target_item, is_closed=is_closed)
-
-        self.define_motion_path_btn.setText("Stop Drawing")
-        self.motion_path_info_label.setVisible(True)
-
-        # Uncheck button if drawing is completed/cancelled from the view
-        # This is handled by connecting the view's signals to this button's slot/lambda
+        """Handle the 'Start/Stop Drawing' button toggle. Delegates to MotionPathManager."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.toggle_define_mode(checked)
+        else:
+            # Fallback for initialization order edge cases
+            logging.warning("MotionPathManager not initialized, cannot toggle define mode")
 
     def _clear_selected_item_motion_path(self):
-        if not self.selected_part_name:
-            logging.warning("No part selected for motion path clearing")
-            return
-
-        logging.info(f"Clearing motion path for selected part: {self.selected_part_name}")
-
-        # Clear motion path from CharacterPartItem if it exists
-        if self.selected_part_name in self.current_editor_items:
-            part_item = self.current_editor_items[self.selected_part_name]
-
-            # Clear motion path data
-            part_item.motion_path = None
-
-            # Clear motion path visual if it exists
-            if hasattr(part_item, 'motion_path_item') and part_item.motion_path_item:
-                if part_item.motion_path_item.scene():
-                    self.editor_scene.removeItem(part_item.motion_path_item)
-                part_item.motion_path_item = None
-
-            # Clear motion path points if they exist
-            if hasattr(part_item, 'motion_path_points'):
-                part_item.motion_path_points = []
-
-            # Clear original path points for smoothness adjustment
-            if hasattr(part_item, 'original_path_points'):
-                part_item.original_path_points = []
-
-        # Clear from current_parts_info (ProjectDataManager data)
-        if self.selected_part_name in self.current_parts_info:
-            self.current_parts_info[self.selected_part_name].motion_path = None
-
-        # Clear visual path from EditorView's final paths map (green paths)
-        if hasattr(self.editor_view, 'final_paths_map') and self.selected_part_name in self.editor_view.final_paths_map:
-            path_item = self.editor_view.final_paths_map.pop(self.selected_part_name)
-            if path_item and path_item.scene():
-                self.editor_scene.removeItem(path_item)
-                logging.info(f"Removed green path visual for {self.selected_part_name}")
-
-        # Also try to clear using EditorView's method if it exists
-        if hasattr(self.editor_view, 'clear_visual_path_for_component'):
-            self.editor_view.clear_visual_path_for_component(self.selected_part_name)
-
-        # Clear from main window's project data manager if it exists
-        if hasattr(self.main_window, 'project_data_manager'):
-            current_parts = self.main_window.project_data_manager.get_current_parts_data()
-            if current_parts and self.selected_part_name in current_parts:
-                current_parts[self.selected_part_name].motion_path = None
-
-        # Emit signal to notify other components that path was cleared
-        if hasattr(self, 'motion_path_updated'):
-            from PyQt6.QtGui import QPainterPath
-            empty_path = QPainterPath()
-            self.motion_path_updated.emit(self.selected_part_name, empty_path)
-
-        logging.info(f"Motion path cleared for {self.selected_part_name}")
-        self.main_window.statusBar().showMessage(
-            f"Motion path cleared for {self.selected_part_name}"
-        )
-
-        # Update UI states
-        self._update_button_states()
-        self._update_part_list_styles()
-
-        # Force scene update to ensure visuals are refreshed
-        self.editor_scene.update()
-        self.editor_view.viewport().update()
-
-        # Emit updated path data to other tabs
-        self._emit_path_data()
+        """Clear motion path for selected item. Delegates to MotionPathManager."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.clear_selected_motion_path()
+        else:
+            logging.warning("MotionPathManager not initialized, cannot clear motion path")
 
     def _play_simulation_clicked(self):
         # 🔧 PART MOVEMENT LOCK: Lock part movement during animation
@@ -1229,7 +820,7 @@ class EditorTab(QWidget):
         logging.info("EditorTab: Clearing all visual motion paths")
 
         # Clear motion paths from each CharacterPartItem
-        for part_name, part_item in self.current_editor_items.items():
+        for _part_name, part_item in self.current_editor_items.items():
             # Clear the motion path data
             if hasattr(part_item, "motion_path"):
                 part_item.motion_path = None
@@ -1249,7 +840,7 @@ class EditorTab(QWidget):
 
         # Clear from EditorView's final paths map
         if hasattr(self.editor_view, "final_paths_map"):
-            for part_name, path_item in list(self.editor_view.final_paths_map.items()):
+            for _part_name, path_item in list(self.editor_view.final_paths_map.items()):
                 if path_item and path_item.scene() == self.editor_scene:
                     self.editor_scene.removeItem(path_item)
             self.editor_view.final_paths_map.clear()
@@ -1336,187 +927,42 @@ class EditorTab(QWidget):
 
     @pyqtSlot(dict)
     def on_skeleton_updated(self, skeleton_data: dict | None):
-        """Called by MainWindow when the skeleton is updated.
-        This method is for *displaying* the skeleton.
-        Initial skeleton caching is handled by `cache_initial_skeleton`.
-        """
-        logging.info(
-            f"EditorTab received skeleton update for display: {'Exists' if skeleton_data else 'None'}"
-        )
+        """Called by MainWindow when skeleton is updated. Delegates to SkeletonIKHandler."""
+        if hasattr(self, '_skeleton_ik_handler'):
+            self._skeleton_ik_handler.on_skeleton_updated(skeleton_data)
+        else:
+            logging.warning("SkeletonIKHandler not initialized, cannot update skeleton")
 
-        # Caching logic removed from here, will be handled by a dedicated method.
-
-        if self.editor_view:
-            if skeleton_data:  # This is the data to display *now*
-                # skeleton_data is likely from StandardizedSkeletonModel.model_dump()
-                # So, skeleton_data.get('joints') will be Dict[str, Dict] where the inner dict is the dumped joint model.
-                standardized_joints_dict = skeleton_data.get(
-                    "joints", {}
-                )  # Dict[std_id, Dict]
-                hierarchy = skeleton_data.get(
-                    "hierarchy", {}
-                )  # Dict[std_id, List[std_child_id]]
-
-                skeleton_for_view = []
-                if isinstance(standardized_joints_dict, dict):
-                    for (
-                        joint_id,
-                        joint_model_dict,
-                    ) in (
-                        standardized_joints_dict.items()
-                    ):  # Iterate through the dictionary of dictionaries
-                        pos_list = joint_model_dict.get("position")
-                        pos = (
-                            QPointF(pos_list[0], pos_list[1])
-                            if pos_list and len(pos_list) == 2
-                            else QPointF()
-                        )
-
-                        skeleton_for_view.append(
-                            {
-                                "id": joint_model_dict.get(
-                                    "id", joint_id
-                                ),  # Use key as fallback for id
-                                "name": joint_model_dict.get("name"),
-                                "position": pos,
-                                "parent": joint_model_dict.get("parent_id"),
-                                "color": joint_model_dict.get("color", "blue"),
-                                "label": joint_model_dict.get("label"),
-                                "bend_direction": joint_model_dict.get("bend_direction", 1.0),  # Add bend direction
-                            }
-                        )
-
-                        # Update joint lock status for any parts that have this joint as anchor
-                        is_locked = joint_model_dict.get("is_locked", False)
-                        joint_name = joint_model_dict.get("name")
-
-                        # Find parts that use this joint
-                        for part_name, part_item in self.current_editor_items.items():
-                            if part_item.anchor_joint_id == joint_name or part_item.anchor_joint_id == joint_id:
-                                part_item.set_joint_locked(is_locked)
-                                if is_locked:
-                                    logging.debug(f"EditorTab: Updated part '{part_name}' - joint locked")
-                                else:
-                                    logging.debug(f"EditorTab: Updated part '{part_name}' - joint unlocked")
-
-                logging.debug(
-                    f"EditorTab: Visualizing skeleton with {len(skeleton_for_view)} joints and hierarchy keys: {list(hierarchy.keys())}"
-                )
-                self.editor_view.visualize_skeleton(skeleton_for_view, hierarchy)
-            else:
-                logging.info(
-                    "EditorTab: Clearing skeleton visualization because skeleton_data is None."
-                )
-                self.editor_view.visualize_skeleton([], {})
-
-        self._update_button_states()
-
-    # New method to cache initial skeleton data
     def cache_initial_skeleton(self, skeleton_data_dict: dict | None):
-        """Caches the initial skeleton data dictionary provided by MainWindow."""
+        """Caches initial skeleton data. Delegates to SkeletonIKHandler."""
+        # Keep local cache for backwards compatibility with existing lambdas
         if skeleton_data_dict:
-            self._initial_skeleton_data_cache = (
-                skeleton_data_dict.copy()
-            )  # Store a copy
-            logging.info("EditorTab: Initial skeleton data has been cached.")
-            # Pass the joint_map to the editor_view
-            if self.editor_view and hasattr(
-                self.editor_view, "set_joint_map"
-            ):  # Check if method exists
-                joint_map = self._initial_skeleton_data_cache.get("joint_map")
-                self.editor_view.set_joint_map(joint_map)
-
-            # Parts should remain at 0° rotation as they are cropped images
-            # The skeleton angles are used for IK calculations, not initial part display
-
-            # Position parts at their anchor joints if parts are already loaded
-            if self.current_editor_items:
-                self._position_parts_at_anchor_joints()
+            self._initial_skeleton_data_cache = skeleton_data_dict.copy()
         else:
             self._initial_skeleton_data_cache = None
-            logging.info(
-                "EditorTab: Initial skeleton data cache has been cleared (set to None)."
-            )
-            if self.editor_view and hasattr(
-                self.editor_view, "set_joint_map"
-            ):  # Check if method exists
-                self.editor_view.set_joint_map(None)  # Clear map in view as well
 
-        # Refresh visuals in case this is a reload
-        self._update_part_list_styles()
-        self._update_active_part_visuals()
-        self._update_button_states()
+        if hasattr(self, '_skeleton_ik_handler'):
+            self._skeleton_ik_handler.cache_initial_skeleton(skeleton_data_dict)
+        else:
+            logging.warning("SkeletonIKHandler not initialized, cannot cache skeleton")
 
     def _position_parts_at_anchor_joints(self):
-        """Positions parts at their anchor joint locations based on skeleton data."""
-        if (
-            not self._initial_skeleton_data_cache
-            or "joints" not in self._initial_skeleton_data_cache
-        ):
-            return
+        """Positions parts at anchor joints. Delegates to SkeletonIKHandler."""
+        if hasattr(self, '_skeleton_ik_handler'):
+            self._skeleton_ik_handler._position_parts_at_anchor_joints()
+        else:
+            logging.warning("SkeletonIKHandler not initialized, cannot position parts")
 
-        joint_map = self._initial_skeleton_data_cache.get("joint_map", {})
-        joints_dict = self._initial_skeleton_data_cache.get("joints", {})
-
-        # Import BODY_PARTS for fallback anchor joint lookup
-        try:
-            from automataii.domain.animation.part_definitions import BODY_PARTS
-        except ImportError:
-            BODY_PARTS = {}
-            logging.warning(
-                "EditorTab: Could not import BODY_PARTS for fallback anchor joint lookup"
-            )
-
-        for part_name, part_item in self.current_editor_items.items():
-            if part_name in self.current_parts_info:
-                p_info = self.current_parts_info[part_name]
-
-                # Get anchor_joint_id, with fallback to BODY_PARTS
-                anchor_joint_id = p_info.anchor_joint_id
-                if not anchor_joint_id and BODY_PARTS:
-                    part_def = BODY_PARTS.get(part_name, {})
-                    anchor_joint_id = part_def.get("anchor_joint")
-                    if anchor_joint_id:
-                        logging.info(
-                            f"EditorTab: Using fallback anchor_joint '{anchor_joint_id}' for part '{part_name}' from BODY_PARTS"
-                        )
-
-                if anchor_joint_id:
-                    # Find standardized joint ID from original anchor_joint_id
-                    std_joint_id = None
-                    for orig_name, std_id in joint_map.items():
-                        if orig_name == anchor_joint_id:
-                            std_joint_id = std_id
-                            break
-
-                    if std_joint_id and std_joint_id in joints_dict:
-                        joint_data = joints_dict[std_joint_id]
-                        joint_pos = joint_data.get("position", [0, 0])
-                        if len(joint_pos) >= 2:
-                            scene_pos = QPointF(joint_pos[0], joint_pos[1])
-
-                            # 🔧 CRITICAL FIX: Validate skeleton length preservation before applying position
-                            position_valid = self._validate_skeleton_length_preservation_reset(
-                                part_item, scene_pos, joints_dict
-                            )
-
-                            if position_valid:
-                                # Use bypass for legitimate reset - the validation was done above
-                                part_item.set_scene_position_from_anchor(scene_pos, bypass_validation=True)
-                                logging.info(
-                                    f"EditorTab: Positioned part '{part_name}' at anchor joint '{std_joint_id}' position: ({joint_pos[0]:.1f}, {joint_pos[1]:.1f})"
-                                )
-                            else:
-                                logging.debug(
-                                    f"EditorTab: Skeleton length constraint violation prevented for part '{part_name}' during reset"
-                                )
-                    else:
-                        # Log if we couldn't find the anchor joint
-                        logging.warning(
-                            f"EditorTab (_position_parts_at_anchor_joints): Could not find anchor joint for part '{part_name}'. "
-                            f"anchor_joint_id='{anchor_joint_id}', std_joint_id='{std_joint_id}', "
-                            f"Available joints: {list(joints_dict.keys())}"
-                        )
+    def _validate_part_position(
+        self,
+        part_item: Any,
+        position: QPointF,
+        joints_dict: dict[str, Any],
+    ) -> bool:
+        """Validate part position before placement. Used by PartsDataManager."""
+        return self._validate_skeleton_length_preservation_reset(
+            part_item, position, joints_dict
+        )
 
     def _validate_skeleton_length_preservation_reset(
         self,
@@ -1595,69 +1041,18 @@ class EditorTab(QWidget):
     # Slot for freehandPathCompleted signal from EditorView
     @pyqtSlot(list)  # Changed to match signal: list of QPointF
     def _handle_freehand_path_completed(self, path_points: list[QPointF]):
-        """
-        Handles the completion of a freehand drawing path from the view.
-        The view is responsible for creating the final spline path. This method
-        retrieves that path and updates the data models.
-        """
-        if not self.selected_part_name:
-            logging.warning("_handle_freehand_path_completed: No part selected.")
-            return
-
-        part_name = self.selected_part_name
-
-        # Retrieve the final spline path created by the EditorView
-        final_path_item = self.editor_view.final_paths_map.get(part_name)
-
-        if not final_path_item:
-            logging.error(f"Could not find final spline path for {part_name} in EditorView's final_paths_map.")
-            # As a fallback, create a linear path from the raw points. This should not happen in normal operation.
-            motion_qpath = QPainterPath()
-            if path_points:
-                motion_qpath.moveTo(path_points[0])
-                for point in path_points[1:]:
-                    motion_qpath.lineTo(point)
+        """Handles freehand path completion. Delegates to MotionPathManager."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.handle_freehand_path_completed(path_points)
         else:
-            motion_qpath = final_path_item.path()
-            logging.info(f"Retrieved final spline path for '{part_name}' from EditorView.")
+            logging.warning("MotionPathManager not initialized, cannot handle path completion")
 
-        # Update the PartInfo model in the ProjectDataManager
-        current_parts_info = self.main_window.project_data_manager.parts
-        if part_name in current_parts_info:
-            current_parts_info[part_name].motion_path = motion_qpath
-            logging.debug(f"EditorTab: Updated motion_path in ProjectDataManager for '{part_name}'.")
-        else:
-            logging.warning(f"_handle_freehand_path_completed: Part '{part_name}' not found in ProjectDataManager.")
-
-        # Update the CharacterPartItem in the scene
-        if part_name in self.current_editor_items:
-            char_part_item = self.current_editor_items[part_name]
-            char_part_item.set_motion_path(motion_qpath)
-
-            # Store the original path points for smoothness adjustment
-            if not hasattr(char_part_item, 'original_path_points'):
-                char_part_item.original_path_points = path_points.copy()
-            else:
-                char_part_item.original_path_points = path_points.copy()
-        else:
-            logging.warning(f"_handle_freehand_path_completed: Item '{part_name}' not in current_editor_items.")
-
-        # Emit signals to notify other parts of the application
-        self.motion_path_updated.emit(part_name, motion_qpath)
-        self._emit_path_data()
-
-        self.main_window.statusBar().showMessage(f"Motion path completed for part: {part_name}")
-        self._update_button_states()
-        logging.info(f"Completed and stored spline motion path for part: {part_name}")
-
-    # Slot for drawing_cancelled signal from EditorView
     def _handle_drawing_cancelled(self):
-        """Handles cancellation of drawing mode from the view."""
-        logging.debug("Drawing mode cancelled from view.")
-        self.define_motion_path_btn.setChecked(False)
-        self.define_motion_path_btn.setText("Start Drawing")
-        self.define_motion_path_btn.setStyleSheet("")
-        self.motion_path_info_label.setVisible(False)
+        """Handles drawing cancellation. Delegates to MotionPathManager."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.handle_drawing_cancelled()
+        else:
+            logging.warning("MotionPathManager not initialized, cannot handle drawing cancelled")
 
     # --- Public slots for view actions (for MainWindow connection) ---
     @pyqtSlot()
@@ -1696,37 +1091,21 @@ class EditorTab(QWidget):
         pass
 
     def handle_joint_defined(self, joint_data: dict):
-        """Handles the joint_defined signal from EditorView.
-        Stores the joint data and potentially updates UI or triggers further processing.
-        """
-        logging.info(f"EditorTab: Joint defined: {joint_data}")
-        # joint_data is a dict from the view as per its signal
+        """Handles joint_defined signal. Delegates to SkeletonIKHandler."""
+        # Keep local joints list for backwards compatibility
         self.joints.append(joint_data)
-        self.main_window.statusBar().showMessage(
-            f"Joint defined between {joint_data['part1_name']} and {joint_data['part2_name']}"
-        )
-        self._update_button_states()
+
+        if hasattr(self, '_skeleton_ik_handler'):
+            self._skeleton_ik_handler.handle_joint_defined(joint_data)
+        else:
+            logging.warning("SkeletonIKHandler not initialized, cannot handle joint defined")
 
     def handle_ik_update(self, ik_results: dict[str, dict[str, Any]]):
-        """Receives IK results and updates the EditorView."""
-        logging.debug(
-            f"[IK_ENTRY_TRACE] EditorTab.handle_ik_update entered. Current state: {self.current_simulation_state}. IK Results count: {len(ik_results)}"
-        )
-        if not self.editor_view:
-            logging.warning("EditorTab: EditorView not available to handle IK update.")
-            return
-
-        if not ik_results:
-            return
-
-        if ik_results:
-            self.editor_view.update_visuals_from_animation_data(ik_results)
+        """Receives IK results. Delegates to SkeletonIKHandler."""
+        if hasattr(self, '_skeleton_ik_handler'):
+            self._skeleton_ik_handler.handle_ik_update(ik_results)
         else:
-            logging.info(
-                "EditorTab.handle_ik_update: No valid joint-centric data generated from ik_results to update visuals."
-            )
-
-        self.editor_view.scene().update()
+            logging.warning("SkeletonIKHandler not initialized, cannot handle IK update")
 
     def _handle_part_item_clicked_from_view(self, clicked_item: CharacterPartItem):
         """Handles a CharacterPartItem being clicked in the EditorView."""
@@ -1786,294 +1165,17 @@ class EditorTab(QWidget):
         logging.info(f"EditorTab: Emitted path data for {len(path_data)} parts")
 
     def _on_smoothness_changed(self, value: int):
-        """Handle smoothness slider value change."""
-        # Update the value label
-        if self.smoothness_value_label:
-            self.smoothness_value_label.setText(f"{value}%")
+        """Handle smoothness slider value change. Delegates to MotionPathManager."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.on_smoothness_changed(value)
+        else:
+            # Fallback: just update the label
+            if self.smoothness_value_label:
+                self.smoothness_value_label.setText(f"{value}%")
 
-        # If a part is selected and has a path, regenerate it with new smoothness
-        if self.selected_part_name and self._has_motion_path(self.selected_part_name):
-            self._regenerate_path_with_smoothness(self.selected_part_name, value)
-
-    def _regenerate_path_with_smoothness(self, part_name: str, smoothness_percentage: int):
-        """Regenerate motion path using tolerance-based smoothing that preserves extremes.
-
-        Shows dual-track overlay: raw (dashed green) vs smoothed (solid).
-        """
-        # 1) Gather original points
-        original_points = self._get_original_path_points(part_name)
-        if not original_points or len(original_points) < 3:
-            logging.warning(f"Cannot regenerate path for {part_name}: insufficient original points")
-            return
-
-        # If smoothness is 0: commit completely raw path and show purple dashed raw overlay
-        if smoothness_percentage == 0:
-            raw_path = self._create_raw_path(original_points)
-            if hasattr(self.editor_view, 'set_raw_overlay_path'):
-                # Purple dashed pen for raw overlay
-                raw_pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
-                self.editor_view.set_raw_overlay_path(part_name, raw_path, raw_pen)
-            # Compute feasibility-corrected overlay (if available)
-            try:
-                corrected = self._apply_feasibility_snapping_if_needed(part_name, raw_path)
-                if corrected is not None and hasattr(self.editor_view, 'set_corrected_overlay_path'):
-                    self.editor_view.set_corrected_overlay_path(part_name, corrected)
-                    self._corrected_paths[part_name] = corrected
-            except Exception as e:
-                logging.debug(f"Feasibility snapping skipped: {e}")
-            self._update_part_path(part_name, raw_path)
-            logging.info(f"Regenerated path (RAW) for {part_name} with smoothness 0%")
-            return
-
-        # 2) Map slider 0..100 to geometric tolerance based on path size
-        bbox_min_x = min(p.x() for p in original_points)
-        bbox_max_x = max(p.x() for p in original_points)
-        bbox_min_y = min(p.y() for p in original_points)
-        bbox_max_y = max(p.y() for p in original_points)
-        diag = ((bbox_max_x - bbox_min_x) ** 2 + (bbox_max_y - bbox_min_y) ** 2) ** 0.5
-        # Use up to 5% of diagonal as max tolerance; avoid negative/lower than minimal float jitter
-        epsilon = max(0.1, 0.05 * diag * (smoothness_percentage / 100.0))
-
-        # 3) Compute extreme indices to preserve (endpoints + local extrema along principal axis)
-        keep_indices = self._compute_extreme_indices(original_points)
-
-        # 4) RDP simplify while preserving extremes
-        simplified = self._rdp_preserve(original_points, epsilon, keep_indices)
-        if len(simplified) < 3:
-            simplified = original_points
-
-        # 5) Build smoothed path via spline
-        try:
-            tension = 0.5
-            new_path = self.editor_view._create_spline_path(simplified, closed_loop=True, tension=tension)
-        except Exception:
-            new_path = self._create_raw_path(simplified)
-
-        # 6) Show dual-track overlays: raw vs smoothed
-        raw_overlay = self._create_raw_path(original_points)
-        if hasattr(self.editor_view, 'set_raw_overlay_path'):
-            raw_pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
-            self.editor_view.set_raw_overlay_path(part_name, raw_overlay, raw_pen)
-
-        # 7) Optional: feasibility snapping (overlay corrected if needed)
-        try:
-            corrected = self._apply_feasibility_snapping_if_needed(part_name, new_path)
-            if corrected is not None and hasattr(self.editor_view, 'set_corrected_overlay_path'):
-                self.editor_view.set_corrected_overlay_path(part_name, corrected)
-                self._corrected_paths[part_name] = corrected
-        except Exception as e:
-            logging.debug(f"Feasibility snapping skipped: {e}")
-
-        # 8) Commit smoothed path
-        self._update_part_path(part_name, new_path)
-        logging.info(f"Regenerated path (RDP) for {part_name} with epsilon={epsilon:.2f}")
-
-    # ---- Geometry helpers for Stage 1 smoothing ----
-    def _compute_extreme_indices(self, points: list[QPointF]) -> set[int]:
-        """Detect indices of extremes along principal axis, including endpoints.
-
-        Uses PCA to find major axis, projects points, and picks local maxima/minima.
-        """
-        try:
-            import numpy as np
-        except Exception:
-            # Fallback: use x-axis projection
-            vals = [p.x() for p in points]
-            return self._local_extrema_indices(vals)
-
-        arr = np.array([[p.x(), p.y()] for p in points], dtype=float)
-        arr_centered = arr - np.mean(arr, axis=0)
-        cov = np.cov(arr_centered.T)
-        eigvals, eigvecs = np.linalg.eigh(cov)
-        major = eigvecs[:, np.argmax(eigvals)]
-        proj = arr_centered @ major
-        idxs = self._local_extrema_indices(proj.tolist())
-        # Always include endpoints
-        idxs.update({0, len(points) - 1})
-        return idxs
-
-    def _local_extrema_indices(self, values: list[float]) -> set[int]:
-        """Return indices that are local minima or maxima in a 1D sequence."""
-        idxs: set[int] = set()
-        n = len(values)
-        for i in range(1, n - 1):
-            if (values[i] >= values[i - 1] and values[i] >= values[i + 1]) or \
-               (values[i] <= values[i - 1] and values[i] <= values[i + 1]):
-                idxs.add(i)
-        return idxs
-
-    def _rdp_preserve(self, points: list[QPointF], epsilon: float, keep_indices: set[int]) -> list[QPointF]:
-        """Ramer–Douglas–Peucker simplification while forcing certain indices to be kept."""
-        # Convert to tuples for distance calc
-        import math
-
-        def point_line_distance(p, a, b):
-            # p, a, b are QPointF
-            ax, ay = a.x(), a.y()
-            bx, by = b.x(), b.y()
-            px, py = p.x(), p.y()
-            dx, dy = bx - ax, by - ay
-            if dx == 0 and dy == 0:
-                return math.hypot(px - ax, py - ay)
-            t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
-            t = max(0.0, min(1.0, t))
-            projx, projy = ax + t * dx, ay + t * dy
-            return math.hypot(px - projx, py - projy)
-
-        def rdp_segment(start_idx, end_idx) -> list[int]:
-            if end_idx <= start_idx + 1:
-                return [start_idx, end_idx]
-            # Find furthest point
-            a, b = points[start_idx], points[end_idx]
-            max_dist = -1.0
-            index = -1
-            for i in range(start_idx + 1, end_idx):
-                d = point_line_distance(points[i], a, b)
-                if d > max_dist:
-                    max_dist = d
-                    index = i
-            if max_dist > epsilon or any((start_idx < k < end_idx) for k in keep_indices):
-                # Split
-                left = rdp_segment(start_idx, index)
-                right = rdp_segment(index, end_idx)
-                return left[:-1] + right
-            else:
-                return [start_idx, end_idx]
-
-        n = len(points)
-        # Ensure keep points are included by forcing splits at those indices
-        selected = set()
-        # Sort keep indices inside (0,n-1)
-        internal_keeps = sorted([k for k in keep_indices if 0 < k < n - 1])
-        segments = []
-        prev = 0
-        for k in internal_keeps:
-            segments.append((prev, k))
-            prev = k
-        segments.append((prev, n - 1))
-        idx_list: list[int] = []
-        for s, e in segments:
-            seg_idxs = rdp_segment(s, e)
-            for i in seg_idxs:
-                selected.add(i)
-        final_indices = sorted(selected)
-        return [points[i] for i in final_indices]
-
-    # ---- Feasibility stub (Stage 1) ----
-    def _apply_feasibility_snapping_if_needed(self, part_name: str, path: QPainterPath) -> QPainterPath | None:
-        """Attempt to compute a nearest-feasible path based on end-effector reach.
-
-        Uses a two-bone (root->mid->effector) annulus model when available from IKManager:
-        feasible radii from root = [abs(l1-l2), l1+l2] (± small tolerance). Points are
-        projected onto this annulus. Falls back to single-bone model otherwise.
-        """
-        try:
-            ik = getattr(self.main_window, 'ik_manager', None)
-            if not ik or not hasattr(ik, 'sim_joints_config'):
-                return None
-
-            # Find end-effector joint (abstract) for this part
-            eff_abs = None
-            try:
-                for comp in getattr(ik, 'sim_selectable_components', []) or []:
-                    if comp.get('partName') == part_name:
-                        eff_abs = comp.get('targetJointId')
-                        break
-            except Exception:
-                eff_abs = None
-            if not eff_abs:
-                return None
-
-            # Resolve parent (mid) and root anchors via sim_limb_configs
-            mid_abs = None
-            root_abs = None
-            try:
-                mid_abs = ik.sim_limb_configs.get(eff_abs, {}).get('parentAnchor')
-                if mid_abs:
-                    root_abs = ik.sim_limb_configs.get(mid_abs, {}).get('parentAnchor') or mid_abs
-            except Exception:
-                pass
-            if not mid_abs or not root_abs:
-                return None
-
-            # Map abstract names to standardized joint IDs
-            def std_id_of(abs_name: str) -> str | None:
-                try:
-                    return ik._get_standardized_joint_id(abs_name)  # type: ignore[attr-defined]
-                except Exception:
-                    return None
-
-            eff_id = std_id_of(eff_abs) or eff_abs
-            mid_id = std_id_of(mid_abs) or mid_abs
-            root_id = std_id_of(root_abs) or root_abs
-            for jid in (eff_id, mid_id, root_id):
-                if jid not in ik.sim_joints_config:
-                    return None
-
-            root_pos = ik.sim_joints_config[root_id]['position']
-            mid_pos = ik.sim_joints_config[mid_id]['position']
-            eff_pos = ik.sim_joints_config[eff_id]['position']
-
-            # Bone lengths
-            def dist(a, b):
-                dx = a.x() - b.x(); dy = a.y() - b.y()
-                return (dx*dx + dy*dy) ** 0.5
-
-            l1 = dist(root_pos, mid_pos)
-            l2 = dist(mid_pos, eff_pos)
-            if l1 <= 1e-6 or l2 <= 1e-6:
-                return None
-
-            tol = 0.05  # small tolerance 5%
-            r_min = max(0.0, abs(l1 - l2) * (1.0 - tol))
-            r_max = (l1 + l2) * (1.0 + tol)
-
-            # Project sampled points
-            corrected = QPainterPath()
-            any_change = False
-            samples = 100
-            for i in range(samples):
-                t = i / (samples - 1) if samples > 1 else 0.0
-                p = path.pointAtPercent(t)
-                dx = p.x() - root_pos.x()
-                dy = p.y() - root_pos.y()
-                d = (dx * dx + dy * dy) ** 0.5
-                if d < 1e-6:
-                    nx, ny = r_min, 0.0
-                    any_change = True
-                else:
-                    if d < r_min:
-                        s = r_min / d; nx, ny = dx * s, dy * s; any_change = True
-                    elif d > r_max:
-                        s = r_max / d; nx, ny = dx * s, dy * s; any_change = True
-                    else:
-                        nx, ny = dx, dy
-                cx = root_pos.x() + nx
-                cy = root_pos.y() + ny
-                if i == 0:
-                    corrected.moveTo(cx, cy)
-                else:
-                    corrected.lineTo(cx, cy)
-            corrected.closeSubpath()
-            return corrected if any_change else None
-        except Exception as e:
-            logging.debug(f"Feasibility snapping error: {e}")
-            return None
-
-    def _apply_corrections_for_all_parts(self):
-        """Auto-apply feasibility-corrected paths for all parts that have them."""
-        if not hasattr(self, '_corrected_paths') or not self._corrected_paths:
-            return
-        for part, corrected in list(self._corrected_paths.items()):
-            try:
-                if corrected is None:
-                    continue
-                self._update_part_path(part, corrected)
-                if hasattr(self.editor_view, 'clear_corrected_overlay_for'):
-                    self.editor_view.clear_corrected_overlay_for(part)
-                self._corrected_paths.pop(part, None)
-            except Exception as e:
-                logging.debug(f"Failed to auto-apply correction for {part}: {e}")
+    # NOTE: Path smoothing methods (_regenerate_path_with_smoothness, _compute_extreme_indices,
+    # _local_extrema_indices, _rdp_preserve, _apply_feasibility_snapping_if_needed,
+    # _apply_corrections_for_all_parts) have been moved to MotionPathManager component.
 
     def _get_original_path_points(self, part_name: str) -> list[QPointF]:
         """Get the original drawn points for a part (before spline interpolation)."""
@@ -2093,168 +1195,23 @@ class EditorTab(QWidget):
 
     def _extract_points_from_path(self, path: QPainterPath) -> list[QPointF]:
         """Extract points from a QPainterPath (approximation for existing paths)."""
-        points = []
-        # Sample the path at regular intervals
-        length = path.length()
-        if length > 0:
-            num_samples = min(12, max(6, int(length / 20)))  # Adaptive sampling
-            for i in range(num_samples):
-                percent = i / (num_samples - 1) if num_samples > 1 else 0
-                point = path.pointAtPercent(percent)
-                points.append(point)
-        return points
+        return extract_points_from_path(path)
 
     def _create_raw_path(self, points: list[QPointF]) -> QPainterPath:
         """Create a path using raw points connected by straight lines."""
-        path = QPainterPath()
-        if points:
-            path.moveTo(points[0])
-            for point in points[1:]:
-                path.lineTo(point)
-            if len(points) > 2:
-                path.lineTo(points[0])  # Close the path
-        return path
+        return create_raw_path(points, closed=True)
 
     def _create_perfect_ellipse_path(self, points: list[QPointF]) -> QPainterPath:
         """Create a perfect ellipse optimized for the original points' distribution and orientation."""
-        if not points:
-            return QPainterPath()
-
-        import math
-
-        import numpy as np
-
-        # Convert points to numpy array for easier calculation
-        coords = np.array([[p.x(), p.y()] for p in points])
-
-        # Calculate center (centroid)
-        center = np.mean(coords, axis=0)
-        center_x, center_y = center[0], center[1]
-
-        # Center the points
-        centered_coords = coords - center
-
-        # Calculate covariance matrix to find principal axes
-        cov_matrix = np.cov(centered_coords.T)
-
-        # Find eigenvalues and eigenvectors (principal components)
-        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-
-        # Sort eigenvalues and eigenvectors by eigenvalue magnitude (largest first)
-        sorted_indices = np.argsort(eigenvalues)[::-1]
-        eigenvalues = eigenvalues[sorted_indices]
-        eigenvectors = eigenvectors[:, sorted_indices]
-
-        # Principal axes
-        major_axis = eigenvectors[:, 0]  # Direction of largest variance
-        minor_axis = eigenvectors[:, 1]  # Direction of smallest variance
-
-        # Calculate ellipse radii based on the spread of data along principal axes
-        # Project points onto principal axes and find the range
-        major_projections = np.dot(centered_coords, major_axis)
-        minor_projections = np.dot(centered_coords, minor_axis)
-
-        # Use smaller multiplier to keep ellipse size closer to original (Issue #3)
-        # Original used 2 std devs which made ellipse too large
-        major_radius = 1.2 * np.std(major_projections)  # Reduced from 2.0 to 1.2
-        minor_radius = 1.2 * np.std(minor_projections)  # Reduced from 2.0 to 1.2
-
-        # Ensure minimum radius to avoid degenerate ellipse
-        min_radius = 10.0  # Minimum radius in pixels
-        major_radius = max(major_radius, min_radius)
-        minor_radius = max(minor_radius, min_radius)
-
-        # Calculate rotation angle of the major axis
-        rotation_angle = math.atan2(major_axis[1], major_axis[0])
-
-        # Create ellipse path
-        path = QPainterPath()
-        num_points = max(36, len(points) * 3)  # Smooth ellipse with enough points
-
-        for i in range(num_points + 1):  # +1 to close the ellipse
-            # Parametric angle
-            t = 2 * math.pi * i / num_points
-
-            # Ellipse in local coordinates (before rotation)
-            local_x = major_radius * math.cos(t)
-            local_y = minor_radius * math.sin(t)
-
-            # Rotate by the principal axis angle
-            cos_rot = math.cos(rotation_angle)
-            sin_rot = math.sin(rotation_angle)
-
-            rotated_x = local_x * cos_rot - local_y * sin_rot
-            rotated_y = local_x * sin_rot + local_y * cos_rot
-
-            # Translate to center
-            x = center_x + rotated_x
-            y = center_y + rotated_y
-
-            if i == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
-
-        return path
+        return create_perfect_ellipse_path(points)
 
     def _create_interpolated_path(self, points: list[QPointF], smoothness_percentage: int) -> QPainterPath:
         """Create a path interpolated between raw points and perfect ellipse with optimal point correspondence."""
-        if not points:
-            return QPainterPath()
-
-        import math
-
-        import numpy as np
-
-        # Get raw path points
-        raw_path_points = points
-
-        # Get ellipse path and center
-        ellipse_path = self._create_perfect_ellipse_path(points)
-
-        # Calculate center for angle-based correspondence
-        coords = np.array([[p.x(), p.y()] for p in points])
-        center = np.mean(coords, axis=0)
-        center_x, center_y = center[0], center[1]
-
-        # Find corresponding ellipse points using angular alignment
-        ellipse_points = []
-
-        for raw_point in raw_path_points:
-            # Calculate angle of raw point relative to center
-            raw_angle = math.atan2(raw_point.y() - center_y, raw_point.x() - center_x)
-
-            # Find corresponding point on ellipse using the same angle
-            # Convert angle to path parameter (0 to 1)
-            # Normalize angle to [0, 2π]
-            normalized_angle = (raw_angle + 2 * math.pi) % (2 * math.pi)
-            percent = normalized_angle / (2 * math.pi)
-
-            # Get point on ellipse at this parameter
-            ellipse_point = ellipse_path.pointAtPercent(percent)
-            ellipse_points.append(ellipse_point)
-
-        # Interpolation factor (0.0 = raw, 1.0 = ellipse)
-        factor = smoothness_percentage / 100.0
-
-        # Interpolate between raw points and corresponding ellipse points
-        interpolated_points = []
-        for i in range(len(raw_path_points)):
-            raw_p = raw_path_points[i]
-            ellipse_p = ellipse_points[i]
-
-            # Linear interpolation
-            x = raw_p.x() * (1 - factor) + ellipse_p.x() * factor
-            y = raw_p.y() * (1 - factor) + ellipse_p.y() * factor
-            interpolated_points.append(QPointF(x, y))
-
-        # Create spline path from interpolated points for additional smoothness
+        # Use spline creator from editor_view if available
+        spline_creator = None
         if hasattr(self.editor_view, '_create_spline_path'):
-            # Use lower tension for smoother interpolation
-            tension = 0.3 + 0.4 * (factor)  # Tension increases with smoothness
-            return self.editor_view._create_spline_path(interpolated_points, closed_loop=True, tension=tension)
-        else:
-            return self._create_raw_path(interpolated_points)
+            spline_creator = self.editor_view._create_spline_path
+        return create_interpolated_path(points, smoothness_percentage, spline_creator)
 
 
     def _update_part_path(self, part_name: str, new_path: QPainterPath):
@@ -2349,12 +1306,12 @@ class EditorTab(QWidget):
                 if hasattr(item, 'motion_path') and item.motion_path and not item.motion_path.isEmpty():
                     return True
         return False
-    
+
     def center_on_character(self):
         """Center the view on the character (all parts)."""
         if not self.editor_scene or not self.current_editor_items:
             return
-        
+
         # Calculate bounding box of all parts
         combined_rect = None
         for part_info in self.current_editor_items.values():
@@ -2365,52 +1322,94 @@ class EditorTab(QWidget):
                     combined_rect = part_rect
                 else:
                     combined_rect = combined_rect.united(part_rect)
-        
+
         if combined_rect:
             # Add some padding
             padding = 50
             combined_rect.adjust(-padding, -padding, padding, padding)
-            
+
             # Center on the character without changing zoom
             center = combined_rect.center()
             self.editor_view.centerOn(center)
 
     def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
-        """Handle joint bend direction change from EditorView."""
-        logging.info(f"EditorTab: Joint '{joint_id}' bend direction changed to {new_direction}")
-
-        # More detailed debug logging
-        if not hasattr(self, 'main_window'):
-            logging.error("EditorTab: No main_window attribute!")
-            return
-
-        logging.info(f"EditorTab: main_window exists: {self.main_window}")
-
-        if not hasattr(self.main_window, 'skeleton_manager'):
-            logging.warning("EditorTab: main_window has no skeleton_manager attribute")
-            # List all attributes containing 'skeleton' for debugging
-            skeleton_attrs = [attr for attr in dir(self.main_window) if 'skeleton' in attr.lower()]
-            logging.info(f"EditorTab: main_window skeleton-related attributes: {skeleton_attrs}")
-            return
-
-        sm = self.main_window.skeleton_manager
-        logging.info(f"EditorTab: skeleton_manager = {sm}")
-
-        if sm is None:
-            logging.warning("EditorTab: skeleton_manager is None")
-            return
-
-        # Call set_joint_bend_direction
-        logging.info(f"EditorTab: Calling skeleton_manager.set_joint_bend_direction('{joint_id}', {new_direction})")
-        try:
-            sm.set_joint_bend_direction(joint_id, new_direction)
-            logging.info("EditorTab: Successfully called set_joint_bend_direction")
-        except Exception as e:
-            logging.error(f"EditorTab: Error calling set_joint_bend_direction: {e}", exc_info=True)
-
-        # Store in cached skeleton data if available
+        """Handle joint bend direction change. Delegates to SkeletonIKHandler."""
+        # Update local cache for backwards compatibility
         if self._initial_skeleton_data_cache and 'joints' in self._initial_skeleton_data_cache:
             joints = self._initial_skeleton_data_cache['joints']
             if joint_id in joints:
                 joints[joint_id]['bend_direction'] = new_direction
-                logging.info(f"EditorTab: Updated bend_direction in cached skeleton data for joint '{joint_id}'")
+
+        if hasattr(self, '_skeleton_ik_handler'):
+            self._skeleton_ik_handler.handle_joint_bend_direction_changed(joint_id, new_direction)
+        else:
+            logging.warning("SkeletonIKHandler not initialized, cannot handle bend direction")
+
+    # --- Cleanup ---
+
+    def closeEvent(self, event) -> None:
+        """
+        Handle tab close event - cleanup signals and resources.
+
+        Disconnects all signal connections to prevent memory leaks
+        and dangling references when the tab is closed.
+        """
+        logging.info("EditorTab: closeEvent - cleaning up signals")
+
+        # Disconnect editor_view signals
+        try:
+            if self.editor_view:
+                self.editor_view.freehandPathCompleted.disconnect()
+                self.editor_view.drawing_cancelled.disconnect()
+                self.editor_view.joint_defined.disconnect()
+                self.editor_view.zoom_changed.disconnect()
+                self.editor_view.part_item_clicked.disconnect()
+                self.editor_view.part_item_double_clicked.disconnect()
+                self.editor_view.joint_bend_direction_changed.disconnect()
+        except (TypeError, RuntimeError) as e:
+            logging.debug(f"EditorTab: Signal disconnect (editor_view): {e}")
+
+        # Disconnect simulation controller signals
+        try:
+            if hasattr(self, '_simulation_controller') and self._simulation_controller:
+                self._simulation_controller.request_play.disconnect()
+                self._simulation_controller.request_stop.disconnect()
+                self._simulation_controller.request_reset.disconnect()
+        except (TypeError, RuntimeError) as e:
+            logging.debug(f"EditorTab: Signal disconnect (simulation_controller): {e}")
+
+        # Disconnect UI widget signals
+        try:
+            if self.parts_list:
+                self.parts_list.currentItemChanged.disconnect()
+            if self.define_motion_path_btn:
+                self.define_motion_path_btn.toggled.disconnect()
+            if self.clear_motion_path_btn:
+                self.clear_motion_path_btn.clicked.disconnect()
+            if self.play_btn:
+                self.play_btn.clicked.disconnect()
+            if self.stop_btn:
+                self.stop_btn.clicked.disconnect()
+            if self.reset_sim_btn:
+                self.reset_sim_btn.clicked.disconnect()
+            if self.smoothness_slider:
+                self.smoothness_slider.valueChanged.disconnect()
+            if self.zoom_in_btn:
+                self.zoom_in_btn.clicked.disconnect()
+            if self.zoom_out_btn:
+                self.zoom_out_btn.clicked.disconnect()
+            if self.zoom_fit_btn:
+                self.zoom_fit_btn.clicked.disconnect()
+            if self.center_character_btn:
+                self.center_character_btn.clicked.disconnect()
+        except (TypeError, RuntimeError, AttributeError) as e:
+            logging.debug(f"EditorTab: Signal disconnect (UI widgets): {e}")
+
+        # Clear references
+        self.current_parts_info.clear()
+        self.current_editor_items.clear()
+        self.joints.clear()
+        self._initial_skeleton_data_cache = None
+
+        logging.info("EditorTab: closeEvent - cleanup complete")
+        super().closeEvent(event)

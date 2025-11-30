@@ -16,8 +16,9 @@ from PyQt6.QtCore import QObject, Qt
 from PyQt6.QtGui import QPainterPath
 
 if TYPE_CHECKING:
-    from PyQt6.QtWidgets import QGraphicsScene, QListWidget, QListWidgetItem
     from PyQt6.QtGui import QTransform
+    from PyQt6.QtWidgets import QGraphicsScene, QListWidget, QListWidgetItem
+
     from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import PathTraceManager
 
 
@@ -38,7 +39,7 @@ class LayerSelectionController(QObject):
     def __init__(
         self,
         *,
-        path_trace_manager: "PathTraceManager",
+        path_trace_manager: PathTraceManager,
         parent: QObject | None = None,
     ) -> None:
         """
@@ -52,13 +53,13 @@ class LayerSelectionController(QObject):
         self._path_trace_manager = path_trace_manager
 
         # Callbacks (injected from Tab)
-        self._get_mechanism_layers_list_fn: Callable[[], "QListWidget | None"] | None = None
+        self._get_mechanism_layers_list_fn: Callable[[], QListWidget | None] | None = None
         self._get_mechanism_layers_fn: Callable[[], dict] | None = None
         self._get_path_data_fn: Callable[[], dict[str, QPainterPath]] | None = None
         self._get_part_enabled_state_fn: Callable[[], dict[str, bool]] | None = None
         self._get_current_editor_items_fn: Callable[[], dict] | None = None
         self._get_mechanism_view_fn: Callable[[], Any] | None = None
-        self._get_scene_fn: Callable[[], "QGraphicsScene"] | None = None
+        self._get_scene_fn: Callable[[], QGraphicsScene] | None = None
         self._get_parametric_mode_enabled_fn: Callable[[], bool] | None = None
         self._get_presenter_fn: Callable[[], Any | None] | None = None
         self._get_presenter_view_model_fn: Callable[[], Any | None] | None = None
@@ -79,13 +80,13 @@ class LayerSelectionController(QObject):
     def configure_callbacks(
         self,
         *,
-        get_mechanism_layers_list: Callable[[], "QListWidget | None"],
+        get_mechanism_layers_list: Callable[[], QListWidget | None],
         get_mechanism_layers: Callable[[], dict],
         get_path_data: Callable[[], dict[str, QPainterPath]],
         get_part_enabled_state: Callable[[], dict[str, bool]],
         get_current_editor_items: Callable[[], dict],
         get_mechanism_view: Callable[[], Any],
-        get_scene: Callable[[], "QGraphicsScene"],
+        get_scene: Callable[[], QGraphicsScene],
         get_parametric_mode_enabled: Callable[[], bool],
         get_presenter: Callable[[], Any | None],
         get_presenter_view_model: Callable[[], Any | None],
@@ -139,7 +140,7 @@ class LayerSelectionController(QObject):
 
         # Save current view transform to preserve user's view
         mechanism_view = self._get_mechanism_view_fn() if self._get_mechanism_view_fn else None
-        current_view_transform: "QTransform | None" = None
+        current_view_transform: QTransform | None = None
         if mechanism_view:
             current_view_transform = mechanism_view.transform()
 
@@ -179,7 +180,7 @@ class LayerSelectionController(QObject):
             if parametric_mode and self._hide_parametric_handles_fn:
                 self._hide_parametric_handles_fn()
 
-    def on_item_clicked(self, item: "QListWidgetItem") -> None:
+    def on_item_clicked(self, item: QListWidgetItem) -> None:
         """
         Handle clicking on a layer item.
 

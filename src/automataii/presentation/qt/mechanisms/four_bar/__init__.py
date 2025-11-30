@@ -1,11 +1,10 @@
 """Four-bar linkage mechanism module."""
 
-from .mechanism import FourBarMechanism
-from .editor import FourBarEditor
-from .serializer import FourBarSerializer
-
 # Register with the mechanism registry
 from ..registry import mechanism_registry
+from .editor import FourBarEditor
+from .mechanism import FourBarMechanism
+from .serializer import FourBarSerializer
 
 mechanism_registry.register_mechanism(
     mechanism_type="four_bar",

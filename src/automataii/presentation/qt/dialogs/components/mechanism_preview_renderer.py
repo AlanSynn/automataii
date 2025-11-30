@@ -8,11 +8,11 @@ Design Pattern: Renderer (preview generation)
 """
 from __future__ import annotations
 
-import math
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QBrush, QColor, QPen, QTransform
+from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QBrush, QColor, QPen
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene

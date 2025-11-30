@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QGraphicsView,
 )
 
-from automataii.core.models import PartInfo
+from automataii.presentation.qt.animation import ViewportConfig, ViewportController
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem  # UPDATED
 from automataii.presentation.qt.widgets.view_controls import HoverViewControls
 
@@ -64,6 +64,17 @@ class ImageProcessingView(QGraphicsView):
         self.grabGesture(Qt.GestureType.PinchGesture)
         self._pinch_mode = False
         self._pinch_start_scale = 1.0
+
+        # Viewport controller (unified zoom/pan/reset)
+        self._viewport_controller = ViewportController(
+            self,
+            ViewportConfig(
+                zoom_factor_base=1.2,  # Larger factor for quick zoom
+                min_zoom_level=-20,
+                max_zoom_level=20,
+                anchor_under_mouse=True,
+            ),
+        )
 
         # Scene items management
         self.image_item = None
@@ -224,7 +235,7 @@ class ImageProcessingView(QGraphicsView):
         return super().viewportEvent(event)  # Pass other gestures
 
     def _pinch_triggered(self, gesture):
-        """Handle pinch gesture logic for zooming."""
+        """Handle pinch gesture logic for zooming. Syncs with ViewportController."""
         if gesture.state() == Qt.GestureState.GestureStarted:
             self._pinch_mode = True
             self._pinch_start_scale = self.transform().m11()
@@ -239,6 +250,10 @@ class ImageProcessingView(QGraphicsView):
                 self.scale(zoom_factor, zoom_factor)
         elif gesture.state() == Qt.GestureState.GestureFinished:
             self._pinch_mode = False
+            # Sync ViewportController state with current scale
+            current_scale = self.transform().m11()
+            if current_scale > 0:
+                self._viewport_controller.zoom_to_scale(current_scale)
 
 
 
@@ -549,31 +564,31 @@ class ImageProcessingView(QGraphicsView):
         output_data["skeleton"] = output_skeleton
         return output_data
 
-    # --- View Control ---
+    # --- View Control (delegated to ViewportController) ---
 
     def reset_view(self):
         """Resets the view transformation and fits the image if available."""
-        self.resetTransform()
+        self._viewport_controller.reset_view()
         if self.image_item:
             # Fit content slightly zoomed out
             rect = self.image_item.boundingRect()
             self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
             self.scale(0.95, 0.95)  # Zoom out slightly
             self.centerOn(rect.center())
+            # Sync viewport controller state
+            self._viewport_controller.zoom_to_scale(self.transform().m11())
         elif self.joints:  # Fit skeleton if no image
             rect = self.scene().itemsBoundingRect()
             if rect.isValid():
                 self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                self._viewport_controller.zoom_to_scale(self.transform().m11())
 
     def zoom_to_fit(self):
-        """Zoom to fit all items in the view."""
+        """Zoom to fit all items in the view. Delegates to ViewportController."""
         if self.image_item:
-            # Fit image with some padding
             rect = self.image_item.boundingRect()
             if rect.isValid():
-                padding = 20
-                rect.adjust(-padding, -padding, padding, padding)
-                self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                self._viewport_controller.zoom_to_rect(rect, margin=20)
 
     def visualize_skeleton(self, skeleton_data: dict, joint_items: list = None):
         """Temporarily draws the skeleton structure on the scene."""
@@ -622,7 +637,7 @@ class ImageProcessingView(QGraphicsView):
                 self._skeleton_viz_items.append(bone_line)
 
         # Draw joints (circles)
-        for name, loc in joint_locations.items():
+        for _name, loc in joint_locations.items():
             joint_circle = QGraphicsEllipseItem(
                 loc.x() - joint_radius,
                 loc.y() - joint_radius,
@@ -900,7 +915,7 @@ class ImageProcessingView(QGraphicsView):
 
         part_name_to_move = None
         # Find which part is conceptually "attached" to this joint as its anchor
-        for pn, pi in self.part_items.items():
+        for pn, _pi in self.part_items.items():
             # This requires part_info to store which skeleton joint it's anchored to
             # or a convention like part_name 'head' corresponds to joint 'neck'
             # Let's use the self.skeleton_to_part_map directly for now, assuming it's structured
@@ -972,10 +987,8 @@ class ImageProcessingView(QGraphicsView):
             self.hover_controls.move(x, y)
 
     def _on_zoom_slider_changed(self, zoom_factor: float):
-        """Handle zoom slider change."""
-        # Reset transform and apply new scale
-        self.resetTransform()
-        self.scale(zoom_factor, zoom_factor)
+        """Handle zoom slider change. Uses ViewportController."""
+        self._viewport_controller.zoom_to_scale(zoom_factor)
 
     def resizeEvent(self, event):
         """Handle resize events to reposition hover controls."""
@@ -983,22 +996,19 @@ class ImageProcessingView(QGraphicsView):
         self._position_hover_controls()
 
 
-    def zoom_in(self):
-        """Zoom in the view."""
-        self.scale(1.2, 1.2)
+    # --- Zoom Methods (delegated to ViewportController) ---
 
-    def zoom_out(self):
-        """Zoom out the view."""
-        self.scale(0.8, 0.8)
+    def zoom_in(self, steps: int = 1):
+        """Zoom in the view. Delegates to ViewportController."""
+        self._viewport_controller.zoom_in(steps)
 
+    def zoom_out(self, steps: int = 1):
+        """Zoom out the view. Delegates to ViewportController."""
+        self._viewport_controller.zoom_out(steps)
 
     def zoom(self, direction: int):
-        """Zoom the view in or out based on direction.
-        
-        Args:
-            direction: Positive for zoom in, negative for zoom out
-        """
+        """Zoom the view in or out based on direction. Delegates to ViewportController."""
         if direction > 0:
-            self.zoom_in()
+            self._viewport_controller.zoom_in(direction)
         elif direction < 0:
-            self.zoom_out()
+            self._viewport_controller.zoom_out(-direction)

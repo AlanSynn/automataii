@@ -140,7 +140,7 @@ def solve_ik_fabrik_with_constraints(
         joint_positions.append(QPointF(pos))
 
     # FABRIK iterations
-    for iteration in range(iterations):
+    for _iteration in range(iterations):
         # Forward pass: from end effector to base
         joint_positions[-1] = QPointF(target_pos)
 

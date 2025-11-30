@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any
 from PyQt6.QtCore import QObject
 
 if TYPE_CHECKING:
-    from automataii.presentation.qt.tabs.parametric_editing_manager import ParametricEditingManager
     from automataii.presentation.qt.parametric_editor import ParametricEditor
+    from automataii.presentation.qt.tabs.parametric_editing_manager import ParametricEditingManager
 
 
 class ParametricModeController(QObject):
@@ -49,8 +49,8 @@ class ParametricModeController(QObject):
         self._parametric_mode_enabled: bool = False
 
         # Callbacks (injected from Tab)
-        self._get_parametric_manager_fn: Callable[[], "ParametricEditingManager | None"] | None = None
-        self._get_parametric_editor_fn: Callable[[], "ParametricEditor | None"] | None = None
+        self._get_parametric_manager_fn: Callable[[], ParametricEditingManager | None] | None = None
+        self._get_parametric_editor_fn: Callable[[], ParametricEditor | None] | None = None
         self._get_mechanism_layers_fn: Callable[[], dict] | None = None
         self._get_presenter_fn: Callable[[], Any | None] | None = None
 
@@ -61,8 +61,8 @@ class ParametricModeController(QObject):
     def configure_callbacks(
         self,
         *,
-        get_parametric_manager: Callable[[], "ParametricEditingManager | None"],
-        get_parametric_editor: Callable[[], "ParametricEditor | None"],
+        get_parametric_manager: Callable[[], ParametricEditingManager | None],
+        get_parametric_editor: Callable[[], ParametricEditor | None],
         get_mechanism_layers: Callable[[], dict],
         get_presenter: Callable[[], Any | None],
         update_all_ui_states: Callable[[], None],

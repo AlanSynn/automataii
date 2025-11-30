@@ -35,6 +35,7 @@ from scipy.spatial.distance import directed_hausdorff  # Add scipy import
 
 from automataii.utils.paths import resolve_path
 
+
 # --- Time-aware matching helpers ---
 def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
     """Compute cumulative arc length for a 2D polyline.
@@ -389,7 +390,8 @@ class MechanismPreviewWidget(QGraphicsView):
         if not to_screen_coords_func:
             return
 
-        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
+        def to_screen_coords(p):
+            return to_screen_coords_func(p, transform)
         self._draw_4_bar_structure_from_sim(p1, p2, p3, p4, to_screen_coords)
 
     def _draw_4_bar_structure_from_sim(
@@ -457,12 +459,11 @@ class MechanismPreviewWidget(QGraphicsView):
             or self.mechanism_data.get('parameters', {}).get('cam_template_svg_path')
             or default_template
         )
-        template_pts = None
         try:
             axis, poly = self._load_cam_profile_svg(svg_path)
-            template_pts = poly - axis
+            poly - axis
         except Exception:
-            template_pts = None
+            pass
 
         # If base radius is missing or out-of-range, tie it to eccentricity to control on-screen size
         if (base_radius <= 0) or (base_radius > 3 * eccentricity):
@@ -649,7 +650,8 @@ class MechanismPreviewWidget(QGraphicsView):
         if not to_screen_coords_func:
             return
 
-        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
+        def to_screen_coords(p):
+            return to_screen_coords_func(p, transform)
 
         def draw_gear(center, radius, angle, color):
             path = QPainterPath()
@@ -682,7 +684,8 @@ class MechanismPreviewWidget(QGraphicsView):
         if not to_screen_coords_func:
             return
 
-        to_screen_coords = lambda p: to_screen_coords_func(p, transform)
+        def to_screen_coords(p):
+            return to_screen_coords_func(p, transform)
 
         def draw_gear(center, radius, color):
             p1_screen = to_screen_coords(center)

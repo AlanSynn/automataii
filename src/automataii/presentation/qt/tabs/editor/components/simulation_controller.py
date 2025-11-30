@@ -9,14 +9,14 @@ Design Pattern: State Machine (implicit via state_string transitions)
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene, QLabel, QPushButton, QSlider
 
-    from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
     from automataii.presentation.qt.views.editor_view import EditorView
 
 
@@ -291,15 +291,15 @@ class SimulationController(QObject):
 
     def update_button_states(
         self,
-        selected_part_name: str | None,
-        has_motion_path_fn: Callable[[str], bool] | None,
+        _selected_part_name: str | None,
+        _has_motion_path_fn: Callable[[str], bool] | None,
     ) -> None:
         """
         Update all button enabled states based on current state.
 
         Args:
-            selected_part_name: Currently selected part name
-            has_motion_path_fn: Function to check if part has motion path
+            _selected_part_name: Currently selected part name (unused, for future use)
+            _has_motion_path_fn: Function to check if part has motion path (unused, for future use)
         """
         has_any_path = self._has_any_path()
 

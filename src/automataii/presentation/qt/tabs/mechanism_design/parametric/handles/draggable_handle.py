@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 class DraggableHandle(QGraphicsEllipseItem):
     """
     ULTRATHINK Solution: Perfect draggable handle implementation
-    
+
     Key insights:
     1. Use ItemIsMovable=True but control movement via itemChange()
     2. Properly handle coordinate transformations
@@ -47,7 +47,7 @@ class DraggableHandle(QGraphicsEllipseItem):
                  parent=None):
         """
         Initialize draggable handle with PROPER event handling.
-        
+
         Args:
             handle_id: Unique identifier for this handle
             initial_pos: Initial position in scene coordinates

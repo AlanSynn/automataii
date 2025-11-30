@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Mapping
+from collections.abc import Mapping
 
 from PyQt6.QtGui import QPainterPath
 
 from automataii.application.mechanism_design import (
     MechanismDesignController,
-    MechanismDesignState,
-    MechanismLayer,
     MechanismDesignPresenter,
+    MechanismLayer,
     PartPath,
     Recommendation,
 )
@@ -27,8 +26,8 @@ def feature_enabled() -> bool:
     return flag in {"1", "true", "yes", "on"}
 
 
-def convert_paths(paths: Mapping[str, QPainterPath]) -> Dict[str, PartPath]:
-    converted: Dict[str, PartPath] = {}
+def convert_paths(paths: Mapping[str, QPainterPath]) -> dict[str, PartPath]:
+    converted: dict[str, PartPath] = {}
     for name, path in paths.items():
         if path is None or path.isEmpty():
             continue

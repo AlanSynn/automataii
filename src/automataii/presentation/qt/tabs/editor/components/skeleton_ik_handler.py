@@ -9,7 +9,8 @@ Design Pattern: Handler (processes external events and updates state)
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QObject, QPointF, pyqtSignal, pyqtSlot
 

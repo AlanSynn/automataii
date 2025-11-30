@@ -1,9 +1,16 @@
 """
 Inverse Kinematics (IK) Manager for Automataii.
 
-This class will handle the logic and data related to the IK system,
-including skeleton definition for IK, solving IK for limbs, and managing
-IK-driven animation state.
+This class orchestrates IK-related functionality, delegating to specialized
+components for specific responsibilities:
+
+- IKSolverCore: Pure domain IK solving algorithms
+- IKAnimationController: Animation timing and easing
+- IKVisualUpdater: Visual state computation
+- IKPathHandler: Motion path operations
+- Joint configuration: From domain/kinematics/joint_config.py
+
+Design Pattern: Facade (orchestrates multiple IK subsystems)
 """
 
 import inspect
@@ -14,20 +21,36 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from PyQt6.QtCore import QElapsedTimer, QLineF, QObject, QPointF, QTimer, pyqtSignal
-from PyQt6.QtGui import QPainterPath, QTransform
+from PyQt6.QtGui import QPainterPath
 
-from automataii.core.models import PartInfo
-from automataii.core.models_skeleton import (
+from automataii.presentation.qt.models import PartInfo
+from automataii.domain.skeleton import (
     StandardizedJointModel,
     StandardizedSkeletonModel,
 )
+
+# Domain components (pure logic, no Qt dependency)
+from automataii.domain.kinematics import (
+    IK_JOINT_TO_SOURCE_NAME,
+    IK_PART_TO_ACTUAL_PART,
+    IKAnimationController,
+    IKSolverCore,
+)
+
+# Presentation components (Qt-coupled)
+from automataii.presentation.qt.kinematics.components import (
+    IKPathHandler,
+    IKVisualUpdater,
+    TwoBoneIKSolver,
+)
+
 from ..graphics_items.part_item import CharacterPartItem
 
 # Use module-level logger for fine-grained control
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from automataii.core.skeleton_manager import SkeletonManager
+    from automataii.application.managers import SkeletonManager
 
 
 class IKManager(QObject):
@@ -44,6 +67,7 @@ class IKManager(QObject):
         super().__init__(parent)
         self.main_window = main_window_ref
 
+        # --- State Data ---
         self.sim_joints_config: dict[str, dict[str, Any]] = {}
         self.sim_limb_configs: dict[str, dict[str, Any]] = {}
         self.sim_limb_lengths: dict[str, float] = {}
@@ -53,38 +77,18 @@ class IKManager(QObject):
         self._sim_dynamic_joints_data: dict[str, dict[str, Any]] = {}
         self.scene_joints_snapshot: dict[str, Any] = {}
 
-        self.ik_part_to_actual_part_name: dict[str, str] = {
-            "head": "head",
-            "torso": "torso",
-            "left_upper_arm": "left_arm_upper",
-            "left_forearm": "left_arm_lower",
-            "right_upper_arm": "right_arm_upper",
-            "right_forearm": "right_arm_lower",
-            "left_thigh": "left_leg_upper",
-            "left_calf": "left_leg_lower",
-            "right_thigh": "right_leg_upper",
-            "right_calf": "right_leg_lower",
-        }
+        # --- Use domain constants for joint mappings (SRP extraction) ---
+        self.ik_part_to_actual_part_name: dict[str, str] = dict(IK_PART_TO_ACTUAL_PART)
+        self.ik_joint_ids_to_source_names: dict[str, str] = dict(IK_JOINT_TO_SOURCE_NAME)
 
-        self.ik_joint_ids_to_source_names: dict[str, str] = {
-            "j_neck_base": "hip",
-            "j_head_tip": "head",
-            "j_left_shoulder": "left_shoulder",
-            "j_right_shoulder": "right_shoulder",
-            "j_left_hip": "left_hip",
-            "j_right_hip": "right_hip",
-            "j_left_elbow": "left_elbow",
-            "j_left_wrist": "left_hand",
-            "j_right_elbow": "right_elbow",
-            "j_right_wrist": "right_hand",
-            "j_left_knee": "left_knee",
-            "j_left_ankle": "left_foot",
-            "j_right_knee": "right_knee",
-            "j_right_ankle": "right_foot",
-        }
+        # --- Extracted Components (SRP) ---
+        self._path_handler = IKPathHandler()
+        self._visual_updater = IKVisualUpdater()
+        self._two_bone_solver = TwoBoneIKSolver()
 
         self._active_path_definition_target_joint_id: str | None = None
 
+        # --- Animation Timer ---
         self.ik_animation_timer = QTimer(self)
         self.ik_animation_timer.setInterval(30)
         self.ik_animation_timer.timeout.connect(self._run_ik_animation_step)
@@ -109,6 +113,11 @@ class IKManager(QObject):
 
         self._init_attempts = 0
 
+        # Extracted components (god class decomposition)
+        self._ik_solver = IKSolverCore()
+        self._animation_controller = IKAnimationController()
+        self._animation_controller.duration_ms = self.animation_duration
+
     def _get_standardized_joint_id(self, abstract_or_original_name: str) -> str | None:
         """Looks up the standardized joint ID from an abstract IK rig name or original source name."""
         if not self._current_skeleton_data or "joint_map" not in self._current_skeleton_data:
@@ -131,46 +140,42 @@ class IKManager(QObject):
     @_current_skeleton_data.setter
     def _current_skeleton_data(self, value: dict[str, Any] | None):
         try:
-            caller_function = inspect.stack()[1].function
+            inspect.stack()[1].function
         except IndexError:
-            caller_function = "unknown_caller"
+            pass
 
         self.__internal_current_skeleton_data = value
 
     def set_animation_duration(self, duration_ms: int):
-        """Sets the total duration for one loop of the IK animation."""
+        """Sets the total duration for one loop of the IK animation. Delegates to IKAnimationController."""
         if duration_ms > 0:
             self.animation_duration = duration_ms
+            if hasattr(self, '_animation_controller'):
+                self._animation_controller.duration_ms = duration_ms
 
     def set_timing_profile(self, profile: str):
-        """Set the timing profile used to map normalized progress for path sampling."""
+        """Set timing profile. Delegates to IKAnimationController."""
+        if hasattr(self, '_animation_controller'):
+            self._animation_controller.timing_profile = profile
+        # Keep legacy field for backwards compatibility
         allowed = {"linear", "ease_in", "ease_out", "ease_in_out"}
         p = str(profile).lower().replace('-', '_').replace(' ', '_')
-        if p in allowed:
-            self._timing_profile = p
-        else:
-            self._timing_profile = "linear"
+        self._timing_profile = p if p in allowed else "linear"
 
     def _apply_timing_curve(self, t: float) -> float:
-        """Apply the selected timing curve to normalized t in [0,1]."""
+        """Apply timing curve. Delegates to IKAnimationController."""
+        if hasattr(self, '_animation_controller'):
+            return self._animation_controller.apply_timing(max(0.0, min(1.0, t)))
+        # Fallback for backwards compatibility
         try:
-            if self._timing_profile == "linear":
-                return max(0.0, min(1.0, t))
-            elif self._timing_profile == "ease_in":
-                # Cubic ease-in
-                tt = max(0.0, min(1.0, t))
+            tt = max(0.0, min(1.0, t))
+            if self._timing_profile == "ease_in":
                 return tt * tt * tt
             elif self._timing_profile == "ease_out":
-                # Cubic ease-out
-                tt = max(0.0, min(1.0, t))
-                inv = 1.0 - tt
-                return 1.0 - inv * inv * inv
+                return 1.0 - (1.0 - tt) ** 3
             elif self._timing_profile == "ease_in_out":
-                # Smoothstep-ish (3t^2 - 2t^3)
-                tt = max(0.0, min(1.0, t))
                 return (3 * tt * tt) - (2 * tt * tt * tt)
-            else:
-                return max(0.0, min(1.0, t))
+            return tt
         except Exception:
             return max(0.0, min(1.0, t))
 
@@ -410,10 +415,8 @@ class IKManager(QObject):
             p0_pos = self.sim_joints_config[p0_std_id]["position"]
 
             p2_std_id = None
-            p2_abstract_name = None
             for effector_abs_name, config_data in self.sim_limb_configs.items():
                 if config_data.get("parentAnchor") == middle_joint_abstract_name:
-                    p2_abstract_name = effector_abs_name
                     p2_std_id = self._get_standardized_joint_id(effector_abs_name)
                     break
 
@@ -636,7 +639,7 @@ class IKManager(QObject):
     def _clear_ik_definitions(self, emit_signal=True, preserve_bend_directions=False) -> None:
         """Clears IK solver-derived configurations and resets animation state.
         Does NOT clear input data like _current_skeleton_data or project_parts_data.
-        
+
         Args:
             emit_signal: Whether to emit the ik_solver_initialized signal
             preserve_bend_directions: If True, preserves user-set bend directions
@@ -763,35 +766,39 @@ class IKManager(QObject):
     ) -> tuple[QPointF, QPointF] | None:
         """
         Solves 2-bone IK for a given root, target, and bone lengths.
+        Delegates to TwoBoneIKSolver component.
+
         Returns (middle_joint_pos, end_effector_pos) or None if unsolvable.
         """
-        p0 = root_pos
-        target = target_pos
-        l1 = length1
-        l2 = length2
+        # Find bend direction for this limb
+        bend_direction = self._get_bend_direction_for_root(root_joint_std_id)
 
-        if l1 <= 0 or l2 <= 0:
-            safe_l1 = l1 if l1 > 0 else 1.0
-            safe_l2 = l2 if l2 > 0 else 1.0
-            p1_bail = QPointF(p0.x(), p0.y() + safe_l1)
-            p2_bail = QPointF(p1_bail.x(), p1_bail.y() + safe_l2)
-            return p1_bail, p2_bail
+        # Update solver rest angles from current state
+        if hasattr(self, "sim_joint_rest_angles"):
+            self._two_bone_solver.set_rest_angles(self.sim_joint_rest_angles)
 
-        dx = target.x() - p0.x()
-        dy = target.y() - p0.y()
-        dist_sq = dx * dx + dy * dy
-        dist = math.sqrt(dist_sq) if dist_sq > 1e-12 else 0.0
+        # Delegate to solver
+        result = self._two_bone_solver.solve(
+            root_pos=root_pos,
+            target_pos=target_pos,
+            length1=length1,
+            length2=length2,
+            bend_direction=bend_direction,
+            root_joint_id=root_joint_std_id,
+        )
 
-        middle_joint_id = None
-        if "shoulder" in root_joint_std_id:
-            middle_joint_id = root_joint_std_id.replace("shoulder", "elbow")
-        elif "hip" in root_joint_std_id:
-            middle_joint_id = root_joint_std_id.replace("hip", "knee")
+        if result:
+            return result.middle_pos, result.end_pos
+        return None
 
-        # Get bend direction from configuration
+    def _get_bend_direction_for_root(self, root_joint_std_id: str) -> float:
+        """
+        Get bend direction for a limb based on its root joint.
+
+        Looks up the middle joint (elbow/knee) from hierarchy and returns
+        its bend direction.
+        """
         bend_direction = 1.0
-
-        # Find the actual middle joint from skeleton hierarchy
         middle_joint_std_id = None
 
         # Try to find the middle joint from skeleton hierarchy
@@ -799,7 +806,6 @@ class IKManager(QObject):
             hierarchy = self._current_skeleton_data.get("hierarchy", {})
             children = hierarchy.get(root_joint_std_id, [])
 
-            # Find the child that contains "elbow" or "knee"
             for child_id in children:
                 if "shoulder" in root_joint_std_id and "elbow" in child_id:
                     middle_joint_std_id = child_id
@@ -808,9 +814,8 @@ class IKManager(QObject):
                     middle_joint_std_id = child_id
                     break
 
-        # Fallback to hardcoded mapping if hierarchy lookup fails
+        # Fallback to hardcoded mapping
         if not middle_joint_std_id:
-            # Known mappings from actual skeleton structure
             joint_mapping = {
                 "left_shoulder_7": "left_elbow_8",
                 "right_shoulder_4": "right_elbow_5",
@@ -819,183 +824,20 @@ class IKManager(QObject):
             }
             middle_joint_std_id = joint_mapping.get(root_joint_std_id)
 
-        # Look up bend direction using multiple possible keys
+        # Look up bend direction
         if middle_joint_std_id:
-            # First try the exact standardized ID
             if middle_joint_std_id in self.sim_joint_bend_directions:
                 bend_direction = float(self.sim_joint_bend_directions[middle_joint_std_id])
-                logger.debug("IK: Using bend_direction %s for middle joint '%s'", bend_direction, middle_joint_std_id)
+                logger.debug("IK: Using bend_direction %s for '%s'", bend_direction, middle_joint_std_id)
             else:
-                # Try the abstract name (e.g., 'left_elbow' without the number)
-                abstract_name = None
+                # Try abstract name (e.g., 'left_elbow' without number)
                 if '_' in middle_joint_std_id and middle_joint_std_id.split('_')[-1].isdigit():
                     abstract_name = '_'.join(middle_joint_std_id.split('_')[:-1])
                     if abstract_name in self.sim_joint_bend_directions:
                         bend_direction = float(self.sim_joint_bend_directions[abstract_name])
-                        logger.debug("IK: Using bend_direction %s for middle joint '%s' (from '%s')", bend_direction, abstract_name, middle_joint_std_id)
+                        logger.debug("IK: Using bend_direction %s from '%s'", bend_direction, abstract_name)
 
-                if abstract_name is None or abstract_name not in self.sim_joint_bend_directions:
-                    logger.debug("IK: No bend_direction found for '%s', using default %s", middle_joint_std_id, bend_direction)
-
-        _max_elbow_flexion_deg = getattr(self, "_max_elbow_flexion_deg", 160.0)
-        _epsilon_dist = getattr(self, "_epsilon_dist", 1.0)
-        _near_max_reach_threshold = getattr(self, "_near_max_reach_threshold", 5.0)
-        _near_min_reach_threshold = getattr(self, "_near_min_reach_threshold", 5.0)
-
-        min_elbow_internal_angle_rad = math.pi - math.radians(_max_elbow_flexion_deg)
-        min_elbow_internal_angle_rad = max(0.0, min(math.pi, min_elbow_internal_angle_rad))
-
-        cos_min_elbow_angle = math.cos(min_elbow_internal_angle_rad)
-        d_min_sq_with_limit = l1 * l1 + l2 * l2 - 2 * l1 * l2 * cos_min_elbow_angle
-        if d_min_sq_with_limit < 0:
-            d_min_sq_with_limit = 0
-        d_min_with_limit = math.sqrt(d_min_sq_with_limit)
-
-        if dist < _epsilon_dist:
-            base_angle_rad = math.radians(
-                self.sim_joint_rest_angles.get(root_joint_std_id, 90.0)
-            )
-            p1_x = p0.x() + l1 * math.cos(base_angle_rad)
-            p1_y = p0.y() + l1 * math.sin(base_angle_rad)
-            p1_new = QPointF(p1_x, p1_y)
-            angle_of_bone2_from_p1 = base_angle_rad + bend_direction * (
-                math.pi - min_elbow_internal_angle_rad
-            )
-            p2_x = p1_new.x() + l2 * math.cos(angle_of_bone2_from_p1)
-            p2_y = p1_new.y() + l2 * math.sin(angle_of_bone2_from_p1)
-            p2_new = QPointF(p2_x, p2_y)
-            return p1_new, p2_new
-
-        elif dist >= (l1 + l2 - _near_max_reach_threshold):
-            angle_root_to_target = math.atan2(dy, dx)
-            p1_x = p0.x() + l1 * math.cos(angle_root_to_target)
-            p1_y = p0.y() + l1 * math.sin(angle_root_to_target)
-            p1_new = QPointF(p1_x, p1_y)
-            p2_x = p1_new.x() + l2 * math.cos(angle_root_to_target)
-            p2_y = p1_new.y() + l2 * math.sin(angle_root_to_target)
-            p2_new = QPointF(p2_x, p2_y)
-            return p1_new, p2_new
-
-        elif dist < (d_min_with_limit + _near_min_reach_threshold):
-            angle_root_to_target = math.atan2(dy, dx)
-            dist_eff = d_min_with_limit
-
-            if dist_eff < _epsilon_dist:
-                base_angle_rad = math.radians(
-                    self.sim_joint_rest_angles.get(root_joint_std_id, 90.0)
-                )
-                p1_x = p0.x() + l1 * math.cos(base_angle_rad)
-                p1_y = p0.y() + l1 * math.sin(base_angle_rad)
-                p1_new = QPointF(p1_x, p1_y)
-                angle_of_bone2_from_p1 = base_angle_rad + bend_direction * (
-                    math.pi - min_elbow_internal_angle_rad
-                )
-                p2_x = p1_new.x() + l2 * math.cos(angle_of_bone2_from_p1)
-                p2_y = p1_new.y() + l2 * math.sin(angle_of_bone2_from_p1)
-                p2_new = QPointF(p2_x, p2_y)
-                return p1_new, p2_new
-
-            cos_alpha_eff_numerator = dist_eff * dist_eff + l1 * l1 - l2 * l2
-            cos_alpha_eff_denominator = 2 * dist_eff * l1
-
-            if abs(cos_alpha_eff_denominator) < 1e-9:
-                p1_x_f = p0.x() + l1 * math.cos(angle_root_to_target)
-                p1_y_f = p0.y() + l1 * math.sin(angle_root_to_target)
-                p1_new_f = QPointF(p1_x_f, p1_y_f)
-                angle_bone2_world_f = angle_root_to_target + bend_direction * (
-                    math.pi - min_elbow_internal_angle_rad
-                )
-                p2_x_f = p1_new_f.x() + l2 * math.cos(angle_bone2_world_f)
-                p2_y_f = p1_new_f.y() + l2 * math.sin(angle_bone2_world_f)
-                p2_new_f = QPointF(p2_x_f, p2_y_f)
-                return p1_new_f, p2_new_f
-
-            cos_alpha_eff = cos_alpha_eff_numerator / cos_alpha_eff_denominator
-            cos_alpha_eff = max(-1.0, min(1.0, cos_alpha_eff))
-            alpha_eff_rad = math.acos(cos_alpha_eff)
-
-            angle1_final_rad = angle_root_to_target - (bend_direction * alpha_eff_rad)
-
-            p1_x = p0.x() + l1 * math.cos(angle1_final_rad)
-            p1_y = p0.y() + l1 * math.sin(angle1_final_rad)
-            p1_new = QPointF(p1_x, p1_y)
-
-            angle_elbow_bend_from_bone1_line_rad = bend_direction * (
-                math.pi - min_elbow_internal_angle_rad
-            )
-
-            p2_x = p1_new.x() + l2 * math.cos(
-                angle1_final_rad + angle_elbow_bend_from_bone1_line_rad
-            )
-            p2_y = p1_new.y() + l2 * math.sin(
-                angle1_final_rad + angle_elbow_bend_from_bone1_line_rad
-            )
-            p2_new = QPointF(p2_x, p2_y)
-            return p1_new, p2_new
-
-        else:
-            l1_sq = l1 * l1
-            l2_sq = l2 * l2
-
-            cos_angle2_numerator = l1_sq + l2_sq - dist_sq
-            cos_angle2_denominator = 2 * l1 * l2
-
-            if abs(cos_angle2_denominator) < 1e-9:
-                angle_root_to_target_s = math.atan2(dy, dx)
-                p1_x_s = p0.x() + l1 * math.cos(angle_root_to_target_s)
-                p1_y_s = p0.y() + l1 * math.sin(angle_root_to_target_s)
-                p1_new_s = QPointF(p1_x_s, p1_y_s)
-                p2_x_s = p1_new_s.x() + l2 * math.cos(angle_root_to_target_s)
-                p2_y_s = p1_new_s.y() + l2 * math.sin(angle_root_to_target_s)
-                p2_new_s = QPointF(p2_x_s, p2_y_s)
-                return p1_new_s, p2_new_s
-
-            cos_angle2 = cos_angle2_numerator / cos_angle2_denominator
-            cos_angle2 = max(-1.0, min(1.0, cos_angle2))
-            angle2_triangle_rad = math.acos(cos_angle2)
-
-            angle2_triangle_rad = max(angle2_triangle_rad, min_elbow_internal_angle_rad)
-
-            cos_alpha_numerator = dist_sq + l1_sq - l2_sq
-            cos_alpha_denominator = 2 * dist * l1
-
-            if abs(cos_alpha_denominator) < 1e-9:
-                angle_root_to_target_s2 = math.atan2(dy, dx)
-                p1_x_s2 = p0.x() + l1 * math.cos(angle_root_to_target_s2)
-                p1_y_s2 = p0.y() + l1 * math.sin(angle_root_to_target_s2)
-                p1_new_s2 = QPointF(p1_x_s2, p1_y_s2)
-                angle_bone2_world_s2 = angle_root_to_target_s2 + bend_direction * (
-                    math.pi - angle2_triangle_rad
-                )
-                p2_x_s2 = p1_new_s2.x() + l2 * math.cos(angle_bone2_world_s2)
-                p2_y_s2 = p1_new_s2.y() + l2 * math.sin(angle_bone2_world_s2)
-                p2_new_s2 = QPointF(p2_x_s2, p2_y_s2)
-                return p1_new_s2, p2_new_s2
-
-            cos_alpha = cos_alpha_numerator / cos_alpha_denominator
-            cos_alpha = max(-1.0, min(1.0, cos_alpha))
-            alpha_rad = math.acos(cos_alpha)
-
-            angle_root_to_target_rad = math.atan2(dy, dx)
-            angle1_final_rad = angle_root_to_target_rad - (bend_direction * alpha_rad)
-
-            p1_x = p0.x() + l1 * math.cos(angle1_final_rad)
-            p1_y = p0.y() + l1 * math.sin(angle1_final_rad)
-            p1_new = QPointF(p1_x, p1_y)
-
-            angle_elbow_bend_from_bone1_line_rad = bend_direction * (
-                math.pi - angle2_triangle_rad
-            )
-
-            p2_x = p1_new.x() + l2 * math.cos(
-                angle1_final_rad + angle_elbow_bend_from_bone1_line_rad
-            )
-            p2_y = p1_new.y() + l2 * math.sin(
-                angle1_final_rad + angle_elbow_bend_from_bone1_line_rad
-            )
-            p2_new = QPointF(p2_x, p2_y)
-
-            return p1_new, p2_new
+        return bend_direction
 
     def _apply_ik_to_limb_chains(
         self, editor_items: dict[str, CharacterPartItem]
@@ -1024,7 +866,7 @@ class IKManager(QObject):
             },
         }
 
-        for effector_joint, chain_config in limb_chains.items():
+        for _effector_joint, chain_config in limb_chains.items():
             chain_parts = chain_config["chain_parts"]
             target_joint = chain_config["target_joint"]
 
@@ -1302,76 +1144,12 @@ class IKManager(QObject):
         self.animation_state_changed.emit("reset")
 
     def _extract_points_from_painter_path(self, painter_path) -> list[QPointF]:
-        """Extracts QPointF coordinates from a QPainterPath."""
-        points = []
-        if (
-            not painter_path
-            or not hasattr(painter_path, "elementCount")
-            or painter_path.elementCount() == 0
-        ):
-            return points
-        for i in range(painter_path.elementCount()):
-            element = painter_path.elementAt(i)
-            points.append(QPointF(element.x, element.y))
-        return points
+        """Extracts QPointF coordinates from a QPainterPath. Delegates to IKPathHandler."""
+        return self._path_handler.extract_points_from_painter_path(painter_path)
 
     def _get_point_on_path(self, path_obj: Any, progress: float) -> QPointF | None:
-        path_points: list[QPointF] = []
-        if isinstance(path_obj, list):
-            if all(isinstance(p, QPointF) for p in path_obj):
-                path_points = path_obj
-            else:
-                try:
-                    path_points = [
-                        QPointF(p[0], p[1])
-                        for p in path_obj
-                        if isinstance(p, (list, tuple)) and len(p) == 2
-                    ]
-                except:
-                    return None
-        elif hasattr(path_obj, "elementCount"):
-            path_points = self._extract_points_from_painter_path(path_obj)
-        else:
-            return None
-
-        if not path_points:
-            return None
-        if len(path_points) == 1:
-            return path_points[0]
-
-        total_length = 0
-        segment_lengths = []
-        for i in range(len(path_points) - 1):
-            p1 = path_points[i]
-            p2 = path_points[i + 1]
-            segment_length = QPointF(p2 - p1).manhattanLength()
-            segment_lengths.append(segment_length)
-            total_length += segment_length
-
-        if total_length < 1e-5:
-            return path_points[0]
-
-        target_dist = progress * total_length
-        target_dist = max(0, min(target_dist, total_length))
-
-        current_dist = 0
-        for i in range(len(segment_lengths)):
-            segment_len = segment_lengths[i]
-            if current_dist + segment_len >= target_dist - 1e-5:
-                p1 = path_points[i]
-                p2 = path_points[i + 1]
-                remaining_dist = target_dist - current_dist
-                if segment_len < 1e-5:
-                    return p1
-                segment_progress = remaining_dist / segment_len
-                segment_progress = max(0.0, min(1.0, segment_progress))
-
-                interpolated_x = p1.x() + (p2.x() - p1.x()) * segment_progress
-                interpolated_y = p1.y() + (p2.y() - p1.y()) * segment_progress
-                return QPointF(interpolated_x, interpolated_y)
-            current_dist += segment_len
-
-        return path_points[-1]
+        """Get interpolated point on path. Delegates to IKPathHandler."""
+        return self._path_handler.get_point_on_path(path_obj, progress)
 
     def set_mechanism_position_target(self, joint_id: str, target_pos: QPointF):
         """Set a direct position target for a joint (used by mechanism animation)."""

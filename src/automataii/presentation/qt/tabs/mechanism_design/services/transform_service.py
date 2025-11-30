@@ -9,7 +9,6 @@ from typing import Any
 
 import numpy as np
 from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QPainterPath
 
 from automataii.presentation.qt.utils import qpainterpath_to_numpy_array
 

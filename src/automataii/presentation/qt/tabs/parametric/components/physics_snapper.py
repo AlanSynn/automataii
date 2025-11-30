@@ -9,7 +9,6 @@ Design Pattern: Service (constraint validation and correction)
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -235,7 +234,7 @@ class PhysicsSnapper:
 
         try:
             base_r = params.get("base_radius", 30.0)
-            lift = params.get("lift", 15.0)
+            params.get("lift", 15.0)
             follower_r = params.get("follower_radius", 8.0)
             center = np.array(params.get("center", [0, 0]), dtype=float)
             follower_pos = params.get("follower_position")

@@ -25,7 +25,7 @@ from .draggable_handle import DraggableHandle
 class CamRodLengthHandle(DraggableHandle):
     """
     Handle for adjusting CAM follower rod length.
-    
+
     Features:
     - Drag vertically to adjust rod length
     - Gravity constraint: follower always above cam
@@ -49,7 +49,7 @@ class CamRodLengthHandle(DraggableHandle):
                  parent=None):
         """
         Initialize CAM rod length handle.
-        
+
         Args:
             mechanism_id: Unique mechanism identifier
             initial_position: Handle starting position (follower location)
@@ -105,13 +105,13 @@ class CamRodLengthHandle(DraggableHandle):
     def _calculate_rod_length_from_position(self, handle_pos: QPointF) -> float:
         """
         Calculate rod length from handle position.
-        
+
         With gravity physics, the follower is above the cam, so:
         rod_length = (cam_top_y - follower_y)
-        
+
         Args:
             handle_pos: Current handle position (follower location)
-            
+
         Returns:
             New rod length
         """
@@ -133,33 +133,33 @@ class CamRodLengthHandle(DraggableHandle):
         """
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             new_pos = value  # Proposed new position
-            
+
             # Allow free dragging without physics constraints for smoother UX
             # Just calculate the new rod length for display purposes
             new_rod_length = self._calculate_rod_length_from_position(new_pos)
-            
+
             # Update rod length if changed
             if new_rod_length != self.current_rod_length:
                 self.current_rod_length = new_rod_length
                 logging.debug(f"[CAM_ROD] Rod length changed to {new_rod_length:.1f}")
-            
+
             # Return the proposed position without constraints
             return super().itemChange(change, value)
-        
+
         return super().itemChange(change, value)
 
     def _apply_gravity_constraints(self, proposed_pos: QPointF) -> QPointF:
         """
         Apply gravity physics constraints to handle position.
-        
+
         Constraints:
         1. Follower must be above cam (gravity)
         2. Follower moves only vertically (rod constraint)
         3. Rod length within valid range
-        
+
         Args:
             proposed_pos: Proposed new handle position
-            
+
         Returns:
             Constrained valid position
         """
@@ -184,7 +184,7 @@ class CamRodLengthHandle(DraggableHandle):
 class CamSizeHandle(DraggableHandle):
     """
     Handle for adjusting CAM size (base radius and eccentricity).
-    
+
     Features:
     - Drag to adjust cam size
     - Maintains egg shape proportions
@@ -208,13 +208,13 @@ class CamSizeHandle(DraggableHandle):
                  parent=None):
         """
         Initialize CAM size handle.
-        
+
         Args:
             mechanism_id: Unique mechanism identifier
             initial_position: Handle starting position (on cam edge)
             cam_center: Center point of CAM
             initial_base_radius: Initial CAM base radius
-            initial_eccentricity: Initial CAM eccentricity  
+            initial_eccentricity: Initial CAM eccentricity
             mechanism_data: Reference to mechanism data
             update_callback: Function to call when cam size changes
             parent: Qt parent object
@@ -267,13 +267,13 @@ class CamSizeHandle(DraggableHandle):
     def _calculate_cam_params_from_position(self, handle_pos: QPointF) -> tuple[float, float]:
         """
         Calculate cam parameters from handle position.
-        
+
         The handle position determines the cam size. Distance from center
         determines base radius, and offset determines eccentricity.
-        
+
         Args:
             handle_pos: Current handle position
-            
+
         Returns:
             Tuple of (base_radius, eccentricity)
         """
@@ -325,7 +325,7 @@ def create_cam_handles(mechanism_id: str,
                       update_callback: Callable[[str, str, float], None] | None = None) -> list[DraggableHandle]:
     """
     Create all CAM handles for parametric editing.
-    
+
     Args:
         mechanism_id: Unique mechanism identifier
         cam_center: CAM center position
@@ -334,7 +334,7 @@ def create_cam_handles(mechanism_id: str,
         rod_length: Follower rod length
         mechanism_data: Reference to mechanism data
         update_callback: Function to call when parameters change
-        
+
     Returns:
         List of created handles
     """
