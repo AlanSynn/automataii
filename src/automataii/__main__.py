@@ -6,11 +6,11 @@ import sys
 from pathlib import Path
 
 try:
-    from PyQt6.QtCore import QStandardPaths, Qt
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication
 except ImportError:
     try:
-        from PySide6.QtCore import QStandardPaths, Qt
+        from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication
     except ImportError:
         print(

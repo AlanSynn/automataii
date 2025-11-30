@@ -142,7 +142,7 @@ class ModelDownloader:
             logger.error(f"Failed to download model: {model_name}")
             return None
 
-    
+
 
 
 # Convenience function for easy access
