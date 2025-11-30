@@ -2,7 +2,6 @@
 Base serialization classes and interfaces.
 """
 
-import json
 from abc import ABC
 from datetime import datetime
 from typing import Any, TypeVar
@@ -13,7 +12,7 @@ T = TypeVar('T', bound='Serializable')
 class Serializable(ABC):
     """
     Base class for objects that can be serialized to/from dictionaries.
-    
+
     Provides automatic serialization of dataclass fields and
     template methods for custom serialization logic.
     """
@@ -21,7 +20,7 @@ class Serializable(ABC):
     def to_dict(self) -> dict[str, Any]:
         """
         Convert object to dictionary representation.
-        
+
         Returns:
             Dictionary representation of object
         """
@@ -46,10 +45,10 @@ class Serializable(ABC):
     def from_dict(cls: type[T], data: dict[str, Any]) -> T:
         """
         Create object from dictionary representation.
-        
+
         Args:
             data: Dictionary representation
-            
+
         Returns:
             Deserialized object instance
         """
@@ -84,7 +83,7 @@ class Serializable(ABC):
                 '__datetime__': True,
                 'isoformat': value.isoformat()
             }
-        elif isinstance(value, (list, tuple)):
+        elif isinstance(value, list | tuple):
             return [self._serialize_value(item) for item in value]
         elif isinstance(value, dict):
             return {k: self._serialize_value(v) for k, v in value.items()}
@@ -121,10 +120,10 @@ class Serializable(ABC):
     def customize_serialization(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Customize serialization output.
-        
+
         Args:
             data: Default serialized data
-            
+
         Returns:
             Customized serialized data
         """
@@ -134,10 +133,10 @@ class Serializable(ABC):
     def customize_deserialization(cls, data: dict[str, Any]) -> dict[str, Any]:
         """
         Customize deserialization input.
-        
+
         Args:
             data: Raw deserialized data
-            
+
         Returns:
             Processed deserialized data
         """
@@ -173,7 +172,7 @@ class Serializable(ABC):
 class SerializationMixin:
     """
     Mixin class that adds serialization capabilities to existing classes.
-    
+
     Use this when you can't inherit from Serializable directly.
     """
 
@@ -203,7 +202,7 @@ class SerializationMixin:
                 '__datetime__': True,
                 'isoformat': value.isoformat()
             }
-        elif isinstance(value, (list, tuple)):
+        elif isinstance(value, list | tuple):
             return [self._serialize_value(item) for item in value]
         elif isinstance(value, dict):
             return {k: self._serialize_value(v) for k, v in value.items()}

@@ -290,7 +290,7 @@ class ProjectJSONDecoder(json.JSONDecoder):
 class ProjectSerializer:
     """
     Handles complex object serialization with references and validation.
-    
+
     Features:
     - Multiple format support (JSON, MessagePack, BSON)
     - Reference resolution for circular dependencies
@@ -320,12 +320,12 @@ class ProjectSerializer:
     ) -> bytes:
         """
         Serialize object to bytes.
-        
+
         Args:
             obj: Object to serialize
             compress: Apply compression
             validate_schema: Validate against schema
-            
+
         Returns:
             Serialized data as bytes
         """
@@ -367,12 +367,12 @@ class ProjectSerializer:
     ) -> Any:
         """
         Deserialize bytes to object.
-        
+
         Args:
             data: Serialized data
             expected_type: Expected object type
             compressed: Data is compressed
-            
+
         Returns:
             Deserialized object
         """

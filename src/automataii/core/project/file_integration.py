@@ -7,14 +7,11 @@ import logging
 import mimetypes
 import platform
 import subprocess
-import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from automataii.core.container import Injectable
+from automataii.infrastructure.container import Injectable
 
 from .project_format import AtiiProject
 
@@ -22,7 +19,7 @@ from .project_format import AtiiProject
 class FileIntegration(Injectable):
     """
     Handles OS-specific file integration for .atii project files.
-    
+
     Features:
     - MIME type registration
     - File association registration
@@ -185,7 +182,7 @@ class FileIntegration(Injectable):
         text = project.name or "Automataii Project"
         text_bbox = draw.textbbox((0, 0), text, font=font)
         text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
+        text_bbox[3] - text_bbox[1]
 
         text_x = (width - text_width) // 2
         text_y = icon_y + icon_size + 20
