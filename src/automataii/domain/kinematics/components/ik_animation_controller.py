@@ -9,9 +9,9 @@ Design Pattern: Controller (animation state management)
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 
 class TimingProfile(Enum):

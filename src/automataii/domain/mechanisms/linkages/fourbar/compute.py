@@ -1,16 +1,22 @@
+"""
+Four-bar linkage mechanism computation.
+
+Architecture Note:
+- This is DOMAIN layer - NO Qt dependencies allowed
+- Use Point2D = tuple[float, float] instead of QPointF
+"""
+
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
-
-from PyQt6.QtCore import QPointF
 
 from automataii.domain.mechanisms.core.protocols import Mechanism
 from automataii.domain.mechanisms.core.state import (
     ForceType,
     ForceVector,
     MechanismState,
+    Point2D,
     SafetyLevel,
     SafetyStatus,
 )
@@ -23,8 +29,8 @@ class FourBarParameters:
     coupler_link: float
     output_link: float
     input_angle: float
-    ground_pivot1: QPointF | None = None
-    ground_pivot2: QPointF | None = None
+    ground_pivot1: Point2D | None = None
+    ground_pivot2: Point2D | None = None
 
 
 class FourBarMechanism(Mechanism):
@@ -55,10 +61,11 @@ class FourBarMechanism(Mechanism):
         if "ground_pivot1" in params and "ground_pivot2" in params:
             gp1 = params["ground_pivot1"]
             gp2 = params["ground_pivot2"]
-            ground_pivot1 = gp1 if isinstance(gp1, QPointF) else QPointF(gp1[0], gp1[1])
-            ground_pivot2 = gp2 if isinstance(gp2, QPointF) else QPointF(gp2[0], gp2[1])
+            # Convert to Point2D tuple if needed
+            ground_pivot1: Point2D = (float(gp1[0]), float(gp1[1])) if not isinstance(gp1, tuple) else gp1
+            ground_pivot2: Point2D = (float(gp2[0]), float(gp2[1])) if not isinstance(gp2, tuple) else gp2
             ground_link = math.hypot(
-                ground_pivot2.x() - ground_pivot1.x(), ground_pivot2.y() - ground_pivot1.y()
+                ground_pivot2[0] - ground_pivot1[0], ground_pivot2[1] - ground_pivot1[1]
             )
         else:
             ground_link = params.get("ground_link", 150.0)
@@ -84,13 +91,13 @@ class FourBarMechanism(Mechanism):
             O1 = params.ground_pivot1
             O4 = params.ground_pivot2
         else:
-            O1 = QPointF(-params.ground_link / 2, 0)
-            O4 = QPointF(params.ground_link / 2, 0)
+            O1: Point2D = (-params.ground_link / 2, 0.0)
+            O4: Point2D = (params.ground_link / 2, 0.0)
 
         input_angle_rad = math.radians(params.input_angle)
-        A = QPointF(
-            O1.x() + params.input_link * math.cos(input_angle_rad),
-            O1.y() + params.input_link * math.sin(input_angle_rad),
+        A: Point2D = (
+            O1[0] + params.input_link * math.cos(input_angle_rad),
+            O1[1] + params.input_link * math.sin(input_angle_rad),
         )
 
         output_angle = self._solve_output_angle(
@@ -101,16 +108,16 @@ class FourBarMechanism(Mechanism):
             input_angle_rad,
         )
 
-        B = QPointF(
-            O4.x() + params.output_link * math.cos(output_angle),
-            O4.y() + params.output_link * math.sin(output_angle),
+        B: Point2D = (
+            O4[0] + params.output_link * math.cos(output_angle),
+            O4[1] + params.output_link * math.sin(output_angle),
         )
 
         positions = {
-            "O1": (O1.x(), O1.y()),
-            "O4": (O4.x(), O4.y()),
-            "A": (A.x(), A.y()),
-            "B": (B.x(), B.y()),
+            "O1": O1,
+            "O4": O4,
+            "A": A,
+            "B": B,
         }
 
         safety = self._evaluate_safety(
@@ -166,9 +173,9 @@ class FourBarMechanism(Mechanism):
             try:
                 cos_gamma = (r3 * r3 + r4 * r4 - L * L) / (2 * r3 * r4)
                 cos_gamma = max(-1.0, min(1.0, cos_gamma))
-                gamma = math.acos(cos_gamma)
+                math.acos(cos_gamma)
             except (ValueError, ZeroDivisionError):
-                gamma = 0
+                pass
 
             try:
                 cos_beta = (r4 * r4 + L * L - r3 * r3) / (2 * r4 * L)
@@ -375,7 +382,7 @@ class FourBarMechanism(Mechanism):
             )
 
     def _calculate_forces(
-        self, O1: QPointF, A: QPointF, B: QPointF, O4: QPointF, angle: float
+        self, O1: Point2D, A: Point2D, B: Point2D, O4: Point2D, angle: float
     ) -> dict[str, ForceVector]:
         input_force = ForceVector(
             position=A,

@@ -2,6 +2,11 @@
 Core state dataclasses for mechanism computation results
 
 These immutable dataclasses represent computed mechanism state at a point in time.
+
+Architecture Note:
+- This is DOMAIN layer - NO Qt dependencies allowed
+- Use pure Python types (tuple, dataclass) instead of QPointF, QColor
+- Color represented as RGBA tuple (r, g, b, a) with values 0-255
 """
 
 from __future__ import annotations
@@ -10,8 +15,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from PyQt6.QtCore import QPointF
-from PyQt6.QtGui import QColor
+# Type aliases for pure Python types (no Qt)
+Point2D = tuple[float, float]
+ColorRGBA = tuple[int, int, int, int]  # (r, g, b, a) each 0-255
 
 
 class SafetyLevel(Enum):
@@ -35,27 +41,31 @@ class SafetyStatus:
     details: dict[str, Any] = field(default_factory=dict)
 
 
+# Default colors for force types (RGBA)
+_FORCE_COLORS: dict[ForceType, ColorRGBA] = {
+    ForceType.REACTION: (255, 69, 0, 200),
+    ForceType.APPLIED: (0, 123, 255, 200),
+    ForceType.CONSTRAINT: (255, 140, 0, 200),
+    ForceType.FRICTION: (128, 128, 128, 200),
+    ForceType.GRAVITY: (139, 69, 19, 200),
+}
+_DEFAULT_COLOR: ColorRGBA = (100, 100, 100, 200)
+
+
 @dataclass(frozen=True)
 class ForceVector:
-    position: QPointF
+    """Force vector with position, magnitude, angle, and type."""
+    position: Point2D  # (x, y) coordinates
     magnitude: float
-    angle: float
+    angle: float  # degrees
     force_type: ForceType
     label: str = ""
-    color: QColor | None = None
+    color: ColorRGBA | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.color is None:
-            colors = {
-                ForceType.REACTION: QColor(255, 69, 0, 200),
-                ForceType.APPLIED: QColor(0, 123, 255, 200),
-                ForceType.CONSTRAINT: QColor(255, 140, 0, 200),
-                ForceType.FRICTION: QColor(128, 128, 128, 200),
-                ForceType.GRAVITY: QColor(139, 69, 19, 200),
-            }
-            object.__setattr__(
-                self, "color", colors.get(self.force_type, QColor(100, 100, 100, 200))
-            )
+            default_color = _FORCE_COLORS.get(self.force_type, _DEFAULT_COLOR)
+            object.__setattr__(self, "color", default_color)
 
     def to_components(self) -> tuple[float, float]:
         import math

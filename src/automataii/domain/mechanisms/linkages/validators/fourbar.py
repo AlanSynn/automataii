@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
 
 if TYPE_CHECKING:
-    from automataii.domain.mechanisms.core.types import SafetyStatus, SafetyLevel
+    from automataii.domain.mechanisms.core.types import SafetyStatus
 
 
 class FourBarValidator(LinkageValidator):
@@ -58,7 +58,7 @@ class FourBarValidator(LinkageValidator):
             )
 
             # Transmission angle quality
-            theta_rad = math.radians(input_angle)
+            math.radians(input_angle)
             a_x, a_y = positions["A"]
             o4_x, o4_y = positions["O4"]
 
