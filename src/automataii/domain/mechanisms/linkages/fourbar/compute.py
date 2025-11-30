@@ -170,12 +170,8 @@ class FourBarMechanism(Mechanism):
 
             alpha = math.atan2(vec_O4A_y, vec_O4A_x)
 
-            try:
-                cos_gamma = (r3 * r3 + r4 * r4 - L * L) / (2 * r3 * r4)
-                cos_gamma = max(-1.0, min(1.0, cos_gamma))
-                math.acos(cos_gamma)
-            except (ValueError, ZeroDivisionError):
-                pass
+            # Note: gamma angle (coupler angle) not needed for rocker position
+            # but could be computed as: gamma = math.acos(clamp((r3² + r4² - L²) / (2*r3*r4)))
 
             try:
                 cos_beta = (r4 * r4 + L * L - r3 * r3) / (2 * r4 * L)

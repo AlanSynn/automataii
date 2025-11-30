@@ -1,12 +1,18 @@
 """
-MotionPathManager - Extracted from EditorView god class.
+MotionPathDrawer - Low-level path drawing and visualization.
 
-Handles motion path drawing, preview, spline creation, and path overlays.
-This is a presentation-layer component for Qt-based path visualization.
+Extracted from EditorView god class. Handles the mechanics of:
+- Freehand drawing with mouse events
+- Preview path visualization during drawing
+- Catmull-Rom spline generation
+- Scene item management for paths and overlays
+
+This is distinct from MotionPathManager (in tabs/editor/components/) which
+handles higher-level coordination, UI bindings, RDP smoothing, and feasibility.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainterPath, QPen
@@ -21,11 +27,15 @@ if TYPE_CHECKING:
 TARGET_PATH_POINTS = 12
 
 
-class MotionPathManager(QObject):
+class MotionPathDrawer(QObject):
     """
-    Manages motion path drawing, visualization, and overlay paths.
+    Low-level motion path drawing and scene visualization.
 
-    Extracted from EditorView to separate path-related concerns.
+    Handles the mechanics of path drawing (mouse input, preview, splines)
+    and scene item management (adding/removing path graphics items).
+
+    For high-level path management with UI coordination, see
+    MotionPathManager in tabs/editor/components/.
 
     Signals:
         freehand_path_completed(list): Emitted when freehand drawing completes.
@@ -47,7 +57,7 @@ class MotionPathManager(QObject):
         self._motion_preview_path_item: QGraphicsPathItem | None = None
         self._is_drawing_freehand = False
         self._current_path_is_closed = True
-        self._current_target_item: "CharacterPartItem | None" = None
+        self._current_target_item: CharacterPartItem | None = None
 
         # Finalized paths (component_key -> QGraphicsPathItem)
         self.final_paths_map: dict[str, QGraphicsPathItem] = {}

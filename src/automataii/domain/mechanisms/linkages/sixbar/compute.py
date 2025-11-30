@@ -76,7 +76,7 @@ class SixBarMechanism(Mechanism):
         left = params.get("input_link", 55.0)
         floating = params.get("coupler_link", 160.0)
         right = params.get("output_link", 75.0)
-        rocker = params.get("output_link", 95.0)
+        rocker = params.get("rocker_link", 95.0)
         angle = params.get("input_angle", 18.0)
         pivot_height = params.get("pivot_height", 0.6 * ground)
 
@@ -128,7 +128,7 @@ class SixBarMechanism(Mechanism):
             {"index": 3, "start": "P", "end": "C2"},
             {"index": 4, "start": "C2", "end": "G2"},
             {"index": 5, "start": "G3", "end": "Q"},
-            {"index": 3, "start": "P", "end": "Q"},
+            {"index": 6, "start": "P", "end": "Q"},  # Fixed: was duplicate index 3
             {"index": 0, "start": "G2", "end": "G1"},
         )
 
