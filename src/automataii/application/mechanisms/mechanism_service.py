@@ -3,14 +3,17 @@ Service class for mechanism-related business logic.
 
 This service handles mechanism calculations, positioning, and adjustments
 that were previously embedded in the MechanismDesignTab class.
+
+Architecture Note:
+- This is an APPLICATION layer service
+- It must NOT depend on presentation layer (Qt types)
+- Path conversion is injected via callable to maintain layer separation
 """
 
-import numpy as np
-from PyQt6.QtCore import QPointF
+from collections.abc import Callable
+from typing import Any
 
-from automataii.presentation.qt.utils.geometry import (
-    qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
-)
+import numpy as np
 
 
 class MechanismService:
@@ -78,9 +81,14 @@ class MechanismService:
 
         return False
 
-    def adjust_mechanism_to_target_joint(self, layer_data: dict, parts_data: dict,
-                                       initial_skeleton_data_cache: dict,
-                                       mechanism_output_calculator) -> bool:
+    def adjust_mechanism_to_target_joint(
+        self,
+        layer_data: dict,
+        parts_data: dict,
+        initial_skeleton_data_cache: dict,
+        mechanism_output_calculator: Callable,
+        path_to_numpy_converter: Callable[[Any], np.ndarray | None] | None = None,
+    ) -> bool:
         """
         Adjust mechanism positioning so coupler point aligns with target skeleton joint.
 
@@ -89,6 +97,8 @@ class MechanismService:
             parts_data: Parts data dictionary
             initial_skeleton_data_cache: Cached skeleton data
             mechanism_output_calculator: Function to calculate mechanism output
+            path_to_numpy_converter: Function to convert path object to numpy array
+                                     (injected from presentation layer)
 
         Returns:
             True if adjustment was made, False otherwise
@@ -121,8 +131,8 @@ class MechanismService:
                 if "coupler_path" in full_sim_data:
                     # Calculate required adjustment in mechanism space
                     target_path = layer_data.get("generated_path")
-                    if target_path:
-                        user_path_np = utils_qpainterpath_to_numpy_array(target_path)
+                    if target_path and path_to_numpy_converter:
+                        user_path_np = path_to_numpy_converter(target_path)
                         if user_path_np is not None:
                             target_center_np = np.mean(user_path_np, axis=0)
 

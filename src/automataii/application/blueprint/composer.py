@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import base64
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any
 
-from automataii.core.telemetry import telemetry_span
-from automataii.generation.blueprint import generate_single_large_blueprint
-from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
+from automataii.infrastructure.telemetry import telemetry_span
+from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
+from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
 
 
 @dataclass(frozen=True)

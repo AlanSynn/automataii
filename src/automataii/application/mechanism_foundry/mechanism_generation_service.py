@@ -32,7 +32,7 @@ class MechanismGenerationContext:
     """Context for mechanism generation."""
 
     selected_part_name: str
-    target_path: "QPainterPath | None"
+    target_path: QPainterPath | None
     candidate_data: dict[str, Any]
     parts_data: dict[str, Any] = field(default_factory=dict)
     skeleton_cache: dict[str, Any] | None = None

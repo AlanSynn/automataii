@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Iterable, Mapping, Tuple
+from typing import Any
 
-
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 @dataclass(frozen=True)
 class PartPath:
     """Immutable representation of a motion path."""
 
-    points: Tuple[Point, ...]
+    points: tuple[Point, ...]
     closed: bool = False
 
     @classmethod
-    def from_points(cls, points: Iterable[Point], closed: bool = False) -> "PartPath":
+    def from_points(cls, points: Iterable[Point], closed: bool = False) -> PartPath:
         return cls(tuple((float(x), float(y)) for x, y in points), closed)
 
 
@@ -55,9 +55,9 @@ class MechanismDesignState:
     selected_layer_id: str | None = None
     animation_running: bool = False
     parametric_mode: bool = False
-    recommendations: Tuple[Recommendation, ...] = field(default_factory=tuple)
+    recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
 
-    def with_paths(self, paths: Mapping[str, PartPath]) -> "MechanismDesignState":
+    def with_paths(self, paths: Mapping[str, PartPath]) -> MechanismDesignState:
         default_enabled = {
             name: self.path_enabled.get(name, True) for name in paths.keys()
         }
@@ -69,42 +69,42 @@ class MechanismDesignState:
             selected_part=self.selected_part if self.selected_part in paths else None,
         )
 
-    def enable_part(self, part_name: str, enabled: bool) -> "MechanismDesignState":
+    def enable_part(self, part_name: str, enabled: bool) -> MechanismDesignState:
         if part_name not in self.paths:
             raise KeyError(f"Unknown part '{part_name}'")
         updated = dict(self.path_enabled)
         updated[part_name] = enabled
         return replace(self, path_enabled=updated)
 
-    def with_layers(self, layers: Mapping[str, MechanismLayer]) -> "MechanismDesignState":
+    def with_layers(self, layers: Mapping[str, MechanismLayer]) -> MechanismDesignState:
         selected_layer = (
             self.selected_layer_id if self.selected_layer_id in layers else None
         )
         return replace(self, layers=dict(layers), selected_layer_id=selected_layer)
 
-    def select_part(self, part_name: str | None) -> "MechanismDesignState":
+    def select_part(self, part_name: str | None) -> MechanismDesignState:
         if part_name is not None and part_name not in self.paths:
             raise KeyError(f"Unknown part '{part_name}'")
         return replace(self, selected_part=part_name)
 
-    def select_layer(self, layer_id: str | None) -> "MechanismDesignState":
+    def select_layer(self, layer_id: str | None) -> MechanismDesignState:
         if layer_id is not None and layer_id not in self.layers:
             raise KeyError(f"Unknown layer '{layer_id}'")
         return replace(self, selected_layer_id=layer_id)
 
-    def set_animation_running(self, running: bool) -> "MechanismDesignState":
+    def set_animation_running(self, running: bool) -> MechanismDesignState:
         return replace(self, animation_running=running)
 
-    def set_parametric_mode(self, enabled: bool) -> "MechanismDesignState":
+    def set_parametric_mode(self, enabled: bool) -> MechanismDesignState:
         return replace(self, parametric_mode=enabled)
 
     def with_recommendations(
         self, recommendations: Iterable[Recommendation]
-    ) -> "MechanismDesignState":
+    ) -> MechanismDesignState:
         return replace(self, recommendations=tuple(recommendations))
 
     @property
-    def enabled_paths(self) -> Dict[str, PartPath]:
+    def enabled_paths(self) -> dict[str, PartPath]:
         return {
             name: path
             for name, path in self.paths.items()

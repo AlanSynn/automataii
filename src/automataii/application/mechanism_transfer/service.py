@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
-from automataii.core.telemetry import telemetry_span
+from automataii.infrastructure.telemetry import telemetry_span
 
 from .contract import (
     AnimationConfiguration,
@@ -116,7 +117,7 @@ class MechanismTransferService:
             )
 
         for key, value in parameters.items():
-            if not isinstance(value, (int, float)):
+            if not isinstance(value, int | float):
                 raise TransferValidationError(f"Parameter {key} must be numeric, got {type(value)}")
 
     def _get_required_parameters(self, mechanism_type: str) -> set[str]:

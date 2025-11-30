@@ -15,8 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from PyQt6.QtCore import QPointF
-    from PyQt6.QtGui import QPainterPath
+    pass
 
 
 class IKManagerProtocol(Protocol):

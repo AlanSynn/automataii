@@ -14,17 +14,17 @@ from .controller import (
     MechanismItem,
     ParameterSpec,
 )
-from .path_cache import CachedPath, PathCache, PathCacheKey
-from .service import MechanismCatalogService
-from .mechanism_lifecycle_coordinator import (
-    MechanismLifecycleCoordinator,
-    MechanismLifecycleContext,
-)
 from .mechanism_generation_service import (
-    MechanismGenerationService,
     MechanismGenerationContext,
     MechanismGenerationResult,
+    MechanismGenerationService,
 )
+from .mechanism_lifecycle_coordinator import (
+    MechanismLifecycleContext,
+    MechanismLifecycleCoordinator,
+)
+from .path_cache import CachedPath, PathCache, PathCacheKey
+from .service import MechanismCatalogService
 
 __all__ = [
     "MechanismCatalog",

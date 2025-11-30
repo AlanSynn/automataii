@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from automataii.application.mechanism_transfer import (
     MechanismTransferPackage,
@@ -50,7 +50,7 @@ class MechanismConfiguration:
         return values
 
 
-MECHANISM_CONFIGS: Dict[str, MechanismConfiguration] = {
+MECHANISM_CONFIGS: dict[str, MechanismConfiguration] = {
     "four_bar": MechanismConfiguration(
         mechanism_type="four_bar",
         parameter_specs=(
@@ -123,7 +123,7 @@ MECHANISM_CONFIGS: Dict[str, MechanismConfiguration] = {
     ),
 }
 
-CATALOG_TYPE_TO_MECHANISM_TYPE: Dict[str, str] = {
+CATALOG_TYPE_TO_MECHANISM_TYPE: dict[str, str] = {
     "four_bar_linkage": "four_bar",
     "cam_follower": "cam_follower",
     "gear_train": "gear_train",
@@ -225,7 +225,7 @@ class MechanismFoundryController:
 
     def __init__(self, service: MechanismCatalogService | None = None) -> None:
         self._service = service or MechanismCatalogService()
-        self._mechanisms: List[MechanismItem] = []
+        self._mechanisms: list[MechanismItem] = []
         self._load_catalog_items()
         self._ensure_fallback_items()
         self._mechanisms.sort(key=lambda item: item.display_name)
@@ -238,7 +238,7 @@ class MechanismFoundryController:
     def list_mechanisms(self) -> Iterable[MechanismItem]:
         return list(self._mechanisms)
 
-    def select_mechanism(self, category_key: str, mechanism_key: str) -> Optional[MechanismEntry]:
+    def select_mechanism(self, category_key: str, mechanism_key: str) -> MechanismEntry | None:
         for item in self._mechanisms:
             if item.category_key == category_key and item.mechanism_key == mechanism_key:
                 self._selection = item

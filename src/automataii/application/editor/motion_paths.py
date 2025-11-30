@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterable, Mapping, Sequence, Tuple
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
-Point = Tuple[float, float]
-MotionPath = Tuple[Point, ...]
+Point = tuple[float, float]
+MotionPath = tuple[Point, ...]
 Listener = Callable[[Mapping[str, MotionPath]], None]
 
 
@@ -22,7 +22,7 @@ class MotionPathRepository:
     """In-memory repository for editor motion paths with observer support."""
 
     def __init__(self) -> None:
-        self._paths: Dict[str, MotionPath] = {}
+        self._paths: dict[str, MotionPath] = {}
         self._listeners: list[Listener] = []
 
     # -- Subscription -----------------------------------------------------
@@ -41,7 +41,7 @@ class MotionPathRepository:
 
     # -- Mutation ---------------------------------------------------------
     def replace(self, mapping: Mapping[str, Iterable[Sequence[float]]]) -> None:
-        normalized: Dict[str, MotionPath] = {}
+        normalized: dict[str, MotionPath] = {}
         for name, points in mapping.items():
             tuples = _normalize_points(points)
             if tuples:
@@ -73,5 +73,5 @@ class MotionPathRepository:
         self._notify()
 
     # -- Query ------------------------------------------------------------
-    def snapshot(self) -> Dict[str, MotionPath]:
+    def snapshot(self) -> dict[str, MotionPath]:
         return {name: tuple(points) for name, points in self._paths.items()}

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
-from typing import Callable, Iterable, Mapping, Tuple
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -13,7 +13,7 @@ class EditorViewState:
     mode: str = "select"
     selected_part: str | None = None
     drawing_path: bool = False
-    path_points: Tuple[Point, ...] = ()
+    path_points: tuple[Point, ...] = ()
     path_closed: bool = False
     zoom_level: float = 1.0
     pan_offset: Point = (0.0, 0.0)
@@ -22,55 +22,55 @@ class EditorViewState:
     animation_running: bool = False
     skeleton_visible: bool = True
     hovered_control: str | None = None
-    raw_paths: Mapping[str, Tuple[Point, ...]] = None
-    corrected_paths: Mapping[str, Tuple[Point, ...]] = None
+    raw_paths: Mapping[str, tuple[Point, ...]] = None
+    corrected_paths: Mapping[str, tuple[Point, ...]] = None
 
-    def with_mode(self, mode: str) -> "EditorViewState":
+    def with_mode(self, mode: str) -> EditorViewState:
         return replace(self, mode=mode)
 
-    def with_selected_part(self, part: str | None) -> "EditorViewState":
+    def with_selected_part(self, part: str | None) -> EditorViewState:
         return replace(self, selected_part=part)
 
-    def start_path(self, start_points: Iterable[Point]) -> "EditorViewState":
+    def start_path(self, start_points: Iterable[Point]) -> EditorViewState:
         points = tuple((float(x), float(y)) for x, y in start_points)
         return replace(self, drawing_path=True, path_points=points, path_closed=False)
 
-    def append_point(self, point: Point) -> "EditorViewState":
+    def append_point(self, point: Point) -> EditorViewState:
         if not self.drawing_path:
             raise RuntimeError("Cannot append point when drawing_path is False")
         return replace(self, path_points=self.path_points + ((float(point[0]), float(point[1])),))
 
-    def finish_path(self, closed: bool) -> "EditorViewState":
+    def finish_path(self, closed: bool) -> EditorViewState:
         if not self.drawing_path:
             return self
         return replace(self, drawing_path=False, path_closed=closed)
 
-    def cancel_path(self) -> "EditorViewState":
+    def cancel_path(self) -> EditorViewState:
         return replace(self, drawing_path=False, path_points=(), path_closed=False)
 
-    def with_zoom_level(self, zoom: float) -> "EditorViewState":
+    def with_zoom_level(self, zoom: float) -> EditorViewState:
         return replace(self, zoom_level=zoom)
 
-    def with_pan_offset(self, offset: Point) -> "EditorViewState":
+    def with_pan_offset(self, offset: Point) -> EditorViewState:
         return replace(self, pan_offset=(float(offset[0]), float(offset[1])))
 
-    def with_pinching(self, pinching: bool) -> "EditorViewState":
+    def with_pinching(self, pinching: bool) -> EditorViewState:
         return replace(self, pinching=pinching)
 
-    def with_animation(self, running: bool, time: float | None = None) -> "EditorViewState":
+    def with_animation(self, running: bool, time: float | None = None) -> EditorViewState:
         if time is None:
             time = self.animation_time
         return replace(self, animation_running=running, animation_time=float(time))
 
-    def with_hovered_control(self, control_id: str | None) -> "EditorViewState":
+    def with_hovered_control(self, control_id: str | None) -> EditorViewState:
         return replace(self, hovered_control=control_id)
 
     def with_paths(
         self,
         raw: Mapping[str, Iterable[Point]] | None,
         corrected: Mapping[str, Iterable[Point]] | None,
-    ) -> "EditorViewState":
-        def _convert(mapping: Mapping[str, Iterable[Point]] | None) -> Mapping[str, Tuple[Point, ...]]:
+    ) -> EditorViewState:
+        def _convert(mapping: Mapping[str, Iterable[Point]] | None) -> Mapping[str, tuple[Point, ...]]:
             if not mapping:
                 return {}
             return {
