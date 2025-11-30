@@ -115,5 +115,7 @@ addopts = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.16.0",
     "pytest>=8.4.0",
+    "vulture>=2.14",
 ]
