@@ -1,70 +1,98 @@
 """
-Automataii Core Module
+Automataii Core Infrastructure Module (Legacy)
 
-The foundational architecture providing:
-- Event-driven communication (EventBus, Event types)
-- State management with Redux patterns (StateStore, Actions, Reducers)
-- Project file format and management (ProjectManager, AtiiProject) 
-- Dependency injection (Container, Injectable)
-- Serialization and data persistence
-- Manager classes for domain logic
+DEPRECATION NOTICE:
+This module is being phased out. Please use the new architectural layers:
 
-This core provides services to GUI, processing, and other modules.
-GUI components should use these services via dependency injection.
+- Infrastructure: automataii.infrastructure (events, state, container, telemetry)
+- Application: automataii.application (managers, services)
+- Domain: automataii.domain (skeleton, project)
+- Presentation: automataii.presentation.qt (models, views)
+
+For new code, import from the appropriate layer:
+    from automataii.infrastructure.events import EventBus
+    from automataii.application.managers import SkeletonManager
+    from automataii.domain.skeleton import StandardizedJointModel
+    from automataii.presentation.qt.models import PartInfo
 """
 
-# Event system
-# Dependency injection
-from .container import Container, Injectable, get_global_container, inject
-from .events import Event, EventBus, get_global_event_bus
-from .events.base import (
+# Re-export from new locations for remaining internal use
+
+# Infrastructure layer
+from automataii.infrastructure.container import Container, Injectable, get_global_container, inject
+from automataii.infrastructure.events import (
     ApplicationStarted,
     ComponentActivated,
     ComponentDeactivated,
+    Event,
+    EventBus,
     ProjectLoaded,
     ProjectSaved,
+    get_global_event_bus,
 )
-from .mechanism_manager import MechanismManager
+from automataii.infrastructure.state import (
+    Action,
+    Middleware,
+    Reducer,
+    State,
+    StateStore,
+    get_global_store,
+)
 
-# Models and data structures
-from .models import PartInfo
-from .models_pydantic import ProjectMetadata
-from .models_skeleton import StandardizedJointModel, StandardizedSkeletonModel
+# Application layer
+from automataii.application.managers import (
+    MechanismManager,
+    ProjectDataManager,
+    SkeletonManager,
+)
 
-# Project management
-from .project import AtiiProject, ProjectManager, get_global_project_manager
-from .project.file_integration import FileIntegration
-from .project.serialization import ProjectSerializer
-from .project_data_manager import ProjectDataManager
+# Domain layer
+from automataii.domain.project import ProjectMetadata
+from automataii.domain.skeleton import StandardizedJointModel, StandardizedSkeletonModel
 
-# Domain managers (business logic)
-from .skeleton_manager import SkeletonManager
+# Presentation layer
+from automataii.presentation.qt.models import PartInfo
 
-# State management
-from .state import Action, Reducer, StateStore, get_global_store
-from .state.base import State
-from .state.middleware import Middleware
+# Project management (still in core/)
+from automataii.core.project import AtiiProject, ProjectManager, get_global_project_manager
+from automataii.core.project.file_integration import FileIntegration
+from automataii.core.project.serialization import ProjectSerializer
 
 __all__ = [
     # Event system
-    'EventBus', 'Event', 'get_global_event_bus',
-    'ProjectLoaded', 'ProjectSaved', 'ApplicationStarted',
-    'ComponentActivated', 'ComponentDeactivated',
-
+    "EventBus",
+    "Event",
+    "get_global_event_bus",
+    "ProjectLoaded",
+    "ProjectSaved",
+    "ApplicationStarted",
+    "ComponentActivated",
+    "ComponentDeactivated",
     # State management
-    'StateStore', 'Action', 'Reducer', 'get_global_store',
-    'State', 'Middleware',
-
+    "StateStore",
+    "Action",
+    "Reducer",
+    "get_global_store",
+    "State",
+    "Middleware",
     # Project management
-    'ProjectManager', 'AtiiProject', 'get_global_project_manager',
-    'FileIntegration', 'ProjectSerializer',
-
+    "ProjectManager",
+    "AtiiProject",
+    "get_global_project_manager",
+    "FileIntegration",
+    "ProjectSerializer",
     # Dependency injection
-    'Container', 'Injectable', 'inject', 'get_global_container',
-
-    # Domain managers
-    'SkeletonManager', 'MechanismManager', 'ProjectDataManager',
-
-    # Models and data
-    'PartInfo', 'SkeletonData', 'JointData', 'ProjectMetadata'
+    "Container",
+    "Injectable",
+    "inject",
+    "get_global_container",
+    # Managers (Qt-based)
+    "SkeletonManager",
+    "MechanismManager",
+    "ProjectDataManager",
+    # Models
+    "PartInfo",
+    "ProjectMetadata",
+    "StandardizedJointModel",
+    "StandardizedSkeletonModel",
 ]

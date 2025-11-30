@@ -8,13 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from automataii.core.container import Injectable
-from automataii.core.events import EventBus, get_global_event_bus
-from automataii.core.events.base import (
+from automataii.infrastructure.container import Injectable
+from automataii.infrastructure.events import (
     AutoSaveTriggered,
+    EventBus,
     ProjectClosed,
-    ProjectCreated,
     ProjectModified,
+    get_global_event_bus,
 )
 
 from .project_format import AtiiProject
@@ -23,7 +23,7 @@ from .project_format import AtiiProject
 class ProjectManager(Injectable):
     """
     Manages project lifecycle and operations.
-    
+
     Features:
     - Project creation, loading, saving
     - Auto-save with crash recovery
@@ -69,10 +69,10 @@ class ProjectManager(Injectable):
     def save_project(self, file_path: Path | None = None) -> bool:
         """
         Save current project.
-        
+
         Args:
             file_path: Path to save to (optional)
-            
+
         Returns:
             True if saved successfully
         """
@@ -100,10 +100,10 @@ class ProjectManager(Injectable):
     def close_project(self, save_if_modified: bool = True) -> bool:
         """
         Close current project.
-        
+
         Args:
             save_if_modified: Save project if it has unsaved changes
-            
+
         Returns:
             True if closed successfully
         """
@@ -143,7 +143,7 @@ class ProjectManager(Injectable):
     def auto_save(self) -> bool:
         """
         Perform auto-save if project is modified.
-        
+
         Returns:
             True if auto-save was performed or not needed
         """
@@ -247,7 +247,7 @@ class ProjectManager(Injectable):
                 project.set_project_data(key, value)
 
         if 'assets' in template:
-            for asset in template['assets']:
+            for _asset in template['assets']:
                 # Add template assets (placeholder implementation)
                 pass
 

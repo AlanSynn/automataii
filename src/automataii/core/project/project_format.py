@@ -10,8 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from automataii.core.events import EventBus, get_global_event_bus
-from automataii.core.events.base import ProjectLoaded, ProjectSaved
+from automataii.infrastructure.events import EventBus, get_global_event_bus, ProjectLoaded, ProjectSaved
 from automataii.core.serialization.base import Serializable
 
 
@@ -51,7 +50,7 @@ class ProjectState(Serializable):
 class AtiiProject:
     """
     Manages .atii project files using ZIP-based container format.
-    
+
     Structure:
     ├── manifest.json           # Project metadata
     ├── project.json           # Core project data
@@ -97,7 +96,7 @@ class AtiiProject:
     def load(self, file_path: str | Path | None = None) -> None:
         """
         Load project from .atii file.
-        
+
         Args:
             file_path: Path to .atii file (optional if already set)
         """
@@ -142,7 +141,7 @@ class AtiiProject:
     def save(self, file_path: str | Path | None = None) -> None:
         """
         Save project to .atii file.
-        
+
         Args:
             file_path: Path to save to (optional if already set)
         """
@@ -263,7 +262,7 @@ class AtiiProject:
     def validate(self) -> list[str]:
         """
         Validate project integrity.
-        
+
         Returns:
             List of validation errors (empty if valid)
         """
@@ -287,10 +286,10 @@ class AtiiProject:
     def create_backup(self, backup_dir: str | Path | None = None) -> Path:
         """
         Create backup of current project.
-        
+
         Args:
             backup_dir: Directory to save backup (default: same as project)
-            
+
         Returns:
             Path to backup file
         """
