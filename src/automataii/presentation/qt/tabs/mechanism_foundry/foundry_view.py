@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QMouseEvent, QPen
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -51,6 +51,12 @@ else:
 
 
 class MechanismFoundryView(QWidget):
+    """Mechanism Foundry View - Interactive mechanism visualization and export."""
+
+    # Signal emitted when user requests to export mechanism to Design tab
+    # Carries: (mechanism_type: str, parameters: dict, pivot_point: tuple)
+    export_to_design_requested = pyqtSignal(str, dict, tuple)
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
 
@@ -208,6 +214,13 @@ class MechanismFoundryView(QWidget):
         reset_action.triggered.connect(self._reset_animation)
         toolbar.addAction(reset_action)
 
+        toolbar.addSeparator()
+
+        export_action = QAction("📤 Export to Design", self)
+        export_action.setToolTip("Export this mechanism to the Mechanism Design tab")
+        export_action.triggered.connect(self._on_export_to_design)
+        toolbar.addAction(export_action)
+
         return toolbar
 
     def _create_info_panel(self) -> QWidget:
@@ -243,6 +256,26 @@ class MechanismFoundryView(QWidget):
 
     def _toggle_path_preview(self) -> None:
         self.path_preview_overlay.set_enabled(self.path_preview_action.isChecked())
+
+    def _on_export_to_design(self) -> None:
+        """Export current mechanism configuration to Mechanism Design tab."""
+        if not self.current_mechanism or not self.mechanism_selector:
+            return
+
+        # Get current mechanism type
+        mechanism_type = self.mechanism_selector.currentData()
+        if not mechanism_type:
+            return
+
+        # Get current parameters (copy to avoid mutation)
+        parameters = dict(self.current_parameters)
+        parameters["input_angle"] = self.current_angle
+
+        # Default pivot at center of mechanism
+        pivot_point = (0.0, 0.0)
+
+        # Emit signal for main_window to route to Design tab
+        self.export_to_design_requested.emit(mechanism_type, parameters, pivot_point)
 
     def _create_controls_panel(self) -> QWidget:
         panel = QWidget()
