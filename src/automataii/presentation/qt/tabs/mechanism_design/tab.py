@@ -127,26 +127,34 @@ class MechanismDesignTab(QWidget):
     @property
     def animation_time(self) -> float:
         """Current animation time. Delegates to AnimationFrameCoordinator."""
-        return self._animation_frame_coordinator.animation_time
+        if hasattr(self, '_animation_frame_coordinator') and self._animation_frame_coordinator:
+            return self._animation_frame_coordinator.animation_time
+        return 0.0
 
     @animation_time.setter
     def animation_time(self, value: float) -> None:
         """Set animation time."""
-        self._animation_frame_coordinator.animation_time = value
+        if hasattr(self, '_animation_frame_coordinator') and self._animation_frame_coordinator:
+            self._animation_frame_coordinator.animation_time = value
 
     @property
     def animation_speed(self) -> float:
         """Animation speed. Delegates to AnimationFrameCoordinator."""
-        return self._animation_frame_coordinator.animation_speed
+        if hasattr(self, '_animation_frame_coordinator') and self._animation_frame_coordinator:
+            return self._animation_frame_coordinator.animation_speed
+        return 1.0
 
     @animation_speed.setter
     def animation_speed(self, value: float) -> None:
         """Set animation speed."""
-        self._animation_frame_coordinator.animation_speed = value
+        if hasattr(self, '_animation_frame_coordinator') and self._animation_frame_coordinator:
+            self._animation_frame_coordinator.animation_speed = value
 
     @property
     def _trace_frame_tick(self) -> int:
-        return self._animation_frame_coordinator.trace_frame_tick
+        if hasattr(self, '_animation_frame_coordinator') and self._animation_frame_coordinator:
+            return self._animation_frame_coordinator.trace_frame_tick
+        return 0
 
     # === STATE DELEGATION TO PRESENTER (Passive View Pattern) ===
     # These attributes are delegated to _mvp_presenter when available
@@ -254,6 +262,9 @@ class MechanismDesignTab(QWidget):
         self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
         self._mvp_presenter._scene = self.mechanism_scene
 
+        # Connect MVP presenter signals
+        self._mvp_presenter.view_update_requested.connect(self._handle_mvp_view_update)
+
         self.blueprint_exporter = BlueprintExporter(
             parent=self,
             mechanism_view=self.mechanism_view,
@@ -344,6 +355,86 @@ class MechanismDesignTab(QWidget):
             self.selected_part_name = selected_part
         self._update_all_ui_states()
 
+    def _handle_mvp_view_update(self, update_type: str, data: object) -> None:
+        """Handle view_update_requested signal from MVP presenter.
+
+        Routes update types to appropriate handler methods.
+
+        Args:
+            update_type: Type of update ('generate_mechanism_visuals', etc.)
+            data: Update data payload
+        """
+        import logging
+        logging.debug(f"MechanismDesignTab: _handle_mvp_view_update: {update_type}")
+
+        if not isinstance(data, dict):
+            data = {}
+
+        if update_type == 'generate_mechanism_visuals':
+            # Route to mechanism visuals handler (new mechanism created)
+            self.handle_mechanism_visuals(data)
+
+        elif update_type == 'regenerate_visuals':
+            # Regenerate visuals for existing mechanism
+            mechanism_id = data.get('mechanism_id')
+            layer_data = data.get('layer_data') or self.mechanism_layers.get(mechanism_id)
+            if mechanism_id and layer_data:
+                self._generate_mechanism_visuals_directly(
+                    mechanism_id,
+                    layer_data.get('type', ''),
+                    layer_data.get('params', {}),
+                    layer_data
+                )
+
+        elif update_type == 'recreate_visuals':
+            # Recreate visuals after parameter change
+            mechanism_id = data.get('mechanism_id')
+            layer_data = data.get('layer_data') or self.mechanism_layers.get(mechanism_id)
+            if mechanism_id and layer_data:
+                self._recreate_mechanism_visuals(mechanism_id, layer_data)
+
+        elif update_type == 'update_mechanism_visuals':
+            # Update existing mechanism visuals
+            mechanism_id = data.get('mechanism_id')
+            if mechanism_id:
+                layer_data = self.mechanism_layers.get(mechanism_id)
+                if layer_data:
+                    self._generate_mechanism_visuals_directly(
+                        mechanism_id,
+                        layer_data.get('type', ''),
+                        layer_data.get('params', {}),
+                        layer_data
+                    )
+
+        elif update_type == 'update_mechanism_animation':
+            # Update mechanism during animation
+            mechanism_id = data.get('mechanism_id')
+            time = data.get('time', 0.0)
+            layer_data = data.get('layer_data') or self.mechanism_layers.get(mechanism_id)
+            if mechanism_id and layer_data:
+                self._update_mechanism_visuals_for_animation(mechanism_id, time, layer_data)
+
+        elif update_type == 'toggle_mechanism_visuals':
+            # Toggle mechanism visibility
+            mechanism_id = data.get('mechanism_id')
+            enabled = data.get('enabled', True)
+            if mechanism_id:
+                # Get part_name from layer_data (mechanisms are associated with parts)
+                layer_data = self.mechanism_layers.get(mechanism_id, {})
+                part_name = layer_data.get('part_name')
+                if part_name:
+                    self._toggle_mechanism_visuals(part_name, enabled)
+
+        elif update_type == 'refresh_view':
+            if hasattr(self, 'mechanism_scene') and self.mechanism_scene:
+                self.mechanism_scene.update()
+
+        elif update_type == 'update_mechanism_list':
+            self._update_mechanism_list()
+
+        else:
+            logging.debug(f"MechanismDesignTab: Unhandled update type: {update_type}")
+
     def _update_all_ui_states(self) -> None:
         """Update all UI states based on current data."""
         vm = self._presenter_view_model
@@ -356,9 +447,14 @@ class MechanismDesignTab(QWidget):
             has_mechanisms = bool(getattr(self, 'mechanism_layers', {}))
             has_enabled_parts = any(getattr(self, 'part_enabled_state', {}).values())
 
+        # Check animation state from controller (not Tab's vestigial timer)
+        animation_running = False
+        if hasattr(self, '_animation_controller') and self._animation_controller:
+            animation_running = self._animation_controller.is_animation_running()
+
         ui_state = UIState(
             has_paths=has_paths, has_mechanisms=has_mechanisms, has_enabled_parts=has_enabled_parts,
-            animation_running=self.animation_timer.isActive() if self.animation_timer else False,
+            animation_running=animation_running,
             parametric_mode=getattr(self, 'parametric_mode_enabled', False),
             has_parts_data=bool(getattr(self, 'parts_data', {})))
         if hasattr(self, 'ui_state_manager'):
@@ -582,6 +678,8 @@ class MechanismDesignTab(QWidget):
         return self._output_calculator.calculate_output(mech_type, params, time, layer_data)
 
     def _update_animation(self):
+        if not hasattr(self, '_animation_frame_coordinator') or not self._animation_frame_coordinator:
+            return
         self._animation_frame_coordinator.update_frame(
             tab_active=self._tab_active, mechanism_layers=self.mechanism_layers,
             part_enabled_state=self.part_enabled_state, parts_data=self.parts_data,
@@ -614,7 +712,8 @@ class MechanismDesignTab(QWidget):
         self._mvp_presenter.handle_mechanism_visuals(mechanism_graphics_data)
 
     def _clear_animation_cache(self):
-        self._animation_frame_coordinator.clear_animation_cache(self)
+        if hasattr(self, '_animation_frame_coordinator') and self._animation_frame_coordinator:
+            self._animation_frame_coordinator.clear_animation_cache(self)
 
     def _safe_remove_visual_items(self, visual_items: list):
         self._visual_item_manager.set_scene_cleared_flag(getattr(self, '_scene_recently_cleared', False))
@@ -681,6 +780,8 @@ class MechanismDesignTab(QWidget):
 
     def apply_performance_preset(self, preset: str) -> None:
         """Apply performance preset. Delegates to AnimationFrameCoordinator."""
+        if not hasattr(self, '_animation_frame_coordinator') or not self._animation_frame_coordinator:
+            return
         view_hints = self._animation_frame_coordinator.apply_performance_preset(preset)
 
         # Apply view-specific hints
@@ -829,7 +930,14 @@ class MechanismDesignTab(QWidget):
         import logging
         logging.info("MechanismDesignTab: closeEvent - cleaning up")
 
-        # Stop animation timer
+        # Stop animation controller first (primary animation system)
+        try:
+            if hasattr(self, '_animation_controller') and self._animation_controller:
+                self._animation_controller.stop_animation()
+        except (TypeError, RuntimeError, AttributeError) as e:
+            logging.debug(f"MechanismDesignTab: Animation controller cleanup: {e}")
+
+        # Stop legacy animation timer (vestigial, but cleanup for safety)
         try:
             if hasattr(self, 'animation_timer') and self.animation_timer:
                 self.animation_timer.stop()

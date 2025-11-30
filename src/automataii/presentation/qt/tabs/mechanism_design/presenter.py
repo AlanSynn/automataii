@@ -124,6 +124,13 @@ class MechanismDesignPresenter(QObject):
         # Path trace
         self._trace_frame_tick: int = 0
 
+        # View listener pattern (for observer callbacks)
+        self._view_listeners: list = []
+
+        # Animation and parametric mode state
+        self._animation_running: bool = False
+        self._parametric_mode_enabled: bool = False
+
         # === SERVICES ===
 
         self.mechanism_service = MechanismService()
@@ -169,6 +176,68 @@ class MechanismDesignPresenter(QObject):
         """Called when tab becomes inactive."""
         self._tab_active = False
         self._cleanup_resources()
+
+    # === VIEW LISTENER PATTERN ===
+
+    def add_view_listener(self, callback) -> None:
+        """Register listener for view model updates.
+
+        Args:
+            callback: Function to call with view model updates
+        """
+        if callback not in self._view_listeners:
+            self._view_listeners.append(callback)
+
+    def remove_view_listener(self, callback) -> None:
+        """Unregister listener for view model updates.
+
+        Args:
+            callback: Previously registered callback
+        """
+        if callback in self._view_listeners:
+            self._view_listeners.remove(callback)
+
+    def _notify_listeners(self, view_model) -> None:
+        """Notify all registered listeners of view model update.
+
+        Args:
+            view_model: The view model to send to listeners
+        """
+        for callback in self._view_listeners:
+            try:
+                callback(view_model)
+            except Exception:
+                pass
+
+    # === STATE MANAGEMENT ===
+
+    def select_part(self, part_name: str | None) -> None:
+        """Update selected part name.
+
+        Args:
+            part_name: Name of selected part, or None to deselect
+        """
+        self.selected_part_name = part_name
+        # Sync to tab for backward compatibility
+        if hasattr(self._tab, 'selected_part_name'):
+            self._tab.selected_part_name = part_name
+
+    def set_animation_running(self, is_running: bool) -> None:
+        """Update animation running state.
+
+        Args:
+            is_running: True if animation is running
+        """
+        self._animation_running = is_running
+        self.animation_state_changed.emit(is_running)
+
+    def set_parametric_mode(self, enabled: bool) -> None:
+        """Update parametric mode state.
+
+        Args:
+            enabled: True if parametric mode is enabled
+        """
+        self._parametric_mode_enabled = enabled
 
     def _prepare_activation(self) -> None:
         """Prepare tab for activation.

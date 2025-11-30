@@ -97,6 +97,10 @@ class MechanismVisualAnimator:
 
             if mech_type == "4_bar_linkage":
                 self._update_4bar_visuals(time, layer_data, visual_items)
+            elif mech_type == "5_bar_linkage":
+                self._update_5bar_visuals(time, layer_data, visual_items)
+            elif mech_type == "6_bar_linkage":
+                self._update_6bar_visuals(time, layer_data, visual_items)
             elif mech_type == "cam":
                 self._update_cam_visuals(time, layer_data, visual_items, visuals_factory)
             elif mech_type == "gear":
@@ -210,6 +214,124 @@ class MechanismVisualAnimator:
             if isinstance(coupler_marker, QGraphicsEllipseItem):
                 coupler_marker.setRect(p_coupler_t.x() - 4, p_coupler_t.y() - 4, 8, 8)
 
+    def _update_5bar_visuals(
+        self,
+        time: float,
+        layer_data: dict,
+        visual_items: list,
+    ) -> None:
+        """Update 5-bar linkage visual elements."""
+        if len(visual_items) < 5:
+            return
+
+        full_sim_data = layer_data.get("full_simulation_data", {})
+        to_scene_coords = self._get_scene_transform(layer_data)
+
+        if "joint_positions" not in full_sim_data or not to_scene_coords:
+            return
+
+        joint_positions = full_sim_data["joint_positions"]
+        if "p1_positions" not in joint_positions:
+            return
+
+        num_frames = len(joint_positions["p1_positions"])
+        normalized_time = time / (2 * math.pi)
+
+        # Direction correction
+        reverse_direction = layer_data.get("reverse_direction", False)
+        if reverse_direction:
+            normalized_time = 1.0 - normalized_time
+
+        frame_index = int(normalized_time * (num_frames - 1))
+        frame_index = max(0, min(frame_index, num_frames - 1))
+
+        # Get positions from dataset
+        p1 = np.array(joint_positions["p1_positions"][frame_index])
+        p2 = np.array(joint_positions["p2_positions"][frame_index])
+        p3 = np.array(joint_positions["p3_positions"][frame_index])
+        p4 = np.array(joint_positions["p4_positions"][frame_index])
+        p5 = np.array(joint_positions.get("p5_positions", [[0, 0]] * num_frames)[frame_index])
+
+        # Transform to scene coordinates
+        p1_t = to_scene_coords(p1)
+        p2_t = to_scene_coords(p2)
+        p3_t = to_scene_coords(p3)
+        p4_t = to_scene_coords(p4)
+        p5_t = to_scene_coords(p5)
+
+        # Update links (items 0-3 are typically link lines)
+        link_pairs = [(p1_t, p3_t), (p3_t, p4_t), (p4_t, p5_t), (p5_t, p2_t)]
+        for i, (start, end) in enumerate(link_pairs):
+            if len(visual_items) > i and isinstance(visual_items[i], QGraphicsLineItem):
+                self._set_line_if_changed(visual_items[i], start, end, 0.1)
+
+        # Update joint markers (items 4+)
+        joint_positions_scene = [p3_t, p4_t, p5_t]
+        for i, pos in enumerate(joint_positions_scene):
+            item_idx = 4 + i
+            if len(visual_items) > item_idx and isinstance(visual_items[item_idx], QGraphicsEllipseItem):
+                visual_items[item_idx].setRect(pos.x() - 6, pos.y() - 6, 12, 12)
+
+    def _update_6bar_visuals(
+        self,
+        time: float,
+        layer_data: dict,
+        visual_items: list,
+    ) -> None:
+        """Update 6-bar linkage visual elements."""
+        if len(visual_items) < 6:
+            return
+
+        full_sim_data = layer_data.get("full_simulation_data", {})
+        to_scene_coords = self._get_scene_transform(layer_data)
+
+        if "joint_positions" not in full_sim_data or not to_scene_coords:
+            return
+
+        joint_positions = full_sim_data["joint_positions"]
+        if "p1_positions" not in joint_positions:
+            return
+
+        num_frames = len(joint_positions["p1_positions"])
+        normalized_time = time / (2 * math.pi)
+
+        # Direction correction
+        reverse_direction = layer_data.get("reverse_direction", False)
+        if reverse_direction:
+            normalized_time = 1.0 - normalized_time
+
+        frame_index = int(normalized_time * (num_frames - 1))
+        frame_index = max(0, min(frame_index, num_frames - 1))
+
+        # Get positions from dataset
+        p1 = np.array(joint_positions["p1_positions"][frame_index])
+        p2 = np.array(joint_positions["p2_positions"][frame_index])
+        p3 = np.array(joint_positions["p3_positions"][frame_index])
+        p4 = np.array(joint_positions["p4_positions"][frame_index])
+        p5 = np.array(joint_positions.get("p5_positions", [[0, 0]] * num_frames)[frame_index])
+        p6 = np.array(joint_positions.get("p6_positions", [[0, 0]] * num_frames)[frame_index])
+
+        # Transform to scene coordinates
+        p1_t = to_scene_coords(p1)
+        p2_t = to_scene_coords(p2)
+        p3_t = to_scene_coords(p3)
+        p4_t = to_scene_coords(p4)
+        p5_t = to_scene_coords(p5)
+        p6_t = to_scene_coords(p6)
+
+        # Update links (items 0-4 are typically link lines)
+        link_pairs = [(p1_t, p3_t), (p3_t, p4_t), (p4_t, p2_t), (p4_t, p5_t), (p5_t, p6_t)]
+        for i, (start, end) in enumerate(link_pairs):
+            if len(visual_items) > i and isinstance(visual_items[i], QGraphicsLineItem):
+                self._set_line_if_changed(visual_items[i], start, end, 0.1)
+
+        # Update joint markers (items 5+)
+        joint_positions_scene = [p3_t, p4_t, p5_t]
+        for i, pos in enumerate(joint_positions_scene):
+            item_idx = 5 + i
+            if len(visual_items) > item_idx and isinstance(visual_items[item_idx], QGraphicsEllipseItem):
+                visual_items[item_idx].setRect(pos.x() - 6, pos.y() - 6, 12, 12)
+
     def _update_cam_visuals(
         self,
         time: float,
@@ -217,150 +339,123 @@ class MechanismVisualAnimator:
         visual_items: list,
         visuals_factory: Any | None = None,
     ) -> None:
-        """Update cam mechanism visual elements."""
-        if len(visual_items) < 2:
+        """
+        Update cam mechanism visual elements (Foundry-compatible).
+
+        Visual items order:
+        - Item 0: cam polygon (QGraphicsPolygonItem)
+        - Item 1: contact point (QGraphicsEllipseItem)
+        - Item 2: follower rod (QGraphicsLineItem)
+        - Item 3: follower head (QGraphicsRectItem)
+        - Item 4: follower anchor (QGraphicsRectItem)
+        - Item 5: cam center pivot (QGraphicsEllipseItem)
+        """
+        if len(visual_items) < 4:
             return
 
         params = layer_data.get("params", {})
-        base_radius = params.get("base_radius", 25.0)
-        eccentricity = params.get("eccentricity", 10.0)
+
+        # Get harmonic cam parameters (Foundry-compatible)
+        base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
+        cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
+        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 100.0))
+        cam_lobes = int(params.get("cam_lobes", 1))
+        profile_harmonic = params.get("profile_harmonic", 0.3)
 
         # Get scaling factors
         cam_scale_factor = layer_data.get('cam_scale_factor', 1.0)
         rod_length_multiplier = layer_data.get('rod_length_multiplier', 1.0)
 
         scaled_base_radius = base_radius * cam_scale_factor
-        scaled_eccentricity = eccentricity * cam_scale_factor
-        scaled_rod_length = params.get("follower_rod_length", 40.0) * rod_length_multiplier
+        scaled_cam_offset = cam_offset * cam_scale_factor
+        scaled_rod_length = follower_rod_length * rod_length_multiplier
 
         # Get transform function
         cam_to_scene_coords = layer_data.get('cam_transform_function')
         if not cam_to_scene_coords:
-            return
+            cam_to_scene_coords = self._get_scene_transform(layer_data)
+            if not cam_to_scene_coords:
+                return
 
-        cam_profile_local = layer_data.get('cam_profile_local_points')
-        cam_points_local = layer_data.get('cam_points_local')
+        # Cam center in mechanism coordinates
+        cam_center_local = np.array([0.0, 0.0])
+        cam_center_scene = cam_to_scene_coords(cam_center_local)
 
-        # Regenerate cam points if needed
-        if cam_profile_local is not None and len(cam_profile_local) > 2 and visuals_factory:
-            try:
-                cam_points_local = visuals_factory._build_cam_from_template(
-                    cam_profile_local,
-                    scaled_base_radius,
-                    scaled_eccentricity,
-                    num_samples=180
-                )
-                layer_data['cam_points_local'] = cam_points_local
-            except Exception:
-                pass
+        # Generate rotated cam profile using harmonic formula (matches Foundry)
+        cam_angle = time  # Cam rotation angle in radians
+        num_points = 72
 
-        # Calculate rotated cam profile
         cam_polygon_points = []
-        current_cam_center = np.array([0.0, 0.0])
+        for i in range(num_points):
+            theta = (i / num_points) * 2 * np.pi
 
-        if cam_points_local is not None and len(cam_points_local) > 2:
-            angle = time
-            cos_r, sin_r = np.cos(angle), np.sin(angle)
-            rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-            rotated = cam_points_local @ rot.T
+            # Harmonic profile formula (same as Foundry)
+            primary_var = scaled_cam_offset * np.cos(cam_lobes * theta)
+            secondary_var = (scaled_cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * theta)
+            r = scaled_base_radius + primary_var + secondary_var
 
-            for p in rotated:
-                scene_point = cam_to_scene_coords(p)
-                cam_polygon_points.append(scene_point)
+            # Apply rotation
+            rotated_theta = theta + cam_angle
+            x = r * np.cos(rotated_theta)
+            y = r * np.sin(rotated_theta)
 
-            float(np.max(rotated[:, 1]))
-        elif cam_profile_local is not None and len(cam_profile_local) > 2:
-            angle = time
-            cos_r, sin_r = np.cos(angle), np.sin(angle)
-            rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-            rotated = cam_profile_local @ rot.T
+            scene_point = cam_to_scene_coords(np.array([x, y]))
+            cam_polygon_points.append(scene_point)
 
-            for p in rotated:
-                scene_point = cam_to_scene_coords(p)
-                cam_polygon_points.append(scene_point)
+        # Update cam shape polygon (item 0)
+        if isinstance(visual_items[0], QGraphicsPolygonItem):
+            cam_polygon = QPolygonF(cam_polygon_points)
+            visual_items[0].setPolygon(cam_polygon)
 
-            float(np.max(rotated[:, 1]))
-        else:
-            # Fallback: circular cam
-            num_points = 120
-            for i in range(num_points + 1):
-                theta = 2 * np.pi * (i / num_points)
-                point = current_cam_center + scaled_base_radius * np.array([np.cos(theta), np.sin(theta)])
-                scene_point = cam_to_scene_coords(point)
-                cam_polygon_points.append(scene_point)
+        # Calculate contact radius at follower position (theta = -π/2 in cam frame)
+        # Account for cam rotation
+        follower_contact_theta = -np.pi / 2 - cam_angle
+        primary_var = scaled_cam_offset * np.cos(cam_lobes * follower_contact_theta)
+        secondary_var = (scaled_cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * follower_contact_theta)
+        contact_radius = scaled_base_radius + primary_var + secondary_var
 
-        # Update cam shape polygon
-        if len(visual_items) >= 1 and isinstance(visual_items[0], QGraphicsPolygonItem):
-            if cam_polygon_points:
-                cam_polygon = QPolygonF(cam_polygon_points)
-                visual_items[0].setPolygon(cam_polygon)
+        # Contact point position (always at bottom in scene, but varies with cam rotation)
+        contact_local = np.array([0.0, -contact_radius])
+        contact_scene = cam_to_scene_coords(contact_local)
 
-        # Update follower position
-        if len(visual_items) >= 2 and isinstance(visual_items[1], QGraphicsRectItem):
-            if cam_polygon_points:
-                idx = max(range(len(cam_polygon_points)), key=lambda i: cam_polygon_points[i].y())
-                y_contact = cam_polygon_points[idx].y()
-            else:
-                pt = cam_to_scene_coords(np.array([0.0, 0.0]))
-                y_contact = pt.y()
+        # Calculate scene scale for rod length conversion
+        try:
+            u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
+            u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
+            unit_scale = ((u1.x() - u0.x()) ** 2 + (u1.y() - u0.y()) ** 2) ** 0.5
+        except Exception:
+            unit_scale = 1.0
 
-            # Calculate scene scale
-            try:
-                u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
-                u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
-                unit_scale = ((u1.x() - u0.x()) ** 2 + (u1.y() - u0.y()) ** 2) ** 0.5
-            except Exception:
-                unit_scale = 1.0
+        rod_scene = scaled_rod_length * unit_scale
 
-            rod_scene = scaled_rod_length * unit_scale
-            follower_scene_x = layer_data.get('follower_fixed_x_scene')
-            if follower_scene_x is None:
-                center_scene = cam_to_scene_coords(current_cam_center)
-                follower_scene_x = center_scene.x()
+        # Follower X is fixed at cam center X
+        follower_x = layer_data.get('follower_fixed_x_scene', cam_center_scene.x())
 
-            follower_scene_y = y_contact - rod_scene
-            follower_width, follower_height = 20, 15
-            visual_items[1].setRect(
-                follower_scene_x - follower_width / 2,
-                follower_scene_y - follower_height / 2,
-                follower_width, follower_height
-            )
+        # Follower base Y (at end of rod below contact)
+        follower_base_y = contact_scene.y() + rod_scene
 
-        # Update cam center marker
-        if len(visual_items) >= 3 and isinstance(visual_items[2], QGraphicsEllipseItem):
-            cam_center_scene = cam_to_scene_coords(current_cam_center)
-            visual_items[2].setRect(
-                cam_center_scene.x() - 3, cam_center_scene.y() - 3, 6, 6
-            )
+        # Update contact point (item 1)
+        if len(visual_items) > 1 and isinstance(visual_items[1], QGraphicsEllipseItem):
+            visual_items[1].setRect(contact_scene.x() - 5, contact_scene.y() - 5, 10, 10)
 
-        # Update rod connection line
-        if len(visual_items) >= 4 and isinstance(visual_items[3], QGraphicsLineItem):
-            if cam_polygon_points:
-                idx = max(range(len(cam_polygon_points)), key=lambda i: cam_polygon_points[i].y())
-                x_contact = cam_polygon_points[idx].x()
-                y_contact = cam_polygon_points[idx].y()
-            else:
-                pt = cam_to_scene_coords(np.array([0.0, 0.0]))
-                x_contact, y_contact = pt.x(), pt.y()
-
-            try:
-                u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
-                u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
-                unit_scale = ((u1.x() - u0.x()) ** 2 + (u1.y() - u0.y()) ** 2) ** 0.5
-            except Exception:
-                unit_scale = 1.0
-
-            rod_scene = scaled_rod_length * unit_scale
-            follower_scene_x = layer_data.get('follower_fixed_x_scene')
-            if follower_scene_x is None:
-                center_scene = cam_to_scene_coords(current_cam_center)
-                follower_scene_x = center_scene.x()
-
-            follower_scene_y = y_contact - rod_scene
-            visual_items[3].setLine(QLineF(
-                QPointF(x_contact, y_contact),
-                QPointF(follower_scene_x, follower_scene_y)
+        # Update follower rod (item 2)
+        if len(visual_items) > 2 and isinstance(visual_items[2], QGraphicsLineItem):
+            visual_items[2].setLine(QLineF(
+                contact_scene,
+                QPointF(follower_x, follower_base_y)
             ))
+
+        # Update follower head (item 3)
+        if len(visual_items) > 3 and isinstance(visual_items[3], QGraphicsRectItem):
+            visual_items[3].setRect(follower_x - 15, follower_base_y - 8, 30, 15)
+
+        # Update follower anchor (item 4) - fixed position
+        if len(visual_items) > 4 and isinstance(visual_items[4], QGraphicsRectItem):
+            visual_items[4].setRect(follower_x - 30, follower_base_y - 45, 60, 30)
+
+        # Update cam center pivot (item 5)
+        if len(visual_items) > 5 and isinstance(visual_items[5], QGraphicsEllipseItem):
+            visual_items[5].setRect(cam_center_scene.x() - 8, cam_center_scene.y() - 8, 16, 16)
 
     def _update_gear_visuals(
         self,

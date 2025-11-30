@@ -144,6 +144,15 @@ class AnimationLifecycleController(QObject):
         self._reset_skeleton_to_initial_state = reset_skeleton_to_initial_state
         self._position_parts_at_anchor_joints = position_parts_at_anchor_joints
         self._clear_animation_cache = clear_animation_cache
+        self._callbacks_configured = True
+
+    def is_configured(self) -> bool:
+        """Check if essential callbacks have been configured.
+
+        Returns:
+            True if callbacks are configured, False otherwise
+        """
+        return getattr(self, '_callbacks_configured', False)
 
     # --- Properties ---
 
@@ -252,6 +261,10 @@ class AnimationLifecycleController(QObject):
             mechanism_enabled_state: Dict of mechanism_id -> enabled state
             initial_skeleton_data: Initial skeleton data for visualization
         """
+        # Check if callbacks are configured
+        if not self.is_configured():
+            logging.warning("AnimationLifecycleController: Callbacks not configured! Animation may not work correctly.")
+
         if not mechanism_enabled_state:
             logging.warning("AnimationLifecycleController: No mechanisms enabled for animation")
             return

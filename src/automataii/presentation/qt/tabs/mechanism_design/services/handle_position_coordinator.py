@@ -288,7 +288,12 @@ class HandlePositionCoordinator:
 
                 # Map handle IDs to anchor positions based on mechanism type
                 if mechanism_type == "cam":
-                    if "rod_length" in handle_id:
+                    # Support both CamEditor naming (center, follower) and legacy (rod_length, cam_size)
+                    if "center" in handle_id and "gear" not in handle_id:
+                        new_pos = anchor_positions.get("cam_center") or anchor_positions.get("center")
+                    elif "follower" in handle_id:
+                        new_pos = anchor_positions.get("cam_follower") or anchor_positions.get("follower")
+                    elif "rod_length" in handle_id:
                         new_pos = anchor_positions.get("cam_rod_length")
                     elif "cam_size" in handle_id:
                         new_pos = anchor_positions.get("cam_size")
@@ -298,6 +303,10 @@ class HandlePositionCoordinator:
                         new_pos = anchor_positions.get("gear1_center")
                     elif "gear2_center" in handle_id:
                         new_pos = anchor_positions.get("gear2_center")
+                    elif "gear1_radius" in handle_id:
+                        new_pos = anchor_positions.get("gear1_radius")
+                    elif "gear2_radius" in handle_id:
+                        new_pos = anchor_positions.get("gear2_radius")
 
                 elif mechanism_type == "planetary_gear":
                     if "sun_center" in handle_id:
@@ -376,12 +385,13 @@ class HandlePositionCoordinator:
             handles: list[QGraphicsItem] = []
 
             # Define gear control points
+            # NOTE: Naming must match update_handles_for_mechanism() expectations
             center_x, center_y = 400, 300
             anchor_positions = {
-                "gear_center_1": QPointF(center_x - 60, center_y),
-                "gear_center_2": QPointF(center_x + 60, center_y),
-                "radius_control_1": QPointF(center_x - 60, center_y - 50),
-                "radius_control_2": QPointF(center_x + 60, center_y - 50)
+                "gear1_center": QPointF(center_x - 60, center_y),
+                "gear2_center": QPointF(center_x + 60, center_y),
+                "gear1_radius": QPointF(center_x - 60, center_y - 50),
+                "gear2_radius": QPointF(center_x + 60, center_y - 50)
             }
 
             # Create anchor handles
