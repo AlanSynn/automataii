@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Mapping, Tuple
+from collections.abc import Mapping
 
-from automataii.core.telemetry import telemetry_span
+from automataii.infrastructure.telemetry import telemetry_span
 
 from .state import IKState, IKStateStore
 
@@ -62,7 +62,7 @@ class IKService:
         self._store.set_animation_time(new_time)
 
     # Mechanism targets ------------------------------------------------------
-    def set_mechanism_target(self, part_name: str, position: Tuple[float, float]) -> None:
+    def set_mechanism_target(self, part_name: str, position: tuple[float, float]) -> None:
         with telemetry_span("application.ik.set_mechanism_target", part=part_name):
             self._store.set_mechanism_target(part_name, position)
 

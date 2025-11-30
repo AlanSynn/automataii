@@ -1,6 +1,6 @@
 """Application-layer IK abstractions."""
 
-from .state import IKState, IKStateStore
 from .service import IKService
+from .state import IKState, IKStateStore
 
 __all__ = ["IKState", "IKStateStore", "IKService"]

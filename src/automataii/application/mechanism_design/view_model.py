@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Tuple
 
 from .state import MechanismDesignState, MechanismLayer, PartPath, Recommendation
 
@@ -35,9 +35,9 @@ class RecommendationViewModel:
 
 @dataclass(frozen=True)
 class MechanismDesignViewModel:
-    parts: Tuple[PartViewModel, ...]
-    layers: Tuple[MechanismLayerViewModel, ...]
-    recommendations: Tuple[RecommendationViewModel, ...]
+    parts: tuple[PartViewModel, ...]
+    layers: tuple[MechanismLayerViewModel, ...]
+    recommendations: tuple[RecommendationViewModel, ...]
     animation_running: bool
     parametric_mode: bool
 

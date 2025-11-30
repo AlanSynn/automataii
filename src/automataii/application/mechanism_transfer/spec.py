@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Mapping, Sequence, Tuple
+from typing import Any
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ class MechanismSpec:
     source_tab: str = "unknown"
     timestamp: float | None = None
 
-    def with_metadata(self, extra: Mapping[str, Any]) -> "MechanismSpec":
+    def with_metadata(self, extra: Mapping[str, Any]) -> MechanismSpec:
         merged = dict(self.metadata)
         merged.update(extra)
         return replace(self, metadata=merged)

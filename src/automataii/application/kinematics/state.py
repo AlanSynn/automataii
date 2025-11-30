@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, Mapping, Tuple
 
 
 @dataclass(frozen=True)
@@ -14,35 +14,35 @@ class IKState:
     animation_time: float = 0.0
     animation_duration_ms: int = 3000
     timing_profile: str = "linear"
-    mechanism_targets: Mapping[str, Tuple[float, float]] = None
+    mechanism_targets: Mapping[str, tuple[float, float]] = None
 
-    def with_skeleton(self, skeleton: Mapping[str, object] | None) -> "IKState":
+    def with_skeleton(self, skeleton: Mapping[str, object] | None) -> IKState:
         return replace(self, skeleton_data=skeleton)
 
-    def with_project_parts(self, parts: Mapping[str, object]) -> "IKState":
+    def with_project_parts(self, parts: Mapping[str, object]) -> IKState:
         return replace(self, project_parts=dict(parts))
 
-    def start_animation(self) -> "IKState":
+    def start_animation(self) -> IKState:
         return replace(self, animation_running=True, animation_time=0.0)
 
-    def stop_animation(self) -> "IKState":
+    def stop_animation(self) -> IKState:
         return replace(self, animation_running=False)
 
-    def set_animation_time(self, time: float) -> "IKState":
+    def set_animation_time(self, time: float) -> IKState:
         return replace(self, animation_time=float(time))
 
-    def set_animation_duration(self, duration_ms: int) -> "IKState":
+    def set_animation_duration(self, duration_ms: int) -> IKState:
         return replace(self, animation_duration_ms=int(duration_ms))
 
-    def set_timing_profile(self, profile: str) -> "IKState":
+    def set_timing_profile(self, profile: str) -> IKState:
         return replace(self, timing_profile=profile)
 
-    def with_mechanism_target(self, part: str, pos: Tuple[float, float]) -> "IKState":
+    def with_mechanism_target(self, part: str, pos: tuple[float, float]) -> IKState:
         targets = dict(self.mechanism_targets or {})
         targets[part] = (float(pos[0]), float(pos[1]))
         return replace(self, mechanism_targets=targets)
 
-    def without_mechanism_target(self, part: str | None = None) -> "IKState":
+    def without_mechanism_target(self, part: str | None = None) -> IKState:
         if part is None:
             return replace(self, mechanism_targets={})
         targets = dict(self.mechanism_targets or {})
@@ -101,7 +101,7 @@ class IKStateStore:
     def set_timing_profile(self, profile: str) -> None:
         self._set_state(self._state.set_timing_profile(profile))
 
-    def set_mechanism_target(self, part: str, position: Tuple[float, float]) -> None:
+    def set_mechanism_target(self, part: str, position: tuple[float, float]) -> None:
         self._set_state(self._state.with_mechanism_target(part, position))
 
     def clear_mechanism_targets(self, part: str | None = None) -> None:

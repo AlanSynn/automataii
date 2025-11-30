@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence
 
-from automataii.core.telemetry import telemetry_span
+from automataii.infrastructure.telemetry import telemetry_span
 
 from .catalog import (
     MechanismCatalog,

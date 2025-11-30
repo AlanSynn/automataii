@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Optional
 
 import numpy as np
-
 
 ToSceneFn = Optional[Callable[[np.ndarray], Any]]
 
@@ -13,10 +13,10 @@ ToSceneFn = Optional[Callable[[np.ndarray], Any]]
 @dataclass
 class ParametricContext:
     mechanism_type: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
     full_simulation_data: Mapping[str, Any]
     transform_params: Mapping[str, Any]
-    cam_position: Optional[Mapping[str, float]] = None
+    cam_position: Mapping[str, float] | None = None
     to_scene: ToSceneFn = None
 
 
@@ -157,7 +157,7 @@ class ParametricParameterService:
         params["coupler_y"] = p3_y + offset_x * unit_y + offset_y * normal_y
 
     @staticmethod
-    def _set_default_4bar_parameters(params: Dict[str, Any]) -> None:
+    def _set_default_4bar_parameters(params: dict[str, Any]) -> None:
         params.setdefault("anchor1_x", 400)
         params.setdefault("anchor1_y", 300)
         l1 = params.get("l1", 100)
@@ -183,7 +183,7 @@ class ParametricParameterService:
 
     def _extract_gear_positions(
         self,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         gear_data: Mapping[str, Any],
         to_scene: Callable[[np.ndarray], Any],
     ) -> None:
@@ -195,7 +195,7 @@ class ParametricParameterService:
             params["gear2_x"], params["gear2_y"] = self._extract_coordinates(g2_scene)
 
     @staticmethod
-    def _set_default_gear_positions(params: Dict[str, Any]) -> None:
+    def _set_default_gear_positions(params: dict[str, Any]) -> None:
         params.setdefault("gear1_x", 400)
         params.setdefault("gear1_y", 300)
         if "gear2_x" not in params:
@@ -219,7 +219,7 @@ class ParametricParameterService:
 
     def _extract_planetary_positions(
         self,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         gear_positions: Mapping[str, Any],
         to_scene: Callable[[np.ndarray], Any],
     ) -> None:
@@ -231,7 +231,7 @@ class ParametricParameterService:
             params["gear2_x"], params["gear2_y"] = self._extract_coordinates(planet_scene)
 
     @staticmethod
-    def _set_default_planetary_positions(params: Dict[str, Any]) -> None:
+    def _set_default_planetary_positions(params: dict[str, Any]) -> None:
         params.setdefault("gear1_x", 400)
         params.setdefault("gear1_y", 300)
         params.setdefault("gear2_x", params["gear1_x"] + params.get("gear1_radius", 20) + params.get("gear2_radius", 30))

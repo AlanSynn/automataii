@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict
-from typing import Any, Callable, Iterable, Mapping, Protocol
+from typing import Any, Protocol
 
-from automataii.core.telemetry import telemetry_span
+from automataii.infrastructure.telemetry import telemetry_span
 
 from .state import (
     MechanismDesignState,

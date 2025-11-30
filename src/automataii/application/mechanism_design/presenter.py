@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 
-from automataii.core.telemetry import telemetry_span
+from automataii.infrastructure.telemetry import telemetry_span
 
 from .controller import MechanismDesignController
 from .state import MechanismDesignState, MechanismLayer, PartPath, Recommendation

@@ -1,7 +1,7 @@
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import json
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,7 @@ class ContentLoader:
             return self._create_default_content(mechanism_type)
 
         try:
-            with open(content_file, "r", encoding="utf-8") as f:
+            with open(content_file, encoding="utf-8") as f:
                 data: dict[str, Any] = json.load(f)
 
             content = self._parse_content(data)
