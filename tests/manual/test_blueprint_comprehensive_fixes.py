@@ -26,9 +26,9 @@ def test_comprehensive_blueprint_fixes():
     
     try:
         # Import the fixed modules
-        from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer, EnhancedMechanismProcessor, ScaleNormalizer
-        from automataii.generation.blueprint import generate_multi_page_blueprint
-        from automataii.gui.blueprint.exporter import BlueprintExporter
+        from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer, EnhancedMechanismProcessor
+        from automataii.domain.generation.layout import ScaleNormalizer
+        from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
         
         logger.info("✅ Successfully imported all fixed blueprint modules")
         
@@ -84,7 +84,7 @@ def test_comprehensive_blueprint_fixes():
         logger.info("\n🧪 Test 2: Multi-page Letter-size Blueprint Generation")
         
         # Create test layout items
-        from automataii.generation.blueprint_optimizer import LayoutItem, ScaledBounds
+        from automataii.domain.generation.layout import LayoutItem, ScaledBounds
         
         test_layout_items = [
             LayoutItem(

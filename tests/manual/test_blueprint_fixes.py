@@ -22,8 +22,9 @@ def test_blueprint_fixes():
     
     try:
         # Import the fixed modules
-        from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer, EnhancedMechanismProcessor, ScaleNormalizer
-        from automataii.gui.blueprint.exporter import BlueprintExporter
+        from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer, EnhancedMechanismProcessor
+        from automataii.domain.generation.layout import ScaleNormalizer
+        from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
         
         logger.info("✅ Successfully imported fixed blueprint modules")
         

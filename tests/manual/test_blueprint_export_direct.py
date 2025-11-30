@@ -10,8 +10,8 @@ import pytest
 # Manual blueprint export inspection; skip in automated pytest runs.
 pytest.skip("Manual blueprint export test; skipping in automated pytest.", allow_module_level=True)
 
-from automataii.generation.blueprint import generate_single_large_blueprint
-from automataii.generation.blueprint_optimizer import BlueprintLayoutOptimizer
+from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
+from automataii.infrastructure.generation.svg.optimizer import BlueprintLayoutOptimizer
 import os
 
 def test_direct_blueprint_export():

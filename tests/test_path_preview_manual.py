@@ -40,7 +40,7 @@ def main():
     print("=" * 60)
     print()
 
-    from automataii.gui.main_window import AutomataDesigner
+    from automataii.presentation.qt.main_window import AutomataDesigner
 
     app = QApplication(sys.argv)
     window = AutomataDesigner(debug_mode=False, editing_mode=False)

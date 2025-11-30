@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from automataii.application.blueprint import BlueprintCompositionResult
-from automataii.core.blueprint_manager import BlueprintExportManager
+from automataii.application.managers import BlueprintExportManager
 
 
 @pytest.fixture

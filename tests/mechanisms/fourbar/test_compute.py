@@ -1,10 +1,9 @@
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF
 
-from automataii.mechanisms.core.state import SafetyLevel
-from automataii.mechanisms.fourbar.compute import FourBarMechanism, FourBarParameters
+from automataii.domain.mechanisms.core.state import SafetyLevel
+from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism, FourBarParameters
 
 
 class TestFourBarParameters:
@@ -25,8 +24,9 @@ class TestFourBarParameters:
         assert params.ground_pivot2 is None
 
     def test_creation_with_custom_pivots(self):
-        gp1 = QPointF(0, 0)
-        gp2 = QPointF(100, 0)
+        # Domain code uses tuples, not Qt types
+        gp1 = (0.0, 0.0)
+        gp2 = (100.0, 0.0)
         params = FourBarParameters(
             ground_link=100.0,
             input_link=40.0,
@@ -110,13 +110,14 @@ class TestFourBarMechanism:
 
     def test_compute_state_with_custom_pivots(self):
         mech = FourBarMechanism()
+        # Domain code uses tuples, not Qt types
         params = {
             "ground_link": 150.0,
             "input_link": 40.0,
             "coupler_link": 120.0,
             "output_link": 130.0,
-            "ground_pivot1": QPointF(-100, 50),
-            "ground_pivot2": QPointF(100, 50),
+            "ground_pivot1": (-100.0, 50.0),
+            "ground_pivot2": (100.0, 50.0),
         }
         state = mech.compute_state(params, 45.0)
 

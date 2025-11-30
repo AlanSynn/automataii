@@ -12,7 +12,7 @@ def qapp():
 
 
 def test_view_instantiation(qapp):
-    from automataii.ui.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
     
     view = MechanismFoundryView()
     
@@ -22,7 +22,7 @@ def test_view_instantiation(qapp):
 
 
 def test_view_initial_four_bar_loaded(qapp):
-    from automataii.ui.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
     
     view = MechanismFoundryView()
     
@@ -33,7 +33,7 @@ def test_view_initial_four_bar_loaded(qapp):
 
 
 def test_view_mechanism_switching(qapp):
-    from automataii.ui.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
     
     view = MechanismFoundryView()
     initial_items = len(view.scene.items())
@@ -46,7 +46,7 @@ def test_view_mechanism_switching(qapp):
 
 
 def test_view_animation_tick(qapp):
-    from automataii.ui.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
     
     view = MechanismFoundryView()
     initial_angle = view.current_angle
@@ -57,7 +57,7 @@ def test_view_animation_tick(qapp):
 
 
 def test_view_rendering_creates_scene_items(qapp):
-    from automataii.ui.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
     
     view = MechanismFoundryView()
     

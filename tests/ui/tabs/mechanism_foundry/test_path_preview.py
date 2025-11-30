@@ -16,7 +16,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
 from automataii.application.mechanism_foundry.path_cache import CachedPath
-from automataii.ui.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
+from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 
 
 @pytest.fixture(scope="session")
