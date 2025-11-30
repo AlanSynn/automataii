@@ -9,7 +9,8 @@ Design Pattern: Manager (coordinates part data operations)
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor
@@ -18,7 +19,7 @@ from PyQt6.QtWidgets import QListWidgetItem, QMessageBox
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene, QListWidget
 
-    from automataii.core.models import PartInfo
+    from automataii.presentation.qt.models import PartInfo
     from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
     from automataii.presentation.qt.views.editor_view import EditorView
 
@@ -183,14 +184,14 @@ class PartsDataManager(QObject):
     def handle_part_selection_change(
         self,
         current: QListWidgetItem | None,
-        previous: QListWidgetItem | None,
+        _previous: QListWidgetItem | None,
     ) -> None:
         """
         Handle selection changes from the parts list widget.
 
         Args:
             current: Currently selected item
-            previous: Previously selected item
+            _previous: Previously selected item (unused, required by Qt signal signature)
         """
         logging.debug(f"PartsDataManager: Selection changed. Current: {current}")
 

@@ -97,8 +97,8 @@ class RecommendationController(QObject):
         get_mechanism_layers: Callable[[], dict],
         get_scene: Callable[[], Any],
         get_character_position: Callable[[], list[float]],
-        tab_data_coordinator: "TabDataCoordinator",
-        instantiation_service: "MechanismInstantiationService",
+        tab_data_coordinator: TabDataCoordinator,
+        instantiation_service: MechanismInstantiationService,
         set_selected_part_name: Callable[[str], None],
         presenter_select_part: Callable[[str], None] | None,
         generate_mechanism_from_candidate: Callable[[dict], None],
@@ -125,7 +125,7 @@ class RecommendationController(QObject):
         self._handle_mechanism_visuals_fn = handle_mechanism_visuals
         self._create_4bar_visuals_fn = create_4bar_visuals
 
-    def show_recommendations(self, parent_widget: "QWidget") -> None:
+    def show_recommendations(self, parent_widget: QWidget) -> None:
         """
         Show mechanism recommendation dialog.
 
@@ -172,8 +172,10 @@ class RecommendationController(QObject):
             self._presenter_select_part_fn(target_part_name)
 
         # Show recommendation dialog
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
         from automataii.utils.paths import resolve_path
-        from automataii.presentation.qt.dialogs.recommendation_dialog import MechanismRecommendationDialog
 
         generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
         if not generated_paths_file.exists():
@@ -231,7 +233,7 @@ class RecommendationController(QObject):
     def handle_recommendation_selection(
         self,
         mechanism_data: dict[str, Any],
-        parent_widget: "QWidget",
+        parent_widget: QWidget,
     ) -> None:
         """
         Handle mechanism selection from recommendation dialog.

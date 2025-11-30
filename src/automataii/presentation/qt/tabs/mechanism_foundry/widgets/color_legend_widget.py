@@ -1,8 +1,8 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTextEdit, QVBoxLayout, QWidget
 
-from automataii.mechanisms.linkage.colors import LINK_COLORS
-from automataii.mechanisms.linkage.config import LinkRole
+from automataii.domain.mechanisms.linkage.config import LinkRole
+from automataii.presentation.qt.mechanisms.linkage_colors import LINK_COLORS
 
 
 class ColorLegendWidget(QWidget):

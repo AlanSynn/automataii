@@ -22,14 +22,14 @@ from ..handles.base_handle import BaseHandle
 class ParameterController(QObject):
     """
     Central controller for parametric design system.
-    
+
     Responsibilities:
     - Monitor handle parameter changes (Observer pattern)
-    - Trigger real-time mechanism updates  
+    - Trigger real-time mechanism updates
     - Manage update throttling for performance
     - Coordinate visual synchronization
     - Handle undo/redo operations (Command pattern)
-    
+
     Features:
     - Event debouncing to prevent excessive updates
     - Batch parameter changes for efficiency
@@ -48,7 +48,7 @@ class ParameterController(QObject):
                  parent=None):
         """
         Initialize parameter controller.
-        
+
         Args:
             mechanism_tab_ref: Reference to parent MechanismDesignTab instance
             update_throttle_ms: Minimum milliseconds between updates (for performance)
@@ -85,10 +85,10 @@ class ParameterController(QObject):
     def register_handle(self, handle: BaseHandle) -> str:
         """
         Register a handle for parameter monitoring.
-        
+
         Args:
             handle: Handle instance to register
-            
+
         Returns:
             Unique handle ID for tracking
         """
@@ -111,7 +111,7 @@ class ParameterController(QObject):
     def unregister_handle(self, handle_id: str):
         """
         Unregister a handle from monitoring.
-        
+
         Args:
             handle_id: Handle ID to unregister
         """
@@ -136,10 +136,10 @@ class ParameterController(QObject):
     def get_handles_for_mechanism(self, mechanism_id: str) -> list[BaseHandle]:
         """
         Get all handles associated with a mechanism.
-        
+
         Args:
             mechanism_id: Mechanism ID to query
-            
+
         Returns:
             List of handles for the mechanism
         """
@@ -151,7 +151,7 @@ class ParameterController(QObject):
     def _on_parameter_changed(self, mechanism_id: str, param_name: str, new_value: Any):
         """
         Handle parameter change from interactive handle.
-        
+
         Args:
             mechanism_id: ID of mechanism being modified
             param_name: Name of parameter that changed
@@ -183,7 +183,7 @@ class ParameterController(QObject):
     def _schedule_update(self, mechanism_id: str):
         """
         Schedule throttled update for mechanism.
-        
+
         Args:
             mechanism_id: Mechanism to update
         """
@@ -238,7 +238,7 @@ class ParameterController(QObject):
     def _apply_parameter_changes(self, mechanism_id: str, param_changes: dict[str, Any]):
         """
         Apply parameter changes to mechanism data and trigger recalculation.
-        
+
         Args:
             mechanism_id: Mechanism ID
             param_changes: Dictionary of parameter changes
@@ -270,7 +270,7 @@ class ParameterController(QObject):
     def _recalculate_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
         """
         Recalculate mechanism with updated parameters.
-        
+
         Args:
             mechanism_id: Mechanism ID
             layer_data: Mechanism layer data
@@ -295,7 +295,7 @@ class ParameterController(QObject):
     def _recalculate_4bar_linkage(self, mechanism_id: str, layer_data: dict[str, Any]):
         """
         Recalculate 4-bar linkage with updated parameters.
-        
+
         Args:
             mechanism_id: Mechanism ID
             layer_data: Mechanism layer data
@@ -353,7 +353,7 @@ class ParameterController(QObject):
     def _update_mechanism_visuals(self, mechanism_id: str, layer_data: dict[str, Any]):
         """
         Update mechanism visual representation.
-        
+
         Args:
             mechanism_id: Mechanism ID
             layer_data: Mechanism layer data
@@ -374,7 +374,7 @@ class ParameterController(QObject):
     def _capture_mechanism_state(self, mechanism_id: str):
         """
         Capture current mechanism state for undo functionality.
-        
+
         Args:
             mechanism_id: Mechanism to capture
         """
@@ -407,7 +407,7 @@ class ParameterController(QObject):
     def _finalize_undo_state(self, mechanism_id: str):
         """
         Finalize undo state after manipulation is complete.
-        
+
         Args:
             mechanism_id: Mechanism ID
         """

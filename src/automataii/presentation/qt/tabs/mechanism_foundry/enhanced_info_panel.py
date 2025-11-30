@@ -3,8 +3,10 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from automataii.mechanisms.linkage.config import LinkRole, LinkageConfig, LinkageType
-from automataii.presentation.qt.tabs.mechanism_foundry.widgets.grashof_display import GrashofAnalysis
+from automataii.domain.mechanisms.linkage.config import LinkageConfig, LinkageType, LinkRole
+from automataii.presentation.qt.tabs.mechanism_foundry.widgets.grashof_display import (
+    GrashofAnalysis,
+)
 
 
 class EnhancedInfoPanel(QWidget):
@@ -87,7 +89,7 @@ class EnhancedInfoPanel(QWidget):
     def update_mechanism(self, config: LinkageConfig) -> None:
         link_count = len(config.link_lengths)
         mechanism_name = self._friendly_name(config.type, link_count)
-        driver_role = config.get_link_role(config.driver_index).value.title()
+        config.get_link_role(config.driver_index).value.title()
         follower_role = self._find_role(config, LinkRole.FOLLOWER)
 
         summary_parts = [

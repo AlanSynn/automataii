@@ -125,7 +125,7 @@ class VisualItemManager:
             mechanism_layers: Dictionary of mechanism layer data
         """
         try:
-            for mechanism_id, layer_data in mechanism_layers.items():
+            for _mechanism_id, layer_data in mechanism_layers.items():
                 visual_items = layer_data.get("visual_items", [])
                 for item in visual_items:
                     if hasattr(item, 'setFlag'):
@@ -150,7 +150,7 @@ class VisualItemManager:
             mechanism_layers: Dictionary of mechanism layer data
         """
         try:
-            for mechanism_id, layer_data in mechanism_layers.items():
+            for _mechanism_id, layer_data in mechanism_layers.items():
                 visual_items = layer_data.get("visual_items", [])
                 for item in visual_items:
                     if hasattr(item, 'setFlag'):
@@ -209,7 +209,7 @@ class VisualItemManager:
             List of all visual items
         """
         all_items: list[QGraphicsItem] = []
-        for mechanism_id, layer_data in mechanism_layers.items():
+        for _mechanism_id, layer_data in mechanism_layers.items():
             visual_items = layer_data.get("visual_items", [])
             all_items.extend(visual_items)
         return all_items
@@ -224,5 +224,5 @@ class VisualItemManager:
         Args:
             mechanism_layers: Dictionary of mechanism layer data
         """
-        for mechanism_id, layer_data in mechanism_layers.items():
+        for _mechanism_id, layer_data in mechanism_layers.items():
             layer_data["visual_items"] = []

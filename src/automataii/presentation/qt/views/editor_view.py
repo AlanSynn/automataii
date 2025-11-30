@@ -1,5 +1,4 @@
 import logging
-import math
 from typing import Any
 
 from PyQt6.QtCore import (
@@ -16,23 +15,22 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
-    QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsEllipseItem,
     QGraphicsPathItem,
     QGraphicsView,
-    QGraphicsView,
     QMenu,
 )
 
 # from ..styling import UIColors # UIColors is in main_window, pass if needed or use generic colors
 from automataii.config.z_indices import (
-    Z_MOTION_PATH_PREVIEW,
     Z_MOTION_PATH_LINE,
+    Z_MOTION_PATH_PREVIEW,
     Z_SKELETON_OVERLAY,
 )  # Z-indices for paths and overlays
+from automataii.presentation.qt.animation import ViewportConfig, ViewportController
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem  # UPDATED
 from automataii.presentation.qt.graphics_items.skeleton_item import SkeletonGraphicsItem  # Added
 
@@ -128,14 +126,20 @@ class EditorView(QGraphicsView):
         self._pan_start_pos = QPointF()
         self._pan_sensitivity = 1.0  # Direct pixel-based panning for intuitive feel
 
-        # Zoom control variables (new)
-        self._zoom_level = 0
-        self._zoom_factor_base = (
-            1.05  # Base factor for low sensitivity (each step is 5% zoom)
+        # Viewport controller (unified zoom/pan/reset)
+        self._viewport_controller = ViewportController(
+            self,
+            ViewportConfig(
+                zoom_factor_base=1.05,
+                min_zoom_level=-47,
+                max_zoom_level=47,
+                anchor_under_mouse=True,
+            ),
         )
-        self._min_zoom_level = -47  # Approx 1.05^-47 ~= 0.1 (target 0.1x scale)
-        self._max_zoom_level = 47  # Approx 1.05^47 ~= 10.0 (target 10x scale)
-        # For 1.05: log_1.05(0.1) ~ -47.19, log_1.05(10) ~ 47.19.
+        # Forward zoom_changed signal from controller
+        self._viewport_controller.zoom_changed.connect(
+            lambda level, scale: self.zoom_changed.emit(scale)
+        )
 
         # State modes
         self.current_mode = "select"  # Modes: 'select', 'define_joint', 'define_motion_path', 'select_end_effector', 'select_cam_center', 'simulation', 'select_pivot_a', 'select_pivot_d', 'select_driver_center', 'select_driven_center'
@@ -444,22 +448,20 @@ class EditorView(QGraphicsView):
         return super().viewportEvent(event)
 
     def pinchTriggered(self, gesture):
-        """Handle pinch gesture for zooming."""
+        """Handle pinch gesture for zooming. Uses ViewportController for state sync."""
+        config = self._viewport_controller.config
+
         if gesture.state() == Qt.GestureState.GestureStarted:
             self._pinch_mode = True
-            # Store the current view scale when pinch starts
             self._pinch_start_view_scale = self.transform().m11()
-            # It might be better to also store the initial _zoom_level here if we want to map pinch scale to zoom levels.
-            # For now, let pinch directly manipulate scale, but clamped.
+
         elif gesture.state() == Qt.GestureState.GestureUpdated and self._pinch_mode:
-            # Calculate target scale based on gesture's scale factor relative to the start of the pinch
             target_scale = self._pinch_start_view_scale * gesture.scaleFactor()
 
-            # Clamp the target scale to overall min/max
-            target_scale = max(
-                self._zoom_factor_base**self._min_zoom_level,
-                min(target_scale, self._zoom_factor_base**self._max_zoom_level),
-            )
+            # Clamp to ViewportController's configured limits
+            min_scale = config.zoom_factor_base ** config.min_zoom_level
+            max_scale = config.zoom_factor_base ** config.max_zoom_level
+            target_scale = max(min_scale, min(target_scale, max_scale))
             target_scale = max(0.1, min(target_scale, 10.0))  # Absolute limits
 
             current_view_scale = self.transform().m11()
@@ -468,96 +470,29 @@ class EditorView(QGraphicsView):
                 self.scale(zoom_factor_to_apply, zoom_factor_to_apply)
                 self.zoom_changed.emit(self.transform().m11())
 
-            # Update _zoom_level based on the new scale (optional, for consistency)
-            # This can make pinch and wheel zoom interact more predictably.
-            # If self.transform().m11() is new_scale, then new_scale = base ^ new_zoom_level
-            # new_zoom_level = log_base(new_scale)
-            # current_effective_scale = self.transform().m11()
-            # self._zoom_level = round(math.log(current_effective_scale, self._zoom_factor_base)) if current_effective_scale > 0 and self._zoom_factor_base > 1 else 0
-            # Clamping _zoom_level again might be needed.
-            # For simplicity, let's not update _zoom_level from pinch directly to avoid complex feedback, pinch directly sets scale within bounds.
-
         elif gesture.state() == Qt.GestureState.GestureFinished:
             self._pinch_mode = False
-            # After pinch, we might want to snap the current scale to the nearest zoom_level scale.
-            # Or recalculate _zoom_level based on current scale.
+            # Sync ViewportController state with current scale
             current_scale = self.transform().m11()
-            # Update zoom level to closest discrete step after pinch zooming
-            if (
-                current_scale > 0
-                and self._zoom_factor_base > 1
-                and self._zoom_factor_base != 0
-            ):
-                closest_zoom_level = round(
-                    math.log(current_scale, self._zoom_factor_base)
-                )
-                self._zoom_level = max(
-                    self._min_zoom_level, min(closest_zoom_level, self._max_zoom_level)
-                )
-                # Optionally, snap the view to this discrete zoom level's scale:
-                # target_snap_scale = self._zoom_factor_base ** self._zoom_level
-                # if abs(target_snap_scale - current_scale) / current_scale > 0.01: # If significantly different
-                #     self.set_zoom_level_absolute(self._zoom_level) # A new method to set scale for a zoom level
+            if current_scale > 0:
+                self._viewport_controller.zoom_to_scale(current_scale)
+
+    # --- Zoom Methods (delegated to ViewportController) ---
 
     def zoom(self, step: int):
-        """Zooms the view by a given step, adjusting the discrete zoom level."""
-        if step == 0:
-            return
+        """Zooms the view by a given step. Delegates to ViewportController."""
+        if step > 0:
+            self._viewport_controller.zoom_in(step)
+        elif step < 0:
+            self._viewport_controller.zoom_out(-step)
 
-        new_zoom_level = self._zoom_level + step
-        # Clamp zoom level
-        new_zoom_level = max(
-            self._min_zoom_level, min(new_zoom_level, self._max_zoom_level)
-        )
+    def zoom_in(self, steps: int = 1):
+        """Zoom in by specified steps. Delegates to ViewportController."""
+        self._viewport_controller.zoom_in(steps)
 
-        if new_zoom_level != self._zoom_level:
-            current_scale = self.transform().m11()
-            target_scale = self._zoom_factor_base**new_zoom_level
-            target_scale = max(0.1, min(target_scale, 10.0))  # Absolute limits
-
-            # If already at target scale (e.g. clamped at min/max) and trying to zoom further in the same direction
-            if abs(target_scale - current_scale) < 0.00001 and (
-                (step > 0 and self._zoom_level == self._max_zoom_level)
-                or (step < 0 and self._zoom_level == self._min_zoom_level)
-            ):
-                self._zoom_level = (
-                    new_zoom_level  # Ensure level is updated if it was clamped
-                )
-                # self.zoom_changed.emit(current_scale) # No actual scale change, so debatable if emit is needed
-                return
-
-            if current_scale <= 0:  # Safeguard for invalid current scale
-                self.resetTransform()
-                current_scale = 1.0
-                self._zoom_level = 0
-                # Recalculate target_scale based on reset state for the current step
-                # This ensures the first zoom step after a reset is correctly applied
-                effective_step = (
-                    max(self._min_zoom_level, min(step, self._max_zoom_level))
-                    if step != 0
-                    else 0
-                )
-                new_zoom_level = (
-                    self._zoom_level + effective_step
-                )  # Apply step from level 0
-                new_zoom_level = max(
-                    self._min_zoom_level, min(new_zoom_level, self._max_zoom_level)
-                )  # Re-clamp
-                target_scale = self._zoom_factor_base**new_zoom_level
-                target_scale = max(0.1, min(target_scale, 10.0))
-
-            factor_to_apply = (
-                target_scale / current_scale if current_scale != 0 else target_scale
-            )  # Avoid division by zero if current_scale somehow became 0
-            if (
-                abs(factor_to_apply - 1.0) > 0.000001
-            ):  # Only scale if factor is meaningfully different from 1
-                self.scale(factor_to_apply, factor_to_apply)
-
-            self._zoom_level = new_zoom_level
-            self.zoom_changed.emit(self.transform().m11())
-            self.scene().update()  # Ensure repaint after zoom
-        # If new_zoom_level is the same as self._zoom_level (already at min/max), do nothing further.
+    def zoom_out(self, steps: int = 1):
+        """Zoom out by specified steps. Delegates to ViewportController."""
+        self._viewport_controller.zoom_out(steps)
 
 
     def mousePressEvent(self, event: QMouseEvent):
@@ -811,7 +746,7 @@ class EditorView(QGraphicsView):
         view_rect = self.rect()
         corner_size = 150  # Size of the corner area to trigger controls
 
-        corner_rect = view_rect.adjusted(
+        view_rect.adjusted(
             view_rect.width() - corner_size,
             view_rect.height() - corner_size,
             0, 0
@@ -880,46 +815,19 @@ class EditorView(QGraphicsView):
         global_pos = self.mapToGlobal(pos)
         menu.exec(global_pos)
 
-    # --- View Control ---
+    # --- View Control (delegated to ViewportController) ---
 
     def reset_view(self):
-        """Reset zoom and pan to default."""
-        self.resetTransform()
-        self._zoom_level = 0  # Reset zoom level
-        self.centerOn(0, 0)  # Or center on scene rect center if preferred
-        self.zoom_changed.emit(1.0)  # Emit zoom signal for 100%
+        """Reset zoom and pan to default. Delegates to ViewportController."""
+        self._viewport_controller.reset_view()
         self._show_status_message("View reset")
 
     def zoom_to_fit(self):
-        """Zoom to fit all items in the view."""
-        if not self.scene():
-            return
-        rect = self.scene().itemsBoundingRect()
-        if not rect.isValid():
-            return
-        # Add some padding
-        padding = 20
-        rect.adjust(-padding, -padding, padding, padding)
-        self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
-        # After fitInView, update _zoom_level to match the new scale
+        """Zoom to fit all items in the view. Delegates to ViewportController."""
+        self._viewport_controller.zoom_to_fit(margin=20)
         current_scale = self.transform().m11()
-        if (
-            current_scale > 0
-            and self._zoom_factor_base > 1
-            and self._zoom_factor_base != 0
-        ):
-            # Calculate the zoom level that would produce a scale closest to current_scale
-            self._zoom_level = round(math.log(current_scale, self._zoom_factor_base))
-            # Clamp it to permissible levels
-            self._zoom_level = max(
-                self._min_zoom_level, min(self._zoom_level, self._max_zoom_level)
-            )
-        else:
-            self._zoom_level = 0  # Default if calculation is not possible
-
-        self.zoom_changed.emit(current_scale)  # Emit zoom signal
         self._show_status_message(
-            f"Zoom to fit ({current_scale:.1f}x, level {self._zoom_level})"
+            f"Zoom to fit ({current_scale:.1f}x, level {self._viewport_controller.zoom_level})"
         )
 
     # --- Joint Definition --- #
@@ -1697,13 +1605,16 @@ class EditorView(QGraphicsView):
                 - center: QPointF of the view center
                 - zoom_level: int current zoom level
         """
-        transform = self.transform()
+        # Use ViewportController's camera state with additional EditorView-specific data
+        controller_state = self._viewport_controller.get_camera_state()
         center = self.mapToScene(self.viewport().rect().center())
 
         return {
-            'transform': transform,
+            'transform': self.transform(),
             'center': center,
-            'zoom_level': self._zoom_level
+            'zoom_level': controller_state['zoom_level'],
+            'h_scroll': controller_state['h_scroll'],
+            'v_scroll': controller_state['v_scroll'],
         }
 
     def set_camera_state(self, state: dict[str, Any]):
@@ -1712,17 +1623,16 @@ class EditorView(QGraphicsView):
         Args:
             state: Dict containing transform, center, and zoom_level
         """
+        # Handle legacy format (transform + center) for backward compatibility
         if 'transform' in state:
             self.setTransform(state['transform'])
 
         if 'center' in state:
             self.centerOn(state['center'])
 
+        # Use ViewportController for zoom_level if available
         if 'zoom_level' in state:
-            self._zoom_level = state['zoom_level']
-            # Emit zoom changed signal
-            current_scale = self.transform().m11()
-            self.zoom_changed.emit(current_scale)
+            self._viewport_controller.zoom_to_level(state['zoom_level'])
 
     def _setup_hover_controls(self):
         """Setup hover view controls - DISABLED for mouse-only control."""
@@ -1743,17 +1653,8 @@ class EditorView(QGraphicsView):
         pass
 
     def _on_zoom_slider_changed(self, zoom_factor: float):
-        """Handle zoom slider change."""
-        # Reset transform and apply new scale
-        self.resetTransform()
-        self.scale(zoom_factor, zoom_factor)
-
-        # Update zoom level for consistency
-        import math
-        self._zoom_level = int(math.log(zoom_factor) / math.log(self._zoom_factor_base))
-
-        # Emit zoom changed signal
-        self.zoom_changed.emit(zoom_factor)
+        """Handle zoom slider change. Uses ViewportController."""
+        self._viewport_controller.zoom_to_scale(zoom_factor)
 
     def resizeEvent(self, event):
         """Handle resize events to reposition hover controls."""

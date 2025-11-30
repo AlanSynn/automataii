@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QTabWidget,
@@ -23,38 +22,56 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+# Import ProjectStateManager, adapters, and serializer (SSOT architecture)
+from automataii.application.project import (
+    ProjectSerializer,
+    ProjectStateManager,
+)
+from automataii.application.project.adapters import (
+    EditorTabAdapter,
+    ImageProcessingTabAdapter,
+    MechanismDesignTabAdapter,
+)
+
 # Import MechanismManager
-from automataii.core.mechanism_manager import MechanismManager
-from automataii.core.models import PartInfo  # ProjectFileModel is in models_pydantic
-from automataii.core.models_pydantic import (
-    ProjectFileModel,
-)  # Added ProjectFileModel from correct location
+from automataii.application.managers import MechanismManager
+from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in models_pydantic
 
 # Import ProjectDataManager
-from automataii.core.project_data_manager import ProjectDataManager
+from automataii.application.managers import ProjectDataManager
 
 # Import SkeletonManager
-from automataii.core.skeleton_manager import SkeletonManager
+from automataii.application.managers import SkeletonManager
 
 # Import ActionManager for centralized action management
 from automataii.presentation.qt.actions.action_manager import ActionManager
+
+# Import CentralAnimationScheduler for unified animation
+from automataii.presentation.qt.animation import CentralAnimationScheduler
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
+
+# Import IKManager (Qt-coupled, in presentation layer)
+from automataii.presentation.qt.kinematics.ik_manager import IKManager
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
 
 # Import new tab modules
 from automataii.presentation.qt.tabs.landing_tab import LandingTab
 from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+# Import mechanism foundry tab
+from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView
 from automataii.presentation.qt.tabs.options_tab import OptionsTab
 
 # Local imports (adjust paths as needed)
 from automataii.presentation.qt.views.editor_view import EditorView  # ADD THIS IMPORT
 
-# Import IKManager (Qt-coupled, in presentation layer)
-from automataii.presentation.qt.kinematics.ik_manager import IKManager
-
-# Import mechanism foundry tab
-from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView
+# Import extracted components for tab lifecycle management
+from automataii.presentation.qt.windows.components import (
+    ProjectController,
+    SignalConnector,
+    TabOrchestrator,
+)
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 
 # from qframelesswindow import FramelessMainWindow
@@ -105,6 +122,20 @@ class AutomataDesigner(QMainWindow):
         # Create MechanismManager
         self.mechanism_manager = MechanismManager(self)
 
+        # Create CentralAnimationScheduler (unified animation loop for all tabs)
+        self.animation_scheduler = CentralAnimationScheduler(self)
+
+        # Create ProjectStateManager (SSOT architecture)
+        self.project_state_manager = ProjectStateManager(self)
+
+        # Create ProjectSerializer for save/load
+        self._project_serializer = ProjectSerializer()
+
+        # Tab adapters (initialized after tabs are created in _init_ui)
+        self._image_proc_adapter: ImageProcessingTabAdapter | None = None
+        self._editor_adapter: EditorTabAdapter | None = None
+        self._mechanism_design_adapter: MechanismDesignTabAdapter | None = None
+
         self.viewer_char_texture_item: QGraphicsPixmapItem | None = None
         self.viewer_skeleton_items: list[QGraphicsItem] = []
         self.viewer_body_part_items: dict[str, CharacterPartItem] = {}
@@ -125,10 +156,20 @@ class AutomataDesigner(QMainWindow):
         # IK Animation Timer (New)
 
         self.main_toolbar = None
-        self.shared_camera_state: dict[str, Any] | None = None
 
-        # Track previous tab index for camera state sharing
-        self._previous_tab_index = 0
+        # TabOrchestrator handles tab lifecycle and camera state sharing
+        # Initialized after _init_ui() where tab_widget is created
+        self._tab_orchestrator: TabOrchestrator | None = None
+
+        # SignalConnector handles centralized signal wiring
+        self._signal_connector = SignalConnector(self)
+
+        # ProjectController handles SSOT project operations
+        self._project_controller = ProjectController(
+            self.project_state_manager,
+            self._project_serializer,
+            parent=self,
+        )
 
         # Tracking active dialogs
         # self.active_camera_dialogs = [] # Moved to ImageProcessingTab
@@ -146,10 +187,16 @@ class AutomataDesigner(QMainWindow):
 
         # Setup UI, Menus, Toolbar, and connections
         self._init_ui()  # This creates self.editor_tab and other UI elements
+
+        # Initialize TabOrchestrator after tab_widget is created
+        self._init_tab_orchestrator()
+
         self._create_menus()  # Defines QActions and populates menubar
         self._create_toolbar()  # Defines QActions or uses existing ones for toolbar
         self._connect_global_signals()
         self._connect_manager_signals()  # New method for connecting manager signals
+        self._setup_state_adapters()  # Setup SSOT state adapters
+        self._setup_animation_scheduler()  # Setup unified animation scheduler
 
         # AFTER ALL MANAGERS AND UI ARE CREATED AND CONNECTED
         if self.skeleton_manager and self.ik_manager:
@@ -284,9 +331,9 @@ class AutomataDesigner(QMainWindow):
         self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
         self.editor_tab.request_save_alignment.connect(self.save_character_alignment_impl)
         # Connect path data sharing between editor and mechanism design tabs
-        self.editor_tab.path_data_changed.connect(
-            self.mechanism_design_tab.set_path_data_from_editor
-        )
+        # NOTE: path_data_changed → set_path_data_from_editor now handled by SSOT adapters
+        # EditorTabAdapter catches path changes, stores in ProjectStateManager
+        # MechanismDesignTabAdapter listens to paths_changed, forwards to tab
 
         # --- Connect Signals from MechanismDesignTab ---
         self.mechanism_design_tab.request_generate_mechanism.connect(
@@ -340,6 +387,7 @@ class AutomataDesigner(QMainWindow):
                 logging.exception("Failed to connect physics snap mode option")
 
         # Connect menu actions using ActionManager
+        self.action_manager.connect_action("new_project", self.new_project_ssot)
         self.action_manager.connect_action("load_parts", self.load_parts_dialog)
         self.action_manager.connect_action("save_project", self.save_project_dialog)
         self.action_manager.connect_action("exit", self.close)
@@ -396,8 +444,7 @@ class AutomataDesigner(QMainWindow):
         # Test Anchors Button Connection (This button is now in EditorTab, EditorTab should handle its toggled signal)
         # self.toggle_anchors_btn.toggled.connect(self._toggle_test_anchors_visibility)
 
-        # Connect other existing signals as needed
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        # Tab switching is handled by TabOrchestrator (initialized in _init_tab_orchestrator)
 
     def _load_custom_fonts(self):
         """Loads custom application fonts.
@@ -414,6 +461,58 @@ class AutomataDesigner(QMainWindow):
         #     font_families = QFontDatabase.applicationFontFamilies(font_id)
         #     if font_families:
         #         logging.info(f"Loaded custom font: {font_families[0]}")
+
+    def _init_tab_orchestrator(self) -> None:
+        """
+        Initialize the TabOrchestrator for tab lifecycle management.
+
+        This component handles:
+        - Tab switch events
+        - Camera state sharing between tabs
+        - Tab activation/deactivation lifecycle
+        - Initial zoom on first tab visit
+
+        Extracted from _on_tab_changed to reduce god class complexity.
+        """
+        self._tab_orchestrator = TabOrchestrator(self.tab_widget, parent=self)
+
+        # Configure callbacks for external state access
+        self._tab_orchestrator.configure_callbacks(
+            get_status_bar=lambda: self.statusBar(),
+            get_skeleton_manager=lambda: self.skeleton_manager,
+            on_tab_activated=self._on_tab_activated_callback,
+        )
+
+        # Set tabs that share camera state
+        shared_tabs = [self.editor_tab, self.mechanism_design_tab]
+        self._tab_orchestrator.set_shared_view_tabs(shared_tabs)
+
+        logging.info("TabOrchestrator initialized for tab lifecycle management")
+
+    def _on_tab_activated_callback(self, current_tab: QWidget, index: int) -> None:
+        """
+        Callback invoked by TabOrchestrator after a tab is activated.
+
+        Handles mechanism-specific data synchronization and any custom
+        post-activation logic not covered by the orchestrator.
+
+        Args:
+            current_tab: The newly activated tab widget
+            index: The tab index
+        """
+        # Data synchronization for mechanism tab
+        if current_tab == self.mechanism_design_tab:
+            logging.info("MechanismDesignTab: Now uses editor tab data directly - no sync needed")
+
+            # Sync skeleton data if needed
+            if hasattr(self.skeleton_manager, "get_current_skeleton_data") and (
+                not hasattr(self.mechanism_design_tab, "_initial_skeleton_data_cache")
+                or not self.mechanism_design_tab._initial_skeleton_data_cache
+            ):
+                current_skeleton = self.skeleton_manager.get_current_skeleton_data()
+                if current_skeleton:
+                    self.mechanism_design_tab.cache_initial_skeleton(current_skeleton)
+                    logging.info("MechanismDesignTab: Synchronized skeleton data on tab switch")
 
     # --- Menu Creation ---
     def _create_menus(self):
@@ -435,141 +534,8 @@ class AutomataDesigner(QMainWindow):
         self.main_toolbar.hide()
 
     # --- Tab Management ---
-    def _on_tab_changed(self, index: int):
-        current_tab = self.tab_widget.widget(index)
-        previous_tab = self.tab_widget.widget(self._previous_tab_index)
-
-        # Call deactivate_tab on the previous tab if it has the method
-        if previous_tab and hasattr(previous_tab, "deactivate_tab"):
-            previous_tab.deactivate_tab()
-
-        # --- Camera State Sharing ---
-        tabs_with_shared_view = [self.editor_tab, self.mechanism_design_tab]
-        camera_state_applied = False
-
-        # Save camera state if leaving a shared-view tab
-        if previous_tab in tabs_with_shared_view:
-            view = getattr(previous_tab, "editor_view", None) or getattr(
-                previous_tab, "mechanism_view", None
-            )
-            if view:
-                try:
-                    # CRITICAL: Check if view is still valid before using it
-                    _ = view.scene()  # This will raise RuntimeError if view was deleted
-                    camera_state = view.get_camera_state()
-
-                    # Save both shared and tab-specific camera state
-                    self.shared_camera_state = camera_state
-                    previous_tab._last_camera_state = (
-                        camera_state  # Save tab-specific state as backup
-                    )
-
-                    logging.info(f"Saved camera state from {previous_tab.__class__.__name__}")
-                except RuntimeError as e:
-                    logging.error(f"View was deleted by Qt, cannot save camera state: {e}")
-                    # Don't update camera states if we can't read from the view
-
-        # Apply camera state if entering a shared-view tab
-        if current_tab in tabs_with_shared_view:
-            view = getattr(current_tab, "editor_view", None) or getattr(
-                current_tab, "mechanism_view", None
-            )
-            if view:
-                try:
-                    # CRITICAL: Check if view is still valid before using it
-                    _ = view.scene()  # This will raise RuntimeError if view was deleted
-
-                    # Try to apply shared camera state first
-                    if self.shared_camera_state:
-                        view.set_camera_state(self.shared_camera_state)
-                        logging.info(
-                            f"Applied shared camera state to {current_tab.__class__.__name__}"
-                        )
-                        camera_state_applied = True
-                    else:
-                        # No shared state, but check if tab has its own previous state
-                        if (
-                            hasattr(current_tab, "_last_camera_state")
-                            and current_tab._last_camera_state
-                        ):
-                            view.set_camera_state(current_tab._last_camera_state)
-                            logging.info(
-                                f"Applied tab-specific camera state to {current_tab.__class__.__name__}"
-                            )
-                            camera_state_applied = True
-                        else:
-                            logging.debug(
-                                f"No camera state available for {current_tab.__class__.__name__}"
-                            )
-
-                except RuntimeError as e:
-                    logging.error(f"View was deleted by Qt, cannot apply camera state: {e}")
-                    # Clear the invalid shared camera state to prevent future errors
-                    self.shared_camera_state = None
-
-        # --- Tab-specific actions ---
-        if hasattr(current_tab, "tab_name"):
-            self.statusBar().showMessage(f"{current_tab.tab_name} tab active")
-        else:
-            self.statusBar().showMessage(f"Tab {index + 1} active")
-
-        # 🔧 CAMERA FIX: Only auto-zoom on first visit, not every tab switch
-        if not camera_state_applied:
-            # Check if this tab has been initialized before
-            tab_needs_initial_zoom = False
-
-            if hasattr(current_tab, "editor_view") and current_tab.editor_view:
-                # Only zoom if view has no previous transform (first time setup)
-                if not hasattr(current_tab, "_view_initialized"):
-                    tab_needs_initial_zoom = True
-                    current_tab._view_initialized = True
-            elif hasattr(current_tab, "mechanism_view") and current_tab.mechanism_view:
-                # Only zoom if view has no previous transform (first time setup)
-                if not hasattr(current_tab, "_view_initialized"):
-                    tab_needs_initial_zoom = True
-                    current_tab._view_initialized = True
-            elif hasattr(current_tab, "image_proc_view"):
-                # Image processing tab should zoom to fit each time (different behavior)
-                tab_needs_initial_zoom = True
-
-            # Apply zoom only when needed
-            if tab_needs_initial_zoom:
-                logging.debug(
-                    f"Applying initial zoom for tab: {getattr(current_tab, 'tab_name', 'Unknown')}"
-                )
-                if hasattr(current_tab, "editor_view") and current_tab.editor_view:
-                    current_tab.editor_view.zoom_to_fit()
-                elif hasattr(current_tab, "mechanism_view") and current_tab.mechanism_view:
-                    current_tab.mechanism_view.zoom_to_fit()
-                elif hasattr(current_tab, "image_proc_view"):
-                    if hasattr(current_tab.image_proc_view, "zoom_to_fit"):
-                        current_tab.image_proc_view.zoom_to_fit()
-                    elif hasattr(current_tab.image_proc_view, "fit_in_view"):
-                        current_tab.image_proc_view.fit_in_view()
-            else:
-                logging.debug(
-                    f"Preserving camera position for tab: {getattr(current_tab, 'tab_name', 'Unknown')}"
-                )
-
-        # Data synchronization for mechanism tab - now uses editor data directly
-        if current_tab == self.mechanism_design_tab:
-            logging.info("MechanismDesignTab: Now uses editor tab data directly - no sync needed")
-
-        # Call activate_tab on the current tab if it has the method
-        if current_tab and hasattr(current_tab, "activate_tab"):
-            current_tab.activate_tab()
-
-            if hasattr(self.skeleton_manager, "get_current_skeleton_data") and (
-                not hasattr(self.mechanism_design_tab, "_initial_skeleton_data_cache")
-                or not self.mechanism_design_tab._initial_skeleton_data_cache
-            ):
-                current_skeleton = self.skeleton_manager.get_current_skeleton_data()
-                if current_skeleton:
-                    self.mechanism_design_tab.cache_initial_skeleton(current_skeleton)
-                    logging.info("MechanismDesignTab: Synchronized skeleton data on tab switch")
-
-        # Remember current index for next tab change
-        self._previous_tab_index = index
+    # Tab switching is now handled by TabOrchestrator (see _init_tab_orchestrator)
+    # The _on_tab_activated_callback method handles any custom post-activation logic
 
     # --- New Slots for ImageProcessingTab Signals ---
     @pyqtSlot(dict, str)
@@ -1004,7 +970,7 @@ class AutomataDesigner(QMainWindow):
 
     def _connect_global_signals(self):
         """Connects global signals like tab changes or theme changes."""
-        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        # Tab switching is handled by TabOrchestrator (see _init_tab_orchestrator)
 
         # Connect SkeletonManager signals
         self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
@@ -1129,110 +1095,132 @@ class AutomataDesigner(QMainWindow):
         #     )
 
     def _connect_manager_signals(self):
-        """Connect signals from various managers to MainWindow slots or other manager slots."""
-        logging.debug("MainWindow: Connecting manager signals...")
+        """Connect signals from various managers to MainWindow slots or other manager slots.
 
-        # ProjectDataManager signals
+        Delegates to SignalConnector component for centralized connection management.
+        """
+        logging.debug("MainWindow: Connecting manager signals via SignalConnector...")
+
+        # Use SignalConnector for centralized signal management
         if self.project_data_manager:
-            try:
-                self.project_data_manager.project_data_loaded.disconnect(
-                    self._handle_project_data_loaded
-                )
-            except TypeError:
-                pass
-            self.project_data_manager.project_data_loaded.connect(self._handle_project_data_loaded)
-
-            try:
-                self.project_data_manager.project_data_cleared.disconnect(
-                    self._handle_project_data_cleared
-                )
-            except TypeError:
-                pass
-            self.project_data_manager.project_data_cleared.connect(
-                self._handle_project_data_cleared
+            self._signal_connector.connect_project_data_manager(
+                self.project_data_manager, self
             )
 
-            try:
-                self.project_data_manager.error_occurred.disconnect(
-                    self._handle_project_manager_error
-                )
-            except TypeError:
-                pass
-            self.project_data_manager.error_occurred.connect(self._handle_project_manager_error)
-
-        # SkeletonManager signals
         if self.skeleton_manager:
-            # Connect to a slot in MainWindow that might update UI or pass to other relevant managers
-            try:
-                self.skeleton_manager.skeleton_updated.disconnect(self._on_skeleton_manager_updated)
-            except TypeError:
-                pass
-            self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
-
-            # If IKManager needs direct skeleton updates from SkeletonManager
-            if self.ik_manager:
-                try:
-                    self.skeleton_manager.skeleton_updated.disconnect(
-                        self.ik_manager.on_skeleton_data_updated_from_manager
-                    )
-                except TypeError:
-                    pass  # Allow it to fail if not connected
-                self.skeleton_manager.skeleton_updated.connect(
-                    self.ik_manager.on_skeleton_data_updated_from_manager
-                )
-                logging.info(
-                    "MainWindow: Connected SkeletonManager.skeleton_updated to IKManager.on_skeleton_data_updated_from_manager"
-                )
-
-        # IKManager signals
-        if self.ik_manager:
-            # Connect IK visuals update to a handler in MainWindow (or directly to EditorTab if appropriate)
-            try:
-                self.ik_manager.character_visuals_updated.disconnect(self._handle_ik_visuals_update)
-            except TypeError:
-                pass
-            self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
-            logging.info(
-                "MainWindow: Connected IKManager.character_visuals_updated to self._handle_ik_visuals_update"
+            self._signal_connector.connect_skeleton_manager(
+                self.skeleton_manager, self, self.ik_manager
             )
 
-            # Connect IK animation state to EditorTab's handler
-            if (
-                hasattr(self, "editor_tab")
-                and self.editor_tab
-                and hasattr(self.ik_manager, "animation_state_changed")
-            ):
-                try:
-                    self.ik_manager.animation_state_changed.disconnect(
-                        self.editor_tab.on_simulation_state_changed
-                    )
-                except TypeError:
-                    pass
-                self.ik_manager.animation_state_changed.connect(
-                    self.editor_tab.on_simulation_state_changed
-                )
-                logging.info(
-                    "MainWindow: Connected IKManager.animation_state_changed to EditorTab.on_simulation_state_changed"
-                )
-
-            # NEW: Connect skeleton_pose_updated from IKManager to a new handler in MainWindow
-            if hasattr(self.ik_manager, "skeleton_pose_updated"):
-                try:
-                    self.ik_manager.skeleton_pose_updated.disconnect(
-                        self._handle_skeleton_pose_updated_from_ik
-                    )
-                except TypeError:
-                    pass
-                self.ik_manager.skeleton_pose_updated.connect(
-                    self._handle_skeleton_pose_updated_from_ik
-                )
-                logging.info(
-                    "MainWindow: Connected IKManager.skeleton_pose_updated to self._handle_skeleton_pose_updated_from_ik"
-                )
-
-        # ... any other manager signal connections ...
+        if self.ik_manager:
+            self._signal_connector.connect_ik_manager(
+                self.ik_manager, self, self.editor_tab if hasattr(self, "editor_tab") else None
+            )
 
         logging.debug("MainWindow: Finished connecting manager signals.")
+
+    def _setup_animation_scheduler(self) -> None:
+        """
+        Setup central animation scheduler for tabs that need it.
+
+        The scheduler provides unified animation timing to eliminate
+        frame jitter from multiple independent timers.
+        """
+        logging.info("MainWindow: Setting up animation scheduler...")
+
+        # Pass scheduler to MechanismDesignTab
+        if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+            if hasattr(self.mechanism_design_tab, "set_animation_scheduler"):
+                self.mechanism_design_tab.set_animation_scheduler(self.animation_scheduler)
+                logging.debug("Animation scheduler attached to MechanismDesignTab")
+
+        logging.info("MainWindow: Animation scheduler setup complete")
+
+    def _setup_state_adapters(self) -> None:
+        """
+        Setup SSOT state adapters for each tab.
+
+        Adapters bridge tabs to the centralized ProjectStateManager,
+        enabling reactive state updates without modifying tab internals.
+        This is an additive integration - existing signal connections remain.
+        """
+        logging.info("MainWindow: Setting up state adapters...")
+
+        # Create and attach ImageProcessingTab adapter
+        if hasattr(self, "image_proc_tab") and self.image_proc_tab:
+            self._image_proc_adapter = ImageProcessingTabAdapter(
+                self.project_state_manager, parent=self
+            )
+            self._image_proc_adapter.attach(self.image_proc_tab)
+            logging.debug("ImageProcessingTab adapter attached")
+
+        # Create and attach EditorTab adapter
+        if hasattr(self, "editor_tab") and self.editor_tab:
+            self._editor_adapter = EditorTabAdapter(
+                self.project_state_manager, parent=self
+            )
+            self._editor_adapter.attach(self.editor_tab)
+            logging.debug("EditorTab adapter attached")
+
+        # Create and attach MechanismDesignTab adapter
+        if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+            self._mechanism_design_adapter = MechanismDesignTabAdapter(
+                self.project_state_manager, parent=self
+            )
+            self._mechanism_design_adapter.attach(self.mechanism_design_tab)
+            logging.debug("MechanismDesignTab adapter attached")
+
+        logging.info("MainWindow: State adapters setup complete")
+
+        # Connect undo/redo availability signals to action enable/disable
+        self.project_state_manager.undo_available.connect(
+            lambda available: self.action_manager.get_action("undo").setEnabled(available)
+        )
+        self.project_state_manager.redo_available.connect(
+            lambda available: self.action_manager.get_action("redo").setEnabled(available)
+        )
+
+    # =========================================================================
+    # SSOT PROJECT SAVE/LOAD (Delegated to ProjectController)
+    # =========================================================================
+
+    def new_project_ssot(self) -> None:
+        """Create a new project using SSOT architecture.
+
+        Delegates to ProjectController for implementation.
+        """
+        self._project_controller.set_status_bar(self.statusBar())
+        self._project_controller.new_project()
+
+    def save_project_ssot(self) -> bool:
+        """
+        Save project using SSOT architecture.
+
+        Returns:
+            True if save was successful, False otherwise
+        """
+        self._project_controller.set_status_bar(self.statusBar())
+        return self._project_controller.save_project()
+
+    def load_project_ssot(self) -> bool:
+        """
+        Load project using SSOT architecture.
+
+        Returns:
+            True if load was successful, False otherwise
+        """
+        self._project_controller.set_status_bar(self.statusBar())
+        return self._project_controller.load_project()
+
+    def undo_ssot(self) -> None:
+        """Undo last state mutation."""
+        self._project_controller.set_status_bar(self.statusBar())
+        self._project_controller.undo()
+
+    def redo_ssot(self) -> None:
+        """Redo last undone mutation."""
+        self._project_controller.set_status_bar(self.statusBar())
+        self._project_controller.redo()
 
     def _is_signal_connected(self, signal, slot) -> bool:
         # Helper to check if a signal is connected to a specific slot

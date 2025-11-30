@@ -9,7 +9,8 @@ Design Pattern: Strategy (mechanism-type-specific visual updates)
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from PyQt6.QtCore import QLineF, QPointF
@@ -267,7 +268,7 @@ class MechanismVisualAnimator:
                 scene_point = cam_to_scene_coords(p)
                 cam_polygon_points.append(scene_point)
 
-            y_max = float(np.max(rotated[:, 1]))
+            float(np.max(rotated[:, 1]))
         elif cam_profile_local is not None and len(cam_profile_local) > 2:
             angle = time
             cos_r, sin_r = np.cos(angle), np.sin(angle)
@@ -278,7 +279,7 @@ class MechanismVisualAnimator:
                 scene_point = cam_to_scene_coords(p)
                 cam_polygon_points.append(scene_point)
 
-            y_max = float(np.max(rotated[:, 1]))
+            float(np.max(rotated[:, 1]))
         else:
             # Fallback: circular cam
             num_points = 120
@@ -287,7 +288,6 @@ class MechanismVisualAnimator:
                 point = current_cam_center + scaled_base_radius * np.array([np.cos(theta), np.sin(theta)])
                 scene_point = cam_to_scene_coords(point)
                 cam_polygon_points.append(scene_point)
-            y_max = scaled_base_radius
 
         # Update cam shape polygon
         if len(visual_items) >= 1 and isinstance(visual_items[0], QGraphicsPolygonItem):

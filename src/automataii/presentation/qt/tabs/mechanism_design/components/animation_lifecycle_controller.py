@@ -5,18 +5,25 @@ Extracted from MechanismDesignTab god class. Handles animation timer management,
 frame updates, and IK integration during animation.
 
 Design Pattern: Controller (coordinates animation lifecycle)
+
+Integration:
+    This controller can optionally use a CentralAnimationScheduler for unified
+    animation timing across all tabs. If no scheduler is set, it falls back to
+    using its own QTimer for backward compatibility.
 """
 from __future__ import annotations
 
-import math
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+import math
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtCore import QObject, QPointF, QTimer, QElapsedTimer, pyqtSignal
+from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
 
+    from automataii.presentation.qt.animation import CentralAnimationScheduler
     from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import PathTraceManager
 
 
@@ -61,12 +68,17 @@ class AnimationLifecycleController(QObject):
         self._mechanism_scene = mechanism_scene
         self._path_trace_manager = path_trace_manager
 
-        # Animation state
+        # Central scheduler (optional, for unified animation timing)
+        self._scheduler: CentralAnimationScheduler | None = None
+        self._subscription_id = "mechanism_design_animation"
+
+        # Fallback animation timer (used when no scheduler is set)
         self._animation_timer = QTimer(self)
-        self._animation_timer.timeout.connect(self._update_animation)
+        self._animation_timer.timeout.connect(self._update_animation_legacy)
         self._animation_time = 0.0
         self._animation_speed = 1.0  # radians per second
         self._tab_active = False
+        self._use_scheduler = False  # Whether scheduler is actively being used
 
         # IK throttling for performance
         self._ik_update_rate_hz: int = 30
@@ -172,7 +184,48 @@ class AnimationLifecycleController(QObject):
 
     def is_animation_running(self) -> bool:
         """Check if animation is currently running."""
+        if self._scheduler and self._use_scheduler:
+            return self._use_scheduler
         return self._animation_timer.isActive()
+
+    # --- Scheduler Integration ---
+
+    def set_scheduler(self, scheduler: CentralAnimationScheduler | None) -> None:
+        """
+        Set the central animation scheduler for unified timing.
+
+        Args:
+            scheduler: The CentralAnimationScheduler instance, or None to use local timer
+        """
+        # Unsubscribe from previous scheduler if any
+        if self._scheduler and self._use_scheduler:
+            self._scheduler.unsubscribe(self._subscription_id)
+            self._use_scheduler = False
+
+        self._scheduler = scheduler
+
+        if scheduler:
+            logging.info("AnimationLifecycleController: Using CentralAnimationScheduler")
+        else:
+            logging.info("AnimationLifecycleController: Using local QTimer fallback")
+
+    def _subscribe_to_scheduler(self) -> None:
+        """Subscribe to the central scheduler for animation updates."""
+        if self._scheduler and not self._use_scheduler:
+            from automataii.presentation.qt.animation import AnimationPriority
+
+            self._scheduler.subscribe(
+                callback=self._update_animation,
+                priority=AnimationPriority.HIGH,
+                owner_id=self._subscription_id,
+            )
+            self._use_scheduler = True
+
+    def _unsubscribe_from_scheduler(self) -> None:
+        """Unsubscribe from the central scheduler."""
+        if self._scheduler and self._use_scheduler:
+            self._scheduler.unsubscribe(self._subscription_id)
+            self._use_scheduler = False
 
     # --- Performance Settings ---
 
@@ -219,8 +272,14 @@ class AnimationLifecycleController(QObject):
             except Exception as e:
                 logging.debug(f"AnimationLifecycleController: IK start failed: {e}")
 
-        # Start mechanism animation timer for visuals and path tracing
-        self._animation_timer.start(33)  # ~30 FPS
+        # Start mechanism animation - use scheduler if available, otherwise local timer
+        if self._scheduler:
+            self._subscribe_to_scheduler()
+            # Ensure scheduler is running
+            if not self._scheduler.is_running:
+                self._scheduler.start()
+        else:
+            self._animation_timer.start(33)  # ~30 FPS fallback
 
         presenter = self._get_presenter()
         if presenter:
@@ -233,7 +292,11 @@ class AnimationLifecycleController(QObject):
 
     def stop_animation(self) -> None:
         """Stop the animation timer and IK animation with proper cleanup."""
-        self._animation_timer.stop()
+        # Stop animation - unsubscribe from scheduler or stop local timer
+        if self._scheduler and self._use_scheduler:
+            self._unsubscribe_from_scheduler()
+        else:
+            self._animation_timer.stop()
 
         presenter = self._get_presenter()
         if presenter:
@@ -258,7 +321,11 @@ class AnimationLifecycleController(QObject):
 
     def reset_animation(self) -> None:
         """Reset animation to start position with comprehensive IK reset."""
-        self._animation_timer.stop()
+        # Stop animation - unsubscribe from scheduler or stop local timer
+        if self._scheduler and self._use_scheduler:
+            self._unsubscribe_from_scheduler()
+        else:
+            self._animation_timer.stop()
         self._animation_time = 0
 
         presenter = self._get_presenter()
@@ -316,7 +383,9 @@ class AnimationLifecycleController(QObject):
         ui_state_manager = self._get_ui_state_manager()
         if ui_state_manager:
             try:
-                from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_ui_state import AnimationState
+                from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_ui_state import (
+                    AnimationState,
+                )
                 animation_state = AnimationState(
                     can_play=can_play,
                     can_stop=can_stop,
@@ -329,23 +398,35 @@ class AnimationLifecycleController(QObject):
 
     # --- Animation Frame Update ---
 
-    def _update_animation(self) -> None:
+    def _update_animation_legacy(self) -> None:
+        """
+        Legacy animation update method for local QTimer.
+        Delegates to _update_animation with a fixed delta time.
+        """
+        self._update_animation(0.033)  # ~30 FPS = 33ms per frame
+
+    def _update_animation(self, delta_time: float) -> None:
         """
         Update animation frame by calculating mechanism outputs.
 
         The IK system is the single source of truth for skeleton and part animation.
         This method calculates mechanism outputs and sets them as IK targets.
 
+        Args:
+            delta_time: Time elapsed since last frame (seconds)
+
         Time Complexity: O(m) where m = number of active mechanisms
         """
         # Prevent animation updates when tab is not active
         if not self._tab_active:
-            if self._animation_timer.isActive():
+            if self._scheduler and self._use_scheduler:
+                self._unsubscribe_from_scheduler()
+            elif self._animation_timer.isActive():
                 self._animation_timer.stop()
             return
 
-        # Advance time
-        dt = 0.05 * self._animation_speed
+        # Advance time - use delta_time from scheduler when available
+        dt = delta_time * self._animation_speed * 1.5  # Scale factor to match original ~30 FPS rate
         self._animation_time += dt
         if self._animation_time > 2 * math.pi:
             self._animation_time -= 2 * math.pi

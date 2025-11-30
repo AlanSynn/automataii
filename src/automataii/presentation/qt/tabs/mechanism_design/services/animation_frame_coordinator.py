@@ -145,7 +145,7 @@ class AnimationFrameCoordinator:
         part_enabled_state: dict[str, bool],
         parts_data: dict[str, Any],
         ik_manager: IKManagerProtocol | None,
-        path_trace_manager: "PathTraceManager",
+        path_trace_manager: PathTraceManager,
         scene: QGraphicsScene,
         initial_skeleton_cache: dict | None = None,
     ) -> None:
@@ -202,7 +202,7 @@ class AnimationFrameCoordinator:
         mechanism_layers: dict[str, Any],
         part_enabled_state: dict[str, bool],
         parts_data: dict[str, Any],
-        path_trace_manager: "PathTraceManager",
+        path_trace_manager: PathTraceManager,
         scene: QGraphicsScene,
         initial_skeleton_cache: dict | None,
     ) -> dict[str, QPointF]:
@@ -268,7 +268,7 @@ class AnimationFrameCoordinator:
         layer_data: dict,
         part_enabled_state: dict[str, bool],
         parts_data: dict[str, Any],
-        path_trace_manager: "PathTraceManager",
+        path_trace_manager: PathTraceManager,
         scene: QGraphicsScene,
         initial_skeleton_cache: dict | None,
     ) -> tuple[str, QPointF] | None:

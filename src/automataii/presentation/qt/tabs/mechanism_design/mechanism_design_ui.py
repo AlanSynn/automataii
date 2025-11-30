@@ -21,8 +21,12 @@ from PyQt6.QtWidgets import (
 # Parametric Design System (ULTRATHINK Architecture)
 try:
     from automataii.presentation.qt.parametric_editor import (
-        ParametricEditor, MechanismEditor, FourBarEditor, 
-        CamEditor, GearEditor, ParametricHandle
+        CamEditor,
+        FourBarEditor,
+        GearEditor,
+        MechanismEditor,
+        ParametricEditor,
+        ParametricHandle,
     )
     PARAMETRIC_AVAILABLE = True
 except ImportError:
@@ -31,7 +35,7 @@ except ImportError:
 
 class MechanismDesignUI:
     """Handles UI setup for the MechanismDesignTab."""
-    
+
     def __init__(self):
         """Initialize UI class."""
         # UI Elements that will be created
@@ -42,19 +46,19 @@ class MechanismDesignUI:
         self.reset_btn: QPushButton | None = None
         self.blueprint_btn: QPushButton | None = None
         self.blueprint_info_label: QLabel | None = None
-        
+
         # Parametric Design Elements (if available)
         self.parametric_edit_btn: QPushButton | None = None
-        
+
         # View Control Elements
         self.zoom_in_btn: QPushButton | None = None
         self.zoom_out_btn: QPushButton | None = None
         self.zoom_fit_btn: QPushButton | None = None
         self.center_character_btn: QPushButton | None = None
-        
+
         # Layout container (for potential recreation)
         self.control_panel: QWidget | None = None
-    
+
     def setup(self, parent_widget):
         """Setup UI - Similar to EditorTab but with mechanism layers instead of parts."""
         main_layout = QHBoxLayout(parent_widget)
@@ -335,5 +339,5 @@ class MechanismDesignUI:
         control_panel.setMinimumWidth(280)
         scroll_area.setWidget(control_panel)
         main_layout.addWidget(scroll_area)
-        
+
         # Note: The mechanism_view should be added by the parent after calling this method

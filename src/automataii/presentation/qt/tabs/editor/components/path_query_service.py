@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Protocol
 from PyQt6.QtGui import QPainterPath
 
 if TYPE_CHECKING:
-    from automataii.core.models import PartInfo
+    from automataii.presentation.qt.models import PartInfo
     from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
     from automataii.presentation.qt.views.editor_view import EditorView
 

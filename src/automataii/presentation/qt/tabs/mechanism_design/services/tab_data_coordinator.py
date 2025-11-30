@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
 from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from automataii.core.models import PartInfo
+    from automataii.presentation.qt.models import PartInfo
 
 
 class TabDataCoordinator:
@@ -135,13 +135,13 @@ class TabDataCoordinator:
 
     def set_parts_data(
         self,
-        parts_data: dict[str, "PartInfo"] | None,
+        parts_data: dict[str, PartInfo] | None,
         *,
-        current_parts_data: dict[str, "PartInfo"],
+        current_parts_data: dict[str, PartInfo],
         part_enabled_state: dict[str, bool],
         current_editor_items: dict[str, Any],
         mechanism_layers: dict[str, Any],
-    ) -> tuple[dict[str, "PartInfo"], dict[str, Any]]:
+    ) -> tuple[dict[str, PartInfo], dict[str, Any]]:
         """
         Process parts data from editor.
 
@@ -395,7 +395,7 @@ class TabDataCoordinator:
                 scene.removeItem(item)
         self._path_visual_items.clear()
 
-        for part_name, control_points in self._control_point_items.items():
+        for _part_name, control_points in self._control_point_items.items():
             for control_point in control_points:
                 if control_point.scene():
                     scene.removeItem(control_point)

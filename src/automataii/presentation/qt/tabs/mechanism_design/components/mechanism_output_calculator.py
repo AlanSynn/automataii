@@ -9,7 +9,8 @@ Design Pattern: Strategy (mechanism-type-specific calculations)
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from PyQt6.QtCore import QPointF

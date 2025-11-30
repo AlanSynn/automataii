@@ -8,9 +8,9 @@ Design Pattern: Handler (recommendation event handling)
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath
 
@@ -164,7 +164,7 @@ class RecommendationHandler:
                 if anchor_pos:
                     if isinstance(anchor_pos, QPointF):
                         anchor_position = anchor_pos
-                    elif isinstance(anchor_pos, (list, tuple)) and len(anchor_pos) >= 2:
+                    elif isinstance(anchor_pos, list | tuple) and len(anchor_pos) >= 2:
                         anchor_position = QPointF(anchor_pos[0], anchor_pos[1])
 
             # Build layer data
@@ -291,7 +291,7 @@ class RecommendationHandler:
                         mechanism_data["anchor_position"] = anchor_pos
                         mechanism_data["anchor_scene_x"] = anchor_pos.x()
                         mechanism_data["anchor_scene_y"] = anchor_pos.y()
-                    elif isinstance(anchor_pos, (list, tuple)) and len(anchor_pos) >= 2:
+                    elif isinstance(anchor_pos, list | tuple) and len(anchor_pos) >= 2:
                         mechanism_data["anchor_position"] = QPointF(anchor_pos[0], anchor_pos[1])
                         mechanism_data["anchor_scene_x"] = anchor_pos[0]
                         mechanism_data["anchor_scene_y"] = anchor_pos[1]

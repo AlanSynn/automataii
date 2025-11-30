@@ -1,11 +1,11 @@
 """
 Anchor Handle for Ground Pivot Manipulation
 
-Specialized handle for manipulating fixed anchor points (ground pivots) 
+Specialized handle for manipulating fixed anchor points (ground pivots)
 in mechanism systems, particularly 4-bar linkages.
 
 Author: AI Engineering Assistant
-Architecture: Jeff Dean Performance + Kent Beck Simplicity + Rob Pike Clarity  
+Architecture: Jeff Dean Performance + Kent Beck Simplicity + Rob Pike Clarity
 """
 
 import logging
@@ -21,11 +21,11 @@ from .base_handle import BaseHandle
 class AnchorHandle(BaseHandle):
     """
     Handle for manipulating mechanism anchor points (ground pivots).
-    
+
     Anchor points are fixed positions that serve as rotation centers
     for mechanism links. Moving them changes the overall mechanism geometry
     and motion characteristics.
-    
+
     Features:
     - Ground pivot positioning for 4-bar linkages
     - Automatic constraint validation (minimum/maximum distances)
@@ -48,11 +48,11 @@ class AnchorHandle(BaseHandle):
                  parent=None):
         """
         Initialize anchor handle for ground pivot manipulation.
-        
+
         Args:
             mechanism_id: Unique mechanism identifier
             anchor_name: Name of anchor point ('ground_pivot_1', 'ground_pivot_2')
-            initial_position: Starting position in scene coordinates  
+            initial_position: Starting position in scene coordinates
             mechanism_data: Reference to mechanism layer data
             update_callback: Function to call when anchor moves
             constraint_validator: Optional constraint validation function
@@ -99,10 +99,10 @@ class AnchorHandle(BaseHandle):
     def _calculate_parameter_from_position(self, scene_pos: QPointF) -> QPointF:
         """
         Calculate anchor position from handle position.
-        
+
         Args:
             scene_pos: Current handle position in scene coordinates
-            
+
         Returns:
             New anchor position (same as scene position for anchors)
         """
@@ -111,7 +111,7 @@ class AnchorHandle(BaseHandle):
     def _apply_parameter_change(self, new_position: QPointF):
         """
         Apply anchor position change to mechanism.
-        
+
         Args:
             new_position: New anchor position in scene coordinates
         """
@@ -136,7 +136,7 @@ class AnchorHandle(BaseHandle):
     def get_current_parameter_value(self) -> QPointF:
         """
         Get current anchor position from mechanism data.
-        
+
         Returns:
             Current anchor position as QPointF
         """
@@ -146,10 +146,10 @@ class AnchorHandle(BaseHandle):
     def _validate_anchor_constraints(self, new_position: QPointF) -> tuple[bool, str]:
         """
         Validate anchor position against constraints.
-        
+
         Args:
             new_position: Proposed new anchor position
-            
+
         Returns:
             Tuple of (is_valid, error_message)
         """
@@ -191,12 +191,12 @@ class AnchorHandle(BaseHandle):
     def _validate_linkage_geometry(self, pos1: QPointF, pos2: QPointF, params: dict) -> tuple[bool, str]:
         """
         Validate that linkage geometry remains valid with new anchor positions.
-        
+
         Args:
             pos1: Position of this anchor
-            pos2: Position of other anchor  
+            pos2: Position of other anchor
             params: Mechanism parameters (l1, l2, l3, l4)
-            
+
         Returns:
             Tuple of (is_valid, error_message)
         """
@@ -245,19 +245,19 @@ class AnchorHandle(BaseHandle):
         if not self._is_dragging or not self._is_enabled:
             logging.info(f"[ANCHOR] ❌ Not dragging or not enabled: dragging={self._is_dragging}, enabled={self._is_enabled}")
             return
-        
+
         new_position = event.scenePos()
         logging.info(f"[ANCHOR] 🎯 Mouse move to {new_position} for {self.anchor_name}")
-        
+
         # Allow free dragging without constraint validation for smoother UX
         # Constraints will be validated when exiting parametric editing mode
-        
+
         # Update position immediately for visual feedback
         old_pos = self.pos()
         self.setPos(new_position)
         actual_pos = self.pos()
         logging.info(f"[ANCHOR] ✅ Moved {self.anchor_name} from {old_pos} to {new_position}, actual: {actual_pos}")
-        
+
         # CRITICAL: Call the update callback immediately to trigger mechanism update
         if hasattr(self, 'update_callback') and self.update_callback:
             self.update_callback(new_position)

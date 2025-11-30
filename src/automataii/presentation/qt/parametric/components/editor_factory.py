@@ -8,7 +8,8 @@ Design Pattern: Factory (type-based instantiation)
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Type
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
@@ -28,13 +29,13 @@ class EditorFactory:
 
     def __init__(self) -> None:
         """Initialize factory with default registrations."""
-        self._registry: dict[str, Type] = {}
+        self._registry: dict[str, type] = {}
         self._validators: dict[str, Callable[[dict], tuple[bool, str]]] = {}
 
     def register(
         self,
         mechanism_type: str,
-        editor_class: Type,
+        editor_class: type,
         validator: Callable[[dict], tuple[bool, str]] | None = None,
     ) -> None:
         """
@@ -55,7 +56,7 @@ class EditorFactory:
         self,
         mechanism_id: str,
         mechanism_data: dict[str, Any],
-        scene: "QGraphicsScene",
+        scene: QGraphicsScene,
     ) -> Any | None:
         """
         Create an editor for the given mechanism.

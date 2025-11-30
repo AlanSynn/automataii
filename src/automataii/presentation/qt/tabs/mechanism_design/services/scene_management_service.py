@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene
+from PyQt6.QtWidgets import QGraphicsScene
 
 if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import PathTraceManager
@@ -60,7 +60,7 @@ class SceneManagementService:
         mechanism_instances: dict[str, Any],
         parametric_handles: dict[str, list],
         interactive_handles: dict[str, list],
-        path_trace_manager: "PathTraceManager",
+        path_trace_manager: PathTraceManager,
         scene: QGraphicsScene,
         ik_manager: Any | None,
     ) -> None:
@@ -92,7 +92,7 @@ class SceneManagementService:
         # Collect all visual items to remove
         all_visuals: list[Any] = []
 
-        for mechanism_id, layer_data in mechanism_layers.items():
+        for _mechanism_id, layer_data in mechanism_layers.items():
             visual_items = layer_data.get("visual_items", [])
             all_visuals.extend(visual_items)
             layer_data["visual_items"] = []
@@ -136,7 +136,7 @@ class SceneManagementService:
         path_visual_items: dict[str, Any],
         mechanism_path_items: dict[str, Any],
         parametric_handles: dict[str, list],
-        path_trace_manager: "PathTraceManager",
+        path_trace_manager: PathTraceManager,
     ) -> None:
         """
         Clear scene while preserving skeleton visualization.
@@ -158,7 +158,7 @@ class SceneManagementService:
         items_to_remove: list[Any] = []
 
         # Collect mechanism visual items
-        for mechanism_id, layer_data in mechanism_layers.items():
+        for _mechanism_id, layer_data in mechanism_layers.items():
             visual_items = layer_data.get("visual_items", [])
             items_to_remove.extend(visual_items)
             layer_data["visual_items"] = []

@@ -9,7 +9,8 @@ Design Pattern: Adapter (coordinate space adaptation)
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from PyQt6.QtCore import QPointF
@@ -67,7 +68,7 @@ class SceneTransformManager:
                     if isinstance(anchor_pos, QPointF):
                         anchor_scene_x = anchor_pos.x()
                         anchor_scene_y = anchor_pos.y()
-                    elif isinstance(anchor_pos, (list, tuple)) and len(anchor_pos) >= 2:
+                    elif isinstance(anchor_pos, list | tuple) and len(anchor_pos) >= 2:
                         anchor_scene_x = anchor_pos[0]
                         anchor_scene_y = anchor_pos[1]
 
@@ -138,7 +139,7 @@ class SceneTransformManager:
                     if isinstance(anchor_pos, QPointF):
                         anchor_scene_x = anchor_pos.x()
                         anchor_scene_y = anchor_pos.y()
-                    elif isinstance(anchor_pos, (list, tuple)) and len(anchor_pos) >= 2:
+                    elif isinstance(anchor_pos, list | tuple) and len(anchor_pos) >= 2:
                         anchor_scene_x = anchor_pos[0]
                         anchor_scene_y = anchor_pos[1]
 

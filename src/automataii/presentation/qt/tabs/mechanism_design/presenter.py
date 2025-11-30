@@ -9,14 +9,17 @@ Design Pattern: MVP (Model-View-Presenter) - Passive View variant
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainterPath
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene
 
 from automataii.domain.kinematics.mechanism import MechanismCandidate
+from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import (
+    PathTraceConfig,
+    PathTraceManager,
+)
 from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnchorMovementHandler,
     AnchorPositionService,
@@ -25,12 +28,8 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     TransformService,
     VisualItemManager,
 )
-from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import (
-    PathTraceManager,
-    PathTraceConfig,
-)
-from automataii.services.mechanism_service import MechanismService
-from automataii.services.skeleton_service import SkeletonService
+from automataii.application.mechanisms.mechanism_service import MechanismService
+from automataii.application.mechanisms.skeleton_service import SkeletonService
 
 if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
@@ -57,7 +56,7 @@ class MechanismDesignPresenter(QObject):
     animation_state_changed = pyqtSignal(bool)  # is_playing
     mechanism_list_changed = pyqtSignal(list)  # mechanism items
 
-    def __init__(self, tab: "MechanismDesignTab", parent: QObject | None = None) -> None:
+    def __init__(self, tab: MechanismDesignTab, parent: QObject | None = None) -> None:
         """
         Initialize presenter with tab reference.
 
@@ -251,7 +250,7 @@ class MechanismDesignPresenter(QObject):
 
         # Collect and clear visual items (from Tab's mechanism_layers)
         all_visual_items = []
-        for mechanism_id, layer_data in self._tab.mechanism_layers.items():
+        for _mechanism_id, layer_data in self._tab.mechanism_layers.items():
             visual_items = layer_data.get("visual_items", [])
             all_visual_items.extend(visual_items)
             layer_data["visual_items"] = []

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Iterable
 
 from PyQt6.QtCore import QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QFont

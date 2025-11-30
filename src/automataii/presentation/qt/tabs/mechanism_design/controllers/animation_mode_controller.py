@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene
+
     from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import PathTraceManager
     from automataii.presentation.qt.tabs.mechanism_design.services import AnimationFrameCoordinator
 
@@ -40,8 +41,8 @@ class AnimationModeController(QObject):
         self,
         *,
         animation_timer: QTimer,
-        animation_frame_coordinator: "AnimationFrameCoordinator",
-        path_trace_manager: "PathTraceManager",
+        animation_frame_coordinator: AnimationFrameCoordinator,
+        path_trace_manager: PathTraceManager,
         parent: QObject | None = None,
     ) -> None:
         """
@@ -64,7 +65,7 @@ class AnimationModeController(QObject):
         self._get_part_enabled_state_fn: Callable[[], dict] | None = None
         self._get_parts_data_fn: Callable[[], dict] | None = None
         self._get_ik_manager_fn: Callable[[], Any] | None = None
-        self._get_scene_fn: Callable[[], "QGraphicsScene"] | None = None
+        self._get_scene_fn: Callable[[], QGraphicsScene] | None = None
         self._get_skeleton_cache_fn: Callable[[], dict | None] | None = None
         self._get_tab_active_fn: Callable[[], bool] | None = None
         self._setup_ik_integration_fn: Callable[[], bool] | None = None
@@ -81,7 +82,7 @@ class AnimationModeController(QObject):
         get_part_enabled_state: Callable[[], dict],
         get_parts_data: Callable[[], dict],
         get_ik_manager: Callable[[], Any],
-        get_scene: Callable[[], "QGraphicsScene"],
+        get_scene: Callable[[], QGraphicsScene],
         get_skeleton_cache: Callable[[], dict | None],
         get_tab_active: Callable[[], bool],
         setup_ik_integration: Callable[[], bool],

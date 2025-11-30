@@ -1,17 +1,19 @@
 """
-EditorView extracted components.
+EditorView Components - Extracted from EditorView for SRP.
 
-This package contains modules extracted from EditorView
-using the LLM-native refactoring approach.
-
-Extracted Modules:
-- MotionPathController: Motion path drawing and spline generation
-- SkeletonVisualizer: Skeleton visualization and animation updates
+Components:
+- PathDrawingHandler: Handles motion path drawing and visualization
+- SkeletonVisualHandler: Handles skeleton visualization and animation
 """
-from automataii.presentation.qt.views.components.motion_path_controller import MotionPathController
-from automataii.presentation.qt.views.components.skeleton_visualizer import SkeletonVisualizer
+
+from automataii.presentation.qt.views.components.path_drawing_handler import (
+    PathDrawingHandler,
+)
+from automataii.presentation.qt.views.components.skeleton_visual_handler import (
+    SkeletonVisualHandler,
+)
 
 __all__ = [
-    "MotionPathController",
-    "SkeletonVisualizer",
+    "PathDrawingHandler",
+    "SkeletonVisualHandler",
 ]

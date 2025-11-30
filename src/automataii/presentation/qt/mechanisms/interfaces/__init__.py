@@ -1,9 +1,9 @@
 """Mechanism system interfaces."""
 
-from .mechanism import MechanismInterface, MechanismParameters, SimulationData
 from .editor import EditorInterface, HandleConfig
-from .serializer import BlueprintSerializer, BlueprintData
-from .handle import HandleInterface, HandleConstraints
+from .handle import HandleConstraints, HandleInterface
+from .mechanism import MechanismInterface, MechanismParameters, SimulationData
+from .serializer import BlueprintData, BlueprintSerializer
 
 __all__ = [
     'MechanismInterface',

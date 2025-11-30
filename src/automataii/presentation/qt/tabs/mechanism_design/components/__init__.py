@@ -12,9 +12,6 @@ Extracted Modules:
 - SceneTransformManager: Coordinate transformations between mechanism and scene space
 - RecommendationHandler: Mechanism recommendation workflow handling
 """
-from automataii.presentation.qt.tabs.mechanism_design.components.skeleton_visualization_handler import (
-    SkeletonVisualizationHandler,
-)
 from automataii.presentation.qt.tabs.mechanism_design.components.animation_lifecycle_controller import (
     AnimationLifecycleController,
 )
@@ -24,11 +21,14 @@ from automataii.presentation.qt.tabs.mechanism_design.components.mechanism_outpu
 from automataii.presentation.qt.tabs.mechanism_design.components.mechanism_visual_animator import (
     MechanismVisualAnimator,
 )
+from automataii.presentation.qt.tabs.mechanism_design.components.recommendation_handler import (
+    RecommendationHandler,
+)
 from automataii.presentation.qt.tabs.mechanism_design.components.scene_transform_manager import (
     SceneTransformManager,
 )
-from automataii.presentation.qt.tabs.mechanism_design.components.recommendation_handler import (
-    RecommendationHandler,
+from automataii.presentation.qt.tabs.mechanism_design.components.skeleton_visualization_handler import (
+    SkeletonVisualizationHandler,
 )
 
 __all__ = [

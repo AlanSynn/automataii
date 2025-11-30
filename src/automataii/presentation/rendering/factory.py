@@ -6,7 +6,8 @@ mechanism type support without violating the Open/Closed Principle.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Type
+from collections.abc import Callable
+from typing import Any
 
 from PyQt6.QtWidgets import QGraphicsItem
 
@@ -44,12 +45,12 @@ class MechanismVisualRendererFactory:
 
     def __init__(self) -> None:
         """Initialize empty renderer registry."""
-        self._registry: dict[str, Type[MechanismVisualRendererProtocol]] = {}
+        self._registry: dict[str, type[MechanismVisualRendererProtocol]] = {}
 
     def register(
         self,
         mechanism_type: str,
-        renderer_class: Type[MechanismVisualRendererProtocol],
+        renderer_class: type[MechanismVisualRendererProtocol],
     ) -> None:
         """Register a renderer class for a mechanism type.
 
@@ -164,7 +165,7 @@ def get_global_factory() -> MechanismVisualRendererFactory:
 
 def register_renderer(
     mechanism_type: str,
-) -> Callable[[Type[MechanismVisualRendererProtocol]], Type[MechanismVisualRendererProtocol]]:
+) -> Callable[[type[MechanismVisualRendererProtocol]], type[MechanismVisualRendererProtocol]]:
     """Decorator for registering renderer classes with global factory.
 
     Example:
@@ -181,8 +182,8 @@ def register_renderer(
     """
 
     def decorator(
-        renderer_class: Type[MechanismVisualRendererProtocol],
-    ) -> Type[MechanismVisualRendererProtocol]:
+        renderer_class: type[MechanismVisualRendererProtocol],
+    ) -> type[MechanismVisualRendererProtocol]:
         get_global_factory().register(mechanism_type, renderer_class)
         return renderer_class
 
