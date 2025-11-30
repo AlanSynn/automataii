@@ -333,3 +333,135 @@ class MechanismInstantiationService:
         if template_path:
             layer_data["cam_template_svg_path"] = template_path
             layer_data["params"]["cam_template_svg_path"] = template_path
+
+    def create_layer_data_from_foundry(
+        self,
+        mechanism_type: str,
+        parameters: dict[str, float],
+        pivot_point: tuple[float, float],
+        part_name: str | None = None,
+        scene_position: tuple[float, float] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create layer data from Mechanism Foundry export.
+
+        Maps Foundry mechanism types to internal Design tab types and creates
+        properly structured layer data for integration.
+
+        Args:
+            mechanism_type: Foundry mechanism type (e.g., "four_bar", "cam_follower")
+            parameters: Mechanism parameters from Foundry
+            pivot_point: Pivot point coordinates
+            part_name: Optional part name to associate mechanism with
+            scene_position: Optional scene position (defaults to center)
+
+        Returns:
+            Layer data dictionary ready for add_mechanism_layer
+        """
+        # Map Foundry type to internal type
+        type_mapping = {
+            "four_bar": "4_bar_linkage",
+            "cam_follower": "cam",
+            "gear_train": "gear",
+            "slider_crank": "4_bar_linkage",  # Approximate with 4-bar for now
+        }
+        internal_type = type_mapping.get(mechanism_type, "4_bar_linkage")
+
+        mechanism_id = self.generate_mechanism_id(short=True)
+
+        # Map Foundry parameter names to internal parameter names
+        params = self._map_foundry_params_to_internal(mechanism_type, parameters)
+
+        # Default scene position if not provided
+        pos = scene_position or (400.0, 300.0)
+
+        layer_data: dict[str, Any] = {
+            "id": mechanism_id,
+            "type": internal_type,
+            "part_name": part_name,
+            "params": params,
+            "visual_items": [],
+            "generated_path": None,
+            "transform_params": {
+                "center": list(pivot_point),
+                "scale": 1.0,
+                "rotation": 0,
+            },
+            "key_points": {},
+            "full_simulation_data": {},
+            "reverse_direction": False,
+            "source": "foundry",
+        }
+
+        # Type-specific configuration
+        if internal_type == "4_bar_linkage":
+            layer_data["key_points"] = {
+                "ground_pivot_1": [pos[0] - 50, pos[1]],
+                "ground_pivot_2": [pos[0] + 50, pos[1]],
+                "crank_end": [pos[0] - 50, pos[1] - 40],
+                "rocker_end": [pos[0] + 50, pos[1] - 80],
+            }
+
+        elif internal_type == "cam":
+            layer_data["cam_position"] = list(pos)
+            layer_data["cam_scale_factor"] = 1.0
+            layer_data["rod_length_multiplier"] = 1.0
+            params["center_x"] = pos[0]
+            params["center_y"] = pos[1]
+            # Ensure harmonic parameters are present
+            params.setdefault("cam_lobes", 1)
+            params.setdefault("profile_harmonic", 0.3)
+
+        elif internal_type == "gear":
+            layer_data["key_points"] = {
+                "gear1_center": [pos[0] - 60, pos[1]],
+                "gear2_center": [pos[0] + 60, pos[1]],
+            }
+
+        return layer_data
+
+    def _map_foundry_params_to_internal(
+        self,
+        foundry_type: str,
+        foundry_params: dict[str, float],
+    ) -> dict[str, Any]:
+        """
+        Map Foundry parameter names to internal Design tab parameter names.
+
+        Args:
+            foundry_type: Foundry mechanism type
+            foundry_params: Parameters from Foundry
+
+        Returns:
+            Parameters with internal naming convention
+        """
+        params: dict[str, Any] = {}
+
+        if foundry_type == "four_bar":
+            # Map: ground_link -> l1, input_link -> l2, coupler_link -> l3, output_link -> l4
+            params["l1"] = foundry_params.get("ground_link", 150.0)
+            params["l2"] = foundry_params.get("input_link", 40.0)
+            params["l3"] = foundry_params.get("coupler_link", 120.0)
+            params["l4"] = foundry_params.get("output_link", 130.0)
+            params["coupler_point_x"] = foundry_params.get("coupler_point_x", 60.0)
+            params["coupler_point_y"] = foundry_params.get("coupler_point_y", 30.0)
+
+        elif foundry_type == "cam_follower":
+            # Map Foundry cam params to internal
+            params["base_radius"] = foundry_params.get("cam_radius", 60.0)
+            params["eccentricity"] = foundry_params.get("cam_offset", 20.0)
+            params["follower_rod_length"] = foundry_params.get("follower_length", 100.0)
+            params["cam_lobes"] = int(foundry_params.get("cam_lobes", 1))
+            params["profile_harmonic"] = foundry_params.get("profile_harmonic", 0.3)
+
+        elif foundry_type == "gear_train":
+            params["gear1_teeth"] = int(foundry_params.get("gear1_teeth", 12))
+            params["gear2_teeth"] = int(foundry_params.get("gear2_teeth", 18))
+            params["r1"] = foundry_params.get("gear1_teeth", 12) * 3  # tooth * module
+            params["r2"] = foundry_params.get("gear2_teeth", 18) * 3
+
+        else:
+            # Copy params as-is for unknown types
+            params = dict(foundry_params)
+
+        return params

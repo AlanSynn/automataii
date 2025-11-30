@@ -909,6 +909,92 @@ class MechanismDesignTab(QWidget):
     def _on_export_blueprint(self):
         self.blueprint_exporter.export_all()
 
+    # --- Foundry Integration ---
+
+    def import_mechanism_from_foundry(
+        self,
+        mechanism_type: str,
+        parameters: dict,
+        pivot_point: tuple,
+    ) -> bool:
+        """
+        Import a mechanism from Mechanism Foundry tab.
+
+        Creates a new mechanism layer with the given configuration.
+        If no part is selected, shows a part selection dialog.
+
+        Args:
+            mechanism_type: Foundry mechanism type (e.g., "four_bar", "cam_follower")
+            parameters: Mechanism parameters from Foundry
+            pivot_point: Pivot point coordinates
+
+        Returns:
+            True if import successful, False otherwise
+        """
+        import logging
+        logging.info(f"Importing mechanism from Foundry: {mechanism_type}")
+
+        # Determine which part to associate with
+        part_name = self.selected_part_name
+
+        # If no part selected, try to use first available part
+        if not part_name and self.parts_data:
+            part_name = next(iter(self.parts_data.keys()), None)
+            if part_name:
+                self.selected_part_name = part_name
+                logging.info(f"Auto-selected part: {part_name}")
+
+        # Get scene position - use view center or character center
+        scene_position = (400.0, 300.0)
+        if self.mechanism_view:
+            view_center = self.mechanism_view.mapToScene(
+                self.mechanism_view.viewport().rect().center()
+            )
+            scene_position = (view_center.x(), view_center.y())
+
+        # Create layer data from Foundry export
+        layer_data = self._mechanism_instantiation.create_layer_data_from_foundry(
+            mechanism_type=mechanism_type,
+            parameters=parameters,
+            pivot_point=pivot_point,
+            part_name=part_name,
+            scene_position=scene_position,
+        )
+
+        if not layer_data:
+            logging.warning("Failed to create layer data from Foundry export")
+            return False
+
+        mechanism_id = layer_data.get("id", "unknown")
+
+        # Add to mechanism layers
+        self.mechanism_layers[mechanism_id] = layer_data
+        self.mechanism_enabled_state[mechanism_id] = True
+
+        # Create visuals
+        self._handle_mechanism_visuals(mechanism_id, layer_data)
+
+        # Update UI
+        self._update_mechanism_layers_list()
+        self.play_btn.setEnabled(True)
+        self.reset_btn.setEnabled(True)
+
+        # Switch to Design tab
+        if hasattr(self, 'parent') and self.parent():
+            parent = self.parent()
+            while parent:
+                if hasattr(parent, 'tab_widget'):
+                    # Find the Design tab index
+                    for i in range(parent.tab_widget.count()):
+                        if parent.tab_widget.widget(i) is self:
+                            parent.tab_widget.setCurrentIndex(i)
+                            break
+                    break
+                parent = parent.parent() if hasattr(parent, 'parent') else None
+
+        logging.info(f"Successfully imported mechanism: {mechanism_id}")
+        return True
+
     def center_on_character(self):
         if not self.mechanism_view:
             return

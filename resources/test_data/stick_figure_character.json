@@ -1,0 +1,156 @@
+{
+  "character": {
+    "name": "StickFigure",
+    "description": "Simple stick figure character for testing mechanism-to-part mapping",
+    "parts": {
+      "head": {
+        "name": "head",
+        "roi": [180, 20, 240, 80],
+        "z_value": 10,
+        "fill_color": "rgba(200, 180, 160, 0.8)",
+        "fixed": true,
+        "anchor_joint_id": "head"
+      },
+      "torso": {
+        "name": "torso",
+        "roi": [170, 80, 230, 200],
+        "z_value": 5,
+        "fill_color": "rgba(100, 120, 150, 0.8)",
+        "fixed": true,
+        "anchor_joint_id": "spine_mid"
+      },
+      "upper_arm_left": {
+        "name": "upper_arm_left",
+        "roi": [120, 90, 170, 150],
+        "z_value": 6,
+        "fill_color": "rgba(180, 160, 140, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "shoulder_left"
+      },
+      "upper_arm_right": {
+        "name": "upper_arm_right",
+        "roi": [230, 90, 280, 150],
+        "z_value": 6,
+        "fill_color": "rgba(180, 160, 140, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "shoulder_right"
+      },
+      "lower_arm_left": {
+        "name": "lower_arm_left",
+        "roi": [80, 150, 130, 220],
+        "z_value": 7,
+        "fill_color": "rgba(180, 160, 140, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "elbow_left"
+      },
+      "lower_arm_right": {
+        "name": "lower_arm_right",
+        "roi": [270, 150, 320, 220],
+        "z_value": 7,
+        "fill_color": "rgba(180, 160, 140, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "elbow_right"
+      },
+      "upper_leg_left": {
+        "name": "upper_leg_left",
+        "roi": [150, 200, 195, 290],
+        "z_value": 4,
+        "fill_color": "rgba(80, 100, 130, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "hip_left"
+      },
+      "upper_leg_right": {
+        "name": "upper_leg_right",
+        "roi": [205, 200, 250, 290],
+        "z_value": 4,
+        "fill_color": "rgba(80, 100, 130, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "hip_right"
+      },
+      "lower_leg_left": {
+        "name": "lower_leg_left",
+        "roi": [145, 290, 190, 380],
+        "z_value": 3,
+        "fill_color": "rgba(80, 100, 130, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "knee_left"
+      },
+      "lower_leg_right": {
+        "name": "lower_leg_right",
+        "roi": [210, 290, 255, 380],
+        "z_value": 3,
+        "fill_color": "rgba(80, 100, 130, 0.8)",
+        "fixed": false,
+        "anchor_joint_id": "knee_right"
+      }
+    },
+    "skeleton_joints": [
+      {"id": "root", "name": "Root", "position": [200, 200], "parent": null},
+      {"id": "spine_mid", "name": "Spine Mid", "position": [200, 140], "parent": "root"},
+      {"id": "spine_top", "name": "Spine Top", "position": [200, 90], "parent": "spine_mid"},
+      {"id": "head", "name": "Head", "position": [200, 50], "parent": "spine_top"},
+
+      {"id": "shoulder_left", "name": "Shoulder Left", "position": [145, 95], "parent": "spine_top"},
+      {"id": "elbow_left", "name": "Elbow Left", "position": [110, 150], "parent": "shoulder_left", "bend_direction": -1.0},
+      {"id": "wrist_left", "name": "Wrist Left", "position": [90, 210], "parent": "elbow_left"},
+
+      {"id": "shoulder_right", "name": "Shoulder Right", "position": [255, 95], "parent": "spine_top"},
+      {"id": "elbow_right", "name": "Elbow Right", "position": [290, 150], "parent": "shoulder_right", "bend_direction": 1.0},
+      {"id": "wrist_right", "name": "Wrist Right", "position": [310, 210], "parent": "elbow_right"},
+
+      {"id": "hip_left", "name": "Hip Left", "position": [175, 205], "parent": "root"},
+      {"id": "knee_left", "name": "Knee Left", "position": [165, 290], "parent": "hip_left", "bend_direction": 1.0},
+      {"id": "ankle_left", "name": "Ankle Left", "position": [160, 375], "parent": "knee_left"},
+
+      {"id": "hip_right", "name": "Hip Right", "position": [225, 205], "parent": "root"},
+      {"id": "knee_right", "name": "Knee Right", "position": [235, 290], "parent": "hip_right", "bend_direction": -1.0},
+      {"id": "ankle_right", "name": "Ankle Right", "position": [240, 375], "parent": "knee_right"}
+    ],
+    "skeleton_bones": [
+      {"from": "root", "to": "spine_mid"},
+      {"from": "spine_mid", "to": "spine_top"},
+      {"from": "spine_top", "to": "head"},
+      {"from": "spine_top", "to": "shoulder_left"},
+      {"from": "shoulder_left", "to": "elbow_left"},
+      {"from": "elbow_left", "to": "wrist_left"},
+      {"from": "spine_top", "to": "shoulder_right"},
+      {"from": "shoulder_right", "to": "elbow_right"},
+      {"from": "elbow_right", "to": "wrist_right"},
+      {"from": "root", "to": "hip_left"},
+      {"from": "hip_left", "to": "knee_left"},
+      {"from": "knee_left", "to": "ankle_left"},
+      {"from": "root", "to": "hip_right"},
+      {"from": "hip_right", "to": "knee_right"},
+      {"from": "knee_right", "to": "ankle_right"}
+    ]
+  },
+  "mechanism_mappings": {
+    "description": "Suggested mechanism-to-part mappings for animation",
+    "mappings": [
+      {
+        "part_name": "lower_arm_right",
+        "suggested_mechanism": "four_bar",
+        "joint_chain": ["shoulder_right", "elbow_right", "wrist_right"],
+        "notes": "Ideal for waving motion using four-bar linkage"
+      },
+      {
+        "part_name": "lower_leg_left",
+        "suggested_mechanism": "cam_follower",
+        "joint_chain": ["hip_left", "knee_left", "ankle_left"],
+        "notes": "Cam provides smooth vertical leg motion"
+      },
+      {
+        "part_name": "lower_leg_right",
+        "suggested_mechanism": "four_bar",
+        "joint_chain": ["hip_right", "knee_right", "ankle_right"],
+        "notes": "Four-bar for walking motion"
+      },
+      {
+        "part_name": "head",
+        "suggested_mechanism": "cam_follower",
+        "joint_chain": ["spine_top", "head"],
+        "notes": "Cam for nodding motion"
+      }
+    ]
+  }
+}
