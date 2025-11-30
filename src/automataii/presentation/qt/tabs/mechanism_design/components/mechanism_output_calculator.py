@@ -190,31 +190,48 @@ class MechanismOutputCalculator:
         time: float,
         layer_data: dict,
     ) -> QPointF | None:
-        """Calculate cam mechanism output with vertical follower constraint."""
-        follower_rod_length = params.get("follower_rod_length", 40.0)
+        """
+        Calculate cam mechanism output with vertical follower (Foundry-compatible).
+
+        Uses harmonic formula: radius = base_radius + cam_offset * cos(lobes * θ)
+                                      + (cam_offset * harmonic) * cos(2 * lobes * θ)
+
+        Returns the follower base position (where part would attach).
+        """
+        # Get harmonic cam parameters (Foundry-compatible)
+        base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
+        cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
+        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 100.0))
+        cam_lobes = int(params.get("cam_lobes", 1))
+        profile_harmonic = params.get("profile_harmonic", 0.3)
+
+        # Get scaling factors
+        cam_scale_factor = layer_data.get('cam_scale_factor', 1.0)
         rod_len_mul = layer_data.get('rod_length_multiplier', 1.0)
-        cam_points_local = layer_data.get('cam_points_local') or layer_data.get('cam_profile_local_points')
+
+        scaled_base_radius = base_radius * cam_scale_factor
+        scaled_cam_offset = cam_offset * cam_scale_factor
+        scaled_rod_length = follower_rod_length * rod_len_mul
+
         cam_to_scene = layer_data.get('cam_transform_function') or self._get_scene_transform(layer_data)
-
-        if cam_points_local is None or cam_to_scene is None:
+        if cam_to_scene is None:
             return None
 
-        # Rotate local cam profile
-        angle = time
-        cos_r, sin_r = np.cos(angle), np.sin(angle)
-        rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-        rotated = np.array(cam_points_local) @ rot.T
+        # Calculate contact radius at follower position using harmonic formula
+        # Follower is always at theta = -π/2 in the cam frame (bottom)
+        # Account for cam rotation
+        cam_angle = time  # Cam rotation angle in radians
+        follower_contact_theta = -math.pi / 2 - cam_angle
 
-        # Map to scene
-        scene_pts = [cam_to_scene(p) for p in rotated]
-        if not scene_pts:
-            return None
+        primary_var = scaled_cam_offset * math.cos(cam_lobes * follower_contact_theta)
+        secondary_var = (scaled_cam_offset * profile_harmonic) * math.cos(2 * cam_lobes * follower_contact_theta)
+        contact_radius = scaled_base_radius + primary_var + secondary_var
 
-        # Contact point at max scene y (gravity down)
-        idx = max(range(len(scene_pts)), key=lambda i: scene_pts[i].y())
-        y_contact = scene_pts[idx].y()
+        # Contact point in mechanism coordinates (always at bottom)
+        contact_local = np.array([0.0, -contact_radius])
+        contact_scene = cam_to_scene(contact_local)
 
-        # Convert rod length to scene units
+        # Calculate scene scale for rod length conversion
         try:
             u0 = cam_to_scene(np.array([0.0, 0.0]))
             u1 = cam_to_scene(np.array([0.0, 1.0]))
@@ -222,15 +239,19 @@ class MechanismOutputCalculator:
         except Exception:
             unit_scale = 1.0
 
-        rod_scene = follower_rod_length * rod_len_mul * unit_scale
+        rod_scene = scaled_rod_length * unit_scale
 
-        # Fixed X for vertical follower motion
+        # Follower X is fixed at cam center X
         follower_x = layer_data.get('follower_fixed_x_scene')
         if follower_x is None:
             center_scene = cam_to_scene(np.array([0.0, 0.0]))
             follower_x = center_scene.x()
 
-        return QPointF(float(follower_x), y_contact - rod_scene)
+        # Follower base Y (at end of rod below contact point)
+        # In scene coords, Y+ is typically down, so add rod_scene
+        follower_base_y = contact_scene.y() + rod_scene
+
+        return QPointF(float(follower_x), float(follower_base_y))
 
     def _calculate_gear_output(
         self,
