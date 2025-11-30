@@ -128,6 +128,10 @@ class MechanismOutputCalculator:
 
         if mech_type == "4_bar_linkage":
             return self._calculate_4bar_output(params, time, layer_data, full_sim_data)
+        elif mech_type == "5_bar_linkage":
+            return self._calculate_5bar_output(params, time, layer_data, full_sim_data)
+        elif mech_type == "6_bar_linkage":
+            return self._calculate_6bar_output(params, time, layer_data, full_sim_data)
         elif mech_type == "cam":
             return self._calculate_cam_output(params, time, layer_data)
         elif mech_type == "gear":
@@ -183,6 +187,78 @@ class MechanismOutputCalculator:
             p_coupler = p3
 
         return to_scene_coords(p_coupler)
+
+    def _calculate_5bar_output(
+        self,
+        params: dict,
+        time: float,
+        layer_data: dict,
+        full_sim_data: dict,
+    ) -> QPointF | None:
+        """Calculate 5-bar linkage output using simulation data or fallback."""
+        # Try to use pre-computed simulation data
+        if "joint_positions" in full_sim_data:
+            joint_positions = full_sim_data["joint_positions"]
+            to_scene_coords = self._get_scene_transform(layer_data)
+
+            # 5-bar uses p5 (coupler point) if available
+            if "p5_positions" in joint_positions and to_scene_coords:
+                num_frames = len(joint_positions["p5_positions"])
+                if num_frames > 0:
+                    normalized_time = time / (2 * math.pi)
+                    reverse_direction = layer_data.get("reverse_direction", False)
+                    if reverse_direction:
+                        normalized_time = 1.0 - normalized_time
+
+                    frame_index = int(normalized_time * (num_frames - 1))
+                    frame_index = max(0, min(frame_index, num_frames - 1))
+
+                    p5 = np.array(joint_positions["p5_positions"][frame_index])
+                    return to_scene_coords(p5)
+
+        # Fallback: use key_points center if available
+        key_points = layer_data.get("key_points", {})
+        to_scene_coords = self._get_scene_transform(layer_data)
+        if "coupler_point" in key_points and to_scene_coords:
+            return to_scene_coords(np.array(key_points["coupler_point"]))
+
+        return None
+
+    def _calculate_6bar_output(
+        self,
+        params: dict,
+        time: float,
+        layer_data: dict,
+        full_sim_data: dict,
+    ) -> QPointF | None:
+        """Calculate 6-bar linkage output using simulation data or fallback."""
+        # Try to use pre-computed simulation data
+        if "joint_positions" in full_sim_data:
+            joint_positions = full_sim_data["joint_positions"]
+            to_scene_coords = self._get_scene_transform(layer_data)
+
+            # 6-bar uses p6 (end effector point) if available
+            if "p6_positions" in joint_positions and to_scene_coords:
+                num_frames = len(joint_positions["p6_positions"])
+                if num_frames > 0:
+                    normalized_time = time / (2 * math.pi)
+                    reverse_direction = layer_data.get("reverse_direction", False)
+                    if reverse_direction:
+                        normalized_time = 1.0 - normalized_time
+
+                    frame_index = int(normalized_time * (num_frames - 1))
+                    frame_index = max(0, min(frame_index, num_frames - 1))
+
+                    p6 = np.array(joint_positions["p6_positions"][frame_index])
+                    return to_scene_coords(p6)
+
+        # Fallback: use key_points end_effector if available
+        key_points = layer_data.get("key_points", {})
+        to_scene_coords = self._get_scene_transform(layer_data)
+        if "end_effector" in key_points and to_scene_coords:
+            return to_scene_coords(np.array(key_points["end_effector"]))
+
+        return None
 
     def _calculate_cam_output(
         self,
