@@ -1,7 +1,7 @@
 import sys
 import pytest
 from PyQt6.QtWidgets import QApplication
-from automataii.ui.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
 pytest.skip("Manual GUI exercise; skip during automated pytest runs.", allow_module_level=True)
 

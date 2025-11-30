@@ -3,8 +3,9 @@ Tests for mechanism protocols.
 """
 
 import pytest
-from automataii.mechanisms.core.protocols import Mechanism, MechanismRenderer
-from automataii.mechanisms.core.state import MechanismState, RenderConfig
+from automataii.domain.mechanisms.core.protocols import Mechanism
+from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig
+from automataii.presentation.qt.tabs.mechanism_foundry.components.mechanism_renderer import MechanismRenderer
 
 
 class TestMechanismProtocol:

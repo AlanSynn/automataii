@@ -27,8 +27,8 @@ def test_all_enhanced_mechanisms():
     
     try:
         # Import the enhanced modules
-        from automataii.generation.blueprint_optimizer import EnhancedMechanismProcessor, ScaleNormalizer
-        from automataii.generation.blueprint import generate_multi_page_blueprint
+        from automataii.infrastructure.generation.svg.optimizer import EnhancedMechanismProcessor
+        from automataii.domain.generation.layout import ScaleNormalizer
         
         logger.info("✅ Successfully imported enhanced mechanism modules")
         

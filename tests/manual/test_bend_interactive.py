@@ -5,7 +5,7 @@ import sys
 import time
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QLabel
 from PyQt6.QtCore import QTimer
-from automataii.gui.main_window import MainWindow
+from automataii.presentation.qt.main_window import MainWindow
 import logging
 
 logging.basicConfig(level=logging.INFO)

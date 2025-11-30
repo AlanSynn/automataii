@@ -5,7 +5,7 @@ import sys
 import logging
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
-from automataii.gui.main_window import MainWindow
+from automataii.presentation.qt.main_window import MainWindow
 
 # Set up detailed logging
 logging.basicConfig(

@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 try:
-    from automataii.animate.body_parts_extractor import (
+    from automataii.domain.animation.body_parts_extractor import (
         BodyPartsExtractor,
         TorsoFirstSkeletonSegmenter,
         TextureAwareSkeletonSegmenter,
@@ -26,7 +26,7 @@ except ImportError:
         "Segmentation components not available (TorsoFirstSkeletonSegmenter missing); skipping manual test.",
         allow_module_level=True,
     )
-from automataii.animate.part_definitions import BODY_PARTS
+from automataii.domain.animation.part_definitions import BODY_PARTS
 
 
 def create_structure_preserving_mask(gray: np.ndarray, alpha_mask: np.ndarray, rgb_data: np.ndarray) -> np.ndarray:

@@ -4,7 +4,7 @@
 import sys
 import logging
 from PyQt6.QtWidgets import QApplication
-from automataii.gui.main_window import MainWindow
+from automataii.presentation.qt.main_window import MainWindow
 
 # Set up logging to see bend direction messages
 logging.basicConfig(

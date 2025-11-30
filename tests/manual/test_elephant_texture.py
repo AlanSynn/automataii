@@ -7,8 +7,8 @@ import cv2
 # Add the src directory to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from automataii.animate.image_to_annotations import image_to_annotations
-from automataii.animate.body_parts_extractor import BodyPartsExtractor
+from automataii.domain.animation.image_to_annotations import image_to_annotations
+from automataii.domain.animation.body_parts_extractor import BodyPartsExtractor
 
 def test_elephant_image():
     """Test the elephant image texture extraction"""

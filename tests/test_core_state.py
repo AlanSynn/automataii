@@ -2,8 +2,7 @@
 Test state management system
 """
 import pytest
-from automataii.core import StateStore, Action
-from automataii.core.state.base import State, Reducer
+from automataii.infrastructure.state import StateStore, Action, State, Reducer
 
 
 class AppState:

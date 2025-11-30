@@ -4,7 +4,7 @@
 import time
 import numpy as np
 from automataii.application.mechanism_foundry.path_cache import PathCache
-from automataii.mechanisms.fourbar import FourBarMechanism
+from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
 
 
 def measure_first_computation():

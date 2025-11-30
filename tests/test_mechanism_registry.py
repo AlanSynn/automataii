@@ -3,9 +3,9 @@ Tests for mechanism registry.
 """
 
 import pytest
-from automataii.mechanisms.core.protocols import Mechanism
-from automataii.mechanisms.core.state import MechanismState
-from automataii.mechanisms.catalog.registry import (
+from automataii.domain.mechanisms.core.protocols import Mechanism
+from automataii.domain.mechanisms.core.state import MechanismState
+from automataii.domain.mechanisms.catalog.registry import (
     MechanismRegistry,
     MechanismNotFoundError,
     get_mechanism,

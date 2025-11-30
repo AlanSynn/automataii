@@ -16,7 +16,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor, QPainterPath
 from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
-from automataii.ui.tabs.mechanism_design.path_trace_manager import (
+from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import (
     PathTraceConfig,
     PathTraceManager,
 )
