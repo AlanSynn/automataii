@@ -14,7 +14,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from PyQt6.QtCore import QPointF
     from PyQt6.QtGui import QPainterPath
 
 
@@ -42,7 +41,7 @@ class MotionPathGenerator:
         layer_data: dict[str, Any],
         joint_id: str,
         calculate_output_fn: Callable[[str, dict, float, dict], Any],
-    ) -> "QPainterPath | None":
+    ) -> QPainterPath | None:
         """
         Generate a motion path for a skeleton joint using mechanism calculations.
 

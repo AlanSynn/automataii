@@ -414,7 +414,7 @@ class MechanismGenerationService:
 
         cam_center_x = params.get("cam_center_x", 0.0)
         cam_center_y = params.get("cam_center_y", 0.0)
-        follower_radius = params.get("follower_radius", 5.0)
+        params.get("follower_radius", 5.0)
         num_samples = int(params.get("num_samples", 360))
 
         cam_center: Point2D = (cam_center_x, cam_center_y)

@@ -1,7 +1,12 @@
 """
-Core protocols for mechanism domain logic and rendering
+Core protocols for mechanism domain logic.
 
 These protocols define the interface contract for all mechanism implementations.
+
+Architecture Note:
+- This is DOMAIN layer - NO Qt dependencies allowed
+- Rendering protocols belong in PRESENTATION layer
+- Domain only defines computation contracts
 """
 
 from __future__ import annotations
@@ -9,13 +14,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene
-
-from .state import MechanismState, RenderConfig
+from .state import MechanismState
 
 
 @runtime_checkable
 class Mechanism(Protocol):
+    """Protocol for mechanism computation logic (Domain layer)."""
+
     @property
     def mechanism_type(self) -> str: ...
 
@@ -31,11 +36,5 @@ class Mechanism(Protocol):
     def validate_parameters(self, parameters: Mapping[str, float]) -> None: ...
 
 
-@runtime_checkable
-class MechanismRenderer(Protocol):
-    def render(
-        self,
-        state: MechanismState,
-        scene: QGraphicsScene,
-        config: RenderConfig,
-    ) -> list[QGraphicsItem]: ...
+# NOTE: MechanismRenderer protocol has been moved to presentation layer
+# See: automataii.presentation.qt.mechanisms.protocols.MechanismRenderer

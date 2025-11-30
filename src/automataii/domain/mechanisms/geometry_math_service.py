@@ -325,7 +325,7 @@ class GeometryMathService:
             return 0.0
 
         sum_squared_error = 0.0
-        for pt, pg in zip(target, generated):
+        for pt, pg in zip(target, generated, strict=False):
             dist = self.compute_distance(pt, pg)
             sum_squared_error += dist * dist
 

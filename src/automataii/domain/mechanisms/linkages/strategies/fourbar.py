@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from automataii.domain.mechanisms.linkages.strategies.base import LinkageStrategy
 
 if TYPE_CHECKING:
-    from automataii.domain.mechanisms.core.types import ForceVector, ForceType
+    from automataii.domain.mechanisms.core.types import ForceVector
 
 
 class FourBarStrategy(LinkageStrategy):
@@ -97,14 +97,13 @@ class FourBarStrategy(LinkageStrategy):
             Force vectors: {input, reaction_O1}
         """
         from automataii.domain.mechanisms.core.state import ForceType, ForceVector
-        from PyQt6.QtCore import QPointF
 
         o1_x, o1_y = positions["O1"]
         a_x, a_y = positions["A"]
         theta_rad = math.radians(input_angle)
 
         input_force = ForceVector(
-            position=QPointF(a_x, a_y),
+            position=(a_x, a_y),  # Pure Python tuple, not QPointF
             magnitude=40 + 10 * math.sin(theta_rad),
             angle=math.degrees(theta_rad + math.pi / 2),
             force_type=ForceType.APPLIED,
@@ -112,7 +111,7 @@ class FourBarStrategy(LinkageStrategy):
         )
 
         reaction_o1 = ForceVector(
-            position=QPointF(o1_x, o1_y),
+            position=(o1_x, o1_y),  # Pure Python tuple, not QPointF
             magnitude=30,
             angle=math.degrees(theta_rad + math.pi),
             force_type=ForceType.REACTION,

@@ -7,12 +7,12 @@ from automataii.domain.mechanisms.core.protocols import Mechanism
 from automataii.domain.mechanisms.core.state import MechanismState
 from automataii.domain.mechanisms.linkages.config import LinkageConfig, LinkageType
 from automataii.domain.mechanisms.linkages.strategies.base import LinkageStrategy
-from automataii.domain.mechanisms.linkages.strategies.fourbar import FourBarStrategy
 from automataii.domain.mechanisms.linkages.strategies.fivebar import FiveBarStrategy
+from automataii.domain.mechanisms.linkages.strategies.fourbar import FourBarStrategy
 from automataii.domain.mechanisms.linkages.strategies.sixbar import SixBarStrategy
 from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
-from automataii.domain.mechanisms.linkages.validators.fourbar import FourBarValidator
 from automataii.domain.mechanisms.linkages.validators.fivebar import FiveBarValidator
+from automataii.domain.mechanisms.linkages.validators.fourbar import FourBarValidator
 from automataii.domain.mechanisms.linkages.validators.sixbar import SixBarValidator
 
 

@@ -1,5 +1,9 @@
 """
-Cam-follower mechanism computation module
+Cam-follower mechanism computation module.
+
+Architecture Note:
+- This is DOMAIN layer - NO Qt dependencies allowed
+- Use Point2D = tuple[float, float] instead of QPointF
 """
 
 from __future__ import annotations
@@ -7,13 +11,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QPointF
-
 from automataii.domain.mechanisms.core.protocols import Mechanism
 from automataii.domain.mechanisms.core.state import (
     ForceType,
     ForceVector,
     MechanismState,
+    Point2D,
     SafetyLevel,
     SafetyStatus,
 )
@@ -103,9 +106,9 @@ class CamFollowerMechanism(Mechanism):
         )
 
         forces = self._compute_forces(
-            QPointF(*cam_center),
-            QPointF(*contact_point),
-            QPointF(*follower_end),
+            cam_center,
+            contact_point,
+            follower_end,
             cam_angle_rad,
             contact_radius,
             follower_stress,
@@ -164,9 +167,9 @@ class CamFollowerMechanism(Mechanism):
 
     def _compute_forces(
         self,
-        cam_center: QPointF,
-        contact_point: QPointF,
-        follower_end: QPointF,
+        cam_center: Point2D,
+        contact_point: Point2D,
+        follower_end: Point2D,
         cam_angle: float,
         contact_radius: float,
         follower_stress: float,
@@ -206,7 +209,7 @@ class CamFollowerMechanism(Mechanism):
 
         inertia_force = abs(follower_stress) * 20
         forces["follower_inertia"] = ForceVector(
-            position=QPointF(follower_end.x() - 50, follower_end.y()),
+            position=(follower_end[0] - 50, follower_end[1]),
             magnitude=inertia_force,
             angle=90.0 if follower_stress < 0 else 270.0,
             force_type=ForceType.APPLIED,

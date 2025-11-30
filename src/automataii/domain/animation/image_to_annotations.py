@@ -174,7 +174,7 @@ class ONNXImageProcessor:
         try:
             input_tensor, scale, (new_h, new_w), (pad_h, pad_w) = self.preprocess_for_detection(image)
             input_name = self.detector_session.get_inputs()[0].name
-            outputs = self.detector_session.run(None, {input_name: input_tensor})
+            self.detector_session.run(None, {input_name: input_tensor})
 
             # For backbone outputs, we can't directly extract bboxes
             # So we'll create a bbox covering the whole image for pose estimation

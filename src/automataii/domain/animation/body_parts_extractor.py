@@ -307,7 +307,7 @@ class BodyPartsExtractor:
                 joint_map_data = skeleton_data["joint_map"]
                 if isinstance(joint_map_data, dict):
                     for joint_name, pos in joint_map_data.items():
-                        if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                        if isinstance(pos, list | tuple) and len(pos) >= 2:
                             joint_map[joint_name] = (int(pos[0]), int(pos[1]))
         elif isinstance(skeleton_data, list):
             # Old format - list of joints
@@ -749,7 +749,7 @@ class BodyPartsExtractor:
                             joint_name = joint_id.split("_")[0]
 
                         pos = joint_info.get("position", [0.0, 0.0])
-                        if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                        if isinstance(pos, list | tuple) and len(pos) >= 2:
                             pos = [float(pos[0]), float(pos[1])]
                         else:
                             pos = [0.0, 0.0]
