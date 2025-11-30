@@ -3,19 +3,19 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from automataii.application.blueprint import BlueprintComposer
 from automataii.application.mechanism_foundry import (
     MechanismFoundryController,
     MechanismItem,
-    ParameterSpec,
 )
-from automataii.generation.blueprint import generate_single_large_blueprint
-from automataii.generation.blueprint_optimizer import ScaledBounds
+from automataii.infrastructure.generation.svg.blueprint import generate_single_large_blueprint
+from automataii.domain.generation.layout import ScaledBounds
 
 # ---------------------------------------------------------------------------
 # Scenario-specific optimizer & layout helpers
@@ -134,7 +134,7 @@ def run_blueprint_export_scenario(output_dir: Path, unit_system: str = "metric")
     logger = logging.getLogger("automataii.scenario.blueprint")
     start_time = time.perf_counter()
 
-    from automataii.core.telemetry import telemetry_span
+    from automataii.infrastructure.telemetry import telemetry_span
 
     with telemetry_span(
         "scenario.blueprint_export",

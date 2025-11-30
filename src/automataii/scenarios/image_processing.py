@@ -5,11 +5,10 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Iterable, Optional
 
+from automataii.infrastructure.telemetry import telemetry_span
 from automataii.domain.animation.body_parts_extractor import BodyPartsExtractor
 from automataii.domain.animation.image_to_annotations import image_to_annotations
-from automataii.core.telemetry import telemetry_span
 from automataii.utils.paths import resolve_path
 
 logger = logging.getLogger("automataii.scenario.image_processing")
@@ -93,7 +92,7 @@ def run_image_processing_scenario(
         )
 
     duration_ms = round((time.perf_counter() - start_time) * 1000, 3)
-    metrics_path = _write_metrics(
+    _write_metrics(
         output_dir=output_dir,
         duration_ms=duration_ms,
         part_count=part_count,
@@ -111,7 +110,7 @@ def run_image_processing_scenario(
     return extractor.output_dir
 
 
-def _resolve_image(image_path: Optional[Path]) -> Path:
+def _resolve_image(image_path: Path | None) -> Path:
     if image_path:
         path = Path(image_path)
         if not path.exists():
