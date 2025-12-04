@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from automataii.application.mechanism_foundry import MechanismContent, ParameterSpec
+from automataii.presentation.qt.shared import blocked_signals, clear_layout
 
 MM_PER_INCH = 25.4
 
@@ -99,9 +100,8 @@ class CollapsibleSection(QWidget):
         return self._content_layout
 
     def set_collapsed(self, collapsed: bool) -> None:
-        self._toggle_btn.blockSignals(True)
-        self._toggle_btn.setChecked(not collapsed)
-        self._toggle_btn.blockSignals(False)
+        with blocked_signals(self._toggle_btn):
+            self._toggle_btn.setChecked(not collapsed)
         self._content.setVisible(not collapsed)
         self._toggle_btn.setArrowType(
             Qt.ArrowType.RightArrow if collapsed else Qt.ArrowType.DownArrow
@@ -137,19 +137,17 @@ class _DimensionControl:
             decimals = 0 if self.spec.is_integer else 2
             suffix = f" {self.spec.unit}" if self.spec.unit else ""
 
-            self.spinbox.blockSignals(True)
-            self.spinbox.setDecimals(decimals)
-            self.spinbox.setSuffix(suffix)
-            self.spinbox.setRange(self.min_unit, self.max_unit)
-            self.spinbox.setSingleStep(self.step_unit)
-            self.spinbox.blockSignals(False)
+            with blocked_signals(self.spinbox):
+                self.spinbox.setDecimals(decimals)
+                self.spinbox.setSuffix(suffix)
+                self.spinbox.setRange(self.min_unit, self.max_unit)
+                self.spinbox.setSingleStep(self.step_unit)
 
             total_steps = int(round((self.max_unit - self.min_unit) / self.step_unit))
             total_steps = max(total_steps, 1)
-            self.slider.blockSignals(True)
-            self.slider.setMinimum(0)
-            self.slider.setMaximum(total_steps)
-            self.slider.blockSignals(False)
+            with blocked_signals(self.slider):
+                self.slider.setMinimum(0)
+                self.slider.setMaximum(total_steps)
             self.set_value_mm(self.value_mm, emit=False)
             return
 
@@ -164,20 +162,18 @@ class _DimensionControl:
         decimals = 0 if self.spec.is_integer else (2 if unit == UnitSystem.MILLIMETER else 3)
         suffix = f" {unit.value}"
 
-        self.spinbox.blockSignals(True)
-        self.spinbox.setDecimals(decimals)
-        self.spinbox.setSuffix(suffix)
-        self.spinbox.setRange(self.min_unit, self.max_unit)
-        self.spinbox.setSingleStep(self.step_unit)
-        self.spinbox.blockSignals(False)
+        with blocked_signals(self.spinbox):
+            self.spinbox.setDecimals(decimals)
+            self.spinbox.setSuffix(suffix)
+            self.spinbox.setRange(self.min_unit, self.max_unit)
+            self.spinbox.setSingleStep(self.step_unit)
 
         total_steps = int(round((self.max_unit - self.min_unit) / self.step_unit))
         total_steps = max(total_steps, 1)
 
-        self.slider.blockSignals(True)
-        self.slider.setMinimum(0)
-        self.slider.setMaximum(total_steps)
-        self.slider.blockSignals(False)
+        with blocked_signals(self.slider):
+            self.slider.setMinimum(0)
+            self.slider.setMaximum(total_steps)
         self.set_value_mm(self.value_mm, emit=False)
 
     def set_value_mm(self, value_mm: float, emit: bool = False) -> None:
@@ -201,13 +197,11 @@ class _DimensionControl:
         else:
             self.value_mm = unit_value
 
-        self.slider.blockSignals(True)
-        self.slider.setValue(slider_value)
-        self.slider.blockSignals(False)
+        with blocked_signals(self.slider):
+            self.slider.setValue(slider_value)
 
-        self.spinbox.blockSignals(True)
-        self.spinbox.setValue(unit_value)
-        self.spinbox.blockSignals(False)
+        with blocked_signals(self.spinbox):
+            self.spinbox.setValue(unit_value)
 
         if emit:
             self.on_value_changed(self.spec.key, self.value_mm)
@@ -444,16 +438,7 @@ class MechanismParameterPanel(QWidget):
             ctrl.spinbox.deleteLater()
             ctrl.label.deleteLater()
         self._dimension_controls.clear()
-        while self._dimensions_placeholder_layout.count():
-            item = self._dimensions_placeholder_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                while item.layout().count():
-                    sub = item.layout().takeAt(0)
-                    if sub.widget():
-                        sub.widget().deleteLater()
-                item.layout().deleteLater()
+        clear_layout(self._dimensions_placeholder_layout)
 
         for spec in specs:
             initial_value = values.get(spec.key, spec.default_value)
@@ -508,11 +493,7 @@ class MechanismParameterPanel(QWidget):
         self._dimensions_placeholder_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
     def set_driver_options(self, options: Iterable[str], selected_index: int = 0) -> None:
-        while self._driver_container.count():
-            item = self._driver_container.takeAt(0)
-            if widget := item.widget():
-                widget.deleteLater()
-
+        clear_layout(self._driver_container)
         self._driver_buttons.clear()
         self._driver_group.deleteLater()
         self._driver_group = QButtonGroup(self)
@@ -535,28 +516,26 @@ class MechanismParameterPanel(QWidget):
     def set_coupler_options(self, options: Iterable[str], current: str | None = None) -> None:
         if self._coupler_combo is None:
             return
-        self._coupler_combo.blockSignals(True)
-        self._coupler_combo.clear()
-        for option in options:
-            self._coupler_combo.addItem(option)
-        if current:
-            index = self._coupler_combo.findText(current)
-            if index >= 0:
-                self._coupler_combo.setCurrentIndex(index)
-        self._coupler_combo.blockSignals(False)
+        with blocked_signals(self._coupler_combo):
+            self._coupler_combo.clear()
+            for option in options:
+                self._coupler_combo.addItem(option)
+            if current:
+                index = self._coupler_combo.findText(current)
+                if index >= 0:
+                    self._coupler_combo.setCurrentIndex(index)
 
     def set_follower_positions(self, options: Iterable[str], current: str | None = None) -> None:
         if self._follower_combo is None:
             return
-        self._follower_combo.blockSignals(True)
-        self._follower_combo.clear()
-        for option in options:
-            self._follower_combo.addItem(option)
-        if current:
-            index = self._follower_combo.findText(current)
-            if index >= 0:
-                self._follower_combo.setCurrentIndex(index)
-        self._follower_combo.blockSignals(False)
+        with blocked_signals(self._follower_combo):
+            self._follower_combo.clear()
+            for option in options:
+                self._follower_combo.addItem(option)
+            if current:
+                index = self._follower_combo.findText(current)
+                if index >= 0:
+                    self._follower_combo.setCurrentIndex(index)
 
     def set_hints(self, hints: Iterable[str]) -> None:
         if self._hints_browser is None:

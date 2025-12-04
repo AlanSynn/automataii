@@ -4,7 +4,7 @@ from enum import Enum
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTextEdit, QVBoxLayout, QWidget
 
-from automataii.domain.mechanisms.linkage.config import LinkageConfig, LinkageType
+from automataii.domain.mechanisms.linkages.config import LinkageConfig, LinkageType
 
 
 class GrashofClassification(Enum):

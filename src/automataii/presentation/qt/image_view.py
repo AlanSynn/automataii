@@ -421,9 +421,15 @@ class ImageProcessingView(QGraphicsView):
 
     def load_skeleton(self, skeleton_data_dict: dict | None):
         """Loads skeleton data and visualizes it.
-        'skeleton_data_dict' is expected to be the direct output of yaml.safe_load from char_cfg.yaml
-        or a similar dictionary structure.
-        Example: {'skeleton': [{'name': 'hip', 'parent': None, 'loc': [0,0]}, ...], 'scale': 1.0, 'offset': [0,0]}
+
+        Accepts TWO formats:
+        1. Animated Drawings format (char_cfg.yaml):
+           {'skeleton': [{'name': 'hip', 'parent': None, 'loc': [0,0]}, ...], 'scale': 1.0}
+        2. StandardizedSkeletonModel format (from SkeletonManager):
+           {'joints': {...}, 'root_joint_ids': [...], 'hierarchy': {...}}
+
+        This method detects the format and converts standardized format to AD format
+        for internal processing.
         """
         if not self.scene() or not self.image_item:
             logging.error("Scene or image_item not available for skeleton loading.")
@@ -431,7 +437,7 @@ class ImageProcessingView(QGraphicsView):
 
         # Handle None input gracefully
         if skeleton_data_dict is None:
-            logging.info(
+            logging.debug(
                 "ImageProcessingView: load_skeleton called with None. Clearing skeleton."
             )
             self._clear_skeleton()  # Clear previous skeleton visuals and data
@@ -439,20 +445,40 @@ class ImageProcessingView(QGraphicsView):
             self.scene().update()
             return True  # Successfully handled None by clearing
 
+        # Handle empty dict gracefully
+        if not skeleton_data_dict:
+            logging.debug(
+                "ImageProcessingView: load_skeleton called with empty dict. Clearing skeleton."
+            )
+            self._clear_skeleton()
+            self.original_skeleton_data = None
+            self.scene().update()
+            return True
+
         logging.info(
-            f"ImageProcessingView: load_skeleton called with keys: {list(skeleton_data_dict.keys()) if skeleton_data_dict else 'None'}"
+            f"ImageProcessingView: load_skeleton called with keys: {list(skeleton_data_dict.keys())}"
         )
         self._clear_skeleton()  # Clear previous skeleton visuals and data
 
-        self.original_skeleton_data = skeleton_data_dict  # Store the raw data
-
+        # Detect format and convert if necessary
         char_cfg_skeleton_list = skeleton_data_dict.get("skeleton")
+
+        # Check if this is StandardizedSkeletonModel format (from SkeletonManager)
+        if char_cfg_skeleton_list is None and "joints" in skeleton_data_dict:
+            logging.debug("ImageProcessingView: Detected StandardizedSkeletonModel format, converting to AD format")
+            char_cfg_skeleton_list = self._convert_standardized_to_ad_format(skeleton_data_dict)
+            # Create a new dict with 'skeleton' key for internal storage
+            skeleton_data_dict = {"skeleton": char_cfg_skeleton_list}
+
         if not isinstance(char_cfg_skeleton_list, list):
-            logging.error(
-                f"Skeleton data format error: 'skeleton' key not found or not a list. Got: {type(char_cfg_skeleton_list)}"
+            # Silently handle empty/invalid formats - this is normal for uninitialized state
+            logging.debug(
+                f"Skeleton data has no valid 'skeleton' list (got: {type(char_cfg_skeleton_list)}). Clearing."
             )
-            self.original_skeleton_data = None  # Clear if format is bad
-            return False
+            self.original_skeleton_data = None
+            return True  # Not an error, just no skeleton to display
+
+        self.original_skeleton_data = skeleton_data_dict  # Store the (possibly converted) data
 
         # --- Placeholder for non-interactive visualization (if needed directly in this view) ---
         # This section can be expanded if a simple, non-editable overlay is desired here.
@@ -477,6 +503,50 @@ class ImageProcessingView(QGraphicsView):
         )
         self.scene().update()
         return True  # Indicate success in processing the data format
+
+    def _convert_standardized_to_ad_format(self, standardized_data: dict) -> list:
+        """Convert StandardizedSkeletonModel format to Animated Drawings format.
+
+        Args:
+            standardized_data: Dictionary with 'joints', 'root_joint_ids', 'hierarchy' keys
+
+        Returns:
+            List of joint dictionaries in AD format: [{'name': str, 'parent': str|None, 'loc': [x, y]}, ...]
+        """
+        joints_dict = standardized_data.get("joints", {})
+        if not joints_dict:
+            return []
+
+        result = []
+        for joint_id, joint_data in joints_dict.items():
+            # Handle both dict and object formats
+            if isinstance(joint_data, dict):
+                name = joint_data.get("name", joint_id)
+                position = joint_data.get("position", [0, 0])
+                parent_id = joint_data.get("parent_id")
+            else:
+                # Assume it's a Pydantic model or similar object
+                name = getattr(joint_data, "name", joint_id)
+                position = getattr(joint_data, "position", (0, 0))
+                parent_id = getattr(joint_data, "parent_id", None)
+
+            # Find parent name from parent_id
+            parent_name = None
+            if parent_id and parent_id in joints_dict:
+                parent_joint = joints_dict[parent_id]
+                if isinstance(parent_joint, dict):
+                    parent_name = parent_joint.get("name", parent_id)
+                else:
+                    parent_name = getattr(parent_joint, "name", parent_id)
+
+            result.append({
+                "name": name,
+                "parent": parent_name,
+                "loc": list(position) if isinstance(position, tuple) else position,
+                "coordinates": list(position) if isinstance(position, tuple) else position,
+            })
+
+        return result
 
     def _clear_char_cfg_marker(self):
         """Removes the char_cfg origin marker from the scene."""

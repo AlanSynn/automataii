@@ -113,7 +113,7 @@ class SkeletonVisualHandler:
             try:
                 self._skeleton_item.joint_clicked.disconnect()
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
             self._skeleton_item.load_skeleton_data(skeleton_data, hierarchy_data)
 

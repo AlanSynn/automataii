@@ -74,11 +74,13 @@ class MechanismDesignTabSignals:
 
     def _connect_animation_signals(self, tab: 'MechanismDesignTab') -> None:
         """Connect animation control signals."""
+        import logging
         play_btn = self.widgets.get('play_btn')
         stop_btn = self.widgets.get('stop_btn')
         reset_btn = self.widgets.get('reset_btn')
 
         if play_btn and hasattr(tab, '_on_start_animation'):
+            logging.info(f"[SIGNAL] Connecting play_btn to tab._on_start_animation, tab_id={id(tab)}")
             connection = play_btn.clicked.connect(tab._on_start_animation)
             self._connections.append(connection)
 

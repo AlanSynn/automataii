@@ -6,6 +6,8 @@ Hover view controls widget for canvas views.
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 
+from automataii.presentation.qt.shared import blocked_signals
+
 
 class HoverViewControls(QWidget):
     """Hover controls widget that appears in the bottom-right corner of views."""
@@ -176,10 +178,9 @@ class HoverViewControls(QWidget):
     def set_zoom_level(self, zoom_percentage: float):
         """Set the zoom level display."""
         value = int(zoom_percentage)
-        self.zoom_slider.blockSignals(True)
-        self.zoom_slider.setValue(value)
+        with blocked_signals(self.zoom_slider):
+            self.zoom_slider.setValue(value)
         self.zoom_value_label.setText(f"{value}%")
-        self.zoom_slider.blockSignals(False)
 
     def show_controls(self):
         """Show the controls and start auto-hide timer."""

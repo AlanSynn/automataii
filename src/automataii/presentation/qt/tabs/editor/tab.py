@@ -150,6 +150,14 @@ class EditorTab(QWidget):
             self._handle_joint_bend_direction_changed
         )
 
+        # Connect vertex editing signals
+        self.editor_view.path_vertices_modified.connect(
+            self._handle_vertex_path_modified
+        )
+        self.editor_view.vertex_editing_finished.connect(
+            self._handle_vertex_editing_finished
+        )
+
     def _init_extracted_components(self):
         """Initialize extracted components from god class decomposition."""
         # Path Query Service - pure query functions
@@ -263,6 +271,7 @@ class EditorTab(QWidget):
             smoothness_slider=self.smoothness_slider,
             smoothness_label=self.smoothness_value_label,
             closed_path_radio=self.closed_path_radio,
+            edit_vertices_btn=getattr(self, 'edit_vertices_btn', None),
         )
 
         self._motion_path_manager.configure_callbacks(
@@ -318,6 +327,7 @@ class EditorTab(QWidget):
         self.parts_list = refs.parts_list
         self.define_motion_path_btn = refs.define_motion_path_btn
         self.clear_motion_path_btn = refs.clear_motion_path_btn
+        self.edit_vertices_btn = getattr(refs, 'edit_vertices_btn', None)
         self.motion_path_status_label = refs.motion_path_status_label
         self.motion_path_info_label = refs.motion_path_info_label
         self.smoothness_slider = refs.smoothness_slider
@@ -346,6 +356,10 @@ class EditorTab(QWidget):
         self.clear_motion_path_btn.clicked.connect(
             self._clear_selected_item_motion_path
         )
+        if self.edit_vertices_btn:
+            self.edit_vertices_btn.toggled.connect(
+                self._toggle_vertex_edit_mode
+            )
         self.play_btn.clicked.connect(self._play_simulation_clicked)
         self.stop_btn.clicked.connect(self._stop_simulation_clicked)
         self.reset_sim_btn.clicked.connect(self._reset_simulation_clicked)
@@ -401,6 +415,10 @@ class EditorTab(QWidget):
         # Update part list styles whenever selection changes
         self._update_part_list_styles()
 
+        # Show vertex handles for selected part if it has a motion path
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.show_vertex_handles_for_selected_part()
+
 
     def _toggle_define_motion_path_mode(self, checked: bool):
         """Handle the 'Start/Stop Drawing' button toggle. Delegates to MotionPathManager."""
@@ -416,6 +434,21 @@ class EditorTab(QWidget):
             self._motion_path_manager.clear_selected_motion_path()
         else:
             logging.warning("MotionPathManager not initialized, cannot clear motion path")
+
+    def _toggle_vertex_edit_mode(self, checked: bool):
+        """Handle vertex edit mode toggle. Delegates to MotionPathManager."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.toggle_vertex_edit_mode(checked)
+
+    def _handle_vertex_path_modified(self, part_name: str, new_path: QPainterPath):
+        """Handle real-time path modification from vertex dragging."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.on_vertex_path_modified(part_name, new_path)
+
+    def _handle_vertex_editing_finished(self, part_name: str, final_path: QPainterPath):
+        """Handle completion of vertex editing."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.on_vertex_editing_finished(part_name, final_path)
 
     def _play_simulation_clicked(self):
         # 🔧 PART MOVEMENT LOCK: Lock part movement during animation
@@ -1012,29 +1045,122 @@ class EditorTab(QWidget):
         """
         Get the bone connections for reset validation.
 
+        Uses the initial skeleton cache to retrieve expected bone lengths,
+        ensuring skeleton integrity is preserved during reset operations.
+
         Returns:
             List of tuples: (parent_joint_id, child_joint_id, expected_bone_length)
         """
-        connections = []
-
-        # For reset operations, we use a simplified approach
-        # In a full implementation, this would use the original bone lengths from skeleton initialization
+        connections: list[tuple[str, str, float]] = []
 
         part_anchor_joint = part_item.anchor_joint_id
         if not part_anchor_joint:
             return connections
 
-        # For now, we'll apply basic validation to prevent extreme violations
-        # This is a simplified implementation that could be enhanced with proper bone hierarchy
+        # Use cached initial skeleton data to get expected bone lengths
+        if not hasattr(self, '_initial_skeleton_data_cache') or not self._initial_skeleton_data_cache:
+            logging.debug("No initial skeleton cache - skipping bone validation")
+            return connections
 
-        return connections  # Return empty for now to allow reset operations
+        cached_joints = self._initial_skeleton_data_cache.get("joints", {})
+        if not cached_joints:
+            logging.debug("No joints in skeleton cache - skipping bone validation")
+            return connections
+
+        # Get the anchor joint data from cache
+        anchor_joint_data = cached_joints.get(part_anchor_joint)
+        if not anchor_joint_data:
+            logging.debug(f"Anchor joint {part_anchor_joint} not in cache - skipping validation")
+            return connections
+
+        # Calculate bone length to parent (if parent exists)
+        parent_id = anchor_joint_data.get("parent_id")
+        if parent_id and parent_id in cached_joints:
+            parent_data = cached_joints[parent_id]
+            expected_length = self._calculate_bone_length_from_cache(
+                parent_data, anchor_joint_data
+            )
+            if expected_length > 0:
+                connections.append((parent_id, part_anchor_joint, expected_length))
+
+        # Also check children bones (hierarchy traversal)
+        hierarchy = self._initial_skeleton_data_cache.get("hierarchy", {})
+        children_ids = hierarchy.get(part_anchor_joint, [])
+        for child_id in children_ids:
+            if child_id in cached_joints:
+                child_data = cached_joints[child_id]
+                expected_length = self._calculate_bone_length_from_cache(
+                    anchor_joint_data, child_data
+                )
+                if expected_length > 0:
+                    connections.append((part_anchor_joint, child_id, expected_length))
+
+        return connections
+
+    def _calculate_bone_length_from_cache(
+        self,
+        parent_joint_data: dict[str, Any],
+        child_joint_data: dict[str, Any]
+    ) -> float:
+        """Calculate bone length between two joints from cached data.
+
+        Args:
+            parent_joint_data: Parent joint dict with 'position' key
+            child_joint_data: Child joint dict with 'position' key
+
+        Returns:
+            Euclidean distance between joints, or 0.0 if positions invalid
+        """
+        parent_pos = parent_joint_data.get("position")
+        child_pos = child_joint_data.get("position")
+
+        if not parent_pos or not child_pos:
+            return 0.0
+
+        try:
+            # Handle both tuple/list and dict formats
+            if isinstance(parent_pos, (list, tuple)) and len(parent_pos) >= 2:
+                px, py = float(parent_pos[0]), float(parent_pos[1])
+            elif isinstance(parent_pos, dict):
+                px, py = float(parent_pos.get("x", 0)), float(parent_pos.get("y", 0))
+            else:
+                return 0.0
+
+            if isinstance(child_pos, (list, tuple)) and len(child_pos) >= 2:
+                cx, cy = float(child_pos[0]), float(child_pos[1])
+            elif isinstance(child_pos, dict):
+                cx, cy = float(child_pos.get("x", 0)), float(child_pos.get("y", 0))
+            else:
+                return 0.0
+
+            dx = cx - px
+            dy = cy - py
+            return (dx * dx + dy * dy) ** 0.5
+
+        except (TypeError, ValueError, KeyError) as e:
+            logging.debug(f"Error calculating bone length: {e}")
+            return 0.0
 
     # Slot for freehandPathCompleted signal from EditorView
-    @pyqtSlot(list)  # Changed to match signal: list of QPointF
-    def _handle_freehand_path_completed(self, path_points: list[QPointF]):
-        """Handles freehand path completion. Delegates to MotionPathManager."""
+    @pyqtSlot(list, list, float)  # (path_points, timed_points, duration)
+    def _handle_freehand_path_completed(
+        self,
+        path_points: list[QPointF],
+        timed_points: list,
+        duration: float,
+    ):
+        """
+        Handles freehand path completion. Delegates to MotionPathManager.
+
+        Args:
+            path_points: List of QPointF (resampled points for visual spline)
+            timed_points: List of TimedPoint with timestamps (for velocity-aware animation)
+            duration: Total drawing duration in seconds
+        """
         if hasattr(self, '_motion_path_manager'):
-            self._motion_path_manager.handle_freehand_path_completed(path_points)
+            self._motion_path_manager.handle_freehand_path_completed(
+                path_points, timed_points, duration
+            )
         else:
             logging.warning("MotionPathManager not initialized, cannot handle path completion")
 

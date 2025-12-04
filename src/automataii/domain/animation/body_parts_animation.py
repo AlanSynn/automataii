@@ -311,18 +311,21 @@ def save_animation(frames, output_path, fps=24):
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-        for frame in frames:
-            # RGBA에서 BGR로 변환 (OpenCV 형식)
-            if frame.shape[2] == 4:
-                # 흰색 배경에 알파 채널 적용
-                alpha = frame[:, :, 3:4] / 255.0
-                rgb = frame[:, :, :3] * alpha + (1 - alpha) * 255
-                bgr = cv2.cvtColor(rgb.astype(np.uint8), cv2.COLOR_RGB2BGR)
-                video.write(bgr)
-            else:
-                video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        try:
+            for frame in frames:
+                # RGBA에서 BGR로 변환 (OpenCV 형식)
+                if frame.shape[2] == 4:
+                    # 흰색 배경에 알파 채널 적용
+                    alpha = frame[:, :, 3:4] / 255.0
+                    rgb = frame[:, :, :3] * alpha + (1 - alpha) * 255
+                    bgr = cv2.cvtColor(rgb.astype(np.uint8), cv2.COLOR_RGB2BGR)
+                    video.write(bgr)
+                else:
+                    video.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        finally:
+            # Ensure video is always released even on exception
+            video.release()
 
-        video.release()
         logger.info(f"비디오 저장 완료: {output_path}")
         return True
 

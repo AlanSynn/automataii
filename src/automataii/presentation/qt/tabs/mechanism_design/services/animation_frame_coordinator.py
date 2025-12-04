@@ -8,6 +8,7 @@ Design Pattern: Coordinator (orchestrates animation frame operations)
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
@@ -505,4 +506,4 @@ class AnimationFrameCoordinator:
                     except AttributeError:
                         pass
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)

@@ -8,6 +8,7 @@ Design Pattern: Facade (simplifies Qt object lifecycle management)
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from PyQt6.QtCore import Qt
@@ -85,7 +86,7 @@ class VisualItemManager:
                 if "wrapped C/C++ object" in str(e):
                     deleted_items_count += 1
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         return (valid_items_count, deleted_items_count)
 
@@ -137,7 +138,7 @@ class VisualItemManager:
                         if hasattr(item, 'setAcceptHoverEvents'):
                             item.setAcceptHoverEvents(False)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def enable_mechanism_visual_interaction(
         self,
@@ -164,7 +165,7 @@ class VisualItemManager:
                         if hasattr(item, 'setAcceptHoverEvents'):
                             item.setAcceptHoverEvents(True)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def show_free_edit_feedback(
         self,
@@ -193,7 +194,7 @@ class VisualItemManager:
 
             scene.update()
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def collect_visual_items_from_layers(
         self,

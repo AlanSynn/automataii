@@ -67,11 +67,10 @@ class ProjectDataManager(QObject):
         """Returns the raw skeleton data (list of joint dicts) as validated by Pydantic."""
         # This can be directly from the Pydantic model's skeleton_joints if they are dicts
         if self._validated_project_data and self._validated_project_data.character:
-            # Convert Pydantic SkeletonJointModel instances to dicts if SkeletonManager expects dicts
-            return [
-                joint.model_dump()
-                for joint in self._validated_project_data.character.skeleton_joints
-            ]
+            skeleton_joints = self._validated_project_data.character.skeleton_joints
+            if skeleton_joints:
+                # Convert Pydantic SkeletonJointModel instances to dicts if SkeletonManager expects dicts
+                return [joint.model_dump() for joint in skeleton_joints]
         return None
 
     @property
@@ -79,146 +78,137 @@ class ProjectDataManager(QObject):
         return self._effective_bounding_box_offset
 
     def load_project_from_file(self, filepath: str) -> bool:
+        """Load and validate a project file.
+
+        Args:
+            filepath: Path to the project JSON file.
+
+        Returns:
+            True if successful, False otherwise.
+        """
         logging.info(f"ProjectDataManager: Attempting to load project from: {filepath}")
         self.clear_project_data()
 
         try:
-            fp = Path(filepath)
-            if not fp.exists() or not fp.is_file():
-                logging.error(f"File not found: {filepath}")
-                self.error_occurred.emit(f"File not found: {filepath}")
-                self.project_data_loaded.emit(
-                    False, "", {}
-                )  # Keep existing signal emission for failure
+            if not self._validate_and_load_json(filepath):
                 return False
 
-            self._project_dir = fp.parent
-
-            with open(filepath, encoding="utf-8") as f:
-                data = json.load(f)
-
-            # Validate data with Pydantic models
-            validated_data = PydanticProjectFileModel.model_validate(data)
-            self._validated_project_data = validated_data
-
-            # Attempt to load skeleton from char_cfg.yaml if not present in main project file
             self._try_load_supplemental_skeleton_data()
+            self._process_character_parts()
+            self._log_load_success()
 
-            # Prepare runtime PartInfo objects and calculate bounding box
-            all_part_rects = []
-            parsed_parts_temp: dict[str, PartInfo] = {}
-
-            if (
-                self._validated_project_data.character
-                and self._validated_project_data.character.parts
-            ):
-                for (
-                    part_name,
-                    pydantic_part_model,
-                ) in self._validated_project_data.character.parts.items():
-                    # The name should already be in pydantic_part_model due to the validator
-                    # If not, ensure pydantic_part_model.name = part_name here if necessary.
-                    # The current validator in CharacterDataModel populates this.
-
-                    # Create runtime PartInfo from Pydantic model
-                    runtime_part_info = PartInfo.from_pydantic(
-                        pydantic_part_model, project_dir=self._project_dir
-                    )
-                    parsed_parts_temp[part_name] = runtime_part_info
-
-                    if runtime_part_info.roi:  # roi is [x, y, width, height]
-                        all_part_rects.append(
-                            QRectF(
-                                runtime_part_info.roi[0],
-                                runtime_part_info.roi[1],
-                                runtime_part_info.roi[2],
-                                runtime_part_info.roi[3],
-                            )
-                        )
-
-            if all_part_rects:
-                overall_bounds = QRectF()
-                for rect in all_part_rects:
-                    overall_bounds = overall_bounds.united(rect)
-                self._effective_bounding_box_offset = -overall_bounds.center()
-            else:
-                self._effective_bounding_box_offset = QPointF(0, 0)
-
-            self._parts = parsed_parts_temp
-            # self._raw_skeleton_data is now implicitly handled by the raw_skeleton_data property
-
-            num_loaded_parts = len(self._parts)
-            num_skeleton_joints = (
-                len(self._validated_project_data.character.skeleton_joints)
-                if self._validated_project_data.character
-                else 0
-            )
-
-            logging.info(
-                f"ProjectDataManager: Successfully validated and parsed {num_loaded_parts} parts. Project dir: {self._project_dir}"
-            )
-            if num_skeleton_joints > 0:
-                logging.info(
-                    f"ProjectDataManager: Validated {num_skeleton_joints} skeleton joints."
-                )
-
-            self.project_data_loaded.emit(
-                True, str(self._project_dir), self._parts.copy()
-            )
-            # MainWindow's _handle_project_data_loaded will need adjustment if it expects raw dicts vs PartInfo
-            # For now, it receives parts_info: Dict[str, PartInfo] which is what self.parts provides.
-            # And editor_graphics_items: Dict[str, CharacterPartItem] which is created in MainWindow.
+            self.project_data_loaded.emit(True, str(self._project_dir), self._parts.copy())
             return True
 
         except ValidationError as ve:
-            logging.error(
-                f"ProjectDataManager: Pydantic validation error in {filepath}. {ve}",
-                exc_info=True,
-            )
-            self.error_occurred.emit(
-                f"Invalid project file format: {ve.errors()}"
-            )  # Send Pydantic errors
+            self._handle_validation_error(filepath, ve)
         except json.JSONDecodeError as je:
-            logging.error(
-                f"ProjectDataManager: Invalid JSON in {filepath}. {je}", exc_info=True
-            )
-            self.error_occurred.emit(f"Invalid JSON file: {je.msg}")
+            self._handle_json_error(filepath, je)
         except Exception as e:
-            logging.error(
-                f"ProjectDataManager: Error loading project from {filepath}: {e}",
-                exc_info=True,
-            )
-            self.error_occurred.emit(f"Failed to load project: {e}")
+            self._handle_generic_error(filepath, e)
 
-        self.clear_project_data()  # Ensure clean state on error
-        # Emit failure with empty parts dict
+        self.clear_project_data()
         self.project_data_loaded.emit(False, "", {})
         return False
 
-    def _try_load_supplemental_skeleton_data(self):
+    def _validate_and_load_json(self, filepath: str) -> bool:
+        """Validate file exists and load JSON data.
+
+        Args:
+            filepath: Path to the project file.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        fp = Path(filepath)
+        if not fp.exists() or not fp.is_file():
+            logging.error(f"File not found: {filepath}")
+            self.error_occurred.emit(f"File not found: {filepath}")
+            self.project_data_loaded.emit(False, "", {})
+            return False
+
+        self._project_dir = fp.parent
+
+        with open(filepath, encoding="utf-8") as f:
+            data = json.load(f)
+
+        self._validated_project_data = PydanticProjectFileModel.model_validate(data)
+        return True
+
+    def _process_character_parts(self) -> None:
+        """Process character parts and calculate bounding box."""
+        all_part_rects: list[QRectF] = []
+        parsed_parts: dict[str, PartInfo] = {}
+
+        if (
+            self._validated_project_data
+            and self._validated_project_data.character
+            and self._validated_project_data.character.parts
+        ):
+            for part_name, pydantic_part_model in self._validated_project_data.character.parts.items():
+                runtime_part = PartInfo.from_pydantic(pydantic_part_model, project_dir=self._project_dir)
+                parsed_parts[part_name] = runtime_part
+
+                if runtime_part.roi:
+                    all_part_rects.append(
+                        QRectF(runtime_part.roi[0], runtime_part.roi[1], runtime_part.roi[2], runtime_part.roi[3])
+                    )
+
+        self._parts = parsed_parts
+        self._effective_bounding_box_offset = self._calculate_bounding_box_offset(all_part_rects)
+
+    def _calculate_bounding_box_offset(self, part_rects: list[QRectF]) -> QPointF:
+        """Calculate the bounding box offset from part rectangles.
+
+        Args:
+            part_rects: List of part bounding rectangles.
+
+        Returns:
+            The negative center of the overall bounding box, or origin if empty.
+        """
+        if not part_rects:
+            return QPointF(0, 0)
+
+        overall_bounds = QRectF()
+        for rect in part_rects:
+            overall_bounds = overall_bounds.united(rect)
+        return -overall_bounds.center()
+
+    def _log_load_success(self) -> None:
+        """Log successful project load information."""
+        num_parts = len(self._parts)
+        num_joints = 0
+        if self._validated_project_data and self._validated_project_data.character:
+            skeleton_joints = self._validated_project_data.character.skeleton_joints
+            if skeleton_joints:
+                num_joints = len(skeleton_joints)
+
+        logging.info(f"ProjectDataManager: Successfully validated {num_parts} parts. Project dir: {self._project_dir}")
+        if num_joints > 0:
+            logging.info(f"ProjectDataManager: Validated {num_joints} skeleton joints.")
+
+    def _handle_validation_error(self, filepath: str, ve: ValidationError) -> None:
+        """Handle Pydantic validation errors."""
+        logging.error(f"ProjectDataManager: Pydantic validation error in {filepath}. {ve}", exc_info=True)
+        self.error_occurred.emit(f"Invalid project file format: {ve.errors()}")
+
+    def _handle_json_error(self, filepath: str, je: json.JSONDecodeError) -> None:
+        """Handle JSON decode errors."""
+        logging.error(f"ProjectDataManager: Invalid JSON in {filepath}. {je}", exc_info=True)
+        self.error_occurred.emit(f"Invalid JSON file: {je.msg}")
+
+    def _handle_generic_error(self, filepath: str, e: Exception) -> None:
+        """Handle generic errors during project load."""
+        logging.error(f"ProjectDataManager: Error loading project from {filepath}: {e}", exc_info=True)
+        self.error_occurred.emit(f"Failed to load project: {e}")
+
+    def _try_load_supplemental_skeleton_data(self) -> None:
         """
         Attempts to load skeleton data from char_cfg.yaml if not found or empty
         in the primary project data (e.g., parts_info.json).
         Updates self._validated_project_data.character.skeleton_joints.
         """
-        if (
-            not self._project_dir
-            or not self._validated_project_data
-            or not self._validated_project_data.character
-        ):
-            logging.debug(
-                "Project dir or character data not available for supplemental skeleton load."
-            )
-            return
-
-        # Check if skeleton data is already populated from the main project file
-        if (
-            self._validated_project_data.character.skeleton_joints
-            and len(self._validated_project_data.character.skeleton_joints) > 0
-        ):
-            logging.info(
-                "Skeleton data already present in main project file. Skipping supplemental load."
-            )
+        if not self._should_load_supplemental_skeleton():
             return
 
         char_cfg_path = self._project_dir / "char_cfg.yaml"
@@ -228,102 +218,165 @@ class ProjectDataManager(QObject):
             )
             return
 
-        logging.info(
-            f"Attempting to load supplemental skeleton data from {char_cfg_path}"
-        )
+        logging.info(f"Attempting to load supplemental skeleton data from {char_cfg_path}")
+        self._load_skeleton_from_yaml(char_cfg_path)
+
+    def _should_load_supplemental_skeleton(self) -> bool:
+        """Check if supplemental skeleton data should be loaded.
+
+        Returns:
+            True if supplemental load should proceed, False otherwise.
+        """
+        if not self._project_dir or not self._validated_project_data:
+            logging.debug("Project dir or validated data not available for supplemental skeleton load.")
+            return False
+
+        if not self._validated_project_data.character:
+            logging.debug("Character data not available for supplemental skeleton load.")
+            return False
+
+        # Check if skeleton data is already populated
+        existing_joints = self._validated_project_data.character.skeleton_joints
+        if existing_joints and len(existing_joints) > 0:
+            logging.info("Skeleton data already present in main project file. Skipping supplemental load.")
+            return False
+
+        return True
+
+    def _load_skeleton_from_yaml(self, char_cfg_path: Path) -> None:
+        """Load skeleton data from a char_cfg.yaml file.
+
+        Args:
+            char_cfg_path: Path to the char_cfg.yaml file.
+        """
         try:
             with open(char_cfg_path, encoding="utf-8") as f:
                 char_cfg_data = yaml.safe_load(f)
 
-            if (
-                not char_cfg_data
-                or "skeleton" not in char_cfg_data
-                or not isinstance(char_cfg_data["skeleton"], list)
-            ):
-                logging.warning(
-                    f"Invalid or missing 'skeleton' list in {char_cfg_path}."
-                )
+            skeleton_list = self._extract_skeleton_list(char_cfg_data, char_cfg_path)
+            if skeleton_list is None:
                 return
 
-            supplemental_joints_raw = char_cfg_data["skeleton"]
-            pydantic_skeleton_joints: list[PydanticSkeletonJointModel] = []
-            for joint_data_raw in supplemental_joints_raw:
-                if not isinstance(joint_data_raw, dict):
-                    logging.warning(
-                        f"Skipping non-dict joint data in char_cfg.yaml: {joint_data_raw}"
-                    )
-                    continue
-                try:
-                    # Adapt the raw data from char_cfg.yaml to PydanticSkeletonJointModel fields
-                    joint_name = joint_data_raw.get("name")
-                    joint_loc = joint_data_raw.get("loc")
-                    joint_parent = joint_data_raw.get("parent")
-
-                    if not joint_name:
-                        logging.warning(
-                            f"Skipping joint in char_cfg.yaml with missing name: {joint_data_raw}"
-                        )
-                        continue
-                    if not joint_loc or not (
-                        isinstance(joint_loc, list) and len(joint_loc) == 2
-                    ):
-                        logging.warning(
-                            f"Skipping joint '{joint_name}' in char_cfg.yaml with invalid or missing 'loc': {joint_loc}"
-                        )
-                        continue
-
-                    adapted_joint_data = {
-                        "id": joint_name,  # Use name as id
-                        "name": joint_name,
-                        "position": [
-                            float(joint_loc[0]),
-                            float(joint_loc[1]),
-                        ],  # Ensure floats
-                        "parent": (
-                            str(joint_parent) if joint_parent is not None else None
-                        ),
-                    }
-
-                    # Ensure parent is a string or None (already handled above)
-                    # if 'parent' in adapted_joint_data and adapted_joint_data['parent'] is None:
-                    #     pass # None is fine
-                    # elif 'parent' in adapted_joint_data and not isinstance(adapted_joint_data['parent'], str):
-                    #      adapted_joint_data['parent'] = str(adapted_joint_data['parent'])
-
-                    pydantic_joint = PydanticSkeletonJointModel.model_validate(
-                        adapted_joint_data
-                    )
-                    pydantic_skeleton_joints.append(pydantic_joint)
-                except ValidationError as ve_joint:
-                    logging.warning(
-                        f"Validation error for a joint in char_cfg.yaml: {joint_data_raw}. Error: {ve_joint}"
-                    )
-                except Exception as e_joint:
-                    logging.warning(
-                        f"Error processing a joint in char_cfg.yaml: {joint_data_raw}. Error: {e_joint}"
-                    )
-
-            if pydantic_skeleton_joints:
-                self._validated_project_data.character.skeleton_joints = (
-                    pydantic_skeleton_joints
-                )
-                logging.info(
-                    f"Successfully loaded and validated {len(pydantic_skeleton_joints)} joints from {char_cfg_path}."
-                )
-            else:
-                logging.info(
-                    f"No valid joints found in {char_cfg_path} to load supplementally."
-                )
+            pydantic_joints = self._parse_yaml_joints(skeleton_list)
+            self._apply_parsed_joints(pydantic_joints, char_cfg_path)
 
         except yaml.YAMLError as ye:
-            logging.error(
-                f"Error parsing YAML from {char_cfg_path}: {ye}", exc_info=True
-            )
+            logging.error(f"Error parsing YAML from {char_cfg_path}: {ye}", exc_info=True)
         except Exception as e:
             logging.error(
                 f"Unexpected error loading supplemental skeleton from {char_cfg_path}: {e}",
                 exc_info=True,
             )
+
+    def _extract_skeleton_list(
+        self, char_cfg_data: dict[str, Any] | None, char_cfg_path: Path
+    ) -> list[dict[str, Any]] | None:
+        """Extract and validate the skeleton list from char_cfg data.
+
+        Args:
+            char_cfg_data: Parsed YAML data.
+            char_cfg_path: Path for logging.
+
+        Returns:
+            The skeleton list if valid, None otherwise.
+        """
+        if not char_cfg_data or "skeleton" not in char_cfg_data:
+            logging.warning(f"Missing 'skeleton' key in {char_cfg_path}.")
+            return None
+
+        skeleton = char_cfg_data["skeleton"]
+        if not isinstance(skeleton, list):
+            logging.warning(f"Invalid 'skeleton' (not a list) in {char_cfg_path}.")
+            return None
+
+        return skeleton
+
+    def _parse_yaml_joints(
+        self, joints_raw: list[dict[str, Any]]
+    ) -> list[PydanticSkeletonJointModel]:
+        """Parse raw joint data into Pydantic models.
+
+        Args:
+            joints_raw: Raw joint data from YAML.
+
+        Returns:
+            List of validated PydanticSkeletonJointModel instances.
+        """
+        pydantic_joints: list[PydanticSkeletonJointModel] = []
+
+        for joint_data in joints_raw:
+            parsed = self._parse_single_yaml_joint(joint_data)
+            if parsed:
+                pydantic_joints.append(parsed)
+
+        return pydantic_joints
+
+    def _parse_single_yaml_joint(
+        self, joint_data: Any
+    ) -> PydanticSkeletonJointModel | None:
+        """Parse a single joint entry from YAML.
+
+        Args:
+            joint_data: Raw joint data (should be a dict).
+
+        Returns:
+            PydanticSkeletonJointModel if valid, None otherwise.
+        """
+        if not isinstance(joint_data, dict):
+            logging.warning(f"Skipping non-dict joint data in char_cfg.yaml: {joint_data}")
+            return None
+
+        joint_name = joint_data.get("name")
+        joint_loc = joint_data.get("loc")
+        joint_parent = joint_data.get("parent")
+
+        if not joint_name:
+            logging.warning(f"Skipping joint with missing name: {joint_data}")
+            return None
+
+        if not joint_loc or not (isinstance(joint_loc, list) and len(joint_loc) == 2):
+            logging.warning(f"Skipping joint '{joint_name}' with invalid 'loc': {joint_loc}")
+            return None
+
+        try:
+            adapted_data = {
+                "id": joint_name,
+                "name": joint_name,
+                "position": [float(joint_loc[0]), float(joint_loc[1])],
+                "parent": str(joint_parent) if joint_parent is not None else None,
+            }
+            return PydanticSkeletonJointModel.model_validate(adapted_data)
+        except ValidationError as ve:
+            logging.warning(f"Validation error for joint: {joint_data}. Error: {ve}")
+            return None
+        except Exception as e:
+            logging.warning(f"Error processing joint: {joint_data}. Error: {e}")
+            return None
+
+    def _apply_parsed_joints(
+        self, pydantic_joints: list[PydanticSkeletonJointModel], char_cfg_path: Path
+    ) -> None:
+        """Apply parsed joints to the project data.
+
+        Args:
+            pydantic_joints: List of validated joint models.
+            char_cfg_path: Path for logging.
+        """
+        if not pydantic_joints:
+            logging.info(f"No valid joints found in {char_cfg_path} to load supplementally.")
+            return
+
+        # Validate project data structure before assignment
+        if not self._validated_project_data or not self._validated_project_data.character:
+            logging.warning(
+                f"Cannot apply joints from {char_cfg_path}: project data or character not available."
+            )
+            return
+
+        self._validated_project_data.character.skeleton_joints = pydantic_joints
+        logging.info(
+            f"Successfully loaded {len(pydantic_joints)} joints from {char_cfg_path}."
+        )
 
     def clear_project_data(self):
         logging.info("ProjectDataManager: Clearing project data.")
@@ -405,6 +458,10 @@ class ProjectDataManager(QObject):
             json_data_to_save = self._validated_project_data.model_dump(
                 mode="json", by_alias=True
             )
+
+            # Ensure parent directory exists before saving
+            save_path = Path(filepath)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(json_data_to_save, f, indent=4)

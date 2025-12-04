@@ -148,6 +148,37 @@ class EnhancedMechanismProcessor:
             self.logger.error(f"[MECHANISM] Traceback: {traceback.format_exc()}")
             return None
 
+    def _calc_4bar_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
+        """Calculate dimensions for 4-bar linkage."""
+        l1 = params.get('l1_mm', 50.0)
+        l2 = params.get('l2_mm', 30.0)
+        l3 = params.get('l3_mm', 40.0)
+        l4 = params.get('l4_mm', 35.0)
+        max_width = l1 + max(l2, l3, l4) * 1.2
+        max_height = max(l2, l3, l4) * 1.5
+        return max_width, max_height
+
+    def _calc_cam_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
+        """Calculate dimensions for cam mechanism."""
+        base_radius = params.get('base_radius_mm', 25.0)
+        eccentricity = params.get('eccentricity_mm', 5.0)
+        width = (base_radius + eccentricity) * 2.5
+        height = (base_radius + eccentricity) * 2.2
+        return width, height
+
+    def _calc_gear_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
+        """Calculate dimensions for gear mechanisms."""
+        max_radius = max(
+            (params.get(p, 0) for p in ['r1_mm', 'r2_mm', 'r_sun_mm', 'r_planet_mm']),
+            default=30.0
+        ) or 30.0
+        return max_radius * 3.0, max_radius * 2.2
+
+    def _calc_default_dimensions(self, params: dict[str, Any]) -> tuple[float, float]:
+        """Calculate default dimensions for unknown mechanism types."""
+        scale_factor = params.get('scale_factor_used', 1.0)
+        return 60.0 * scale_factor, 60.0 * scale_factor
+
     def _calculate_mechanism_dimensions_from_params(self, real_world_params: dict[str, Any], mechanism_type: str) -> tuple[float, float]:
         """
         Calculate mechanism bounding box dimensions from real-world parameters.
@@ -159,55 +190,19 @@ class EnhancedMechanismProcessor:
         Returns:
             Tuple of (width_mm, height_mm)
         """
+        # Strategy dictionary for dimension calculations
+        dimension_strategies = {
+            "4_bar_linkage": self._calc_4bar_dimensions,
+            "cam": self._calc_cam_dimensions,
+            "gear": self._calc_gear_dimensions,
+            "planetary_gear": self._calc_gear_dimensions,
+        }
+
         try:
-            if mechanism_type == "4_bar_linkage":
-                # For 4-bar linkage, use the maximum link lengths to estimate bounds
-                l1 = real_world_params.get('l1_mm', 50.0)
-                l2 = real_world_params.get('l2_mm', 30.0)
-                l3 = real_world_params.get('l3_mm', 40.0)
-                l4 = real_world_params.get('l4_mm', 35.0)
-
-                # Estimate bounding box as maximum reach of the linkage
-                max_width = l1 + max(l2, l3, l4) * 1.2  # Add some padding
-                max_height = max(l2, l3, l4) * 1.5  # Allow for vertical movement
-
-                return max_width, max_height
-
-            elif mechanism_type == "cam":
-                # For cam, use base radius and eccentricity
-                base_radius = real_world_params.get('base_radius_mm', 25.0)
-                eccentricity = real_world_params.get('eccentricity_mm', 5.0)
-
-                # Cam bounding box includes rotation and follower movement
-                width = (base_radius + eccentricity) * 2.5  # Include follower space
-                height = (base_radius + eccentricity) * 2.2  # Vertical movement space
-
-                return width, height
-
-            elif mechanism_type in ["gear", "planetary_gear"]:
-                # For gears, use the larger of the gear radii
-                max_radius = 0
-                for param_name in ['r1_mm', 'r2_mm', 'r_sun_mm', 'r_planet_mm']:
-                    if param_name in real_world_params:
-                        max_radius = max(max_radius, real_world_params[param_name])
-
-                if max_radius == 0:
-                    max_radius = 30.0  # Default
-
-                # Add space for gear mesh and rotation
-                width = max_radius * 3.0  # Allow for two gears side by side
-                height = max_radius * 2.2  # Vertical clearance
-
-                return width, height
-
-            else:
-                # Default dimensions for unknown mechanism types
-                scale_factor = real_world_params.get('scale_factor_used', 1.0)
-                return 60.0 * scale_factor, 60.0 * scale_factor
-
+            calc_fn = dimension_strategies.get(mechanism_type, self._calc_default_dimensions)
+            return calc_fn(real_world_params)
         except Exception as e:
             self.logger.warning(f"Error calculating mechanism dimensions: {e}")
-            # Return reasonable defaults
             return 80.0, 60.0
 
     def _delegate_to_generator(
@@ -1115,12 +1110,12 @@ class BlueprintLayoutOptimizer:
             try:
                 self.logger.debug(f"[BLUEPRINT] Embedded texture for part '{part_name}' from {getattr(scaled_contour, 'source_image_path', 'unknown')}")
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
         else:
             try:
                 self.logger.warning(f"[BLUEPRINT] No texture found for part '{part_name}' (no image href)")
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         # Outline and cutting path on top
         parts.append(f'  <path d="{offset_path}" class="part-outline"/>')

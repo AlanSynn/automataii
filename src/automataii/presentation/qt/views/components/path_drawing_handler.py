@@ -9,6 +9,9 @@ Design Pattern: Handler (specialized path drawing operations)
 
 from __future__ import annotations
 
+import logging
+import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QPointF, Qt
@@ -20,6 +23,21 @@ if TYPE_CHECKING:
 
 
 TARGET_PATH_POINTS = 12
+
+
+@dataclass
+class TimedQPointF:
+    """QPointF with timestamp for velocity-aware animation."""
+    point: QPointF
+    timestamp: float  # Seconds from drawing start
+
+    @property
+    def x(self) -> float:
+        return self.point.x()
+
+    @property
+    def y(self) -> float:
+        return self.point.y()
 
 
 class PathDrawingHandler:
@@ -50,6 +68,8 @@ class PathDrawingHandler:
 
         # Drawing state
         self._motion_path_points: list[QPointF] = []
+        self._timed_path_points: list[TimedQPointF] = []  # Points with timestamps
+        self._drawing_start_time: float = 0.0
         self._motion_preview_path_item: QGraphicsPathItem | None = None
         self._is_drawing_freehand = False
         self.current_target_item_for_path: CharacterPartItem | None = None
@@ -70,25 +90,50 @@ class PathDrawingHandler:
         """Get current path points."""
         return self._motion_path_points
 
+    @property
+    def timed_path_points(self) -> list[TimedQPointF]:
+        """Get current timed path points."""
+        return self._timed_path_points
+
+    @property
+    def drawing_duration(self) -> float:
+        """Get total drawing duration in seconds."""
+        if not self._timed_path_points:
+            return 0.0
+        return self._timed_path_points[-1].timestamp
+
     def start_drawing(self, scene_pos: QPointF) -> None:
-        """Start a new path drawing session."""
+        """Start a new path drawing session with timestamp."""
         self._motion_path_points.clear()
+        self._timed_path_points.clear()
+        self._drawing_start_time = time.perf_counter()
+
         self._motion_path_points.append(scene_pos)
+        self._timed_path_points.append(TimedQPointF(point=scene_pos, timestamp=0.0))
+
         self._is_drawing_freehand = True
         self.update_preview()
 
     def add_point(self, scene_pos: QPointF) -> None:
-        """Add a point to the current path."""
+        """Add a point to the current path with timestamp."""
         if self._is_drawing_freehand:
             self._motion_path_points.append(scene_pos)
+
+            # Record timestamp relative to start
+            elapsed = time.perf_counter() - self._drawing_start_time
+            self._timed_path_points.append(TimedQPointF(point=scene_pos, timestamp=elapsed))
+
             self.update_preview()
 
-    def finish_drawing(self) -> tuple[list[QPointF], QPainterPath] | None:
+    def finish_drawing(self) -> tuple[list[QPointF], QPainterPath, list[TimedQPointF], float] | None:
         """
         Finish drawing and create the final spline path.
 
         Returns:
-            Tuple of (resampled points, spline path) or None if path too short
+            Tuple of (resampled points, spline path, timed points, total duration)
+            or None if path too short.
+
+            The timed_points preserve original timestamps for velocity-aware animation.
         """
         num_original_points = len(self._motion_path_points)
 
@@ -96,7 +141,11 @@ class PathDrawingHandler:
             self.cancel_drawing()
             return None
 
-        # Resample points
+        # Capture timed points and duration BEFORE resampling
+        timed_points = list(self._timed_path_points)
+        total_duration = self.drawing_duration
+
+        # Resample points for spline (visual path)
         if num_original_points < TARGET_PATH_POINTS:
             points_for_spline = list(self._motion_path_points)
         else:
@@ -108,7 +157,7 @@ class PathDrawingHandler:
             self.cancel_drawing()
             return None
 
-        # Create spline path
+        # Create spline path (visual representation)
         final_path = self.create_spline_path(
             points_for_spline,
             closed_loop=self.current_path_is_closed,
@@ -118,15 +167,17 @@ class PathDrawingHandler:
         # Clean up preview
         self._cleanup_preview()
         self._motion_path_points.clear()
+        self._timed_path_points.clear()
         self._is_drawing_freehand = False
 
-        return points_for_spline, final_path
+        return points_for_spline, final_path, timed_points, total_duration
 
     def cancel_drawing(self) -> None:
         """Cancel current path drawing."""
         self.current_target_item_for_path = None
         self._is_drawing_freehand = False
         self._motion_path_points.clear()
+        self._timed_path_points.clear()
         self._cleanup_preview()
 
     def update_preview(self) -> None:
@@ -212,7 +263,7 @@ class PathDrawingHandler:
             try:
                 self._scene.removeItem(old)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         if path is None or path.isEmpty():
             return
@@ -236,7 +287,7 @@ class PathDrawingHandler:
             try:
                 self._scene.removeItem(old)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         if path is None or path.isEmpty():
             return
@@ -260,14 +311,14 @@ class PathDrawingHandler:
             try:
                 self._scene.removeItem(self._raw_paths_map[key])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
             self._raw_paths_map.pop(key, None)
 
         if key in self._corrected_paths_map:
             try:
                 self._scene.removeItem(self._corrected_paths_map[key])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
             self._corrected_paths_map.pop(key, None)
 
     def clear_corrected_overlay_for(self, key: str) -> None:
@@ -276,7 +327,7 @@ class PathDrawingHandler:
             try:
                 self._scene.removeItem(self._corrected_paths_map[key])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
             self._corrected_paths_map.pop(key, None)
 
     # --- Path Creation ---

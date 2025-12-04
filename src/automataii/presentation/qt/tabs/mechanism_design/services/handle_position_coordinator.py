@@ -8,6 +8,7 @@ Design Pattern: Coordinator (orchestrates handle position operations)
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 from typing import Any
@@ -180,7 +181,7 @@ class HandlePositionCoordinator:
                 self._updating_handles_programmatically = False
 
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def update_handles_from_key_points(
         self,

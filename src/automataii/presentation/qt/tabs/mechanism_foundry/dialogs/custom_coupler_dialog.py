@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from automataii.presentation.qt.shared import blocked_signals
+
 
 class CustomCouplerPointDialog(QDialog):
     """Dialog that lets the user select a custom tracking point along the coupler link."""
@@ -82,9 +84,8 @@ class CustomCouplerPointDialog(QDialog):
         if abs(fraction - self._fraction) < 1e-6:
             return
         self._fraction = fraction
-        self._spin.blockSignals(True)
-        self._spin.setValue(fraction)
-        self._spin.blockSignals(False)
+        with blocked_signals(self._spin):
+            self._spin.setValue(fraction)
         self._update_label()
 
     def _on_spin_changed(self, value: float) -> None:
@@ -92,9 +93,8 @@ class CustomCouplerPointDialog(QDialog):
         if abs(fraction - self._fraction) < 1e-6:
             return
         self._fraction = fraction
-        self._slider.blockSignals(True)
-        self._slider.setValue(int(round(fraction * 100)))
-        self._slider.blockSignals(False)
+        with blocked_signals(self._slider):
+            self._slider.setValue(int(round(fraction * 100)))
         self._update_label()
 
     def _update_label(self) -> None:

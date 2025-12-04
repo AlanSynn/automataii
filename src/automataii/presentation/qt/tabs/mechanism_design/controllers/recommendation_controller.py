@@ -40,11 +40,21 @@ class RecommendationController(QObject):
 
     # Mapping from display names to internal mechanism types
     MECHANISM_TYPE_MAPPING: dict[str, str] = {
+        # Four-bar linkage variants
         "4-Bar Linkage": "4_bar_linkage",
         "4-bar Coupler": "4_bar_linkage",
+        "Four-Bar Linkage": "4_bar_linkage",
+        "Four-Bar": "4_bar_linkage",
+        "3-bar Output": "4_bar_linkage",
+        # Cam mechanism variants
         "Cam & Follower": "cam",
         "Cam-Follower": "cam",
+        "Cam Profile": "cam",
+        "Cam": "cam",
+        # Gear mechanism variants
+        "Gears": "gear",  # Family name from recommendation dialog
         "Gears (Simple Pair)": "gear",
+        "Gear Train": "gear",
         "Gear Contact": "gear",
         "Simple Gear": "gear",
         "Planetary Gear": "planetary_gear",

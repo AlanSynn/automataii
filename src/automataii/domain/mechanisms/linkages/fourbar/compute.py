@@ -8,6 +8,7 @@ Architecture Note:
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -20,6 +21,8 @@ from automataii.domain.mechanisms.core.state import (
     SafetyLevel,
     SafetyStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -158,6 +161,11 @@ class FourBarMechanism(Mechanism):
 
             L = math.sqrt((O4x - Ax) ** 2 + (O4y - Ay) ** 2)
 
+            # Guard against division by zero and invalid configurations
+            if L < 1e-10 or r4 < 1e-10:
+                logger.debug(f"Invalid geometry: L={L}, r4={r4}")
+                return self._last_output_angle if self._last_output_angle is not None else 0.0
+
             if L > (r3 + r4) or L < abs(r3 - r4):
                 return (
                     self._last_output_angle
@@ -227,15 +235,20 @@ class FourBarMechanism(Mechanism):
                     else:
                         theta4 = self._last_output_angle - max_change
 
-            self._last_output_angle = theta4
-
+            # Validate before storing to prevent state corruption
             if math.isnan(theta4) or math.isinf(theta4):
-                return self._last_output_angle if self._last_output_angle is not None else 0
+                logger.warning("Invalid theta4 computed (NaN/Inf), using fallback")
+                return self._last_output_angle if self._last_output_angle is not None else 0.0
 
+            self._last_output_angle = theta4
             return theta4
 
-        except Exception:
-            return self._last_output_angle if self._last_output_angle is not None else 0
+        except (ValueError, ZeroDivisionError) as e:
+            logger.debug(f"Math error in _solve_output_angle: {e}")
+            return self._last_output_angle if self._last_output_angle is not None else 0.0
+        except Exception as e:
+            logger.warning(f"Unexpected error in _solve_output_angle: {e}", exc_info=True)
+            return self._last_output_angle if self._last_output_angle is not None else 0.0
 
     def _evaluate_safety(
         self, ground: float, input_l: float, coupler: float, output: float, input_angle: float
@@ -249,10 +262,10 @@ class FourBarMechanism(Mechanism):
             ]
             link_lengths = [ground, input_l, coupler, output]
             sorted_links = sorted(link_lengths)
-            s, p, q, l = sorted_links
+            shortest, mid1, mid2, longest = sorted_links
 
-            grashof_sum = s + l
-            middle_sum = p + q
+            grashof_sum = shortest + longest
+            middle_sum = mid1 + mid2
             grashof_condition = grashof_sum <= middle_sum
             grashof_ratio = grashof_sum / middle_sum if middle_sum > 0 else float("inf")
 

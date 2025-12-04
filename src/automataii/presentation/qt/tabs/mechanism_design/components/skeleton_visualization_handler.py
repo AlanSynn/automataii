@@ -45,6 +45,24 @@ class SkeletonVisualizationHandler(QObject):
     # Z-index for skeleton overlay
     Z_SKELETON_OVERLAY = 1000
 
+    # Mapping from part name to the target joint (the joint at the END of the bone)
+    # Used for calculating bone rotation: angle from anchor to target
+    PART_TO_TARGET_JOINT = {
+        # Arms - each part's bone extends from anchor to target
+        "left_arm_upper": "left_elbow",
+        "left_arm_lower": "left_hand",
+        "right_arm_upper": "right_elbow",
+        "right_arm_lower": "right_hand",
+        # Legs
+        "left_leg_upper": "left_knee",
+        "left_leg_lower": "left_foot",
+        "right_leg_upper": "right_knee",
+        "right_leg_lower": "right_foot",
+        # Special cases
+        "head": "neck",
+        "torso": "torso",
+    }
+
     def __init__(
         self,
         mechanism_view: EditorView,
@@ -210,36 +228,92 @@ class SkeletonVisualizationHandler(QObject):
             # Don't let skeleton errors crash the mechanism animation
             logging.debug(f"SkeletonVisualizationHandler: Error in on_skeleton_updated: {e}")
 
+    def _find_matching_joint_id(self, anchor_joint_id: str, joints_dict: dict) -> str | None:
+        """
+        Find matching joint ID with prefix matching support.
+
+        Handles skeleton joint IDs that have numeric suffixes (e.g., left_hand_9).
+
+        Args:
+            anchor_joint_id: The abstract joint ID (e.g., 'left_hand')
+            joints_dict: Dictionary of skeleton joints
+
+        Returns:
+            Matching joint ID or None if not found
+        """
+        # 1. Exact match
+        if anchor_joint_id in joints_dict:
+            return anchor_joint_id
+
+        # 2. Prefix matching for suffixed joint IDs (e.g., left_hand -> left_hand_9)
+        for joint_id in joints_dict:
+            # Check if joint_id starts with anchor_joint_id + "_" or equals it
+            if joint_id.startswith(anchor_joint_id + "_"):
+                return joint_id
+            # Also check for numeric suffix without underscore (e.g., left_hand9)
+            if joint_id.startswith(anchor_joint_id) and len(joint_id) > len(anchor_joint_id):
+                suffix = joint_id[len(anchor_joint_id):]
+                if suffix[0].isdigit() or suffix[0] == '_':
+                    return joint_id
+
+        return None
+
     def _update_parts_from_skeleton(self, skeleton_data: dict) -> None:
         """
         Update part positions and rotations based on skeleton joint movements.
 
-        Time Complexity: O(p) where p = number of parts
+        Time Complexity: O(p * j) where p = number of parts, j = number of joints
         """
         joints_dict = skeleton_data.get("joints", {})
         current_editor_items = self._get_current_editor_items()
         parts_data = self._get_parts_data()
 
+        # Debug: Log state once per few frames
+        if not hasattr(self, '_parts_update_log_counter'):
+            self._parts_update_log_counter = 0
+        self._parts_update_log_counter += 1
+
+        if self._parts_update_log_counter <= 3:
+            logging.debug(f"[PARTS-UPDATE] current_editor_items count: {len(current_editor_items)}, "
+                         f"parts_data count: {len(parts_data)}, joints count: {len(joints_dict)}")
+            if current_editor_items:
+                logging.debug(f"[PARTS-UPDATE] editor_item names: {list(current_editor_items.keys())[:5]}")
+            if parts_data:
+                sample_parts = list(parts_data.items())[:3]
+                for pn, pi in sample_parts:
+                    anchor = getattr(pi, 'anchor_joint_id', None)
+                    logging.debug(f"[PARTS-UPDATE] Part '{pn}' anchor_joint_id: {anchor}")
+
+        parts_updated_count = 0
         for part_name, part_item in current_editor_items.items():
             part_info = parts_data.get(part_name)
             if not part_info or not part_info.anchor_joint_id:
                 continue
 
             anchor_joint_id = part_info.anchor_joint_id
-            if anchor_joint_id not in joints_dict:
+            # Use prefix matching to find the actual joint ID
+            matched_joint_id = self._find_matching_joint_id(anchor_joint_id, joints_dict)
+            if not matched_joint_id:
+                if self._parts_update_log_counter <= 3:
+                    logging.debug(f"[PARTS-UPDATE] No match for anchor '{anchor_joint_id}', "
+                                 f"sample joints: {list(joints_dict.keys())[:5]}")
                 continue
 
-            joint_data = joints_dict[anchor_joint_id]
+            joint_data = joints_dict[matched_joint_id]
 
             # 1. UPDATE POSITION (unconditionally)
             scene_pos_to_set = None
             position_data = joint_data.get("scene_position") or joint_data.get("position")
             if isinstance(position_data, list | tuple) and len(position_data) >= 2:
                 scene_pos_to_set = QPointF(position_data[0], position_data[1])
-                part_item.set_scene_position_from_anchor(scene_pos_to_set)
+                part_item.set_scene_position_from_anchor(scene_pos_to_set, bypass_validation=True)
+                parts_updated_count += 1
 
             # 2. UPDATE ROTATION
             self._update_part_rotation(part_item, joint_data, joints_dict, scene_pos_to_set)
+
+        if self._parts_update_log_counter <= 3:
+            logging.debug(f"[PARTS-UPDATE] Updated {parts_updated_count} parts from skeleton")
 
         self.parts_updated.emit()
 
@@ -250,8 +324,19 @@ class SkeletonVisualizationHandler(QObject):
         joints_dict: dict,
         scene_pos: QPointF | None,
     ) -> None:
-        """Update part rotation from joint data."""
-        # Try multiple rotation data sources
+        """
+        Update part rotation from joint data.
+
+        Uses RELATIVE rotation: calculates the change in bone angle from initial state
+        and applies that delta to the part's initial rotation.
+
+        Args:
+            part_item: The character part item to update
+            joint_data: Data for the anchor joint
+            joints_dict: Dictionary of all skeleton joints
+            scene_pos: The anchor position (already set for this part)
+        """
+        # Try multiple rotation data sources from skeleton data
         if "world_rotation_degrees" in joint_data:
             rotation = float(joint_data["world_rotation_degrees"])
             part_item.setRotation(rotation)
@@ -270,22 +355,47 @@ class SkeletonVisualizationHandler(QObject):
                 part_item.setRotation(rotation)
                 return
 
-        # FALLBACK: Calculate bone angle from parent-child relationship
-        parent_joint_id = joint_data.get("parent_id") or joint_data.get("parent")
-        if parent_joint_id and parent_joint_id in joints_dict:
-            parent_data = joints_dict[parent_joint_id]
-            parent_pos_data = parent_data.get("scene_position") or parent_data.get("position")
+        # FALLBACK: Calculate RELATIVE bone angle change from anchor to target joint
+        if scene_pos is None:
+            return
 
-            if (scene_pos and parent_pos_data and
-                isinstance(parent_pos_data, list | tuple) and len(parent_pos_data) >= 2):
+        part_name = part_item.name() if hasattr(part_item, 'name') else None
+        if not part_name:
+            return
 
-                dx = scene_pos.x() - parent_pos_data[0]
-                dy = scene_pos.y() - parent_pos_data[1]
+        target_joint_id = self.PART_TO_TARGET_JOINT.get(part_name)
+        if not target_joint_id:
+            return
 
-                if abs(dx) > 0.01 or abs(dy) > 0.01:
-                    bone_angle_rad = math.atan2(dy, dx)
-                    bone_angle_deg = math.degrees(bone_angle_rad)
-                    part_item.setRotation(bone_angle_deg)
+        # Find the target joint position using prefix matching
+        matched_target_id = self._find_matching_joint_id(target_joint_id, joints_dict)
+        if not matched_target_id:
+            return
+
+        target_data = joints_dict[matched_target_id]
+        target_pos_data = target_data.get("scene_position") or target_data.get("position")
+
+        if not target_pos_data or not isinstance(target_pos_data, list | tuple) or len(target_pos_data) < 2:
+            return
+
+        # Calculate current bone angle FROM anchor TO target
+        dx = target_pos_data[0] - scene_pos.x()
+        dy = target_pos_data[1] - scene_pos.y()
+
+        if abs(dx) < 0.01 and abs(dy) < 0.01:
+            return
+
+        current_bone_angle = math.degrees(math.atan2(dy, dx))
+
+        # Store initial bone angle and part rotation on first call
+        if not hasattr(part_item, '_initial_bone_angle'):
+            part_item._initial_bone_angle = current_bone_angle
+            part_item._initial_part_rotation = part_item.rotation()
+
+        # Calculate angle delta and apply to initial rotation
+        angle_delta = current_bone_angle - part_item._initial_bone_angle
+        new_rotation = part_item._initial_part_rotation + angle_delta
+        part_item.setRotation(new_rotation)
 
     # --- Skeleton Visualization ---
 

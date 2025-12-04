@@ -1,4 +1,5 @@
 """Mechanism Design Tab - MVP View for mechanism design and animation."""
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -113,11 +114,21 @@ class MechanismDesignTab(QWidget):
 
     # Mapping from display names to internal mechanism types (extracted from duplicates)
     MECHANISM_TYPE_MAPPING: dict[str, str] = {
+        # Four-bar linkage variants
         "4-Bar Linkage": "4_bar_linkage",
         "4-bar Coupler": "4_bar_linkage",
+        "Four-Bar Linkage": "4_bar_linkage",
+        "Four-Bar": "4_bar_linkage",
+        "3-bar Output": "4_bar_linkage",
+        # Cam mechanism variants
         "Cam & Follower": "cam",
         "Cam-Follower": "cam",
+        "Cam Profile": "cam",
+        "Cam": "cam",
+        # Gear mechanism variants
+        "Gears": "gear",  # Family name from recommendation dialog
         "Gears (Simple Pair)": "gear",
+        "Gear Train": "gear",
         "Gear Contact": "gear",
         "Simple Gear": "gear",
         "Planetary Gear": "planetary_gear",
@@ -181,6 +192,7 @@ class MechanismDesignTab(QWidget):
 
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
+        logging.info(f"[TAB-INIT] MechanismDesignTab.__init__ STARTING, self_id={id(self)}, main_window={main_window}")
         self.main_window = main_window
         self.debug_mode = getattr(main_window, "debug_mode", False)
 
@@ -260,7 +272,7 @@ class MechanismDesignTab(QWidget):
         if VISUALIZATION_AVAILABLE:
             self.visualization_adapter = VisualizationAdapter(self.mechanism_scene)
         self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
-        self._mvp_presenter._scene = self.mechanism_scene
+        self._mvp_presenter.set_scene(self.mechanism_scene)  # Initializes scene batcher for perf
 
         # Connect MVP presenter signals
         self._mvp_presenter.view_update_requested.connect(self._handle_mvp_view_update)
@@ -285,17 +297,12 @@ class MechanismDesignTab(QWidget):
                      'zoom_fit_btn', 'center_character_btn', 'blueprint_info_label'):
             setattr(self, name, self.ui_widgets.get(name))
 
-        # Connect all signals using new signal manager
-        self.signal_manager.connect_all_signals(self)
-
-        # Initialize parametric system now that mechanism_scene is available
-        if PARAMETRIC_AVAILABLE:
-            self.parametric_manager._initialize_parametric_system()
-
-        # Initialize extracted components (must be before _update_all_ui_states)
+        # Initialize extracted components BEFORE connecting signals
+        # (signals may trigger callbacks that require these components)
         self._animation_controller = AnimationLifecycleController(
             mechanism_scene=self.mechanism_scene, path_trace_manager=self._path_trace_manager, parent=self
         )
+        logging.debug(f"[INIT] Animation controller created: {self._animation_controller}, tab_id={id(self)}")
         self._skeleton_handler = SkeletonVisualizationHandler(
             mechanism_view=self.mechanism_view, mechanism_scene=self.mechanism_scene, parent=self
         )
@@ -309,12 +316,20 @@ class MechanismDesignTab(QWidget):
         self._parametric_mode_controller = ParametricModeController(parent=self)
         self._recommendation_controller = RecommendationController(parent=self)
 
+        # Connect all signals using new signal manager (after components are ready)
+        self.signal_manager.connect_all_signals(self)
+
+        # Initialize parametric system now that mechanism_scene is available
+        if PARAMETRIC_AVAILABLE:
+            self.parametric_manager._initialize_parametric_system()
+
         # Configure all service/controller callbacks via configurator
         TabCallbackConfigurator(self).configure_all()
 
         # Initialize UI state (after all components are ready)
         self._current_ui_state = UIState()
         self._update_all_ui_states()
+        logging.info(f"[TAB-INIT] MechanismDesignTab.__init__ COMPLETE, self_id={id(self)}, has_animation_controller={hasattr(self, '_animation_controller')}")
 
     def _initialize_services(self) -> None:
         """Initialize all domain, application, and presentation services."""
@@ -491,8 +506,18 @@ class MechanismDesignTab(QWidget):
             self.recommendation_btn.setToolTip(tip)
         self._update_mechanism_layers_list()
 
-    def set_parts_data(self, parts_data: dict[str, PartInfo]):
-        """Set parts data. Presenter handles sorting, Tab handles scene items."""
+    def set_parts_data(self, parts_data: dict[str, PartInfo], clear_mechanisms: bool = True):
+        """Set parts data. Presenter handles sorting, Tab handles scene items.
+
+        Args:
+            parts_data: Dictionary of part name to PartInfo
+            clear_mechanisms: If True, clears existing mechanism layers when
+                parts change (default True to prevent stale references)
+        """
+        # Clear mechanism data if requested (prevents stale mechanism references)
+        if clear_mechanisms and self.mechanism_layers:
+            self.clear_mechanism_data()
+
         # Let Presenter handle data sorting
         self._mvp_presenter.set_parts_data(parts_data)
 
@@ -517,15 +542,27 @@ class MechanismDesignTab(QWidget):
         self._update_mechanism_layers_list()
 
     def _position_parts_at_anchor_joints(self):
-        """Position parts at their anchor joints using cached skeleton data."""
+        """Position parts at their anchor joints and reset rotations using cached skeleton data."""
         if not hasattr(self, '_initial_skeleton_data_cache') or not self._initial_skeleton_data_cache:
             return
 
-        # Delegate to skeleton service
+        def position_setter(part_item, pos: tuple[float, float]) -> None:
+            """Set position on a QGraphicsItem."""
+            if hasattr(part_item, 'setPos'):
+                part_item.setPos(pos[0], pos[1])
+
+        def rotation_setter(part_item, rotation_degrees: float) -> None:
+            """Set rotation on a QGraphicsItem (world coordinates)."""
+            if hasattr(part_item, 'setRotation'):
+                part_item.setRotation(rotation_degrees)
+
+        # Delegate to skeleton service with both position and rotation setters
         self.skeleton_service.position_parts_at_anchor_joints(
             self.current_editor_items,
             self.parts_data,
-            self._initial_skeleton_data_cache
+            self._initial_skeleton_data_cache,
+            position_setter=position_setter,
+            rotation_setter=rotation_setter,
         )
 
     def cache_initial_skeleton(self, skeleton_data_dict: dict | None):
@@ -610,6 +647,8 @@ class MechanismDesignTab(QWidget):
 
     def clear_mechanism_data(self):
         """Clear all mechanism data. Delegates to Presenter."""
+        # Clear animation caches for performance optimization
+        self._visual_animator.clear_caches()
         self._mvp_presenter.clear_mechanism_data()
 
     @pyqtSlot()
@@ -626,6 +665,11 @@ class MechanismDesignTab(QWidget):
     def _clear_mechanism_for_part(self, part_name: str):
         """Clear mechanism for a part. Delegates to Presenter."""
         self._mvp_presenter._clear_mechanism_for_part(part_name)
+
+    def _clear_mechanism_trace(self, mechanism_id: str) -> None:
+        """Clear the path trace for a specific mechanism."""
+        if hasattr(self, '_path_trace_manager') and self._path_trace_manager:
+            self._path_trace_manager.clear_trace(mechanism_id, self.mechanism_scene)
 
     def _generate_mechanism_from_candidate(self, candidate_data: dict[str, Any]):
         """Generate mechanism from candidate. Delegates to Presenter."""
@@ -652,8 +696,23 @@ class MechanismDesignTab(QWidget):
         mechanism_id = layer_data["id"]
         self.mechanism_layers[mechanism_id] = layer_data
 
-        # Initialize path tracing and update UI
-        self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene)
+        # Build animation cache for performance optimization
+        self._visual_animator.build_cache(mechanism_id, layer_data)
+
+        # Calculate t=0 coupler position for path trace initialization
+        initial_coupler_pos = None
+        try:
+            initial_coupler_pos = self._calculate_mechanism_output_position(
+                layer_data.get("type", ""),
+                layer_data.get("params", {}),
+                0.0,  # time=0
+                layer_data
+            )
+        except Exception:
+            pass  # Silently fail, trace will be initialized without initial point
+
+        # Initialize path tracing with t=0 position and update UI
+        self._path_trace_manager.init_trace(mechanism_id, self.mechanism_scene, initial_coupler_pos)
         self._update_mechanism_layers_list()
         self._update_all_ui_states()
 
@@ -691,7 +750,12 @@ class MechanismDesignTab(QWidget):
         return self._mvp_presenter.get_standardized_joint_id(abstract_joint_id)
 
     def _update_mechanism_visuals_for_animation(self, mechanism_id: str, time: float, layer_data: dict):
-        self._visual_animator.update_visuals(mechanism_id=mechanism_id, time=time, layer_data=layer_data, visuals_factory=self.visuals_factory)
+        import logging
+        logging.debug(f"[TAB-VISUAL] _update_mechanism_visuals_for_animation called: id={mechanism_id}, time={time:.3f}")
+        try:
+            self._visual_animator.update_visuals(mechanism_id=mechanism_id, time=time, layer_data=layer_data, visuals_factory=self.visuals_factory)
+        except Exception as e:
+            logging.error(f"[TAB-VISUAL] Exception in update_visuals: {e}", exc_info=True)
 
     def _update_mechanism_layers_list(self):
         self._tab_data_coordinator.update_mechanism_layers_list(
@@ -707,6 +771,34 @@ class MechanismDesignTab(QWidget):
 
     def _reset_skeleton_to_initial_state(self):
         self._mvp_presenter.reset_skeleton_to_initial_state()
+
+    def _reset_character_rotations_to_world_zero(self):
+        """
+        Reset all character/part rotations to world 0.
+
+        This ensures that when entering the mechanism design tab or resetting,
+        all parts have zero rotation in world space, preventing broken orientations.
+        """
+        try:
+            # Reset part item rotations to 0
+            if hasattr(self, 'current_editor_items') and self.current_editor_items:
+                for part_name, part_item in self.current_editor_items.items():
+                    if part_item and hasattr(part_item, 'setRotation'):
+                        part_item.setRotation(0.0)
+                        # Also update the initial world rotation to 0
+                        if hasattr(part_item, '_initial_world_rotation'):
+                            part_item._initial_world_rotation = 0.0
+                logging.debug(f"Reset {len(self.current_editor_items)} part rotations to world 0")
+
+            # Reset through IK manager if available
+            main_window = getattr(self, 'main_window', None)
+            if main_window and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
+                ik_manager = main_window.ik_manager
+                # Reset animation state which restores initial rotations
+                if hasattr(ik_manager, 'reset_animation_state'):
+                    ik_manager.reset_animation_state()
+        except Exception:
+            logging.debug("Suppressed exception during rotation reset", exc_info=True)
 
     def handle_mechanism_visuals(self, mechanism_graphics_data: dict):
         self._mvp_presenter.handle_mechanism_visuals(mechanism_graphics_data)
@@ -729,12 +821,42 @@ class MechanismDesignTab(QWidget):
         return self._visual_item_manager.is_visual_item_invalid(item)
 
     def deactivate_tab(self):
+        """Deactivate tab - stop animation timers to prevent resource leaks."""
         self._tab_active = False
+
+        # Sync tab_active with animation controller
+        if hasattr(self, '_animation_controller') and self._animation_controller:
+            self._animation_controller.tab_active = False
+
+        # Stop animation controller (primary animation system)
+        if hasattr(self, '_animation_controller') and self._animation_controller:
+            try:
+                self._animation_controller.stop_animation()
+            except (TypeError, RuntimeError, AttributeError):
+                logging.debug("Suppressed exception stopping animation controller", exc_info=True)
+
+        # Stop legacy animation timer (vestigial, but prevent timer leak)
+        if hasattr(self, 'animation_timer') and self.animation_timer:
+            try:
+                self.animation_timer.stop()
+            except (TypeError, RuntimeError):
+                logging.debug("Suppressed exception stopping animation timer", exc_info=True)
+
         self.cleanup_tab_resources()
 
     def activate_tab(self):
         self._tab_active = True
+
+        # Sync tab_active with animation controller
+        if hasattr(self, '_animation_controller') and self._animation_controller:
+            self._animation_controller.tab_active = True
+
         self.prepare_tab_activation()
+
+        # Reset character/skeleton rotations to world 0 when entering tab
+        # This prevents broken rotations from previous tab interactions
+        self._reset_character_rotations_to_world_zero()
+
         self._update_mechanism_layers_list()
         self._update_all_ui_states()
 
@@ -744,7 +866,7 @@ class MechanismDesignTab(QWidget):
             if hasattr(self, '_tab_visible'):
                 self._tab_visible = True
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def handle_ik_update(self, ik_results: dict[str, dict[str, Any]]):
         if self.isVisible():
@@ -754,16 +876,54 @@ class MechanismDesignTab(QWidget):
         self.handle_mechanism_visuals({"mechanism_id": mechanism_id, "mechanism_type": mechanism_type, "params": params, **layer_data})
 
     def _on_start_animation(self):
-        if self.mechanism_enabled_state:
-            self._animation_controller.start_animation(mechanism_enabled_state=self.mechanism_enabled_state, initial_skeleton_data=getattr(self, '_initial_skeleton_data_cache', None))
+        # Check animation controller state
+        controller = getattr(self, '_animation_controller', None)
+
+        # Defensive: If controller is missing, try to reinitialize it
+        if controller is None:
+            logging.warning(f"[ANIMATION] Animation controller missing, attempting reinitialization (tab_id={id(self)})")
+            if hasattr(self, 'mechanism_scene') and hasattr(self, '_path_trace_manager'):
+                try:
+                    from automataii.presentation.qt.tabs.mechanism_design.components.animation_lifecycle_controller import AnimationLifecycleController
+                    self._animation_controller = AnimationLifecycleController(
+                        mechanism_scene=self.mechanism_scene,
+                        path_trace_manager=self._path_trace_manager,
+                        parent=self
+                    )
+                    # Configure callbacks via TabCallbackConfigurator
+                    from automataii.presentation.qt.tabs.mechanism_design.services.callback_configurator import TabCallbackConfigurator
+                    TabCallbackConfigurator(self)._configure_animation_controller()
+                    controller = self._animation_controller
+                    logging.info(f"[ANIMATION] Controller reinitialized successfully")
+                except Exception as e:
+                    logging.error(f"[ANIMATION] Failed to reinitialize controller: {e}")
+                    return
+
+        if controller is None:
+            logging.error("[ANIMATION] Cannot start animation - no controller available")
+            return
+
+        enabled_state = self.mechanism_enabled_state
+        if enabled_state:
+            logging.debug(f"[ANIMATION] Starting animation with {len(enabled_state)} mechanism(s)")
+            controller.start_animation(
+                mechanism_enabled_state=enabled_state,
+                initial_skeleton_data=getattr(self, '_initial_skeleton_data_cache', None)
+            )
         else:
             QMessageBox.warning(self, "Warning", "No mechanisms are enabled for animation.")
 
     def _on_stop_animation(self):
+        if not hasattr(self, '_animation_controller') or not self._animation_controller:
+            return
         self._animation_controller.stop_animation()
 
     def _on_reset_animation(self):
+        if not hasattr(self, '_animation_controller') or not self._animation_controller:
+            return
         self._animation_controller.reset_animation()
+        # Also reset rotations to world 0 when resetting animation
+        self._reset_character_rotations_to_world_zero()
 
     def _on_layer_selection_changed(self):
         self._layer_selection_controller.on_selection_changed()
@@ -814,7 +974,7 @@ class MechanismDesignTab(QWidget):
             mechanism_graphics_data = {"mechanism_id": mechanism_id, **layer_data}
             self.handle_mechanism_visuals(mechanism_graphics_data)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def _update_other_handles(self, mechanism_id: str, moved_handle: str):
         handles = self.parametric_handles.get(mechanism_id, []) if hasattr(self, 'parametric_handles') else []
@@ -970,6 +1130,9 @@ class MechanismDesignTab(QWidget):
         # Add to mechanism layers
         self.mechanism_layers[mechanism_id] = layer_data
         self.mechanism_enabled_state[mechanism_id] = True
+
+        # Build animation cache for performance optimization
+        self._visual_animator.build_cache(mechanism_id, layer_data)
 
         # Create visuals
         self._handle_mechanism_visuals(mechanism_id, layer_data)

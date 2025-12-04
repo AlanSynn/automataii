@@ -317,6 +317,17 @@ class SkeletonGraphicsItem(QGraphicsObject):
                 bone_index += 1
 
 
+    def paint(self, painter, option, widget=None):
+        """
+        Paint method required by QGraphicsObject.
+
+        This item doesn't paint itself directly - it uses child items
+        (QGraphicsEllipseItem for joints, QGraphicsLineItem for bones)
+        which handle their own painting.
+        """
+        # No direct painting - child items handle their own rendering
+        pass
+
     def boundingRect(self) -> QRectF:
         """
         Calculates the bounding rectangle of all joint items.

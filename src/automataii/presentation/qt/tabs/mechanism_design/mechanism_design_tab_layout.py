@@ -6,6 +6,7 @@ for UI widget creation, styling, and layout management.
 
 ULTRATHINK Architecture: Composition over inheritance, clear separation of concerns.
 """
+import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -23,6 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from automataii.presentation.qt.shared import clear_layout
 from automataii.presentation.qt.views.editor_view import EditorView
 
 
@@ -60,11 +62,8 @@ class MechanismDesignTabLayout:
         # Clear existing layout if any to prevent conflicts
         existing_layout = tab_widget.layout()
         if existing_layout:
-            # Clear the existing layout
-            while existing_layout.count():
-                child = existing_layout.takeAt(0)
-                if child.widget():
-                    child.widget().setParent(None)
+            # Clear the existing layout without deleting widgets
+            clear_layout(existing_layout, delete_widgets=False)
             # Delete the old layout
             existing_layout.setParent(None)
 
@@ -87,7 +86,7 @@ class MechanismDesignTabLayout:
         try:
             mechanism_scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
         mechanism_view = EditorView(mechanism_scene, tab_widget, mechanism_mode=True)
 
         # Store references on tab_widget for backward compatibility
@@ -183,7 +182,7 @@ class MechanismDesignTabLayout:
 
         # Parametric Design Button (conditionally created)
         try:
-            from automataii.presentation.qt.parametric_editor import ParametricEditor
+            import automataii.presentation.qt.parametric_editor  # noqa: F401
             PARAMETRIC_AVAILABLE = True
         except ImportError:
             PARAMETRIC_AVAILABLE = False

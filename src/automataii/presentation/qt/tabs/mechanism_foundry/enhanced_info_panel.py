@@ -3,7 +3,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from automataii.domain.mechanisms.linkage.config import LinkageConfig, LinkageType, LinkRole
+from automataii.domain.mechanisms.linkages.config import LinkageConfig, LinkageType, LinkRole
 from automataii.presentation.qt.tabs.mechanism_foundry.widgets.grashof_display import (
     GrashofAnalysis,
 )

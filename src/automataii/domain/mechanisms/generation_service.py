@@ -417,6 +417,10 @@ class MechanismGenerationService:
         params.get("follower_radius", 5.0)
         num_samples = int(params.get("num_samples", 360))
 
+        # Guard against division by zero
+        if num_samples < 1:
+            num_samples = 360
+
         cam_center: Point2D = (cam_center_x, cam_center_y)
 
         # Use target path as follower path

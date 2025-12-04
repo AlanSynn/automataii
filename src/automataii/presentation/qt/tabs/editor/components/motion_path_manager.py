@@ -36,16 +36,19 @@ class MotionPathManager(QObject):
     - Fit ellipses to paths
     - Apply feasibility corrections based on IK constraints
     - Update paths across data structures
+    - Handle vertex-based path editing
 
     Signals:
         motion_path_updated: Emitted when a path is updated (part_name, path)
         path_data_changed: Emitted when any path data changes (dict of paths)
         drawing_mode_changed: Emitted when drawing mode toggles (is_drawing)
+        vertex_editing_changed: Emitted when vertex editing mode toggles (is_editing)
     """
 
     motion_path_updated = pyqtSignal(str, QPainterPath)
     path_data_changed = pyqtSignal(dict)
     drawing_mode_changed = pyqtSignal(bool)
+    vertex_editing_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -71,6 +74,7 @@ class MotionPathManager(QObject):
         # UI references (set via configure_ui)
         self._define_btn: QPushButton | None = None
         self._clear_btn: QPushButton | None = None
+        self._edit_vertices_btn: QPushButton | None = None
         self._status_label: QLabel | None = None
         self._info_label: QLabel | None = None
         self._smoothness_slider: QSlider | None = None
@@ -95,10 +99,12 @@ class MotionPathManager(QObject):
         smoothness_slider: QSlider,
         smoothness_label: QLabel,
         closed_path_radio: QRadioButton,
+        edit_vertices_btn: QPushButton | None = None,
     ) -> None:
         """Configure UI element references."""
         self._define_btn = define_btn
         self._clear_btn = clear_btn
+        self._edit_vertices_btn = edit_vertices_btn
         self._status_label = status_label
         self._info_label = info_label
         self._smoothness_slider = smoothness_slider
@@ -193,6 +199,124 @@ class MotionPathManager(QObject):
 
         self.drawing_mode_changed.emit(True)
 
+    # --- Vertex Editing Mode Control ---
+
+    def toggle_vertex_edit_mode(self, checked: bool) -> None:
+        """
+        Handle the 'Edit Vertices' button toggle.
+
+        Args:
+            checked: Whether vertex editing mode is being enabled
+        """
+        part_name = self._get_selected_part()
+
+        if not checked:
+            # Stop vertex editing
+            if self._editor_view.is_editing_vertices():
+                final_path = self._editor_view.stop_vertex_editing()
+                if final_path and part_name:
+                    self._update_part_path(part_name, final_path)
+
+            if self._edit_vertices_btn:
+                self._edit_vertices_btn.setText("Edit Vertices")
+
+            self.vertex_editing_changed.emit(False)
+            return
+
+        if not part_name:
+            logging.warning("No part selected for vertex editing")
+            if self._edit_vertices_btn:
+                self._edit_vertices_btn.setChecked(False)
+            return
+
+        # Check if part has a motion path
+        if not self._has_motion_path(part_name):
+            logging.warning(f"Part '{part_name}' has no motion path to edit")
+            if self._edit_vertices_btn:
+                self._edit_vertices_btn.setChecked(False)
+            return
+
+        # Get the current path
+        editor_items = self._get_editor_items()
+        path: QPainterPath | None = None
+
+        if part_name in editor_items:
+            part_item = editor_items[part_name]
+            if hasattr(part_item, "motion_path") and part_item.motion_path:
+                path = part_item.motion_path
+
+        if not path or path.isEmpty():
+            # Try from final_paths_map
+            if hasattr(self._editor_view, "final_paths_map"):
+                path_item = self._editor_view.final_paths_map.get(part_name)
+                if path_item:
+                    path = path_item.path()
+
+        if not path or path.isEmpty():
+            logging.warning(f"Could not find path for '{part_name}'")
+            if self._edit_vertices_btn:
+                self._edit_vertices_btn.setChecked(False)
+            return
+
+        # Start vertex editing
+        is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+        success = self._editor_view.start_vertex_editing(part_name, path, is_closed)
+
+        if success:
+            if self._edit_vertices_btn:
+                self._edit_vertices_btn.setText("Done Editing")
+            self.vertex_editing_changed.emit(True)
+            logging.info(f"Started vertex editing for '{part_name}'")
+        else:
+            if self._edit_vertices_btn:
+                self._edit_vertices_btn.setChecked(False)
+
+    def on_vertex_path_modified(self, part_name: str, new_path: QPainterPath) -> None:
+        """
+        Handle path modification from vertex editing.
+
+        This is called in real-time as vertices are dragged.
+
+        Args:
+            part_name: Name of the part being edited
+            new_path: The modified path
+        """
+        # Update the visual path in EditorView's final_paths_map
+        if hasattr(self._editor_view, "final_paths_map"):
+            path_item = self._editor_view.final_paths_map.get(part_name)
+            if path_item:
+                path_item.setPath(new_path)
+
+        # Emit signal for live preview in other tabs
+        self.motion_path_updated.emit(part_name, new_path)
+
+    def on_vertex_editing_finished(self, part_name: str, final_path: QPainterPath) -> None:
+        """
+        Handle completion of vertex editing.
+
+        Args:
+            part_name: Name of the part that was edited
+            final_path: The final edited path
+        """
+        # Update all data structures with the final path
+        self._update_part_path(part_name, final_path)
+
+        # Reset button state
+        if self._edit_vertices_btn:
+            self._edit_vertices_btn.setChecked(False)
+            self._edit_vertices_btn.setText("Edit Vertices")
+
+        self.vertex_editing_changed.emit(False)
+        self._update_button_states()
+
+        main_window = self._get_main_window()
+        if main_window:
+            main_window.statusBar().showMessage(
+                f"Path vertices updated for part: {part_name}"
+            )
+
+        logging.info(f"Completed vertex editing for '{part_name}'")
+
     def clear_selected_motion_path(self) -> None:
         """Clear motion path for the currently selected part."""
         part_name = self._get_selected_part()
@@ -254,13 +378,20 @@ class MotionPathManager(QObject):
 
     # --- Path Completion Handling ---
 
-    @pyqtSlot(list)
-    def handle_freehand_path_completed(self, path_points: list[QPointF]) -> None:
+    @pyqtSlot(list, list, float)
+    def handle_freehand_path_completed(
+        self,
+        path_points: list[QPointF],
+        timed_points: list,
+        duration: float,
+    ) -> None:
         """
         Handle completion of freehand drawing from EditorView.
 
         Args:
-            path_points: List of QPointF points from the drawing
+            path_points: List of QPointF points from the drawing (resampled for visual)
+            timed_points: List of TimedPoint with timestamps (for velocity-aware animation)
+            duration: Total drawing duration in seconds
         """
         part_name = self._get_selected_part()
         if not part_name:
@@ -296,6 +427,16 @@ class MotionPathManager(QObject):
             char_part_item = editor_items[part_name]
             char_part_item.set_motion_path(motion_qpath)
             char_part_item.original_path_points = path_points.copy()
+            # Store timing data for velocity-aware animation
+            char_part_item.timed_path_points = list(timed_points)
+            char_part_item.path_duration = duration
+
+        # Log timing info if available
+        if timed_points and duration > 0:
+            logging.info(
+                f"Path for '{part_name}': {len(timed_points)} timed points, "
+                f"duration={duration:.2f}s"
+            )
 
         # Emit signals
         self.motion_path_updated.emit(part_name, motion_qpath)
@@ -309,13 +450,21 @@ class MotionPathManager(QObject):
         self._update_button_states()
         logging.info(f"Completed spline motion path for part: {part_name}")
 
+        # Automatically show vertex handles for the completed path
+        is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+        self._show_vertex_handles(part_name, motion_qpath, is_closed)
+
     def handle_drawing_cancelled(self) -> None:
         """Handle cancellation of drawing mode."""
         logging.debug("Drawing mode cancelled")
         if self._define_btn:
+            # Block signals to prevent triggering toggle_define_mode
+            # which would call set_mode("select") and clear vertex handles
+            self._define_btn.blockSignals(True)
             self._define_btn.setChecked(False)
             self._define_btn.setText("Start Drawing")
             self._define_btn.setStyleSheet("")
+            self._define_btn.blockSignals(False)
         if self._info_label:
             self._info_label.setVisible(False)
         self.drawing_mode_changed.emit(False)
@@ -326,6 +475,9 @@ class MotionPathManager(QObject):
         """
         Handle smoothness slider value change.
 
+        Uses current vertex positions if vertex editing is active,
+        otherwise falls back to original points.
+
         Args:
             value: Smoothness percentage (0-100)
         """
@@ -333,8 +485,19 @@ class MotionPathManager(QObject):
             self._smoothness_label.setText(f"{value}%")
 
         part_name = self._get_selected_part()
-        if part_name and self._has_motion_path(part_name):
-            self._regenerate_path_with_smoothness(part_name, value)
+        if not part_name or not self._has_motion_path(part_name):
+            return
+
+        # If vertex editing is active, use vertex positions
+        if self._editor_view.is_editing_vertices():
+            current_path = self._editor_view._path_vertex_editor.get_current_path()
+            if current_path and not current_path.isEmpty():
+                # Apply smoothness to the vertex-based path
+                self._apply_smoothness_to_path(part_name, current_path, value)
+                return
+
+        # Fallback to original points
+        self._regenerate_path_with_smoothness(part_name, value)
 
     def _regenerate_path_with_smoothness(
         self, part_name: str, smoothness_percentage: int
@@ -368,6 +531,7 @@ class MotionPathManager(QObject):
                 self._editor_view.set_raw_overlay_path(part_name, raw_path, raw_pen)
 
             # Try feasibility correction
+            corrected = None
             try:
                 corrected = self._apply_feasibility_snapping(part_name, raw_path)
                 if corrected and hasattr(self._editor_view, "set_corrected_overlay_path"):
@@ -376,7 +540,10 @@ class MotionPathManager(QObject):
             except Exception as e:
                 logging.debug(f"Feasibility snapping skipped: {e}")
 
-            self._update_part_path(part_name, raw_path)
+            # Use corrected path if available, otherwise raw path
+            # This ensures the feasibility-adjusted path is the final output
+            final_path = corrected if corrected else raw_path
+            self._update_part_path(part_name, final_path)
             logging.info(f"Regenerated path (RAW) for {part_name}")
             return
 
@@ -414,6 +581,7 @@ class MotionPathManager(QObject):
             self._editor_view.set_raw_overlay_path(part_name, raw_overlay, raw_pen)
 
         # Feasibility snapping
+        corrected = None
         try:
             corrected = self._apply_feasibility_snapping(part_name, new_path)
             if corrected and hasattr(self._editor_view, "set_corrected_overlay_path"):
@@ -422,8 +590,50 @@ class MotionPathManager(QObject):
         except Exception as e:
             logging.debug(f"Feasibility snapping skipped: {e}")
 
-        self._update_part_path(part_name, new_path)
+        # Use corrected path if available, otherwise the RDP-smoothed path
+        # This ensures the feasibility-adjusted path is the final output
+        final_path = corrected if corrected else new_path
+        self._update_part_path(part_name, final_path)
         logging.info(f"Regenerated path (RDP) for {part_name} with epsilon={epsilon:.2f}")
+
+    def _apply_smoothness_to_path(
+        self, part_name: str, base_path: QPainterPath, smoothness_percentage: int
+    ) -> None:
+        """
+        Apply smoothness to a path (typically from vertex editor).
+
+        Maps smoothness percentage to Catmull-Rom tension:
+        - 0% -> tension 0.2 (more angular)
+        - 100% -> tension 0.8 (very smooth)
+
+        Args:
+            part_name: Name of the part
+            base_path: The base path from vertex positions
+            smoothness_percentage: Smoothness level (0=angular, 100=smooth)
+        """
+        # Map smoothness (0-100) to tension (0.2-0.8)
+        # Lower tension = more angular, higher tension = smoother
+        tension = 0.2 + (smoothness_percentage / 100.0) * 0.6
+
+        # Update vertex editor tension - this rebuilds the path and emits path_modified
+        if self._editor_view.is_editing_vertices():
+            self._editor_view._path_vertex_editor.set_tension(tension)
+            # Get the updated path after tension change
+            updated_path = self._editor_view._path_vertex_editor.get_current_path()
+            if updated_path:
+                self._update_part_path(part_name, updated_path)
+        else:
+            # Fallback - just use base path
+            self._update_part_path(part_name, base_path)
+
+        # Clear overlays since we're using vertex-based path
+        if hasattr(self._editor_view, "clear_overlays_for"):
+            self._editor_view.clear_overlays_for(part_name)
+
+        logging.debug(
+            f"Applied smoothness {smoothness_percentage}% (tension={tension:.2f}) "
+            f"to vertex-based path for {part_name}"
+        )
 
     # --- Geometry Helpers ---
 
@@ -740,7 +950,15 @@ class MotionPathManager(QObject):
         return path
 
     def _update_part_path(self, part_name: str, new_path: QPainterPath) -> None:
-        """Update motion path across all data structures."""
+        """
+        Update motion path across all data structures and emit signals.
+
+        This is the central method for path updates. It ensures:
+        1. CharacterPartItem is updated
+        2. Project data manager is updated
+        3. Visual path in EditorView is updated
+        4. Signals are emitted to notify mechanism design tab
+        """
         editor_items = self._get_editor_items()
 
         # Update CharacterPartItem
@@ -762,3 +980,94 @@ class MotionPathManager(QObject):
             path_item = self._editor_view.final_paths_map[part_name]
             if path_item:
                 path_item.setPath(new_path)
+
+        # Emit signals to notify mechanism design tab and other listeners
+        self.motion_path_updated.emit(part_name, new_path)
+        self._emit_path_data()
+
+    # --- Vertex Handles ---
+
+    def _show_vertex_handles(
+        self, part_name: str, path: QPainterPath, is_closed: bool = True
+    ) -> None:
+        """
+        Show draggable vertex handles for a motion path.
+
+        Args:
+            part_name: Name of the part whose path is being edited
+            path: The QPainterPath to show handles for
+            is_closed: Whether the path is closed
+        """
+        if path.isEmpty():
+            logging.warning(f"_show_vertex_handles: Path is empty for '{part_name}'")
+            return
+
+        logging.debug(f"_show_vertex_handles: Starting for '{part_name}', path length={path.length():.1f}")
+
+        # Start vertex editing via EditorView
+        result = self._editor_view.start_vertex_editing(part_name, path, is_closed)
+        logging.debug(f"_show_vertex_handles: Vertex editing started: {result}")
+
+        # Apply current smoothness slider value as initial tension
+        if result and self._smoothness_slider:
+            smoothness = self._smoothness_slider.value()
+            tension = 0.2 + (smoothness / 100.0) * 0.6
+            self._editor_view._path_vertex_editor.set_tension(tension)
+            logging.debug(f"Applied initial tension {tension:.2f} from smoothness {smoothness}%")
+
+    def hide_vertex_handles(self, save_changes: bool = False) -> None:
+        """Hide all vertex handles.
+
+        Args:
+            save_changes: Whether to save path changes before hiding
+        """
+        if self._editor_view.is_editing_vertices():
+            if save_changes:
+                # Get final path before stopping
+                part_name = self._editor_view.get_vertex_edit_part_name()
+                final_path = self._editor_view.stop_vertex_editing()
+                if final_path and part_name:
+                    self._update_part_path(part_name, final_path)
+            else:
+                # Just clear without saving/emitting
+                self._editor_view._path_vertex_editor.stop_editing(emit_signal=False)
+                self._editor_view._current_vertex_edit_part = None
+
+    def show_vertex_handles_for_selected_part(self) -> None:
+        """Show vertex handles for the currently selected part if it has a path."""
+        part_name = self._get_selected_part()
+        if not part_name:
+            logging.debug("show_vertex_handles: No part selected")
+            return
+
+        # Hide any existing handles first
+        self.hide_vertex_handles()
+
+        # Check if part has a motion path
+        if not self._has_motion_path(part_name):
+            logging.debug(f"show_vertex_handles: Part '{part_name}' has no motion path")
+            return
+
+        # Get the path
+        path: QPainterPath | None = None
+        editor_items = self._get_editor_items()
+
+        if part_name in editor_items:
+            part_item = editor_items[part_name]
+            if hasattr(part_item, "motion_path") and part_item.motion_path:
+                path = part_item.motion_path
+                logging.debug("show_vertex_handles: Got path from part_item.motion_path")
+
+        if not path or path.isEmpty():
+            if hasattr(self._editor_view, "final_paths_map"):
+                path_item = self._editor_view.final_paths_map.get(part_name)
+                if path_item:
+                    path = path_item.path()
+                    logging.debug("show_vertex_handles: Got path from final_paths_map")
+
+        if path and not path.isEmpty():
+            is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
+            logging.info(f"show_vertex_handles: Showing handles for '{part_name}', path length={path.length():.1f}")
+            self._show_vertex_handles(part_name, path, is_closed)
+        else:
+            logging.debug(f"show_vertex_handles: No valid path found for '{part_name}'")

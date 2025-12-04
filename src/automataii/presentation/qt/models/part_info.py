@@ -63,7 +63,7 @@ class PartInfo:
                         first_point = False
                     else:
                         path.lineTo(point)
-                elif isinstance(p_model, (tuple, list)) and len(p_model) == 2:
+                elif isinstance(p_model, tuple | list) and len(p_model) == 2:
                     try:
                         point = QPointF(float(p_model[0]), float(p_model[1]))
                         if first_point:

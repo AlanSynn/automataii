@@ -259,6 +259,10 @@ class CentralAnimationScheduler(QObject):
         self._total_time += delta_time
         self._frame_count += 1
 
+        # Debug: Log frame processing (every 30 frames = ~1 second)
+        if self._frame_count % 30 == 1:
+            logger.debug(f"[SCHEDULER] Frame {self._frame_count}: {len(self._subscriptions)} subscriptions, dt={delta_time:.4f}")
+
         # Emit frame started
         self.frame_started.emit(delta_time)
 
@@ -280,6 +284,10 @@ class CentralAnimationScheduler(QObject):
             if sub._frame_counter < sub.frame_skip:
                 continue
             sub._frame_counter = 0
+
+            # Debug: Log callback dispatch (first 5 frames only)
+            if self._frame_count <= 5:
+                logger.debug(f"[SCHEDULER] Dispatching to {sub.owner_id}")
 
             # Call the callback
             try:

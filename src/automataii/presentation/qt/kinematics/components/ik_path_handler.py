@@ -95,7 +95,7 @@ class IKPathHandler:
                 return [
                     QPointF(p[0], p[1])
                     for p in path_obj
-                    if isinstance(p, (list, tuple)) and len(p) == 2
+                    if isinstance(p, list | tuple) and len(p) == 2
                 ]
             except (TypeError, IndexError):
                 return []

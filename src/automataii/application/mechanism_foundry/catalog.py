@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from automataii.infrastructure.validation.schemas import validate_mechanism_catalog
 from automataii.utils.paths import get_project_root
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -53,8 +59,27 @@ def load_catalog(catalog_path: Path | None = None) -> MechanismCatalog:
     if catalog_path is None:
         project_root = get_project_root()
         catalog_path = project_root / "resources" / "data" / "mechanism_catalog.json"
-    with catalog_path.open("r", encoding="utf-8") as f:
-        raw = json.load(f)
+
+    try:
+        with catalog_path.open("r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        logger.error(f"Mechanism catalog file not found: {catalog_path}")
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in mechanism catalog {catalog_path}: {e}")
+        raise
+    except PermissionError:
+        logger.error(f"Permission denied reading catalog: {catalog_path}")
+        raise
+
+    # Validate JSON structure using Pydantic schema
+    try:
+        validated = validate_mechanism_catalog(raw)
+        logger.debug(f"Catalog validation passed: version {validated.version}")
+    except ValidationError as e:
+        logger.warning(f"Catalog validation errors (proceeding with defaults): {e}")
+        # Continue with raw data - validation is advisory, not blocking
 
     version = raw.get("version", "0.0.0")
     categories_data = raw.get("categories", {})

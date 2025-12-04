@@ -51,6 +51,11 @@ class Cam(BaseMechanism):
             # print("Warning: No follower path points and no base_radius_override provided for cam generation.")
             return QPainterPath() if not return_dict else {}
 
+        # Guard against division by zero
+        if num_samples < 1:
+            logging.warning(f"Invalid num_samples {num_samples}, using default 360")
+            num_samples = 360
+
         cam_profile_path = QPainterPath()
         cam_profile_points_world = []  # Store points for potential dictionary return
 
@@ -485,6 +490,9 @@ class CamGenerator:
 
     def _generate_circular_profile(self, center: list[float], radius: float, num_points: int) -> list[list[float]]:
         """Generate points for a circular cam profile."""
+        # Guard against division by zero
+        if num_points < 1:
+            num_points = 36  # Default fallback
         points = []
         for i in range(num_points):
             angle = 2 * math.pi * i / num_points

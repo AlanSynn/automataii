@@ -8,6 +8,7 @@ Design Pattern: MVP (Model-View-Presenter) - Passive View variant
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +19,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QGraphicsScene
 from automataii.application.mechanisms.mechanism_service import MechanismService
 from automataii.application.mechanisms.skeleton_service import SkeletonService
 from automataii.domain.kinematics.mechanism import MechanismCandidate
+from automataii.presentation.qt.shared.scene_update_batcher import SceneUpdateBatcher
 from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import (
     PathTraceConfig,
     PathTraceManager,
@@ -68,6 +70,7 @@ class MechanismDesignPresenter(QObject):
         self._tab = tab
         self._main_window = tab.main_window
         self._scene: QGraphicsScene | None = None  # Set after tab UI is initialized
+        self._scene_batcher: SceneUpdateBatcher | None = None  # Performance: batched scene updates
 
         # === BUSINESS STATE (migrated from Tab) ===
 
@@ -164,6 +167,33 @@ class MechanismDesignPresenter(QObject):
             on_view_refresh=self._on_view_refresh,
         )
 
+    def set_scene(self, scene: QGraphicsScene) -> None:
+        """Set the scene and initialize the update batcher.
+
+        This should be called after the tab's UI is initialized.
+
+        Args:
+            scene: The QGraphicsScene to manage
+        """
+        self._scene = scene
+        if scene is not None:
+            self._scene_batcher = SceneUpdateBatcher(scene, parent=self)
+
+    def _request_scene_update(self) -> None:
+        """Request a batched scene update for performance optimization.
+
+        Multiple calls within the same event loop iteration are coalesced
+        into a single scene.update() call.
+        """
+        if self._scene_batcher is not None:
+            self._scene_batcher.request_update()
+        elif self._scene is not None:
+            # Fallback if batcher not initialized
+            try:
+                self._scene.update()
+            except RuntimeError:
+                pass
+
     # === TAB LIFECYCLE ===
 
     def activate(self) -> None:
@@ -207,7 +237,7 @@ class MechanismDesignPresenter(QObject):
             try:
                 callback(view_model)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
     # === STATE MANAGEMENT ===
 
@@ -252,7 +282,7 @@ class MechanismDesignPresenter(QObject):
                     if hasattr(self._tab, '_ensure_skeleton_visualization'):
                         self._tab._ensure_skeleton_visualization(self._tab._initial_skeleton_data_cache)
                 except Exception:
-                    pass
+                    logging.debug("Suppressed exception", exc_info=True)
 
             # Regenerate mechanism visuals if needed
             enabled_mechanisms = [
@@ -296,10 +326,10 @@ class MechanismDesignPresenter(QObject):
                                     new_trace_item.setPath(path)
 
                     except Exception:
-                        pass
+                        logging.debug("Suppressed exception", exc_info=True)
 
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def _cleanup_resources(self) -> None:
         """Clean up resources when deactivating.
@@ -311,7 +341,7 @@ class MechanismDesignPresenter(QObject):
             try:
                 self._main_window.ik_manager.stop_animation()
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         # Stop animation timer (from Tab)
         if hasattr(self._tab, 'animation_timer') and self._tab.animation_timer.isActive():
@@ -335,12 +365,8 @@ class MechanismDesignPresenter(QObject):
         if all_visual_items:
             self._visual_item_manager.safe_remove_visual_items(all_visual_items)
 
-        # Update scene
-        if self._scene:
-            try:
-                self._scene.update()
-            except Exception:
-                pass
+        # Update scene (batched for performance)
+        self._request_scene_update()
 
     def _regenerate_visuals_if_needed(
         self,
@@ -460,7 +486,7 @@ class MechanismDesignPresenter(QObject):
                 if hasattr(ik, 'reset_animation_state'):
                     ik.reset_animation_state()
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
     # === MECHANISM MANAGEMENT ===
 
@@ -615,7 +641,7 @@ class MechanismDesignPresenter(QObject):
 
     def _on_view_refresh(self) -> None:
         """Handle view refresh request."""
-        self._scene.update()
+        self._request_scene_update()
 
     def _get_transform_function(self, layer_data: dict):
         """Get transform function for layer data."""
@@ -674,13 +700,15 @@ class MechanismDesignPresenter(QObject):
         self._path_trace_manager.init_trace(result.mechanism_id, self._scene)
 
         # Request View to generate visuals
+        # IMPORTANT: Spread layer_data with ** to put transform_params and generated_path
+        # at the top level where TransformService expects them.
+        # This is consistent with _generate_mechanism_visuals_directly which uses **layer_data.
         self.view_update_requested.emit(
             'generate_mechanism_visuals',
             {
                 'mechanism_id': result.mechanism_id,
                 'mechanism_type': layer_data["type"],
-                'params': layer_data["params"],
-                'layer_data': layer_data,
+                **layer_data,  # Spreads transform_params, generated_path, etc. at top level
             }
         )
 
@@ -720,9 +748,8 @@ class MechanismDesignPresenter(QObject):
             if key in mechanism_graphics_data:
                 layer_data[key] = mechanism_graphics_data[key]
 
-        # Update scene
-        if self._scene:
-            self._scene.update()
+        # Update scene (batched for performance)
+        self._request_scene_update()
 
     def _create_mechanism_visuals(
         self,
@@ -860,20 +887,62 @@ class MechanismDesignPresenter(QObject):
         return self.parts_data
 
     def get_standardized_joint_id(self, abstract_joint_id: str) -> str | None:
-        """Standardize joint ID with skeleton cache fallback."""
+        """Standardize joint ID with skeleton cache fallback and prefix matching.
+
+        Handles skeleton joint IDs that have numeric suffixes (e.g., left_hand_9).
+        """
+        import logging
         from automataii.domain.kinematics.joint_mapping_service import JointMappingService
         service = JointMappingService()
         std_id = service.standardize_joint_id(abstract_joint_id)
+
+        # Use presenter's cache first, then fallback to Tab's cache
         cache = self._initial_skeleton_data_cache
-        if std_id and cache:
-            if std_id in cache.get("joints", {}):
-                return std_id
+        if not cache:
+            cache = getattr(self._tab, '_initial_skeleton_data_cache', None)
+
+        # Debug: Log cache state (only first call)
+        if not hasattr(self, '_cache_logged'):
+            self._cache_logged = True
+            logging.debug(f"[JOINT-MAP] Cache exists={cache is not None}, keys={list(cache.keys()) if cache else []}")
+            joints_preview = list(cache.get('joints', {}).keys())[:5] if cache else []
+            logging.debug(f"[JOINT-MAP] Sample joint keys: {joints_preview}")
+
+        joints = cache.get("joints", {}) if cache else {}
+
+        # 1. Exact match
+        if std_id and std_id in joints:
+            return std_id
+        if abstract_joint_id in joints:
+            return abstract_joint_id
+
+        # 2. Check joint_map
         if cache:
             joint_map = cache.get("joint_map", {})
             if abstract_joint_id in joint_map:
                 return joint_map[abstract_joint_id]
-            if abstract_joint_id in cache.get("joints", {}):
-                return abstract_joint_id
+            if std_id and std_id in joint_map:
+                return joint_map[std_id]
+
+        # 3. Prefix matching for suffixed joint IDs (e.g., left_hand_9)
+        # Skeleton from Animated Drawings uses suffixed IDs
+        target_id = std_id or abstract_joint_id
+        if joints and target_id:
+            for joint_id in joints:
+                # Check if joint_id starts with target (prefix match)
+                # e.g., "left_hand_9".startswith("left_hand")
+                if joint_id.startswith(target_id + "_") or joint_id == target_id:
+                    logging.debug(f"[JOINT-MAP] Prefix matched '{target_id}' -> '{joint_id}'")
+                    return joint_id
+                # Also check if target is a prefix without underscore
+                # e.g., "left_hand" matches "left_hand9" (no underscore)
+                if joint_id.startswith(target_id) and len(joint_id) > len(target_id):
+                    suffix = joint_id[len(target_id):]
+                    if suffix[0].isdigit() or suffix[0] == '_':
+                        logging.debug(f"[JOINT-MAP] Prefix matched '{target_id}' -> '{joint_id}'")
+                        return joint_id
+
+        logging.debug(f"[JOINT-MAP] No match found for '{abstract_joint_id}' (std: '{std_id}')")
         return None
 
     def handle_ik_update(self, ik_results: dict[str, dict[str, Any]]) -> bool:
@@ -889,8 +958,8 @@ class MechanismDesignPresenter(QObject):
             if hasattr(view, 'update_visuals_from_animation_data'):
                 view.update_visuals_from_animation_data(ik_results)
 
-            if self._scene and self._tab_active:
-                self._scene.update()
+            if self._tab_active:
+                self._request_scene_update()
             return True
         except RuntimeError as e:
             if "wrapped C/C++ object" not in str(e):

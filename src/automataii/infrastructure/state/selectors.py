@@ -3,8 +3,9 @@ State selectors for efficient state queries and memoization.
 """
 
 import hashlib
-import pickle
+import json
 from collections.abc import Callable
+from dataclasses import asdict, is_dataclass
 from typing import Any, Generic, TypeVar
 
 from automataii.infrastructure.state.base import State
@@ -63,7 +64,12 @@ class Selector(Generic[T, R]):
         return result
 
     def _create_cache_key(self, state: State[T]) -> str:
-        """Create cache key from state."""
+        """Create cache key from state using JSON serialization (secure alternative to pickle).
+
+        Security Note:
+            Uses JSON instead of pickle to prevent arbitrary code execution.
+            Uses SHA256 instead of MD5 to prevent hash collision attacks.
+        """
         try:
             # Try to create a hash of the relevant state parts
             if self.dependencies:
@@ -75,16 +81,35 @@ class Selector(Generic[T, R]):
                     elif isinstance(state.data, dict) and dep in state.data:
                         dep_data[dep] = state.data[dep]
 
-                state_bytes = pickle.dumps(dep_data, protocol=pickle.HIGHEST_PROTOCOL)
+                state_json = self._serialize_to_json(dep_data)
             else:
                 # Hash entire state
-                state_bytes = pickle.dumps(state.data, protocol=pickle.HIGHEST_PROTOCOL)
+                state_json = self._serialize_to_json(state.data)
 
-            return hashlib.md5(state_bytes).hexdigest()
+            # Use SHA256 instead of MD5 (collision-resistant)
+            return hashlib.sha256(state_json.encode('utf-8')).hexdigest()
 
-        except (pickle.PicklingError, TypeError):
+        except (ValueError, TypeError, AttributeError):
             # Fallback to string representation
-            return str(hash(str(state.data)))
+            return hashlib.sha256(repr(state.data).encode('utf-8')).hexdigest()
+
+    def _serialize_to_json(self, data: Any) -> str:
+        """Serialize data to JSON string for hashing.
+
+        Handles dataclasses, dicts, and other common types safely.
+        """
+        def json_default(obj: Any) -> Any:
+            """Custom JSON encoder for non-serializable types."""
+            if is_dataclass(obj) and not isinstance(obj, type):
+                return asdict(obj)
+            if hasattr(obj, '__dict__'):
+                return obj.__dict__
+            if hasattr(obj, 'tolist'):  # numpy arrays
+                return obj.tolist()
+            # Fallback to string representation
+            return repr(obj)
+
+        return json.dumps(data, default=json_default, sort_keys=True, ensure_ascii=False)
 
     def _states_equal(self, state1: Any, state2: Any) -> bool:
         """Check if two states are equal."""

@@ -35,6 +35,9 @@ from automataii.config.z_indices import Z_MOTION_PATH_PREVIEW, Z_SKELETON_OVERLA
 from automataii.presentation.qt.animation import ViewportConfig, ViewportController
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
 from automataii.presentation.qt.graphics_items.skeleton_item import SkeletonGraphicsItem
+from automataii.presentation.qt.views.components.path_vertex_editor import (
+    PathVertexEditor,
+)
 from automataii.presentation.qt.views.motion_path_manager import (
     TARGET_PATH_POINTS,
     MotionPathDrawer,
@@ -56,7 +59,7 @@ class EditorView(QGraphicsView):
         pivot_d_selected(QPointF): Emitted when pivot D is selected.
         driver_center_selected(QPointF): Emitted when driver center is selected.
         driven_center_selected(QPointF): Emitted when driven center is selected.
-        freehandPathCompleted = pyqtSignal(list) # Emits list of QPointF
+        freehandPathCompleted = pyqtSignal(list, list, float) # Emits (path_points, timed_points, duration)
         part_item_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
         part_item_double_clicked = pyqtSignal(CharacterPartItem) # Emits the CharacterPartItem instance
         part_item_moved = pyqtSignal(CharacterPartItem, QPointF) # Emits item and its new scene position
@@ -71,7 +74,8 @@ class EditorView(QGraphicsView):
     pivot_d_selected = pyqtSignal(QPointF)
     driver_center_selected = pyqtSignal(QPointF)
     driven_center_selected = pyqtSignal(QPointF)
-    freehandPathCompleted = pyqtSignal(list)  # New signal for freehand path points
+    # Signal includes: (path_points: list[QPointF], timed_points: list[TimedPoint], duration: float)
+    freehandPathCompleted = pyqtSignal(list, list, float)
     zoom_changed = pyqtSignal(float)  # Emitted when zoom level changes
 
     # Signals for item interactions
@@ -90,6 +94,14 @@ class EditorView(QGraphicsView):
     joint_bend_direction_changed = pyqtSignal(
         str, float
     )  # Emits joint_id and new bend_direction when a joint's bend direction is changed
+
+    # Vertex editing signals
+    path_vertices_modified = pyqtSignal(
+        str, QPainterPath
+    )  # Emits (part_name, modified_path) when vertices are dragged
+    vertex_editing_finished = pyqtSignal(
+        str, QPainterPath
+    )  # Emits (part_name, final_path) when vertex editing ends
 
     def __init__(self, scene, parent_window=None, mechanism_mode=False):
         super().__init__(scene, parent_window)
@@ -191,7 +203,9 @@ class EditorView(QGraphicsView):
         # MotionPathDrawer handles low-level path drawing, visualization, and overlays
         self._motion_path_drawer = MotionPathDrawer(self.scene(), parent=self)
         self._motion_path_drawer.freehand_path_completed.connect(
-            lambda points: self.freehandPathCompleted.emit(points)
+            lambda points, timed_points, duration: self.freehandPathCompleted.emit(
+                points, timed_points, duration
+            )
         )
         self._motion_path_drawer.drawing_cancelled.connect(
             lambda: self.drawing_cancelled.emit()
@@ -202,6 +216,16 @@ class EditorView(QGraphicsView):
 
         # Expose final_paths_map for backward compatibility
         self.final_paths_map = self._motion_path_drawer.final_paths_map
+
+        # PathVertexEditor for vertex-based path editing
+        self._path_vertex_editor = PathVertexEditor(self.scene(), parent=self)
+        self._path_vertex_editor.path_modified.connect(
+            lambda part_name, path: self.path_vertices_modified.emit(part_name, path)
+        )
+        self._path_vertex_editor.editing_finished.connect(
+            lambda part_name, path: self.vertex_editing_finished.emit(part_name, path)
+        )
+        self._current_vertex_edit_part: str | None = None
 
         # Rounded corners and white background for the viewport
         self.viewport().setStyleSheet("background-color: white; border-radius: 10px;")
@@ -347,13 +371,20 @@ class EditorView(QGraphicsView):
         if previous_mode == "define_joint" and mode != "define_joint":
             self._reset_joint_definition()
         if previous_mode == "define_motion_path" and mode != "define_motion_path":
-            self._cancel_motion_path_drawing()  # This will clear previews etc.
+            # Skip cancel when transitioning to edit_vertices - path is complete, not cancelled
+            if mode != "edit_vertices":
+                self._cancel_motion_path_drawing()  # This will clear previews etc.
+            else:
+                # Just clean up preview visuals without emitting cancel signals
+                self._cleanup_motion_path_visuals()
         if previous_mode == "select_end_effector" and mode != "select_end_effector":
             self._target_part_for_end_effector = None
         if previous_mode == "select_cam_center" and mode != "select_cam_center":
             pass  # No specific reset needed
         if previous_mode == "simulation" and mode != "simulation":
             self._reset_simulation_state()  # Ensure interactive state is restored
+        if previous_mode == "edit_vertices" and mode != "edit_vertices":
+            self._stop_vertex_editing()  # Stop vertex editing and finalize path
 
         # Configure view based on new mode
         if mode == "simulation":
@@ -378,6 +409,10 @@ class EditorView(QGraphicsView):
             self.viewport().setCursor(
                 Qt.CursorShape.CrossCursor
             )  # Or a custom pen cursor
+        elif mode == "edit_vertices":
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setInteractive(True)
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         else:  # Default/fallback
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
             self.setInteractive(True)
@@ -642,7 +677,8 @@ class EditorView(QGraphicsView):
 
                     # Emit the RESAMPLED points for external handling (e.g., by IKManager)
                     # as these are the points that define the final visual shape.
-                    self.freehandPathCompleted.emit(points_for_spline)
+                    # Legacy path: no timing data available (pass empty list and 0 duration)
+                    self.freehandPathCompleted.emit(points_for_spline, [], 0.0)
                     path_type_str = "closed" if self.current_path_is_closed else "open"
                     logging.debug(
                         f"Completed and finalized {path_type_str} spline motion path with {len(points_for_spline)} points (resampled from {num_original_points})."
@@ -664,7 +700,10 @@ class EditorView(QGraphicsView):
                     self._cancel_motion_path_drawing()  # Clears preview, resets state
 
                 self._is_drawing_freehand = False
-                self.set_mode("select")  # Switch to select mode
+                # Only switch to select mode if vertex editing wasn't started
+                # (vertex editing mode is set by signal handlers after freehandPathCompleted)
+                if self.current_mode != "edit_vertices":
+                    self.set_mode("select")
 
         super().mouseReleaseEvent(event)  # Call base for other release events
 
@@ -1490,6 +1529,74 @@ class EditorView(QGraphicsView):
         # Delegate to MotionPathManager - it handles final path, overlays, and emits signal
         self._motion_path_drawer.clear_visual_path_for_component(component_key)
         self._show_status_message(f"Path cleared for {component_key}.")
+
+    # ---- Vertex Editing Methods ----
+
+    def start_vertex_editing(self, part_name: str, path: QPainterPath, is_closed: bool = True) -> bool:
+        """
+        Start vertex editing mode for a motion path.
+
+        Args:
+            part_name: Name of the part whose path is being edited
+            path: The QPainterPath to edit
+            is_closed: Whether the path is closed
+
+        Returns:
+            True if editing started successfully, False otherwise
+        """
+        if path.isEmpty():
+            logging.warning(f"Cannot edit empty path for {part_name}")
+            return False
+
+        # Stop any existing vertex editing
+        self._stop_vertex_editing()
+
+        # Store the part name being edited
+        self._current_vertex_edit_part = part_name
+
+        # Start editing
+        self._path_vertex_editor.start_editing(part_name, path, is_closed)
+
+        # Set mode
+        self.set_mode("edit_vertices")
+
+        self._show_status_message(f"Editing path vertices for {part_name}")
+        logging.info(f"Started vertex editing for {part_name}")
+        return True
+
+    def _stop_vertex_editing(self, emit_signal: bool = False) -> None:
+        """Stop vertex editing and finalize the path.
+
+        Args:
+            emit_signal: Whether to emit editing_finished signal
+        """
+        if self._path_vertex_editor.is_editing():
+            self._path_vertex_editor.stop_editing(emit_signal=emit_signal)
+            self._current_vertex_edit_part = None
+            logging.debug("Stopped vertex editing")
+
+    def stop_vertex_editing(self) -> QPainterPath | None:
+        """
+        Stop vertex editing and return the final path.
+
+        Returns:
+            The modified path, or None if not editing
+        """
+        if not self._path_vertex_editor.is_editing():
+            return None
+
+        final_path = self._path_vertex_editor.get_current_path()
+        self._stop_vertex_editing()
+        self.set_mode("select")
+        return final_path
+
+    def is_editing_vertices(self) -> bool:
+        """Check if currently in vertex editing mode."""
+        return self._path_vertex_editor.is_editing()
+
+    def get_vertex_edit_part_name(self) -> str | None:
+        """Get the name of the part currently being edited."""
+        return self._current_vertex_edit_part
 
     def get_camera_state(self) -> dict[str, Any]:
         """Get current camera state including transform and center position.

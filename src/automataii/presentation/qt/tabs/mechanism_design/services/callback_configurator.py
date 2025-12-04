@@ -167,7 +167,7 @@ class TabCallbackConfigurator:
             tab_data_coordinator=self._tab._tab_data_coordinator,
             instantiation_service=self._tab._mechanism_instantiation,
             set_selected_part_name=lambda name: setattr(self._tab, 'selected_part_name', name),
-            presenter_select_part=self._tab._presenter.select_part if self._tab._presenter else None,
+            presenter_select_part=self._tab._mvp_presenter.select_part if self._tab._mvp_presenter else None,
             generate_mechanism_from_candidate=self._tab._generate_mechanism_from_candidate,
             add_mechanism_layer=self._tab._add_mechanism_layer,
             handle_mechanism_visuals=self._tab.handle_mechanism_visuals,

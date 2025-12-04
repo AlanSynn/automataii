@@ -1358,7 +1358,7 @@ class AutomataDesigner(QMainWindow):
                     if callable(apply):
                         apply(preset)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
         elif setting_name == "debug_mode":
             # Assuming ImageProcessingTab has a method to set debug mode
             if hasattr(self.image_proc_tab, "set_debug_mode"):

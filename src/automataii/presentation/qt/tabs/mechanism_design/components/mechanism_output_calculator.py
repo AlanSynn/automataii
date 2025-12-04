@@ -174,8 +174,9 @@ class MechanismOutputCalculator:
         p4 = np.array(joint_positions["p4_positions"][frame_index])
 
         # Calculate coupler point
-        coupler_point_x = params.get("coupler_point_x", 0.0)
-        coupler_point_y = params.get("coupler_point_y", 0.0)
+        # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
+        coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0)
+        coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0)
 
         coupler_vec = p4 - p3
         coupler_length = np.linalg.norm(coupler_vec)
@@ -267,41 +268,58 @@ class MechanismOutputCalculator:
         layer_data: dict,
     ) -> QPointF | None:
         """
-        Calculate cam mechanism output with vertical follower (Foundry-compatible).
+        Calculate cam mechanism output with vertical follower.
 
-        Uses harmonic formula: radius = base_radius + cam_offset * cos(lobes * θ)
-                                      + (cam_offset * harmonic) * cos(2 * lobes * θ)
+        Uses pre-computed cam profile from factory when available,
+        falling back to harmonic formula for compatibility.
 
         Returns the follower base position (where part would attach).
         """
-        # Get harmonic cam parameters (Foundry-compatible)
-        base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
-        cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
-        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 100.0))
-        cam_lobes = int(params.get("cam_lobes", 1))
-        profile_harmonic = params.get("profile_harmonic", 0.3)
-
-        # Get scaling factors
-        cam_scale_factor = layer_data.get('cam_scale_factor', 1.0)
+        # Get rod length params
+        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 40.0))
         rod_len_mul = layer_data.get('rod_length_multiplier', 1.0)
-
-        scaled_base_radius = base_radius * cam_scale_factor
-        scaled_cam_offset = cam_offset * cam_scale_factor
         scaled_rod_length = follower_rod_length * rod_len_mul
 
         cam_to_scene = layer_data.get('cam_transform_function') or self._get_scene_transform(layer_data)
         if cam_to_scene is None:
             return None
 
-        # Calculate contact radius at follower position using harmonic formula
-        # Follower is always at theta = -π/2 in the cam frame (bottom)
-        # Account for cam rotation
         cam_angle = time  # Cam rotation angle in radians
-        follower_contact_theta = -math.pi / 2 - cam_angle
 
-        primary_var = scaled_cam_offset * math.cos(cam_lobes * follower_contact_theta)
-        secondary_var = (scaled_cam_offset * profile_harmonic) * math.cos(2 * cam_lobes * follower_contact_theta)
-        contact_radius = scaled_base_radius + primary_var + secondary_var
+        # Priority: Use pre-computed cam profile from factory
+        cam_points_local = layer_data.get('cam_points_local')
+
+        if cam_points_local is not None and len(cam_points_local) > 0:
+            # Calculate contact radius from actual profile
+            # Find the point at -π/2 - cam_angle in local frame (before rotation)
+            follower_angle_in_profile = -math.pi / 2 - cam_angle
+            # Normalize to 0..2π range
+            follower_angle_norm = follower_angle_in_profile % (2 * math.pi)
+            # Find closest point in the profile
+            num_pts = len(cam_points_local)
+            profile_idx = int((follower_angle_norm / (2 * math.pi)) * num_pts) % num_pts
+            if isinstance(cam_points_local, np.ndarray):
+                contact_pt = cam_points_local[profile_idx]
+            else:
+                contact_pt = cam_points_local[profile_idx]
+            contact_radius = float(np.sqrt(contact_pt[0]**2 + contact_pt[1]**2))
+        else:
+            # Fallback: Use harmonic formula
+            base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
+            cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
+            cam_lobes = int(params.get("cam_lobes", 1))
+            profile_harmonic = params.get("profile_harmonic", 0.3)
+
+            cam_scale_factor = layer_data.get('cam_scale_factor', 1.0)
+
+            scaled_base_radius = base_radius * cam_scale_factor
+            scaled_cam_offset = cam_offset * cam_scale_factor
+
+            # Calculate contact radius using harmonic formula
+            follower_contact_theta = -math.pi / 2 - cam_angle
+            primary_var = scaled_cam_offset * math.cos(cam_lobes * follower_contact_theta)
+            secondary_var = (scaled_cam_offset * profile_harmonic) * math.cos(2 * cam_lobes * follower_contact_theta)
+            contact_radius = scaled_base_radius + primary_var + secondary_var
 
         # Contact point in mechanism coordinates (always at bottom)
         contact_local = np.array([0.0, -contact_radius])
@@ -323,9 +341,10 @@ class MechanismOutputCalculator:
             center_scene = cam_to_scene(np.array([0.0, 0.0]))
             follower_x = center_scene.x()
 
-        # Follower base Y (at end of rod below contact point)
-        # In scene coords, Y+ is typically down, so add rod_scene
-        follower_base_y = contact_scene.y() + rod_scene
+        # Follower base Y (at end of rod above contact point due to gravity)
+        # In scene coords, Y+ is down, so subtract rod_scene to move upward
+        # Gravity physics: follower is above cam, rod extends upward
+        follower_base_y = contact_scene.y() - rod_scene
 
         return QPointF(float(follower_x), float(follower_base_y))
 
@@ -426,8 +445,9 @@ class MechanismOutputCalculator:
         l2, l3, l4 = params.get("l2"), params.get("l3"), params.get("l4")
         p1_coords = key_points.get("ground_pivot_1")
         p2_coords = key_points.get("ground_pivot_2")
-        coupler_point_x = params.get("coupler_point_x", 0.0) or 0.0
-        coupler_point_y = params.get("coupler_point_y", 0.0) or 0.0
+        # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
+        coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0) or 0.0
+        coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0) or 0.0
 
         if not all([l2 is not None, l3 is not None, l4 is not None, p1_coords, p2_coords]):
             return None

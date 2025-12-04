@@ -80,8 +80,8 @@ class LinkageConfig:
             return False
 
         sorted_lengths = sorted(self.link_lengths)
-        s, p, q, l = sorted_lengths
-        return (s + l) <= (p + q)
+        shortest, mid1, mid2, longest = sorted_lengths
+        return (shortest + longest) <= (mid1 + mid2)
 
     @property
     def grashof_ratio(self) -> float:
@@ -94,8 +94,8 @@ class LinkageConfig:
             return float("nan")
 
         sorted_lengths = sorted(self.link_lengths)
-        s, p, q, l = sorted_lengths
-        return (s + l) / (p + q) if (p + q) > 0 else float("inf")
+        shortest, mid1, mid2, longest = sorted_lengths
+        return (shortest + longest) / (mid1 + mid2) if (mid1 + mid2) > 0 else float("inf")
 
     def get_link_role(self, index: int) -> LinkRole:
         """Determine role of link at given index.

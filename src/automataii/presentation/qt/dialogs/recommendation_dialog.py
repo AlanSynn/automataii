@@ -434,12 +434,13 @@ class MechanismPreviewWidget(QGraphicsView):
         try:
             up = self.mechanism_data.get("user_path_aligned_np")
             if up is not None and len(up) > 0:
-                umin = float(np.min(up[:, 1])); umax = float(np.max(up[:, 1]))
+                umin = float(np.min(up[:, 1]))
+                umax = float(np.max(up[:, 1]))
                 user_lift = abs(umax - umin)
                 if user_lift > 1e-9:
                     eccentricity = user_lift
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
         rod_len = float(params.get("follower_rod_length", 40.0))
 
         cam_data = full_sim_data.get("cam_data", {}) if full_sim_data else {}
@@ -465,7 +466,7 @@ class MechanismPreviewWidget(QGraphicsView):
             axis, poly = self._load_cam_profile_svg(svg_path)
             poly - axis
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
         # If base radius is missing or out-of-range, tie it to eccentricity to control on-screen size
         if (base_radius <= 0) or (base_radius > 3 * eccentricity):
@@ -560,7 +561,7 @@ class MechanismPreviewWidget(QGraphicsView):
                     cy = float(elem.attrib.get('cy', '0'))
                     axis = np.array([cx, cy], dtype=float)
                 except Exception:
-                    pass
+                    logging.debug("Suppressed exception", exc_info=True)
             elif tag == 'path':
                 d = elem.attrib.get('d', '')
                 if not d:
@@ -571,14 +572,18 @@ class MechanismPreviewWidget(QGraphicsView):
                     cmd = tokens[i]
                     if cmd in ('M', 'L') and i+2 < len(tokens):
                         try:
-                            x = float(tokens[i+1]); y = float(tokens[i+2])
-                            poly_pts.append((x, y)); i += 3
+                            x = float(tokens[i+1])
+                            y = float(tokens[i+2])
+                            poly_pts.append((x, y))
+                            i += 3
                         except Exception:
                             i += 1
                     else:
                         try:
-                            x = float(cmd); y = float(tokens[i+1])
-                            poly_pts.append((x, y)); i += 2
+                            x = float(cmd)
+                            y = float(tokens[i+1])
+                            poly_pts.append((x, y))
+                            i += 2
                         except Exception:
                             i += 1
         if axis is None and poly_pts:
@@ -595,7 +600,8 @@ class MechanismPreviewWidget(QGraphicsView):
         u = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
         dots = u @ template_points.T
         r_templ = np.max(dots, axis=1)
-        r_min = float(np.min(r_templ)); r_max = float(np.max(r_templ))
+        r_min = float(np.min(r_templ))
+        r_max = float(np.max(r_templ))
         denom = max(1e-9, r_max - r_min)
         s = (r_templ - r_min) / denom
         r = base_radius + eccentricity * s
@@ -661,8 +667,10 @@ class MechanismPreviewWidget(QGraphicsView):
                 theta = 2 * np.pi * i / 100
                 p_orig = center + radius * np.array([np.cos(theta), np.sin(theta)])
                 p_screen = to_screen_coords(p_orig)
-                if i == 0: path.moveTo(p_screen)
-                else: path.lineTo(p_screen)
+                if i == 0:
+                    path.moveTo(p_screen)
+                else:
+                    path.lineTo(p_screen)
             self.scene.addPath(path, QPen(color, 4), QBrush(color.lighter(170)))
 
             p1 = to_screen_coords(center)

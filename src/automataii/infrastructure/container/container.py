@@ -7,7 +7,6 @@ Provides service registration and resolution with lifetime management.
 import inspect
 import logging
 import threading
-from abc import ABC
 from collections.abc import Callable
 from enum import Enum
 from typing import (
@@ -29,10 +28,13 @@ class Lifetime(Enum):
     SCOPED = "scoped"           # One instance per scope
 
 
-class Injectable(ABC):
+class Injectable:
     """
     Base class for injectable services.
     Provides automatic dependency resolution.
+
+    Note: This is a marker class, not an abstract base class.
+    Subclasses are automatically marked as injectable.
     """
 
     def __init_subclass__(cls, **kwargs):

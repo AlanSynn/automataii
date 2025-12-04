@@ -20,9 +20,12 @@ class AnchorItem(QGraphicsEllipseItem):  # Inherit only from QGraphicsEllipseIte
         self,
         anchor_id: str,
         radius: float = 6,
-        color: QColor = QColor("red"),
-        parent: QGraphicsItem = None,
+        color: QColor | None = None,
+        parent: QGraphicsItem | None = None,
     ):
+        if color is None:
+            color = QColor("red")
+
         rect = QRectF(-radius, -radius, radius * 2, radius * 2)
         super().__init__(rect, parent)  # Call QGraphicsEllipseItem constructor
 

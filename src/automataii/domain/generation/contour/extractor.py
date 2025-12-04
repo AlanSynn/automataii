@@ -102,6 +102,9 @@ class AdvancedContourExtractor:
         if len(image.shape) == 2:
             # Grayscale image
             return image
+        elif len(image.shape) < 3:
+            # Invalid image format (1D array or similar)
+            return None
         elif image.shape[2] == 3:
             # RGB image - create mask from non-background pixels
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)

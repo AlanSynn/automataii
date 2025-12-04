@@ -1,7 +1,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTextEdit, QVBoxLayout, QWidget
 
-from automataii.domain.mechanisms.linkage.config import LinkRole
+from automataii.domain.mechanisms.linkages.config import LinkRole
 from automataii.presentation.qt.mechanisms.linkage_colors import LINK_COLORS
 
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
-ToSceneFn = Optional[Callable[[np.ndarray], Any]]
+ToSceneFn = Callable[[np.ndarray], Any] | None
 
 
 @dataclass

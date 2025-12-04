@@ -8,6 +8,7 @@ Design Pattern: Handler (recommendation event handling)
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -309,7 +310,7 @@ class RecommendationHandler:
                             simulation_result, mechanism_type
                         )
                 except Exception:
-                    pass
+                    logging.debug("Suppressed exception", exc_info=True)
 
             # Add candidate-specific data
             if "key_points" in candidate_data:

@@ -12,7 +12,7 @@ import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtCore import QObject, QPointF, pyqtSignal
+from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainterPath, QPen
 from PyQt6.QtWidgets import QGraphicsPathItem
 
@@ -341,7 +341,3 @@ class MotionPathController(QObject):
                 resampled.append(end)
 
         return resampled
-
-
-# Import Qt enum for pen style
-from PyQt6.QtCore import Qt

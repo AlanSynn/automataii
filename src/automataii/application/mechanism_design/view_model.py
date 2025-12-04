@@ -45,7 +45,7 @@ class MechanismDesignViewModel:
         return next((p for p in self.parts if p.name == name), None)
 
     def find_layer(self, layer_id: str) -> MechanismLayerViewModel | None:
-        return next((l for l in self.layers if l.id == layer_id), None)
+        return next((layer for layer in self.layers if layer.id == layer_id), None)
 
 
 def view_model_from_state(state: MechanismDesignState) -> MechanismDesignViewModel:

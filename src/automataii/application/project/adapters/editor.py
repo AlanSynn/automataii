@@ -26,6 +26,9 @@ from ..models import (
 from .base import TabAdapter
 
 if TYPE_CHECKING:
+    from PyQt6.QtCore import QObject
+
+    from automataii.application.project import ProjectStateManager
     from automataii.presentation.qt.models import PartInfo
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,14 @@ class EditorTabAdapter(TabAdapter):
     - skeleton_changed → on_skeleton_updated, cache_initial_skeleton
     - paths_changed → (external path updates if any)
     """
+
+    def __init__(
+        self,
+        state_manager: ProjectStateManager,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(state_manager, parent)
+        self._syncing_from_state = False  # Guard flag to prevent recursive updates
 
     def _connect_tab_signals(self) -> None:
         """Connect to EditorTab's output signals."""
@@ -92,6 +103,11 @@ class EditorTabAdapter(TabAdapter):
         Args:
             path_data: Dict mapping part_name to QPainterPath
         """
+        # Guard: skip if we're syncing from state to avoid recursion
+        if self._syncing_from_state:
+            logger.debug("EditorTabAdapter: Skipping path_data_changed (syncing from state)")
+            return
+
         logger.info(f"EditorTabAdapter: Path data changed for {len(path_data)} parts")
 
         try:
@@ -116,6 +132,11 @@ class EditorTabAdapter(TabAdapter):
             part_name: Name of the part
             qpath: The QPainterPath
         """
+        # Guard: skip if we're syncing from state to avoid recursion
+        if self._syncing_from_state:
+            logger.debug("EditorTabAdapter: Skipping motion_path_updated (syncing from state)")
+            return
+
         logger.debug(f"EditorTabAdapter: Motion path updated for '{part_name}'")
 
         try:
@@ -190,6 +211,8 @@ class EditorTabAdapter(TabAdapter):
 
         logger.info(f"EditorTabAdapter: Syncing {len(paths)} paths from state")
 
+        # Set guard flag to prevent recursive updates
+        self._syncing_from_state = True
         try:
             # Get current part names that have paths in the tab
             current_parts_with_paths = set()
@@ -232,6 +255,9 @@ class EditorTabAdapter(TabAdapter):
 
         except Exception as e:
             logger.exception(f"Error syncing paths from state: {e}")
+        finally:
+            # Always reset guard flag
+            self._syncing_from_state = False
 
     # =========================================================================
     # DATA TRANSFORMATIONS

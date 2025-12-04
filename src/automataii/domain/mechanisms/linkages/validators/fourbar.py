@@ -7,6 +7,11 @@ import math
 from typing import TYPE_CHECKING
 
 from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
+from automataii.domain.mechanisms.shared import (
+    calculate_transmission_angle,
+    classify_transmission_angle,
+    analyze_link_ratios,
+)
 
 if TYPE_CHECKING:
     from automataii.domain.mechanisms.core.types import SafetyStatus
@@ -57,8 +62,7 @@ class FourBarValidator(LinkageValidator):
                 ground, input_l, coupler, output
             )
 
-            # Transmission angle quality
-            math.radians(input_angle)
+            # Transmission angle quality (using shared analyzer)
             a_x, a_y = positions["A"]
             o4_x, o4_y = positions["O4"]
 
@@ -66,13 +70,22 @@ class FourBarValidator(LinkageValidator):
             max_reach = coupler + output
             min_reach = abs(coupler - output)
 
-            ta_deg, ta_quality = self._analyze_transmission_angle(
-                dist_a_o4, coupler, output, max_reach, min_reach
-            )
+            ta_deg_raw = calculate_transmission_angle(dist_a_o4, coupler, output)
+            ta_result = classify_transmission_angle(ta_deg_raw)
+            ta_deg = ta_result.angle_deg
+            ta_quality = ta_result.quality.value
 
-            # Link ratio quality
+            # Link ratio quality (using shared analyzer)
             link_lengths = [ground, input_l, coupler, output]
-            ratio_quality, ratio_messages = self._analyze_link_ratios(link_lengths, ground, input_l)
+            ratio_result = analyze_link_ratios(link_lengths)
+            ratio_quality = ratio_result.quality
+            ratio_messages = [ratio_result.message] if ratio_result.quality != "excellent" else []
+
+            # Add check for very small input link
+            if input_l < ground * 0.1:
+                ratio_messages.append("Very small input link")
+                if ratio_quality == "excellent":
+                    ratio_quality = "fair"
 
             # Determine safety level and message
             return self._build_safety_status(
@@ -112,10 +125,10 @@ class FourBarValidator(LinkageValidator):
             (output, "output"),
         ]
         sorted_lengths = sorted([ground, input_l, coupler, output])
-        s, p, q, l = sorted_lengths
+        shortest, mid1, mid2, longest = sorted_lengths
 
-        grashof_sum = s + l
-        middle_sum = p + q
+        grashof_sum = shortest + longest
+        middle_sum = mid1 + mid2
         grashof_ok = grashof_sum <= middle_sum
         grashof_ratio = grashof_sum / middle_sum if middle_sum > 0 else float("inf")
 
@@ -133,63 +146,8 @@ class FourBarValidator(LinkageValidator):
 
         return grashof_ok, grashof_ratio, mech_class
 
-    @staticmethod
-    def _analyze_transmission_angle(
-        dist_a_o4: float, coupler: float, output: float, max_reach: float, min_reach: float
-    ) -> tuple[float, str]:
-        """Analyze transmission angle quality.
-
-        Returns:
-            (transmission_angle_deg, quality_level)
-        """
-        if dist_a_o4 > max_reach or dist_a_o4 < min_reach:
-            return 0.0, "impossible"
-
-        try:
-            # Law of cosines at coupler-output joint
-            cos_gamma = (coupler**2 + output**2 - dist_a_o4**2) / (2 * coupler * output)
-            cos_gamma = max(-1.0, min(1.0, cos_gamma))
-            ta_deg = math.degrees(math.acos(abs(cos_gamma)))
-
-            if 40 <= ta_deg <= 140:
-                return ta_deg, "excellent"
-            elif 30 <= ta_deg <= 150:
-                return ta_deg, "good"
-            elif 20 <= ta_deg <= 160:
-                return ta_deg, "poor"
-            else:
-                return ta_deg, "critical"
-
-        except (ValueError, ZeroDivisionError):
-            return 90.0, "unknown"
-
-    @staticmethod
-    def _analyze_link_ratios(
-        link_lengths: list[float], ground: float, input_l: float
-    ) -> tuple[str, list[str]]:
-        """Analyze link ratio quality.
-
-        Returns:
-            (quality_level, quality_messages)
-        """
-        max_ratio = max(link_lengths) / min(link_lengths) if min(link_lengths) > 0 else float("inf")
-        messages = []
-
-        if max_ratio > 10:
-            quality = "poor"
-            messages.append(f"Extreme link ratio: {max_ratio:.1f}:1")
-        elif max_ratio > 6:
-            quality = "fair"
-            messages.append(f"High link ratio: {max_ratio:.1f}:1")
-        else:
-            quality = "excellent"
-
-        if input_l < ground * 0.1:
-            messages.append("Very small input link")
-            if quality == "excellent":
-                quality = "fair"
-
-        return quality, messages
+    # NOTE: _analyze_transmission_angle and _analyze_link_ratios have been moved to
+    # automataii.domain.mechanisms.shared.transmission_analyzer for reuse across validators
 
     @staticmethod
     def _build_safety_status(

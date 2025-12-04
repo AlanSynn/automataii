@@ -8,6 +8,7 @@ Design Pattern: Template Method (abstract editor with concrete handle)
 
 from __future__ import annotations
 
+import logging
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -85,7 +86,7 @@ class ParametricHandle(QGraphicsEllipseItem):
         try:
             self.setPos(center)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def _setup_appearance(self):
         """Configure handle appearance."""
@@ -157,12 +158,12 @@ class ParametricHandle(QGraphicsEllipseItem):
             try:
                 x = float(self.constraints["fixed_x"])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
         if "fixed_y" in self.constraints:
             try:
                 y = float(self.constraints["fixed_y"])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         # Grid snapping
         if "snap_grid" in self.constraints:
@@ -270,7 +271,7 @@ class MechanismEditor(ABC):
             try:
                 self.handles[handle_id].setPos(pt)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
     @abstractmethod
     def create_handles(self, mechanism_data: dict[str, Any]) -> None:

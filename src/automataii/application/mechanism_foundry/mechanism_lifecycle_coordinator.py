@@ -10,6 +10,7 @@ Architecture: Hexagonal - Application Layer
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
@@ -220,7 +221,7 @@ class MechanismLifecycleCoordinator:
                 if hasattr(ik_manager, 'reset_animation_state'):
                     ik_manager.reset_animation_state()
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         # Notify about skeleton reset
         if skeleton_cache and on_skeleton_reset:

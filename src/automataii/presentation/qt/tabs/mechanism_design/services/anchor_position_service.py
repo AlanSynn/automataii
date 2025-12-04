@@ -8,6 +8,7 @@ Design Pattern: Strategy (mechanism-specific position calculation)
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -66,7 +67,7 @@ class AnchorPositionService:
                 anchor_positions = self._get_fourbar_anchors(layer_data, to_scene_coords)
 
         except Exception:
-            pass  # Return empty dict on error
+            logging.debug("Suppressed exception", exc_info=True)  # Return empty dict on error
 
         return anchor_positions
 

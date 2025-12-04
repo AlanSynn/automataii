@@ -27,6 +27,7 @@ class SkeletonService:
         parts_data: dict,
         initial_skeleton_data_cache: dict,
         position_setter: Callable[[Any, tuple[float, float]], None] | None = None,
+        rotation_setter: Callable[[Any, float], None] | None = None,
     ) -> int:
         """
         Position parts at their anchor joints using cached skeleton data.
@@ -37,6 +38,8 @@ class SkeletonService:
             initial_skeleton_data_cache: Cached skeleton data
             position_setter: Callable to set position on part_item (injected from presentation)
                             Signature: (part_item, (x, y)) -> None
+            rotation_setter: Callable to set rotation on part_item (injected from presentation)
+                            Signature: (part_item, rotation_degrees) -> None
 
         Returns:
             Number of parts successfully positioned
@@ -56,6 +59,11 @@ class SkeletonService:
                     pos = (float(joint_pos[0]), float(joint_pos[1]))
                     if position_setter:
                         position_setter(part_item, pos)
+                    # Restore original rotation from skeleton data (NOT reset to 0)
+                    # This preserves the part's orientation as defined in the skeleton
+                    if rotation_setter:
+                        original_rotation = joint_data.get("rotation", 0.0)
+                        rotation_setter(part_item, float(original_rotation))
                     positioned_count += 1
 
         return positioned_count

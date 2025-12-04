@@ -6,12 +6,15 @@ Extracted from EditorView god class. Handles the mechanics of:
 - Preview path visualization during drawing
 - Catmull-Rom spline generation
 - Scene item management for paths and overlays
+- Timestamp recording for velocity-aware animation
 
 This is distinct from MotionPathManager (in tabs/editor/components/) which
 handles higher-level coordination, UI bindings, RDP smoothing, and feasibility.
 """
 
 import logging
+import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
@@ -27,6 +30,21 @@ if TYPE_CHECKING:
 TARGET_PATH_POINTS = 12
 
 
+@dataclass
+class TimedPoint:
+    """Point with timestamp for velocity-aware animation."""
+    point: QPointF
+    timestamp: float  # Seconds from drawing start
+
+    @property
+    def x(self) -> float:
+        return self.point.x()
+
+    @property
+    def y(self) -> float:
+        return self.point.y()
+
+
 class MotionPathDrawer(QObject):
     """
     Low-level motion path drawing and scene visualization.
@@ -38,13 +56,16 @@ class MotionPathDrawer(QObject):
     MotionPathManager in tabs/editor/components/.
 
     Signals:
-        freehand_path_completed(list): Emitted when freehand drawing completes.
-                                       Payload: list of QPointF (resampled points)
+        freehand_path_completed(list, list, float): Emitted when freehand drawing completes.
+            - list of QPointF (resampled points for visual spline)
+            - list of TimedPoint (original points with timestamps)
+            - float (total drawing duration in seconds)
         drawing_cancelled(): Emitted when path drawing is cancelled.
         path_data_cleared(str): Emitted when path data is cleared for a component.
     """
 
-    freehand_path_completed = pyqtSignal(list)
+    # Signal now includes timed points and duration for velocity-aware animation
+    freehand_path_completed = pyqtSignal(list, list, float)
     drawing_cancelled = pyqtSignal()
     path_data_cleared = pyqtSignal(str)
 
@@ -54,6 +75,8 @@ class MotionPathDrawer(QObject):
 
         # Motion path drawing state
         self._motion_path_points: list[QPointF] = []
+        self._timed_path_points: list[TimedPoint] = []  # Points with timestamps
+        self._drawing_start_time: float = 0.0
         self._motion_preview_path_item: QGraphicsPathItem | None = None
         self._is_drawing_freehand = False
         self._current_path_is_closed = True
@@ -105,20 +128,28 @@ class MotionPathDrawer(QObject):
         self._current_target_item = target_item
         self._current_path_is_closed = is_closed
         self._motion_path_points.clear()
+        self._timed_path_points.clear()
+        self._drawing_start_time = 0.0
         self._is_drawing_freehand = False  # Will be set True on first point
 
         logging.info(f"MotionPathManager: Ready for freehand drawing (closed={is_closed})")
 
     def add_point(self, scene_pos: QPointF) -> None:
         """
-        Add a point to the current freehand path.
+        Add a point to the current freehand path with timestamp.
 
         Args:
             scene_pos: The point position in scene coordinates
         """
         if not self._is_drawing_freehand and not self._motion_path_points:
-            # First point starts the drawing
+            # First point starts the drawing - record start time
             self._is_drawing_freehand = True
+            self._drawing_start_time = time.perf_counter()
+            self._timed_path_points.append(TimedPoint(point=scene_pos, timestamp=0.0))
+        else:
+            # Subsequent points - record elapsed time
+            elapsed = time.perf_counter() - self._drawing_start_time
+            self._timed_path_points.append(TimedPoint(point=scene_pos, timestamp=elapsed))
 
         self._motion_path_points.append(scene_pos)
         self._update_preview()
@@ -186,18 +217,23 @@ class MotionPathDrawer(QObject):
             self._scene.addItem(final_path_item)
             logging.warning("Final path created without component key (orphaned)")
 
-        # Emit completion signal with resampled points
-        self.freehand_path_completed.emit(points_for_spline)
+        # Capture timed points and duration BEFORE clearing
+        timed_points = list(self._timed_path_points)
+        total_duration = timed_points[-1].timestamp if timed_points else 0.0
+
+        # Emit completion signal with resampled points, timed points, and duration
+        self.freehand_path_completed.emit(points_for_spline, timed_points, total_duration)
 
         path_type_str = "closed" if self._current_path_is_closed else "open"
         logging.debug(
             f"Completed {path_type_str} spline path with {len(points_for_spline)} points "
-            f"(resampled from {num_original_points})"
+            f"(resampled from {num_original_points}), duration: {total_duration:.2f}s"
         )
 
         # Clean up drawing state
         self._cleanup_preview()
         self._motion_path_points.clear()
+        self._timed_path_points.clear()
         self._is_drawing_freehand = False
         self._current_target_item = None
 
@@ -209,6 +245,7 @@ class MotionPathDrawer(QObject):
         self._current_target_item = None
         self._is_drawing_freehand = False
         self._motion_path_points.clear()
+        self._timed_path_points.clear()
         self._cleanup_preview()
         self.drawing_cancelled.emit()
 
@@ -234,7 +271,7 @@ class MotionPathDrawer(QObject):
             try:
                 self._scene.removeItem(old)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         if path is None or path.isEmpty():
             return
@@ -266,7 +303,7 @@ class MotionPathDrawer(QObject):
             try:
                 self._scene.removeItem(old)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         if path is None or path.isEmpty():
             return
@@ -285,14 +322,14 @@ class MotionPathDrawer(QObject):
             try:
                 self._scene.removeItem(self._raw_paths_map[key])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
             self._raw_paths_map.pop(key, None)
 
         if key in self._corrected_paths_map:
             try:
                 self._scene.removeItem(self._corrected_paths_map[key])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
             self._corrected_paths_map.pop(key, None)
 
     def clear_corrected_overlay_for(self, key: str) -> None:
@@ -301,7 +338,7 @@ class MotionPathDrawer(QObject):
             try:
                 self._scene.removeItem(self._corrected_paths_map[key])
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
             self._corrected_paths_map.pop(key, None)
 
     def clear_visual_path_for_component(self, component_key: str) -> None:

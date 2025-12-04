@@ -8,6 +8,7 @@ Design Pattern: Service (encapsulates clearing operations)
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -87,7 +88,7 @@ class SceneManagementService:
                 if hasattr(ik_manager, 'clear_mechanism_position_targets'):
                     ik_manager.clear_mechanism_position_targets()
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         # Collect all visual items to remove
         all_visuals: list[Any] = []
@@ -229,7 +230,7 @@ class SceneManagementService:
                 if hasattr(ik_manager, 'reset_animation_state'):
                     ik_manager.reset_animation_state()
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         # Reset skeleton positions from cache
         if initial_skeleton_cache and ik_manager:
@@ -241,7 +242,7 @@ class SceneManagementService:
                         if hasattr(ik_manager, 'reset_joint_to_initial'):
                             ik_manager.reset_joint_to_initial(joint_id)
                     except Exception:
-                        pass
+                        logging.debug("Suppressed exception", exc_info=True)
 
         # Update skeleton visualization items
         if initial_skeleton_cache:
@@ -255,4 +256,4 @@ class SceneManagementService:
                             from PyQt6.QtCore import QPointF
                             joint_item.setPos(QPointF(pos[0], pos[1]))
                         except Exception:
-                            pass
+                            logging.debug("Suppressed exception", exc_info=True)
