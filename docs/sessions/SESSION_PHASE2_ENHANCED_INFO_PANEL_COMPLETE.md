@@ -243,13 +243,11 @@ EducationalInfoPanel (Presentation)
 
 ### Automated Tests:
 ```bash
-cd /Users/alansynn/Workspace/src/Research/automataii
 uv run pytest tests/ui/tabs/mechanism_foundry/test_path_preview.py -xvs
 ```
 
 ### Visual Test:
 ```bash
-cd /Users/alansynn/Workspace/src/Research/automataii
 uv run python test_enhanced_info_panel_visual.py
 ```
 
@@ -365,7 +363,6 @@ The info panel now provides:
 
 ---
 
-**Author:** Alan Synn  
-**Email:** alan@alansynn.com  
-**Repository:** automataii  
+**Author:** Automataii Contributors
+**Repository:** automataii
 **Branch:** (current branch)

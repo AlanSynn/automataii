@@ -19,13 +19,13 @@ class ModelDownloader:
     # The actual ONNX models are included in the build for runtime inference
     MODEL_URLS = {
         "detector_latest.pth": {
-            "url": "https://github.com/alansynn/automataii/releases/download/models-v1.0/detector_latest.pth",
+            "url": "https://github.com/automataii/automataii/releases/download/models-v1.0/detector_latest.pth",
             "sha256": "placeholder_hash_detector",  # Update with actual hash when hosting
             "size": 400_000_000,  # ~400MB
             "description": "PyTorch detection model weights (training/fine-tuning only)"
         },
         "pose_best_AP_epoch_72.pth": {
-            "url": "https://github.com/alansynn/automataii/releases/download/models-v1.0/pose_best_AP_epoch_72.pth",
+            "url": "https://github.com/automataii/automataii/releases/download/models-v1.0/pose_best_AP_epoch_72.pth",
             "sha256": "placeholder_hash_pose",  # Update with actual hash when hosting
             "size": 300_000_000,  # ~300MB
             "description": "PyTorch pose estimation model weights (training/fine-tuning only)"

@@ -2,7 +2,7 @@
 
 **Date:** 2025-10-20  
 **Status:** Draft - Pending Approval  
-**Authors:** Claude + Alan Synn  
+**Authors:** Automataii Contributors  
 **Related ADRs:** 002-mechanism-foundry-refactor.md
 
 ---
@@ -617,7 +617,7 @@ FEATURES = {
 - [ ] Telemetry tags: mechanism_type, source_context
 
 ### Review & Approval
-- [ ] Code review by Alan Synn
+- [ ] Code review by maintainer
 - [ ] Manual QA testing
 - [ ] Architecture review approved
 - [ ] PRD signed off
@@ -634,10 +634,10 @@ FEATURES = {
 - **Phase 4:** Week 5 (Verification & cleanup)
 
 ### Ownership
-- **Primary Owner:** Claude (AI Assistant)
-- **Code Reviewer:** Alan Synn
-- **Architecture Reviewer:** Alan Synn
-- **QA:** Alan Synn
+- **Primary Owner:** Automataii Contributors
+- **Code Reviewer:** Maintainer
+- **Architecture Reviewer:** Maintainer
+- **QA:** Maintainer
 
 ### Review Gates
 - **Phase 1 Gate:** MechanismTransferService API approved
@@ -781,7 +781,7 @@ RULES:
 4. Any concerns with MechanismTransferService API design?
 
 **Next Steps:**
-1. Review PRD with Alan Synn
+1. Review PRD with maintainer
 2. Q&A session to clarify requirements
 3. Revise PRD based on feedback
 4. Obtain explicit ACK approval

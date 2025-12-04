@@ -67,7 +67,7 @@ jobs:
           
           # Generate appcast from GitHub releases using API
           pip install requests
-          python scripts/generate_appcast.py alansynn/automataii appcast/appcast.xml
+          python scripts/generate_appcast.py automataii/automataii appcast/appcast.xml
           
           # Sparkle 서명 추가 (선택적)
           if [ -n "$SPARKLE_PRIVATE_KEY" ]; then

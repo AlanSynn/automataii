@@ -65,7 +65,7 @@ app = BUNDLE(
     exe,
     name='AutomataII.app',
     icon='src/automataii/gui/resources/images/icons/cil-movie.png', # Specify the icon for the .app bundle
-    bundle_identifier='com.alansynn.automataii',
+    bundle_identifier='dev.automataii.automataii',
     info_plist={
         'NSPrincipalClass': 'NSApplication',
         'NSAppleScriptEnabled': False,

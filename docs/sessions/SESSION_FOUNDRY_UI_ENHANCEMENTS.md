@@ -1,7 +1,7 @@
 # Session Summary: Mechanism Foundry UI Enhancement - Parameter Display
 
-**Date**: 2025-10-21  
-**Author**: Alan Synn  
+**Date**: 2025-10-21
+**Author**: Automataii Contributors
 **Session Type**: UI Enhancement & User Experience  
 **Duration**: 1 session
 
@@ -390,6 +390,5 @@ Successfully enhanced Mechanism Foundry UI with:
 
 ---
 
-**Author**: Alan Synn  
-**Contact**: alan@alansynn.com  
+**Author**: Automataii Contributors
 **Date**: 2025-10-21

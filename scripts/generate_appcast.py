@@ -223,7 +223,7 @@ def main():
         print("  GitHub API: python generate_appcast.py owner/repo [output.xml]")
         print("  Local files: python generate_appcast.py <releases_dir> <base_url>")
         print("\nExamples:")
-        print("  python generate_appcast.py alansynn/automataii appcast.xml")
+        print("  python generate_appcast.py automataii/automataii appcast.xml")
         print("  python generate_appcast.py releases/ https://github.com/user/repo/releases/download/")
         sys.exit(1)
 

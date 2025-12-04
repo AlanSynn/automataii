@@ -62,5 +62,5 @@ app = BUNDLE(
     coll,
     name='Automataii.app',
     icon='resources/icons/AppIcon.icns',
-    bundle_identifier='com.alansynn.automataii',
+    bundle_identifier='dev.automataii.automataii',
 )

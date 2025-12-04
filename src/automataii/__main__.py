@@ -94,8 +94,8 @@ def main():
 
     # Set application metadata
     app.setApplicationName("Automataii")
-    app.setOrganizationName("Alan Synn")
-    app.setOrganizationDomain("alansynn.com")
+    app.setOrganizationName("Automataii")
+    app.setOrganizationDomain("automataii.dev")
 
     # macOS specific: Ensure app comes to foreground
     if platform.system() == "Darwin":
