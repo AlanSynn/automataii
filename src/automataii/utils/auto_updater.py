@@ -15,8 +15,8 @@ class AutoUpdater:
 
     def __init__(self, app_instance=None):
         self.app_instance = app_instance
-        self.update_url = "https://github.com/alansynn/automataii/releases/latest"
-        self.appcast_url = "https://github.com/alansynn/automataii/releases/latest/download/appcast.xml"
+        self.update_url = "https://github.com/automataii/automataii/releases/latest"
+        self.appcast_url = "https://github.com/automataii/automataii/releases/latest/download/appcast.xml"
         self.updater = None
         self.platform = sys.platform
 

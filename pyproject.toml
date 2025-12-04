@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
 authors = [
-    {name = "Alan Synn", email = "alan@alansynn.com"},
+    {name = "Automataii Contributors"},
 ]
 keywords = ["animation", "pose-estimation", "computer-vision", "onnx", "mmpose", "mmdetection"]
 classifiers = [
@@ -58,9 +58,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/alansynn/automataii"
-Repository = "https://github.com/alansynn/automataii.git"
-Issues = "https://github.com/alansynn/automataii/issues"
+Homepage = "https://github.com/automataii/automataii"
+Repository = "https://github.com/automataii/automataii.git"
+Issues = "https://github.com/automataii/automataii/issues"
 
 [project.scripts]
 automataii = "automataii.__main__:main"

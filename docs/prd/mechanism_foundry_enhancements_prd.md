@@ -1,6 +1,6 @@
 # Mechanism Foundry Educational Enhancements PRD
 
-**Author:** Alan Synn · [alan@alansynn.com](mailto:alan@alansynn.com)  
+**Author:** Automataii Contributors  
 **Status:** Proposed (2025-10-24)  
 **Related:** `docs/prd/mechanism_foundry_modularization_prd.md`, `SESSION_FOUNDRY_UI_ENHANCEMENTS.md`
 

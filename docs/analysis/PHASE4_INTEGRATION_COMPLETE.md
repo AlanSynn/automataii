@@ -216,5 +216,5 @@ Added:
 
 **Achievement**: 90% code reduction, maintainability dramatically improved
 
-**Author**: Alan Synn  
+**Author**: Automataii Contributors
 **Date**: 2025-10-20

@@ -10,7 +10,7 @@ Architecture:
 
 Pattern: Manager + Strategy (config-driven behavior)
 
-Author: Alan Synn
+Author: Automataii Contributors
 Date: 2025-11-22
 """
 

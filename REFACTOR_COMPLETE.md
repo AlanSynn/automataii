@@ -456,7 +456,7 @@ The application runs successfully with all features working. The refactoring is 
 
 ---
 
-**Refactoring completed by:** Claude Code (Anthropic)
+**Refactoring completed by:** Automataii Contributors
 **Total duration:** ~1.5 hours
 **Files affected:** ~175 files moved, ~260 imports rewritten
 **Status:** ✅ PRODUCTION READY

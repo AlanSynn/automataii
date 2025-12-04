@@ -27,7 +27,7 @@ Automataii is a sophisticated platform for designing, simulating, and animating 
 
 ```bash
 # Clone the repository
-git clone https://github.com/alansynn/automataii.git
+git clone https://github.com/automataii/automataii.git
 cd automataii
 
 # Recommended: use uv for reproducible environments

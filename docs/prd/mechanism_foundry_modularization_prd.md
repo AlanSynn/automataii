@@ -1,6 +1,6 @@
 # Mechanism Foundry Modularization PRD
 
-**Author:** Alan Synn · [alan@alansynn.com](mailto:alan@alansynn.com)  
+**Author:** Automataii Contributors  
 **Status:** Proposed (2025-10-20)  
 **Related:** `docs/prd/god_class_refactor_prd.md`, `docs/adr/000-architecture-intent.md`
 

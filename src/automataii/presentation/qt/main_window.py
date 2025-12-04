@@ -1375,7 +1375,7 @@ class AutomataDesigner(QMainWindow):
             "About Automata Designer",
             "<p><b>Automata Designer</b></p>"
             "<p>Version 0.1.0</p>"
-            "<p>Copyright &copy; 2024 Alan Synn</p>"
+            "<p>Copyright &copy; 2024 Automataii Contributors</p>"
             "<p>This application helps design and simulate automata mechanisms.</p>",
         )
 

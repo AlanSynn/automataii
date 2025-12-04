@@ -16,7 +16,7 @@ Architecture:
 Usage:
     python scripts/broken_method_checker.py [--path src/automataii] [--verbose]
 
-Author: Alan Synn
+Author: Automataii Contributors
 Date: 2025-11-27
 """
 

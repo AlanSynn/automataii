@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Find and Remove Unused Code - Static Analysis Tool
-Author: Alan Synn
+Author: Automataii Contributors
 Date: 2025-01-19
 
 This script performs static analysis to find unused classes, methods, and functions

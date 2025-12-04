@@ -1,5 +1,5 @@
 # Blueprint Export Manager - Singleton Pattern Implementation
-# Author: Alan Synn · alan@alansynn.com
+# Author: Automataii Contributors
 
 import logging
 import os
