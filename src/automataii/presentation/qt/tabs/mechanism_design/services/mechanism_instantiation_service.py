@@ -8,6 +8,7 @@ Design Pattern: Factory (mechanism layer creation)
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
@@ -19,11 +20,21 @@ from automataii.utils.paths import resolve_path
 
 # Mapping from display names to internal mechanism types
 MECHANISM_TYPE_MAPPING: dict[str, str] = {
+    # Four-bar linkage variants
     "4-Bar Linkage": "4_bar_linkage",
     "4-bar Coupler": "4_bar_linkage",
+    "Four-Bar Linkage": "4_bar_linkage",
+    "Four-Bar": "4_bar_linkage",
+    "3-bar Output": "4_bar_linkage",
+    # Cam mechanism variants
     "Cam & Follower": "cam",
     "Cam-Follower": "cam",
+    "Cam Profile": "cam",
+    "Cam": "cam",
+    # Gear mechanism variants
+    "Gears": "gear",  # Family name from recommendation dialog
     "Gears (Simple Pair)": "gear",
+    "Gear Train": "gear",
     "Gear Contact": "gear",
     "Simple Gear": "gear",
     "Planetary Gear": "planetary_gear",
@@ -51,16 +62,23 @@ class MechanismInstantiationService:
         """Set the QPainterPath to numpy converter function."""
         self._qpainterpath_to_numpy = converter
 
-    def map_mechanism_type(self, display_type: str) -> str:
+    def map_mechanism_type(self, display_type: str, original_json_type: str | None = None) -> str:
         """
         Map display mechanism type to internal type.
 
         Args:
-            display_type: Display name (e.g., "4-Bar Linkage")
+            display_type: Display name (e.g., "4-Bar Linkage", "Gears")
+            original_json_type: Original specific type from recommendation (e.g., "Planetary Gear")
 
         Returns:
-            Internal type string (e.g., "4_bar_linkage")
+            Internal type string (e.g., "4_bar_linkage", "gear", "planetary_gear")
         """
+        # First try original_json_type for more specific mapping (e.g., Planetary Gear)
+        if original_json_type:
+            mapped = MECHANISM_TYPE_MAPPING.get(original_json_type)
+            if mapped:
+                return mapped
+        # Fall back to display type mapping
         return MECHANISM_TYPE_MAPPING.get(display_type, "4_bar_linkage")
 
     def generate_mechanism_id(self, short: bool = False) -> str:
@@ -111,7 +129,7 @@ class MechanismInstantiationService:
                     cam_pos = [path_x_center, path_y_max + 80]
                     return cam_pos, {"center_x": cam_pos[0], "center_y": cam_pos[1]}
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
         return default_pos, {"center_x": default_pos[0], "center_y": default_pos[1]}
 
@@ -155,7 +173,7 @@ class MechanismInstantiationService:
                         "base_radius": 0.3 * ecc_norm,
                     }
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
         return {}
 
@@ -172,8 +190,144 @@ class MechanismInstantiationService:
             if template_path.exists():
                 return str(template_path)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
         return None
+
+    def calculate_cam_scale_factor(
+        self,
+        path: QPainterPath | None,
+        base_radius: float,
+        eccentricity: float,
+    ) -> float:
+        """
+        Calculate CAM scale factor based on user's path dimensions.
+
+        Scales the cam so its visual size is proportional to the path height.
+        The follower motion range (eccentricity) should match the path height,
+        while keeping the overall cam visually appropriate.
+
+        Args:
+            path: User-drawn path to match
+            base_radius: Cam base radius
+            eccentricity: Cam eccentricity (lift height)
+
+        Returns:
+            Scale factor (clamped to 0.3 - 3.0 range)
+        """
+        if not path or path.isEmpty():
+            return 1.0
+
+        try:
+            if self._qpainterpath_to_numpy:
+                path_np = self._qpainterpath_to_numpy(path)
+                if path_np is not None and len(path_np) > 0:
+                    # Get path height (vertical motion range)
+                    path_y_min = float(np.min(path_np[:, 1]))
+                    path_y_max = float(np.max(path_np[:, 1]))
+                    path_height = abs(path_y_max - path_y_min)
+
+                    # Calculate cam's total visual height
+                    # Cam max radius = base_radius + eccentricity
+                    # Visual height ≈ 2 * (base_radius + eccentricity)
+                    cam_visual_height = 2.0 * (base_radius + eccentricity)
+
+                    if cam_visual_height > 1e-6 and path_height > 1e-6:
+                        # Scale so cam visual height roughly matches path height
+                        # Use a factor to keep cam reasonably sized relative to motion
+                        scale_factor = path_height / cam_visual_height
+                        # Clamp to reasonable range (more conservative)
+                        return float(np.clip(scale_factor, 0.3, 3.0))
+
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+
+        return 1.0
+
+    def calculate_cam_params_for_vertical_path(
+        self,
+        path: QPainterPath | None,
+    ) -> dict[str, Any]:
+        """
+        Auto-calculate cam parameters for a nearly vertical path.
+
+        For paths that are predominantly vertical (height > 2x width), generates
+        cam parameters that match the vertical oscillation:
+        - eccentricity = path_height / 2 (cam lift matches half the path range)
+        - base_radius = eccentricity * 0.6 (reasonable cam size)
+        - rod_length calculated to position cam below the path
+        - cam_position at path bottom
+
+        Args:
+            path: User-drawn path to analyze
+
+        Returns:
+            Dictionary with auto-generated cam parameters, or empty dict if not vertical
+
+        Time Complexity: O(n) where n is path points
+        """
+        if not path or path.isEmpty():
+            return {}
+
+        try:
+            if not self._qpainterpath_to_numpy:
+                return {}
+
+            path_np = self._qpainterpath_to_numpy(path)
+            if path_np is None or len(path_np) < 2:
+                return {}
+
+            # Calculate path bounds
+            x_min, x_max = float(np.min(path_np[:, 0])), float(np.max(path_np[:, 0]))
+            y_min, y_max = float(np.min(path_np[:, 1])), float(np.max(path_np[:, 1]))
+            path_width = abs(x_max - x_min)
+            path_height = abs(y_max - y_min)
+
+            # Check if path is predominantly vertical (height > 2x width)
+            is_vertical = path_height > 2 * max(path_width, 1.0)
+
+            if not is_vertical:
+                # Not a vertical path - return empty to use default matching
+                return {}
+
+            # Calculate cam parameters for vertical oscillation
+            # eccentricity determines the lift (oscillation range)
+            eccentricity = path_height / 2.0  # Half of total vertical range
+
+            # Base radius is proportional to eccentricity
+            # Using golden ratio for aesthetics
+            base_radius = eccentricity * 0.6
+
+            # Rod length: determines where follower attaches relative to cam
+            # Set rod length to match path height for proper positioning
+            # Preset multipliers: short (0.8), medium (1.0), long (1.5)
+            rod_length_preset = 1.0  # Medium preset
+            rod_length = path_height * rod_length_preset
+
+            # Cam position: center X at path center, Y below path bottom
+            # Cam should be positioned so follower can reach the path
+            path_center_x = (x_min + x_max) / 2.0
+            cam_y = y_max + base_radius + eccentricity  # Below path bottom (y_max is bottom in Qt coords)
+
+            # Rod length multiplier to scale rod independently
+            rod_length_multiplier = 1.0
+
+            return {
+                "base_radius": base_radius,
+                "eccentricity": eccentricity,
+                "follower_rod_length": rod_length,
+                "rod_length_multiplier": rod_length_multiplier,
+                "cam_position": [path_center_x, cam_y],
+                "center_x": path_center_x,
+                "center_y": cam_y,
+                "is_auto_generated": True,
+                "path_height": path_height,
+                "path_width": path_width,
+            }
+
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+
+        return {}
 
     def create_layer_data_from_recommendation(
         self,
@@ -193,8 +347,16 @@ class MechanismInstantiationService:
             Tuple of (layer_data, graphics_data)
         """
         mechanism_type_value = mechanism_data.get("type", "Unknown")
-        internal_type = self.map_mechanism_type(mechanism_type_value)
+        original_json_type = mechanism_data.get("original_json_type")
+        internal_type = self.map_mechanism_type(mechanism_type_value, original_json_type)
         mechanism_id = self.generate_mechanism_id()
+
+        # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
+        # The dialog stores the exact path the user drew for THIS mechanism recommendation.
+        # The path_data might contain a STALE path from a previous interaction.
+        effective_target_path = mechanism_data.get("user_motion_path_local") or target_path
+        if effective_target_path is None:
+            effective_target_path = QPainterPath()
 
         # Create graphics data structure
         graphics_data = {
@@ -202,7 +364,7 @@ class MechanismInstantiationService:
             "mechanism_type": internal_type,
             "params": mechanism_data.get("parameters", {}),
             "transform_params": mechanism_data.get("transform_params"),
-            "generated_path": target_path if target_path else QPainterPath(),
+            "generated_path": effective_target_path,
             "visualization_params": mechanism_data.get("visualization_params"),
             "full_simulation_data": mechanism_data.get("full_simulation_data", {}),
             "key_points": mechanism_data.get("key_points", {}),
@@ -226,7 +388,7 @@ class MechanismInstantiationService:
 
         # Apply CAM-specific configuration
         if internal_type == "cam":
-            self._configure_cam_layer(layer_data, graphics_data, target_path, fallback_position)
+            self._configure_cam_layer(layer_data, graphics_data, effective_target_path, fallback_position)
 
         return layer_data, graphics_data
 
@@ -252,11 +414,19 @@ class MechanismInstantiationService:
             Layer data dictionary
         """
         mechanism_type_value = candidate_data.get("type", "Unknown")
-        internal_type = self.map_mechanism_type(mechanism_type_value)
+        original_json_type = candidate_data.get("original_json_type")
+        internal_type = self.map_mechanism_type(mechanism_type_value, original_json_type)
         mechanism_id = self.generate_mechanism_id(short=True)
 
         raw_params = candidate_data.get("parameters", {})
         params = convert_params_fn(mechanism_type_value, raw_params) if convert_params_fn else raw_params
+
+        # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
+        # The dialog stores the exact path the user drew for THIS mechanism recommendation.
+        # The path_data might contain a STALE path from a previous interaction.
+        # This ensures the mechanism is placed at the correct location matching the recommendation preview.
+        user_path_local = candidate_data.get("user_motion_path_local")
+        effective_target_path = user_path_local or target_path  # Dialog path takes priority!
 
         layer_data = {
             "id": mechanism_id,
@@ -264,7 +434,7 @@ class MechanismInstantiationService:
             "part_name": selected_part_name,
             "params": params,
             "visual_items": [],
-            "generated_path": target_path,
+            "generated_path": effective_target_path,
             "transform_params": candidate_data.get("transform_params"),
             "visualization_params": candidate_data.get("visualization_params"),
             "key_points": candidate_data.get("key_points"),
@@ -283,7 +453,7 @@ class MechanismInstantiationService:
 
         # Apply CAM-specific configuration
         if internal_type == "cam":
-            self._configure_cam_candidate(layer_data, target_path)
+            self._configure_cam_candidate(layer_data, effective_target_path)
 
         return layer_data
 
@@ -294,13 +464,42 @@ class MechanismInstantiationService:
         path: QPainterPath | None,
         fallback_position: list[float] | None,
     ) -> None:
-        """Configure CAM-specific layer data from recommendation."""
-        layer_data["cam_scale_factor"] = 1.0
-        layer_data["rod_length_multiplier"] = 1.0
+        """Configure CAM-specific layer data from recommendation.
 
-        cam_pos, params_update = self.calculate_cam_position_from_path(path, fallback_position)
-        layer_data["cam_position"] = cam_pos
-        layer_data["params"].update(params_update)
+        For vertical paths (height > 2x width), auto-generates cam parameters:
+        - eccentricity matches half the path height (vertical oscillation)
+        - rod_length calculated for proper positioning
+        - cam position placed below the path
+        """
+        # First, try auto-generation for vertical paths
+        auto_params = self.calculate_cam_params_for_vertical_path(path)
+
+        if auto_params:
+            # Use auto-generated params for vertical path
+            logging.debug("Auto-generating CAM params for vertical path: %s", auto_params)
+            layer_data["params"]["base_radius"] = auto_params["base_radius"]
+            layer_data["params"]["eccentricity"] = auto_params["eccentricity"]
+            layer_data["params"]["follower_rod_length"] = auto_params["follower_rod_length"]
+            layer_data["params"]["center_x"] = auto_params["center_x"]
+            layer_data["params"]["center_y"] = auto_params["center_y"]
+            layer_data["cam_position"] = auto_params["cam_position"]
+            layer_data["cam_scale_factor"] = 1.0  # No scaling needed for auto-generated
+            layer_data["rod_length_multiplier"] = auto_params["rod_length_multiplier"]
+            layer_data["is_auto_generated_cam"] = True
+        else:
+            # Standard cam configuration for non-vertical paths
+            params = layer_data.get("params", {})
+            base_radius = float(params.get("base_radius", 40.0))
+            eccentricity = float(params.get("eccentricity", 20.0))
+
+            # Calculate scale factor based on user's path dimensions
+            cam_scale_factor = self.calculate_cam_scale_factor(path, base_radius, eccentricity)
+            layer_data["cam_scale_factor"] = cam_scale_factor
+            layer_data["rod_length_multiplier"] = cam_scale_factor  # Scale rod proportionally
+
+            cam_pos, params_update = self.calculate_cam_position_from_path(path, fallback_position)
+            layer_data["cam_position"] = cam_pos
+            layer_data["params"].update(params_update)
 
         if not graphics_data.get("transform_params"):
             graphics_data["transform_params"] = {
@@ -314,19 +513,47 @@ class MechanismInstantiationService:
         layer_data: dict[str, Any],
         path: QPainterPath | None,
     ) -> None:
-        """Configure CAM-specific layer data from candidate."""
-        cam_pos, params_update = self.calculate_cam_position_from_path(path, [400, 300])
-        layer_data["cam_position"] = cam_pos
-        layer_data["params"].update(params_update)
+        """Configure CAM-specific layer data from candidate.
 
-        # Calculate eccentricity from path
-        ecc_params = self.calculate_cam_eccentricity_from_path(path)
-        if ecc_params:
-            layer_data["params"]["eccentricity"] = ecc_params.get("eccentricity", layer_data["params"].get("eccentricity", 10))
-            br = layer_data["params"].get("base_radius")
-            ecc = ecc_params.get("eccentricity", 10)
-            if br is None or br <= 0 or br > 3 * ecc:
-                layer_data["params"]["base_radius"] = ecc_params.get("base_radius", 0.3 * ecc)
+        For vertical paths (height > 2x width), auto-generates cam parameters.
+        """
+        # First, try auto-generation for vertical paths
+        auto_params = self.calculate_cam_params_for_vertical_path(path)
+
+        if auto_params:
+            # Use auto-generated params for vertical path
+            logging.debug("Auto-generating CAM params for vertical path (candidate): %s", auto_params)
+            layer_data["params"]["base_radius"] = auto_params["base_radius"]
+            layer_data["params"]["eccentricity"] = auto_params["eccentricity"]
+            layer_data["params"]["follower_rod_length"] = auto_params["follower_rod_length"]
+            layer_data["params"]["center_x"] = auto_params["center_x"]
+            layer_data["params"]["center_y"] = auto_params["center_y"]
+            layer_data["cam_position"] = auto_params["cam_position"]
+            layer_data["cam_scale_factor"] = 1.0
+            layer_data["rod_length_multiplier"] = auto_params["rod_length_multiplier"]
+            layer_data["is_auto_generated_cam"] = True
+        else:
+            # Standard cam configuration
+            cam_pos, params_update = self.calculate_cam_position_from_path(path, [400, 300])
+            layer_data["cam_position"] = cam_pos
+            layer_data["params"].update(params_update)
+
+            # Calculate eccentricity from path
+            ecc_params = self.calculate_cam_eccentricity_from_path(path)
+            if ecc_params:
+                layer_data["params"]["eccentricity"] = ecc_params.get("eccentricity", layer_data["params"].get("eccentricity", 10))
+                br = layer_data["params"].get("base_radius")
+                ecc = ecc_params.get("eccentricity", 10)
+                if br is None or br <= 0 or br > 3 * ecc:
+                    layer_data["params"]["base_radius"] = ecc_params.get("base_radius", 0.3 * ecc)
+
+            # Calculate scale factor based on user's path dimensions
+            params = layer_data.get("params", {})
+            base_radius = float(params.get("base_radius", 40.0))
+            eccentricity = float(params.get("eccentricity", 20.0))
+            cam_scale_factor = self.calculate_cam_scale_factor(path, base_radius, eccentricity)
+            layer_data["cam_scale_factor"] = cam_scale_factor
+            layer_data["rod_length_multiplier"] = cam_scale_factor  # Scale rod proportionally
 
         # Set template path
         template_path = self.get_cam_template_path()

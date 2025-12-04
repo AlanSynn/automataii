@@ -8,6 +8,7 @@ Design Pattern: Service (coordinate transformation and parameter initialization)
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -65,7 +66,7 @@ class ParameterMapper:
         params = layer_data["params"]
 
         if mechanism_type == "cam":
-            self._setup_cam_parameters(layer_data, params)
+            self._setup_cam_parameters(layer_data, params, to_scene)
         elif mechanism_type == "4_bar_linkage":
             self._setup_4bar_parameters(layer_data, params, to_scene)
         elif mechanism_type in ["gear", "simple_gear"]:
@@ -77,12 +78,25 @@ class ParameterMapper:
         self,
         layer_data: dict[str, Any],
         params: dict[str, Any],
+        to_scene: Callable | None = None,
     ) -> None:
         """Setup parameters for cam mechanism."""
         cam_position = layer_data.get("cam_position")
-        if cam_position and len(cam_position) >= 2:
-            params["center_x"] = cam_position[0]
-            params["center_y"] = cam_position[1]
+        key_points = layer_data.get("key_points", {})
+
+        # Try to get cam center from key_points (mechanism space)
+        if "cam_center" in key_points and to_scene:
+            cam_center = key_points["cam_center"]
+            center_scene = to_scene(np.array(cam_center))
+            params["center_x"], params["center_y"] = self.extract_coordinates(center_scene)
+        elif cam_position and len(cam_position) >= 2:
+            # cam_position might already be in scene space
+            if to_scene:
+                center_scene = to_scene(np.array(cam_position))
+                params["center_x"], params["center_y"] = self.extract_coordinates(center_scene)
+            else:
+                params["center_x"] = cam_position[0]
+                params["center_y"] = cam_position[1]
         else:
             params["center_x"] = params.get("center_x", 400)
             params["center_y"] = params.get("center_y", 300)
@@ -286,22 +300,38 @@ class ParameterMapper:
         params: dict[str, Any],
         to_scene: Callable | None = None,
     ) -> None:
-        """Setup parameters for planetary gear mechanism."""
+        """Setup parameters for planetary gear mechanism.
+
+        Note: PlanetaryGearEditor expects sun_x, sun_y, r_sun, r_planet, arm_length.
+        We map both naming conventions for compatibility.
+        """
         full_sim_data = layer_data.get("full_simulation_data", {})
 
-        if "r_sun" in params:
-            params["gear1_radius"] = params["r_sun"]
-        elif "sun_radius" in params:
-            params["gear1_radius"] = params["sun_radius"]
-        else:
-            params["gear1_radius"] = params.get("gear1_radius", 20)
+        # Setup r_sun (PlanetaryGearEditor expects this name)
+        if "r_sun" not in params:
+            if "sun_radius" in params:
+                params["r_sun"] = params["sun_radius"]
+            elif "gear1_radius" in params:
+                params["r_sun"] = params["gear1_radius"]
+            else:
+                params["r_sun"] = 20.0
+        # Also set gear1_radius for backwards compatibility
+        params["gear1_radius"] = params["r_sun"]
 
-        if "r_planet" in params:
-            params["gear2_radius"] = params["r_planet"]
-        elif "planet_radius" in params:
-            params["gear2_radius"] = params["planet_radius"]
-        else:
-            params["gear2_radius"] = params.get("gear2_radius", 30)
+        # Setup r_planet (PlanetaryGearEditor expects this name)
+        if "r_planet" not in params:
+            if "planet_radius" in params:
+                params["r_planet"] = params["planet_radius"]
+            elif "gear2_radius" in params:
+                params["r_planet"] = params["gear2_radius"]
+            else:
+                params["r_planet"] = 30.0
+        # Also set gear2_radius for backwards compatibility
+        params["gear2_radius"] = params["r_planet"]
+
+        # Setup arm_length
+        if "arm_length" not in params:
+            params["arm_length"] = params.get("carrier_length", 15.0)
 
         if "gear_positions" in full_sim_data and to_scene:
             self._extract_planetary_positions_from_simulation(
@@ -316,36 +346,54 @@ class ParameterMapper:
         full_sim_data: dict[str, Any],
         to_scene: Callable,
     ) -> None:
-        """Extract planetary gear positions from simulation data."""
+        """Extract planetary gear positions from simulation data.
+
+        Sets both sun_x/sun_y (for PlanetaryGearEditor) and gear1_x/gear1_y (for compatibility).
+        """
         gear_pos = full_sim_data["gear_positions"]
 
         if "sun_centers" in gear_pos and len(gear_pos["sun_centers"]) > 0:
             sun_center = gear_pos["sun_centers"][0]
             sun_scene = to_scene(np.array(sun_center))
-            params["gear1_x"], params["gear1_y"] = self.extract_coordinates(sun_scene)
+            x, y = self.extract_coordinates(sun_scene)
+            # PlanetaryGearEditor expects sun_x, sun_y
+            params["sun_x"], params["sun_y"] = x, y
+            # Also set gear1_x, gear1_y for backwards compatibility
+            params["gear1_x"], params["gear1_y"] = x, y
 
         if "planet_centers" in gear_pos and len(gear_pos["planet_centers"]) > 0:
             planet_center = gear_pos["planet_centers"][0]
             planet_scene = to_scene(np.array(planet_center))
-            params["gear2_x"], params["gear2_y"] = self.extract_coordinates(planet_scene)
+            x, y = self.extract_coordinates(planet_scene)
+            # Set both naming conventions
+            params["planet_x"], params["planet_y"] = x, y
+            params["gear2_x"], params["gear2_y"] = x, y
 
     def _set_default_planetary_positions(self, params: dict[str, Any]) -> None:
-        """Set default positions for planetary gear mechanism."""
-        if "gear1_x" not in params:
-            params["gear1_x"] = 400
-        if "gear1_y" not in params:
-            params["gear1_y"] = 300
+        """Set default positions for planetary gear mechanism.
 
-        arm_length = params.get("arm_length", params.get("carrier_length", 50))
-        if "gear2_x" not in params:
-            params["gear2_x"] = (
-                params["gear1_x"]
-                + params["gear1_radius"]
-                + params["gear2_radius"]
-                + arm_length
-            )
-        if "gear2_y" not in params:
-            params["gear2_y"] = params["gear1_y"]
+        Sets both sun_x/sun_y (for PlanetaryGearEditor) and gear1_x/gear1_y (for compatibility).
+        """
+        # Set sun center position (PlanetaryGearEditor expects sun_x, sun_y)
+        if "sun_x" not in params:
+            params["sun_x"] = params.get("gear1_x", 400.0)
+        if "sun_y" not in params:
+            params["sun_y"] = params.get("gear1_y", 300.0)
+        # Also set gear1_x/gear1_y for backwards compatibility
+        params["gear1_x"] = params["sun_x"]
+        params["gear1_y"] = params["sun_y"]
+
+        # Calculate planet position based on sun and planet radii
+        r_sun = params.get("r_sun", 20.0)
+        r_planet = params.get("r_planet", 30.0)
+
+        if "planet_x" not in params:
+            params["planet_x"] = params["sun_x"] + r_sun + r_planet
+        if "planet_y" not in params:
+            params["planet_y"] = params["sun_y"]
+        # Also set gear2_x/gear2_y for backwards compatibility
+        params["gear2_x"] = params["planet_x"]
+        params["gear2_y"] = params["planet_y"]
 
     def get_transform_config(
         self,
@@ -375,7 +423,7 @@ class ParameterMapper:
                     if user_scale < 10 or user_scale > 10000:
                         user_scale = float(np.clip(user_scale, 50, 1000))
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
         return TransformConfig(
             scale=scale,

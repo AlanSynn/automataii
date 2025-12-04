@@ -160,7 +160,7 @@ class JointMappingService:
 
         # Otherwise, find the lowest joints (likely feet)
         lowest_joints: list[tuple[float, float]] = []
-        for joint_id, joint_data in joints.items():
+        for _joint_id, joint_data in joints.items():
             pos = joint_data.get("position", [0, 0])
             # Consider joints near the lowest position as feet
             if abs(pos[1] - lowest_y) < 20:

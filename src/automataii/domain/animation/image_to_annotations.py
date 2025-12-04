@@ -444,17 +444,17 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
 
         # Give margin to the bounding box (same as original)
         margin = 0.2
-        l = max(0, x1 - int(margin * x1))
-        t = max(0, y1 - int(margin * y1))
-        r = min(orig_w, x2 + int(margin * x2))
-        b = min(orig_h, y2 + int(margin * y2))
+        left = max(0, x1 - int(margin * x1))
+        top = max(0, y1 - int(margin * y1))
+        right = min(orig_w, x2 + int(margin * x2))
+        bottom = min(orig_h, y2 + int(margin * y2))
 
         # Save bounding box info
         bbox_data = {
-            "left": int(l),
-            "top": int(t),
-            "right": int(r),
-            "bottom": int(b),
+            "left": int(left),
+            "top": int(top),
+            "right": int(right),
+            "bottom": int(bottom),
             "score": float(score),
             "original_width": orig_w,
             "original_height": orig_h,
@@ -465,7 +465,7 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
             yaml.dump(bbox_data, f)
 
         # Step 2: Pose estimation
-        pose_result = processor.estimate_pose(image, [l, t, r, b])
+        pose_result = processor.estimate_pose(image, [left, top, right, bottom])
         if pose_result is None:
             logger.error("Pose estimation failed")
             return None
@@ -476,7 +476,7 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
             return None
 
         # Crop image
-        cropped = image[t:b, l:r]
+        cropped = image[top:bottom, left:right]
 
         # Step 3: Create skeleton config
         skeleton = create_skeleton_config(keypoints)
@@ -484,17 +484,17 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
         # Adjust skeleton coordinates to cropped image space
         for joint in skeleton:
             orig_x, orig_y = joint['loc']
-            joint['loc'] = [orig_x - l, orig_y - t]  # Convert to cropped coordinates
+            joint['loc'] = [orig_x - left, orig_y - top]  # Convert to cropped coordinates
             joint['loc_original'] = [orig_x, orig_y]  # Keep original coordinates
 
         char_cfg = {
             "skeleton": skeleton,
             "height": cropped.shape[0],
             "width": cropped.shape[1],
-            "bbox_origin_x": int(l),
-            "bbox_origin_y": int(t),
-            "bbox_origin_r": int(r),
-            "bbox_origin_b": int(b),
+            "bbox_origin_x": int(left),
+            "bbox_origin_y": int(top),
+            "bbox_origin_r": int(right),
+            "bbox_origin_b": int(bottom),
             "resize_scale": 1.0,  # No resize applied
         }
 

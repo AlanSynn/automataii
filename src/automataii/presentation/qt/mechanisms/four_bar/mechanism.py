@@ -37,7 +37,7 @@ class FourBarMechanism(MechanismInterface):
     def validate_parameters(self) -> tuple[bool, str | None]:
         """Validate mechanism parameters."""
         # Check for positive link lengths
-        if any(l <= 0 for l in [self.l2, self.l3, self.l4]):
+        if any(length <= 0 for length in [self.l2, self.l3, self.l4]):
             return False, "All link lengths must be positive"
 
         # Check triangle inequality
@@ -238,13 +238,13 @@ class FourBarMechanism(MechanismInterface):
             Tuple of (is_grashof, mechanism_type)
         """
         links = sorted([self.l1, self.l2, self.l3, self.l4])
-        s, p, q, l = links
+        shortest, mid1, mid2, longest = links
 
-        if s + l <= p + q:
+        if shortest + longest <= mid1 + mid2:
             # Grashof mechanism
-            if self.l1 == s:
+            if self.l1 == shortest:
                 return True, "double-crank"
-            elif self.l1 == l:
+            elif self.l1 == longest:
                 return True, "double-rocker"
             else:
                 return True, "crank-rocker"

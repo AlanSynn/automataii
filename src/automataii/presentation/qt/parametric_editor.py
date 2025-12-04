@@ -8,6 +8,7 @@ Individual mechanism editors are in parametric/components/.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from PyQt6.QtCore import QObject, QPointF, QTimer, pyqtSignal
@@ -60,7 +61,11 @@ class ParametricEditor(QObject):
         self._pending_updates: set[str] = set()
 
     def create_editor(
-        self, mechanism_id: str, mechanism_data: dict[str, Any]
+        self,
+        mechanism_id: str,
+        mechanism_data: dict[str, Any],
+        to_scene_coords: Callable | None = None,
+        to_mech_coords: Callable | None = None,
     ) -> MechanismEditor | None:
         """
         Create appropriate editor for mechanism type.
@@ -68,6 +73,8 @@ class ParametricEditor(QObject):
         Args:
             mechanism_id: Unique mechanism identifier
             mechanism_data: Mechanism configuration data
+            to_scene_coords: Optional transform function from mechanism to scene coordinates
+            to_mech_coords: Optional transform function from scene to mechanism coordinates
 
         Returns:
             Created mechanism editor or None
@@ -89,6 +96,10 @@ class ParametricEditor(QObject):
         else:
             logging.warning(f"Unknown mechanism type: {mechanism_type}")
             return None
+
+        # Set coordinate transforms BEFORE creating handles so reprojection works
+        editor.to_scene_coords = to_scene_coords
+        editor.to_mech_coords = to_mech_coords
 
         editor.create_handles(mechanism_data)
         editor.original_mechanism_data = mechanism_data

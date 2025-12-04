@@ -44,6 +44,7 @@ class ClickableGraphicsView(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.joint_items = {}  # joint_name -> QGraphicsEllipseItem
         self.current_boundary_points = []  # List of QPointF
+        self.boundary_point_markers = []  # Track visual markers for cleanup
         self.boundary_polygon_item = None
         self.preview_point_item = None
 
@@ -106,6 +107,7 @@ class ClickableGraphicsView(QGraphicsView):
         marker.setBrush(QBrush(QColor(255, 255, 0)))
         marker.setPen(QPen(QColor(255, 255, 255), 2))
         self.scene().addItem(marker)
+        self.boundary_point_markers.append(marker)  # Track for cleanup
 
         # Update polygon
         self._update_boundary_polygon()
@@ -114,13 +116,19 @@ class ClickableGraphicsView(QGraphicsView):
         """Remove the last added boundary point"""
         if self.current_boundary_points:
             self.current_boundary_points.pop()
+            # Remove the corresponding visual marker
+            if self.boundary_point_markers:
+                marker = self.boundary_point_markers.pop()
+                self.scene().removeItem(marker)
             self._update_boundary_polygon()
-            # Note: This is a simplified implementation
-            # In a full implementation, you'd track and remove the visual markers too
 
     def clear_boundary_points(self):
         """Clear all boundary points for current part"""
         self.current_boundary_points.clear()
+        # Remove all visual markers
+        for marker in self.boundary_point_markers:
+            self.scene().removeItem(marker)
+        self.boundary_point_markers.clear()
         if self.boundary_polygon_item:
             self.scene().removeItem(self.boundary_polygon_item)
             self.boundary_polygon_item = None

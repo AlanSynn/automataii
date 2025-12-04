@@ -28,6 +28,7 @@ from automataii.application.mechanism_foundry import (
     MechanismFoundryController,
     ParameterSpec,
 )
+from automataii.presentation.qt.shared import blocked_signals, clear_layout
 from automataii.presentation.qt.tabs.mechanism_foundry.educational_info_panel import (
     EducationalInfoPanel,
 )
@@ -331,13 +332,10 @@ class MechanismFoundryView(QWidget):
         if self.mechanism_selector is None:
             return
 
-        self.mechanism_selector.blockSignals(True)
-        self.mechanism_selector.clear()
-
-        for item in self.controller.list_mechanisms():
-            self.mechanism_selector.addItem(item.display_name, item.mechanism_type)
-
-        self.mechanism_selector.blockSignals(False)
+        with blocked_signals(self.mechanism_selector):
+            self.mechanism_selector.clear()
+            for item in self.controller.list_mechanisms():
+                self.mechanism_selector.addItem(item.display_name, item.mechanism_type)
 
     def _select_initial_mechanism(self) -> None:
         self._populate_mechanism_selector()
@@ -383,17 +381,7 @@ class MechanismFoundryView(QWidget):
             label.deleteLater()
 
         self.parameter_sliders.clear()
-
-        while self.params_layout.count():
-            item = self.params_layout.takeAt(0)
-            if item.layout():
-                while item.layout().count():
-                    child = item.layout().takeAt(0)
-                    if child.widget():
-                        child.widget().deleteLater()
-                item.layout().deleteLater()
-            elif item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.params_layout)
 
         for spec in specs:
             row_layout = QHBoxLayout()
@@ -470,9 +458,8 @@ class MechanismFoundryView(QWidget):
 
     def _on_animation_tick(self) -> None:
         self.current_angle = (self.current_angle + 4.0) % 360.0
-        self.angle_slider.blockSignals(True)
-        self.angle_slider.setValue(int(self.current_angle))
-        self.angle_slider.blockSignals(False)
+        with blocked_signals(self.angle_slider):
+            self.angle_slider.setValue(int(self.current_angle))
         self.angle_label.setText(f"{int(self.current_angle)}°")
         self._render_mechanism()
 

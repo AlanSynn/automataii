@@ -24,9 +24,7 @@ class Gear(BaseMechanism):
 
     def generate(
         self,
-        center_pos: QPointF = QPointF(
-            0, 0
-        ),  # Center of the first gear, or midpoint between gears
+        center_pos: QPointF | None = None,  # Center of the first gear, or midpoint between gears
         r1: float = 30.0,
         r2: float = 20.0,
         num_teeth1: int | None = None,
@@ -51,6 +49,9 @@ class Gear(BaseMechanism):
             A dictionary containing gear data, or None if inputs are invalid.
             Structure includes a list of gear dictionaries, each with center, radius, teeth, etc.
         """
+        if center_pos is None:
+            center_pos = QPointF(0, 0)
+
         if r1 <= 0:
             return None
 
@@ -84,6 +85,9 @@ class Gear(BaseMechanism):
                 num_teeth2 = max(
                     3, int((2 * math.pi * r2) / default_tooth_pitch_approx)
                 )
+            # Guard against division by zero if caller explicitly passed 0
+            if num_teeth2 < 1:
+                num_teeth2 = max(3, int((2 * math.pi * r2) / default_tooth_pitch_approx))
 
             # Position second gear relative to the first
             # Assume they are meshing externally, typically along x-axis for default placement

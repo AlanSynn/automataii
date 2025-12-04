@@ -257,7 +257,7 @@ class ActionManager(QObject):
         """
         return self.parent.style().standardIcon(standard_pixmap)
 
-    def setup_toolbar(self, toolbar, icon_size: QSize = QSize(20, 20)):
+    def setup_toolbar(self, toolbar, icon_size: QSize | None = None):
         """
         Set up the main toolbar with the appropriate actions.
 
@@ -265,6 +265,9 @@ class ActionManager(QObject):
             toolbar: The toolbar to set up
             icon_size: Size for toolbar icons
         """
+        if icon_size is None:
+            icon_size = QSize(20, 20)
+
         toolbar.clear()
         toolbar.setIconSize(icon_size)
 

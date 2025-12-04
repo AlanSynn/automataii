@@ -13,7 +13,6 @@ components for specific responsibilities:
 Design Pattern: Facade (orchestrates multiple IK subsystems)
 """
 
-import inspect
 import logging
 import math
 from pathlib import Path
@@ -136,11 +135,6 @@ class IKManager(QObject):
 
     @_current_skeleton_data.setter
     def _current_skeleton_data(self, value: dict[str, Any] | None):
-        try:
-            inspect.stack()[1].function
-        except IndexError:
-            pass
-
         self.__internal_current_skeleton_data = value
 
     def set_animation_duration(self, duration_ms: int):
@@ -221,8 +215,12 @@ class IKManager(QObject):
     def initialize_ik_solver(self) -> bool:
         """
         Initializes the IK solver with the current skeleton and parts data.
+
         This involves defining IK chains, end-effectors, and their motion paths.
-        Returns True if successful, False otherwise.
+        Refactored to reduce cyclomatic complexity (C901) by extracting helper methods.
+
+        Returns:
+            True if successful, False otherwise.
         """
         if not self._current_skeleton_data or not self._current_skeleton_data.get("joints"):
             return False
@@ -231,10 +229,41 @@ class IKManager(QObject):
 
         self.ik_solver = "DummySolver"
 
+        # Step 1: Setup joint configs from skeleton data
+        self._setup_joint_configs_from_skeleton()
+
+        # Step 2: Define IK selectable components and limb configs
+        self._define_ik_components()
+
+        # Step 3: Initialize bend directions for middle joints
+        self._initialize_bend_directions()
+
+        # Step 4: Initialize rest angles
+        if not hasattr(self, "sim_joint_rest_angles"):
+            self.sim_joint_rest_angles = {
+                "left_shoulder": 180.0,
+                "right_shoulder": 0.0,
+                "left_hip": -90.0,
+                "right_hip": -90.0,
+            }
+
+        # Step 5: Calculate limb lengths
+        self._calculate_limb_lengths()
+
+        return True
+
+    def _setup_joint_configs_from_skeleton(self) -> None:
+        """
+        Setup joint configurations from skeleton data.
+
+        Populates sim_joints_config and _sim_dynamic_joints_data from skeleton joints.
+        Calculates initial angles and creates initial snapshot.
+        """
         self._sim_dynamic_joints_data.clear()
         self.sim_joints_config.clear()
         self._initial_snapshot.clear()
 
+        # Populate joint configs from skeleton
         for joint_id, joint_data_dict in self._current_skeleton_data["joints"].items():
             pos_list = joint_data_dict.get("position")
 
@@ -247,15 +276,12 @@ class IKManager(QObject):
                     "children": joint_data_dict.get("child_ids", []),
                 }
 
-                if (
-                    "hip" not in joint_id.lower()
-                    and "neck" not in joint_id.lower()
-                    and "head" != joint_id.lower()
-                    and "torso" != joint_id.lower()
-                ):
+                # Add to dynamic joints (excluding static joints)
+                if not self._is_static_joint(joint_id):
                     self._sim_dynamic_joints_data[joint_id] = self.sim_joints_config[joint_id].copy()
 
-        for joint_id, joint_data in self.sim_joints_config.items():
+        # Calculate angles from parent-child relationships
+        for _joint_id, joint_data in self.sim_joints_config.items():
             parent_id = joint_data.get("parent")
             if parent_id and parent_id in self.sim_joints_config:
                 parent_pos = self.sim_joints_config[parent_id]["position"]
@@ -268,41 +294,34 @@ class IKManager(QObject):
 
                 joint_data["angle"] = angle_deg
 
+        # Create initial snapshot
         self._initial_snapshot = {
             name: data.copy() for name, data in self.sim_joints_config.items()
         }
 
+    def _is_static_joint(self, joint_id: str) -> bool:
+        """Check if a joint is static (shouldn't be in dynamic joints)."""
+        joint_lower = joint_id.lower()
+        return (
+            "hip" in joint_lower
+            or "neck" in joint_lower
+            or joint_lower == "head"
+            or joint_lower == "torso"
+        )
+
+    def _define_ik_components(self) -> None:
+        """
+        Define IK selectable components, effectors, and limb configurations.
+
+        Sets up sim_selectable_components, sim_two_bone_ik_effectors, and sim_limb_configs.
+        """
         self.sim_selectable_components = [
-            {
-                "name": "Head Control",
-                "partName": "head",
-                "targetJointId": "neck",
-            },
-            {
-                "name": "Left Hand Control",
-                "partName": "left_arm_lower",
-                "targetJointId": "left_hand",
-            },
-            {
-                "name": "Right Hand Control",
-                "partName": "right_arm_lower",
-                "targetJointId": "right_hand",
-            },
-            {
-                "name": "Left Foot Control",
-                "partName": "left_leg_lower",
-                "targetJointId": "left_foot",
-            },
-            {
-                "name": "Right Foot Control",
-                "partName": "right_leg_lower",
-                "targetJointId": "right_foot",
-            },
-            {
-                "name": "Torso Control",
-                "partName": "torso",
-                "targetJointId": "torso",
-            },
+            {"name": "Head Control", "partName": "head", "targetJointId": "neck"},
+            {"name": "Left Hand Control", "partName": "left_arm_lower", "targetJointId": "left_hand"},
+            {"name": "Right Hand Control", "partName": "right_arm_lower", "targetJointId": "right_hand"},
+            {"name": "Left Foot Control", "partName": "left_leg_lower", "targetJointId": "left_foot"},
+            {"name": "Right Foot Control", "partName": "right_leg_lower", "targetJointId": "right_foot"},
+            {"name": "Torso Control", "partName": "torso", "targetJointId": "torso"},
         ]
 
         self.sim_two_bone_ik_effectors = [
@@ -323,185 +342,176 @@ class IKManager(QObject):
             "right_foot": {"parentAnchor": "right_knee", "label": "right_leg_lower"},
         }
 
-        # CRITICAL FIX: Don't reset sim_joint_bend_directions, preserve existing values
-        # Only initialize if it doesn't exist or is empty
+    def _initialize_bend_directions(self) -> None:
+        """
+        Initialize bend directions for middle joints (elbows and knees).
+
+        Uses skeleton data if available, preserves existing values, or calculates geometrically.
+        """
+        # Initialize if doesn't exist
         if not hasattr(self, 'sim_joint_bend_directions'):
             self.sim_joint_bend_directions = {}
 
-        # Store existing bend directions to preserve user changes
+        # Preserve existing bend directions
         existing_bend_directions = self.sim_joint_bend_directions.copy()
 
-        # Debug logging
-        logger.debug("IKManager.initialize_ik_solver: Existing bend directions: %s", existing_bend_directions)
+        logger.debug("IKManager._initialize_bend_directions: Existing: %s", existing_bend_directions)
         if self._current_skeleton_data and "joint_map" in self._current_skeleton_data:
-            logger.debug("IKManager.initialize_ik_solver: joint_map = %s", self._current_skeleton_data['joint_map'])
+            logger.debug("IKManager._initialize_bend_directions: joint_map = %s", self._current_skeleton_data['joint_map'])
 
-        middle_joints_to_process = [
-            "left_elbow",
-            "right_elbow",
-            "left_knee",
-            "right_knee",
-        ]
+        middle_joints = ["left_elbow", "right_elbow", "left_knee", "right_knee"]
 
-        # First, check if skeleton has bend_direction values and use them
-        for middle_joint_abstract_name in middle_joints_to_process:
-            logger.debug("IKManager.initialize_ik_solver: Processing joint '%s'", middle_joint_abstract_name)
+        for middle_joint_name in middle_joints:
+            self._initialize_single_bend_direction(middle_joint_name, existing_bend_directions)
 
-            p1_std_id = self._get_standardized_joint_id(middle_joint_abstract_name)
-            logger.debug("IKManager.initialize_ik_solver: '%s' -> standardized ID: '%s'", middle_joint_abstract_name, p1_std_id)
+        logger.debug("IKManager._initialize_bend_directions: Final = %s", self.sim_joint_bend_directions)
 
-            if not p1_std_id or p1_std_id not in self.sim_joints_config:
-                logging.warning(f"IKManager.initialize_ik_solver: Could not find standardized ID for '{middle_joint_abstract_name}'")
-                continue
+    def _initialize_single_bend_direction(
+        self, middle_joint_name: str, existing_directions: dict[str, int]
+    ) -> None:
+        """Initialize bend direction for a single middle joint."""
+        logger.debug("IKManager: Processing joint '%s'", middle_joint_name)
 
-            # Check if this joint has a bend_direction in the skeleton data
-            bend_dir_from_skeleton = None
-            if self._current_skeleton_data and "joints" in self._current_skeleton_data:
-                joint_data = self._current_skeleton_data["joints"].get(p1_std_id, {})
-                bend_dir_from_skeleton = joint_data.get("bend_direction")
-                logger.debug("IKManager.initialize_ik_solver: Skeleton bend_direction for '%s': %s", p1_std_id, bend_dir_from_skeleton)
+        std_id = self._get_standardized_joint_id(middle_joint_name)
+        logger.debug("IKManager: '%s' -> standardized ID: '%s'", middle_joint_name, std_id)
 
-            if bend_dir_from_skeleton is not None:
-                # Use the bend direction from skeleton (user-defined or default)
-                self.sim_joint_bend_directions[middle_joint_abstract_name] = bend_dir_from_skeleton
-                # Also store with standardized ID for compatibility
-                self.sim_joint_bend_directions[p1_std_id] = bend_dir_from_skeleton
-                logger.debug("IKManager: Using bend_direction %s from skeleton for joint '%s' (ID: '%s')", bend_dir_from_skeleton, middle_joint_abstract_name, p1_std_id)
-                continue
+        if not std_id or std_id not in self.sim_joints_config:
+            logging.warning(f"IKManager: Could not find standardized ID for '{middle_joint_name}'")
+            return
 
-            # Check if we have an existing bend direction (from previous initialization or user action)
-            if middle_joint_abstract_name in existing_bend_directions:
-                self.sim_joint_bend_directions[middle_joint_abstract_name] = existing_bend_directions[middle_joint_abstract_name]
-                # Also store with standardized ID
-                if p1_std_id:
-                    self.sim_joint_bend_directions[p1_std_id] = existing_bend_directions[middle_joint_abstract_name]
-                logger.debug("IKManager: Preserving existing bend_direction %s for joint '%s'", existing_bend_directions[middle_joint_abstract_name], middle_joint_abstract_name)
-                continue
-            elif p1_std_id in existing_bend_directions:
-                self.sim_joint_bend_directions[p1_std_id] = existing_bend_directions[p1_std_id]
-                self.sim_joint_bend_directions[middle_joint_abstract_name] = existing_bend_directions[p1_std_id]
-                logger.debug("IKManager: Preserving existing bend_direction %s for joint '%s'", existing_bend_directions[p1_std_id], p1_std_id)
-                continue
+        # Priority 1: Use bend_direction from skeleton data
+        bend_dir = self._get_bend_direction_from_skeleton_joint(std_id)
+        if bend_dir is not None:
+            self._store_bend_direction(middle_joint_name, std_id, bend_dir)
+            logger.debug("IKManager: Using skeleton bend_direction %s for '%s'", bend_dir, middle_joint_name)
+            return
 
-            # If no bend_direction in skeleton or existing values, calculate it geometrically
-            logger.debug("IKManager.initialize_ik_solver: Calculating bend_direction geometrically for '%s'", middle_joint_abstract_name)
-            p1_pos = self.sim_joints_config[p1_std_id]["position"]
+        # Priority 2: Preserve existing bend direction
+        if middle_joint_name in existing_directions:
+            self._store_bend_direction(middle_joint_name, std_id, existing_directions[middle_joint_name])
+            logger.debug("IKManager: Preserving existing %s for '%s'", existing_directions[middle_joint_name], middle_joint_name)
+            return
+        if std_id in existing_directions:
+            self._store_bend_direction(middle_joint_name, std_id, existing_directions[std_id])
+            logger.debug("IKManager: Preserving existing %s for '%s'", existing_directions[std_id], std_id)
+            return
 
-            middle_joint_limb_config = self.sim_limb_configs.get(middle_joint_abstract_name)
-            if not middle_joint_limb_config:
-                continue
-            p0_abstract_name = middle_joint_limb_config.get("parentAnchor")
-            if not p0_abstract_name:
-                continue
-            p0_std_id = self._get_standardized_joint_id(p0_abstract_name)
-            if not p0_std_id or p0_std_id not in self.sim_joints_config:
-                continue
-            p0_pos = self.sim_joints_config[p0_std_id]["position"]
+        # Priority 3: Calculate geometrically
+        direction = self._calculate_bend_direction_geometrically(middle_joint_name, std_id)
+        if direction is not None:
+            self._store_bend_direction(middle_joint_name, std_id, direction)
+            logger.debug("IKManager: Calculated bend_direction = %s for '%s'", direction, middle_joint_name)
 
-            p2_std_id = None
-            for effector_abs_name, config_data in self.sim_limb_configs.items():
-                if config_data.get("parentAnchor") == middle_joint_abstract_name:
-                    p2_std_id = self._get_standardized_joint_id(effector_abs_name)
-                    break
+    def _get_bend_direction_from_skeleton_joint(self, std_id: str) -> int | None:
+        """Get bend direction from skeleton data if available."""
+        if not self._current_skeleton_data or "joints" not in self._current_skeleton_data:
+            return None
+        joint_data = self._current_skeleton_data["joints"].get(std_id, {})
+        bend_dir = joint_data.get("bend_direction")
+        logger.debug("IKManager: Skeleton bend_direction for '%s': %s", std_id, bend_dir)
+        return bend_dir
 
-            if not p2_std_id or p2_std_id not in self.sim_joints_config:
-                continue
-            p2_pos = self.sim_joints_config[p2_std_id]["position"]
+    def _store_bend_direction(self, abstract_name: str, std_id: str, direction: int) -> None:
+        """Store bend direction for both abstract name and standardized ID."""
+        self.sim_joint_bend_directions[abstract_name] = direction
+        if std_id:
+            self.sim_joint_bend_directions[std_id] = direction
 
-            vec_to_root = QPointF(p0_pos.x() - p1_pos.x(), p0_pos.y() - p1_pos.y())
-            vec_to_end = QPointF(p2_pos.x() - p1_pos.x(), p2_pos.y() - p1_pos.y())
+    def _calculate_bend_direction_geometrically(
+        self, middle_joint_name: str, std_id: str
+    ) -> int | None:
+        """Calculate bend direction geometrically using cross product."""
+        logger.debug("IKManager: Calculating bend_direction geometrically for '%s'", middle_joint_name)
+        p1_pos = self.sim_joints_config[std_id]["position"]
 
-            angle_to_root = math.atan2(vec_to_root.y(), vec_to_root.x())
-            angle_to_end = math.atan2(vec_to_end.y(), vec_to_end.x())
+        # Get parent joint position
+        limb_config = self.sim_limb_configs.get(middle_joint_name)
+        if not limb_config:
+            return None
+        parent_name = limb_config.get("parentAnchor")
+        if not parent_name:
+            return None
+        parent_std_id = self._get_standardized_joint_id(parent_name)
+        if not parent_std_id or parent_std_id not in self.sim_joints_config:
+            return None
+        p0_pos = self.sim_joints_config[parent_std_id]["position"]
 
-            angle_diff = angle_to_end - angle_to_root
+        # Get child joint position
+        child_std_id = self._find_child_joint_id(middle_joint_name)
+        if not child_std_id or child_std_id not in self.sim_joints_config:
+            return None
+        p2_pos = self.sim_joints_config[child_std_id]["position"]
 
-            while angle_diff > math.pi:
-                angle_diff -= 2 * math.pi
-            while angle_diff < -math.pi:
-                angle_diff += 2 * math.pi
+        # Calculate cross product for bend direction
+        vec_to_root = p0_pos - p1_pos
+        vec_to_end = p2_pos - p1_pos
+        cross_product = (vec_to_root.x() * vec_to_end.y()) - (vec_to_root.y() * vec_to_end.x())
 
-            vec_to_root = p0_pos - p1_pos
-            vec_to_end = p2_pos - p1_pos
+        if abs(cross_product) < 1e-4:
+            return 1 if "left" in middle_joint_name else -1
+        return -1 if cross_product > 0 else 1
 
-            cross_product = (vec_to_root.x() * vec_to_end.y()) - (vec_to_root.y() * vec_to_end.x())
+    def _find_child_joint_id(self, middle_joint_name: str) -> str | None:
+        """Find the child joint ID for a middle joint."""
+        for effector_name, config in self.sim_limb_configs.items():
+            if config.get("parentAnchor") == middle_joint_name:
+                return self._get_standardized_joint_id(effector_name)
+        return None
 
-            if abs(cross_product) < 1e-4:
-                direction = 1 if "left" in middle_joint_abstract_name else -1
-            else:
-                direction = -1 if cross_product > 0 else 1
-
-            self.sim_joint_bend_directions[middle_joint_abstract_name] = direction
-            # Also store with standardized ID
-            if p1_std_id:
-                self.sim_joint_bend_directions[p1_std_id] = direction
-            logger.debug("IKManager.initialize_ik_solver: Calculated bend_direction = %s for '%s' (ID: '%s')", direction, middle_joint_abstract_name, p1_std_id)
-
-        logger.debug("IKManager.initialize_ik_solver: Final sim_joint_bend_directions = %s", self.sim_joint_bend_directions)
-
-        if not hasattr(self, "sim_joint_rest_angles"):
-            self.sim_joint_rest_angles = {
-                "left_shoulder": 180.0,
-                "right_shoulder": 0.0,
-                "left_hip": -90.0,
-                "right_hip": -90.0,
-            }
-
+    def _calculate_limb_lengths(self) -> None:
+        """Calculate limb lengths from joint positions or part ROI data."""
         self.sim_limb_lengths.clear()
 
-        if (hasattr(self, 'sim_joints_config') and
-            self.sim_joints_config and
-            hasattr(self, 'sim_limb_configs')):
+        for limb_key, config in self.sim_limb_configs.items():
+            part_label = config.get("label")
+            parent_anchor = config.get("parentAnchor")
 
-            for limb_effector_key, config in self.sim_limb_configs.items():
-                part_label_for_length = config.get("label")
-                parent_anchor = config.get("parentAnchor")
+            if not part_label:
+                continue
 
-                if part_label_for_length and parent_anchor:
-                    child_std_id = self._get_standardized_joint_id(limb_effector_key)
-                    parent_std_id = self._get_standardized_joint_id(parent_anchor)
+            # Try to calculate from joint positions
+            length = self._calculate_length_from_joints(limb_key, parent_anchor)
+            if length is not None and length > 0:
+                self.sim_limb_lengths[part_label] = length
+                continue
 
-                    if (child_std_id and parent_std_id and
-                        child_std_id in self.sim_joints_config and
-                        parent_std_id in self.sim_joints_config):
+            # Fallback to part ROI data
+            length = self._calculate_length_from_part_roi(part_label)
+            self.sim_limb_lengths[part_label] = length if length > 0 else 50
 
-                        child_pos = self.sim_joints_config[child_std_id].get("position")
-                        parent_pos = self.sim_joints_config[parent_std_id].get("position")
+    def _calculate_length_from_joints(
+        self, child_key: str, parent_anchor: str | None
+    ) -> float | None:
+        """Calculate bone length from joint positions."""
+        if not parent_anchor or not self.sim_joints_config:
+            return None
 
-                        if child_pos and parent_pos:
-                            actual_bone_length = QLineF(parent_pos, child_pos).length()
+        child_std_id = self._get_standardized_joint_id(child_key)
+        parent_std_id = self._get_standardized_joint_id(parent_anchor)
 
-                            if actual_bone_length > 0:
-                                self.sim_limb_lengths[part_label_for_length] = actual_bone_length
-                                continue
+        if not (child_std_id and parent_std_id):
+            return None
+        if child_std_id not in self.sim_joints_config:
+            return None
+        if parent_std_id not in self.sim_joints_config:
+            return None
 
-                if (part_label_for_length and
-                    part_label_for_length in self.project_parts_data):
-                    part_info = self.project_parts_data[part_label_for_length]
-                    length = 0
-                    if part_info.roi and len(part_info.roi) == 4:
-                        length = float(part_info.roi[3])
-                    if length <= 0:
-                        length = 50
-                    self.sim_limb_lengths[part_label_for_length] = length
-                elif part_label_for_length:
-                    self.sim_limb_lengths[part_label_for_length] = 50
-        else:
-            for limb_effector_key, config in self.sim_limb_configs.items():
-                part_label_for_length = config.get("label")
-                if (part_label_for_length and
-                    part_label_for_length in self.project_parts_data):
-                    part_info = self.project_parts_data[part_label_for_length]
-                    length = 0
-                    if part_info.roi and len(part_info.roi) == 4:
-                        length = float(part_info.roi[3])
-                    if length <= 0:
-                        length = 50
-                    self.sim_limb_lengths[part_label_for_length] = length
-                elif part_label_for_length:
-                    self.sim_limb_lengths[part_label_for_length] = 50
+        child_pos = self.sim_joints_config[child_std_id].get("position")
+        parent_pos = self.sim_joints_config[parent_std_id].get("position")
 
-        return True
+        if child_pos and parent_pos:
+            return QLineF(parent_pos, child_pos).length()
+        return None
+
+    def _calculate_length_from_part_roi(self, part_label: str) -> float:
+        """Calculate length from part ROI data."""
+        if part_label not in self.project_parts_data:
+            return 0
+
+        part_info = self.project_parts_data[part_label]
+        if part_info.roi and len(part_info.roi) == 4:
+            return float(part_info.roi[3])
+        return 0
 
     def on_skeleton_data_updated_from_manager(
         self, standardized_skeleton_dict: dict | None
@@ -551,113 +561,113 @@ class IKManager(QObject):
 
     def _update_bend_directions_from_skeleton(self):
         """Update bend directions from the current skeleton data or skeleton_manager."""
-        # First try to get from skeleton_manager (most authoritative source)
-        if self.skeleton_manager_ref:
-            logger.debug("IKManager._update_bend_directions_from_skeleton: Getting bend directions from skeleton_manager")
-            bend_directions = self.skeleton_manager_ref.get_all_joint_bend_directions()
-
-            if bend_directions:
-                # Clear existing and update with fresh data
-                self.sim_joint_bend_directions.clear()
-
-                for joint_id, bend_dir in bend_directions.items():
-                    # Store with standardized ID
-                    self.sim_joint_bend_directions[joint_id] = bend_dir
-
-                    # Also store with abstract name for compatibility
-                    if '_' in joint_id and joint_id.split('_')[-1].isdigit():
-                        abstract_name = '_'.join(joint_id.split('_')[:-1])
-                        self.sim_joint_bend_directions[abstract_name] = bend_dir
-
-                    logger.debug("IKManager: Updated bend_direction for '%s' to %s from skeleton_manager", joint_id, bend_dir)
-
-                logger.debug("IKManager._update_bend_directions_from_skeleton: Final bend_directions from skeleton_manager = %s", self.sim_joint_bend_directions)
-                return
-
-        # Fallback to skeleton data if skeleton_manager not available
-        if not self._current_skeleton_data or "joints" not in self._current_skeleton_data:
-            logging.warning("IKManager._update_bend_directions_from_skeleton: No skeleton data available")
+        # Try skeleton_manager first (most authoritative source)
+        if self._try_update_bend_directions_from_manager():
             return
 
-        # Debug: log all joints with bend_direction in skeleton
-        logger.debug("IKManager._update_bend_directions_from_skeleton: Using skeleton data (fallback)...")
-        joints_with_bend_dir = {}
-        for joint_id, joint_data in self._current_skeleton_data["joints"].items():
-            bend_dir = joint_data.get("bend_direction")
-            if bend_dir is not None:
-                joints_with_bend_dir[joint_id] = bend_dir
+        # Fallback to skeleton data
+        self._update_bend_directions_from_skeleton_data()
 
-        logger.debug("IKManager._update_bend_directions_from_skeleton: Found %d joints with bend_direction in skeleton: %s", len(joints_with_bend_dir), joints_with_bend_dir)
+    def _try_update_bend_directions_from_manager(self) -> bool:
+        """Try to update bend directions from skeleton_manager. Returns True if successful."""
+        if not self.skeleton_manager_ref:
+            return False
 
-        # Clear ALL existing bend directions first to avoid stale values
-        # We'll only keep those that are explicitly set in the skeleton
+        logger.debug("IKManager: Getting bend directions from skeleton_manager")
+        bend_directions = self.skeleton_manager_ref.get_all_joint_bend_directions()
+
+        if not bend_directions:
+            return False
+
+        self.sim_joint_bend_directions.clear()
+        self._apply_bend_directions(bend_directions, "skeleton_manager")
+        logger.debug("IKManager: Final bend_directions from skeleton_manager = %s", self.sim_joint_bend_directions)
+        return True
+
+    def _update_bend_directions_from_skeleton_data(self) -> None:
+        """Update bend directions from skeleton data (fallback)."""
+        if not self._current_skeleton_data or "joints" not in self._current_skeleton_data:
+            logging.warning("IKManager: No skeleton data available for bend directions")
+            return
+
+        logger.debug("IKManager: Using skeleton data (fallback)...")
+
+        # Clear existing directions
         old_directions = self.sim_joint_bend_directions.copy()
         self.sim_joint_bend_directions.clear()
-        logger.debug("IKManager._update_bend_directions_from_skeleton: Cleared old directions: %s", old_directions)
+        logger.debug("IKManager: Cleared old directions: %s", old_directions)
 
-        # Store bend directions for both standardized IDs and abstract names
+        # Extract bend directions from skeleton joints
+        bend_directions = {}
         for joint_id, joint_data in self._current_skeleton_data["joints"].items():
             bend_dir = joint_data.get("bend_direction")
             if bend_dir is not None:
-                # Store with standardized ID (e.g., 'left_elbow_8')
-                self.sim_joint_bend_directions[joint_id] = bend_dir
+                bend_directions[joint_id] = bend_dir
 
-                # Also store with abstract name for compatibility
-                # Extract abstract name (e.g., 'left_elbow_8' -> 'left_elbow')
-                if '_' in joint_id and joint_id.split('_')[-1].isdigit():
-                    abstract_name = '_'.join(joint_id.split('_')[:-1])
-                    self.sim_joint_bend_directions[abstract_name] = bend_dir
+        self._apply_bend_directions(bend_directions, "skeleton_data")
+        logger.debug("IKManager: Final bend_directions = %s", self.sim_joint_bend_directions)
 
-                    # Only log for actual middle joints
-                    if 'elbow' in joint_id or 'knee' in joint_id:
-                        logger.debug("IKManager: Updated bend_direction for '%s' (and '%s') to %s", joint_id, abstract_name, bend_dir)
+        self._warn_unexpected_bend_directions()
 
-        # Log the final state
-        logger.debug("IKManager._update_bend_directions_from_skeleton: Final bend_directions = %s", self.sim_joint_bend_directions)
+    def _apply_bend_directions(self, bend_directions: dict[str, int], source: str) -> None:
+        """Apply bend directions to sim_joint_bend_directions."""
+        for joint_id, bend_dir in bend_directions.items():
+            self.sim_joint_bend_directions[joint_id] = bend_dir
 
-        # Double-check: Are there any unexpected values?
+            # Also store with abstract name for compatibility
+            if '_' in joint_id and joint_id.split('_')[-1].isdigit():
+                abstract_name = '_'.join(joint_id.split('_')[:-1])
+                self.sim_joint_bend_directions[abstract_name] = bend_dir
+
+            if 'elbow' in joint_id or 'knee' in joint_id:
+                logger.debug("IKManager: Updated bend_direction for '%s' to %s from %s", joint_id, bend_dir, source)
+
+    def _warn_unexpected_bend_directions(self) -> None:
+        """Warn about unexpected joints having bend directions."""
+        unexpected_joints = ('shoulder', 'hip', 'torso', 'neck', 'hand', 'foot', 'root')
         for key, value in self.sim_joint_bend_directions.items():
-            if 'shoulder' in key or 'hip' in key or 'torso' in key or 'neck' in key or 'hand' in key or 'foot' in key or 'root' in key:
-                logging.warning(f"IKManager._update_bend_directions_from_skeleton: Unexpected joint '{key}' has bend_direction = {value}. This joint should not have a bend_direction!")
+            if any(joint in key for joint in unexpected_joints):
+                logging.warning(f"IKManager: Unexpected joint '{key}' has bend_direction = {value}")
 
     def _clear_ik_definitions(self, emit_signal=True, preserve_bend_directions=False) -> None:
-        """Clears IK solver-derived configurations and resets animation state.
-        Does NOT clear input data like _current_skeleton_data or project_parts_data.
-
-        Args:
-            emit_signal: Whether to emit the ik_solver_initialized signal
-            preserve_bend_directions: If True, preserves user-set bend directions
-        """
+        """Clears IK solver-derived configurations and resets animation state."""
         self.stop_animation()
         self.ik_solver = None
 
-        # Store bend directions before clearing if we need to preserve them
-        saved_bend_directions = {}
-        if preserve_bend_directions and hasattr(self, "sim_joint_bend_directions"):
-            saved_bend_directions = self.sim_joint_bend_directions.copy()
+        # Save bend directions if needed
+        saved_directions = self._save_bend_directions() if preserve_bend_directions else {}
 
-        if hasattr(self, "_sim_dynamic_joints_data"):
-            self._sim_dynamic_joints_data.clear()
-        if hasattr(self, "sim_joints_config"):
-            self.sim_joints_config.clear()
-        if hasattr(self, "sim_limb_configs"):
-            self.sim_limb_configs.clear()
-        if hasattr(self, "sim_limb_lengths"):
-            self.sim_limb_lengths.clear()
-        if hasattr(self, "scene_joints_snapshot"):
-            self.scene_joints_snapshot.clear()
-        if hasattr(self, "sim_selectable_components"):
-            self.sim_selectable_components.clear()
-        if hasattr(self, "sim_two_bone_ik_effectors"):
-            self.sim_two_bone_ik_effectors.clear()
-        if hasattr(self, "sim_joint_bend_directions"):
-            self.sim_joint_bend_directions.clear()
-            # Restore saved bend directions if needed
-            if preserve_bend_directions and saved_bend_directions:
-                self.sim_joint_bend_directions.update(saved_bend_directions)
+        # Clear all config dictionaries
+        self._clear_config_dicts()
+
+        # Restore saved bend directions
+        if saved_directions:
+            self.sim_joint_bend_directions.update(saved_directions)
 
         if emit_signal:
             self.ik_solver_initialized.emit(False, {})
+
+    def _save_bend_directions(self) -> dict[str, int]:
+        """Save current bend directions for preservation."""
+        if hasattr(self, "sim_joint_bend_directions"):
+            return self.sim_joint_bend_directions.copy()
+        return {}
+
+    def _clear_config_dicts(self) -> None:
+        """Clear all IK configuration dictionaries."""
+        attrs_to_clear = [
+            "_sim_dynamic_joints_data",
+            "sim_joints_config",
+            "sim_limb_configs",
+            "sim_limb_lengths",
+            "scene_joints_snapshot",
+            "sim_selectable_components",
+            "sim_two_bone_ik_effectors",
+            "sim_joint_bend_directions",
+        ]
+        for attr in attrs_to_clear:
+            if hasattr(self, attr):
+                getattr(self, attr).clear()
 
     def reset_all_ik_systems_and_data(self) -> None:
         """Clears ALL data including project parts, current skeleton, and IK definitions."""
@@ -864,12 +874,8 @@ class IKManager(QObject):
 
     def _update_character_part_visuals_from_ik(self) -> None:
         """Updates character part visuals using proper IK chains for arms and legs."""
-        if not (
-            self._current_skeleton_data and "joint_map" in self._current_skeleton_data
-        ):
-            logging.error(
-                "IKManager FK: Missing skeleton data or joint_map for FK update."
-            )
+        if not (self._current_skeleton_data and "joint_map" in self._current_skeleton_data):
+            logging.error("IKManager FK: Missing skeleton data or joint_map for FK update.")
             return
 
         if hasattr(self.main_window, "editor_tab") and self.main_window.editor_tab:
@@ -879,115 +885,139 @@ class IKManager(QObject):
         updated: dict[str, dict[str, Any]] = {}
         processed_parts: set[str] = set()
 
-        std = self._get_standardized_joint_id
+        # Process limb configurations
+        self._update_limb_visuals(updated, processed_parts)
 
-        def pos(jid: str):
-            return self.sim_joints_config.get(jid, {}).get("position")
+        # Process remaining selectable components
+        self._update_component_visuals(updated, processed_parts)
 
-        def angle_between(a, b):
-            return math.degrees(math.atan2(b.y() - a.y(), b.x() - a.x()))
+        if updated:
+            self.character_visuals_updated.emit(updated)
 
-        def get_initial_angle(jid: str):
-            """Get the initial angle for a joint from the initial snapshot"""
-            if self._initial_snapshot and jid in self._initial_snapshot:
-                return self._initial_snapshot[jid].get("angle", 0.0)
-            return 0.0
+    def _get_joint_position(self, joint_id: str) -> QPointF | None:
+        """Get position for a joint from sim_joints_config."""
+        return self.sim_joints_config.get(joint_id, {}).get("position")
 
+    def _get_initial_joint_angle(self, joint_id: str) -> float:
+        """Get initial angle for a joint from the snapshot."""
+        if self._initial_snapshot and joint_id in self._initial_snapshot:
+            return self._initial_snapshot[joint_id].get("angle", 0.0)
+        return 0.0
+
+    def _angle_between_points(self, p1: QPointF, p2: QPointF) -> float:
+        """Calculate angle between two points in degrees."""
+        return math.degrees(math.atan2(p2.y() - p1.y(), p2.x() - p1.x()))
+
+    def _update_limb_visuals(
+        self, updated: dict[str, dict[str, Any]], processed_parts: set[str]
+    ) -> None:
+        """Update visuals for limb configurations."""
         for eff_abs, limb in self.sim_limb_configs.items():
             part_name = limb.get("label")
-            parent_id = std(limb.get("parentAnchor"))
-            child_id = std(eff_abs)
+            parent_id = self._get_standardized_joint_id(limb.get("parentAnchor"))
+            child_id = self._get_standardized_joint_id(eff_abs)
+
             if not (part_name and parent_id and child_id):
                 continue
 
-            p_parent, p_child = pos(parent_id), pos(child_id)
+            p_parent = self._get_joint_position(parent_id)
+            p_child = self._get_joint_position(child_id)
             if not (p_parent and p_child):
                 continue
 
-            current_angle = angle_between(p_parent, p_child)
-
-            initial_parent_pos = None
-            initial_child_pos = None
-            if self._initial_snapshot:
-                if parent_id in self._initial_snapshot:
-                    initial_parent_pos = self._initial_snapshot[parent_id].get(
-                        "position"
-                    )
-                if child_id in self._initial_snapshot:
-                    initial_child_pos = self._initial_snapshot[child_id].get("position")
-
-            initial_angle = 0.0
-            if initial_parent_pos and initial_child_pos:
-                initial_angle = angle_between(initial_parent_pos, initial_child_pos)
-
-            joint_angle_delta = current_angle - initial_angle
-
-            part_world_rotation = 0.0 + joint_angle_delta
+            # Calculate rotation delta from initial
+            current_angle = self._angle_between_points(p_parent, p_child)
+            initial_angle = self._get_initial_limb_angle(parent_id, child_id)
+            rotation_delta = current_angle - initial_angle
 
             updated[parent_id] = {
                 "scene_position": p_parent,
-                "world_rotation_degrees": part_world_rotation,
+                "world_rotation_degrees": rotation_delta,
             }
-            child_current_angle = self.sim_joints_config[child_id].get("angle", 0.0)
-            child_initial_angle = get_initial_angle(child_id)
-            child_rotation_delta = child_current_angle - child_initial_angle
 
+            child_current = self.sim_joints_config[child_id].get("angle", 0.0)
+            child_initial = self._get_initial_joint_angle(child_id)
             updated[child_id] = {
                 "scene_position": p_child,
-                "world_rotation_degrees": child_rotation_delta,
+                "world_rotation_degrees": child_current - child_initial,
             }
             processed_parts.add(part_name)
 
+    def _get_initial_limb_angle(self, parent_id: str, child_id: str) -> float:
+        """Get initial angle between parent and child joints."""
+        if not self._initial_snapshot:
+            return 0.0
+        parent_pos = self._initial_snapshot.get(parent_id, {}).get("position")
+        child_pos = self._initial_snapshot.get(child_id, {}).get("position")
+        if parent_pos and child_pos:
+            return self._angle_between_points(parent_pos, child_pos)
+        return 0.0
+
+    def _update_component_visuals(
+        self, updated: dict[str, dict[str, Any]], processed_parts: set[str]
+    ) -> None:
+        """Update visuals for selectable components not yet processed."""
         for comp in self.sim_selectable_components:
             part_name = comp.get("partName")
             if not part_name or part_name in processed_parts:
                 continue
 
-            jid = std(comp.get("targetJointId"))
-            pj = pos(jid)
+            jid = self._get_standardized_joint_id(comp.get("targetJointId"))
+            pj = self._get_joint_position(jid)
             if not (jid and pj):
                 continue
 
+            # Calculate current angle
             current_angle = self.sim_joints_config[jid].get("angle", 0.0)
             parent_id = self.sim_joints_config[jid].get("parent")
+            if parent_id:
+                parent_pos = self._get_joint_position(parent_id)
+                if parent_pos:
+                    current_angle = self._angle_between_points(parent_pos, pj)
 
-            if parent_id and pos(parent_id):
-                current_angle = angle_between(pos(parent_id), pj)
-
-            initial_joint_angle = get_initial_angle(jid)
-
-            joint_angle_delta = current_angle - initial_joint_angle
-
-            part_world_rotation = 0.0 + joint_angle_delta
+            # Calculate rotation delta
+            initial_angle = self._get_initial_joint_angle(jid)
+            rotation_delta = current_angle - initial_angle
 
             updated[jid] = {
                 "scene_position": pj,
-                "world_rotation_degrees": part_world_rotation,
+                "world_rotation_degrees": rotation_delta,
             }
             processed_parts.add(part_name)
 
-        if updated:
-            self.character_visuals_updated.emit(updated)
+    def start_animation(self) -> bool:
+        """Starts the IK-driven animation.
 
-    def start_animation(self):
-        """Starts the IK-driven animation."""
-        self.main_window.statusBar().showMessage("Playing IK Animation...", 2000)
+        Returns:
+            True if animation started successfully, False otherwise.
+        """
+        try:
+            self.main_window.statusBar().showMessage("Playing IK Animation...", 2000)
 
-        # CRITICAL FIX: Update bend directions from skeleton before starting animation
-        # This ensures user-set bend directions are used during animation
-        if hasattr(self, 'sim_joint_bend_directions') and self._current_skeleton_data:
-            self._update_bend_directions_from_skeleton()
-            logger.debug("IKManager.start_animation: Updated bend directions: %s", self.sim_joint_bend_directions)
+            # CRITICAL FIX: Update bend directions from skeleton before starting animation
+            # This ensures user-set bend directions are used during animation
+            if hasattr(self, 'sim_joint_bend_directions') and self._current_skeleton_data:
+                self._update_bend_directions_from_skeleton()
+                logger.debug("IKManager.start_animation: Updated bend directions: %s", self.sim_joint_bend_directions)
 
-        if self._animation_start_time_qelapsed is None:
-            self._animation_start_time_qelapsed = QElapsedTimer()
-        self._animation_start_time_qelapsed.start()
-        self._current_animation_progress = 0.0
-        if not self.ik_animation_timer.isActive():
-            self.ik_animation_timer.start()
+            if self._animation_start_time_qelapsed is None:
+                self._animation_start_time_qelapsed = QElapsedTimer()
+            self._animation_start_time_qelapsed.start()
+            self._current_animation_progress = 0.0
 
-        self.animation_state_changed.emit("playing")
-        return True
+            if not self.ik_animation_timer.isActive():
+                self.ik_animation_timer.start()
+
+            self.animation_state_changed.emit("playing")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to start animation: {e}", exc_info=True)
+            # Ensure timer is stopped on error
+            if self.ik_animation_timer.isActive():
+                self.ik_animation_timer.stop()
+            self.animation_state_changed.emit("error")
+            return False
 
     def stop_animation(self):
         """Stops the IK-driven animation."""
@@ -996,80 +1026,118 @@ class IKManager(QObject):
             self.main_window.statusBar().showMessage("IK Animation stopped.", 2000)
         self.animation_state_changed.emit("stopped")
 
-    def reset_animation_state(self):
-        """Resets the animation state to initial state."""
+    def reset_animation_state(self) -> bool:
+        """Resets the animation state to initial state.
+
+        Returns:
+            True if reset successful, False otherwise.
+        """
+        # Always stop animation first
         self.stop_animation()
 
-        if self._initial_snapshot:
-            self.sim_joints_config = {
-                k: v.copy() for k, v in self._initial_snapshot.items()
-            }
-            self._sim_dynamic_joints_data = {
-                k: v.copy()
-                for k, v in self._initial_snapshot.items()
-                if k in self._sim_dynamic_joints_data
-            }
-        else:
+        if not self._initial_snapshot:
+            logger.warning("Cannot reset animation: no initial snapshot available")
+            return False
+
+        try:
+            # Restore joint configs from snapshot
+            self._restore_joint_configs_from_snapshot()
+
+            # Restore bend directions from skeleton_manager
+            self._restore_bend_directions_from_manager()
+
+            # Restore editor items to initial state
+            self._restore_editor_items_to_initial()
+
+            self._current_animation_progress = 0.0
+            self._update_character_part_visuals_from_ik()
+
+            self.main_window.statusBar().showMessage("IK Animation reset to initial pose.", 2000)
+            self.animation_state_changed.emit("reset")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to reset animation state: {e}", exc_info=True)
+            self.animation_state_changed.emit("error")
+            return False
+
+    def _restore_joint_configs_from_snapshot(self) -> None:
+        """Restore joint configs from initial snapshot."""
+        self.sim_joints_config = {
+            k: v.copy() for k, v in self._initial_snapshot.items()
+        }
+        self._sim_dynamic_joints_data = {
+            k: v.copy()
+            for k, v in self._initial_snapshot.items()
+            if k in self._sim_dynamic_joints_data
+        }
+
+    def _restore_bend_directions_from_manager(self) -> None:
+        """Restore bend directions from skeleton_manager."""
+        if not self.skeleton_manager_ref:
             return
 
-        # CRITICAL FIX: Restore bend directions from skeleton_manager after reset
-        # This ensures user-set bend directions persist through reset
-        if self.skeleton_manager_ref:
-            bend_directions = self.skeleton_manager_ref.get_all_joint_bend_directions()
-            if bend_directions:
-                logger.debug("IKManager.reset_animation_state: Restoring bend directions from skeleton_manager: %s", bend_directions)
-                self.sim_joint_bend_directions.clear()
+        bend_directions = self.skeleton_manager_ref.get_all_joint_bend_directions()
+        if not bend_directions:
+            return
 
-                for joint_id, bend_dir in bend_directions.items():
-                    # Store with standardized ID
-                    self.sim_joint_bend_directions[joint_id] = bend_dir
+        logger.debug("IKManager.reset: Restoring bend directions: %s", bend_directions)
+        self.sim_joint_bend_directions.clear()
 
-                    # Also store with abstract name for compatibility
-                    if '_' in joint_id and joint_id.split('_')[-1].isdigit():
-                        abstract_name = '_'.join(joint_id.split('_')[:-1])
-                        self.sim_joint_bend_directions[abstract_name] = bend_dir
+        for joint_id, bend_dir in bend_directions.items():
+            self.sim_joint_bend_directions[joint_id] = bend_dir
 
-                    logger.debug("IKManager.reset_animation_state: Restored bend_direction for '%s' to %s", joint_id, bend_dir)
+            # Also store with abstract name for compatibility
+            if '_' in joint_id and joint_id.split('_')[-1].isdigit():
+                abstract_name = '_'.join(joint_id.split('_')[:-1])
+                self.sim_joint_bend_directions[abstract_name] = bend_dir
 
-        if hasattr(self.main_window, "editor_tab") and self.main_window.editor_tab:
-            editor_items = self.main_window.editor_tab.current_editor_items
-            for part_name, part_item in editor_items.items():
-                initial_rotation = getattr(part_item, "_initial_world_rotation", 0.0)
-                part_item.setRotation(initial_rotation)
+            logger.debug("IKManager.reset: Restored bend_direction for '%s' to %s", joint_id, bend_dir)
 
-                if part_name in self.project_parts_data:
-                    part_info = self.project_parts_data[part_name]
-                    if hasattr(part_info, "x") and hasattr(part_info, "y"):
-                        part_item.setPos(QPointF(part_info.x, part_info.y))
+    def _restore_editor_items_to_initial(self) -> None:
+        """Restore editor items to their initial positions and rotations."""
+        if not hasattr(self.main_window, "editor_tab") or not self.main_window.editor_tab:
+            return
 
-                    for comp in self.sim_selectable_components:
-                        if comp.get("partName") == part_name:
-                            target_joint_id = comp.get("targetJointId")
-                            if target_joint_id:
-                                std_joint_id = self._get_standardized_joint_id(
-                                    target_joint_id
-                                )
-                                if (
-                                    std_joint_id
-                                    and std_joint_id in self._initial_snapshot
-                                ):
-                                    joint_pos = self._initial_snapshot[
-                                        std_joint_id
-                                    ].get("position")
-                                    if joint_pos:
-                                        part_item.set_scene_position_from_anchor(
-                                            joint_pos
-                                        )
-                                        break
+        editor_items = self.main_window.editor_tab.current_editor_items
+        for part_name, part_item in editor_items.items():
+            self._restore_single_editor_item(part_name, part_item)
 
-        self._current_animation_progress = 0.0
+    def _restore_single_editor_item(self, part_name: str, part_item: Any) -> None:
+        """Restore a single editor item to its initial state."""
+        # Restore rotation
+        initial_rotation = getattr(part_item, "_initial_world_rotation", 0.0)
+        part_item.setRotation(initial_rotation)
 
-        self._update_character_part_visuals_from_ik()
+        if part_name not in self.project_parts_data:
+            return
 
-        self.main_window.statusBar().showMessage(
-            "IK Animation reset to initial pose.", 2000
-        )
-        self.animation_state_changed.emit("reset")
+        # Restore position from part info
+        part_info = self.project_parts_data[part_name]
+        if hasattr(part_info, "x") and hasattr(part_info, "y"):
+            part_item.setPos(QPointF(part_info.x, part_info.y))
+
+        # Restore position from joint snapshot
+        self._restore_item_position_from_joint(part_name, part_item)
+
+    def _restore_item_position_from_joint(self, part_name: str, part_item: Any) -> None:
+        """Restore item position from its associated joint in the snapshot."""
+        for comp in self.sim_selectable_components:
+            if comp.get("partName") != part_name:
+                continue
+
+            target_joint_id = comp.get("targetJointId")
+            if not target_joint_id:
+                continue
+
+            std_joint_id = self._get_standardized_joint_id(target_joint_id)
+            if not std_joint_id or std_joint_id not in self._initial_snapshot:
+                continue
+
+            joint_pos = self._initial_snapshot[std_joint_id].get("position")
+            if joint_pos:
+                part_item.set_scene_position_from_anchor(joint_pos, bypass_validation=True)
+                break
 
     def _extract_points_from_painter_path(self, painter_path) -> list[QPointF]:
         """Extracts QPointF coordinates from a QPainterPath. Delegates to IKPathHandler."""
@@ -1094,12 +1162,13 @@ class IKManager(QObject):
         self._mechanism_controlled_joints.clear()
 
 
-    def _run_ik_animation_step(self):
+    def _calculate_animation_progress(self) -> bool:
+        """Calculate animation progress. Returns False if animation not active."""
         if (
             not self._animation_start_time_qelapsed
             or not self.ik_animation_timer.isActive()
         ):
-            return
+            return False
 
         elapsed_ms = self._animation_start_time_qelapsed.elapsed()
         if self.animation_duration <= 0:
@@ -1115,254 +1184,51 @@ class IKManager(QObject):
         if self._current_animation_progress >= 1.0:
             self._current_animation_progress = 0.0
 
+        return True
+
+    def _validate_animation_preconditions(self) -> bool:
+        """Check if all required data is available for animation."""
         if not self.project_parts_data:
-            return
-
+            return False
         if not self.sim_joints_config:
-            return
-
+            return False
         if not self.sim_selectable_components:
-            return
-
-        if (
-            not self._current_skeleton_data
-            or "joint_map" not in self._current_skeleton_data
-        ):
+            return False
+        if not self._current_skeleton_data or "joint_map" not in self._current_skeleton_data:
             logging.error(
                 "IKManager._run_ik_animation_step: Missing skeleton data or joint_map."
             )
-            return
+            return False
+        return True
 
-        for mech_joint_id, mech_target_pos in self._mechanism_position_targets.items():
-            if mech_joint_id in self.dynamic_joints:
-                self.dynamic_joints[mech_joint_id] = (mech_target_pos.x(), mech_target_pos.y())
-            elif mech_joint_id in self.sim_joints_config:
-                self.sim_joints_config[mech_joint_id]["position"] = mech_target_pos
+    def _clamp_bone_length(
+        self, current_length: float | None, original_length: float | None
+    ) -> float | None:
+        """Clamp bone length to ±10% of original length."""
+        if current_length is None or original_length is None or original_length <= 0:
+            return current_length
+        min_length = original_length * 0.9
+        max_length = original_length * 1.1
+        return max(min_length, min(max_length, current_length))
 
-        # Compute eased progress once per frame
-        progress_for_paths = self._apply_timing_curve(self._current_animation_progress)
-
-        for component in self.sim_selectable_components:
-            target_ik_joint_abstract_name = component.get("targetJointId")
-            if not target_ik_joint_abstract_name:
-                continue
-
-            part_name_for_path = component.get("partName")
-            part_info = self.project_parts_data.get(part_name_for_path)
-
-            target_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name)
-            target_pos_on_path = None
-
-            if target_std_id and target_std_id in self._mechanism_position_targets:
-                target_pos_on_path = self._mechanism_position_targets[target_std_id]
-            elif part_info and part_info.motion_path_data:
-                motion_path_obj = part_info.motion_path_data
-                target_pos_on_path = self._get_point_on_path(
-                    motion_path_obj, progress_for_paths
-                )
-
-            if target_pos_on_path:
-                target_std_id = self._get_standardized_joint_id(target_ik_joint_abstract_name)
-                is_mechanism_controlled = target_std_id and target_std_id in self._mechanism_position_targets
-
-                if is_mechanism_controlled:
-                    mechanism_target_pos = self._mechanism_position_targets[target_std_id]
-                    target_pos_on_path = mechanism_target_pos
-
-                # Check if this is a two-bone IK chain
-                if target_ik_joint_abstract_name in self.sim_two_bone_ik_effectors:
-                    effector_limb_config = self.sim_limb_configs.get(
-                        target_ik_joint_abstract_name
-                    )
-                    if not effector_limb_config:
-                        continue
-
-                    middle_joint_abstract_name = effector_limb_config.get("parentAnchor")
-                    part_label_for_l2 = effector_limb_config.get("label")
-
-                    if not middle_joint_abstract_name or not part_label_for_l2:
-                        continue
-
-                    middle_limb_config = self.sim_limb_configs.get(
-                        middle_joint_abstract_name
-                    )
-                    if not middle_limb_config:
-                        continue
-
-                    root_joint_abstract_name = middle_limb_config.get("parentAnchor")
-                    part_label_for_l1 = middle_limb_config.get("label")
-
-                    if not root_joint_abstract_name or not part_label_for_l1:
-                        continue
-
-                    root_std_id = self._get_standardized_joint_id(
-                        root_joint_abstract_name
-                    )
-                    middle_std_id = self._get_standardized_joint_id(
-                        middle_joint_abstract_name
-                    )
-                    effector_std_id = self._get_standardized_joint_id(
-                        target_ik_joint_abstract_name
-                    )
-
-                    if not root_std_id or not middle_std_id or not effector_std_id:
-                        continue
-
-                    if (
-                        root_std_id not in self.sim_joints_config
-                        or "position" not in self.sim_joints_config[root_std_id]
-                    ):
-                        continue
-                    current_root_pos_for_ik = self.sim_joints_config[root_std_id][
-                        "position"
-                    ]
-
-                    current_middle_pos = self.sim_joints_config[middle_std_id].get("position")
-                    current_effector_pos = self.sim_joints_config[effector_std_id].get("position")
-
-                    if current_middle_pos and current_effector_pos:
-                        length1 = QLineF(current_root_pos_for_ik, current_middle_pos).length()
-                        length2 = QLineF(current_middle_pos, current_effector_pos).length()
-                    else:
-                        length1 = self.sim_limb_lengths.get(part_label_for_l1)
-                        length2 = self.sim_limb_lengths.get(part_label_for_l2)
-
-                    original_length1 = self.sim_limb_lengths.get(part_label_for_l1)
-                    original_length2 = self.sim_limb_lengths.get(part_label_for_l2)
-
-                    if original_length1 and original_length1 > 0:
-                        max_length1 = original_length1 * 1.1
-                        min_length1 = original_length1 * 0.9
-                        if length1 > max_length1:
-                            length1 = max_length1
-                        elif length1 < min_length1:
-                            length1 = min_length1
-
-                    if original_length2 and original_length2 > 0:
-                        max_length2 = original_length2 * 1.1
-                        min_length2 = original_length2 * 0.9
-                        if length2 > max_length2:
-                            length2 = max_length2
-                        elif length2 < min_length2:
-                            length2 = min_length2
-
-                    if (
-                        length1 is None
-                        or length2 is None
-                        or length1 <= 0
-                        or length2 <= 0
-                    ):
-                        continue
-
-                    solved_points = self._solve_two_bone_ik(
-                        current_root_pos_for_ik,
-                        target_pos_on_path,
-                        length1,
-                        length2,
-                        root_std_id,
-                    )
-
-                    if solved_points:
-                        p1_new, p2_new = solved_points
-                        if middle_std_id in self.sim_joints_config:
-                            self.sim_joints_config[middle_std_id]["position"] = p1_new
-
-                        if effector_std_id in self.sim_joints_config:
-                            self.sim_joints_config[effector_std_id]["position"] = p2_new
-
-                        if is_mechanism_controlled and effector_std_id in self._mechanism_position_targets:
-                            mechanism_exact_pos = self._mechanism_position_targets[effector_std_id]
-                            if effector_std_id in self.sim_joints_config:
-                                self.sim_joints_config[effector_std_id]["position"] = mechanism_exact_pos
-                else:
-                    limb_config = self.sim_limb_configs.get(
-                        target_ik_joint_abstract_name
-                    )
-                    anchor_joint_abstract_name = (
-                        limb_config.get("parentAnchor") if limb_config else None
-                    )
-                    if anchor_joint_abstract_name:
-                        solved_single_bone_data = self._solve_single_bone_ik(
-                            target_ik_joint_abstract_name,
-                            anchor_joint_abstract_name,
-                            np.array(
-                                [target_pos_on_path.x(), target_pos_on_path.y()]
-                            ),
-                        )
-                        if solved_single_bone_data:
-                            for (
-                                joint_std_id,
-                                data_updates,
-                            ) in solved_single_bone_data.items():
-                                if joint_std_id in self.sim_joints_config:
-                                    self.sim_joints_config[joint_std_id].update(
-                                        data_updates
-                                    )
-                                else:
-                                    self.sim_joints_config[joint_std_id] = (
-                                        data_updates
-                                    )
-                    else:
-                        target_std_id = self._get_standardized_joint_id(
-                            target_ik_joint_abstract_name
-                        )
-                        if (
-                            target_std_id
-                            and target_std_id in self.sim_joints_config
-                        ):
-                            final_target_pos = target_pos_on_path
-
-                            target_limb_config = self.sim_limb_configs.get(target_ik_joint_abstract_name)
-                            anchor_joint_abstract = target_limb_config.get("parentAnchor") if target_limb_config else None
-
-                            if anchor_joint_abstract:
-                                anchor_std_id = self._get_standardized_joint_id(anchor_joint_abstract)
-                                if anchor_std_id and anchor_std_id in self.sim_joints_config:
-                                    anchor_pos = self.sim_joints_config[anchor_std_id]["position"]
-
-                                    if (anchor_std_id in self.sim_joints_config and
-                                        target_std_id in self.sim_joints_config):
-                                        anchor_current = self.sim_joints_config[anchor_std_id].get("position")
-                                        target_current = self.sim_joints_config[target_std_id].get("position")
-                                        if anchor_current and target_current:
-                                            original_bone_length = QLineF(anchor_current, target_current).length()
-
-                                        if original_bone_length and original_bone_length > 0:
-                                            current_distance = QLineF(anchor_pos, target_pos_on_path).length()
-                                            min_length = original_bone_length * 0.9
-                                            max_length = original_bone_length * 1.1
-
-                                            if current_distance < min_length or current_distance > max_length:
-                                                if current_distance > 1e-6:
-                                                    clamped_length = max(min_length, min(max_length, current_distance))
-                                                    direction_x = (target_pos_on_path.x() - anchor_pos.x()) / current_distance
-                                                    direction_y = (target_pos_on_path.y() - anchor_pos.y()) / current_distance
-
-                                                    final_target_pos = QPointF(
-                                                        anchor_pos.x() + direction_x * clamped_length,
-                                                        anchor_pos.y() + direction_y * clamped_length
-                                                    )
-                                                else:
-                                                    final_target_pos = QPointF(anchor_pos.x(), anchor_pos.y() + original_bone_length)
-
-                            self.sim_joints_config[target_std_id]["position"] = final_target_pos
-
+    def _finalize_joint_positions_and_emit(self) -> None:
+        """Apply mechanism targets, sync dynamic joints, and emit pose update."""
+        # Apply mechanism position targets
         for mech_joint_id, mech_target_pos in self._mechanism_position_targets.items():
             if mech_joint_id in self.sim_joints_config:
                 self.sim_joints_config[mech_joint_id]["position"] = mech_target_pos
 
+        # Sync to dynamic joints
         for joint_std_id, joint_data in self.sim_joints_config.items():
             pos = joint_data.get("position")
             if pos is not None and hasattr(pos, 'x') and hasattr(pos, 'y'):
-                if joint_std_id in self.dynamic_joints:
-                    self.dynamic_joints[joint_std_id] = (pos.x(), pos.y())
-                else:
-                    self.dynamic_joints[joint_std_id] = (pos.x(), pos.y())
+                self.dynamic_joints[joint_std_id] = (pos.x(), pos.y())
 
+        # Recalculate angles and update visuals
         self._recalculate_all_bone_angles_after_ik()
-
         self._update_character_part_visuals_from_ik()
 
+        # Emit pose update
         animated_joint_scene_positions: dict[str, tuple[float, float]] = {}
         if self.sim_joints_config:
             for joint_std_id, joint_data in self.sim_joints_config.items():
@@ -1372,6 +1238,266 @@ class IKManager(QObject):
 
         if animated_joint_scene_positions:
             self.skeleton_pose_updated.emit(animated_joint_scene_positions)
+
+    def _run_ik_animation_step(self):
+        """
+        Run one step of IK animation.
+
+        Refactored to reduce cyclomatic complexity by extracting helper methods.
+        """
+        if not self._calculate_animation_progress():
+            return
+
+        if not self._validate_animation_preconditions():
+            return
+
+        # Step 1: Apply mechanism position targets
+        self._apply_mechanism_targets_to_joints()
+
+        # Step 2: Process each selectable component
+        progress = self._apply_timing_curve(self._current_animation_progress)
+        for component in self.sim_selectable_components:
+            self._process_animation_component(component, progress)
+
+        # Step 3: Finalize positions and emit updates
+        self._finalize_joint_positions_and_emit()
+
+    def _apply_mechanism_targets_to_joints(self) -> None:
+        """Apply mechanism position targets to joints."""
+        for mech_joint_id, mech_target_pos in self._mechanism_position_targets.items():
+            if mech_joint_id in self.dynamic_joints:
+                self.dynamic_joints[mech_joint_id] = (mech_target_pos.x(), mech_target_pos.y())
+            elif mech_joint_id in self.sim_joints_config:
+                self.sim_joints_config[mech_joint_id]["position"] = mech_target_pos
+
+    def _process_animation_component(
+        self, component: dict[str, Any], progress: float
+    ) -> None:
+        """Process a single animation component for one frame."""
+        target_joint_name = component.get("targetJointId")
+        if not target_joint_name:
+            return
+
+        # Get target position from mechanism or motion path
+        target_pos = self._get_target_position_for_component(component, progress)
+        if not target_pos:
+            return
+
+        # Check if mechanism-controlled and override position
+        target_std_id = self._get_standardized_joint_id(target_joint_name)
+        is_mechanism_controlled = target_std_id and target_std_id in self._mechanism_position_targets
+        if is_mechanism_controlled:
+            target_pos = self._mechanism_position_targets[target_std_id]
+
+        # Route to appropriate IK solver
+        if target_joint_name in self.sim_two_bone_ik_effectors:
+            self._process_two_bone_ik_component(target_joint_name, target_pos, is_mechanism_controlled)
+        else:
+            self._process_single_bone_or_direct_component(target_joint_name, target_pos)
+
+    def _get_target_position_for_component(
+        self, component: dict[str, Any], progress: float
+    ) -> QPointF | None:
+        """Get target position for a component from mechanism or motion path."""
+        target_joint_name = component.get("targetJointId")
+        target_std_id = self._get_standardized_joint_id(target_joint_name)
+
+        # Check mechanism targets first
+        if target_std_id and target_std_id in self._mechanism_position_targets:
+            return self._mechanism_position_targets[target_std_id]
+
+        # Check motion path
+        part_name = component.get("partName")
+        part_info = self.project_parts_data.get(part_name)
+        if part_info and part_info.motion_path_data:
+            return self._get_point_on_path(part_info.motion_path_data, progress)
+
+        return None
+
+    def _process_two_bone_ik_component(
+        self, target_joint_name: str, target_pos: QPointF, is_mechanism_controlled: bool
+    ) -> None:
+        """Process two-bone IK for effector joints (hands, feet)."""
+        # Resolve the two-bone IK chain
+        chain = self._resolve_two_bone_chain(target_joint_name)
+        if not chain:
+            return
+
+        root_id, middle_id, effector_id, label_l1, label_l2 = chain
+
+        # Calculate bone lengths
+        lengths = self._calculate_two_bone_lengths(root_id, middle_id, effector_id, label_l1, label_l2)
+        if not lengths:
+            return
+
+        # Solve IK and apply results
+        root_pos = self.sim_joints_config[root_id]["position"]
+        solved = self._solve_two_bone_ik(root_pos, target_pos, lengths[0], lengths[1], root_id)
+
+        if solved:
+            self._apply_two_bone_ik_result(solved, middle_id, effector_id, is_mechanism_controlled)
+
+    def _resolve_two_bone_chain(
+        self, effector_name: str
+    ) -> tuple[str, str, str, str, str] | None:
+        """Resolve two-bone IK chain from effector to root."""
+        effector_config = self.sim_limb_configs.get(effector_name)
+        if not effector_config:
+            return None
+
+        middle_name = effector_config.get("parentAnchor")
+        label_l2 = effector_config.get("label")
+        if not middle_name or not label_l2:
+            return None
+
+        middle_config = self.sim_limb_configs.get(middle_name)
+        if not middle_config:
+            return None
+
+        root_name = middle_config.get("parentAnchor")
+        label_l1 = middle_config.get("label")
+        if not root_name or not label_l1:
+            return None
+
+        # Get standardized IDs
+        root_id = self._get_standardized_joint_id(root_name)
+        middle_id = self._get_standardized_joint_id(middle_name)
+        effector_id = self._get_standardized_joint_id(effector_name)
+
+        if not (root_id and middle_id and effector_id):
+            return None
+
+        if root_id not in self.sim_joints_config:
+            return None
+        if "position" not in self.sim_joints_config[root_id]:
+            return None
+
+        return root_id, middle_id, effector_id, label_l1, label_l2
+
+    def _apply_two_bone_ik_result(
+        self,
+        solved: tuple[QPointF, QPointF],
+        middle_id: str,
+        effector_id: str,
+        is_mechanism_controlled: bool,
+    ) -> None:
+        """Apply solved IK positions to joints."""
+        middle_pos, effector_pos = solved
+
+        if middle_id in self.sim_joints_config:
+            self.sim_joints_config[middle_id]["position"] = middle_pos
+        if effector_id in self.sim_joints_config:
+            self.sim_joints_config[effector_id]["position"] = effector_pos
+
+        # Override with mechanism exact position if controlled
+        if is_mechanism_controlled and effector_id in self._mechanism_position_targets:
+            self.sim_joints_config[effector_id]["position"] = self._mechanism_position_targets[effector_id]
+
+    def _calculate_two_bone_lengths(
+        self, root_id: str, middle_id: str, effector_id: str, label_l1: str, label_l2: str
+    ) -> tuple[float, float] | None:
+        """Calculate and clamp two-bone lengths for IK."""
+        root_pos = self.sim_joints_config[root_id].get("position")
+        middle_pos = self.sim_joints_config.get(middle_id, {}).get("position")
+        effector_pos = self.sim_joints_config.get(effector_id, {}).get("position")
+
+        if middle_pos and effector_pos:
+            length1 = QLineF(root_pos, middle_pos).length()
+            length2 = QLineF(middle_pos, effector_pos).length()
+        else:
+            length1 = self.sim_limb_lengths.get(label_l1)
+            length2 = self.sim_limb_lengths.get(label_l2)
+
+        original_l1 = self.sim_limb_lengths.get(label_l1)
+        original_l2 = self.sim_limb_lengths.get(label_l2)
+
+        length1 = self._clamp_bone_length(length1, original_l1)
+        length2 = self._clamp_bone_length(length2, original_l2)
+
+        if length1 is None or length2 is None or length1 <= 0 or length2 <= 0:
+            return None
+        return length1, length2
+
+    def _process_single_bone_or_direct_component(
+        self, target_joint_name: str, target_pos: QPointF
+    ) -> None:
+        """Process single-bone IK or direct position update."""
+        limb_config = self.sim_limb_configs.get(target_joint_name)
+        anchor_name = limb_config.get("parentAnchor") if limb_config else None
+
+        if anchor_name:
+            # Single-bone IK
+            solved = self._solve_single_bone_ik(
+                target_joint_name,
+                anchor_name,
+                np.array([target_pos.x(), target_pos.y()]),
+            )
+            if solved:
+                for joint_id, data in solved.items():
+                    if joint_id in self.sim_joints_config:
+                        self.sim_joints_config[joint_id].update(data)
+                    else:
+                        self.sim_joints_config[joint_id] = data
+        else:
+            # Direct position update with bone length clamping
+            self._update_joint_position_direct(target_joint_name, target_pos)
+
+    def _update_joint_position_direct(
+        self, target_joint_name: str, target_pos: QPointF
+    ) -> None:
+        """Update joint position directly with bone length constraint."""
+        target_std_id = self._get_standardized_joint_id(target_joint_name)
+        if not target_std_id or target_std_id not in self.sim_joints_config:
+            return
+
+        final_pos = target_pos
+        limb_config = self.sim_limb_configs.get(target_joint_name)
+        anchor_name = limb_config.get("parentAnchor") if limb_config else None
+
+        if anchor_name:
+            final_pos = self._clamp_position_to_bone_length(
+                target_std_id, anchor_name, target_pos
+            )
+
+        self.sim_joints_config[target_std_id]["position"] = final_pos
+
+    def _clamp_position_to_bone_length(
+        self, target_std_id: str, anchor_name: str, target_pos: QPointF
+    ) -> QPointF:
+        """Clamp target position to maintain bone length constraint."""
+        anchor_std_id = self._get_standardized_joint_id(anchor_name)
+        if not anchor_std_id or anchor_std_id not in self.sim_joints_config:
+            return target_pos
+
+        anchor_pos = self.sim_joints_config[anchor_std_id]["position"]
+        anchor_current = self.sim_joints_config[anchor_std_id].get("position")
+        target_current = self.sim_joints_config[target_std_id].get("position")
+
+        if not anchor_current or not target_current:
+            return target_pos
+
+        original_bone_length = QLineF(anchor_current, target_current).length()
+        if original_bone_length <= 0:
+            return target_pos
+
+        current_distance = QLineF(anchor_pos, target_pos).length()
+        min_length = original_bone_length * 0.9
+        max_length = original_bone_length * 1.1
+
+        if min_length <= current_distance <= max_length:
+            return target_pos
+
+        if current_distance < 1e-6:
+            return QPointF(anchor_pos.x(), anchor_pos.y() + original_bone_length)
+
+        clamped_length = max(min_length, min(max_length, current_distance))
+        direction_x = (target_pos.x() - anchor_pos.x()) / current_distance
+        direction_y = (target_pos.y() - anchor_pos.y()) / current_distance
+
+        return QPointF(
+            anchor_pos.x() + direction_x * clamped_length,
+            anchor_pos.y() + direction_y * clamped_length
+        )
 
 
     @property
@@ -1393,16 +1519,18 @@ class IKManager(QObject):
         self._bend_direction_manager._bend_directions = value
 
     def _recalculate_all_bone_angles_after_ik(self):
-        """Recalculate all bone angles after IK position updates to ensure natural skeleton movement."""
+        """Recalculate all bone angles after IK position updates."""
         if not self.sim_joints_config or not self._initial_snapshot:
             return
 
-        def angle_between_points(p1, p2):
-            """Calculate angle from p1 to p2 in degrees"""
-            return math.degrees(math.atan2(p2.y() - p1.y(), p2.x() - p1.x()))
+        # Update angles for limb-connected joints
+        self._update_limb_joint_angles()
 
-        angles_updated = 0
+        # Update angles for non-limb joints
+        self._update_non_limb_joint_angles()
 
+    def _update_limb_joint_angles(self) -> None:
+        """Update angles for joints connected by limb configs."""
         for eff_abs, limb_config in self.sim_limb_configs.items():
             part_name = limb_config.get("label")
             parent_abs = limb_config.get("parentAnchor")
@@ -1416,54 +1544,67 @@ class IKManager(QObject):
             if not (parent_std_id and child_std_id):
                 continue
 
-            parent_pos = self.sim_joints_config.get(parent_std_id, {}).get("position")
-            child_pos = self.sim_joints_config.get(child_std_id, {}).get("position")
+            angle_delta = self._compute_limb_angle_delta(parent_std_id, child_std_id)
+            if angle_delta is not None and child_std_id in self.sim_joints_config:
+                self.sim_joints_config[child_std_id]["angle"] = angle_delta
 
-            if not (parent_pos and child_pos):
-                continue
+    def _compute_limb_angle_delta(self, parent_id: str, child_id: str) -> float | None:
+        """Compute angle delta between current and initial limb positions."""
+        parent_pos = self._get_joint_position(parent_id)
+        child_pos = self._get_joint_position(child_id)
 
-            current_angle = angle_between_points(parent_pos, child_pos)
+        if not (parent_pos and child_pos):
+            return None
 
-            initial_parent_pos = None
-            initial_child_pos = None
-            if parent_std_id in self._initial_snapshot:
-                initial_parent_pos = self._initial_snapshot[parent_std_id].get("position")
-            if child_std_id in self._initial_snapshot:
-                initial_child_pos = self._initial_snapshot[child_std_id].get("position")
+        current_angle = self._angle_between_points(parent_pos, child_pos)
+        initial_angle = self._get_initial_limb_angle(parent_id, child_id)
 
-            initial_angle = 0.0
-            if initial_parent_pos and initial_child_pos:
-                initial_angle = angle_between_points(initial_parent_pos, initial_child_pos)
+        return current_angle - initial_angle
 
-            angle_delta = current_angle - initial_angle
+    def _update_non_limb_joint_angles(self) -> None:
+        """Update angles for joints not handled by limb configs."""
+        limb_parent_ids = self._get_limb_parent_joint_ids()
 
-            if child_std_id in self.sim_joints_config:
-                new_angle = 0.0 + angle_delta
-                self.sim_joints_config[child_std_id]["angle"] = new_angle
-                angles_updated += 1
-
-        for joint_std_id, joint_data in self.sim_joints_config.items():
+        for joint_id, joint_data in self.sim_joints_config.items():
             if "angle" not in joint_data:
                 continue
+            if joint_id in limb_parent_ids:
+                continue
 
-            handled_by_limb = False
-            for limb_config in self.sim_limb_configs.values():
-                if self._get_standardized_joint_id(limb_config.get("parentAnchor")) == joint_std_id:
-                    handled_by_limb = True
-                    break
+            self._update_joint_angle_from_movement(joint_id, joint_data)
 
-            if not handled_by_limb:
-                current_pos = joint_data.get("position")
-                if current_pos and joint_std_id in self._initial_snapshot:
-                    initial_pos = self._initial_snapshot[joint_std_id].get("position")
-                    if initial_pos:
-                        dx = current_pos.x() - initial_pos.x()
-                        dy = current_pos.y() - initial_pos.y()
-                        if dx != 0 or dy != 0:
-                            movement_angle = math.degrees(math.atan2(dy, dx))
-                            initial_angle = self._initial_snapshot[joint_std_id].get("angle", 0.0)
-                            new_angle = initial_angle + movement_angle
-                            self.sim_joints_config[joint_std_id]["angle"] = new_angle
+    def _get_limb_parent_joint_ids(self) -> set[str]:
+        """Get set of joint IDs that are parents in limb configs."""
+        parent_ids = set()
+        for limb_config in self.sim_limb_configs.values():
+            parent_abs = limb_config.get("parentAnchor")
+            if parent_abs:
+                parent_id = self._get_standardized_joint_id(parent_abs)
+                if parent_id:
+                    parent_ids.add(parent_id)
+        return parent_ids
+
+    def _update_joint_angle_from_movement(
+        self, joint_id: str, joint_data: dict[str, Any]
+    ) -> None:
+        """Update a joint's angle based on its movement from initial position."""
+        current_pos = joint_data.get("position")
+        if not current_pos or joint_id not in self._initial_snapshot:
+            return
+
+        initial_pos = self._initial_snapshot[joint_id].get("position")
+        if not initial_pos:
+            return
+
+        dx = current_pos.x() - initial_pos.x()
+        dy = current_pos.y() - initial_pos.y()
+
+        if dx == 0 and dy == 0:
+            return
+
+        movement_angle = math.degrees(math.atan2(dy, dx))
+        initial_angle = self._initial_snapshot[joint_id].get("angle", 0.0)
+        self.sim_joints_config[joint_id]["angle"] = initial_angle + movement_angle
 
     def update_part_motion_path(self, part_name: str, motion_qpath: QPainterPath):
         """Updates the motion path for a specific part in the IKManager's project_parts_data."""

@@ -28,6 +28,7 @@ from automataii.domain.animation.image_to_annotations import AnnotationResults, 
 from automataii.infrastructure.telemetry import telemetry_span
 from automataii.presentation.qt.dialogs.camera_dialog import CameraDialog
 from automataii.presentation.qt.image_view import ImageProcessingView
+from automataii.presentation.qt.shared import blocked_signals
 from automataii.presentation.qt.tabs.image_processing.components import SkeletonToolsHandler
 from automataii.presentation.qt.widgets.common.styles import StyleFactory
 from automataii.presentation.qt.widgets.processing_steps_group import ProcessingStepsGroup
@@ -893,25 +894,22 @@ class ImageProcessingTab(QWidget):
 
             self.image_proc_view.set_zoom_level(zoom_value)
 
-            self.image_zoom_combo.blockSignals(True)
-            self.image_zoom_combo.setCurrentText(f"{int(zoom_value * 100)}%")
-            self.image_zoom_combo.blockSignals(False)
+            with blocked_signals(self.image_zoom_combo):
+                self.image_zoom_combo.setCurrentText(f"{int(zoom_value * 100)}%")
 
         except ValueError:
-            self.image_zoom_combo.blockSignals(True)
-            self.image_zoom_combo.setCurrentText("100%")
-            self.image_zoom_combo.blockSignals(False)
+            with blocked_signals(self.image_zoom_combo):
+                self.image_zoom_combo.setCurrentText("100%")
             self.image_proc_view.set_zoom_level(1.0)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def _handle_image_zoom_change_fit(self):
         self.image_proc_view.zoom_to_fit()
         current_scale = self.image_proc_view.transform().m11()
         zoom_percent = int(current_scale * 100)
-        self.image_zoom_combo.blockSignals(True)
-        self.image_zoom_combo.setCurrentText(f"{zoom_percent}%")
-        self.image_zoom_combo.blockSignals(False)
+        with blocked_signals(self.image_zoom_combo):
+            self.image_zoom_combo.setCurrentText(f"{zoom_percent}%")
 
     def update_button_states(self):
         """Updates the enabled/disabled state of buttons based on current tab state."""

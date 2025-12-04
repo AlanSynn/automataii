@@ -221,6 +221,28 @@ class EventBus:
         with self._lock:
             return self._stats.copy()
 
+    def shutdown(self, wait: bool = True) -> None:
+        """
+        Shutdown the event bus and clean up resources.
+
+        Args:
+            wait: If True, wait for pending tasks to complete
+        """
+        self._enabled = False
+        try:
+            self._thread_pool.shutdown(wait=wait)
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+        self._logger.info("EventBus shutdown complete")
+
+    def __del__(self) -> None:
+        """Ensure thread pool is cleaned up on garbage collection."""
+        try:
+            if hasattr(self, '_thread_pool'):
+                self._thread_pool.shutdown(wait=False)
+        except Exception:
+            pass  # Suppress errors during garbage collection
+
 
 class FunctionEventHandler(EventHandler):
     """Wrapper for function-based event handlers."""

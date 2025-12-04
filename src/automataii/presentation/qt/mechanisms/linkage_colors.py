@@ -6,7 +6,7 @@ This module belongs in the presentation layer as it uses Qt types.
 
 from PyQt6.QtGui import QColor, QPen
 
-from automataii.domain.mechanisms.linkage.config import LinkRole
+from automataii.domain.mechanisms.linkages.config import LinkRole
 
 LINK_COLORS: dict[LinkRole, str] = {
     LinkRole.GROUND: "#4A4A4A",

@@ -90,6 +90,8 @@ select = [
 ignore = [
     "E501",  # line too long, handled by formatter
     "B008",  # do not perform function calls in argument defaults
+    "UP046", # PEP 695 type params for classes - requires Python 3.12+
+    "UP047", # PEP 695 type params for functions - requires Python 3.12+
 ]
 
 [tool.ruff.lint.per-file-ignores]

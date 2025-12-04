@@ -187,7 +187,7 @@ class TabDataCoordinator:
         self._path_visual_items.clear()
 
         # Clear existing control points
-        for part_name, control_points in self._control_point_items.items():
+        for _part_name, control_points in self._control_point_items.items():
             for control_point in control_points:
                 if control_point.scene():
                     scene.removeItem(control_point)

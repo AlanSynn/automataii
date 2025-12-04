@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from automataii.presentation.qt.shared import clear_layout
 from automataii.utils.paths import resolve_path
 
 
@@ -271,10 +272,7 @@ class LandingTab(QWidget):
         self.image_widgets.clear()
 
         # Clear grid layout
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        clear_layout(self.grid_layout)
 
         # Find all image files
         image_paths = []

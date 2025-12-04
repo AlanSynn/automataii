@@ -61,6 +61,7 @@ class ParametricEditingManager:
                        shared resources like mechanism_layers, mechanism_scene, etc.
         """
         self.parent_tab = parent_tab
+        logging.info(f"[PARAMETRIC-INIT] ParametricEditingManager created with parent_tab_id={id(parent_tab)}")
         self.parametric_mode_enabled = False
         self.physics_snap_mode = "balanced"
 
@@ -121,6 +122,56 @@ class ParametricEditingManager:
         except Exception:
             self.parent_tab.parametric_editor = None
 
+    def _check_parametric_availability(self) -> bool:
+        """Check if parametric functionality is available in parent module."""
+        try:
+            import sys
+            parent_module = sys.modules[self.parent_tab.__class__.__module__]
+            return getattr(parent_module, "PARAMETRIC_AVAILABLE", False)
+        except Exception as e:
+            self._logger.error("Error checking parametric availability: %s", e)
+            return False
+
+    def _ensure_parametric_editor_initialized(self) -> bool:
+        """Ensure parametric editor is initialized, return success status."""
+        if self.parent_tab.parametric_editor:
+            return True
+
+        try:
+            self._initialize_parametric_system()
+        except Exception as e:
+            self._logger.error("Lazy init failed: %s", e)
+
+        if not self.parent_tab.parametric_editor:
+            self._logger.warning("No parametric editor available after init")
+            self._show_info_message("Parametric Edit", "Parametric system not available.")
+            return False
+        return True
+
+    def _show_info_message(self, title: str, message: str) -> None:
+        """Show information message dialog."""
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+            parent = getattr(self.parent_tab, "main_window", self.parent_tab)
+            QMessageBox.information(parent, title, message)
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+
+    def _manage_animation_state_on_enable(self) -> None:
+        """Handle animation state when enabling parametric mode."""
+        animation_was_running = self.parent_tab._is_animation_running()
+        if animation_was_running:
+            self.parent_tab._on_stop_animation()
+        if not hasattr(self, "_animation_state_before_parametric"):
+            self._animation_state_before_parametric = animation_was_running
+
+    def _manage_animation_state_on_disable(self) -> bool:
+        """Handle animation state when disabling parametric mode. Returns should_restore."""
+        should_restore = getattr(self, "_animation_state_before_parametric", False)
+        if hasattr(self, "_animation_state_before_parametric"):
+            delattr(self, "_animation_state_before_parametric")
+        return should_restore
+
     def toggle_parametric_mode(self, enabled: bool | None = None) -> None:
         """
         Toggle parametric editing mode on/off.
@@ -132,37 +183,15 @@ class ParametricEditingManager:
             "ParametricEditingManager: toggle_parametric_mode called with enabled=%s", enabled
         )
 
-        try:
-            import sys
-
-            parent_module = sys.modules[self.parent_tab.__class__.__module__]
-            PARAMETRIC_AVAILABLE = getattr(parent_module, "PARAMETRIC_AVAILABLE", False)
-            if not PARAMETRIC_AVAILABLE:
-                self._logger.warning("Parametric functionality not available")
-                return
-        except Exception as e:
-            self._logger.error("Error checking parametric availability: %s", e)
+        if not self._check_parametric_availability():
+            self._logger.warning("Parametric functionality not available")
             return
 
         self._logger.debug(
             "parametric_editor exists: %s", self.parent_tab.parametric_editor is not None
         )
-        if not self.parent_tab.parametric_editor:
-            try:
-                self._initialize_parametric_system()
-            except Exception as e:
-                self._logger.error("Lazy init failed: %s", e)
-            if not self.parent_tab.parametric_editor:
-                self._logger.warning("No parametric editor available after init")
-                try:
-                    from PyQt6.QtWidgets import QMessageBox
-
-                    QMessageBox.information(
-                        self.parent_tab, "Parametric Edit", "Parametric system not available."
-                    )
-                except Exception:
-                    pass
-                return
+        if not self._ensure_parametric_editor_initialized():
+            return
 
         if enabled is None:
             enabled = not self.parametric_mode_enabled
@@ -173,34 +202,20 @@ class ParametricEditingManager:
 
         if enabled and not self.parent_tab.mechanism_layers:
             self._logger.info("No mechanisms available for parametric editing")
-            if hasattr(self.parent_tab, "main_window"):
-                from PyQt6.QtWidgets import QMessageBox
-
-                QMessageBox.information(
-                    self.parent_tab.main_window,
-                    "Parametric Edit",
-                    "Please generate mechanisms first using 'Get Mechanism' button.\n\n"
-                    "Parametric editing allows you to interactively adjust mechanism "
-                    "parameters by dragging anchor points.",
-                )
+            self._show_info_message(
+                "Parametric Edit",
+                "Please generate mechanisms first using 'Get Mechanism' button.\n\n"
+                "Parametric editing allows you to interactively adjust mechanism "
+                "parameters by dragging anchor points.",
+            )
             return
 
         # Handle animation state
-        animation_was_running = False
         should_restore_animation = False
-
         if enabled:
-            animation_was_running = self.parent_tab._is_animation_running()
-            if animation_was_running:
-                self.parent_tab._on_stop_animation()
-            if not hasattr(self, "_animation_state_before_parametric"):
-                self._animation_state_before_parametric = animation_was_running
+            self._manage_animation_state_on_enable()
         else:
-            should_restore_animation = getattr(
-                self, "_animation_state_before_parametric", False
-            )
-            if hasattr(self, "_animation_state_before_parametric"):
-                delattr(self, "_animation_state_before_parametric")
+            should_restore_animation = self._manage_animation_state_on_disable()
 
         self._logger.debug("Setting parametric_mode_enabled to: %s", enabled)
         self.parametric_mode_enabled = enabled
@@ -213,6 +228,7 @@ class ParametricEditingManager:
             self._disable_parametric_mode()
 
             if should_restore_animation:
+                logging.info(f"[PARAMETRIC] Restoring animation via QTimer, parent_tab_id={id(self.parent_tab)}")
                 QTimer.singleShot(100, self.parent_tab._on_start_animation)
 
         self._logger.debug("Updating UI state...")
@@ -240,22 +256,19 @@ class ParametricEditingManager:
                         layer_data["params"] = {}
 
                     to_scene = self.parent_tab._get_scene_transform_function(layer_data)
+                    to_mech = self.parent_tab._get_inverse_scene_transform_function(layer_data)
+
                     self._parameter_mapper.ensure_mechanism_parameters(
                         layer_data, mechanism_type, to_scene
                     )
 
+                    # Pass transforms to create_editor so handles are positioned correctly
                     editor = self.parent_tab.parametric_editor.create_editor(
-                        mechanism_id, layer_data
+                        mechanism_id,
+                        layer_data,
+                        to_scene_coords=to_scene,
+                        to_mech_coords=to_mech,
                     )
-                    if editor:
-                        try:
-                            to_mech = self.parent_tab._get_inverse_scene_transform_function(
-                                layer_data
-                            )
-                            editor.to_scene_coords = to_scene
-                            editor.to_mech_coords = to_mech
-                        except Exception:
-                            pass
                 except Exception as e:
                     import traceback
 
@@ -378,7 +391,7 @@ class ParametricEditingManager:
                 elif mech_type == "cam":
                     self._enforce_cam_follower_snap(layer_data)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
             self._regenerate_mechanism_simulation(mechanism_id, layer_data)
             self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
@@ -468,14 +481,14 @@ class ParametricEditingManager:
 
         items = [("L1", L1), ("L2", L2), ("L3", L3), ("L4", L4)]
         items_sorted = sorted(items, key=lambda x: x[1])
-        s_name, s = items_sorted[0]
+        s_name, shortest = items_sorted[0]
         m1_name, m1 = items_sorted[1]
         m2_name, m2 = items_sorted[2]
-        l_name, l = items_sorted[3]
+        longest_name, longest = items_sorted[3]
 
-        if s + l <= m1 + m2 + 1e-9:
+        if shortest + longest <= m1 + m2 + 1e-9:
             return False
-        delta = (s + l) - (m1 + m2) + 1e-6
+        delta = (shortest + longest) - (m1 + m2) + 1e-6
 
         target = None
         if "L3" in (m1_name, m2_name):
@@ -583,7 +596,7 @@ class ParametricEditingManager:
                 )
                 changed = True
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
         try:
             base_r = float(params.get("base_radius", 25.0))
@@ -592,7 +605,7 @@ class ParametricEditingManager:
                 self._logger.warning("[PHYSICS-SNAP] CAM: clamped base_radius to 1.0")
                 changed = True
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
         return changed
 
@@ -918,108 +931,135 @@ class ParametricEditingManager:
         except Exception:
             return center1 + np.array([radius1, 0])
 
+    def _try_visualization_adapter_update(
+        self, mechanism_id: str, mechanism_data: dict[str, Any]
+    ) -> bool:
+        """Try to update via visualization adapter. Returns True if handled."""
+        if not (hasattr(self.parent_tab, "visualization_adapter")
+                and self.parent_tab.visualization_adapter):
+            return False
+
+        try:
+            from ..visualization import VISUALIZATION_AVAILABLE
+            if not VISUALIZATION_AVAILABLE:
+                return False
+
+            transform_func = self.parent_tab._get_scene_transform_function(mechanism_data)
+            if transform_func:
+                mechanism_data["transform_function"] = transform_func
+
+            self.parent_tab.visualization_adapter.update_mechanism_visuals(
+                mechanism_id, mechanism_data
+            )
+
+            if hasattr(self.parent_tab, "mechanism_view"):
+                self.parent_tab.mechanism_view.update()
+            return True
+        except ImportError:
+            return False
+
+    def _capture_visual_properties(self, visual_items: list) -> list[dict[str, Any]]:
+        """Capture properties from visual items for later restoration."""
+        properties = []
+        for item in visual_items:
+            if item and self._is_item_valid(item):
+                try:
+                    props = {
+                        "pen": item.pen() if hasattr(item, "pen") else None,
+                        "brush": item.brush() if hasattr(item, "brush") else None,
+                        "z_value": item.zValue(),
+                        "visible": item.isVisible(),
+                        "enabled": item.isEnabled(),
+                    }
+                    properties.append(props)
+                except RuntimeError:
+                    properties.append({})
+        return properties
+
+    def _remove_visual_items_from_scene(self, visual_items: list) -> None:
+        """Remove visual items from the mechanism scene."""
+        for item in visual_items:
+            if item and self._is_item_valid(item):
+                try:
+                    if (hasattr(self.parent_tab, "mechanism_scene")
+                            and item.scene() == self.parent_tab.mechanism_scene):
+                        self.parent_tab.mechanism_scene.removeItem(item)
+                except RuntimeError:
+                    pass
+
+    def _restore_visual_properties(
+        self, new_items: list, original_properties: list[dict[str, Any]]
+    ) -> None:
+        """Restore visual properties to new items."""
+        for i, item in enumerate(new_items):
+            if i >= len(original_properties) or not item:
+                continue
+            try:
+                props = original_properties[i]
+                if props.get("pen") and hasattr(item, "setPen"):
+                    item.setPen(props["pen"])
+                if props.get("brush") and hasattr(item, "setBrush"):
+                    item.setBrush(props["brush"])
+                if props.get("z_value"):
+                    item.setZValue(props["z_value"])
+                if props.get("visible") is not None:
+                    item.setVisible(props["visible"])
+                if props.get("enabled") is not None:
+                    item.setEnabled(props["enabled"])
+            except (RuntimeError, KeyError):
+                continue
+
+    def _should_update_handles(self, mechanism_id: str) -> bool:
+        """Check if handle positions should be updated for mechanism."""
+        return (
+            hasattr(self.parent_tab, "parametric_handles")
+            and mechanism_id in self.parent_tab.parametric_handles
+            and self.parametric_mode_enabled
+        )
+
     def _update_mechanism_visuals_realtime(
         self, mechanism_id: str, mechanism_data: dict[str, Any]
     ) -> None:
         """Update mechanism visuals in real-time during parametric editing."""
         try:
-            if (
-                hasattr(self.parent_tab, "visualization_adapter")
-                and self.parent_tab.visualization_adapter
-            ):
-                try:
-                    from ..visualization import VISUALIZATION_AVAILABLE
-
-                    if VISUALIZATION_AVAILABLE:
-                        transform_func = self.parent_tab._get_scene_transform_function(
-                            mechanism_data
-                        )
-                        if transform_func:
-                            mechanism_data["transform_function"] = transform_func
-
-                        self.parent_tab.visualization_adapter.update_mechanism_visuals(
-                            mechanism_id, mechanism_data
-                        )
-
-                        if hasattr(self.parent_tab, "mechanism_view"):
-                            self.parent_tab.mechanism_view.update()
-                        return
-                except ImportError:
-                    pass
+            # Try visualization adapter first
+            if self._try_visualization_adapter_update(mechanism_id, mechanism_data):
+                return
 
             layer_data = self.parent_tab.mechanism_layers.get(
                 mechanism_id, mechanism_data
             )
 
-            animation_was_running = False
-            if (
+            # Handle animation state
+            animation_was_running = (
                 hasattr(self.parent_tab, "animation_timer")
                 and self.parent_tab.animation_timer.isActive()
-            ):
-                animation_was_running = True
+            )
+            if animation_was_running:
                 self.parent_tab._on_stop_animation()
 
+            # Capture, remove, recreate, restore visual items
             visual_items = layer_data.get("visual_items", [])
-            original_visual_properties = []
-
-            for item in visual_items:
-                if item and self._is_item_valid(item):
-                    try:
-                        props = {
-                            "pen": item.pen() if hasattr(item, "pen") else None,
-                            "brush": item.brush() if hasattr(item, "brush") else None,
-                            "z_value": item.zValue(),
-                            "visible": item.isVisible(),
-                            "enabled": item.isEnabled(),
-                        }
-                        original_visual_properties.append(props)
-                    except RuntimeError:
-                        original_visual_properties.append({})
-
-            for item in visual_items:
-                if item and self._is_item_valid(item):
-                    try:
-                        if (
-                            hasattr(self.parent_tab, "mechanism_scene")
-                            and item.scene() == self.parent_tab.mechanism_scene
-                        ):
-                            self.parent_tab.mechanism_scene.removeItem(item)
-                    except RuntimeError:
-                        pass
+            original_properties = self._capture_visual_properties(visual_items)
+            self._remove_visual_items_from_scene(visual_items)
 
             mechanism_type = layer_data.get("type")
             new_items = self._create_mechanism_visuals(layer_data, mechanism_type)
-
-            for i, item in enumerate(new_items):
-                if i < len(original_visual_properties) and item:
-                    try:
-                        props = original_visual_properties[i]
-                        if props.get("pen") and hasattr(item, "setPen"):
-                            item.setPen(props["pen"])
-                        if props.get("brush") and hasattr(item, "setBrush"):
-                            item.setBrush(props["brush"])
-                        if props.get("z_value"):
-                            item.setZValue(props["z_value"])
-                        if props.get("visible") is not None:
-                            item.setVisible(props["visible"])
-                        if props.get("enabled") is not None:
-                            item.setEnabled(props["enabled"])
-                    except (RuntimeError, KeyError):
-                        continue
+            self._restore_visual_properties(new_items, original_properties)
 
             layer_data["visual_items"] = new_items
 
-            if (
-                hasattr(self.parent_tab, "parametric_handles")
-                and mechanism_id in self.parent_tab.parametric_handles
-                and self.parametric_mode_enabled
-            ):
+            # Update handles if needed
+            if self._should_update_handles(mechanism_id):
                 self._update_handle_positions_for_mechanism(mechanism_id, layer_data)
 
+            # Update view
             if hasattr(self.parent_tab, "mechanism_view"):
                 self.parent_tab.mechanism_view.update()
 
+            # Restore animation if needed
             if animation_was_running and not self.parametric_mode_enabled:
+                logging.info(f"[PARAMETRIC] Restoring animation after update, parent_tab_id={id(self.parent_tab)}")
                 self.parent_tab._on_start_animation()
 
         except Exception as e:
@@ -1037,36 +1077,42 @@ class ParametricEditingManager:
         self, layer_data: dict[str, Any], mechanism_type: str
     ) -> list:
         """Create visual items for a mechanism based on its type."""
-        new_items = []
+        vf = getattr(self.parent_tab, "visuals_factory", None)
+        if not vf:
+            return []
+
+        transform_func = self.parent_tab._get_scene_transform_function(layer_data)
+
+        # Strategy mapping: mechanism_type -> (method_name, extra_args_getter)
+        visual_strategies: dict[str, tuple[str, Any]] = {
+            "4_bar_linkage": ("create_4bar_linkage_visuals", None),
+            "cam": ("create_cam_visuals", lambda: self._get_character_position_safe()),
+            "gear": ("create_gear_visuals", None),
+            "planetary_gear": ("create_planetary_gear_visuals", None),
+        }
 
         try:
-            vf = getattr(self.parent_tab, "visuals_factory", None)
-            if not vf:
+            strategy = visual_strategies.get(mechanism_type)
+            if not strategy:
                 return []
 
-            transform_func = self.parent_tab._get_scene_transform_function(layer_data)
+            method_name, extra_args_getter = strategy
+            method = getattr(vf, method_name, None)
+            if not method:
+                return []
 
-            if mechanism_type == "4_bar_linkage" and hasattr(
-                vf, "create_4bar_linkage_visuals"
-            ):
-                new_items = vf.create_4bar_linkage_visuals(layer_data, transform_func)
-            elif mechanism_type == "cam" and hasattr(vf, "create_cam_visuals"):
-                char_pos = (
-                    self.parent_tab._get_character_position()
-                    if hasattr(self.parent_tab, "_get_character_position")
-                    else None
-                )
-                new_items = vf.create_cam_visuals(layer_data, transform_func, char_pos)
-            elif mechanism_type == "gear" and hasattr(vf, "create_gear_visuals"):
-                new_items = vf.create_gear_visuals(layer_data, transform_func)
-            elif mechanism_type == "planetary_gear" and hasattr(
-                vf, "create_planetary_gear_visuals"
-            ):
-                new_items = vf.create_planetary_gear_visuals(layer_data, transform_func)
+            if extra_args_getter:
+                return method(layer_data, transform_func, extra_args_getter())
+            return method(layer_data, transform_func)
         except Exception as e:
             self._logger.error("Error creating visuals for %s: %s", mechanism_type, e)
+            return []
 
-        return new_items
+    def _get_character_position_safe(self) -> Any:
+        """Safely get character position from parent tab."""
+        if hasattr(self.parent_tab, "_get_character_position"):
+            return self.parent_tab._get_character_position()
+        return None
 
     def _update_handle_positions_for_mechanism(
         self, mechanism_id: str, layer_data: dict[str, Any]

@@ -64,7 +64,7 @@ class FourBarEditor(MechanismEditor):
                 if mech is not None:
                     self._reproject_handle(hid, mech)
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
     def _create_link_handles(self):
         """Create handles at link midpoints for length adjustment."""
@@ -123,29 +123,78 @@ class FourBarEditor(MechanismEditor):
         return constraints
 
     def _calculate_crank_position(self, anchor1: QPointF, params: dict) -> QPointF:
-        """Calculate crank joint position."""
+        """Calculate crank joint position in scene coordinates."""
+        # Use explicit scene coordinates if available
         if "crank_x" in params and "crank_y" in params:
             return QPointF(params["crank_x"], params["crank_y"])
+
+        # Get mechanism-space parameters
         angle = params.get("crank_angle", 0)
-        length = params.get("l2", 60)
-        x = anchor1.x() + length * math.cos(math.radians(angle))
-        y = anchor1.y() + length * math.sin(math.radians(angle))
+        mech_length = params.get("l2", 60)
+
+        # If we have transforms, calculate in mechanism space and convert to scene
+        if self.to_scene_coords is not None and self.to_mech_coords is not None:
+            # Get anchor in mechanism space
+            anchor_mech = self._to_mech(anchor1)
+            if anchor_mech is not None:
+                # Calculate crank position in mechanism space
+                mech_x = anchor_mech[0] + mech_length * math.cos(math.radians(angle))
+                mech_y = anchor_mech[1] + mech_length * math.sin(math.radians(angle))
+                # Convert to scene space
+                scene_pos = self._to_scene((mech_x, mech_y))
+                if scene_pos is not None:
+                    return scene_pos
+
+        # Fallback: use length directly in scene space (approximate)
+        x = anchor1.x() + mech_length * math.cos(math.radians(angle))
+        y = anchor1.y() + mech_length * math.sin(math.radians(angle))
         return QPointF(x, y)
 
     def _calculate_rocker_position(self, anchor2: QPointF, params: dict) -> QPointF:
-        """Calculate rocker joint position."""
+        """Calculate rocker joint position in scene coordinates."""
+        # Use explicit scene coordinates if available
         if "rocker_x" in params and "rocker_y" in params:
             return QPointF(params["rocker_x"], params["rocker_y"])
+
+        # Get mechanism-space parameters
         angle = params.get("rocker_angle", 45)
-        length = params.get("l4", 70)
-        x = anchor2.x() + length * math.cos(math.radians(angle))
-        y = anchor2.y() + length * math.sin(math.radians(angle))
+        mech_length = params.get("l4", 70)
+
+        # If we have transforms, calculate in mechanism space and convert to scene
+        if self.to_scene_coords is not None and self.to_mech_coords is not None:
+            # Get anchor in mechanism space
+            anchor_mech = self._to_mech(anchor2)
+            if anchor_mech is not None:
+                # Calculate rocker position in mechanism space
+                mech_x = anchor_mech[0] + mech_length * math.cos(math.radians(angle))
+                mech_y = anchor_mech[1] + mech_length * math.sin(math.radians(angle))
+                # Convert to scene space
+                scene_pos = self._to_scene((mech_x, mech_y))
+                if scene_pos is not None:
+                    return scene_pos
+
+        # Fallback: use length directly in scene space (approximate)
+        x = anchor2.x() + mech_length * math.cos(math.radians(angle))
+        y = anchor2.y() + mech_length * math.sin(math.radians(angle))
         return QPointF(x, y)
 
     def _calculate_coupler_position(self, params: dict) -> QPointF:
-        """Calculate coupler point position."""
+        """Calculate coupler point position in scene coordinates."""
+        # Use explicit scene coordinates if available
         if "coupler_x" in params and "coupler_y" in params:
             return QPointF(params["coupler_x"], params["coupler_y"])
+
+        # Try to calculate from crank and rocker positions
+        if "crank" in self.handles and "rocker" in self.handles:
+            crank_pos = self.handles["crank"].scenePos()
+            rocker_pos = self.handles["rocker"].scenePos()
+            # Coupler at midpoint of crank-rocker link
+            return QPointF(
+                (crank_pos.x() + rocker_pos.x()) / 2,
+                (crank_pos.y() + rocker_pos.y()) / 2
+            )
+
+        # Fallback to default scene position
         return QPointF(params.get("coupler_point_x", 350), params.get("coupler_point_y", 250))
 
     def _on_anchor1_moved(self, handle_id: str, new_pos: QPointF):
@@ -256,7 +305,7 @@ class FourBarEditor(MechanismEditor):
                         params["coupler_point_x"] = float(rel.dot(u))
                         params["coupler_point_y"] = float(rel.dot(n))
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
         self._trigger_mechanism_update()
 

@@ -9,6 +9,7 @@ Architecture: Hexagonal - Domain Core
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -33,7 +34,13 @@ class MotionPathGenerator:
 
         Args:
             resolution: Number of points for path generation (default 180)
+
+        Raises:
+            ValueError: If resolution is less than 1
         """
+        if resolution < 1:
+            logging.warning(f"Invalid resolution {resolution}, using default {self.DEFAULT_RESOLUTION}")
+            resolution = self.DEFAULT_RESOLUTION
         self._resolution = resolution
 
     def generate_joint_motion_path(
@@ -99,7 +106,7 @@ class MotionPathGenerator:
         Returns:
             List of (x, y) tuples representing sampled positions
         """
-        samples = num_samples or self._resolution
+        samples = num_samples if num_samples and num_samples > 0 else self._resolution
         positions: list[tuple[float, float]] = []
         mech_type = layer_data.get("type")
         params = layer_data.get("params", {})
@@ -111,7 +118,7 @@ class MotionPathGenerator:
                 if pos:
                     positions.append((pos.x(), pos.y()))
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
         return positions
 

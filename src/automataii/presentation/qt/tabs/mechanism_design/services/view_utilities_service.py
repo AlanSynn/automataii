@@ -8,6 +8,7 @@ Design Pattern: Service (encapsulates view utility operations)
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QRectF
@@ -131,7 +132,7 @@ class ViewUtilitiesService:
             try:
                 view.setRenderHint(QPainter.RenderHint.Antialiasing, antialiasing)
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
 
     def fit_view_to_content(
         self,
@@ -157,7 +158,7 @@ class ViewUtilitiesService:
                 scene_rect.adjust(-margin, -margin, margin, margin)
                 view.fitInView(scene_rect, 1)  # Qt.AspectRatioMode.KeepAspectRatio
         except Exception:
-            pass
+            logging.debug("Suppressed exception", exc_info=True)
 
 
 # Singleton instance

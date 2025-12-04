@@ -212,54 +212,59 @@ def test_update_trace_enforces_max_points(manager, scene):
 
 
 def test_update_trace_respects_stride_gating(manager, scene):
-    """Test update_trace respects stride gating for visual updates."""
+    """Test update_trace respects stride gating for visual updates.
+
+    Note: With incremental path updates, we track synced point count
+    via _path_point_count instead of object identity comparison.
+    """
     mechanism_id = "mech_1"
     manager.init_trace(mechanism_id, scene)
 
-    stride = manager._config.update_stride
-
-    # Add points, track when path gets updated
-    initial_path = manager._trace_paths[mechanism_id]
-
     # Add first point (won't render - need 2 points for a line)
     manager.update_trace(mechanism_id, QPointF(0.0, 0.0), frame_tick=0)
-    path_after_point1 = manager._trace_paths[mechanism_id]
-    assert path_after_point1.isEmpty()  # Still empty (1 point can't draw a line)
+    synced_after_point1 = manager._path_point_count.get(mechanism_id, 0)
+    assert synced_after_point1 == 1  # Tracked but can't draw a line yet
 
     # Add second point (should always update for first 2 points)
     manager.update_trace(mechanism_id, QPointF(1.0, 1.0), frame_tick=1)
-    path_after_point2 = manager._trace_paths[mechanism_id]
-    assert not path_after_point2.isEmpty()  # Now we have a line
+    synced_after_point2 = manager._path_point_count.get(mechanism_id, 0)
+    assert synced_after_point2 == 2  # Now we have 2 synced points
+    assert not manager._trace_paths[mechanism_id].isEmpty()  # Path has content
 
     # Now test stride gating for subsequent points
     # stride=2, so frame_tick=2,4,6,... should update
     manager.update_trace(mechanism_id, QPointF(2.0, 2.0), frame_tick=2)
-    path_after_stride_hit = manager._trace_paths[mechanism_id]
-    assert path_after_stride_hit != path_after_point2  # Should update (stride hit)
+    synced_after_stride_hit = manager._path_point_count.get(mechanism_id, 0)
+    assert synced_after_stride_hit == 3  # Should update (stride hit)
 
     manager.update_trace(mechanism_id, QPointF(3.0, 3.0), frame_tick=3)
-    path_after_stride_miss = manager._trace_paths[mechanism_id]
-    assert path_after_stride_miss == path_after_stride_hit  # Should NOT update (stride miss)
+    synced_after_stride_miss = manager._path_point_count.get(mechanism_id, 0)
+    assert synced_after_stride_miss == 3  # Should NOT update (stride miss)
 
 
 def test_update_trace_updates_first_two_points_immediately(manager, scene):
-    """Test update_trace updates visual for first 2 points regardless of stride."""
+    """Test update_trace updates visual for first 2 points regardless of stride.
+
+    Note: With incremental path updates, we use _path_point_count to track
+    how many points have been synced to the visual path.
+    """
     mechanism_id = "mech_1"
     manager.init_trace(mechanism_id, scene)
 
     # Add first point at frame_tick=1 (stride miss, but should still attempt update)
     manager.update_trace(mechanism_id, QPointF(0.0, 0.0), frame_tick=1)
     assert len(manager._trace_points[mechanism_id]) == 1
-    path_after_1 = manager._trace_paths[mechanism_id]
+    synced_after_1 = manager._path_point_count.get(mechanism_id, 0)
+    # First point is tracked but can't draw a line (need 2 points)
+    assert synced_after_1 == 1
 
     # Add second point at frame_tick=3 (stride miss, but should still update)
     manager.update_trace(mechanism_id, QPointF(1.0, 1.0), frame_tick=3)
     assert len(manager._trace_points[mechanism_id]) == 2
-    path_after_2 = manager._trace_paths[mechanism_id]
-
-    # First point can't render (need 2 points for a line), but second point should
-    assert path_after_1.isEmpty()  # 1 point can't draw a line
-    assert not path_after_2.isEmpty()  # 2 points can draw a line
+    synced_after_2 = manager._path_point_count.get(mechanism_id, 0)
+    # Second point should be synced (first 2 points always update)
+    assert synced_after_2 == 2
+    assert not manager._trace_paths[mechanism_id].isEmpty()  # 2 points can draw a line
 
 
 def test_update_trace_auto_initializes_if_needed(manager, scene):

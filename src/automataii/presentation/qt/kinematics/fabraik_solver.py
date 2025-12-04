@@ -292,7 +292,9 @@ def solve_ik_fabrik_with_constraints(
         if hasattr(item, 'is_joint_locked') and item.is_joint_locked:
             continue
 
-        item.set_scene_position_from_anchor(new_pos)
+        # FABRIK solver already maintains bone length constraints,
+        # so bypass CharacterPartItem's duplicate validation
+        item.set_scene_position_from_anchor(new_pos, bypass_validation=True)
 
         # Calculate rotation to point to next joint
         if i < len(chain) - 1:
@@ -353,7 +355,9 @@ def _stretch_chain_to_target_with_preservation(chain: list, bone_lengths: list[f
 
         bone_length = bone_lengths[i - 1]
         current_pos = current_pos + direction_normalized * bone_length
-        chain[i].set_scene_position_from_anchor(current_pos)
+        # FABRIK solver already maintains bone length constraints,
+        # so bypass CharacterPartItem's duplicate validation
+        chain[i].set_scene_position_from_anchor(current_pos, bypass_validation=True)
 
         # Update rotation
         if i > 0:

@@ -8,10 +8,16 @@ All operations use tuple[float, float] for points to maintain immutability.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Protocol
 
 from .types import BoundingBox, PathPoints, Point2D
+
+logger = logging.getLogger(__name__)
+
+# Epsilon for floating-point comparisons to avoid precision issues
+_EPSILON = 1e-10
 
 __all__ = ["GeometryMathProtocol", "GeometryMathService"]
 
@@ -140,14 +146,18 @@ class GeometryMathService:
         bbox = self.compute_bounding_box(points)
 
         # Handle degenerate case (single point or line)
-        if bbox.width == 0 and bbox.height == 0:
+        if bbox.width < _EPSILON and bbox.height < _EPSILON:
             # Single point: center at (target_size/2, target_size/2)
             center = target_size / 2
             return tuple((center, center) for _ in points)
 
         # Compute scale factor (uniform scaling)
         max_dim = max(bbox.width, bbox.height)
-        scale = target_size / max_dim if max_dim > 0 else 1.0
+        if max_dim < _EPSILON:
+            logger.debug(f"normalize_path: max_dim too small ({max_dim}), using scale=1.0")
+            scale = 1.0
+        else:
+            scale = target_size / max_dim
 
         # Compute translation to center
         center_x, center_y = bbox.center
@@ -240,8 +250,9 @@ class GeometryMathService:
         # Compute cumulative arc length
         total_length = self.compute_path_length(points)
 
-        if total_length == 0:
-            # Degenerate path (all points same): return duplicates
+        if total_length < _EPSILON:
+            # Degenerate path (all points same or very close): return duplicates
+            logger.debug(f"resample_path: total_length too small ({total_length}), returning duplicates")
             return tuple(points[0] for _ in range(num_samples))
 
         # Build cumulative length array
@@ -276,8 +287,8 @@ class GeometryMathService:
                 seg_end_length = cumulative_lengths[segment_idx + 1]
                 seg_length = seg_end_length - seg_start_length
 
-                if seg_length == 0:
-                    # Degenerate segment
+                if seg_length < _EPSILON:
+                    # Degenerate segment (points very close)
                     resampled.append(points[segment_idx])
                 else:
                     # Linear interpolation
@@ -329,4 +340,9 @@ class GeometryMathService:
             dist = self.compute_distance(pt, pg)
             sum_squared_error += dist * dist
 
-        return math.sqrt(sum_squared_error / len(target))
+        # Safety check for numerical stability
+        mean_squared_error = sum_squared_error / len(target)
+        if mean_squared_error < 0:
+            logger.warning(f"compute_path_error_rms: negative MSE ({mean_squared_error}), returning 0")
+            return 0.0
+        return math.sqrt(mean_squared_error)

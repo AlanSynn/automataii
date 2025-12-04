@@ -238,147 +238,152 @@ class SkeletonManager(QObject):
         self, data: dict[str, Any]
     ) -> StandardizedSkeletonModel | None:
         """
-        Processes skeleton data from the Animated Drawings format (e.g., char_cfg.yaml content).
-        Populates and returns a StandardizedSkeletonModel.
+        Processes skeleton data from the Animated Drawings format.
+        Refactored to reduce cyclomatic complexity.
         """
         raw_joints_list = data.get("skeleton", [])
         if not isinstance(raw_joints_list, list):
-            logging.warning(
-                "Animated Drawings format: 'skeleton' key is not a list or is missing."
-            )
+            logging.warning("Animated Drawings format: 'skeleton' key is not a list or is missing.")
             return None
 
         std_skeleton = StandardizedSkeletonModel(source_format="animated_drawings")
-        temp_joint_name_to_id: dict[str, str] = {}
-        temp_id_to_parent_name: dict[str, str | None] = {}
+        name_to_id: dict[str, str] = {}
+        id_to_parent: dict[str, str | None] = {}
 
-        for i, joint_info_raw in enumerate(raw_joints_list):
-            if not isinstance(joint_info_raw, dict):
-                logging.warning(
-                    f"Skipping non-dict joint entry in Animated Drawings skeleton: {joint_info_raw}"
-                )
-                continue
+        # First pass: Create joint models
+        for i, joint_raw in enumerate(raw_joints_list):
+            result = self._process_single_ad_joint(joint_raw, i, std_skeleton)
+            if result:
+                joint_id, joint_name, parent_name = result
+                name_to_id[joint_name] = joint_id
+                id_to_parent[joint_id] = parent_name
 
-            joint_name = joint_info_raw.get("name")
-            parent_name = joint_info_raw.get(
-                "parent"
-            )  # Could be None, empty string, or actual name
-            coords = joint_info_raw.get("coordinates") or joint_info_raw.get(
-                "loc"
-            )  # Prefer 'coordinates'
+        # Second pass: Resolve hierarchy
+        self._resolve_ad_hierarchy(std_skeleton, name_to_id, id_to_parent)
 
-            # If 'coords' is None, check if 'position' (from Pydantic model dump) is present
-            if coords is None and "position" in joint_info_raw:
-                coords = joint_info_raw["position"]
-
-            # Use 'id' from Pydantic model dump if 'name' is missing or for robustness
-            if not joint_name and "id" in joint_info_raw:
-                joint_name = joint_info_raw["id"]
-
-            if not joint_name or coords is None:
-                logging.warning(
-                    f"Skipping AD joint with missing name or coordinates: {joint_info_raw}"
-                )
-                continue
-
-            # Create a robust, unique ID. Using original name + index as fallback.
-            # Standardized ID should ideally be clean (no spaces, etc.)
-            unique_id_base = joint_name.replace(" ", "_").replace(".", "_")
-            joint_id = f"{unique_id_base}_{i}"
-            # Ensure ID is truly unique if names repeat (though AD format usually has unique names)
-            while joint_id in std_skeleton.joints:
-                joint_id += "_dup"
-
-            if not isinstance(coords, list) or len(coords) != 2:
-                logging.warning(
-                    f"Skipping AD joint '{joint_name}' due to invalid coordinates: {coords}"
-                )
-                continue
-
-            try:
-                position_tuple = (float(coords[0]), float(coords[1]))
-            except (ValueError, TypeError):
-                logging.warning(
-                    f"Skipping AD joint '{joint_name}' due to non-numeric coordinates: {coords}"
-                )
-                continue
-
-            # Only set bend_direction for elbow and knee joints
-            bend_dir = None
-            if 'elbow' in joint_name.lower() or 'knee' in joint_name.lower():
-                bend_dir = 1.0  # Default bend direction for middle joints
-
-            std_joint = StandardizedJointModel(
-                id=joint_id,
-                name=joint_name,  # Standardized name is the AD name
-                position=position_tuple,
-                parent_id=None,  # Will be resolved later
-                label=joint_name,  # Original name is same as standardized name here
-                source_data=joint_info_raw.copy(),
-                is_locked=False,  # Default to unlocked
-                bend_direction=bend_dir,  # Only set for elbow/knee joints
-            )
-            std_skeleton.joints[joint_id] = std_joint
-            temp_joint_name_to_id[joint_name] = joint_id
-            # Store parent_name for later hierarchy resolution. Handle if parent_name is an empty string or "None".
-            temp_id_to_parent_name[joint_id] = (
-                parent_name
-                if parent_name and str(parent_name).lower() != "none"
-                else None
-            )
-
-            # Populate joint_map (original AD joint name to new standardized ID)
-            if std_skeleton.joint_map is not None:  # Pydantic initializes to {}
-                std_skeleton.joint_map[joint_name] = joint_id
-
-        # Second pass: Resolve parent_ids and build hierarchy
-        for joint_id, joint_model in std_skeleton.joints.items():
-            parent_name = temp_id_to_parent_name.get(joint_id)
-            if parent_name and parent_name in temp_joint_name_to_id:
-                parent_id = temp_joint_name_to_id[parent_name]
-                joint_model.parent_id = parent_id
-                if std_skeleton.hierarchy is not None:  # Pydantic initializes to {}
-                    std_skeleton.hierarchy.setdefault(parent_id, []).append(joint_id)
-            else:
-                if (
-                    std_skeleton.root_joint_ids is not None
-                ):  # Pydantic initializes to []
-                    std_skeleton.root_joint_ids.append(joint_id)
-
-        # Attempt to calculate/derive limb_lengths if parts_data was provided
-        # This part is heuristic and depends on conventions between char_cfg.yaml and parts naming.
-        parts_data_for_lengths = data.get("parts_data_for_limb_lengths")
-        if (
-            parts_data_for_lengths
-            and isinstance(parts_data_for_lengths, dict)
-            and std_skeleton.limb_lengths is not None
-        ):
-            # Example heuristic: if a part's name corresponds to a joint name,
-            # and that part has an 'roi', its height/width could be a proxy for limb length.
-            # This is very rough. Animated Drawings sometimes provides 'limb_lengths' in char_cfg too.
-            # A more robust approach would use `char_cfg.yaml`'s `limb_meta` if available.
-            # For now, let's assume a simple direct calculation if joints align with visual parts.
-            for _joint_id_A, joint_A in std_skeleton.joints.items():
-                if joint_A.parent_id and joint_A.parent_id in std_skeleton.joints:
-                    joint_B = std_skeleton.joints[joint_A.parent_id]
-                    dx = joint_A.position[0] - joint_B.position[0]
-                    dy = joint_A.position[1] - joint_B.position[1]
-                    length = math.sqrt(dx * dx + dy * dy)
-                    # Try to find a descriptive name for this limb (e.g., parent_name-child_name)
-                    limb_name_key = f"{joint_B.name}_to_{joint_A.name}"
-                    std_skeleton.limb_lengths[limb_name_key] = length
-                    # More sophisticated: Check 'limb_meta' if present in original 'data' from char_cfg
-                    if "limb_meta" in data and isinstance(data["limb_meta"], dict):
-                        for lm_key, lm_val in data["limb_meta"].items():
-                            if isinstance(
-                                lm_val, int | float
-                            ):  # limb_meta often contains lengths directly
-                                std_skeleton.limb_lengths[lm_key] = float(lm_val)
+        # Calculate limb lengths
+        self._calculate_ad_limb_lengths(std_skeleton, data)
 
         if not std_skeleton.joints:
             logging.warning("No valid joints processed from Animated Drawings format.")
             return None
         return std_skeleton
+
+    def _process_single_ad_joint(
+        self, joint_raw: Any, index: int, skeleton: StandardizedSkeletonModel
+    ) -> tuple[str, str, str | None] | None:
+        """Process a single joint from Animated Drawings format."""
+        if not isinstance(joint_raw, dict):
+            logging.warning(f"Skipping non-dict joint entry: {joint_raw}")
+            return None
+
+        joint_name = joint_raw.get("name") or joint_raw.get("id")
+        parent_name = joint_raw.get("parent")
+        coords = joint_raw.get("coordinates") or joint_raw.get("loc") or joint_raw.get("position")
+
+        if not joint_name or coords is None:
+            logging.warning(f"Skipping AD joint with missing name or coordinates: {joint_raw}")
+            return None
+
+        # Validate coordinates
+        position = self._parse_ad_coordinates(coords, joint_name)
+        if position is None:
+            return None
+
+        # Generate unique ID
+        joint_id = self._generate_unique_joint_id(joint_name, index, skeleton.joints)
+
+        # Create joint model
+        bend_dir = 1.0 if ('elbow' in joint_name.lower() or 'knee' in joint_name.lower()) else None
+
+        std_joint = StandardizedJointModel(
+            id=joint_id,
+            name=joint_name,
+            position=position,
+            parent_id=None,
+            label=joint_name,
+            source_data=joint_raw.copy(),
+            is_locked=False,
+            bend_direction=bend_dir,
+        )
+        skeleton.joints[joint_id] = std_joint
+
+        if skeleton.joint_map is not None:
+            skeleton.joint_map[joint_name] = joint_id
+
+        # Normalize parent name
+        normalized_parent = (
+            parent_name if parent_name and str(parent_name).lower() != "none" else None
+        )
+        return joint_id, joint_name, normalized_parent
+
+    def _parse_ad_coordinates(self, coords: Any, joint_name: str) -> tuple[float, float] | None:
+        """Parse and validate coordinates for AD joint."""
+        if not isinstance(coords, list) or len(coords) != 2:
+            logging.warning(f"Skipping AD joint '{joint_name}' due to invalid coordinates: {coords}")
+            return None
+        try:
+            return (float(coords[0]), float(coords[1]))
+        except (ValueError, TypeError):
+            logging.warning(f"Skipping AD joint '{joint_name}' due to non-numeric coordinates: {coords}")
+            return None
+
+    def _generate_unique_joint_id(
+        self, joint_name: str, index: int, existing_joints: dict[str, Any]
+    ) -> str:
+        """Generate a unique joint ID."""
+        base_id = joint_name.replace(" ", "_").replace(".", "_")
+        joint_id = f"{base_id}_{index}"
+        while joint_id in existing_joints:
+            joint_id += "_dup"
+        return joint_id
+
+    def _resolve_ad_hierarchy(
+        self,
+        skeleton: StandardizedSkeletonModel,
+        name_to_id: dict[str, str],
+        id_to_parent: dict[str, str | None],
+    ) -> None:
+        """Resolve parent IDs and build hierarchy."""
+        for joint_id, joint_model in skeleton.joints.items():
+            parent_name = id_to_parent.get(joint_id)
+            if parent_name and parent_name in name_to_id:
+                parent_id = name_to_id[parent_name]
+                joint_model.parent_id = parent_id
+                if skeleton.hierarchy is not None:
+                    skeleton.hierarchy.setdefault(parent_id, []).append(joint_id)
+            elif skeleton.root_joint_ids is not None:
+                skeleton.root_joint_ids.append(joint_id)
+
+    def _calculate_ad_limb_lengths(
+        self, skeleton: StandardizedSkeletonModel, data: dict[str, Any]
+    ) -> None:
+        """Calculate limb lengths from joint positions (only if parts_data provided)."""
+        if skeleton.limb_lengths is None:
+            return
+
+        # Only calculate if parts_data_for_limb_lengths is provided
+        parts_data = data.get("parts_data_for_limb_lengths")
+        if not parts_data or not isinstance(parts_data, dict):
+            return
+
+        # Calculate from joint distances
+        for joint_a in skeleton.joints.values():
+            if not joint_a.parent_id or joint_a.parent_id not in skeleton.joints:
+                continue
+            joint_b = skeleton.joints[joint_a.parent_id]
+            dx = joint_a.position[0] - joint_b.position[0]
+            dy = joint_a.position[1] - joint_b.position[1]
+            length = math.sqrt(dx * dx + dy * dy)
+            limb_key = f"{joint_b.name}_to_{joint_a.name}"
+            skeleton.limb_lengths[limb_key] = length
+
+        # Add lengths from limb_meta if available
+        limb_meta = data.get("limb_meta")
+        if isinstance(limb_meta, dict):
+            for key, val in limb_meta.items():
+                if isinstance(val, int | float):
+                    skeleton.limb_lengths[key] = float(val)
 
     def _process_already_standardized_format(
         self, data: dict[str, Any]
@@ -503,73 +508,127 @@ class SkeletonManager(QObject):
         try:
             logging.info(f"Extending skeleton lengths by factor {scale_factor}")
 
-            # Store the root positions as they should not move
-            root_positions = {}
-            for root_id in self._standardized_skeleton_model.root_joint_ids:
-                if root_id in self._standardized_skeleton_model.joints:
-                    root_positions[root_id] = self._standardized_skeleton_model.joints[root_id].position
-
-            # Process each joint starting from roots
-            processed_joints = set()
-
-            # Cache the model reference to avoid None checks inside recursion
             model = self._standardized_skeleton_model
-
-            def scale_joint_recursive(joint_id: str, parent_pos: tuple[float, float] | None = None) -> None:
-                if joint_id in processed_joints:
-                    return
-
-                processed_joints.add(joint_id)
-                joint = model.joints.get(joint_id)
-                if not joint:
-                    return
-
-                # If this is not a root joint and has a parent position, scale its position
-                if parent_pos is not None and joint.parent_id:
-                    # Calculate the vector from parent to this joint
-                    dx = joint.position[0] - parent_pos[0]
-                    dy = joint.position[1] - parent_pos[1]
-
-                    # Scale the vector
-                    new_dx = dx * scale_factor
-                    new_dy = dy * scale_factor
-
-                    # Set new position
-                    new_pos = (parent_pos[0] + new_dx, parent_pos[1] + new_dy)
-                    joint.position = new_pos
-
-                    # Update limb length if it exists
-                    parent_joint = model.joints.get(joint.parent_id)
-                    if parent_joint and model.limb_lengths:
-                        limb_key = f"{parent_joint.name}_to_{joint.name}"
-                        if limb_key in model.limb_lengths:
-                            model.limb_lengths[limb_key] *= scale_factor
-
-                # Process children
-                current_pos = joint.position
-                child_ids = model.hierarchy.get(joint_id, [])
-                for child_id in child_ids:
-                    scale_joint_recursive(child_id, current_pos)
+            processed_joints: set[str] = set()
 
             # Start scaling from each root
-            for root_id in self._standardized_skeleton_model.root_joint_ids:
-                if root_id in self._standardized_skeleton_model.joints:
-                    scale_joint_recursive(root_id)
+            for root_id in model.root_joint_ids:
+                if root_id in model.joints:
+                    self._scale_joint_tree(root_id, None, scale_factor, processed_joints, model)
 
-            # Scale all limb lengths that haven't been updated yet
-            if self._standardized_skeleton_model.limb_lengths:
-                for limb_name in list(self._standardized_skeleton_model.limb_lengths.keys()):
-                    # This ensures any pre-calculated lengths are also scaled
-                    self._standardized_skeleton_model.limb_lengths[limb_name] *= scale_factor
+            # Scale all limb lengths (may double-scale some, but ensures consistency)
+            self._scale_all_limb_lengths(scale_factor, model)
 
             # Emit update signal
-            self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
+            self.skeleton_updated.emit(model.model_dump())
             logging.info(f"Successfully extended skeleton lengths by {scale_factor}")
             return True
 
         except Exception as e:
             logging.error(f"Error extending skeleton lengths: {e}", exc_info=True)
             return False
+
+    def _scale_joint_tree(
+        self,
+        joint_id: str,
+        parent_pos: tuple[float, float] | None,
+        scale_factor: float,
+        processed_joints: set[str],
+        model: StandardizedSkeletonModel,
+    ) -> None:
+        """Recursively scale joint positions in the skeleton tree.
+
+        Args:
+            joint_id: Current joint to process
+            parent_pos: Position of the parent joint (None for roots)
+            scale_factor: Scale factor to apply
+            processed_joints: Set of already processed joint IDs
+            model: The skeleton model to modify
+        """
+        if joint_id in processed_joints:
+            return
+
+        processed_joints.add(joint_id)
+        joint = model.joints.get(joint_id)
+        if not joint:
+            return
+
+        # Scale position relative to parent if not a root
+        if parent_pos is not None and joint.parent_id:
+            self._scale_joint_position(joint, parent_pos, scale_factor, model)
+
+        # Process children recursively
+        current_pos = joint.position
+        for child_id in model.hierarchy.get(joint_id, []):
+            self._scale_joint_tree(child_id, current_pos, scale_factor, processed_joints, model)
+
+    def _scale_joint_position(
+        self,
+        joint: StandardizedJointModel,
+        parent_pos: tuple[float, float],
+        scale_factor: float,
+        model: StandardizedSkeletonModel,
+    ) -> None:
+        """Scale a single joint's position relative to its parent.
+
+        Args:
+            joint: The joint to scale
+            parent_pos: Position of the parent joint
+            scale_factor: Scale factor to apply
+            model: The skeleton model (for updating limb lengths)
+        """
+        # Calculate and scale vector from parent
+        dx = joint.position[0] - parent_pos[0]
+        dy = joint.position[1] - parent_pos[1]
+        new_dx = dx * scale_factor
+        new_dy = dy * scale_factor
+
+        # Set new position
+        joint.position = (parent_pos[0] + new_dx, parent_pos[1] + new_dy)
+
+        # Update limb length if it exists
+        self._update_limb_length_for_joint(joint, scale_factor, model)
+
+    def _update_limb_length_for_joint(
+        self,
+        joint: StandardizedJointModel,
+        scale_factor: float,
+        model: StandardizedSkeletonModel,
+    ) -> None:
+        """Update the limb length entry for a joint if it exists.
+
+        Args:
+            joint: The joint whose limb length to update
+            scale_factor: Scale factor to apply
+            model: The skeleton model containing limb lengths
+        """
+        if not joint.parent_id or not model.limb_lengths:
+            return
+
+        parent_joint = model.joints.get(joint.parent_id)
+        if not parent_joint:
+            return
+
+        limb_key = f"{parent_joint.name}_to_{joint.name}"
+        if limb_key in model.limb_lengths:
+            model.limb_lengths[limb_key] *= scale_factor
+
+    def _scale_all_limb_lengths(
+        self,
+        scale_factor: float,
+        model: StandardizedSkeletonModel,
+    ) -> None:
+        """Scale all limb lengths in the model.
+
+        Args:
+            scale_factor: Scale factor to apply
+            model: The skeleton model containing limb lengths
+        """
+        if not model.limb_lengths:
+            return
+
+        for limb_name in list(model.limb_lengths.keys()):
+            model.limb_lengths[limb_name] *= scale_factor
 
     def lock_joint(self, joint_id_or_name: str, locked: bool = True) -> bool:
         """Locks or unlocks a specific joint for IK solving.

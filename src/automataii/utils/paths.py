@@ -169,6 +169,10 @@ def resolve_path(relative_path: str | Path) -> Path:
             continue
 
     # Fallback: return the first candidate even if it doesn't exist
+    if not unique_candidates:
+        # Should never happen, but guard against it
+        logger.warning(f"No candidates found for path '{rel}', returning base_path / rel")
+        return base_path / rel
     fallback = unique_candidates[0]
     logger.debug(f"Resolved path (fallback) '{rel}' -> '{fallback}'")
     return fallback

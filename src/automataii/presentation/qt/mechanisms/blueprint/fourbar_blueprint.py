@@ -100,7 +100,7 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
         ''' + ''.join([
             f'<line x1="{p1[0] + i}" y1="{p1[1] + 3}" x2="{p1[0] + i - 5}" y2="{p1[1] + 10}"/>'
             for i in range(0, int(p2[0] - p1[0]) + 5, 5)
-        ]) + '''
+        ]) + f'''
             </g>
 
             <!-- Ground symbols -->
@@ -113,7 +113,7 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
                      M {p2[0]-4},{p2[1]+9} L {p2[0]+4},{p2[1]+9}"
                   stroke="black" stroke-width="0.7"/>
         </g>
-        '''.format(p1=p1, p2=p2)
+        '''
 
     def _draw_link(self, start: list[float], end: list[float],
                   label: str, length: float, width: float) -> str:

@@ -203,38 +203,169 @@ class SkeletonData:
 # =============================================================================
 
 @dataclass(frozen=True)
+class TimedPoint:
+    """
+    Point with timestamp for velocity/acceleration-aware animation.
+
+    The timestamp is relative to the start of drawing (in seconds).
+    This allows preserving the original drawing velocity for natural motion.
+    """
+    x: float
+    y: float
+    t: float  # Time in seconds from start
+
+    def to_point(self) -> Point:
+        return Point(x=self.x, y=self.y)
+
+    def to_tuple(self) -> tuple[float, float, float]:
+        return (self.x, self.y, self.t)
+
+    @classmethod
+    def from_tuple(cls, data: tuple[float, float, float]) -> TimedPoint:
+        return cls(x=data[0], y=data[1], t=data[2])
+
+    @classmethod
+    def from_point(cls, point: Point, t: float) -> TimedPoint:
+        return cls(x=point.x, y=point.y, t=t)
+
+
+@dataclass(frozen=True)
 class PathData:
     """
-    Motion path for a part.
+    Motion path for a part with optional timing information.
 
     Produced by: EditorTab (user drawing)
     Consumed by: MechanismDesignTab
+
+    If timed_points is provided, animation uses time-based interpolation
+    to preserve original drawing velocity/acceleration.
+    Otherwise, falls back to uniform interpolation over points.
     """
     part_name: str
     points: Sequence[Point] = field(default_factory=tuple)
+    timed_points: Sequence[TimedPoint] | None = None  # Optional timing data
+    total_duration: float = 0.0  # Total drawing duration in seconds
     is_closed: bool = False
     enabled: bool = True
 
     def with_points(self, points: Sequence[Point]) -> PathData:
         return replace(self, points=tuple(points))
 
+    def with_timed_points(
+        self,
+        timed_points: Sequence[TimedPoint],
+        total_duration: float,
+    ) -> PathData:
+        """Set timed points with duration."""
+        points = tuple(tp.to_point() for tp in timed_points)
+        return replace(
+            self,
+            points=points,
+            timed_points=tuple(timed_points),
+            total_duration=total_duration,
+        )
+
     def with_enabled(self, enabled: bool) -> PathData:
         return replace(self, enabled=enabled)
 
+    def get_point_at_progress(self, progress: float) -> Point | None:
+        """
+        Get interpolated point at given progress (0.0-1.0).
+
+        If timed_points is available, uses time-based interpolation
+        to preserve original velocity. Otherwise, uses uniform interpolation.
+        """
+        if not self.points:
+            return None
+
+        progress = max(0.0, min(1.0, progress))
+
+        # Time-based interpolation if timing data available
+        if self.timed_points and self.total_duration > 0:
+            target_time = progress * self.total_duration
+            return self._interpolate_at_time(target_time)
+
+        # Fallback: uniform interpolation
+        return self._interpolate_uniform(progress)
+
+    def _interpolate_at_time(self, target_time: float) -> Point:
+        """Interpolate position at given time using timed points."""
+        if not self.timed_points:
+            return self.points[0] if self.points else Point(0, 0)
+
+        # Find surrounding points
+        timed = list(self.timed_points)
+        n = len(timed)
+
+        if n == 1:
+            return timed[0].to_point()
+
+        # Clamp to valid range
+        target_time = max(0.0, min(target_time, self.total_duration))
+
+        # Binary search for the right segment
+        for i in range(n - 1):
+            if timed[i].t <= target_time <= timed[i + 1].t:
+                # Linear interpolation within segment
+                t0, t1 = timed[i].t, timed[i + 1].t
+                if t1 - t0 < 1e-9:
+                    return timed[i].to_point()
+
+                alpha = (target_time - t0) / (t1 - t0)
+                x = timed[i].x + alpha * (timed[i + 1].x - timed[i].x)
+                y = timed[i].y + alpha * (timed[i + 1].y - timed[i].y)
+                return Point(x=x, y=y)
+
+        # Edge case: return last point
+        return timed[-1].to_point()
+
+    def _interpolate_uniform(self, progress: float) -> Point:
+        """Uniform interpolation over points."""
+        if not self.points:
+            return Point(0, 0)
+
+        n = len(self.points)
+        if n == 1:
+            return self.points[0]
+
+        idx_float = progress * (n - 1)
+        idx = int(idx_float)
+        alpha = idx_float - idx
+
+        if idx >= n - 1:
+            return self.points[-1]
+
+        p0, p1 = self.points[idx], self.points[idx + 1]
+        x = p0.x + alpha * (p1.x - p0.x)
+        y = p0.y + alpha * (p1.y - p0.y)
+        return Point(x=x, y=y)
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "part_name": self.part_name,
             "points": [p.to_tuple() for p in self.points],
             "is_closed": self.is_closed,
             "enabled": self.enabled,
         }
+        if self.timed_points:
+            result["timed_points"] = [tp.to_tuple() for tp in self.timed_points]
+            result["total_duration"] = self.total_duration
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PathData:
         points_data = data.get("points", [])
+        timed_data = data.get("timed_points")
+
+        timed_points = None
+        if timed_data:
+            timed_points = tuple(TimedPoint.from_tuple(tp) for tp in timed_data)
+
         return cls(
             part_name=data["part_name"],
             points=tuple(Point.from_tuple(p) for p in points_data),
+            timed_points=timed_points,
+            total_duration=data.get("total_duration", 0.0),
             is_closed=data.get("is_closed", False),
             enabled=data.get("enabled", True),
         )

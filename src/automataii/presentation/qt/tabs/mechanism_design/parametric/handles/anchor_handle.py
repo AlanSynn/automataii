@@ -222,10 +222,10 @@ class AnchorHandle(BaseHandle):
             # Grashof's criterion for 4-bar linkage mobility
             lengths = [ground_distance, l2, l3, l4]
             lengths.sort()
-            s, p, q, l = lengths  # s=shortest, l=longest
+            shortest, mid1, mid2, longest = lengths  # shortest to longest
 
             # Check Grashof condition: s + l <= p + q (for continuous rotation)
-            if s + l > p + q + 1e-6:  # Small tolerance for floating point
+            if shortest + longest > mid1 + mid2 + 1e-6:  # Small tolerance for floating point
                 return False, "Grashof condition violated: linkage may not be mobile"
 
             # Check triangle inequality for each triangle in the linkage

@@ -139,6 +139,10 @@ class FourBarStrategy(LinkageStrategy):
             a_y = input_l * math.sin(input_angle_rad)
             dist_a_o4 = math.sqrt(a_x**2 + a_y**2)
 
+            # Guard against division by zero
+            if dist_a_o4 < 1e-10 or output < 1e-10:
+                return self._fallback_angle(input_angle_rad)
+
             # Reachability check (triangle inequality)
             if dist_a_o4 > (coupler + output) or dist_a_o4 < abs(coupler - output):
                 return self._fallback_angle(input_angle_rad)

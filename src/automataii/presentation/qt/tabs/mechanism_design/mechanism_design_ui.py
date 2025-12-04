@@ -20,14 +20,7 @@ from PyQt6.QtWidgets import (
 
 # Parametric Design System (ULTRATHINK Architecture)
 try:
-    from automataii.presentation.qt.parametric_editor import (
-        CamEditor,
-        FourBarEditor,
-        GearEditor,
-        MechanismEditor,
-        ParametricEditor,
-        ParametricHandle,
-    )
+    import automataii.presentation.qt.parametric_editor  # noqa: F401
     PARAMETRIC_AVAILABLE = True
 except ImportError:
     PARAMETRIC_AVAILABLE = False

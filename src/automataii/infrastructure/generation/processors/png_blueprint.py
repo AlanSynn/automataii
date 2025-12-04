@@ -97,7 +97,7 @@ class PNGBlueprintProcessor:
             try:
                 largest_contour.source_image_path = png_path_str
             except Exception:
-                pass
+                logging.debug("Suppressed exception", exc_info=True)
             return largest_contour
 
         except Exception as e:

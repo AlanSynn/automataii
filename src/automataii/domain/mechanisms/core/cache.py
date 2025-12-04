@@ -90,10 +90,10 @@ def compute_grashof_condition(
     Time Complexity: O(1)
     """
     links = sorted([ground, input_l, coupler, output])
-    s, p, q, l = links
+    shortest, mid1, mid2, longest = links
 
-    grashof_sum = s + l
-    middle_sum = p + q
+    grashof_sum = shortest + longest
+    middle_sum = mid1 + mid2
     is_grashof = grashof_sum <= middle_sum
     ratio = grashof_sum / middle_sum if middle_sum > 0 else float("inf")
 

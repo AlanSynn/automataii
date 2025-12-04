@@ -75,6 +75,11 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self.motion_path: QPainterPath | None = None
         self.motion_path_item: QGraphicsPathItem | None = None
 
+        # Path point storage for smoothing and animation
+        self.original_path_points: list[QPointF] = []  # Raw drawn points
+        self.timed_path_points: list = []  # Points with timestamps for velocity-aware animation
+        self.path_duration: float = 0.0  # Total drawing duration in seconds
+
         self.selection_highlight_item: QGraphicsRectItem | None = None
 
         self._is_fixed: bool = part_info.fixed

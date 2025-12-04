@@ -29,7 +29,7 @@ class Linkage(BaseMechanism):
 
     def _generate_3bar_data(
         self,
-        base_pos: QPointF = QPointF(0, 0),
+        base_pos: QPointF | None = None,
         scale: float = 1.0,
         link_lengths: dict[str, float] | None = None,
         input_angle_deg: float = 30.0,
@@ -53,6 +53,9 @@ class Linkage(BaseMechanism):
             A dictionary containing the linkage data, or None if generation fails.
             Points are relative to the scene (base_pos is the origin for the linkage).
         """
+        if base_pos is None:
+            base_pos = QPointF(0, 0)
+
         if link_lengths is None:
             l1 = 50 * scale  # Crank
             l2 = 70 * scale  # Coupler
@@ -62,7 +65,7 @@ class Linkage(BaseMechanism):
             l2 = link_lengths.get("l2", 70 * scale)
             l3_ext = link_lengths.get("l3_coupler_ext", 40 * scale)
 
-        if not all(l > 0 for l in [l1, l2, l3_ext]):
+        if not all(length > 0 for length in [l1, l2, l3_ext]):
             # print("Warning: 3-bar linkage lengths must be positive.")
             return None
 
@@ -115,7 +118,7 @@ class Linkage(BaseMechanism):
 
     def _generate_4bar_data(
         self,
-        base_pos: QPointF = QPointF(0, 0),
+        base_pos: QPointF | None = None,
         scale: float = 1.0,
         link_lengths: dict[str, float] | None = None,  # l1, l2, l3, l4 (ground)
         input_angle_deg: float = 60.0,  # Angle of crank l1
@@ -132,6 +135,9 @@ class Linkage(BaseMechanism):
         Returns:
             A dictionary containing linkage data, or None if not constructible.
         """
+        if base_pos is None:
+            base_pos = QPointF(0, 0)
+
         if link_lengths is None:
             # Default Grashofian crank-rocker proportions
             l1 = 50 * scale  # Crank (shortest)
@@ -144,7 +150,7 @@ class Linkage(BaseMechanism):
             l3 = link_lengths.get("l3", 60 * scale)
             l4 = link_lengths.get("l4", 80 * scale)
 
-        if not all(l > 0 for l in [l1, l2, l3, l4]):
+        if not all(length > 0 for length in [l1, l2, l3, l4]):
             # print("Warning: 4-bar linkage lengths must be positive.")
             return None
 
