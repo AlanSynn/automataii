@@ -55,8 +55,6 @@ from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessing
 from automataii.presentation.qt.tabs.landing_tab import LandingTab
 from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 
-# Import mechanism foundry tab
-from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView
 from automataii.presentation.qt.tabs.options_tab import OptionsTab
 
 # Local imports (adjust paths as needed)
@@ -298,20 +296,7 @@ class AutomataDesigner(QMainWindow):
         mechanism_title = "4. Mechanism Design" if self.experiment_mode else "Mechanism Design"
         self.tab_widget.addTab(self.mechanism_design_tab, mechanism_title)
 
-        # --- Tab 4: Mechanism Foundry ---
-        # Hide this tab in experiment mode
-        if not self.experiment_mode:
-            self.mechanism_foundry_tab = MechanismFoundryView(self)
-            foundry_title = "Mechanism Foundry"
-            self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
-            # Connect Foundry export signal to Design tab import
-            self.mechanism_foundry_tab.export_to_design_requested.connect(
-                self._handle_foundry_export_to_design
-            )
-        else:
-            self.mechanism_foundry_tab = None
-
-        # --- Tab 5: Options ---
+        # --- Tab 4: Options ---
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         if not self.experiment_mode:
             self.tab_widget.addTab(self.options_tab, "Options")
@@ -845,47 +830,6 @@ class AutomataDesigner(QMainWindow):
         self.action_manager.update_actions_for_project_state(False)
         self.statusBar().showMessage("Project data cleared.")
         # Any other UI elements that need to be reset when project is cleared
-
-    @pyqtSlot(str, dict, tuple)
-    def _handle_foundry_export_to_design(
-        self, mechanism_type: str, parameters: dict, pivot_point: tuple
-    ):
-        """
-        Handles export from Mechanism Foundry tab to Mechanism Design tab.
-
-        Routes the export request to the Design tab's import handler and
-        switches to the Design tab.
-
-        Args:
-            mechanism_type: Foundry mechanism type (e.g., "four_bar", "cam_follower")
-            parameters: Mechanism parameters from Foundry
-            pivot_point: Pivot point coordinates
-        """
-        logging.info(f"MainWindow: Routing Foundry export to Design tab: {mechanism_type}")
-
-        if not self.mechanism_design_tab:
-            logging.warning("MainWindow: Mechanism Design tab not available")
-            return
-
-        # Import the mechanism to Design tab
-        success = self.mechanism_design_tab.import_mechanism_from_foundry(
-            mechanism_type=mechanism_type,
-            parameters=parameters,
-            pivot_point=pivot_point,
-        )
-
-        if success:
-            # Switch to Design tab
-            for i in range(self.tab_widget.count()):
-                if self.tab_widget.widget(i) == self.mechanism_design_tab:
-                    self.tab_widget.setCurrentIndex(i)
-                    break
-            self.statusBar().showMessage(
-                f"Mechanism exported from Foundry: {mechanism_type}", 3000
-            )
-        else:
-            logging.warning("MainWindow: Failed to import mechanism from Foundry")
-            self.statusBar().showMessage("Failed to import mechanism from Foundry", 3000)
 
     def save_project_dialog(self):
         """Opens a file dialog to save the current project via ProjectDataManager."""
