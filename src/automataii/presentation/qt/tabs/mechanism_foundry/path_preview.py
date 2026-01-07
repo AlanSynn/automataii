@@ -7,8 +7,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QBrush, QColor, QPen
-from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsScene
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsScene
 
 if TYPE_CHECKING:
     from automataii.application.mechanism_foundry.path_cache import CachedPath, PathCache
@@ -21,7 +21,7 @@ class PathPreviewOverlay:
     def __init__(self, scene: QGraphicsScene, cache: PathCache):
         self._scene = scene
         self._cache = cache
-        self._items: dict[str, list[QGraphicsLineItem | QGraphicsEllipseItem]] = {}
+        self._items: dict[str, list[QGraphicsItem]] = {}
         self._enabled = True
         self._fade_timer = QTimer()
         self._fade_timer.timeout.connect(self._auto_hide)
@@ -73,34 +73,34 @@ class PathPreviewOverlay:
             self.hide_path()
 
     def _draw_path(self, cached_path: CachedPath, point_name: str) -> None:
+        """Optimized: Uses single QPainterPath instead of hundreds of line items."""
         points = cached_path.points
         if len(points) < 2:
             return
 
-        items = []
+        items: list[QGraphicsItem] = []
+
+        # Build single path for all segments (1 item instead of 360+)
+        painter_path = QPainterPath()
+        x0, y0 = points[0]
+        painter_path.moveTo(x0, y0)
+        for x, y in points[1:]:
+            painter_path.lineTo(x, y)
+        painter_path.closeSubpath()
+
         path_pen = QPen(QColor(0, 206, 209, 150), 2)
         path_pen.setStyle(Qt.PenStyle.DashLine)
+        path_item = QGraphicsPathItem(painter_path)
+        path_item.setPen(path_pen)
+        path_item.setZValue(100)
+        path_item.setData(0, "path_preview")
+        self._scene.addItem(path_item)
+        items.append(path_item)
 
-        for i in range(len(points) - 1):
-            x1, y1 = points[i]
-            x2, y2 = points[i + 1]
-            line = self._scene.addLine(x1, y1, x2, y2, path_pen)
-            if line:
-                line.setZValue(100)
-                line.setData(0, "path_preview")
-                items.append(line)
-
-        x1, y1 = points[-1]
-        x2, y2 = points[0]
-        line = self._scene.addLine(x1, y1, x2, y2, path_pen)
-        if line:
-            line.setZValue(100)
-            line.setData(0, "path_preview")
-            items.append(line)
-
+        # Markers (reduced: every 36 points → ~10 markers)
         marker_pen = QPen(QColor(0, 206, 209, 200), 1)
         marker_brush = QBrush(QColor(0, 206, 209, 180))
-        marker_interval = max(1, len(points) // 36)
+        marker_interval = max(1, len(points) // 10)
 
         for i in range(0, len(points), marker_interval):
             x, y = points[i]
@@ -110,8 +110,9 @@ class PathPreviewOverlay:
                 marker.setData(0, "path_preview")
                 items.append(marker)
 
-        arrow_pen = QPen(QColor(0, 206, 209, 220), 2)
-        arrow_interval = max(1, len(points) // 8)
+        # Direction arrows (reduced: 8 → 4)
+        arrow_path = QPainterPath()
+        arrow_interval = max(1, len(points) // 4)
 
         for i in range(0, len(points), arrow_interval):
             if i + 1 >= len(points):
@@ -141,17 +142,19 @@ class PathPreviewOverlay:
             right_x = tip_x - dx * arrow_length - dy * arrow_width
             right_y = tip_y - dy * arrow_length + dx * arrow_width
 
-            line1 = self._scene.addLine(tip_x, tip_y, left_x, left_y, arrow_pen)
-            if line1:
-                line1.setZValue(102)
-                line1.setData(0, "path_preview")
-                items.append(line1)
+            arrow_path.moveTo(tip_x, tip_y)
+            arrow_path.lineTo(left_x, left_y)
+            arrow_path.moveTo(tip_x, tip_y)
+            arrow_path.lineTo(right_x, right_y)
 
-            line2 = self._scene.addLine(tip_x, tip_y, right_x, right_y, arrow_pen)
-            if line2:
-                line2.setZValue(102)
-                line2.setData(0, "path_preview")
-                items.append(line2)
+        if not arrow_path.isEmpty():
+            arrow_pen = QPen(QColor(0, 206, 209, 220), 2)
+            arrow_item = QGraphicsPathItem(arrow_path)
+            arrow_item.setPen(arrow_pen)
+            arrow_item.setZValue(102)
+            arrow_item.setData(0, "path_preview")
+            self._scene.addItem(arrow_item)
+            items.append(arrow_item)
 
         self._items[point_name] = items
 

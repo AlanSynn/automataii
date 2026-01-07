@@ -95,6 +95,13 @@ class MechanismFoundryView(QWidget):
         self.path_preview_overlay = PathPreviewOverlay(self.scene, self.path_cache)
         self.content_loader = ContentLoader()
 
+        # Parameter debounce to avoid expensive renders during slider drag
+        self._param_debounce_timer = QTimer()
+        self._param_debounce_timer.setSingleShot(True)
+        self._param_debounce_timer.setInterval(50)
+        self._param_debounce_timer.timeout.connect(self._apply_pending_parameter)
+        self._pending_param: tuple[str, float, QLabel, bool] | None = None
+
         self.gallery_view: GalleryView | None = None
         self.editor_widget: QWidget | None = None
         self.stacked_widget: QStackedWidget | None = None
@@ -421,11 +428,17 @@ class MechanismFoundryView(QWidget):
     def _on_parameter_changed(
         self, param_key: str, value: float, label: QLabel, is_integer: bool = False
     ) -> None:
+        """Queue parameter change with debounce. Label updates immediately."""
         self.current_parameters[param_key] = value
         if is_integer:
             label.setText(f"{int(value)}")
         else:
             label.setText(f"{value:.1f}")
+        self._pending_param = (param_key, value, label, is_integer)
+        self._param_debounce_timer.start()
+
+    def _apply_pending_parameter(self) -> None:
+        """Apply debounced parameter change."""
         self._render_mechanism()
 
         if self.current_mechanism:

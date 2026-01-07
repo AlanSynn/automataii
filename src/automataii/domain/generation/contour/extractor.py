@@ -176,25 +176,32 @@ class AdvancedContourExtractor:
 
         Returns:
             SVG path data string
+
+        Performance: Uses list comprehension + join instead of string concatenation
+        for O(N) vs O(N²) complexity.
         """
         if len(contour) == 0:
             return ""
 
-        path_data = ""
+        # OPTIMIZATION: Use list + join instead of string concatenation
+        # String concatenation in Python is O(N²) due to immutable strings
+        # List append + join is O(N)
+        parts = []
 
         # Start with MoveTo command
         first_point = contour[0][0]
-        path_data += f"M {first_point[0]:.2f} {first_point[1]:.2f} "
+        parts.append(f"M {first_point[0]:.2f} {first_point[1]:.2f}")
 
-        # Add LineTo commands for each subsequent point
-        for i in range(1, len(contour)):
-            point = contour[i][0]
-            path_data += f"L {point[0]:.2f} {point[1]:.2f} "
+        # Add LineTo commands for each subsequent point using list comprehension
+        parts.extend(
+            f"L {contour[i][0][0]:.2f} {contour[i][0][1]:.2f}"
+            for i in range(1, len(contour))
+        )
 
         # Close the path
-        path_data += "Z"
+        parts.append("Z")
 
-        return path_data
+        return " ".join(parts)
 
     def apply_offset_to_path(
         self, svg_path: str, offset_x: float, offset_y: float

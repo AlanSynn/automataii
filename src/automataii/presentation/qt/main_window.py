@@ -41,8 +41,8 @@ from automataii.application.project.adapters import (
 # Import ActionManager for centralized action management
 from automataii.presentation.qt.actions.action_manager import ActionManager
 
-# Import CentralAnimationScheduler for unified animation
-from automataii.presentation.qt.animation import CentralAnimationScheduler
+# Import AcceleratedAnimationScheduler for unified real-time animation
+from automataii.presentation.qt.animation import AcceleratedAnimationScheduler
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
 
 # Import IKManager (Qt-coupled, in presentation layer)
@@ -116,8 +116,12 @@ class AutomataDesigner(QMainWindow):
         # Create MechanismManager
         self.mechanism_manager = MechanismManager(self)
 
-        # Create CentralAnimationScheduler (unified animation loop for all tabs)
-        self.animation_scheduler = CentralAnimationScheduler(self)
+        # Create AcceleratedAnimationScheduler (unified real-time animation with off-thread compute)
+        self.animation_scheduler = AcceleratedAnimationScheduler(
+            target_fps=60,
+            enable_threading=True,
+            parent=self,
+        )
 
         # Create ProjectStateManager (SSOT architecture)
         self.project_state_manager = ProjectStateManager(self)

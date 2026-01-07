@@ -44,17 +44,31 @@ dependencies = [
     "pyinstaller>=6.15.0",
     "dmgbuild>=1.6.5",
     "onnx>=1.19.1",
+    # Real-time acceleration dependencies (OpenGL for rendering)
+    "PyOpenGL>=3.1.7",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=6.0.0",
+    "pytest-benchmark>=4.0.0",
     "black>=24.0.0",
     "isort>=5.13.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
+]
+native = [
+    # C++ extension build dependencies
+    "pybind11>=2.13.0",
+    "cmake>=3.28.0",
+    "ninja>=1.11.0",
+]
+acceleration = [
+    # Optional JIT acceleration - requires compatible LLVM
+    "numba>=0.60.0",
+    "PyOpenGL-accelerate>=3.1.7",
 ]
 
 [project.urls]

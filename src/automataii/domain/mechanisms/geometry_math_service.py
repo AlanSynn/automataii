@@ -266,38 +266,34 @@ class GeometryMathService:
             cumulative_lengths.append(cumulative_lengths[-1] + segment_length)
 
         # Sample at uniform arc length intervals
+        # Use bisect for O(N log M) instead of O(N * M)
+        import bisect
+
         resampled = []
         for i in range(num_samples):
             # Target arc length
             target_length = (i / (num_samples - 1)) * total_length
 
-            # Find segment containing target_length
-            segment_idx = 0
-            for j in range(len(cumulative_lengths) - 1):
-                if cumulative_lengths[j] <= target_length <= cumulative_lengths[j + 1]:
-                    segment_idx = j
-                    break
+            # Find segment containing target_length using binary search
+            segment_idx = bisect.bisect_right(cumulative_lengths, target_length) - 1
+            segment_idx = max(0, min(segment_idx, len(points) - 2))
 
             # Interpolate within segment
-            if segment_idx >= len(points) - 1:
-                # Edge case: at end
-                resampled.append(points[-1])
-            else:
-                seg_start_length = cumulative_lengths[segment_idx]
-                seg_end_length = cumulative_lengths[segment_idx + 1]
-                seg_length = seg_end_length - seg_start_length
+            seg_start_length = cumulative_lengths[segment_idx]
+            seg_end_length = cumulative_lengths[segment_idx + 1]
+            seg_length = seg_end_length - seg_start_length
 
-                if seg_length < _EPSILON:
-                    # Degenerate segment (points very close)
-                    resampled.append(points[segment_idx])
-                else:
-                    # Linear interpolation
-                    t = (target_length - seg_start_length) / seg_length
-                    x1, y1 = points[segment_idx]
-                    x2, y2 = points[segment_idx + 1]
-                    x = x1 + t * (x2 - x1)
-                    y = y1 + t * (y2 - y1)
-                    resampled.append((x, y))
+            if seg_length < _EPSILON:
+                # Degenerate segment (points very close)
+                resampled.append(points[segment_idx])
+            else:
+                # Linear interpolation
+                t = (target_length - seg_start_length) / seg_length
+                x1, y1 = points[segment_idx]
+                x2, y2 = points[segment_idx + 1]
+                x = x1 + t * (x2 - x1)
+                y = y1 + t * (y2 - y1)
+                resampled.append((x, y))
 
         return tuple(resampled)
 

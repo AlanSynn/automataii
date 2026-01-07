@@ -213,35 +213,41 @@ class SkeletonGraphicsItem(QGraphicsObject):
             )
             return
 
-        self.prepareGeometryChange()  # Important if bounding box changes
-
-        updated_any_joint = False
+        # First pass: collect joints that need updating (avoid prepareGeometryChange if nothing changed)
+        joints_to_update: list[tuple[str, QPointF]] = []
         for joint_id, pos_tuple in joint_positions.items():
             if joint_id in self._joint_items:
                 new_pos = QPointF(pos_tuple[0], pos_tuple[1])
                 current_pos = self._joint_items[joint_id].pos()
                 if new_pos != current_pos:
-                    self._joint_items[joint_id].setPos(new_pos)
-
-                    # Update the cached position for this joint as well, so _update_bone_lines uses current animated pos
-                    for cached_joint in self._joints_data_cache:
-                        if cached_joint["id"] == joint_id:
-                            cached_joint["position"] = new_pos  # Update QPointF
-                            break
-                    updated_any_joint = True
+                    joints_to_update.append((joint_id, new_pos))
             else:
                 logging.warning(
                     f"SkeletonItem:set_animated_pose - Joint ID '{joint_id}' from animation data not found in loaded joint items."
                 )
 
-        if updated_any_joint:
-            self._update_bone_lines()  # Rebuild bones based on new joint positions
-            self._update_bend_arrows()  # Update bend direction arrows
-            self.update()  # Ensure repaint and bounding box update
-        else:
+        if not joints_to_update:
             logging.debug(
                 "SkeletonItem:set_animated_pose - No actual joint position changes detected."
             )
+            return
+
+        # Only call prepareGeometryChange once, before making changes
+        self.prepareGeometryChange()
+
+        # Second pass: apply updates
+        for joint_id, new_pos in joints_to_update:
+            self._joint_items[joint_id].setPos(new_pos)
+
+            # Update the cached position for this joint
+            for cached_joint in self._joints_data_cache:
+                if cached_joint["id"] == joint_id:
+                    cached_joint["position"] = new_pos
+                    break
+
+        self._update_bone_lines()
+        self._update_bend_arrows()
+        self.update()
 
     def _update_bone_lines(self):
         # Only create bones if they don't exist yet (avoid recreation every frame)

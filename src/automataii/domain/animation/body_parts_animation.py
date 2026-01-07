@@ -1,13 +1,43 @@
 #!/usr/bin/env python
+"""
+Body Parts Animation using ARAP deformation.
+
+This module provides functions for deforming body parts using the
+As-Rigid-As-Possible (ARAP) algorithm.
+
+Performance Optimizations:
+- AcceleratedARAP for 2-10x faster ARAP solve
+- Vectorized point matching using cdist (replaces O(N²) loops)
+- Vectorized affine transformation (replaces per-pixel loops)
+- np.indices for map initialization (replaces nested loops)
+"""
 
 import logging
+import os
 
 import cv2
 import numpy as np
+from scipy.spatial.distance import cdist
 
-from automataii.domain.animation.arap import ARAP
+# Progressive migration: use accelerated ARAP if available
+_USE_ACCELERATED = os.environ.get("AUTOMATAII_USE_ACCELERATED_ARAP", "1") == "1"
+
+if _USE_ACCELERATED:
+    try:
+        from automataii.domain.animation.arap_accelerated import AcceleratedARAP as ARAP
+
+        _ARAP_BACKEND = "accelerated"
+    except ImportError:
+        from automataii.domain.animation.arap import ARAP
+
+        _ARAP_BACKEND = "original"
+else:
+    from automataii.domain.animation.arap import ARAP
+
+    _ARAP_BACKEND = "original"
 
 logger = logging.getLogger(__name__)
+logger.debug(f"Body parts animation using ARAP backend: {_ARAP_BACKEND}")
 
 
 def deform_body_part(part_image, part_mask, control_points, target_points):
@@ -85,37 +115,36 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
     triangle_indices = []
     vertices = np.array(points, dtype=np.float32)
 
-    # 삼각형 꼭지점을 정점 인덱스로 변환
-    for t in triangles:
-        pt1 = (t[0], t[1])
-        pt2 = (t[2], t[3])
-        pt3 = (t[4], t[5])
+    # OPTIMIZATION: Vectorized point matching using cdist (replaces O(N²) loops)
+    # Build triangle vertex array from Subdiv2D output
+    tri_vertices = triangles.reshape(-1, 3, 2)  # (num_triangles, 3, 2)
+    tri_pts_flat = tri_vertices.reshape(-1, 2)  # (num_triangles * 3, 2)
 
-        # 삼각형 꼭지점이 points 리스트에 있는지 확인
-        idx1 = next(
-            (i for i, p in enumerate(points) if np.allclose(p, pt1, atol=1.0)), None
-        )
-        idx2 = next(
-            (i for i, p in enumerate(points) if np.allclose(p, pt2, atol=1.0)), None
-        )
-        idx3 = next(
-            (i for i, p in enumerate(points) if np.allclose(p, pt3, atol=1.0)), None
-        )
+    # Compute distances from all triangle points to all mesh vertices
+    distances = cdist(tri_pts_flat, vertices, metric='euclidean')
+    closest_indices = np.argmin(distances, axis=1)
+    min_distances = distances[np.arange(len(tri_pts_flat)), closest_indices]
 
-        if idx1 is not None and idx2 is not None and idx3 is not None:
-            triangle_indices.append(np.array([idx1, idx2, idx3], dtype=np.int32))
+    # Reshape back to per-triangle indices
+    tri_indices_all = closest_indices.reshape(-1, 3)
+    min_dists_per_tri = min_distances.reshape(-1, 3)
+
+    # Filter triangles where all vertices matched within tolerance
+    valid_mask = np.all(min_dists_per_tri < 1.0, axis=1)
+    for i in np.where(valid_mask)[0]:
+        triangle_indices.append(np.array(tri_indices_all[i], dtype=np.int32))
 
     # 삼각형이 충분하지 않으면 원본 이미지 반환
     if len(triangle_indices) < 3:
         return part_image
 
-    # 제어점 인덱스 찾기
+    # OPTIMIZATION: Vectorized control point matching using cdist
+    cp_array = np.array(control_points, dtype=np.float32)
+    cp_distances = cdist(vertices, cp_array, metric='euclidean')
     control_indices = []
-    for i, p in enumerate(points):
-        for cp in control_points:
-            if np.allclose(p, cp, atol=1.0):
-                control_indices.append(i)
-                break
+    for i in range(len(vertices)):
+        if np.any(cp_distances[i] < 1.0):
+            control_indices.append(i)
 
     # 제어점 위치를 numpy 배열로 변환
     np_control_points = np.array(control_points, dtype=np.float32)
@@ -132,14 +161,12 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
 
     # 변형 맵 생성
     height, width = part_image.shape[:2]
-    map_x = np.zeros((height, width), dtype=np.float32)
-    map_y = np.zeros((height, width), dtype=np.float32)
 
-    # 초기화: 기본값은 원래 위치
-    for y in range(height):
-        for x in range(width):
-            map_x[y, x] = x
-            map_y[y, x] = y
+    # OPTIMIZATION: Use np.indices instead of nested loops for initialization
+    # This is O(1) array creation vs O(H×W) Python loop
+    y_coords, x_coords = np.indices((height, width), dtype=np.float32)
+    map_x = x_coords.copy()
+    map_y = y_coords.copy()
 
     try:
         # 각 삼각형에 대해 변형 맵 계산
@@ -166,19 +193,22 @@ def deform_body_part(part_image, part_mask, control_points, target_points):
                 # 아핀 변환 행렬 계산
                 warp_mat = cv2.getAffineTransform(src_tri, dst_tri)
 
-                # 삼각형 내부의 모든 픽셀에 대해 매핑 계산
-                for y in range(height):
-                    for x in range(width):
-                        if mask[y, x]:
-                            # 아핀 변환 적용
-                            dst_x = (
-                                warp_mat[0, 0] * x + warp_mat[0, 1] * y + warp_mat[0, 2]
-                            )
-                            dst_y = (
-                                warp_mat[1, 0] * x + warp_mat[1, 1] * y + warp_mat[1, 2]
-                            )
-                            map_x[y, x] = dst_x
-                            map_y[y, x] = dst_y
+                # OPTIMIZATION: Vectorized affine transformation
+                # Instead of per-pixel loop, apply transformation to all masked pixels at once
+                mask_bool = mask.astype(bool)
+
+                # Extract coordinates where mask is True
+                masked_y = y_coords[mask_bool]
+                masked_x = x_coords[mask_bool]
+
+                # Apply affine transformation vectorized: [dst_x, dst_y] = warp_mat @ [x, y, 1]
+                dst_x = warp_mat[0, 0] * masked_x + warp_mat[0, 1] * masked_y + warp_mat[0, 2]
+                dst_y = warp_mat[1, 0] * masked_x + warp_mat[1, 1] * masked_y + warp_mat[1, 2]
+
+                # Write back to maps
+                map_x[mask_bool] = dst_x
+                map_y[mask_bool] = dst_y
+
             except cv2.error:
                 # 아핀 변환 계산 실패 시 이 삼각형은 건너뜀
                 continue

@@ -80,7 +80,7 @@ class ARAP:
                 tuple[np.int32, np.float32],
             ]
         ]
-        self.pin_mask = npt.NDArray[np.bool8]
+        self.pin_mask: npt.NDArray[np.bool_]
         pins_bc, self.pin_mask = self._xy_to_barycentric_coords(
             pins_xy, vertices, triangles
         )
@@ -329,7 +329,7 @@ class ARAP:
                 continue
 
             # grab the id of first triangle the point is in or on
-            t_idx = int(containing_t_idxs[0])
+            t_idx = int(containing_t_idxs[0].item())
 
             vertex_ids = triangles[t_idx]  # get ids of verts in triangle
             a_xy, b_xy, c_xy = vertices[vertex_ids]  # get xy coords of verts

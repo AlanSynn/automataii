@@ -58,14 +58,17 @@ class FourBarStrategy(LinkageStrategy):
         o1_x, o1_y = -ground / 2, 0.0
         o4_x, o4_y = ground / 2, 0.0
 
-        # Input crank position
+        # Input crank position - compute sin/cos once
         theta_rad = math.radians(input_angle)
-        a_x = o1_x + input_l * math.cos(theta_rad)
-        a_y = o1_y + input_l * math.sin(theta_rad)
+        cos_theta = math.cos(theta_rad)
+        sin_theta = math.sin(theta_rad)
+        a_x = o1_x + input_l * cos_theta
+        a_y = o1_y + input_l * sin_theta
 
         # Output angle (closed-form solver with assembly mode)
+        # Pass precomputed trig values to avoid recalculation
         output_angle_rad = self._solve_output_angle(
-            ground, input_l, coupler, output, theta_rad
+            ground, input_l, coupler, output, theta_rad, cos_theta, sin_theta
         )
 
         # Output rocker position
@@ -127,17 +130,28 @@ class FourBarStrategy(LinkageStrategy):
         coupler: float,
         output: float,
         input_angle_rad: float,
+        cos_theta: float | None = None,
+        sin_theta: float | None = None,
     ) -> float:
         """Solve output angle using law of cosines with assembly mode tracking.
+
+        Args:
+            cos_theta, sin_theta: Precomputed trig values to avoid recalculation
 
         Returns:
             Output angle in radians
         """
         try:
+            # Use precomputed values if available, otherwise compute
+            if cos_theta is None:
+                cos_theta = math.cos(input_angle_rad)
+            if sin_theta is None:
+                sin_theta = math.sin(input_angle_rad)
+
             # Input joint position relative to O4
-            a_x = input_l * math.cos(input_angle_rad) - ground
-            a_y = input_l * math.sin(input_angle_rad)
-            dist_a_o4 = math.sqrt(a_x**2 + a_y**2)
+            a_x = input_l * cos_theta - ground
+            a_y = input_l * sin_theta
+            dist_a_o4 = math.sqrt(a_x * a_x + a_y * a_y)
 
             # Guard against division by zero
             if dist_a_o4 < 1e-10 or output < 1e-10:
@@ -215,9 +229,10 @@ class FourBarStrategy(LinkageStrategy):
 
     @staticmethod
     def _normalize_angle(angle: float) -> float:
-        """Normalize angle to [-π, π]."""
-        while angle > math.pi:
-            angle -= 2 * math.pi
-        while angle < -math.pi:
-            angle += 2 * math.pi
-        return angle
+        """Normalize angle to [-π, π].
+
+        OPTIMIZATION: Uses modulo arithmetic instead of while loops.
+        This is O(1) vs O(N) for large angles.
+        """
+        # Shift to [0, 2π] then to [-π, π]
+        return ((angle + math.pi) % (2 * math.pi)) - math.pi

@@ -225,3 +225,14 @@ class GalleryThumbnail(QFrame):
     def mousePressEvent(self, a0) -> None:
         self.clicked.emit(self.mechanism_type)
         super().mousePressEvent(a0)
+
+    def showEvent(self, event) -> None:
+        """Start animation when widget becomes visible."""
+        super().showEvent(event)
+        if self.mechanism and not self.animation_timer.isActive():
+            self.animation_timer.start(50)
+
+    def hideEvent(self, event) -> None:
+        """Stop animation when widget is hidden to save CPU."""
+        super().hideEvent(event)
+        self.animation_timer.stop()

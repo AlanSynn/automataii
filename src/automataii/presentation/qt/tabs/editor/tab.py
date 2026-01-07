@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from PyQt6.QtCore import QPointF, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath
 from PyQt6.QtWidgets import (
     QGraphicsScene,
@@ -364,8 +364,13 @@ class EditorTab(QWidget):
         self.stop_btn.clicked.connect(self._stop_simulation_clicked)
         self.reset_sim_btn.clicked.connect(self._reset_simulation_clicked)
 
-        # Connect smoothness slider
-        self.smoothness_slider.valueChanged.connect(self._on_smoothness_changed)
+        # Connect smoothness slider with debounce (100ms) to avoid expensive RDP on every tick
+        self._smoothness_debounce_timer = QTimer()
+        self._smoothness_debounce_timer.setSingleShot(True)
+        self._smoothness_debounce_timer.setInterval(100)
+        self._smoothness_debounce_timer.timeout.connect(self._on_smoothness_changed_debounced)
+        self._pending_smoothness_value: int = 0
+        self.smoothness_slider.valueChanged.connect(self._on_smoothness_value_changed)
 
         # Connect zoom controls
         self.zoom_in_btn.clicked.connect(lambda: self.editor_view.zoom(1))
@@ -1280,6 +1285,18 @@ class EditorTab(QWidget):
         path_data = self._collect_path_data()
         self.path_data_changed.emit(path_data)
         logging.info(f"EditorTab: Emitted path data for {len(path_data)} parts")
+
+    def _on_smoothness_value_changed(self, value: int):
+        """Capture slider value and start debounce timer. Updates label immediately."""
+        self._pending_smoothness_value = value
+        if self.smoothness_value_label:
+            self.smoothness_value_label.setText(f"{value}%")
+        self._smoothness_debounce_timer.start()
+
+    def _on_smoothness_changed_debounced(self):
+        """Handle smoothness slider after debounce. Delegates to MotionPathManager."""
+        if hasattr(self, '_motion_path_manager'):
+            self._motion_path_manager.on_smoothness_changed(self._pending_smoothness_value)
 
     def _on_smoothness_changed(self, value: int):
         """Handle smoothness slider value change. Delegates to MotionPathManager."""

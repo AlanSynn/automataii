@@ -263,7 +263,7 @@ class ParametricEditingManager:
                     )
 
                     # Pass transforms to create_editor so handles are positioned correctly
-                    editor = self.parent_tab.parametric_editor.create_editor(
+                    self.parent_tab.parametric_editor.create_editor(
                         mechanism_id,
                         layer_data,
                         to_scene_coords=to_scene,

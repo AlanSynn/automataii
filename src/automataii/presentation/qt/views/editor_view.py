@@ -245,6 +245,11 @@ class EditorView(QGraphicsView):
             f"EditorView initialized with DPI: {self.dpi}, default unit: {self.display_unit}"
         )
 
+        # Grid drawing cache for performance optimization
+        self._grid_cache_key: tuple | None = None
+        self._grid_minor_path: QPainterPath | None = None
+        self._grid_major_path: QPainterPath | None = None
+
     # ---- Overlay path helpers (delegated to MotionPathManager) ----
     def set_raw_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
         """Set or clear the raw path overlay for a component key (part name)."""
@@ -283,71 +288,76 @@ class EditorView(QGraphicsView):
             logging.debug("EditorView: Joint map cleared.")
 
     def drawBackground(self, painter: QPainter, rect: QRectF):
-        """Draws a grid background based on the current display unit."""
-        super().drawBackground(
-            painter, rect
-        )  # Draw the default background first (e.g., if a brush is set)
+        """Draws a grid background based on the current display unit.
 
-        painter.save()
-        painter.setBrush(Qt.BrushStyle.NoBrush)  # No fill for the grid lines themselves
-
-        # Define grid properties
-        # grid_size_pixels = 20  # Original fixed pixel size
+        Optimized: Uses cached QPainterPath to batch all grid lines into 2 draw calls
+        instead of thousands of individual drawLine() calls.
+        """
+        super().drawBackground(painter, rect)
 
         # Calculate grid_size_pixels based on display_unit and DPI
         if self.display_unit == "cm":
             cm_to_inch = 1 / 2.54
-            grid_size_pixels = int(self.dpi * cm_to_inch)  # 1 cm in pixels
+            grid_size_pixels = int(self.dpi * cm_to_inch)
         elif self.display_unit == "inch":
-            grid_size_pixels = int(self.dpi)  # 1 inch in pixels
-        else:  # Default to pixels or if unit is 'px'
-            grid_size_pixels = 20  # Default pixel grid size
-
-        if grid_size_pixels <= 0:  # Safety check
+            grid_size_pixels = int(self.dpi)
+        else:
             grid_size_pixels = 20
-            logging.warning(
-                f"Calculated grid size is invalid ({grid_size_pixels}), defaulting to 20px."
-            )
 
-        light_pen = QPen(QColor(230, 230, 230), 1)  # Light gray for minor grid lines
-        dark_pen = QPen(QColor(200, 200, 200), 1.5)  # Darker gray for major grid lines
-        major_interval = 5  # Every 5th line is a major line if pixel based, or every unit for cm/inch
+        if grid_size_pixels <= 0:
+            grid_size_pixels = 20
 
-        if self.display_unit in ["cm", "inch"]:
-            major_interval = 1  # Every line is a major line when unit-based for clarity
-        else:  # pixel based
-            major_interval = 5
-            # Adjust grid_size for major/minor if pixel based to be multiples of 5 of base grid_size_pixels
-            # This part might be complex if we want minor lines *within* the grid_size_pixels
-            # For now, let's keep it simple: grid_size_pixels is the minor line spacing for 'px' mode.
-            # And major_interval controls which of these are darker.
+        major_interval = 1 if self.display_unit in ["cm", "inch"] else 5
 
-        # Get the visible rectangle in scene coordinates
+        # Get visible rectangle in scene coordinates
         visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
 
+        # Quantize bounds to grid
         left = int(visible_rect.left() / grid_size_pixels) * grid_size_pixels
         top = int(visible_rect.top() / grid_size_pixels) * grid_size_pixels
-        right = visible_rect.right()
-        bottom = visible_rect.bottom()
+        right = int(visible_rect.right() / grid_size_pixels + 1) * grid_size_pixels
+        bottom = int(visible_rect.bottom() / grid_size_pixels + 1) * grid_size_pixels
 
-        # Draw vertical lines
-        x = left
-        # count needs to be based on how many grid_size_pixels intervals from origin
-        count_v = int(round(visible_rect.left() / grid_size_pixels))
-        while x < right:
-            painter.setPen(dark_pen if count_v % major_interval == 0 else light_pen)
-            painter.drawLine(QLineF(x, top, x, bottom))
-            x += grid_size_pixels
-            count_v += 1
+        # Cache key: grid params + quantized bounds
+        cache_key = (grid_size_pixels, major_interval, left, top, right, bottom)
 
-        # Draw horizontal lines
-        y = top
-        count_h = int(round(visible_rect.top() / grid_size_pixels))
-        while y < bottom:
-            painter.setPen(dark_pen if count_h % major_interval == 0 else light_pen)
-            painter.drawLine(QLineF(left, y, right, y))
-            y += grid_size_pixels
-            count_h += 1
+        # Rebuild paths only if cache key changed
+        if self._grid_cache_key != cache_key:
+            self._grid_cache_key = cache_key
+            self._grid_minor_path = QPainterPath()
+            self._grid_major_path = QPainterPath()
+
+            # Build vertical lines
+            x = left
+            count_v = int(round(left / grid_size_pixels))
+            while x <= right:
+                target = self._grid_major_path if count_v % major_interval == 0 else self._grid_minor_path
+                target.moveTo(x, top)
+                target.lineTo(x, bottom)
+                x += grid_size_pixels
+                count_v += 1
+
+            # Build horizontal lines
+            y = top
+            count_h = int(round(top / grid_size_pixels))
+            while y <= bottom:
+                target = self._grid_major_path if count_h % major_interval == 0 else self._grid_minor_path
+                target.moveTo(left, y)
+                target.lineTo(right, y)
+                y += grid_size_pixels
+                count_h += 1
+
+        # Draw cached paths (2 draw calls instead of thousands)
+        painter.save()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if self._grid_minor_path and not self._grid_minor_path.isEmpty():
+            painter.setPen(QPen(QColor(230, 230, 230), 1))
+            painter.drawPath(self._grid_minor_path)
+
+        if self._grid_major_path and not self._grid_major_path.isEmpty():
+            painter.setPen(QPen(QColor(200, 200, 200), 1.5))
+            painter.drawPath(self._grid_major_path)
 
         painter.restore()
 
@@ -1244,7 +1254,6 @@ class EditorView(QGraphicsView):
                 continue
 
             # Calculate current bone length
-            from PyQt6.QtCore import QLineF
             current_length = QLineF(parent_pos, child_pos).length()
 
             # Check if length deviation exceeds tolerance
