@@ -32,6 +32,7 @@ Usage:
     thread.stop()
     thread.join()
 """
+
 from __future__ import annotations
 
 import logging
@@ -74,7 +75,6 @@ class FrameData:
     timestamp: float
     mechanism_positions: dict[str, npt.NDArray[np.float64]]
     skeleton_joints: npt.NDArray[np.float64] | None
-    arap_vertices: npt.NDArray[np.float64] | None
 
 
 # =============================================================================
@@ -242,8 +242,8 @@ class ComputeThread(threading.Thread):
                 # Log warning but continue (frame skip)
                 if compute_time > frame_time * 2:
                     logger.debug(
-                        f"ComputeThread: frame took {compute_time*1000:.1f}ms "
-                        f"(target: {frame_time*1000:.1f}ms)"
+                        f"ComputeThread: frame took {compute_time * 1000:.1f}ms "
+                        f"(target: {frame_time * 1000:.1f}ms)"
                     )
 
         self._running = False

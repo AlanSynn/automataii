@@ -8,6 +8,7 @@ These tests verify:
 4. Threading integration
 5. Performance stats
 """
+
 from __future__ import annotations
 
 import time
@@ -139,11 +140,13 @@ class TestSourceRegistration:
 
         engine = RealTimeAnimationEngine()
 
-        joints = np.array([
-            [0.0, 0.0],
-            [0.0, 50.0],
-            [25.0, 100.0],
-        ])
+        joints = np.array(
+            [
+                [0.0, 0.0],
+                [0.0, 50.0],
+                [25.0, 100.0],
+            ]
+        )
         bones = [(0, 1), (1, 2)]
 
         engine.register_skeleton(
@@ -310,7 +313,6 @@ class TestPerformanceStats:
         stats = engine.get_stats()
 
         assert "frame_count" in stats
-        assert "arap_backend" in stats
         assert "target_fps" in stats
 
     def test_stats_update_with_frames(self) -> None:

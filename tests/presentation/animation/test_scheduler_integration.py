@@ -6,6 +6,7 @@ These tests verify:
 2. Frame data flows from compute thread to UI callbacks
 3. Backwards compatibility with existing subscriptions
 """
+
 from __future__ import annotations
 
 import time
@@ -245,7 +246,6 @@ class TestPerformanceStats:
         scheduler = AcceleratedAnimationScheduler()
         stats = scheduler.get_engine_stats()
 
-        assert "arap_backend" in stats
         assert "mechanism_count" in stats
         assert "skeleton_count" in stats
 
@@ -264,4 +264,3 @@ class TestPerformanceStats:
 
         # Engine stats
         assert "engine_frame_count" in stats
-        assert "arap_backend" in stats

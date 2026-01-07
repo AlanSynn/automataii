@@ -9,6 +9,7 @@ These tests verify:
 3. Graceful shutdown
 4. Frame data integrity
 """
+
 from __future__ import annotations
 
 import threading
@@ -52,7 +53,6 @@ class TestDoubleBuffer:
             timestamp=0.033,
             mechanism_positions={"mech_1": np.array([[1.0, 2.0]])},
             skeleton_joints=None,
-            arap_vertices=None,
         )
 
         buffer.write_back(frame)
@@ -77,7 +77,6 @@ class TestDoubleBuffer:
             timestamp=0.033,
             mechanism_positions={},
             skeleton_joints=None,
-            arap_vertices=None,
         )
         buffer.write_back(frame1)
         buffer.swap()
@@ -88,7 +87,6 @@ class TestDoubleBuffer:
             timestamp=0.066,
             mechanism_positions={},
             skeleton_joints=None,
-            arap_vertices=None,
         )
         buffer.write_back(frame2)
         buffer.swap()
@@ -126,7 +124,6 @@ class TestDoubleBuffer:
                         timestamp=float(i) * 0.033,
                         mechanism_positions={},
                         skeleton_joints=None,
-                        arap_vertices=None,
                     )
                     buffer.write_back(frame)
                     buffer.swap()
@@ -147,8 +144,9 @@ class TestDoubleBuffer:
         # Results should be monotonically increasing (no frame inversion)
         non_none_results = [r for r in results if r is not None]
         for i in range(1, len(non_none_results)):
-            assert non_none_results[i] >= non_none_results[i - 1], \
-                f"Frame inversion: {non_none_results[i-1]} > {non_none_results[i]}"
+            assert non_none_results[i] >= non_none_results[i - 1], (
+                f"Frame inversion: {non_none_results[i - 1]} > {non_none_results[i]}"
+            )
 
 
 class TestFrameData:
@@ -163,7 +161,6 @@ class TestFrameData:
             timestamp=0.033,
             mechanism_positions={},
             skeleton_joints=None,
-            arap_vertices=None,
         )
 
         with pytest.raises((AttributeError, TypeError)):
@@ -181,7 +178,6 @@ class TestFrameData:
             timestamp=0.033,
             mechanism_positions=positions,
             skeleton_joints=joints,
-            arap_vertices=None,
         )
 
         assert np.array_equal(frame.mechanism_positions["mech_1"], positions["mech_1"])
@@ -215,7 +211,6 @@ class TestComputeThread:
                 timestamp=timestamp,
                 mechanism_positions={},
                 skeleton_joints=None,
-                arap_vertices=None,
             )
 
         thread = ComputeThread(buffer, compute_fn, target_fps=60)
@@ -252,7 +247,6 @@ class TestComputeThread:
                 timestamp=timestamp,
                 mechanism_positions={},
                 skeleton_joints=None,
-                arap_vertices=None,
             )
 
         thread = ComputeThread(buffer, compute_fn, target_fps=target_fps)
@@ -264,8 +258,12 @@ class TestComputeThread:
 
         # Should have produced approximately 30 frames (+/- 10%)
         expected_frames = target_fps
-        assert frame_count >= expected_frames * 0.8, f"Expected ~{expected_frames} frames, got {frame_count}"
-        assert frame_count <= expected_frames * 1.2, f"Expected ~{expected_frames} frames, got {frame_count}"
+        assert frame_count >= expected_frames * 0.8, (
+            f"Expected ~{expected_frames} frames, got {frame_count}"
+        )
+        assert frame_count <= expected_frames * 1.2, (
+            f"Expected ~{expected_frames} frames, got {frame_count}"
+        )
 
     def test_buffer_receives_computed_frames(self) -> None:
         """Buffer should contain frames produced by compute thread."""
@@ -286,7 +284,6 @@ class TestComputeThread:
                 timestamp=timestamp,
                 mechanism_positions={"test": np.array([[float(frame_count), 0.0]])},
                 skeleton_joints=None,
-                arap_vertices=None,
             )
 
         thread = ComputeThread(buffer, compute_fn, target_fps=60)
@@ -321,7 +318,6 @@ class TestComputeThread:
                 timestamp=timestamp,
                 mechanism_positions={},
                 skeleton_joints=None,
-                arap_vertices=None,
             )
 
         thread = ComputeThread(buffer, slow_compute_fn, target_fps=30)
@@ -365,7 +361,6 @@ class TestComputeRenderIntegration:
                 timestamp=timestamp,
                 mechanism_positions={},
                 skeleton_joints=None,
-                arap_vertices=None,
             )
 
         def consumer() -> None:
@@ -418,7 +413,6 @@ class TestComputeRenderIntegration:
                 timestamp=timestamp,
                 mechanism_positions={},
                 skeleton_joints=None,
-                arap_vertices=None,
             )
 
         thread = ComputeThread(buffer, compute_fn, target_fps=120)  # High FPS

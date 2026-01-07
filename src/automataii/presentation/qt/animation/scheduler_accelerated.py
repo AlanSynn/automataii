@@ -8,6 +8,7 @@ enabling high-performance animation.
 Architecture: Presentation Layer
 Pattern: Adapter + Decorator
 """
+
 from __future__ import annotations
 
 import logging
@@ -350,6 +351,5 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
             "actual_fps": engine_stats["actual_fps"],
             "mechanism_count": engine_stats["mechanism_count"],
             "skeleton_count": engine_stats["skeleton_count"],
-            "arap_backend": engine_stats["arap_backend"],
             "threading_enabled": engine_stats["threading_enabled"],
         }

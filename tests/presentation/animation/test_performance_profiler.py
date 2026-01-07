@@ -7,6 +7,7 @@ These tests verify:
 3. Rolling averages
 4. Performance thresholds and alerts
 """
+
 from __future__ import annotations
 
 import time
@@ -80,17 +81,11 @@ class TestComputePhases:
         time.sleep(0.005)
         profiler.end_phase("mechanism")
 
-        profiler.start_phase("arap")
-        time.sleep(0.003)
-        profiler.end_phase("arap")
-
         profiler.end_frame()
 
         stats = profiler.get_stats()
         assert "mechanism" in stats["phase_times"]
-        assert "arap" in stats["phase_times"]
         assert stats["phase_times"]["mechanism"] > 3
-        assert stats["phase_times"]["arap"] > 1
 
     def test_phase_averages(self) -> None:
         """Should compute rolling averages for phases."""

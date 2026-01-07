@@ -30,6 +30,7 @@ Usage:
     # Stop when done
     engine.stop()
 """
+
 from __future__ import annotations
 
 import logging
@@ -84,7 +85,6 @@ class EngineConfig:
 
     target_fps: int = 60
     mechanism_batch_size: int = 10  # Max mechanisms to update per frame
-    enable_arap: bool = True
     enable_ik: bool = True
     enable_threading: bool = True
 
@@ -353,7 +353,6 @@ class RealTimeAnimationEngine:
                 timestamp=timestamp,
                 mechanism_positions={},
                 skeleton_joints=None,
-                arap_vertices=None,
             )
 
         # Compute mechanism positions
@@ -361,11 +360,6 @@ class RealTimeAnimationEngine:
 
         # Compute skeleton (if any)
         skeleton_joints = self._compute_skeleton(timestamp)
-
-        # Compute ARAP deformation (if enabled)
-        arap_vertices = None
-        if self._config.enable_arap:
-            arap_vertices = self._compute_arap(timestamp)
 
         self._frame_count += 1
 
@@ -382,7 +376,6 @@ class RealTimeAnimationEngine:
             timestamp=timestamp,
             mechanism_positions=mechanism_positions,
             skeleton_joints=skeleton_joints,
-            arap_vertices=arap_vertices,
         )
 
     def _compute_mechanisms(self, timestamp: float) -> dict[str, npt.NDArray[np.float64]]:
@@ -421,12 +414,6 @@ class RealTimeAnimationEngine:
         first_skeleton = next(iter(self._skeletons.values()))
         return first_skeleton.joint_positions.copy()
 
-    def _compute_arap(self, timestamp: float) -> npt.NDArray[np.float64] | None:
-        """Compute ARAP deformation."""
-        # Placeholder for ARAP integration
-        # This would be used for body part deformation
-        return None
-
     # =========================================================================
     # PERFORMANCE STATS
     # =========================================================================
@@ -438,8 +425,6 @@ class RealTimeAnimationEngine:
         Returns:
             Dict with frame count, timing, and backend info
         """
-        from automataii.domain.animation.arap_accelerated import get_backend
-
         return {
             "frame_count": self._frame_count,
             "animation_time": self._animation_time,
@@ -449,6 +434,5 @@ class RealTimeAnimationEngine:
             "actual_fps": 1.0 / self._avg_compute_time if self._avg_compute_time > 0 else 0,
             "mechanism_count": len(self._mechanisms),
             "skeleton_count": len(self._skeletons),
-            "arap_backend": get_backend(),
             "threading_enabled": self._config.enable_threading,
         }
