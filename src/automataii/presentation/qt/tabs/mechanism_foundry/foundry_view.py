@@ -224,8 +224,8 @@ class MechanismFoundryView(QWidget):
 
         toolbar.addSeparator()
 
-        export_action = QAction("📤 Export to Design", self)
-        export_action.setToolTip("Export this mechanism to the Mechanism Design tab")
+        export_action = QAction("📤 Add to Mechanism Tab", self)
+        export_action.setToolTip("Add this mechanism configuration to the Mechanism Tab for simulation")
         export_action.triggered.connect(self._on_export_to_design)
         toolbar.addAction(export_action)
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 50" width="20" height="50">
+  <!-- Upper arm silhouette - tapered rectangle -->
+  <path d="M3,0 L17,0 Q20,0 20,5 L18,45 Q18,50 13,50 L7,50 Q2,50 2,45 L0,5 Q0,0 3,0 Z"
+        fill="#FFFFFF" stroke="#CCCCCC" stroke-width="1.5"/>
+</svg>

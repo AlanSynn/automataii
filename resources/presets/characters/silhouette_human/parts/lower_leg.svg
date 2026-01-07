@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 55" width="20" height="55">
+  <!-- Lower leg (calf + foot) silhouette -->
+  <path d="M3,0 L17,0 Q20,0 20,4 L18,42 Q18,48 15,50 L18,52 Q20,54 17,55 L3,55 Q0,54 2,52 L5,50 Q2,48 2,42 L0,4 Q0,0 3,0 Z"
+        fill="#FFFFFF" stroke="#CCCCCC" stroke-width="1.5"/>
+</svg>

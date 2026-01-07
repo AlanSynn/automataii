@@ -68,6 +68,7 @@ class MechanismDesignTabUIState:
         self._current_state = state
 
         self._update_recommendation_button()
+        self._update_assign_character_button()
         self._update_parametric_button()
         self._update_blueprint_button()
         self._update_animation_buttons()
@@ -153,6 +154,20 @@ class MechanismDesignTabUIState:
             recommendation_btn.setToolTip("Generate mechanisms for motion paths")
         else:
             recommendation_btn.setToolTip("No motion paths available - draw paths in Editor tab first")
+
+    def _update_assign_character_button(self) -> None:
+        """Update assign character button state."""
+        assign_btn = self.widgets.get('assign_character_btn')
+        if not assign_btn:
+            return
+
+        # Enable when mechanisms exist (can assign character to mechanisms)
+        assign_btn.setEnabled(self._current_state.has_mechanisms)
+
+        if self._current_state.has_mechanisms:
+            assign_btn.setToolTip("Assign a dummy character to the mechanism for simulation")
+        else:
+            assign_btn.setToolTip("Add mechanisms from Mechanism Foundry first")
 
     def _update_parametric_button(self) -> None:
         """Update parametric edit button state."""

@@ -172,13 +172,27 @@ class MechanismDesignTabLayout:
         generation_group.setStyleSheet(self._get_group_style())
         generation_layout = QVBoxLayout(generation_group)
 
+        # Horizontal layout for Get Mechanism and Assign Character buttons
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(8)
+
         # Get Mechanism button
         recommendation_btn = QPushButton("Get Mechanism")
         recommendation_btn.setEnabled(False)
         recommendation_btn.setToolTip("Get mechanism recommendations based on motion paths")
-        recommendation_btn.setStyleSheet(self._get_primary_button_style())
-        generation_layout.addWidget(recommendation_btn)
+        recommendation_btn.setStyleSheet(self._get_primary_button_style_compact())
+        buttons_layout.addWidget(recommendation_btn)
         self._created_widgets['recommendation_btn'] = recommendation_btn
+
+        # Assign Character button
+        assign_character_btn = QPushButton("Assign Character")
+        assign_character_btn.setEnabled(False)
+        assign_character_btn.setToolTip("Assign a dummy character to the mechanism for simulation")
+        assign_character_btn.setStyleSheet(self._get_assign_character_button_style())
+        buttons_layout.addWidget(assign_character_btn)
+        self._created_widgets['assign_character_btn'] = assign_character_btn
+
+        generation_layout.addLayout(buttons_layout)
 
         # Parametric Design Button (conditionally created)
         try:
@@ -403,6 +417,50 @@ class MechanismDesignTabLayout:
             }
             QPushButton:hover {
                 background-color: #229954;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """
+
+    def _get_primary_button_style_compact(self) -> str:
+        """Get compact primary button styling (green, smaller padding)."""
+        return """
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: normal;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """
+
+    def _get_assign_character_button_style(self) -> str:
+        """Get assign character button styling (purple)."""
+        return """
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: normal;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
             }
             QPushButton:disabled {
                 background-color: #bdc3c7;

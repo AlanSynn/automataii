@@ -292,9 +292,10 @@ class MechanismDesignTab(QWidget):
         self.signal_manager = MechanismDesignTabSignals(self.ui_widgets)
 
         # Backward compatibility: UI element references
-        for name in ('blueprint_btn', 'recommendation_btn', 'mechanism_layers_list', 'play_btn',
-                     'stop_btn', 'reset_btn', 'parametric_edit_btn', 'zoom_in_btn', 'zoom_out_btn',
-                     'zoom_fit_btn', 'center_character_btn', 'blueprint_info_label'):
+        for name in ('blueprint_btn', 'recommendation_btn', 'assign_character_btn',
+                     'mechanism_layers_list', 'play_btn', 'stop_btn', 'reset_btn',
+                     'parametric_edit_btn', 'zoom_in_btn', 'zoom_out_btn', 'zoom_fit_btn',
+                     'center_character_btn', 'blueprint_info_label'):
             setattr(self, name, self.ui_widgets.get(name))
 
         # Initialize extracted components BEFORE connecting signals
@@ -655,6 +656,144 @@ class MechanismDesignTab(QWidget):
     def _on_get_recommendations(self):
         self._recommendation_controller.show_recommendations(self)
 
+    @pyqtSlot()
+    def _on_assign_character(self):
+        """Open character selection dialog to assign a dummy character to mechanisms."""
+        from PyQt6.QtWidgets import QDialog, QMessageBox
+
+        from automataii.presentation.qt.dialogs.character_selection_dialog import (
+            CharacterSelectionDialog,
+        )
+
+        # Check if any mechanisms exist
+        if not self.mechanism_layers:
+            QMessageBox.information(
+                self,
+                "No Mechanisms",
+                "Please add a mechanism from Mechanism Foundry first.",
+            )
+            return
+
+        # Show character selection dialog
+        dialog = CharacterSelectionDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            preset = dialog.selected_preset()
+            if preset:
+                success = self._apply_character_preset(preset.id)
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Character Assigned",
+                        f"Successfully assigned '{preset.name}' to the mechanism.",
+                    )
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Assignment Failed",
+                        "Failed to apply the character preset. Please try again.",
+                    )
+
+    def _apply_character_preset(self, preset_id: str) -> bool:
+        """Apply a character preset to the current mechanisms.
+
+        Args:
+            preset_id: The ID of the character preset to apply.
+
+        Returns:
+            True if the preset was applied successfully.
+        """
+        import logging
+        from pathlib import Path
+
+        from automataii.application.character import CharacterPresetService
+        from automataii.domain.project.models import PartInfoModel
+        from automataii.presentation.qt.models import PartInfo
+
+        logging.info(f"Applying character preset: {preset_id}")
+
+        try:
+            # 1. Load preset from service
+            service = CharacterPresetService()
+            preset = service.get_preset(preset_id)
+            if not preset:
+                logging.error(f"Preset not found: {preset_id}")
+                return False
+
+            # 2. Convert preset parts to PartInfo dict
+            parts_data: dict[str, PartInfo] = {}
+            sorted_parts = preset.get_parts_sorted_by_z()
+
+            for preset_part in sorted_parts:
+                # Create PartInfoModel for the preset part
+                # Position based on anchor joint in skeleton
+                joint = preset.get_joint(preset_part.anchor_joint)
+                x, y = joint.position if joint else (0.0, 0.0)
+
+                # Add transform offset
+                tx, ty, _ = preset_part.default_transform
+                x += tx
+                y += ty
+
+                model = PartInfoModel(
+                    name=preset_part.name,
+                    roi=[x, y, 50.0, 50.0],  # Default size, will be updated from SVG
+                    z_value=float(preset_part.z_index),
+                    image_path=preset_part.svg_path,
+                    fill_color="rgba(255,255,255,0.9)",
+                    fixed=False,
+                    opacity=1.0,
+                    anchor_joint_id=preset_part.anchor_joint,
+                )
+
+                # Create PartInfo, resolving the SVG path
+                part_info = PartInfo.from_pydantic(model, project_dir=Path.cwd())
+                parts_data[preset_part.name] = part_info
+
+            # 3. Build skeleton data from preset
+            skeleton_dict = self._convert_preset_skeleton_to_dict(preset)
+
+            # 4. Cache skeleton for IK
+            if skeleton_dict:
+                self.cache_initial_skeleton(skeleton_dict)
+
+            # 5. Set parts data (without clearing existing mechanisms)
+            self.set_parts_data(parts_data, clear_mechanisms=False)
+
+            logging.info(f"Applied preset '{preset.name}' with {len(parts_data)} parts")
+            return True
+
+        except Exception as e:
+            logging.exception(f"Failed to apply character preset: {e}")
+            return False
+
+    def _convert_preset_skeleton_to_dict(self, preset) -> dict:
+        """Convert preset skeleton to the format expected by skeleton manager.
+
+        Args:
+            preset: The CharacterPreset with skeleton data.
+
+        Returns:
+            Dictionary in skeleton manager format.
+        """
+        from automataii.domain.character import CharacterPreset
+
+        if not isinstance(preset, CharacterPreset):
+            return {}
+
+        joints = {}
+        for joint_id, joint in preset.skeleton.items():
+            joints[joint_id] = {
+                "id": joint.id,
+                "parent": joint.parent_id,
+                "position": list(joint.position),
+                "children": list(joint.children),
+            }
+
+        return {
+            "joints": joints,
+            "root": "root",
+        }
+
     def _get_character_position(self):
         skeleton_data = getattr(self, '_initial_skeleton_data_cache', None)
         return list(self._joint_mapping_service.get_character_ground_position(skeleton_data))
@@ -884,17 +1023,21 @@ class MechanismDesignTab(QWidget):
             logging.warning(f"[ANIMATION] Animation controller missing, attempting reinitialization (tab_id={id(self)})")
             if hasattr(self, 'mechanism_scene') and hasattr(self, '_path_trace_manager'):
                 try:
-                    from automataii.presentation.qt.tabs.mechanism_design.components.animation_lifecycle_controller import AnimationLifecycleController
+                    from automataii.presentation.qt.tabs.mechanism_design.components.animation_lifecycle_controller import (
+                        AnimationLifecycleController,
+                    )
                     self._animation_controller = AnimationLifecycleController(
                         mechanism_scene=self.mechanism_scene,
                         path_trace_manager=self._path_trace_manager,
                         parent=self
                     )
                     # Configure callbacks via TabCallbackConfigurator
-                    from automataii.presentation.qt.tabs.mechanism_design.services.callback_configurator import TabCallbackConfigurator
+                    from automataii.presentation.qt.tabs.mechanism_design.services.callback_configurator import (
+                        TabCallbackConfigurator,
+                    )
                     TabCallbackConfigurator(self)._configure_animation_controller()
                     controller = self._animation_controller
-                    logging.info(f"[ANIMATION] Controller reinitialized successfully")
+                    logging.info("[ANIMATION] Controller reinitialized successfully")
                 except Exception as e:
                     logging.error(f"[ANIMATION] Failed to reinitialize controller: {e}")
                     return

@@ -54,7 +54,7 @@ from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessing
 # Import new tab modules
 from automataii.presentation.qt.tabs.landing_tab import LandingTab
 from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
-
+from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView
 from automataii.presentation.qt.tabs.options_tab import OptionsTab
 
 # Local imports (adjust paths as needed)
@@ -300,7 +300,12 @@ class AutomataDesigner(QMainWindow):
         mechanism_title = "4. Mechanism Design" if self.experiment_mode else "Mechanism Design"
         self.tab_widget.addTab(self.mechanism_design_tab, mechanism_title)
 
-        # --- Tab 4: Options ---
+        # --- Tab 4: Mechanism Foundry ---
+        self.mechanism_foundry_tab = MechanismFoundryView(self)
+        foundry_title = "5. Mechanism Foundry" if self.experiment_mode else "Mechanism Foundry"
+        self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
+
+        # --- Tab 5: Options ---
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         if not self.experiment_mode:
             self.tab_widget.addTab(self.options_tab, "Options")
@@ -329,6 +334,11 @@ class AutomataDesigner(QMainWindow):
             self.handle_generate_mechanism_request
         )
         self.mechanism_design_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
+
+        # --- Connect Signals from MechanismFoundryTab ---
+        self.mechanism_foundry_tab.export_to_design_requested.connect(
+            self._handle_foundry_export_to_mechanism_tab
+        )
         # --- Connect Signals from OptionsTab ---
         self.options_tab.animationDurationChanged.connect(self.ik_manager.set_animation_duration)
         if hasattr(self.options_tab, "timingProfileChanged") and hasattr(
@@ -899,6 +909,47 @@ class AutomataDesigner(QMainWindow):
         logging.info("MainWindow: Received request to save character alignment.")
         # Call actual alignment saving logic here
         self.statusBar().showMessage("Character alignment save requested.")
+
+    @pyqtSlot(str, dict, tuple)
+    def _handle_foundry_export_to_mechanism_tab(
+        self, mechanism_type: str, parameters: dict, pivot_point: tuple
+    ):
+        """Handle mechanism export from Foundry to Mechanism Design Tab.
+
+        Routes the mechanism configuration from Mechanism Foundry to the
+        Mechanism Design Tab for simulation and character assignment.
+        """
+        logging.info(
+            f"MainWindow: Received foundry export - type={mechanism_type}, "
+            f"params={parameters}, pivot={pivot_point}"
+        )
+
+        # Forward to Mechanism Design Tab's import method
+        if hasattr(self.mechanism_design_tab, "import_mechanism_from_foundry"):
+            self.mechanism_design_tab.import_mechanism_from_foundry(
+                mechanism_type=mechanism_type,
+                parameters=parameters,
+                pivot_point=pivot_point,
+            )
+            self.statusBar().showMessage(
+                f"Mechanism '{mechanism_type}' added to Mechanism Tab"
+            )
+        else:
+            logging.warning(
+                "MechanismDesignTab.import_mechanism_from_foundry not available"
+            )
+
+        # Switch to Mechanism Design Tab
+        self._switch_to_mechanism_design_tab()
+
+    def _switch_to_mechanism_design_tab(self):
+        """Switches the main tab widget to the Mechanism Design Tab."""
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.widget(i) == self.mechanism_design_tab:
+                logging.info("Switching to Mechanism Design tab by request.")
+                self.tab_widget.setCurrentIndex(i)
+                return
+        logging.warning("Could not find MechanismDesignTab to switch to.")
 
     # Method for reset_all_animations_btn in EditorTab (if EditorTab calls it directly)
     def _reset_all_animations_button_clicked(self):

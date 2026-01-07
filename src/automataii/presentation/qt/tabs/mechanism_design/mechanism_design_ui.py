@@ -34,6 +34,7 @@ class MechanismDesignUI:
         # UI Elements that will be created
         self.mechanism_layers_list: QListWidget | None = None
         self.recommendation_btn: QPushButton | None = None
+        self.assign_character_btn: QPushButton | None = None
         self.play_btn: QPushButton | None = None
         self.stop_btn: QPushButton | None = None
         self.reset_btn: QPushButton | None = None
@@ -151,6 +152,10 @@ class MechanismDesignUI:
         """)
         generation_layout = QVBoxLayout(generation_group)
 
+        # Horizontal layout for Get Mechanism and Assign Character buttons
+        mechanism_buttons_layout = QHBoxLayout()
+        mechanism_buttons_layout.setSpacing(8)
+
         self.recommendation_btn = QPushButton("Get Mechanism")
         self.recommendation_btn.setEnabled(False)
         self.recommendation_btn.setToolTip("Get mechanism recommendations based on motion paths")
@@ -159,9 +164,9 @@ class MechanismDesignUI:
                 background-color: #27ae60;
                 color: white;
                 border: none;
-                padding: 8px 16px;
+                padding: 8px 12px;
                 border-radius: 4px;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: normal;
                 min-height: 20px;
             }
@@ -173,7 +178,33 @@ class MechanismDesignUI:
                 color: #7f8c8d;
             }
         """)
-        generation_layout.addWidget(self.recommendation_btn)
+        mechanism_buttons_layout.addWidget(self.recommendation_btn)
+
+        self.assign_character_btn = QPushButton("Assign Character")
+        self.assign_character_btn.setEnabled(False)
+        self.assign_character_btn.setToolTip("Assign a dummy character to the mechanism for simulation")
+        self.assign_character_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9b59b6;
+                color: white;
+                border: none;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: normal;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+            QPushButton:disabled {
+                background-color: #bdc3c7;
+                color: #7f8c8d;
+            }
+        """)
+        mechanism_buttons_layout.addWidget(self.assign_character_btn)
+
+        generation_layout.addLayout(mechanism_buttons_layout)
 
         # Parametric Design Button (ULTRATHINK Architecture)
         if PARAMETRIC_AVAILABLE:

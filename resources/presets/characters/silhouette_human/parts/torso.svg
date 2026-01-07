@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 100" width="60" height="100">
+  <!-- Torso silhouette - trapezoid body shape -->
+  <path d="M15,5 L45,5 Q50,5 50,10 L55,85 Q55,95 45,95 L15,95 Q5,95 5,85 L10,10 Q10,5 15,5 Z"
+        fill="#FFFFFF" stroke="#CCCCCC" stroke-width="1.5"/>
+</svg>

@@ -72,6 +72,11 @@ class MechanismDesignTabSignals:
             connection = recommendation_btn.clicked.connect(tab._on_get_recommendations)
             self._connections.append(connection)
 
+        assign_character_btn = self.widgets.get('assign_character_btn')
+        if assign_character_btn and hasattr(tab, '_on_assign_character'):
+            connection = assign_character_btn.clicked.connect(tab._on_assign_character)
+            self._connections.append(connection)
+
     def _connect_animation_signals(self, tab: 'MechanismDesignTab') -> None:
         """Connect animation control signals."""
         import logging
