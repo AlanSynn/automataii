@@ -1278,7 +1278,7 @@ class MechanismDesignTab(QWidget):
         self._visual_animator.build_cache(mechanism_id, layer_data)
 
         # Create visuals
-        self._handle_mechanism_visuals(mechanism_id, layer_data)
+        self.handle_mechanism_visuals(layer_data)
 
         # Update UI
         self._update_mechanism_layers_list()
