@@ -1534,10 +1534,11 @@ class MechanismDesignTab(QWidget):
 
         # Check for existing character parts; if none, auto-load dummy character
         if not self.parts_data:
-            logging.info(
-                "No character parts found. Auto-loading 'silhouette_human' (Dummy Character)."
-            )
-            self.apply_character_preset("silhouette_human")
+            logging.info("No character parts found. Auto-loading dummy character.")
+            dummy_dir = Path(__file__).parent.parent.parent.parent.parent.parent / "resources" / "presets" / "characters" / "dummy"
+            if not dummy_dir.exists():
+                dummy_dir = Path.cwd() / "resources" / "presets" / "characters" / "dummy"
+            self.load_character_from_directory(dummy_dir)
 
         # Determine which part to associate with
         part_name = self.selected_part_name
