@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
@@ -584,18 +585,18 @@ class MechanismDesignTab(QWidget):
 
         # Create visual items (View responsibility)
         if self.parts_data:
-            project_dir = self.main_window.project_data_manager.project_dir
+            # Use project_dir if available, fallback to cwd for preset-based parts
+            project_dir = self.main_window.project_data_manager.project_dir or Path.cwd()
             for part_name, p_info in parts_data.items():
-                if project_dir:
-                    item = CharacterPartItem(
-                        part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
-                    )
-                    item.setZValue(Z_PART_DEFAULT)
-                    item.setFlag(item.GraphicsItemFlag.ItemIsMovable, False)
-                    item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, True)
-                    item.setOpacity(1.0)
-                    self.mechanism_scene.addItem(item)
-                    self.current_editor_items[part_name] = item
+                item = CharacterPartItem(
+                    part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
+                )
+                item.setZValue(Z_PART_DEFAULT)
+                item.setFlag(item.GraphicsItemFlag.ItemIsMovable, False)
+                item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, True)
+                item.setOpacity(1.0)
+                self.mechanism_scene.addItem(item)
+                self.current_editor_items[part_name] = item
             self._position_parts_at_anchor_joints()
 
         self._update_mechanism_layers_list()
