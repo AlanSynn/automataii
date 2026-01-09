@@ -784,7 +784,8 @@ class MechanismDesignPresenter(QObject):
         # Stop animation
         if hasattr(self._tab, 'animation_timer') and self._tab.animation_timer.isActive():
             self._tab.animation_timer.stop()
-        self._tab._animation_frame_coordinator.reset_state()
+        if hasattr(self._tab, '_animation_frame_coordinator') and self._tab._animation_frame_coordinator:
+            self._tab._animation_frame_coordinator.reset_state()
 
         # Clear via scene management service
         ik_manager = getattr(self._main_window, 'ik_manager', None)
@@ -892,6 +893,7 @@ class MechanismDesignPresenter(QObject):
         Handles skeleton joint IDs that have numeric suffixes (e.g., left_hand_9).
         """
         import logging
+
         from automataii.domain.kinematics.joint_mapping_service import JointMappingService
         service = JointMappingService()
         std_id = service.standardize_joint_id(abstract_joint_id)
