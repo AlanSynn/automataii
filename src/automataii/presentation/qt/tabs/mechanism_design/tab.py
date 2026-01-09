@@ -723,8 +723,8 @@ class MechanismDesignTab(QWidget):
 
     @pyqtSlot()
     def _on_assign_dummy_character(self):
-        """Slot for the Assign Character button. Loads the dummy silhouette preset."""
-        logging.info("Assign Character button clicked. Loading 'silhouette_human' preset.")
+        """Slot for the Assign Character button. Loads the pre-processed dummy character."""
+        logging.info("Assign Character button clicked. Loading dummy character.")
 
         # Determine if we need to warn about overwriting
         if self.parts_data:
@@ -740,15 +740,105 @@ class MechanismDesignTab(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        success = self.apply_character_preset("silhouette_human")
+        # Load pre-processed dummy character
+        dummy_dir = Path(__file__).parent.parent.parent.parent.parent.parent / "resources" / "presets" / "characters" / "dummy"
+        if not dummy_dir.exists():
+            # Fallback: try from cwd
+            dummy_dir = Path.cwd() / "resources" / "presets" / "characters" / "dummy"
+
+        success = self.load_character_from_directory(dummy_dir)
         if success:
-            # Show status in main window if available
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage("Dummy character assigned.", 3000)
-            # Ensure proper view update
             self.center_on_character()
         else:
-            QMessageBox.warning(self, "Error", "Failed to load dummy character preset.")
+            QMessageBox.warning(self, "Error", "Failed to load dummy character.")
+
+    def load_character_from_directory(self, char_dir: Path) -> bool:
+        """Load a character from a directory containing parts_info.json and char_cfg.yaml.
+
+        Args:
+            char_dir: Path to the character directory.
+
+        Returns:
+            True if loaded successfully.
+        """
+        import json
+        import yaml
+
+        from automataii.domain.project.models import PartInfoModel
+        from automataii.presentation.qt.models import PartInfo
+
+        logging.info(f"Loading character from: {char_dir}")
+
+        parts_info_path = char_dir / "parts_info.json"
+        char_cfg_path = char_dir / "char_cfg.yaml"
+
+        if not parts_info_path.exists():
+            logging.error(f"parts_info.json not found in {char_dir}")
+            return False
+
+        try:
+            # 1. Load parts_info.json
+            with open(parts_info_path, encoding="utf-8") as f:
+                parts_data_json = json.load(f)
+
+            character_data = parts_data_json.get("character", {})
+            parts_dict = character_data.get("parts", {})
+            skeleton_joints = character_data.get("skeleton_joints", [])
+
+            # 2. Convert parts to PartInfo
+            parts_data: dict[str, PartInfo] = {}
+            for part_name, part_data in parts_dict.items():
+                # Resolve image path relative to char_dir
+                image_path = str(char_dir / part_data.get("image_path", ""))
+
+                model = PartInfoModel(
+                    name=part_data["name"],
+                    roi=part_data.get("roi", [0, 0, 50, 50]),
+                    z_value=float(part_data.get("z_value", 0)),
+                    image_path=image_path,
+                    fill_color=part_data.get("fill_color", "rgba(255,255,255,0.9)"),
+                    fixed=part_data.get("fixed", False),
+                    opacity=1.0,
+                    anchor_joint_id=part_data.get("anchor_joint_id"),
+                    local_pivot_offset=part_data.get("local_pivot_offset"),
+                )
+                part_info = PartInfo.from_pydantic(model, project_dir=char_dir)
+                parts_data[part_name] = part_info
+
+            # 3. Build skeleton dict from skeleton_joints
+            skeleton_dict = {"joints": {}}
+            for joint in skeleton_joints:
+                joint_id = joint.get("id", joint.get("name"))
+                skeleton_dict["joints"][joint_id] = {
+                    "id": joint_id,
+                    "name": joint.get("name", joint_id),
+                    "parent": joint.get("parent"),
+                    "position": joint.get("position", [0, 0]),
+                    "rotation": 0.0,
+                }
+
+            # 4. Cache skeleton
+            if skeleton_dict["joints"]:
+                self.cache_initial_skeleton(skeleton_dict)
+
+            # 5. Set parts data
+            self.set_parts_data(parts_data, clear_mechanisms=False)
+
+            # 6. Ensure skeleton visualization
+            if hasattr(self, '_skeleton_handler') and self._skeleton_handler and skeleton_dict["joints"]:
+                self._skeleton_handler.ensure_skeleton_visualization(skeleton_dict)
+
+            # 7. Map orphan mechanisms
+            self._map_orphan_mechanisms_to_character()
+
+            logging.info(f"Loaded character with {len(parts_data)} parts and {len(skeleton_dict['joints'])} joints")
+            return True
+
+        except Exception as e:
+            logging.exception(f"Failed to load character: {e}")
+            return False
 
     @pyqtSlot(str)
     def apply_character_preset(self, preset_id: str) -> bool:
