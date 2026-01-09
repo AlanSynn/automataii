@@ -8,16 +8,16 @@
     "torso": {
       "name": "torso",
       "svg_path": "parts/torso.svg",
-      "anchor_joint": "root",
+      "anchor_joint": "hip",
       "z_index": 0,
       "default_transform": [-30, -50, 0]
     },
     "head": {
       "name": "head",
       "svg_path": "parts/head.svg",
-      "anchor_joint": "head",
+      "anchor_joint": "neck",
       "z_index": 10,
-      "default_transform": [-20, -25, 0]
+      "default_transform": [-20, -45, 0]
     },
     "upper_arm_L": {
       "name": "upper_arm_L",
@@ -81,40 +81,40 @@
       "id": "root",
       "parent_id": null,
       "position": [0, 0],
-      "children": ["spine", "left_hip", "right_hip"]
+      "children": ["hip", "left_hip", "right_hip"]
     },
-    "spine": {
-      "id": "spine",
+    "hip": {
+      "id": "hip",
       "parent_id": "root",
+      "position": [0, 0],
+      "children": ["torso"]
+    },
+    "torso": {
+      "id": "torso",
+      "parent_id": "hip",
       "position": [0, -50],
       "children": ["neck"]
     },
     "neck": {
       "id": "neck",
-      "parent_id": "spine",
-      "position": [0, -10],
-      "children": ["head", "left_shoulder", "right_shoulder"]
-    },
-    "head": {
-      "id": "head",
-      "parent_id": "neck",
-      "position": [0, -25],
-      "children": []
+      "parent_id": "torso",
+      "position": [0, -40],
+      "children": ["left_shoulder", "right_shoulder"]
     },
     "left_shoulder": {
       "id": "left_shoulder",
       "parent_id": "neck",
-      "position": [-35, 0],
+      "position": [-30, 10],
       "children": ["left_elbow"]
     },
     "left_elbow": {
       "id": "left_elbow",
       "parent_id": "left_shoulder",
       "position": [0, 50],
-      "children": ["left_wrist"]
+      "children": ["left_hand"]
     },
-    "left_wrist": {
-      "id": "left_wrist",
+    "left_hand": {
+      "id": "left_hand",
       "parent_id": "left_elbow",
       "position": [0, 45],
       "children": []
@@ -122,17 +122,17 @@
     "right_shoulder": {
       "id": "right_shoulder",
       "parent_id": "neck",
-      "position": [35, 0],
+      "position": [30, 10],
       "children": ["right_elbow"]
     },
     "right_elbow": {
       "id": "right_elbow",
       "parent_id": "right_shoulder",
       "position": [0, 50],
-      "children": ["right_wrist"]
+      "children": ["right_hand"]
     },
-    "right_wrist": {
-      "id": "right_wrist",
+    "right_hand": {
+      "id": "right_hand",
       "parent_id": "right_elbow",
       "position": [0, 45],
       "children": []
@@ -147,10 +147,10 @@
       "id": "left_knee",
       "parent_id": "left_hip",
       "position": [0, 60],
-      "children": ["left_ankle"]
+      "children": ["left_foot"]
     },
-    "left_ankle": {
-      "id": "left_ankle",
+    "left_foot": {
+      "id": "left_foot",
       "parent_id": "left_knee",
       "position": [0, 55],
       "children": []
@@ -165,10 +165,10 @@
       "id": "right_knee",
       "parent_id": "right_hip",
       "position": [0, 60],
-      "children": ["right_ankle"]
+      "children": ["right_foot"]
     },
-    "right_ankle": {
-      "id": "right_ankle",
+    "right_foot": {
+      "id": "right_foot",
       "parent_id": "right_knee",
       "position": [0, 55],
       "children": []
