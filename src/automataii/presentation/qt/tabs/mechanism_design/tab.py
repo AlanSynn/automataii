@@ -764,7 +764,6 @@ class MechanismDesignTab(QWidget):
             True if the preset was applied successfully.
         """
         import logging
-        from pathlib import Path
 
         from automataii.application.character import CharacterPresetService
         from automataii.domain.project.models import PartInfoModel
@@ -780,15 +779,27 @@ class MechanismDesignTab(QWidget):
                 logging.error(f"Preset not found: {preset_id}")
                 return False
 
-            # 2. Convert preset parts to PartInfo dict
+            # 2. Determine canvas center for character placement
+            canvas_center = (400.0, 300.0)
+            if self.mechanism_view:
+                view_center = self.mechanism_view.mapToScene(
+                    self.mechanism_view.viewport().rect().center()
+                )
+                canvas_center = (view_center.x(), view_center.y())
+
+            # 3. Build skeleton data with absolute positions
+            skeleton_dict = self._convert_preset_skeleton_to_dict(preset, canvas_center)
+            joints_data = skeleton_dict.get("joints", {})
+
+            # 4. Convert preset parts to PartInfo dict using absolute joint positions
             parts_data: dict[str, PartInfo] = {}
             sorted_parts = preset.get_parts_sorted_by_z()
 
             for preset_part in sorted_parts:
-                # Create PartInfoModel for the preset part
-                # Position based on anchor joint in skeleton
-                joint = preset.get_joint(preset_part.anchor_joint)
-                x, y = joint.position if joint else (0.0, 0.0)
+                # Get absolute position from computed skeleton
+                joint_data = joints_data.get(preset_part.anchor_joint, {})
+                abs_pos = joint_data.get("position", [canvas_center[0], canvas_center[1]])
+                x, y = abs_pos[0], abs_pos[1]
 
                 # Add transform offset
                 tx, ty, _ = preset_part.default_transform
@@ -810,18 +821,22 @@ class MechanismDesignTab(QWidget):
                 part_info = PartInfo.from_pydantic(model, project_dir=Path.cwd())
                 parts_data[preset_part.name] = part_info
 
-            # 3. Build skeleton data from preset
-            skeleton_dict = self._convert_preset_skeleton_to_dict(preset)
-
-            # 4. Cache skeleton for IK
+            # 5. Cache skeleton for IK and positioning
             if skeleton_dict:
                 self.cache_initial_skeleton(skeleton_dict)
 
-            # 5. Set parts data (without clearing existing mechanisms)
+            # 6. Set parts data (without clearing existing mechanisms)
             self.set_parts_data(parts_data, clear_mechanisms=False)
 
-            # 6. Map orphan mechanisms (created without character) to the new parts
+            # 7. Ensure skeleton visualization is displayed
+            if hasattr(self, '_skeleton_handler') and self._skeleton_handler:
+                self._skeleton_handler.ensure_skeleton_visualization(skeleton_dict)
+
+            # 8. Map orphan mechanisms (created without character) to the new parts
             self._map_orphan_mechanisms_to_character()
+
+            # 9. Center view on the character
+            self.center_on_character()
 
             logging.info(f"Applied preset '{preset.name}' with {len(parts_data)} parts")
             return True
@@ -830,29 +845,69 @@ class MechanismDesignTab(QWidget):
             logging.exception(f"Failed to apply character preset: {e}")
             return False
 
-    def _convert_preset_skeleton_to_dict(self, preset) -> dict:
+    def _convert_preset_skeleton_to_dict(
+        self, preset, canvas_center: tuple[float, float] = (400.0, 300.0)
+    ) -> dict:
         """Convert preset skeleton to the format expected by skeleton manager.
+
+        Converts relative joint positions to absolute scene coordinates,
+        centered on the canvas.
 
         Args:
             preset: The CharacterPreset with skeleton data.
+            canvas_center: Center point to place the character (x, y).
 
         Returns:
-            Dictionary in skeleton manager format.
+            Dictionary in skeleton manager format with absolute positions.
         """
         from automataii.domain.character import CharacterPreset
 
         if not isinstance(preset, CharacterPreset):
             return {}
 
+        # First pass: compute absolute positions by traversing from root
+        absolute_positions: dict[str, tuple[float, float]] = {}
+
+        def compute_absolute_position(joint_id: str) -> tuple[float, float]:
+            """Recursively compute absolute position for a joint."""
+            if joint_id in absolute_positions:
+                return absolute_positions[joint_id]
+
+            joint = preset.skeleton.get(joint_id)
+            if not joint:
+                return (0.0, 0.0)
+
+            rel_x, rel_y = joint.position
+
+            if joint.parent_id is None:
+                # Root joint: position relative to canvas center
+                abs_pos = (canvas_center[0] + rel_x, canvas_center[1] + rel_y)
+            else:
+                # Child joint: position relative to parent's absolute position
+                parent_pos = compute_absolute_position(joint.parent_id)
+                abs_pos = (parent_pos[0] + rel_x, parent_pos[1] + rel_y)
+
+            absolute_positions[joint_id] = abs_pos
+            return abs_pos
+
+        # Compute all absolute positions
+        for joint_id in preset.skeleton:
+            compute_absolute_position(joint_id)
+
+        # Build joints dictionary with absolute positions
         joints = {}
         for joint_id, joint in preset.skeleton.items():
+            abs_pos = absolute_positions.get(joint_id, (0.0, 0.0))
             joints[joint_id] = {
                 "id": joint.id,
+                "name": joint.id,  # Add name field for visualization
                 "parent": joint.parent_id,
-                "position": list(joint.position),
+                "position": [abs_pos[0], abs_pos[1]],
                 "children": list(joint.children),
+                "rotation": 0.0,  # Initial rotation
             }
-        return joints
+
+        return {"joints": joints}
 
     def _map_orphan_mechanisms_to_character(self) -> None:
         """
