@@ -92,6 +92,36 @@ class ActionManager(QObject):
             status_tip="Reset the view to default position and scale",
         )
 
+        self.create_action(
+            action_id="toggle_workflow_navigator",
+            text="Show Workflow Navigator",
+            tooltip="Show or hide the workflow navigator dock",
+            status_tip="Toggle workflow navigator dock visibility",
+            checkable=True,
+            checked=True,
+        )
+
+        self.create_action(
+            action_id="save_workspace_layout",
+            text="Save Workspace Layout",
+            tooltip="Persist current docks and tab order",
+            status_tip="Save current workspace layout",
+        )
+
+        self.create_action(
+            action_id="restore_workspace_layout",
+            text="Restore Workspace Layout",
+            tooltip="Restore last saved docks and tab order",
+            status_tip="Restore workspace layout",
+        )
+
+        self.create_action(
+            action_id="reset_workspace_layout",
+            text="Reset Workspace Layout",
+            tooltip="Reset workspace layout to defaults",
+            status_tip="Reset workspace layout to defaults",
+        )
+
         # Edit actions
         self.create_action(
             action_id="undo",
@@ -143,6 +173,38 @@ class ActionManager(QObject):
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_ArrowRight),
             tooltip="Export the current project",
             status_tip="Export the current project",
+        )
+
+        self.create_action(
+            action_id="workflow_mode_flexible",
+            text="Flexible Workflow",
+            tooltip="Allow non-linear workflow with recommendations",
+            status_tip="Set workflow mode to flexible",
+            checkable=True,
+            checked=True,
+        )
+
+        self.create_action(
+            action_id="workflow_mode_guided",
+            text="Guided Workflow",
+            tooltip="Guide users through workflow sequence",
+            status_tip="Set workflow mode to guided",
+            checkable=True,
+            checked=False,
+        )
+
+        self.create_action(
+            action_id="capture_workflow_sequence",
+            text="Use Current Tab Order as Workflow",
+            tooltip="Capture current tab order as workflow sequence",
+            status_tip="Capture tab order as workflow sequence",
+        )
+
+        self.create_action(
+            action_id="reset_workflow_sequence",
+            text="Reset Workflow Sequence",
+            tooltip="Reset workflow sequence to default tab order",
+            status_tip="Reset workflow sequence",
         )
 
     def create_action(
@@ -303,11 +365,24 @@ class ActionManager(QObject):
         view_menu.addAction(self.get_action("zoom_out"))
         view_menu.addAction(self.get_action("zoom_fit"))
         view_menu.addAction(self.get_action("reset_view"))
+        view_menu.addSeparator()
+        view_menu.addAction(self.get_action("toggle_workflow_navigator"))
+        view_menu.addSeparator()
+        view_menu.addAction(self.get_action("save_workspace_layout"))
+        view_menu.addAction(self.get_action("restore_workspace_layout"))
+        view_menu.addAction(self.get_action("reset_workspace_layout"))
 
         # Edit menu
         edit_menu = menubar.addMenu("&Edit")
         edit_menu.addAction(self.get_action("undo"))
         edit_menu.addAction(self.get_action("redo"))
+
+        workflow_menu = menubar.addMenu("&Workflow")
+        workflow_menu.addAction(self.get_action("workflow_mode_flexible"))
+        workflow_menu.addAction(self.get_action("workflow_mode_guided"))
+        workflow_menu.addSeparator()
+        workflow_menu.addAction(self.get_action("capture_workflow_sequence"))
+        workflow_menu.addAction(self.get_action("reset_workflow_sequence"))
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
