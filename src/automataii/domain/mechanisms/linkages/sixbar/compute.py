@@ -22,6 +22,8 @@ class SixBarMechanism(Mechanism):
     def __init__(self, parameters: dict[str, float] | None = None) -> None:
         self._parameters = self._parse_parameters(parameters or {})
         self._five_bar = FiveBarMechanism()
+        # Optimization: Cache parsed parameters
+        self._cached_params_hash: int | None = None
 
     @property
     def mechanism_type(self) -> str:
@@ -56,9 +58,7 @@ class SixBarMechanism(Mechanism):
         positions = dict(base_positions)
         positions["G3"] = g3
         positions["Q"] = q
-        self._five_bar._add_custom_point(
-            positions, parameters.get("coupler_custom_fraction")
-        )
+        self._five_bar._add_custom_point(positions, parameters.get("coupler_custom_fraction"))
 
         metadata = self._build_metadata(params, positions)
 

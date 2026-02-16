@@ -64,13 +64,9 @@ class SkeletonGraphicsItem(QGraphicsObject):
             self.bone_z_value = Z_SKELETON_BONES
             self.joint_z_value = Z_SKELETON_JOINTS
 
-        self._joint_items: dict[
-            str, QGraphicsEllipseItem
-        ] = {}  # joint_id -> QGraphicsEllipseItem
+        self._joint_items: dict[str, QGraphicsEllipseItem] = {}  # joint_id -> QGraphicsEllipseItem
         self._bone_items: list[QGraphicsLineItem] = []
-        self._bend_arrows: dict[
-            str, QGraphicsPolygonItem
-        ] = {}  # joint_id -> arrow polygon
+        self._bend_arrows: dict[str, QGraphicsPolygonItem] = {}  # joint_id -> arrow polygon
         self._joint_bend_directions: dict[
             str, float
         ] = {}  # joint_id -> bend direction (1.0 or -1.0)
@@ -125,9 +121,7 @@ class SkeletonGraphicsItem(QGraphicsObject):
         temp_joint_positions = {}  # To build bones later: joint_id -> QPointF
 
         if not skeleton_data:
-            logging.warning(
-                "SkeletonItem:load_skeleton_data - skeleton_data is empty or None."
-            )
+            logging.warning("SkeletonItem:load_skeleton_data - skeleton_data is empty or None.")
             self.update()  # Trigger repaint if needed
             return
 
@@ -322,7 +316,6 @@ class SkeletonGraphicsItem(QGraphicsObject):
                     self._bone_items[bone_index].setLine(new_line)
                 bone_index += 1
 
-
     def paint(self, painter, option, widget=None):
         """
         Paint method required by QGraphicsObject.
@@ -382,18 +375,20 @@ class SkeletonGraphicsItem(QGraphicsObject):
         item = self._joint_items.get(joint_id)
         return item.pos() if item else None
 
-
     def _update_bend_arrows(self):
-        """Update bend direction arrows for joints that have children."""
-        # Clear existing arrows
-        if self.scene():
-            for arrow in self._bend_arrows.values():
-                if arrow.scene():
-                    self.scene().removeItem(arrow)
-        self._bend_arrows.clear()
+        """
+        Update bend direction arrows for joints that have children.
 
+        Optimized: Reuses existing arrow items instead of recreating them.
+        """
         if not self._hierarchy_cache:
+            # Hide all existing arrows if no hierarchy
+            for arrow in self._bend_arrows.values():
+                arrow.setVisible(False)
             return
+
+        # Track used arrows to hide unused ones later
+        used_parent_ids = set()
 
         # Create arrows only for elbow/knee joints that have children
         for parent_id, child_ids in self._hierarchy_cache.items():
@@ -401,7 +396,7 @@ class SkeletonGraphicsItem(QGraphicsObject):
                 continue
 
             # Only show bend arrows for elbow/knee joints
-            if 'elbow' not in parent_id.lower() and 'knee' not in parent_id.lower():
+            if "elbow" not in parent_id.lower() and "knee" not in parent_id.lower():
                 continue
 
             parent_item = self._joint_items[parent_id]
@@ -424,7 +419,7 @@ class SkeletonGraphicsItem(QGraphicsObject):
 
             # Normalize average direction
             avg_direction /= valid_children
-            length = math.sqrt(avg_direction.x()**2 + avg_direction.y()**2)
+            length = math.sqrt(avg_direction.x() ** 2 + avg_direction.y() ** 2)
             if length < 0.001:
                 continue
 
@@ -436,7 +431,7 @@ class SkeletonGraphicsItem(QGraphicsObject):
             # Calculate perpendicular direction (for bend)
             perp_direction = QPointF(-avg_direction.y(), avg_direction.x()) * bend_dir
 
-            # Create arrow polygon
+            # Create arrow polygon points
             arrow_length = 20
             arrow_width = 8
 
@@ -450,21 +445,34 @@ class SkeletonGraphicsItem(QGraphicsObject):
             arrow_base1 = parent_pos + base_direction + side_direction
             arrow_base2 = parent_pos + base_direction - side_direction
 
-            # Create polygon
+            # Polygon geometry
             arrow_polygon = QPolygonF([parent_pos, arrow_base1, arrow_tip, arrow_base2])
-            arrow_item = QGraphicsPolygonItem(arrow_polygon, parent=self)
 
-            # Set arrow appearance
+            # Determine color
             if bend_dir < 0:
                 arrow_color = QColor(0, 200, 0, 150)  # Green for inverted
             else:
                 arrow_color = QColor(0, 100, 200, 150)  # Blue for default
 
-            arrow_item.setBrush(QBrush(arrow_color))
-            arrow_item.setPen(QPen(Qt.GlobalColor.darkGray, 1))
-            arrow_item.setZValue(self.joint_z_value - 1)  # Slightly below joints
+            # Update or create arrow item
+            if parent_id in self._bend_arrows:
+                arrow_item = self._bend_arrows[parent_id]
+                arrow_item.setPolygon(arrow_polygon)
+                arrow_item.setBrush(QBrush(arrow_color))
+                arrow_item.setVisible(True)
+            else:
+                arrow_item = QGraphicsPolygonItem(arrow_polygon, parent=self)
+                arrow_item.setBrush(QBrush(arrow_color))
+                arrow_item.setPen(QPen(Qt.GlobalColor.darkGray, 1))
+                arrow_item.setZValue(self.joint_z_value - 1)  # Slightly below joints
+                self._bend_arrows[parent_id] = arrow_item
 
-            self._bend_arrows[parent_id] = arrow_item
+            used_parent_ids.add(parent_id)
+
+        # Hide unused arrows
+        for parent_id, arrow in self._bend_arrows.items():
+            if parent_id not in used_parent_ids:
+                arrow.setVisible(False)
 
     def mousePressEvent(self, event):
         """Handle mouse press events on joints."""
@@ -476,13 +484,12 @@ class SkeletonGraphicsItem(QGraphicsObject):
                 joint_pos = joint_item.pos()
                 # Check if click is within joint circle
                 distance = math.sqrt(
-                    (click_pos.x() - joint_pos.x())**2 +
-                    (click_pos.y() - joint_pos.y())**2
+                    (click_pos.x() - joint_pos.x()) ** 2 + (click_pos.y() - joint_pos.y()) ** 2
                 )
 
                 if distance <= self.JOINT_RADIUS:
                     # Only allow toggling bend direction for elbow/knee joints
-                    if 'elbow' in joint_id.lower() or 'knee' in joint_id.lower():
+                    if "elbow" in joint_id.lower() or "knee" in joint_id.lower():
                         # Toggle bend direction
                         current_dir = self._joint_bend_directions.get(joint_id, 1.0)
                         new_dir = -current_dir
@@ -510,7 +517,9 @@ class SkeletonGraphicsItem(QGraphicsObject):
 
                         logging.info(f"Joint '{joint_id}' bend direction changed to {new_dir}")
                     else:
-                        logging.debug(f"Joint '{joint_id}' is not an elbow/knee joint, ignoring bend direction toggle")
+                        logging.debug(
+                            f"Joint '{joint_id}' is not an elbow/knee joint, ignoring bend direction toggle"
+                        )
 
                     event.accept()
                     return

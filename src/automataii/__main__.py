@@ -5,6 +5,16 @@ import platform
 import sys
 from pathlib import Path
 
+if not os.environ.get("QT_QPA_PLATFORM"):
+    ci_mode_enabled = os.environ.get("CI", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    } or os.environ.get("CODEX_CI", "").lower() in {"1", "true", "yes"}
+    if ci_mode_enabled:
+        # Avoid hard crashes from unavailable GUI services in CI/headless runs.
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 try:
     from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication

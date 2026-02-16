@@ -166,6 +166,12 @@ class AnchorMovementHandler:
         params["L3"] = float(np.linalg.norm(p4 - p3))  # Coupler
         params["L4"] = float(np.linalg.norm(p4 - p2))  # Rocker
 
+        # Keep lowercase aliases synchronized for Foundry/export mapping.
+        params["l1"] = float(params["L1"])
+        params["l2"] = float(params["L2"])
+        params["l3"] = float(params["L3"])
+        params["l4"] = float(params["L4"])
+
         # Update ground pivot positions
         params["ground_pivot_1"] = key_points["ground_pivot_1"]
         params["ground_pivot_2"] = key_points["ground_pivot_2"]

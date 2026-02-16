@@ -66,6 +66,8 @@ class FourBarEditor(MechanismEditor):
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
+        self._sync_length_constraints()
+
     def _create_link_handles(self):
         """Create handles at link midpoints for length adjustment."""
         if "anchor1" in self.handles and "crank" in self.handles:
@@ -112,15 +114,48 @@ class FourBarEditor(MechanismEditor):
         if handle_id == "crank":
             if "anchor1" in self.handles:
                 anchor_pos = self.handles["anchor1"].scenePos()
-                crank_length = self.mechanism_data.get("params", {}).get("l2", 60)
-                constraints["fixed_distance"] = {"anchor": anchor_pos, "distance": crank_length}
+                crank_pos = self._calculate_crank_position(
+                    anchor_pos, self.mechanism_data.get("params", {})
+                )
+                constraints["fixed_distance"] = {
+                    "anchor": anchor_pos,
+                    "distance": self._scene_distance(anchor_pos, crank_pos),
+                }
         elif handle_id == "rocker":
             if "anchor2" in self.handles:
                 anchor_pos = self.handles["anchor2"].scenePos()
-                rocker_length = self.mechanism_data.get("params", {}).get("l4", 70)
-                constraints["fixed_distance"] = {"anchor": anchor_pos, "distance": rocker_length}
+                rocker_pos = self._calculate_rocker_position(
+                    anchor_pos, self.mechanism_data.get("params", {})
+                )
+                constraints["fixed_distance"] = {
+                    "anchor": anchor_pos,
+                    "distance": self._scene_distance(anchor_pos, rocker_pos),
+                }
 
         return constraints
+
+    @staticmethod
+    def _scene_distance(p1: QPointF, p2: QPointF) -> float:
+        """Calculate Euclidean distance in scene space."""
+        return math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+
+    def _sync_length_constraints(self) -> None:
+        """Keep crank/rocker fixed-distance constraints in sync with live handle positions."""
+        if "anchor1" in self.handles and "crank" in self.handles:
+            anchor1 = self.handles["anchor1"].scenePos()
+            crank = self.handles["crank"].scenePos()
+            self.handles["crank"].constraints["fixed_distance"] = {
+                "anchor": anchor1,
+                "distance": self._scene_distance(anchor1, crank),
+            }
+
+        if "anchor2" in self.handles and "rocker" in self.handles:
+            anchor2 = self.handles["anchor2"].scenePos()
+            rocker = self.handles["rocker"].scenePos()
+            self.handles["rocker"].constraints["fixed_distance"] = {
+                "anchor": anchor2,
+                "distance": self._scene_distance(anchor2, rocker),
+            }
 
     def _calculate_crank_position(self, anchor1: QPointF, params: dict) -> QPointF:
         """Calculate crank joint position in scene coordinates."""
@@ -216,6 +251,7 @@ class FourBarEditor(MechanismEditor):
         self._update_dependent_handles("anchor1", new_pos)
         if mech is not None:
             self._reproject_handle("anchor1", mech)
+        self._sync_length_constraints()
         self._trigger_mechanism_update()
 
     def _on_anchor2_moved(self, handle_id: str, new_pos: QPointF):
@@ -237,6 +273,7 @@ class FourBarEditor(MechanismEditor):
         self._update_dependent_handles("anchor2", new_pos)
         if mech is not None:
             self._reproject_handle("anchor2", mech)
+        self._sync_length_constraints()
         self._trigger_mechanism_update()
 
     def _on_crank_moved(self, handle_id: str, new_pos: QPointF):
@@ -248,8 +285,18 @@ class FourBarEditor(MechanismEditor):
         angle = math.degrees(math.atan2(dy, dx))
         length = math.sqrt(dx * dx + dy * dy)
 
+        anchor_mech = self._to_mech(anchor1)
+        crank_mech = self._to_mech(new_pos)
+        if anchor_mech is not None and crank_mech is not None:
+            dx_mech = crank_mech[0] - anchor_mech[0]
+            dy_mech = crank_mech[1] - anchor_mech[1]
+            angle = math.degrees(math.atan2(dy_mech, dx_mech))
+            length = math.hypot(dx_mech, dy_mech)
+
         self.mechanism_data["params"]["crank_angle"] = angle
         self.mechanism_data["params"]["l2"] = length
+        self.mechanism_data["params"]["crank_x"] = new_pos.x()
+        self.mechanism_data["params"]["crank_y"] = new_pos.y()
 
         self._update_dependent_handles("crank", new_pos)
         mech = self._to_mech(new_pos)
@@ -257,6 +304,7 @@ class FourBarEditor(MechanismEditor):
             self.mechanism_data["params"]["m_crank_x"] = mech[0]
             self.mechanism_data["params"]["m_crank_y"] = mech[1]
             self._reproject_handle("crank", mech)
+        self._sync_length_constraints()
         self._trigger_mechanism_update()
 
     def _on_rocker_moved(self, handle_id: str, new_pos: QPointF):
@@ -268,14 +316,25 @@ class FourBarEditor(MechanismEditor):
         angle = math.degrees(math.atan2(dy, dx))
         length = math.sqrt(dx * dx + dy * dy)
 
+        anchor_mech = self._to_mech(anchor2)
+        rocker_mech = self._to_mech(new_pos)
+        if anchor_mech is not None and rocker_mech is not None:
+            dx_mech = rocker_mech[0] - anchor_mech[0]
+            dy_mech = rocker_mech[1] - anchor_mech[1]
+            angle = math.degrees(math.atan2(dy_mech, dx_mech))
+            length = math.hypot(dx_mech, dy_mech)
+
         self.mechanism_data["params"]["rocker_angle"] = angle
         self.mechanism_data["params"]["l4"] = length
+        self.mechanism_data["params"]["rocker_x"] = new_pos.x()
+        self.mechanism_data["params"]["rocker_y"] = new_pos.y()
 
         mech = self._to_mech(new_pos)
         if mech is not None:
             self.mechanism_data["params"]["m_rocker_x"] = mech[0]
             self.mechanism_data["params"]["m_rocker_y"] = mech[1]
             self._reproject_handle("rocker", mech)
+        self._sync_length_constraints()
         self._trigger_mechanism_update()
 
     def _on_coupler_moved(self, handle_id: str, new_pos: QPointF):
@@ -322,7 +381,6 @@ class FourBarEditor(MechanismEditor):
             t = max(0.3, min(2.0, t))
 
             new_length = math.sqrt(v.x() * v.x() + v.y() * v.y()) * t
-            self.mechanism_data["params"]["l2"] = new_length
 
             angle = math.degrees(math.atan2(v.y(), v.x()))
             new_crank_pos = QPointF(
@@ -331,6 +389,31 @@ class FourBarEditor(MechanismEditor):
             )
 
             self.handles["crank"].setPos(new_crank_pos)
+            self.mechanism_data["params"]["crank_x"] = new_crank_pos.x()
+            self.mechanism_data["params"]["crank_y"] = new_crank_pos.y()
+
+            anchor_mech = self._to_mech(anchor1)
+            crank_mech = self._to_mech(new_crank_pos)
+            if anchor_mech is not None and crank_mech is not None:
+                self.mechanism_data["params"]["l2"] = float(
+                    math.hypot(
+                        crank_mech[0] - anchor_mech[0],
+                        crank_mech[1] - anchor_mech[1],
+                    )
+                )
+                self.mechanism_data["params"]["crank_angle"] = float(
+                    math.degrees(
+                        math.atan2(
+                            crank_mech[1] - anchor_mech[1],
+                            crank_mech[0] - anchor_mech[0],
+                        )
+                    )
+                )
+            else:
+                self.mechanism_data["params"]["l2"] = float(new_length)
+                self.mechanism_data["params"]["crank_angle"] = float(angle)
+
+            self._sync_length_constraints()
             self._trigger_mechanism_update()
 
     def _update_dependent_handles(self, changed_handle: str, new_pos: QPointF):

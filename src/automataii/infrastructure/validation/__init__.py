@@ -7,12 +7,12 @@ application state.
 """
 
 from automataii.infrastructure.validation.schemas import (
-    MechanismParameterSchema,
-    MechanismEntrySchema,
-    MechanismCategorySchema,
     MechanismCatalogSchema,
-    validate_mechanism_catalog,
+    MechanismCategorySchema,
+    MechanismEntrySchema,
+    MechanismParameterSchema,
     ValidationError,
+    validate_mechanism_catalog,
 )
 
 __all__ = [

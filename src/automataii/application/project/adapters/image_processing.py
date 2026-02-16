@@ -170,23 +170,46 @@ class ImageProcessingTabAdapter(TabAdapter):
         """
         parts: dict[str, PartData] = {}
 
-        raw_parts = parts_info.get("parts", {})
+        character_data = parts_info.get("character", {})
+        if isinstance(character_data, dict) and isinstance(character_data.get("parts"), dict):
+            raw_parts = character_data.get("parts", {})
+        else:
+            raw_parts = parts_info.get("parts", {})
+
         joint_map = parts_info.get("joint_map", {})
 
         for part_name, part_info in raw_parts.items():
             try:
-                # Get image path (relative to output_dir)
-                image_path = part_info.get("image_path", f"{part_name}.png")
-                mask_path = part_info.get("mask_path", f"{part_name}_mask.png")
+                # Resolve image/mask paths from output dir when relative.
+                image_path_raw = str(part_info.get("image_path", f"{part_name}.png"))
+                image_path = image_path_raw
+                if image_path and not Path(image_path).is_absolute():
+                    image_path = str((Path(output_dir) / image_path).resolve())
 
-                # Get anchor joint from joint_map or part_info
-                anchor_joint = joint_map.get(part_name, part_info.get("anchor_joint", ""))
+                mask_path_raw = part_info.get("mask_path")
+                mask_path = str(mask_path_raw) if mask_path_raw else ""
+                if mask_path and not Path(mask_path).is_absolute():
+                    mask_path = str((Path(output_dir) / mask_path).resolve())
+                if not mask_path:
+                    mask_path = image_path
+
+                # Get anchor joint from explicit part data or joint_map fallback.
+                anchor_joint = (
+                    part_info.get("anchor_joint_id")
+                    or part_info.get("anchor_joint")
+                    or joint_map.get(part_name, "")
+                    or "root"
+                )
 
                 # Get transform data
                 roi = part_info.get("roi", [0, 0, 0, 0])
+                roi_x = float(roi[0]) if len(roi) > 0 else 0.0
+                roi_y = float(roi[1]) if len(roi) > 1 else 0.0
+                roi_w = float(roi[2]) if len(roi) > 2 else 0.0
+                roi_h = float(roi[3]) if len(roi) > 3 else 0.0
                 transform = Transform(
-                    x=float(roi[0]) if len(roi) > 0 else 0.0,
-                    y=float(roi[1]) if len(roi) > 1 else 0.0,
+                    x=roi_x,
+                    y=roi_y,
                     rotation=0.0,
                     scale=1.0,
                 )
@@ -201,6 +224,22 @@ class ImageProcessingTabAdapter(TabAdapter):
                     anchor_joint=anchor_joint,
                     transform=transform,
                     z_index=z_index,
+                    roi=(roi_x, roi_y, roi_w, roi_h),
+                    fill_color=str(part_info.get("fill_color", "rgba(128,128,128,0.5)")),
+                    fixed=bool(part_info.get("fixed", False)),
+                    opacity=float(part_info.get("opacity", 1.0)),
+                    group=part_info.get("group"),
+                    original_svg_path=part_info.get("original_svg_path"),
+                    enhanced_svg_path=part_info.get("enhanced_svg_path"),
+                    effective_bbox_offset_x=float(part_info.get("effective_bbox_offset_x", 0.0)),
+                    effective_bbox_offset_y=float(part_info.get("effective_bbox_offset_y", 0.0)),
+                    show_anchor=bool(part_info.get("show_anchor", False)),
+                    local_pivot_offset=(
+                        tuple(part_info["local_pivot_offset"])
+                        if isinstance(part_info.get("local_pivot_offset"), list | tuple)
+                        and len(part_info["local_pivot_offset"]) >= 2
+                        else None
+                    ),
                 )
 
             except Exception as e:
@@ -243,6 +282,7 @@ class ImageProcessingTabAdapter(TabAdapter):
             joints[joint_name] = JointData(
                 id=joint_name,
                 position=Point(x=float(loc[0]), y=float(loc[1])),
+                name=joint_name,
                 parent=parent,
                 is_locked=entry.get("is_locked", False),
                 bend_direction=entry.get("bend_direction", 1.0),

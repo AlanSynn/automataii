@@ -4,6 +4,7 @@ Transform Service for coordinate transformations between mechanism and scene spa
 Extracted from MechanismDesignTab as part of god class decomposition.
 Cohesion score: 0.340 (highest in the codebase).
 """
+
 from collections.abc import Callable
 from typing import Any
 
@@ -22,7 +23,9 @@ class TransformService:
     animations match the recommended mechanism orientation and scale.
     """
 
-    def get_scene_transform(self, layer_data: dict[str, Any]) -> Callable[[np.ndarray], QPointF] | None:
+    def get_scene_transform(
+        self, layer_data: dict[str, Any]
+    ) -> Callable[[np.ndarray], QPointF] | None:
         """
         Creates coordinate transformation from mechanism space to scene space.
 
@@ -41,7 +44,11 @@ class TransformService:
         if not transform_params or not target_path:
             # Fallback: simple centering
             scene_center = QPointF(400, 300)
-            return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
+            return (
+                lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y())
+                if len(p) == 2
+                else scene_center
+            )
 
         try:
             # Extract transformation parameters
@@ -52,18 +59,28 @@ class TransformService:
             # Validate scale
             if np.isclose(scale, 0) or scale < 1e-6 or scale > 1e6:
                 scene_center = QPointF(400, 300)
-                return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
+                return (
+                    lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y())
+                    if len(p) == 2
+                    else scene_center
+                )
 
             # Validate center
             if np.any(np.abs(center) > 1e6):
                 scene_center = QPointF(400, 300)
-                return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
+                return (
+                    lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y())
+                    if len(p) == 2
+                    else scene_center
+                )
 
             # Create rotation matrix
-            rotation_matrix = np.array([
-                [np.cos(rotation_angle), -np.sin(rotation_angle)],
-                [np.sin(rotation_angle), np.cos(rotation_angle)]
-            ])
+            rotation_matrix = np.array(
+                [
+                    [np.cos(rotation_angle), -np.sin(rotation_angle)],
+                    [np.sin(rotation_angle), np.cos(rotation_angle)],
+                ]
+            )
 
             # Get user path bounds for mapping to scene space
             try:
@@ -73,7 +90,11 @@ class TransformService:
 
             if user_path_np is None or len(user_path_np) == 0:
                 scene_center = QPointF(400, 300)
-                return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
+                return (
+                    lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y())
+                    if len(p) == 2
+                    else scene_center
+                )
 
             # Calculate user path properties for mapping
             user_center = np.mean(user_path_np, axis=0)
@@ -130,9 +151,97 @@ class TransformService:
 
         except (KeyError, ValueError, TypeError):
             scene_center = QPointF(400, 300)
-            return lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y()) if len(p) == 2 else scene_center
+            return (
+                lambda p: QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y())
+                if len(p) == 2
+                else scene_center
+            )
 
-    def get_inverse_scene_transform(self, layer_data: dict[str, Any]) -> Callable[[QPointF], np.ndarray] | None:
+    def get_batch_scene_transform(
+        self, layer_data: dict[str, Any]
+    ) -> Callable[[np.ndarray], list[QPointF]] | None:
+        """
+        Creates a vectorized coordinate transformation function.
+
+        Args:
+            layer_data: Layer data containing transform_params
+
+        Returns:
+            Function taking (N, 2) numpy array and returning list[QPointF]
+        """
+        transform_params = layer_data.get("transform_params")
+        target_path = layer_data.get("generated_path")
+
+        if not transform_params or not target_path:
+            scene_center = QPointF(400, 300)
+            return lambda points: [
+                QPointF(p[0] * 2.0 + scene_center.x(), p[1] * 2.0 + scene_center.y())
+                for p in points
+            ]
+
+        try:
+            center = np.array(transform_params["center"])
+            scale = transform_params["scale"]
+            rotation_angle = transform_params["rotation"]
+
+            # Safe defaults
+            if np.isclose(scale, 0) or scale < 1e-6 or scale > 1e6:
+                scale = 1.0
+            if np.any(np.abs(center) > 1e6):
+                center = np.zeros(2)
+
+            rotation_matrix = np.array(
+                [
+                    [np.cos(rotation_angle), -np.sin(rotation_angle)],
+                    [np.sin(rotation_angle), np.cos(rotation_angle)],
+                ]
+            )
+
+            # Get user path properties
+            try:
+                user_path_np = qpainterpath_to_numpy_array(target_path)
+            except Exception:
+                user_path_np = None
+
+            if user_path_np is None or len(user_path_np) == 0:
+                user_center = np.array([400.0, 300.0])
+                user_scale = 100.0
+            else:
+                user_center = np.mean(user_path_np, axis=0)
+                user_bbox = np.max(user_path_np, axis=0) - np.min(user_path_np, axis=0)
+                user_scale = np.max(user_bbox) / 2.0 if np.max(user_bbox) > 0 else 100.0
+                user_scale = np.clip(user_scale, 50, 1000)
+
+            def to_scene_coords_batch(points: np.ndarray) -> list[QPointF]:
+                """Vectorized transform for N points."""
+                if points is None or len(points) == 0:
+                    return []
+
+                # Numpy vectorization
+                # 1. Center
+                p_centered = points - center
+
+                # 2. Scale
+                p_scaled = p_centered / scale
+
+                # 3. Rotate (N,2) @ (2,2).T -> (N,2)
+                p_rotated = p_scaled @ rotation_matrix.T
+
+                # 4. Map to user space
+                final_points = p_rotated * user_scale + user_center
+
+                # Convert to QPointF list (loop is unavoidable but faster than full python math logic per point)
+                # Using list comp is standard for Qt conversion
+                return [QPointF(float(x), float(y)) for x, y in final_points]
+
+            return to_scene_coords_batch
+
+        except Exception:
+            return None
+
+    def get_inverse_scene_transform(
+        self, layer_data: dict[str, Any]
+    ) -> Callable[[QPointF], np.ndarray] | None:
         """
         Creates coordinate transformation from scene space to mechanism space.
 
@@ -163,10 +272,12 @@ class TransformService:
                 return None
 
             # Rotation matrix (inverse is transpose for orthonormal)
-            rotation_matrix = np.array([
-                [np.cos(rotation_angle), -np.sin(rotation_angle)],
-                [np.sin(rotation_angle), np.cos(rotation_angle)],
-            ])
+            rotation_matrix = np.array(
+                [
+                    [np.cos(rotation_angle), -np.sin(rotation_angle)],
+                    [np.sin(rotation_angle), np.cos(rotation_angle)],
+                ]
+            )
 
             user_path_np = qpainterpath_to_numpy_array(target_path)
             if user_path_np is None or len(user_path_np) == 0:
@@ -187,8 +298,7 @@ class TransformService:
                     # Validate input
                     if abs(scene_point.x()) > 1e5 or abs(scene_point.y()) > 1e5:
                         scene_point = QPointF(
-                            np.clip(scene_point.x(), -1e4, 1e4),
-                            np.clip(scene_point.y(), -1e4, 1e4)
+                            np.clip(scene_point.x(), -1e4, 1e4), np.clip(scene_point.y(), -1e4, 1e4)
                         )
 
                     # Inverse: g = (scene - user_center) / user_scale

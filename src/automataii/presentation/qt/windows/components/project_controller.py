@@ -154,6 +154,8 @@ class ProjectController(QObject):
         result = self._serializer.save(state, filepath)
 
         if result.success:
+            if result.path:
+                self._state_manager.set_project_dir(result.path.parent)
             self._state_manager.mark_saved()
             self._show_status(f"Project saved to {result.path}", 3000)
             self._logger.info(f"Project saved via SSOT to {result.path}")
@@ -220,15 +222,16 @@ class ProjectController(QObject):
             state = result.state
 
             self._state_manager.begin_batch()
-
-            if state.parts:
-                self._state_manager.load_parts(dict(state.parts))
+            # Always overwrite all state categories to avoid stale carry-over.
+            self._state_manager.load_parts(dict(state.parts))
             if state.skeleton:
                 self._state_manager.load_skeleton(state.skeleton)
-            if state.paths:
-                self._state_manager.load_paths(dict(state.paths))
-            if state.mechanisms:
-                self._state_manager.load_mechanisms(dict(state.mechanisms))
+            else:
+                self._state_manager.clear_skeleton()
+            self._state_manager.load_paths(dict(state.paths))
+            self._state_manager.load_mechanisms(dict(state.mechanisms))
+            self._state_manager.set_project_dir(state.project_dir)
+            self._state_manager.set_image_path(state.image_path)
 
             self._state_manager.end_batch()
             self._state_manager.mark_saved()

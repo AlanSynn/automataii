@@ -265,7 +265,7 @@ class AnimationLifecycleController(QObject):
         """
         # CRITICAL: Ensure tab_active is True when starting animation
         self._tab_active = True
-        logging.debug(f"[ANIM] start_animation: Set tab_active=True")
+        logging.debug("[ANIM] start_animation: Set tab_active=True")
 
         # Reset animation state to start fresh
         self._animation_time = 0
@@ -553,7 +553,7 @@ class AnimationLifecycleController(QObject):
                 self._update_mechanism_visuals_for_animation(
                     mechanism_id, self._animation_time, layer_data
                 )
-                logging.debug(f"[ANIM-CALLBACK] Finished calling _update_mechanism_visuals_for_animation")
+                logging.debug("[ANIM-CALLBACK] Finished calling _update_mechanism_visuals_for_animation")
 
                 if output_pos:
                     # Get the correct end effector joint for this part
@@ -574,7 +574,7 @@ class AnimationLifecycleController(QObject):
                             active_joint_updates[std_joint_id] = output_pos
                             logging.debug(f"[ANIM-IK] Added to active_joint_updates: {std_joint_id} -> {output_pos}")
                         else:
-                            logging.debug(f"[ANIM-IK] std_joint_id is None/empty, NOT adding to active_joint_updates")
+                            logging.debug("[ANIM-IK] std_joint_id is None/empty, NOT adding to active_joint_updates")
 
                     # Update path trace (only when we have a valid output position)
                     # Skip first 3 frames to let the mechanism settle and avoid "jump" artifacts

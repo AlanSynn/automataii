@@ -117,6 +117,8 @@ class MechanismDesignPresenter(QObject):
         self._pos_epsilon_px: float = 0.5
         self.mechanism_update_fraction: float = 0.5
         self._mech_rr_cursor: int = 0
+        self._mechanism_id_cache: tuple[str, ...] = ()
+        self._mechanism_id_cache_dirty: bool = True
 
         # Tab lifecycle state
         self._tab_active: bool = False
@@ -428,8 +430,8 @@ class MechanismDesignPresenter(QObject):
 
     def _process_mechanism_batch(self) -> None:
         """Process a batch of mechanisms for animation."""
-        mech_items = list(self.mechanism_layers.items())
-        total_mechs = len(mech_items)
+        mech_ids = self._get_mechanism_id_cache()
+        total_mechs = len(mech_ids)
 
         if total_mechs == 0:
             return
@@ -439,17 +441,31 @@ class MechanismDesignPresenter(QObject):
         )))
 
         start = self._mech_rr_cursor % total_mechs
-        end = start + batch_count
-
-        if end <= total_mechs:
-            selected = mech_items[start:end]
-        else:
-            selected = mech_items[start:] + mech_items[: (end % total_mechs)]
-
-        self._mech_rr_cursor = (self._mech_rr_cursor + batch_count) % total_mechs
-
-        for mechanism_id, layer_data in selected:
+        for offset in range(batch_count):
+            idx = (start + offset) % total_mechs
+            mechanism_id = mech_ids[idx]
+            layer_data = self.mechanism_layers.get(mechanism_id)
+            if layer_data is None:
+                self._mark_mechanism_iteration_cache_dirty()
+                continue
             self._update_mechanism_animation(mechanism_id, layer_data)
+        self._mech_rr_cursor = (start + batch_count) % total_mechs
+
+    def _mark_mechanism_iteration_cache_dirty(self) -> None:
+        self._mechanism_id_cache_dirty = True
+
+    def _get_mechanism_id_cache(self) -> tuple[str, ...]:
+        if (
+            self._mechanism_id_cache_dirty
+            or len(self._mechanism_id_cache) != len(self.mechanism_layers)
+        ):
+            self._mechanism_id_cache = tuple(self.mechanism_layers.keys())
+            self._mechanism_id_cache_dirty = False
+            if self._mechanism_id_cache:
+                self._mech_rr_cursor %= len(self._mechanism_id_cache)
+            else:
+                self._mech_rr_cursor = 0
+        return self._mechanism_id_cache
 
     def _update_mechanism_animation(
         self,
@@ -498,6 +514,7 @@ class MechanismDesignPresenter(QObject):
         """Add a mechanism layer."""
         self.mechanism_layers[mechanism_id] = layer_data
         self.mechanism_enabled_state[mechanism_id] = True
+        self._mark_mechanism_iteration_cache_dirty()
         self._update_mechanism_list()
 
     def remove_mechanism_layer(self, mechanism_id: str) -> None:
@@ -507,6 +524,7 @@ class MechanismDesignPresenter(QObject):
             visual_items = layer_data.get("visual_items", [])
             self._visual_item_manager.safe_remove_visual_items(visual_items)
             del self.mechanism_layers[mechanism_id]
+            self._mark_mechanism_iteration_cache_dirty()
 
         self.mechanism_enabled_state.pop(mechanism_id, None)
         self.parametric_handles.pop(mechanism_id, None)
@@ -533,6 +551,7 @@ class MechanismDesignPresenter(QObject):
         self.mechanism_enabled_state.clear()
         self.mechanism_instances.clear()
         self.parametric_handles.clear()
+        self._mark_mechanism_iteration_cache_dirty()
         self._path_trace_manager.clear_all_traces(self._scene)
 
         self._update_mechanism_list()
@@ -611,12 +630,11 @@ class MechanismDesignPresenter(QObject):
         """Handle parameter updates from anchor movement.
 
         Emits mechanism_parameters_changed signal to propagate changes
-        to ProjectStateManager for undo/redo support.
+        to ProjectStateManager for undo/redo support and Foundry sync.
         """
-        # Emit signal to propagate changes to state manager (for undo/redo)
-        if self._tab and hasattr(self._tab, 'mechanism_parameters_changed'):
-            params = layer_data.get("params", {})
-            self._tab.mechanism_parameters_changed.emit(mechanism_id, dict(params))
+        # Emit signal to propagate changes (for undo/redo and Foundry sync)
+        if self._tab and hasattr(self._tab, '_emit_mechanism_params_changed'):
+            self._tab._emit_mechanism_params_changed(mechanism_id)
 
     def _on_visuals_recreate(self, mechanism_id: str, layer_data: dict) -> None:
         """Handle visual recreation request."""
@@ -695,6 +713,7 @@ class MechanismDesignPresenter(QObject):
         layer_data = result.layer_data
         self.mechanism_layers[result.mechanism_id] = layer_data
         self.mechanism_enabled_state[result.mechanism_id] = True
+        self._mark_mechanism_iteration_cache_dirty()
 
         # Initialize path trace
         self._path_trace_manager.init_trace(result.mechanism_id, self._scene)
@@ -720,21 +739,35 @@ class MechanismDesignPresenter(QObject):
         self._tab._clear_animation_cache()
         self._reset_skeleton_to_initial()
 
-        mechanism_id = mechanism_graphics_data.get("mechanism_id")
-        mechanism_type = mechanism_graphics_data.get("mechanism_type")
+        mechanism_id = mechanism_graphics_data.get("mechanism_id", mechanism_graphics_data.get("id"))
+        mechanism_type = mechanism_graphics_data.get(
+            "mechanism_type", mechanism_graphics_data.get("type")
+        )
+        if mechanism_id is None:
+            return
+
         layer_data = self.mechanism_layers.get(mechanism_id)
 
         if not layer_data:
             return
+
+        graphics_payload = dict(mechanism_graphics_data)
+        graphics_payload.setdefault("mechanism_id", mechanism_id)
+        if mechanism_type is None:
+            mechanism_type = layer_data.get("type")
+        if mechanism_type is not None:
+            graphics_payload.setdefault("mechanism_type", mechanism_type)
+        for key, value in layer_data.items():
+            graphics_payload.setdefault(key, value)
 
         # Remove existing visuals safely
         existing = layer_data.get("visual_items", [])
         self._visual_item_manager.safe_remove_visual_items(existing)
 
         # Request View to create visuals
-        transform_func = self._transform_service.get_scene_transform(mechanism_graphics_data)
+        transform_func = self._transform_service.get_scene_transform(graphics_payload)
         visual_items = self._create_mechanism_visuals(
-            mechanism_type, mechanism_graphics_data, transform_func
+            str(mechanism_type or ""), graphics_payload, transform_func
         )
 
         layer_data["visual_items"] = visual_items
@@ -801,6 +834,7 @@ class MechanismDesignPresenter(QObject):
             scene=self._scene,
             ik_manager=ik_manager,
         )
+        self._mark_mechanism_iteration_cache_dirty()
 
         # Clear local state
         self.path_data.clear()

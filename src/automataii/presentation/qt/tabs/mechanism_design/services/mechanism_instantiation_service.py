@@ -597,7 +597,10 @@ class MechanismInstantiationService:
         mechanism_id = self.generate_mechanism_id(short=True)
 
         # Map Foundry parameter names to internal parameter names
-        params = self._map_foundry_params_to_internal(mechanism_type, parameters)
+        params = self.map_foundry_params_to_internal(mechanism_type, parameters)
+        normalized_part_name = (
+            part_name.strip() if isinstance(part_name, str) and part_name.strip() else None
+        )
 
         # Default scene position if not provided
         pos = scene_position or (400.0, 300.0)
@@ -605,7 +608,7 @@ class MechanismInstantiationService:
         layer_data: dict[str, Any] = {
             "id": mechanism_id,
             "type": internal_type,
-            "part_name": part_name,
+            "part_name": normalized_part_name,
             "params": params,
             "visual_items": [],
             "generated_path": None,
@@ -640,12 +643,27 @@ class MechanismInstantiationService:
             params.setdefault("profile_harmonic", 0.3)
 
         elif internal_type == "gear":
+            r1 = float(params.get("gear1_radius", params.get("r1", 36.0)))
+            r2 = float(params.get("gear2_radius", params.get("r2", 54.0)))
+            center_distance = max(10.0, r1 + r2 + 2.0)
             layer_data["key_points"] = {
-                "gear1_center": [pos[0] - 60, pos[1]],
-                "gear2_center": [pos[0] + 60, pos[1]],
+                "gear1_center": [pos[0] - center_distance / 2.0, pos[1]],
+                "gear2_center": [pos[0] + center_distance / 2.0, pos[1]],
             }
+            params.setdefault("gear1_x", float(layer_data["key_points"]["gear1_center"][0]))
+            params.setdefault("gear1_y", float(layer_data["key_points"]["gear1_center"][1]))
+            params.setdefault("gear2_x", float(layer_data["key_points"]["gear2_center"][0]))
+            params.setdefault("gear2_y", float(layer_data["key_points"]["gear2_center"][1]))
 
         return layer_data
+
+    def map_foundry_params_to_internal(
+        self,
+        foundry_type: str,
+        foundry_params: dict[str, float],
+    ) -> dict[str, Any]:
+        """Public adapter for Foundry -> Design parameter mapping."""
+        return self._map_foundry_params_to_internal(foundry_type, foundry_params)
 
     def _map_foundry_params_to_internal(
         self,
@@ -664,7 +682,16 @@ class MechanismInstantiationService:
         """
         params: dict[str, Any] = {}
 
-        if foundry_type == "four_bar":
+        normalized_type = {
+            "fourbar": "four_bar",
+            "4_bar_linkage": "four_bar",
+            "cam": "cam_follower",
+            "gear": "gear_train",
+            "slidercrank": "slider_crank",
+            "slider-crank": "slider_crank",
+        }.get(foundry_type, foundry_type)
+
+        if normalized_type == "four_bar":
             # Map: ground_link -> l1, input_link -> l2, coupler_link -> l3, output_link -> l4
             params["l1"] = foundry_params.get("ground_link", 150.0)
             params["l2"] = foundry_params.get("input_link", 40.0)
@@ -672,20 +699,51 @@ class MechanismInstantiationService:
             params["l4"] = foundry_params.get("output_link", 130.0)
             params["coupler_point_x"] = foundry_params.get("coupler_point_x", 60.0)
             params["coupler_point_y"] = foundry_params.get("coupler_point_y", 30.0)
+            if "input_angle" in foundry_params:
+                angle = float(foundry_params["input_angle"])
+                params["input_angle"] = angle
+                params["crank_angle"] = angle
 
-        elif foundry_type == "cam_follower":
+        elif normalized_type == "cam_follower":
             # Map Foundry cam params to internal
             params["base_radius"] = foundry_params.get("cam_radius", 60.0)
             params["eccentricity"] = foundry_params.get("cam_offset", 20.0)
             params["follower_rod_length"] = foundry_params.get("follower_length", 100.0)
             params["cam_lobes"] = int(foundry_params.get("cam_lobes", 1))
             params["profile_harmonic"] = foundry_params.get("profile_harmonic", 0.3)
+            if "input_angle" in foundry_params:
+                params["input_angle"] = float(foundry_params["input_angle"])
 
-        elif foundry_type == "gear_train":
+        elif normalized_type == "gear_train":
             params["gear1_teeth"] = int(foundry_params.get("gear1_teeth", 12))
             params["gear2_teeth"] = int(foundry_params.get("gear2_teeth", 18))
             params["r1"] = foundry_params.get("gear1_teeth", 12) * 3  # tooth * module
             params["r2"] = foundry_params.get("gear2_teeth", 18) * 3
+            params["gear1_radius"] = float(params["r1"])
+            params["gear2_radius"] = float(params["r2"])
+            if "input_torque" in foundry_params:
+                params["input_torque"] = float(foundry_params["input_torque"])
+            if "input_angle" in foundry_params:
+                params["input_angle"] = float(foundry_params["input_angle"])
+
+        elif normalized_type == "slider_crank":
+            # Approximate slider-crank with a 4-bar payload for current Design internals.
+            crank_length = float(foundry_params.get("crank_length", 80.0))
+            rod_length = float(foundry_params.get("rod_length", 140.0))
+
+            params["l2"] = crank_length
+            params["l3"] = rod_length
+            params["l4"] = rod_length
+            params["l1"] = max(1.0, crank_length + rod_length)
+            params["coupler_point_x"] = rod_length * 0.5
+            params["coupler_point_y"] = 0.0
+
+            if "input_angle" in foundry_params:
+                angle = float(foundry_params["input_angle"])
+                params["input_angle"] = angle
+                params["crank_angle"] = angle
+            if "gas_pressure" in foundry_params:
+                params["gas_pressure"] = float(foundry_params["gas_pressure"])
 
         else:
             # Copy params as-is for unknown types

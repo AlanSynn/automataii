@@ -11,8 +11,9 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
+from filecmp import cmp
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -167,8 +168,9 @@ class ProjectSerializer:
             if path.exists():
                 self._create_backup(path)
 
-            # Serialize state
-            data = state.to_dict()
+            # Prepare a portable snapshot first (bundle image assets near the project file).
+            prepared_state = self._prepare_state_for_save(state, path)
+            data = prepared_state.to_dict()
 
             # Ensure version is current
             if "metadata" in data:
@@ -197,6 +199,124 @@ class ProjectSerializer:
             error = f"Unexpected error saving project: {e}"
             logger.exception(error)
             return SaveResult.fail(error)
+
+    def _prepare_state_for_save(self, state: ProjectState, path: Path) -> ProjectState:
+        """
+        Create a portable project snapshot by bundling referenced assets.
+
+        Asset files are copied into '<project_stem>_assets/' next to the project file,
+        and stored paths are rewritten to project-relative paths.
+        """
+        save_root = path.parent
+        prepared_state = state.with_project_dir(save_root)
+        bundle_root = save_root / f"{path.stem}_assets"
+        copied_sources: dict[Path, str] = {}
+
+        def _resolve_source_path(raw_path: str | None) -> Path | None:
+            if not raw_path:
+                return None
+            raw = Path(raw_path)
+            if raw.is_absolute():
+                return raw
+
+            if state.project_dir is not None:
+                candidate = state.project_dir / raw
+                if candidate.exists():
+                    return candidate
+
+            candidate = save_root / raw
+            if candidate.exists():
+                return candidate
+
+            return None
+
+        def _copy_asset(raw_path: str | None, category: str, stem_hint: str) -> str | None:
+            source_path = _resolve_source_path(raw_path)
+            if source_path is None or not source_path.exists():
+                return raw_path if raw_path else None
+
+            source_path = source_path.resolve()
+            cached_rel = copied_sources.get(source_path)
+            if cached_rel is not None:
+                return cached_rel
+
+            dest_dir = bundle_root / category
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            source_suffix = source_path.suffix
+            if not source_suffix:
+                source_suffix = ".bin"
+            base_name = f"{stem_hint}{source_suffix}"
+            dest_path = dest_dir / base_name
+
+            def _same_file_content(lhs: Path, rhs: Path) -> bool:
+                try:
+                    lhs_stat = lhs.stat()
+                    rhs_stat = rhs.stat()
+                except OSError:
+                    return False
+
+                # Fast reject before full byte comparison.
+                if lhs_stat.st_size != rhs_stat.st_size:
+                    return False
+
+                try:
+                    return cmp(lhs, rhs, shallow=False)
+                except OSError:
+                    return False
+
+            if dest_path.exists() and _same_file_content(source_path, dest_path):
+                relative = str(dest_path.relative_to(save_root))
+                copied_sources[source_path] = relative
+                return relative
+
+            counter = 1
+            while dest_path.exists() and dest_path.resolve() != source_path.resolve():
+                candidate = dest_dir / f"{stem_hint}_{counter}{source_suffix}"
+                if candidate.exists() and _same_file_content(source_path, candidate):
+                    relative = str(candidate.relative_to(save_root))
+                    copied_sources[source_path] = relative
+                    return relative
+                dest_path = candidate
+                counter += 1
+
+            if dest_path.resolve() != source_path.resolve():
+                shutil.copy2(source_path, dest_path)
+            relative = str(dest_path.relative_to(save_root))
+            copied_sources[source_path] = relative
+            return relative
+
+        updated_parts = {}
+        for part_name, part in prepared_state.parts.items():
+            texture_rel = _copy_asset(part.texture_path, "parts", f"{part_name}_texture")
+            mask_rel = _copy_asset(part.mask_path, "parts", f"{part_name}_mask")
+            original_svg_rel = _copy_asset(
+                part.original_svg_path, "vectors", f"{part_name}_original"
+            )
+            enhanced_svg_rel = _copy_asset(
+                part.enhanced_svg_path, "vectors", f"{part_name}_enhanced"
+            )
+
+            updated_parts[part_name] = replace(
+                part,
+                texture_path=texture_rel or part.texture_path,
+                mask_path=mask_rel or part.mask_path,
+                original_svg_path=original_svg_rel if original_svg_rel is not None else part.original_svg_path,
+                enhanced_svg_path=enhanced_svg_rel if enhanced_svg_rel is not None else part.enhanced_svg_path,
+            )
+
+        if updated_parts:
+            prepared_state = prepared_state.with_parts(updated_parts)
+
+        image_rel = _copy_asset(
+            str(prepared_state.image_path) if prepared_state.image_path else None,
+            "source",
+            "input_image",
+        )
+        if image_rel:
+            prepared_state = prepared_state.with_image_path(Path(image_rel))
+
+        return prepared_state
 
     def _create_backup(self, path: Path) -> None:
         """Create backup of existing file."""

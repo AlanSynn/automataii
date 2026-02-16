@@ -25,12 +25,45 @@ class GearEditor(MechanismEditor):
         """Create handles for gear position and size."""
         self.mechanism_data = mechanism_data
         params = mechanism_data.get("params", {})
+        key_points = mechanism_data.get("key_points", {})
+
+        # Normalize aliases used across Foundry/Design/editor code paths.
+        params.setdefault("gear1_radius", float(params.get("r1", 40.0)))
+        params.setdefault("gear2_radius", float(params.get("r2", 60.0)))
+        params["r1"] = float(params["gear1_radius"])
+        params["r2"] = float(params["gear2_radius"])
+
+        if "gear1_x" not in params or "gear1_y" not in params:
+            g1 = key_points.get("gear1_center")
+            if isinstance(g1, list | tuple) and len(g1) >= 2:
+                scene = self._to_scene((float(g1[0]), float(g1[1])))
+                if scene is not None:
+                    params["gear1_x"] = float(scene.x())
+                    params["gear1_y"] = float(scene.y())
+                else:
+                    params["gear1_x"] = float(g1[0])
+                    params["gear1_y"] = float(g1[1])
+        if "gear2_x" not in params or "gear2_y" not in params:
+            g2 = key_points.get("gear2_center")
+            if isinstance(g2, list | tuple) and len(g2) >= 2:
+                scene = self._to_scene((float(g2[0]), float(g2[1])))
+                if scene is not None:
+                    params["gear2_x"] = float(scene.x())
+                    params["gear2_y"] = float(scene.y())
+                else:
+                    params["gear2_x"] = float(g2[0])
+                    params["gear2_y"] = float(g2[1])
+
+        params.setdefault("gear1_x", 0.0)
+        params.setdefault("gear1_y", 0.0)
+        params.setdefault("gear2_x", 100.0)
+        params.setdefault("gear2_y", 0.0)
 
         # Gear 1 (driver) handles
         self._create_gear_handles(
             gear_id="gear1",
             center=QPointF(params.get("gear1_x", 0), params.get("gear1_y", 0)),
-            radius=params.get("gear1_radius", 40),
+            radius=params.get("gear1_radius", params.get("r1", 40)),
             is_driver=True,
         )
 
@@ -38,11 +71,12 @@ class GearEditor(MechanismEditor):
         self._create_gear_handles(
             gear_id="gear2",
             center=QPointF(params.get("gear2_x", 100), params.get("gear2_y", 0)),
-            radius=params.get("gear2_radius", 60),
+            radius=params.get("gear2_radius", params.get("r2", 60)),
             is_driver=False,
         )
 
         self._create_mesh_handle()
+        self._sync_gear_handle_positions()
 
     def _create_gear_handles(
         self, gear_id: str, center: QPointF, radius: float, is_driver: bool
@@ -99,19 +133,9 @@ class GearEditor(MechanismEditor):
         """Handle gear center movement."""
         self.mechanism_data["params"][f"{gear_id}_x"] = new_pos.x()
         self.mechanism_data["params"][f"{gear_id}_y"] = new_pos.y()
-
-        radius_handle_key = f"{gear_id}_radius"
-        if radius_handle_key in self.handles:
-            radius = self.mechanism_data["params"][f"{gear_id}_radius"]
-            radius_handle = self.handles[radius_handle_key]
-            radius_handle.setPos(
-                QPointF(new_pos.x() + radius, new_pos.y())
-                - QPointF(radius_handle.style.size / 2, radius_handle.style.size / 2)
-            )
-            radius_handle.constraints["center"] = new_pos
-
-        self._update_mesh_handle()
+        self._update_gear_key_point(gear_id, new_pos)
         self._auto_adjust_gear_mesh()
+        self._sync_gear_handle_positions()
         self._trigger_gear_update()
 
     def _on_gear_radius_changed(self, gear_id: str, new_pos: QPointF):
@@ -126,7 +150,9 @@ class GearEditor(MechanismEditor):
         new_radius = math.sqrt(dx * dx + dy * dy)
 
         self.mechanism_data["params"][f"{gear_id}_radius"] = new_radius
+        self.mechanism_data["params"]["r1" if gear_id == "gear1" else "r2"] = new_radius
         self._auto_adjust_gear_mesh()
+        self._sync_gear_handle_positions()
         self._trigger_gear_update()
 
     def _on_mesh_adjusted(self, handle_id: str, new_pos: QPointF):
@@ -150,13 +176,9 @@ class GearEditor(MechanismEditor):
             new_center2 = center1 + v * (2 * t)
             self.mechanism_data["params"]["gear2_x"] = new_center2.x()
             self.mechanism_data["params"]["gear2_y"] = new_center2.y()
-
-            if "gear2_center" in self.handles:
-                handle = self.handles["gear2_center"]
-                handle.setPos(
-                    new_center2 - QPointF(handle.style.size / 2, handle.style.size / 2)
-                )
-
+            self._update_gear_key_point("gear2", new_center2)
+            self._auto_adjust_gear_mesh()
+            self._sync_gear_handle_positions()
             self._trigger_gear_update()
 
     def _update_mesh_handle(self):
@@ -175,7 +197,41 @@ class GearEditor(MechanismEditor):
 
         midpoint = (center1 + center2) / 2
         handle = self.handles["mesh"]
-        handle.setPos(midpoint - QPointF(handle.style.size / 2, handle.style.size / 2))
+        handle.setPos(midpoint)
+
+    def _update_gear_key_point(self, gear_id: str, center_scene: QPointF) -> None:
+        """Persist center point with mechanism-space preference when available."""
+        mech = self._to_mech(center_scene)
+        if mech is not None:
+            self.mechanism_data.setdefault("key_points", {})[f"{gear_id}_center"] = [
+                float(mech[0]),
+                float(mech[1]),
+            ]
+        else:
+            self.mechanism_data.setdefault("key_points", {})[f"{gear_id}_center"] = [
+                float(center_scene.x()),
+                float(center_scene.y()),
+            ]
+
+    def _sync_gear_handle_positions(self) -> None:
+        """Keep all center/radius/mesh handles aligned with current params."""
+        params = self.mechanism_data.get("params", {})
+        for gear_id in ("gear1", "gear2"):
+            cx = float(params.get(f"{gear_id}_x", 0.0))
+            cy = float(params.get(f"{gear_id}_y", 0.0))
+            radius = float(params.get(f"{gear_id}_radius", 40.0))
+            center = QPointF(cx, cy)
+
+            center_handle = self.handles.get(f"{gear_id}_center")
+            if center_handle is not None:
+                center_handle.setPos(center)
+
+            radius_handle = self.handles.get(f"{gear_id}_radius")
+            if radius_handle is not None:
+                radius_handle.setPos(QPointF(cx + radius, cy))
+                radius_handle.constraints["center"] = center
+
+        self._update_mesh_handle()
 
     def _auto_adjust_gear_mesh(self):
         """Automatically adjust gear positions for proper meshing."""
@@ -199,13 +255,9 @@ class GearEditor(MechanismEditor):
 
             params["gear2_x"] = new_center2[0]
             params["gear2_y"] = new_center2[1]
-
-            if "gear2_center" in self.handles:
-                handle = self.handles["gear2_center"]
-                handle.setPos(
-                    QPointF(new_center2[0], new_center2[1])
-                    - QPointF(handle.style.size / 2, handle.style.size / 2)
-                )
+            self._update_gear_key_point(
+                "gear2", QPointF(float(new_center2[0]), float(new_center2[1]))
+            )
 
     def _trigger_gear_update(self):
         """Trigger gear mechanism update."""
@@ -250,16 +302,21 @@ class PlanetaryGearEditor(MechanismEditor):
         """Create handles for planetary gear control."""
         self.mechanism_data = mechanism_data
         params = mechanism_data.get("params", {})
+        key_points = mechanism_data.get("key_points", {})
 
-        cx = float(params.get("sun_x", 0.0))
-        cy = float(params.get("sun_y", 0.0))
-        r_sun = float(params.get("r_sun", 20.0))
-        r_planet = float(params.get("r_planet", 30.0))
-        arm_length = float(params.get("arm_length", 15.0))
+        center = self._extract_initial_sun_center(params, key_points)
+        r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
+        r_planet = float(params.get("r_planet", params.get("gear2_radius", 30.0)))
+        arm_length = float(params.get("arm_length", params.get("carrier_length", 15.0)))
 
-        params["sun_x"], params["sun_y"] = cx, cy
-        params["r_sun"], params["r_planet"], params["arm_length"] = r_sun, r_planet, arm_length
-        center = QPointF(cx, cy)
+        params["sun_x"], params["sun_y"] = float(center.x()), float(center.y())
+        params["r_sun"], params["r_planet"], params["arm_length"] = (
+            float(r_sun),
+            float(max(1.0, r_planet)),
+            float(max(0.0, arm_length)),
+        )
+        params["gear1_radius"] = float(params["r_sun"])
+        params["gear2_radius"] = float(params["r_planet"])
 
         # Sun center handle
         sun_center = ParametricHandle(
@@ -275,7 +332,7 @@ class PlanetaryGearEditor(MechanismEditor):
 
         # Planet radius handle
         pr_handle = ParametricHandle(
-            QPointF(cx + r_planet, cy),
+            center,
             f"{self.mechanism_id}_planet_radius",
             "planet_radius",
             self._on_planet_radius_changed,
@@ -287,9 +344,8 @@ class PlanetaryGearEditor(MechanismEditor):
         self.handles["planet_radius"] = pr_handle
 
         # Arm length handle
-        arm_pos = QPointF(cx + r_sun + r_planet + arm_length, cy)
         arm_handle = ParametricHandle(
-            arm_pos,
+            center,
             f"{self.mechanism_id}_arm_length",
             "arm_length",
             self._on_arm_length_changed,
@@ -297,55 +353,199 @@ class PlanetaryGearEditor(MechanismEditor):
         )
         arm_handle.setToolTip("Arm Length - Drag radially to adjust")
         arm_handle.constraints = {
-            "center": QPointF(cx + r_sun + r_planet, cy),
+            "center": center,
             "min_radius": 0.0,
             "max_radius": 300.0,
         }
         self.scene.addItem(arm_handle)
         self.handles["arm_length"] = arm_handle
+        self._sync_planetary_key_points_and_aliases()
+        self._sync_handle_positions()
+
+    def _extract_initial_sun_center(
+        self,
+        params: dict[str, Any],
+        key_points: dict[str, Any],
+    ) -> QPointF:
+        """Resolve initial sun center in scene coordinates."""
+        if "sun_x" in params and "sun_y" in params:
+            return QPointF(float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0)))
+        if "gear1_x" in params and "gear1_y" in params:
+            return QPointF(float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0)))
+
+        kp = key_points.get("sun_center")
+        if isinstance(kp, (list, tuple)) and len(kp) >= 2:
+            scene = self._to_scene((float(kp[0]), float(kp[1])))
+            if scene is not None:
+                return scene
+            return QPointF(float(kp[0]), float(kp[1]))
+
+        return QPointF(0.0, 0.0)
+
+    def _scene_length_from_mech(
+        self,
+        center_scene: QPointF,
+        mech_length: float,
+    ) -> float:
+        """Convert a mechanism-space length to scene-space around a center point."""
+        if mech_length <= 0:
+            return 0.0
+        center_mech = self._to_mech(center_scene)
+        if center_mech is not None:
+            edge_scene = self._to_scene((center_mech[0] + mech_length, center_mech[1]))
+            if edge_scene is not None:
+                return float(
+                    math.hypot(
+                        edge_scene.x() - center_scene.x(),
+                        edge_scene.y() - center_scene.y(),
+                    )
+                )
+        return float(mech_length)
+
+    def _sync_planetary_key_points_and_aliases(self) -> None:
+        """Keep compatibility aliases and key points synchronized with params."""
+        params = self.mechanism_data.setdefault("params", {})
+        key_points = self.mechanism_data.setdefault("key_points", {})
+
+        center_scene = QPointF(
+            float(params.get("sun_x", 0.0)),
+            float(params.get("sun_y", 0.0)),
+        )
+        center_mech = self._to_mech(center_scene)
+        if center_mech is None:
+            center_mech = (float(center_scene.x()), float(center_scene.y()))
+
+        r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
+        r_planet = float(max(1.0, params.get("r_planet", params.get("gear2_radius", 30.0))))
+        arm_length = float(max(0.0, params.get("arm_length", 15.0)))
+
+        params["sun_x"] = float(center_scene.x())
+        params["sun_y"] = float(center_scene.y())
+        params["gear1_x"] = float(center_scene.x())
+        params["gear1_y"] = float(center_scene.y())
+        params["r_sun"] = float(r_sun)
+        params["r_planet"] = float(r_planet)
+        params["arm_length"] = float(arm_length)
+        params["gear1_radius"] = float(r_sun)
+        params["gear2_radius"] = float(r_planet)
+        params["sun_radius"] = float(r_sun)
+        params["planet_radius"] = float(r_planet)
+        params["m_sun_x"] = float(center_mech[0])
+        params["m_sun_y"] = float(center_mech[1])
+
+        planet_mech = np.array([center_mech[0] + r_sun + r_planet, center_mech[1]], dtype=float)
+        tracking_mech = np.array([planet_mech[0] + arm_length, planet_mech[1]], dtype=float)
+        key_points["sun_center"] = [float(center_mech[0]), float(center_mech[1])]
+        key_points["planet_center"] = [float(planet_mech[0]), float(planet_mech[1])]
+        key_points["tracking_point"] = [float(tracking_mech[0]), float(tracking_mech[1])]
+
+        planet_scene = self._to_scene((float(planet_mech[0]), float(planet_mech[1])))
+        if planet_scene is None:
+            planet_scene = QPointF(float(planet_mech[0]), float(planet_mech[1]))
+        params["planet_x"] = float(planet_scene.x())
+        params["planet_y"] = float(planet_scene.y())
+        params["gear2_x"] = float(planet_scene.x())
+        params["gear2_y"] = float(planet_scene.y())
+
+    def _sync_handle_positions(self) -> None:
+        """Update planetary handle positions/constraints from current parameters."""
+        params = self.mechanism_data.get("params", {})
+        center_scene = QPointF(
+            float(params.get("sun_x", 0.0)),
+            float(params.get("sun_y", 0.0)),
+        )
+        center_mech = self._to_mech(center_scene)
+        if center_mech is None:
+            center_mech = (float(center_scene.x()), float(center_scene.y()))
+
+        r_sun = float(params.get("r_sun", 20.0))
+        r_planet = float(params.get("r_planet", 30.0))
+        arm_length = float(params.get("arm_length", 15.0))
+
+        planet_radius_scene = self._to_scene((center_mech[0] + r_planet, center_mech[1]))
+        if planet_radius_scene is None:
+            planet_radius_scene = QPointF(center_scene.x() + r_planet, center_scene.y())
+
+        arm_center_scene = self._to_scene((center_mech[0] + r_sun + r_planet, center_mech[1]))
+        if arm_center_scene is None:
+            arm_center_scene = QPointF(center_scene.x() + r_sun + r_planet, center_scene.y())
+
+        arm_handle_scene = self._to_scene(
+            (center_mech[0] + r_sun + r_planet + arm_length, center_mech[1])
+        )
+        if arm_handle_scene is None:
+            arm_handle_scene = QPointF(arm_center_scene.x() + arm_length, arm_center_scene.y())
+
+        if "sun_center" in self.handles:
+            self.handles["sun_center"].setPos(center_scene)
+
+        if "planet_radius" in self.handles:
+            handle = self.handles["planet_radius"]
+            handle.setPos(planet_radius_scene)
+            handle.constraints["center"] = center_scene
+            handle.constraints["min_radius"] = self._scene_length_from_mech(center_scene, 5.0)
+            handle.constraints["max_radius"] = self._scene_length_from_mech(center_scene, 200.0)
+
+        if "arm_length" in self.handles:
+            handle = self.handles["arm_length"]
+            handle.setPos(arm_handle_scene)
+            handle.constraints["center"] = arm_center_scene
+            handle.constraints["min_radius"] = self._scene_length_from_mech(arm_center_scene, 0.0)
+            handle.constraints["max_radius"] = self._scene_length_from_mech(arm_center_scene, 300.0)
 
     def _on_sun_center_moved(self, handle_id: str, new_pos: QPointF):
         """Handle sun center movement."""
         self.mechanism_data["params"]["sun_x"] = float(new_pos.x())
         self.mechanism_data["params"]["sun_y"] = float(new_pos.y())
-
-        if "planet_radius" in self.handles:
-            self.handles["planet_radius"].constraints["center"] = new_pos
-        if "arm_length" in self.handles:
-            r_sun = float(self.mechanism_data["params"].get("r_sun", 20.0))
-            r_planet = float(self.mechanism_data["params"].get("r_planet", 30.0))
-            self.handles["arm_length"].constraints["center"] = QPointF(
-                new_pos.x() + r_sun + r_planet, new_pos.y()
-            )
+        self._sync_planetary_key_points_and_aliases()
+        self._sync_handle_positions()
         self._trigger_update()
 
     def _on_planet_radius_changed(self, handle_id: str, new_pos: QPointF):
         """Handle planet radius change."""
         c = QPointF(
-            self.mechanism_data["params"].get("sun_x", 0.0),
-            self.mechanism_data["params"].get("sun_y", 0.0),
+            float(self.mechanism_data["params"].get("sun_x", 0.0)),
+            float(self.mechanism_data["params"].get("sun_y", 0.0)),
         )
-        dx, dy = new_pos.x() - c.x(), new_pos.y() - c.y()
-        r = (dx * dx + dy * dy) ** 0.5
+        c_mech = self._to_mech(c)
+        p_mech = self._to_mech(new_pos)
+        if c_mech is not None and p_mech is not None:
+            r = float(math.hypot(p_mech[0] - c_mech[0], p_mech[1] - c_mech[1]))
+        else:
+            r = float(math.hypot(new_pos.x() - c.x(), new_pos.y() - c.y()))
         self.mechanism_data["params"]["r_planet"] = float(max(1.0, r))
 
-        if "arm_length" in self.handles:
-            r_sun = float(self.mechanism_data["params"].get("r_sun", 20.0))
-            self.handles["arm_length"].constraints["center"] = QPointF(c.x() + r_sun + r, c.y())
+        self._sync_planetary_key_points_and_aliases()
+        self._sync_handle_positions()
         self._trigger_update()
 
     def _on_arm_length_changed(self, handle_id: str, new_pos: QPointF):
         """Handle arm length change."""
         c = QPointF(
-            self.mechanism_data["params"].get("sun_x", 0.0),
-            self.mechanism_data["params"].get("sun_y", 0.0),
+            float(self.mechanism_data["params"].get("sun_x", 0.0)),
+            float(self.mechanism_data["params"].get("sun_y", 0.0)),
         )
         r_sun = float(self.mechanism_data["params"].get("r_sun", 20.0))
         r_planet = float(self.mechanism_data["params"].get("r_planet", 30.0))
+        c_mech = self._to_mech(c)
+
         arm_center = QPointF(c.x() + r_sun + r_planet, c.y())
-        dx, dy = new_pos.x() - arm_center.x(), new_pos.y() - arm_center.y()
-        arm_len = max(0.0, (dx * dx + dy * dy) ** 0.5)
+        arm_center_mech = None
+        if c_mech is not None:
+            arm_center = self._to_scene((c_mech[0] + r_sun + r_planet, c_mech[1])) or arm_center
+            arm_center_mech = (c_mech[0] + r_sun + r_planet, c_mech[1])
+
+        new_mech = self._to_mech(new_pos)
+        if arm_center_mech is not None and new_mech is not None:
+            arm_len = max(
+                0.0,
+                float(math.hypot(new_mech[0] - arm_center_mech[0], new_mech[1] - arm_center_mech[1])),
+            )
+        else:
+            arm_len = max(0.0, float(math.hypot(new_pos.x() - arm_center.x(), new_pos.y() - arm_center.y())))
         self.mechanism_data["params"]["arm_length"] = float(arm_len)
+        self._sync_planetary_key_points_and_aliases()
+        self._sync_handle_positions()
         self._trigger_update()
 
     def _trigger_update(self):

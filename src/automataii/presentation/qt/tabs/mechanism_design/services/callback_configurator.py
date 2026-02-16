@@ -53,10 +53,9 @@ class TabCallbackConfigurator:
             # 1. Regenerate mechanism simulation for visual feedback
             self._tab.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
 
-            # 2. Emit signal to propagate changes to StateManager (for undo/redo)
-            if hasattr(self._tab, 'mechanism_parameters_changed'):
-                params = layer_data.get("params", {})
-                self._tab.mechanism_parameters_changed.emit(mechanism_id, dict(params))
+            # 2. Emit signal to propagate changes (for undo/redo and Foundry sync)
+            if hasattr(self._tab, '_emit_mechanism_params_changed'):
+                self._tab._emit_mechanism_params_changed(mechanism_id)
 
         self._tab._anchor_movement_handler.configure_callbacks(
             on_params_updated=on_params_updated_with_signal,

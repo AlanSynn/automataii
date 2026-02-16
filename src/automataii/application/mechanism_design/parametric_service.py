@@ -208,8 +208,16 @@ class ParametricParameterService:
     def _setup_planetary_gear(self, context: ParametricContext) -> None:
         params = context.params
         sim_data = context.full_simulation_data
+        params.setdefault("r_sun", params.get("gear1_radius") or params.get("sun_radius", 20))
+        params.setdefault("r_planet", params.get("gear2_radius") or params.get("planet_radius", 30))
+        params.setdefault("arm_length", params.get("carrier_length", 15))
+        params["r_sun"] = float(params["r_sun"])
+        params["r_planet"] = float(max(1.0, params["r_planet"]))
+        params["arm_length"] = float(max(0.0, params["arm_length"]))
         params.setdefault("gear1_radius", params.get("r_sun") or params.get("sun_radius", 20))
         params.setdefault("gear2_radius", params.get("r_planet") or params.get("planet_radius", 30))
+        params["gear1_radius"] = float(params["r_sun"])
+        params["gear2_radius"] = float(params["r_planet"])
 
         to_scene = context.to_scene
         if "gear_positions" in sim_data and to_scene:
@@ -226,13 +234,22 @@ class ParametricParameterService:
         if "sun_centers" in gear_positions and gear_positions["sun_centers"]:
             sun_scene = to_scene(np.array(gear_positions["sun_centers"][0]))
             params["gear1_x"], params["gear1_y"] = self._extract_coordinates(sun_scene)
+            params["sun_x"], params["sun_y"] = params["gear1_x"], params["gear1_y"]
         if "planet_centers" in gear_positions and gear_positions["planet_centers"]:
             planet_scene = to_scene(np.array(gear_positions["planet_centers"][0]))
             params["gear2_x"], params["gear2_y"] = self._extract_coordinates(planet_scene)
+            params["planet_x"], params["planet_y"] = params["gear2_x"], params["gear2_y"]
 
     @staticmethod
     def _set_default_planetary_positions(params: dict[str, Any]) -> None:
-        params.setdefault("gear1_x", 400)
-        params.setdefault("gear1_y", 300)
-        params.setdefault("gear2_x", params["gear1_x"] + params.get("gear1_radius", 20) + params.get("gear2_radius", 30))
-        params.setdefault("gear2_y", params["gear1_y"])
+        params.setdefault("sun_x", params.get("gear1_x", 400))
+        params.setdefault("sun_y", params.get("gear1_y", 300))
+        params["gear1_x"] = params["sun_x"]
+        params["gear1_y"] = params["sun_y"]
+        params.setdefault(
+            "planet_x",
+            params["sun_x"] + params.get("gear1_radius", 20) + params.get("gear2_radius", 30),
+        )
+        params.setdefault("planet_y", params["sun_y"])
+        params["gear2_x"] = params["planet_x"]
+        params["gear2_y"] = params["planet_y"]

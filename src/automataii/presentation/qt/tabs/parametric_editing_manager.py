@@ -394,6 +394,8 @@ class ParametricEditingManager:
                 logging.debug("Suppressed exception", exc_info=True)
 
             self._regenerate_mechanism_simulation(mechanism_id, layer_data)
+            if hasattr(self.parent_tab, "_visual_animator") and self.parent_tab._visual_animator:
+                self.parent_tab._visual_animator.build_cache(mechanism_id, layer_data)
             self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
 
             # Emit signal to propagate changes to StateManager (for undo/redo)
@@ -637,8 +639,11 @@ class ParametricEditingManager:
         transform_config = self._parameter_mapper.get_transform_config(
             layer_data, utils_qpainterpath_to_numpy_array
         )
+        use_length_transform = to_mech is not None
 
         def scene_len_to_mech(val: float) -> float:
+            if not use_length_transform:
+                return float(val)
             return self._parameter_mapper.scene_to_mech_length(val, transform_config)
 
         if to_mech and ("anchor1_x" in params and "anchor1_y" in params):
@@ -830,11 +835,27 @@ class ParametricEditingManager:
     ) -> None:
         """Generate gear rotation data."""
         num_frames = 100
-        r1 = params.get("r1", 30)
-        r2 = params.get("r2", 50)
+        has_explicit_radii = "gear1_radius" in params or "gear2_radius" in params
+
+        r1 = float(params.get("gear1_radius", params.get("r1", 30)))
+        r2 = float(params.get("gear2_radius", params.get("r2", 50)))
+        if r1 <= 0:
+            r1 = 1.0
+        if r2 <= 0:
+            r2 = 1.0
+
+        # Keep radius aliases synchronized.
+        params["gear1_radius"] = float(r1)
+        params["gear2_radius"] = float(r2)
+        params["r1"] = float(r1)
+        params["r2"] = float(r2)
 
         key_points = layer_data.get("key_points", {})
-        if "gear1_center" in key_points and "gear2_center" in key_points:
+        if (
+            not has_explicit_radii
+            and "gear1_center" in key_points
+            and "gear2_center" in key_points
+        ):
             g1 = np.array(key_points["gear1_center"])
             g2 = np.array(key_points["gear2_center"])
             distance = np.linalg.norm(g2 - g1)
@@ -844,6 +865,8 @@ class ParametricEditingManager:
             r2 = r1 * ratio
             params["r1"] = float(r1)
             params["r2"] = float(r2)
+            params["gear1_radius"] = float(r1)
+            params["gear2_radius"] = float(r2)
 
         gear_data = {"gear1_angles": [], "gear2_angles": []}
 
@@ -861,15 +884,78 @@ class ParametricEditingManager:
     ) -> None:
         """Generate planetary gear data."""
         num_frames = 100
-        r_sun = params.get("r_sun", 20)
-        r_planet = params.get("r_planet", 30)
-        arm_length = params.get("arm_length", 15)
+        r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
+        r_planet = float(params.get("r_planet", params.get("gear2_radius", 30.0)))
+        arm_length = float(params.get("arm_length", 15.0))
 
-        key_points = layer_data.get("key_points", {})
-        if "sun_center" in key_points:
-            sun_center_base = np.array(key_points["sun_center"])
+        if r_sun <= 0.0:
+            r_sun = 1.0
+        if r_planet <= 0.0:
+            r_planet = 1.0
+        if arm_length < 0.0:
+            arm_length = 0.0
+
+        params["r_sun"] = float(r_sun)
+        params["r_planet"] = float(r_planet)
+        params["arm_length"] = float(arm_length)
+        params["gear1_radius"] = float(r_sun)
+        params["gear2_radius"] = float(r_planet)
+
+        to_mech = self.parent_tab._get_inverse_scene_transform_function(layer_data)
+        to_scene = self.parent_tab._get_scene_transform_function(layer_data)
+
+        sun_scene = None
+        sun_center_base = None
+        if "m_sun_x" in params and "m_sun_y" in params:
+            sun_center_base = np.array(
+                [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                dtype=float,
+            )
+            if to_scene is not None:
+                try:
+                    sun_scene_conv = to_scene(sun_center_base)
+                    sun_scene = QPointF(float(sun_scene_conv.x()), float(sun_scene_conv.y()))
+                except Exception:
+                    logging.debug("Suppressed exception", exc_info=True)
+        if sun_scene is None and "sun_x" in params and "sun_y" in params:
+            sun_scene = QPointF(float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0)))
+        elif sun_scene is None and "gear1_x" in params and "gear1_y" in params:
+            sun_scene = QPointF(
+                float(params.get("gear1_x", 0.0)),
+                float(params.get("gear1_y", 0.0)),
+            )
+
+        key_points = layer_data.setdefault("key_points", {})
+        if sun_center_base is not None:
+            pass
+        elif sun_scene is not None and to_mech is not None:
+            sun_center_conv = to_mech(sun_scene)
+            sun_center_base = np.array([float(sun_center_conv[0]), float(sun_center_conv[1])])
+        elif sun_scene is not None:
+            sun_center_base = np.array([float(sun_scene.x()), float(sun_scene.y())])
+        elif "sun_center" in key_points:
+            sun_center_base = np.array(key_points["sun_center"], dtype=float)
+            if to_scene is not None:
+                try:
+                    sun_scene_conv = to_scene(np.array(sun_center_base, dtype=float))
+                    sun_scene = QPointF(float(sun_scene_conv.x()), float(sun_scene_conv.y()))
+                except Exception:
+                    logging.debug("Suppressed exception", exc_info=True)
         else:
-            sun_center_base = np.array([0, 0])
+            sun_center_base = np.array([0.0, 0.0], dtype=float)
+            if to_scene is not None:
+                try:
+                    sun_scene_conv = to_scene(np.array([0.0, 0.0], dtype=float))
+                    sun_scene = QPointF(float(sun_scene_conv.x()), float(sun_scene_conv.y()))
+                except Exception:
+                    logging.debug("Suppressed exception", exc_info=True)
+
+        if sun_scene is None:
+            sun_scene = QPointF(float(sun_center_base[0]), float(sun_center_base[1]))
+        params["sun_x"] = float(sun_scene.x())
+        params["sun_y"] = float(sun_scene.y())
+        params["gear1_x"] = float(sun_scene.x())
+        params["gear1_y"] = float(sun_scene.y())
 
         gear_positions = {
             "sun_centers": [],
@@ -880,7 +966,7 @@ class ParametricEditingManager:
         for i in range(num_frames):
             angle = (i / num_frames) * 2 * np.pi
             planet_orbital_angle = angle
-            planet_rotation_angle = -angle * (r_sun / r_planet)
+            planet_rotation_angle = -angle * (r_sun / r_planet if r_planet > 0 else 1.0)
 
             sun_center = sun_center_base
             planet_center = sun_center + (r_sun + r_planet) * np.array(
@@ -893,6 +979,26 @@ class ParametricEditingManager:
             gear_positions["sun_centers"].append(sun_center.tolist())
             gear_positions["planet_centers"].append(planet_center.tolist())
             gear_positions["tracking_points"].append(tracking_point.tolist())
+
+        first_planet = np.array(gear_positions["planet_centers"][0], dtype=float)
+        first_tracking = np.array(gear_positions["tracking_points"][0], dtype=float)
+        key_points["sun_center"] = [float(sun_center_base[0]), float(sun_center_base[1])]
+        key_points["planet_center"] = [float(first_planet[0]), float(first_planet[1])]
+        key_points["tracking_point"] = [float(first_tracking[0]), float(first_tracking[1])]
+
+        if to_scene is not None:
+            try:
+                planet_scene = to_scene(first_planet)
+                params["planet_x"] = float(planet_scene.x())
+                params["planet_y"] = float(planet_scene.y())
+            except Exception:
+                params["planet_x"] = float(first_planet[0])
+                params["planet_y"] = float(first_planet[1])
+        else:
+            params["planet_x"] = float(first_planet[0])
+            params["planet_y"] = float(first_planet[1])
+        params["gear2_x"] = float(params["planet_x"])
+        params["gear2_y"] = float(params["planet_y"])
 
         layer_data["full_simulation_data"] = {"gear_positions": gear_positions}
 

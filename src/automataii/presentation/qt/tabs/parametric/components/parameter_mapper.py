@@ -84,19 +84,24 @@ class ParameterMapper:
         cam_position = layer_data.get("cam_position")
         key_points = layer_data.get("key_points", {})
 
+        # If explicit scene-space center already exists, keep it as authoritative.
+        if "center_x" in params and "center_y" in params:
+            try:
+                params["center_x"] = float(params["center_x"])
+                params["center_y"] = float(params["center_y"])
+                return
+            except Exception:
+                logging.debug("Suppressed exception", exc_info=True)
+
         # Try to get cam center from key_points (mechanism space)
         if "cam_center" in key_points and to_scene:
             cam_center = key_points["cam_center"]
             center_scene = to_scene(np.array(cam_center))
             params["center_x"], params["center_y"] = self.extract_coordinates(center_scene)
         elif cam_position and len(cam_position) >= 2:
-            # cam_position might already be in scene space
-            if to_scene:
-                center_scene = to_scene(np.array(cam_position))
-                params["center_x"], params["center_y"] = self.extract_coordinates(center_scene)
-            else:
-                params["center_x"] = cam_position[0]
-                params["center_y"] = cam_position[1]
+            # cam_position is stored in scene space by instantiation/editor flows.
+            params["center_x"] = float(cam_position[0])
+            params["center_y"] = float(cam_position[1])
         else:
             params["center_x"] = params.get("center_x", 400)
             params["center_y"] = params.get("center_y", 300)
@@ -118,7 +123,74 @@ class ParameterMapper:
                 )
                 return
 
+        if self._extract_4bar_positions_from_key_points(layer_data, params, to_scene):
+            return
+
         self._set_default_4bar_parameters(params)
+
+    def _extract_4bar_positions_from_key_points(
+        self,
+        layer_data: dict[str, Any],
+        params: dict[str, Any],
+        to_scene: Callable | None = None,
+    ) -> bool:
+        """Extract 4-bar positions from key_points when simulation frames are unavailable."""
+        key_points = layer_data.get("key_points", {})
+        p1 = key_points.get("ground_pivot_1")
+        p2 = key_points.get("ground_pivot_2")
+
+        if not (
+            isinstance(p1, (list, tuple, np.ndarray))
+            and len(p1) >= 2
+            and isinstance(p2, (list, tuple, np.ndarray))
+            and len(p2) >= 2
+        ):
+            return False
+
+        # Foundry imports often store scene-space key_points without generated_path.
+        use_scene_points_directly = layer_data.get("generated_path") is None or to_scene is None
+
+        def map_point(raw: list[float] | tuple[float, float] | np.ndarray):
+            if use_scene_points_directly:
+                return np.array([float(raw[0]), float(raw[1])], dtype=float)
+            return to_scene(np.array(raw, dtype=float))
+
+        p1_scene = map_point(p1)
+        p2_scene = map_point(p2)
+        params["anchor1_x"], params["anchor1_y"] = self.extract_coordinates(p1_scene)
+        params["anchor2_x"], params["anchor2_y"] = self.extract_coordinates(p2_scene)
+
+        p3 = key_points.get("crank_end")
+        if isinstance(p3, (list, tuple, np.ndarray)) and len(p3) >= 2:
+            p3_scene = map_point(p3)
+            p3_x, p3_y = self.extract_coordinates(p3_scene)
+            params["crank_x"] = p3_x
+            params["crank_y"] = p3_y
+            params["crank_angle"] = math.degrees(
+                math.atan2(p3_y - params["anchor1_y"], p3_x - params["anchor1_x"])
+            )
+
+        p4 = key_points.get("rocker_end")
+        if isinstance(p4, (list, tuple, np.ndarray)) and len(p4) >= 2:
+            p4_scene = map_point(p4)
+            p4_x, p4_y = self.extract_coordinates(p4_scene)
+            params["rocker_x"] = p4_x
+            params["rocker_y"] = p4_y
+            params["rocker_angle"] = math.degrees(
+                math.atan2(p4_y - params["anchor2_y"], p4_x - params["anchor2_x"])
+            )
+
+            if "crank_x" in params and "crank_y" in params:
+                self._calculate_coupler_position(
+                    layer_data,
+                    params,
+                    float(params["crank_x"]),
+                    float(params["crank_y"]),
+                    p4_x,
+                    p4_y,
+                )
+
+        return True
 
     def _has_valid_joint_positions(self, joint_positions: dict[str, Any]) -> bool:
         """Check if joint positions data is valid."""
@@ -250,10 +322,15 @@ class ParameterMapper:
         """Setup parameters for gear mechanism."""
         full_sim_data = layer_data.get("full_simulation_data", {})
 
-        if "r1" in params:
-            params["gear1_radius"] = params["r1"]
-        if "r2" in params:
-            params["gear2_radius"] = params["r2"]
+        if "gear1_radius" not in params and "r1" in params:
+            params["gear1_radius"] = self._mech_radius_to_scene(float(params["r1"]), to_scene)
+        elif "gear1_radius" in params and "r1" not in params:
+            params["r1"] = float(params["gear1_radius"])
+
+        if "gear2_radius" not in params and "r2" in params:
+            params["gear2_radius"] = self._mech_radius_to_scene(float(params["r2"]), to_scene)
+        elif "gear2_radius" in params and "r2" not in params:
+            params["r2"] = float(params["gear2_radius"])
 
         if "gear_data" in full_sim_data and to_scene:
             self._extract_gear_positions_from_simulation(
@@ -261,6 +338,25 @@ class ParameterMapper:
             )
         else:
             self._set_default_gear_positions(params)
+
+    def _mech_radius_to_scene(
+        self,
+        mech_radius: float,
+        to_scene: Callable | None,
+    ) -> float:
+        """Convert mechanism-space radius to scene-space radius."""
+        if to_scene is None:
+            return float(mech_radius)
+        try:
+            origin = to_scene(np.array([0.0, 0.0], dtype=float))
+            edge = to_scene(np.array([float(mech_radius), 0.0], dtype=float))
+            ox, oy = self.extract_coordinates(origin)
+            ex, ey = self.extract_coordinates(edge)
+            scene_radius = math.hypot(ex - ox, ey - oy)
+            return float(scene_radius) if scene_radius > 0 else float(mech_radius)
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+            return float(mech_radius)
 
     def _extract_gear_positions_from_simulation(
         self,
@@ -315,8 +411,9 @@ class ParameterMapper:
                 params["r_sun"] = params["gear1_radius"]
             else:
                 params["r_sun"] = 20.0
+        params["r_sun"] = float(params["r_sun"])
         # Also set gear1_radius for backwards compatibility
-        params["gear1_radius"] = params["r_sun"]
+        params["gear1_radius"] = float(params["r_sun"])
 
         # Setup r_planet (PlanetaryGearEditor expects this name)
         if "r_planet" not in params:
@@ -326,17 +423,23 @@ class ParameterMapper:
                 params["r_planet"] = params["gear2_radius"]
             else:
                 params["r_planet"] = 30.0
+        params["r_planet"] = float(max(1.0, params["r_planet"]))
         # Also set gear2_radius for backwards compatibility
-        params["gear2_radius"] = params["r_planet"]
+        params["gear2_radius"] = float(params["r_planet"])
 
         # Setup arm_length
         if "arm_length" not in params:
             params["arm_length"] = params.get("carrier_length", 15.0)
+        params["arm_length"] = float(max(0.0, params["arm_length"]))
 
         if "gear_positions" in full_sim_data and to_scene:
             self._extract_planetary_positions_from_simulation(
                 params, full_sim_data, to_scene
             )
+        elif self._extract_planetary_positions_from_key_points(
+            layer_data, params, to_scene
+        ):
+            pass
         else:
             self._set_default_planetary_positions(params)
 
@@ -368,6 +471,45 @@ class ParameterMapper:
             # Set both naming conventions
             params["planet_x"], params["planet_y"] = x, y
             params["gear2_x"], params["gear2_y"] = x, y
+
+    def _extract_planetary_positions_from_key_points(
+        self,
+        layer_data: dict[str, Any],
+        params: dict[str, Any],
+        to_scene: Callable | None = None,
+    ) -> bool:
+        """Extract planetary positions from key_points when simulation frames are unavailable."""
+        key_points = layer_data.get("key_points", {})
+        sun_center = key_points.get("sun_center")
+        if not (
+            isinstance(sun_center, (list, tuple, np.ndarray))
+            and len(sun_center) >= 2
+        ):
+            return False
+
+        use_scene_points_directly = layer_data.get("generated_path") is None or to_scene is None
+
+        def map_point(raw: list[float] | tuple[float, float] | np.ndarray):
+            if use_scene_points_directly:
+                return np.array([float(raw[0]), float(raw[1])], dtype=float)
+            return to_scene(np.array(raw, dtype=float))
+
+        sun_scene = map_point(sun_center)
+        sun_x, sun_y = self.extract_coordinates(sun_scene)
+        params["sun_x"], params["sun_y"] = sun_x, sun_y
+        params["gear1_x"], params["gear1_y"] = sun_x, sun_y
+
+        planet_center = key_points.get("planet_center")
+        if isinstance(planet_center, (list, tuple, np.ndarray)) and len(planet_center) >= 2:
+            planet_scene = map_point(planet_center)
+            planet_x, planet_y = self.extract_coordinates(planet_scene)
+        else:
+            planet_x = float(sun_x) + float(params.get("r_sun", 20.0)) + float(params.get("r_planet", 30.0))
+            planet_y = float(sun_y)
+
+        params["planet_x"], params["planet_y"] = planet_x, planet_y
+        params["gear2_x"], params["gear2_y"] = planet_x, planet_y
+        return True
 
     def _set_default_planetary_positions(self, params: dict[str, Any]) -> None:
         """Set default positions for planetary gear mechanism.

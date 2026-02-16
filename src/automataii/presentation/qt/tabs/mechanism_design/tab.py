@@ -95,6 +95,7 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     AnchorPositionService,
     AnimationFrameCoordinator,
     HandlePositionCoordinator,
+    MechanismCharacterRebindService,
     MechanismInstantiationService,
     SceneManagementService,
     TabCallbackConfigurator,
@@ -252,6 +253,8 @@ class MechanismDesignTab(QWidget):
         self._tab_visible = False
         self._tab_active = False
         self._scene_recently_cleared = False
+        self._preserve_mechanisms_on_next_set_parts = False
+        self._pending_character_rebind = False
 
         # Feature-flagged presenter
         self._presenter = None
@@ -404,6 +407,9 @@ class MechanismDesignTab(QWidget):
         self._tab_data_coordinator = TabDataCoordinator()
         self._scene_management_service = SceneManagementService()
         self._view_utilities_service = ViewUtilitiesService()
+        self._character_rebind_service = MechanismCharacterRebindService(
+            scene_to_mech=self._scene_to_mechanism_coords_for_rebind
+        )
 
     def _on_presenter_view_update(self, view_model):
         """Receive presenter view-model updates and sync lightweight state."""
@@ -500,9 +506,10 @@ class MechanismDesignTab(QWidget):
         vm = self._presenter_view_model
         if vm:
             parts = vm.parts
+            local_mechanism_layers = bool(getattr(self, "mechanism_layers", {}))
             has_paths, has_mechanisms, has_enabled_parts = (
                 any(p.enabled for p in parts),
-                any(p.has_layers for p in parts),
+                any(p.has_layers for p in parts) or local_mechanism_layers,
                 any(p.enabled for p in parts),
             )
         else:
@@ -572,9 +579,15 @@ class MechanismDesignTab(QWidget):
             clear_mechanisms: If True, clears existing mechanism layers when
                 parts change (default True to prevent stale references)
         """
+        preserve_existing_mechanisms = bool(self._preserve_mechanisms_on_next_set_parts)
+        self._preserve_mechanisms_on_next_set_parts = False
+        effective_clear_mechanisms = clear_mechanisms and not preserve_existing_mechanisms
+
         # Clear mechanism data if requested (prevents stale mechanism references)
-        if clear_mechanisms and self.mechanism_layers:
+        if effective_clear_mechanisms and self.mechanism_layers:
             self.clear_mechanism_data()
+        elif preserve_existing_mechanisms and self.mechanism_layers:
+            self._pending_character_rebind = True
 
         # Let Presenter handle data sorting
         self._mvp_presenter.set_parts_data(parts_data)
@@ -586,7 +599,11 @@ class MechanismDesignTab(QWidget):
         # Create visual items (View responsibility)
         if self.parts_data:
             # Use project_dir if available, fallback to cwd for preset-based parts
-            project_dir = self.main_window.project_data_manager.project_dir or Path.cwd()
+            project_dir = (
+                self.main_window.project_data_manager.project_dir
+                or self.main_window.project_state_manager.state.project_dir
+                or Path.cwd()
+            )
             for part_name, p_info in parts_data.items():
                 item = CharacterPartItem(
                     part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
@@ -600,6 +617,36 @@ class MechanismDesignTab(QWidget):
             self._position_parts_at_anchor_joints()
 
         self._update_mechanism_layers_list()
+        self._attempt_pending_character_rebind()
+
+    def prepare_character_rebind(self) -> None:
+        """Preserve mechanisms during next character load and request rebind."""
+        self._preserve_mechanisms_on_next_set_parts = True
+        self._pending_character_rebind = True
+
+    def cancel_character_rebind(self) -> None:
+        """Clear pending/preserve flags if character load is aborted or fails."""
+        self._preserve_mechanisms_on_next_set_parts = False
+        self._pending_character_rebind = False
+
+    def _attempt_pending_character_rebind(self) -> None:
+        if not self._pending_character_rebind:
+            return
+
+        if not self.mechanism_layers:
+            self._pending_character_rebind = False
+            return
+
+        if not self.parts_data:
+            return
+
+        self._map_orphan_mechanisms_to_character()
+
+        skeleton_cache = getattr(self, "_initial_skeleton_data_cache", None)
+        joints = skeleton_cache.get("joints") if isinstance(skeleton_cache, dict) else None
+        has_skeleton_data = isinstance(joints, dict) and bool(joints)
+        if has_skeleton_data:
+            self._pending_character_rebind = False
 
     def _position_parts_at_anchor_joints(self):
         """Position parts at their anchor joints and reset rotations using cached skeleton data."""
@@ -610,8 +657,13 @@ class MechanismDesignTab(QWidget):
             return
 
         def position_setter(part_item, pos: tuple[float, float]) -> None:
-            """Set position on a QGraphicsItem."""
-            if hasattr(part_item, "setPos"):
+            """Set position so that anchor point is at the given position."""
+            if hasattr(part_item, "set_scene_position_from_anchor"):
+                # Use anchor-aware positioning (accounts for local_pivot_offset)
+                part_item.set_scene_position_from_anchor(
+                    QPointF(pos[0], pos[1]), bypass_validation=True
+                )
+            elif hasattr(part_item, "setPos"):
                 part_item.setPos(pos[0], pos[1])
 
         def rotation_setter(part_item, rotation_degrees: float) -> None:
@@ -631,6 +683,7 @@ class MechanismDesignTab(QWidget):
     def cache_initial_skeleton(self, skeleton_data_dict: dict | None):
         self._skeleton_handler.cache_initial_skeleton(skeleton_data_dict)
         self._initial_skeleton_data_cache = self._skeleton_handler.initial_skeleton_data_cache
+        self._attempt_pending_character_rebind()
 
     def set_animation_scheduler(self, scheduler) -> None:
         """
@@ -740,13 +793,8 @@ class MechanismDesignTab(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        # Load pre-processed dummy character
-        dummy_dir = Path(__file__).parent.parent.parent.parent.parent.parent / "resources" / "presets" / "characters" / "dummy"
-        if not dummy_dir.exists():
-            # Fallback: try from cwd
-            dummy_dir = Path.cwd() / "resources" / "presets" / "characters" / "dummy"
-
-        success = self.load_character_from_directory(dummy_dir)
+        dummy_dir = self._resolve_dummy_character_dir()
+        success = self.load_character_from_directory(dummy_dir) if dummy_dir is not None else False
         if success:
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage("Dummy character assigned.", 3000)
@@ -754,8 +802,75 @@ class MechanismDesignTab(QWidget):
         else:
             QMessageBox.warning(self, "Error", "Failed to load dummy character.")
 
+    def _resolve_dummy_character_dir(self) -> Path | None:
+        """Resolve dummy character directory from known workspace locations."""
+        candidates: list[Path] = []
+        try:
+            candidates.append(
+                Path(__file__).resolve().parents[6]
+                / "resources"
+                / "presets"
+                / "characters"
+                / "dummy"
+            )
+        except (IndexError, RuntimeError):
+            pass
+
+        candidates.append(Path.cwd() / "resources" / "presets" / "characters" / "dummy")
+        try:
+            candidates.append(
+                Path(__file__).resolve().parents[5]
+                / "resources"
+                / "presets"
+                / "characters"
+                / "dummy"
+            )
+        except (IndexError, RuntimeError):
+            pass
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _ensure_character_for_foundry_import(self) -> bool:
+        """Ensure a character is loaded before Foundry mechanism import."""
+        if self.parts_data:
+            return True
+
+        logging.info("No character parts found. Auto-loading dummy character.")
+        dummy_dir = self._resolve_dummy_character_dir()
+        if dummy_dir is not None and self.load_character_from_directory(dummy_dir) and self.parts_data:
+            return True
+
+        logging.warning(
+            "Failed to load dummy character or no parts created. Falling back to silhouette_human preset."
+        )
+        preset_loaded = bool(self.apply_character_preset("silhouette_human"))
+        return bool(preset_loaded and self.parts_data)
+
+    def _resolve_target_part_for_foundry_import(self) -> str | None:
+        """Resolve valid target part for Foundry import."""
+        part_name = self.selected_part_name
+        if part_name and part_name not in self.parts_data:
+            logging.info(
+                "Selected part '%s' is not available in current character. Re-selecting target part.",
+                part_name,
+            )
+            part_name = None
+
+        if not part_name and self.parts_data:
+            part_name = next(iter(self.parts_data.keys()), None)
+            if part_name:
+                self.selected_part_name = part_name
+                logging.info("Auto-selected part: %s", part_name)
+        return part_name
+
     def load_character_from_directory(self, char_dir: Path) -> bool:
-        """Load a character from a directory containing parts_info.json and char_cfg.yaml.
+        """Load a character from a directory containing parts_info.json.
+
+        Uses the same flow as ImageProcessingTab -> MainWindow -> EditorTab,
+        ensuring consistent character loading across all tabs.
 
         Args:
             char_dir: Path to the character directory.
@@ -763,81 +878,41 @@ class MechanismDesignTab(QWidget):
         Returns:
             True if loaded successfully.
         """
-        import json
-        import yaml
-
-        from automataii.domain.project.models import PartInfoModel
-        from automataii.presentation.qt.models import PartInfo
-
         logging.info(f"Loading character from: {char_dir}")
 
         parts_info_path = char_dir / "parts_info.json"
-        char_cfg_path = char_dir / "char_cfg.yaml"
 
         if not parts_info_path.exists():
             logging.error(f"parts_info.json not found in {char_dir}")
             return False
 
         try:
-            # 1. Load parts_info.json
-            with open(parts_info_path, encoding="utf-8") as f:
-                parts_data_json = json.load(f)
+            self.prepare_character_rebind()
 
-            character_data = parts_data_json.get("character", {})
-            parts_dict = character_data.get("parts", {})
-            skeleton_joints = character_data.get("skeleton_joints", [])
+            # Use ProjectDataManager for consistent loading (same as ImageProcessingTab flow)
+            # This will:
+            # 1. Load and validate parts_info.json
+            # 2. Emit project_data_loaded signal
+            # 3. MainWindow._handle_project_data_loaded will call:
+            #    - editor_tab.set_parts_data(parts_info)
+            #    - mechanism_design_tab.set_parts_data(parts_info)
+            #    - skeleton_manager.load_skeleton_from_project_data(...)
+            success = self.main_window.project_data_manager.load_project_from_file(
+                str(parts_info_path)
+            )
 
-            # 2. Convert parts to PartInfo
-            parts_data: dict[str, PartInfo] = {}
-            for part_name, part_data in parts_dict.items():
-                # Resolve image path relative to char_dir
-                image_path = str(char_dir / part_data.get("image_path", ""))
+            if success:
+                # Map orphan mechanisms to newly loaded character
+                self._map_orphan_mechanisms_to_character()
+                logging.info(f"Loaded character from {char_dir}")
+            else:
+                self.cancel_character_rebind()
 
-                model = PartInfoModel(
-                    name=part_data["name"],
-                    roi=part_data.get("roi", [0, 0, 50, 50]),
-                    z_value=float(part_data.get("z_value", 0)),
-                    image_path=image_path,
-                    fill_color=part_data.get("fill_color", "rgba(255,255,255,0.9)"),
-                    fixed=part_data.get("fixed", False),
-                    opacity=1.0,
-                    anchor_joint_id=part_data.get("anchor_joint_id"),
-                    local_pivot_offset=part_data.get("local_pivot_offset"),
-                )
-                part_info = PartInfo.from_pydantic(model, project_dir=char_dir)
-                parts_data[part_name] = part_info
-
-            # 3. Build skeleton dict from skeleton_joints
-            skeleton_dict = {"joints": {}}
-            for joint in skeleton_joints:
-                joint_id = joint.get("id", joint.get("name"))
-                skeleton_dict["joints"][joint_id] = {
-                    "id": joint_id,
-                    "name": joint.get("name", joint_id),
-                    "parent": joint.get("parent"),
-                    "position": joint.get("position", [0, 0]),
-                    "rotation": 0.0,
-                }
-
-            # 4. Cache skeleton
-            if skeleton_dict["joints"]:
-                self.cache_initial_skeleton(skeleton_dict)
-
-            # 5. Set parts data
-            self.set_parts_data(parts_data, clear_mechanisms=False)
-
-            # 6. Ensure skeleton visualization
-            if hasattr(self, '_skeleton_handler') and self._skeleton_handler and skeleton_dict["joints"]:
-                self._skeleton_handler.ensure_skeleton_visualization(skeleton_dict)
-
-            # 7. Map orphan mechanisms
-            self._map_orphan_mechanisms_to_character()
-
-            logging.info(f"Loaded character with {len(parts_data)} parts and {len(skeleton_dict['joints'])} joints")
-            return True
+            return success
 
         except Exception as e:
             logging.exception(f"Failed to load character: {e}")
+            self.cancel_character_rebind()
             return False
 
     @pyqtSlot(str)
@@ -862,8 +937,10 @@ class MechanismDesignTab(QWidget):
         logging.info(f"Applying character preset: {preset_id}")
 
         try:
-            # 1. Load preset from service
-            service = CharacterPresetService()
+            # 1. Load preset from service (allow dependency injection for tests)
+            service = getattr(self, "character_preset_service", None)
+            if service is None:
+                service = CharacterPresetService()
             preset = service.get_preset(preset_id)
             if not preset:
                 logging.error(f"Preset not found: {preset_id}")
@@ -883,39 +960,73 @@ class MechanismDesignTab(QWidget):
 
             # 4. Convert preset parts to PartInfo dict using absolute joint positions
             parts_data: dict[str, PartInfo] = {}
-            sorted_parts = preset.get_parts_sorted_by_z()
+            if hasattr(preset, "get_parts_sorted_by_z"):
+                sorted_parts = list(preset.get_parts_sorted_by_z())
+            else:
+                raw_parts = getattr(preset, "parts", {})
+                if isinstance(raw_parts, dict):
+                    sorted_parts = list(raw_parts.values())
+                else:
+                    sorted_parts = list(raw_parts) if raw_parts else []
+                sorted_parts.sort(key=lambda part: float(getattr(part, "z_index", 0) or 0))
 
             for preset_part in sorted_parts:
+                part_name = str(getattr(preset_part, "name", "")).strip()
+                if not part_name:
+                    continue
+
+                anchor_joint = getattr(preset_part, "anchor_joint", "root")
+                if not isinstance(anchor_joint, str) or not anchor_joint:
+                    anchor_joint = "root"
+
                 # Get absolute position from computed skeleton
-                joint_data = joints_data.get(preset_part.anchor_joint, {})
+                joint_data = joints_data.get(anchor_joint, {})
                 abs_pos = joint_data.get("position", [canvas_center[0], canvas_center[1]])
                 x, y = abs_pos[0], abs_pos[1]
 
                 # Add transform offset
-                tx, ty, _ = preset_part.default_transform
+                tx, ty, _ = (0.0, 0.0, 0.0)
+                transform = getattr(preset_part, "default_transform", (0.0, 0.0, 0.0))
+                if isinstance(transform, tuple | list) and len(transform) == 3:
+                    try:
+                        tx = float(transform[0])
+                        ty = float(transform[1])
+                    except (TypeError, ValueError):
+                        tx = 0.0
+                        ty = 0.0
                 x += tx
                 y += ty
 
+                z_index = 0.0
+                try:
+                    z_index = float(getattr(preset_part, "z_index", 0))
+                except (TypeError, ValueError):
+                    z_index = 0.0
+
+                svg_path = getattr(preset_part, "svg_path", None)
+                image_path = str(svg_path) if isinstance(svg_path, str) else None
+
                 model = PartInfoModel(
-                    name=preset_part.name,
+                    name=part_name,
                     roi=[x, y, 50.0, 50.0],  # Default size, will be updated from SVG
-                    z_value=float(preset_part.z_index),
-                    image_path=preset_part.svg_path,
+                    z_value=z_index,
+                    image_path=image_path,
                     fill_color="rgba(255,255,255,0.9)",
                     fixed=False,
                     opacity=1.0,
-                    anchor_joint_id=preset_part.anchor_joint,
+                    anchor_joint_id=anchor_joint,
                 )
 
                 # Create PartInfo, resolving the SVG path
                 part_info = PartInfo.from_pydantic(model, project_dir=Path.cwd())
-                parts_data[preset_part.name] = part_info
+                parts_data[part_name] = part_info
 
             # 5. Cache skeleton for IK and positioning
             if skeleton_dict:
                 self.cache_initial_skeleton(skeleton_dict)
 
             # 6. Set parts data (without clearing existing mechanisms)
+            self.prepare_character_rebind()
             self.set_parts_data(parts_data, clear_mechanisms=False)
 
             # 7. Ensure skeleton visualization is displayed
@@ -933,6 +1044,7 @@ class MechanismDesignTab(QWidget):
 
         except Exception as e:
             logging.exception(f"Failed to apply character preset: {e}")
+            self.cancel_character_rebind()
             return False
 
     def _convert_preset_skeleton_to_dict(
@@ -1001,45 +1113,45 @@ class MechanismDesignTab(QWidget):
 
     def _map_orphan_mechanisms_to_character(self) -> None:
         """
-        Map 'orphan' mechanisms (those without a valid part association)
-        to the currently loaded character parts.
+        Rebind mechanisms to currently loaded character parts.
 
-        This handles the workflow where mechanisms are added first (from Foundry),
-        and a character is assigned later.
+        Handles:
+        - orphan mapping (missing/invalid part_name)
+        - name-based mapping for part replacement
+        - linkage/cam readjustment to current skeleton anchors
         """
         if not self.parts_data or not self.mechanism_layers:
             return
 
-        # Default: map to the first available part if no specific logic exists
-        # Prefer 'torso' as the default anchor if available
-        default_part_name = (
-            "torso" if "torso" in self.parts_data else next(iter(self.parts_data.keys()), None)
+        result = self._character_rebind_service.rebind_all(
+            mechanism_layers=self.mechanism_layers,
+            parts_data=self.parts_data,
+            skeleton_cache=getattr(self, "_initial_skeleton_data_cache", None),
+            force_readjust=True,
         )
+        for warning in result.warnings:
+            logging.warning(warning)
 
-        if not default_part_name:
+        if not result.changed_ids:
             return
 
-        updates_made = False
-        for mechanism_id, layer_data in self.mechanism_layers.items():
-            current_part_name = layer_data.get("part_name")
+        for mechanism_id in result.changed_ids:
+            layer_data = self.mechanism_layers.get(mechanism_id)
+            if not layer_data:
+                continue
 
-            # Check if part is missing or invalid (orphan)
-            if not current_part_name or current_part_name not in self.parts_data:
-                # Map to default part
-                layer_data["part_name"] = default_part_name
-                logging.info(
-                    f"Mapped orphan mechanism '{mechanism_id}' to part '{default_part_name}'"
-                )
-                updates_made = True
+            mech_type = str(layer_data.get("type", ""))
+            if mech_type in ("4_bar_linkage", "cam"):
+                self._regenerate_foundry_layer_simulation(mechanism_id, layer_data)
 
-                # Update visual items if needed
-                # (Visuals might need recreation to attach to the new part item)
-                if updates_made:
-                    self._recreate_mechanism_visuals(mechanism_id, layer_data)
+            self._visual_animator.build_cache(mechanism_id, layer_data)
+            self._render_mechanism_layer(mechanism_id)
 
-        if updates_made:
-            self._update_all_ui_states()
-            self._update_mechanism_layers_list()
+        self._setup_mechanism_ik_integration()
+        self._update_all_ui_states()
+        self._update_mechanism_layers_list()
+        if self.mechanism_scene:
+            self.mechanism_scene.update()
 
     def _get_character_position(self):
         skeleton_data = getattr(self, "_initial_skeleton_data_cache", None)
@@ -1115,6 +1227,22 @@ class MechanismDesignTab(QWidget):
         Delegates to TransformService (god class decomposition).
         """
         return self._transform_service.get_inverse_scene_transform(layer_data)
+
+    def _scene_to_mechanism_coords_for_rebind(
+        self, layer_data: dict[str, Any], scene_position: tuple[float, float]
+    ) -> tuple[float, float] | None:
+        inverse = self._get_inverse_scene_transform_function(layer_data)
+        if inverse is None:
+            return None
+
+        try:
+            mech_xy = inverse(QPointF(float(scene_position[0]), float(scene_position[1])))
+            if mech_xy is None or len(mech_xy) < 2:
+                return None
+            return (float(mech_xy[0]), float(mech_xy[1]))
+        except Exception:
+            logging.debug("Suppressed exception while converting scene->mechanism", exc_info=True)
+            return None
 
     def _extract_key_points_from_simulation(self, full_sim_data: dict, mechanism_type: str) -> dict:
         return self._output_calculator.extract_key_points_from_simulation(
@@ -1402,8 +1530,7 @@ class MechanismDesignTab(QWidget):
     def _recreate_mechanism_visuals(self, mechanism_id: str, layer_data: dict):
         try:
             self._safe_remove_visual_items(layer_data.get("visual_items", []))
-            mechanism_graphics_data = {"mechanism_id": mechanism_id, **layer_data}
-            self.handle_mechanism_visuals(mechanism_graphics_data)
+            self._render_mechanism_layer(mechanism_id)
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
@@ -1513,6 +1640,7 @@ class MechanismDesignTab(QWidget):
         mechanism_type: str,
         parameters: dict,
         pivot_point: tuple,
+        mechanism_id: str | None = None,
     ) -> bool:
         """
         Import a mechanism from Mechanism Foundry tab.
@@ -1524,31 +1652,30 @@ class MechanismDesignTab(QWidget):
             mechanism_type: Foundry mechanism type (e.g., "four_bar", "cam_follower")
             parameters: Mechanism parameters from Foundry
             pivot_point: Pivot point coordinates
+            mechanism_id: Optional ID for bidirectional sync with Foundry
 
         Returns:
             True if import successful, False otherwise
         """
         import logging
 
-        logging.info(f"Importing mechanism from Foundry: {mechanism_type}")
+        logging.info(f"Importing mechanism from Foundry: {mechanism_type} (id={mechanism_id})")
 
-        # Check for existing character parts; if none, auto-load dummy character
-        if not self.parts_data:
-            logging.info("No character parts found. Auto-loading dummy character.")
-            dummy_dir = Path(__file__).parent.parent.parent.parent.parent.parent / "resources" / "presets" / "characters" / "dummy"
-            if not dummy_dir.exists():
-                dummy_dir = Path.cwd() / "resources" / "presets" / "characters" / "dummy"
-            self.load_character_from_directory(dummy_dir)
+        # Ensure character exists (auto-load default/dummy if needed)
+        has_character = self._ensure_character_for_foundry_import()
 
         # Determine which part to associate with
-        part_name = self.selected_part_name
-
-        # If no part selected, try to use first available part
-        if not part_name and self.parts_data:
-            part_name = next(iter(self.parts_data.keys()), None)
-            if part_name:
-                self.selected_part_name = part_name
-                logging.info(f"Auto-selected part: {part_name}")
+        part_name = self._resolve_target_part_for_foundry_import()
+        if not part_name:
+            if has_character:
+                logging.warning(
+                    "Character data exists but no target part could be resolved for Foundry import."
+                )
+            else:
+                logging.warning(
+                    "Unable to import Foundry mechanism: no character parts available for assignment."
+                )
+            return False
 
         # Get scene position - use view center or character center
         scene_position = (400.0, 300.0)
@@ -1571,20 +1698,28 @@ class MechanismDesignTab(QWidget):
             logging.warning("Failed to create layer data from Foundry export")
             return False
 
-        mechanism_id = layer_data.get("id", "unknown")
+        # Use provided mechanism_id for bidirectional sync, or generate one
+        if mechanism_id:
+            layer_data["id"] = mechanism_id
+            layer_data["foundry_synced"] = True  # Mark as synced with Foundry
+        else:
+            mechanism_id = layer_data.get("id", "unknown")
+        mechanism_id = str(mechanism_id)
+        layer_data["id"] = mechanism_id
 
         # Add to mechanism layers
-        self.mechanism_layers[mechanism_id] = layer_data
         self.mechanism_enabled_state[mechanism_id] = True
+        self._add_mechanism_layer(mechanism_id, layer_data)
 
-        # Build animation cache for performance optimization
-        self._visual_animator.build_cache(mechanism_id, layer_data)
+        # Ensure simulation data is initialized for animation-ready Foundry imports.
+        self._regenerate_foundry_layer_simulation(mechanism_id, layer_data)
 
         # Create visuals
-        self.handle_mechanism_visuals(layer_data)
+        self._render_mechanism_layer(mechanism_id)
 
         # Update UI
         self._update_mechanism_layers_list()
+        self._update_all_ui_states()
         self.play_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
 
@@ -1603,6 +1738,149 @@ class MechanismDesignTab(QWidget):
 
         logging.info(f"Successfully imported mechanism: {mechanism_id}")
         return True
+
+    def update_from_foundry(self, mechanism_id: str, mechanism_type: str, parameters: dict) -> None:
+        """Update mechanism from Foundry tab changes (bidirectional sync).
+
+        Called when mechanism parameters are modified in Foundry.
+        Updates the mechanism layer without emitting change signals back.
+
+        Args:
+            mechanism_id: The shared mechanism ID
+            mechanism_type: The mechanism type
+            parameters: Updated parameters from Foundry
+        """
+        import logging
+
+        if mechanism_id not in self.mechanism_layers:
+            logging.debug(f"Mechanism {mechanism_id} not found in Design Tab")
+            return
+
+        layer_data = self.mechanism_layers[mechanism_id]
+
+        # Suppress signal emission to prevent infinite loop
+        self._suppress_foundry_sync = True
+        try:
+            # Normalize Foundry schema to Design schema before updating layer params.
+            mapped_params = dict(parameters)
+            try:
+                if hasattr(self, "_mechanism_instantiation") and self._mechanism_instantiation:
+                    mapped_params = self._mechanism_instantiation.map_foundry_params_to_internal(
+                        mechanism_type, parameters
+                    )
+            except Exception:
+                logging.debug("Suppressed exception", exc_info=True)
+
+            # Preserve mechanism-space/editor coordinates from existing params.
+            merged_params = dict(layer_data.get("params", {}))
+            merged_params.update(mapped_params)
+
+            # Preserve input angle and map it to crank_angle for linkage previews.
+            if "input_angle" in parameters:
+                try:
+                    input_angle = float(parameters["input_angle"])
+                    merged_params["input_angle"] = input_angle
+                    if mechanism_type in ("four_bar", "fourbar"):
+                        merged_params["crank_angle"] = input_angle
+                except (TypeError, ValueError):
+                    pass
+
+            normalized_type = {
+                "fourbar": "four_bar",
+                "4_bar_linkage": "four_bar",
+                "slider_crank": "four_bar",
+                "slider-crank": "four_bar",
+                "slidercrank": "four_bar",
+            }.get(mechanism_type, mechanism_type)
+
+            # Keep 4-bar aliases synchronized so all editors/mappers see consistent values.
+            if normalized_type == "four_bar":
+                for lower_key, upper_key in (
+                    ("l1", "L1"),
+                    ("l2", "L2"),
+                    ("l3", "L3"),
+                    ("l4", "L4"),
+                ):
+                    if lower_key in merged_params:
+                        try:
+                            merged_params[upper_key] = float(merged_params[lower_key])
+                        except (TypeError, ValueError):
+                            pass
+                    elif upper_key in merged_params:
+                        try:
+                            merged_params[lower_key] = float(merged_params[upper_key])
+                        except (TypeError, ValueError):
+                            pass
+
+                if "input_angle" in merged_params:
+                    try:
+                        merged_params["crank_angle"] = float(merged_params["input_angle"])
+                    except (TypeError, ValueError):
+                        pass
+
+            layer_data["params"] = merged_params
+
+            self._regenerate_foundry_layer_simulation(mechanism_id, layer_data)
+
+            # Rebuild animation cache
+            self._visual_animator.build_cache(mechanism_id, layer_data)
+
+            # Update visuals
+            self._render_mechanism_layer(mechanism_id)
+
+            # Update scene
+            if self.mechanism_scene:
+                self.mechanism_scene.update()
+
+            logging.debug(f"Updated mechanism {mechanism_id} from Foundry")
+
+        finally:
+            self._suppress_foundry_sync = False
+
+    def _regenerate_foundry_layer_simulation(
+        self, mechanism_id: str, layer_data: dict[str, Any]
+    ) -> None:
+        """Recompute simulation payload for Foundry-synced linkage/cam layers."""
+        mech_type = str(layer_data.get("type", ""))
+        if mech_type not in ("4_bar_linkage", "cam"):
+            return
+
+        try:
+            if hasattr(self, "parametric_manager") and self.parametric_manager:
+                self.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
+        except Exception:
+            logging.debug("Suppressed exception while regenerating Foundry layer", exc_info=True)
+
+    def _render_mechanism_layer(self, mechanism_id: str) -> None:
+        """Render mechanism layer using Presenter payload schema."""
+        layer_data = self.mechanism_layers.get(mechanism_id)
+        if not layer_data:
+            return
+
+        self.handle_mechanism_visuals(
+            {
+                "mechanism_id": mechanism_id,
+                "mechanism_type": layer_data.get("type"),
+                **layer_data,
+            }
+        )
+
+    def _emit_mechanism_params_changed(self, mechanism_id: str) -> None:
+        """Emit mechanism_parameters_changed signal for bidirectional sync."""
+        if getattr(self, "_suppress_foundry_sync", False):
+            return
+
+        if mechanism_id not in self.mechanism_layers:
+            return
+
+        layer_data = self.mechanism_layers[mechanism_id]
+
+        # Only emit for foundry-synced mechanisms
+        if not layer_data.get("foundry_synced", False):
+            return
+
+        params = layer_data.get("params", {})
+        self.mechanism_parameters_changed.emit(mechanism_id, params)
 
     def center_on_character(self):
         if not self.mechanism_view:

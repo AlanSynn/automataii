@@ -38,6 +38,7 @@ class ImageProcessingTab(QWidget):
     parts_generated = pyqtSignal(dict, str)
     skeleton_updated = pyqtSignal(dict)
     request_editor_tab_switch = pyqtSignal()
+    character_preset_loaded = pyqtSignal(str)
 
     def __init__(self, main_window, parent=None, editing_mode: bool = False):
         super().__init__(parent)
@@ -143,6 +144,15 @@ class ImageProcessingTab(QWidget):
         panel_layout.addWidget(view_controls_group)
 
         panel_layout.addStretch()
+
+        # Character Assignment Group
+        char_group = QGroupBox("Character Setup")
+        char_layout = QVBoxLayout(char_group)
+        self.assign_character_btn = QPushButton("Assign Character")
+        self.assign_character_btn.setToolTip("Select a character preset for the mechanism design tab")
+        self.assign_character_btn.clicked.connect(self.open_character_assignment_dialog)
+        char_layout.addWidget(self.assign_character_btn)
+        panel_layout.addWidget(char_group)
 
         # Right View Area (ImageProcessingView is owned by MainWindow but displayed here)
         right_panel = QWidget()
@@ -454,6 +464,33 @@ class ImageProcessingTab(QWidget):
             QMessageBox.critical(
                 self, "Generation Error",
                 f"Error generating parts from manual segmentation: {e}"
+            )
+
+    def open_character_assignment_dialog(self):
+        """Open character selection dialog to assign a dummy character preset."""
+        from automataii.presentation.qt.dialogs.character_selection_dialog import (
+            CharacterSelectionDialog,
+        )
+
+        try:
+            dialog = CharacterSelectionDialog(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_preset = dialog.get_selected_preset()
+                if selected_preset:
+                    # Emit signal to notify MainWindow -> MechanismDesignTab
+                    self.character_preset_loaded.emit(selected_preset.id)
+
+                    self.main_window.statusBar().showMessage(
+                        f"Assigned character preset: {selected_preset.name}"
+                    )
+                    QMessageBox.information(
+                        self,
+                        "Character Assigned",
+                        f"Character '{selected_preset.name}' has been assigned to the Mechanism Design tab.",
+                    )
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Error", f"Failed to open character selection dialog: {e}"
             )
 
     def _extract_part_info_from_mask(self, part_name: str, mask: any, original_image: any) -> dict:

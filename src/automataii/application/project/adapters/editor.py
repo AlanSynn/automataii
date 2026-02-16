@@ -13,6 +13,7 @@ Pattern: Adapter
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtGui import QPainterPath
@@ -322,27 +323,42 @@ class EditorTabAdapter(TabAdapter):
         Returns:
             Dict in PartInfo format
         """
+        from automataii.domain.project.models import PartInfoModel
         from automataii.presentation.qt.models import PartInfo
 
         parts_info: dict[str, PartInfo] = {}
+        project_dir = self._state_manager.state.project_dir or Path.cwd()
 
         for name, part_data in parts.items():
             try:
-                # Create PartInfo from PartData
-                # Note: PartInfo may have different field names
-                part_info = PartInfo(
-                    name=name,
-                    image_path=part_data.texture_path,
-                    roi=[
-                        part_data.transform.x,
-                        part_data.transform.y,
-                        0,  # width - not stored in PartData
-                        0,  # height - not stored in PartData
-                    ],
-                    local_pivot_offset=[0, 0],
-                    z_value=float(part_data.z_index),
-                    parent_joint=part_data.anchor_joint,
+                roi = (
+                    list(part_data.roi)
+                    if part_data.roi is not None
+                    else [part_data.transform.x, part_data.transform.y, 0.0, 0.0]
                 )
+
+                model = PartInfoModel(
+                    name=name,
+                    roi=roi,
+                    z_value=float(part_data.z_index),
+                    image_path=part_data.texture_path,
+                    fill_color=part_data.fill_color,
+                    fixed=part_data.fixed,
+                    opacity=part_data.opacity,
+                    group=part_data.group,
+                    original_svg_path=part_data.original_svg_path,
+                    enhanced_svg_path=part_data.enhanced_svg_path,
+                    effective_bbox_offset_x=part_data.effective_bbox_offset_x,
+                    effective_bbox_offset_y=part_data.effective_bbox_offset_y,
+                    show_anchor=part_data.show_anchor,
+                    local_pivot_offset=(
+                        list(part_data.local_pivot_offset)
+                        if part_data.local_pivot_offset is not None
+                        else None
+                    ),
+                    anchor_joint_id=part_data.anchor_joint,
+                )
+                part_info = PartInfo.from_pydantic(model, project_dir=project_dir)
                 parts_info[name] = part_info
 
             except Exception as e:

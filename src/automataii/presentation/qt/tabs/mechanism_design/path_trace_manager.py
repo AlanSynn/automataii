@@ -84,7 +84,8 @@ class PathTraceManager:
         # Track frame count per mechanism for warmup skipping
         self._frame_counts: dict[str, int] = {}
 
-        logger.debug(f"PathTraceManager initialized with config: {self._config}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("PathTraceManager initialized with config: %s", self._config)
 
     def init_trace(
         self,
@@ -141,16 +142,20 @@ class PathTraceManager:
             # Validate position (same logic as update_trace)
             if abs(initial_position.x()) >= 10 or abs(initial_position.y()) >= 10:
                 self._trace_points[mechanism_id].append(initial_position)
-                logger.debug(
-                    f"Initialized trace for mechanism {mechanism_id} with initial position: "
-                    f"({initial_position.x():.1f}, {initial_position.y():.1f})"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Initialized trace for mechanism %s with initial position: (%.1f, %.1f)",
+                        mechanism_id,
+                        initial_position.x(),
+                        initial_position.y(),
+                    )
             else:
                 logger.debug(
-                    f"Initialized trace for mechanism {mechanism_id} (initial position rejected as invalid)"
+                    "Initialized trace for mechanism %s (initial position rejected as invalid)",
+                    mechanism_id,
                 )
         else:
-            logger.debug(f"Initialized trace for mechanism {mechanism_id}")
+            logger.debug("Initialized trace for mechanism %s", mechanism_id)
 
     def update_trace(
         self,
@@ -171,10 +176,10 @@ class PathTraceManager:
             - Validates position (rejects (0,0) or very small values)
             - Skips first N frames (warmup) to avoid initial glitches
             - Appends position to point buffer
-            - Enforces max_points limit (keeps last N points)
+            - Enforces max_points limit with **Chunked Trimming** (optimizes performance)
             - Updates visual path if stride condition met OR first 2 points
 
-        Complexity: O(max_points) worst case (when trimming buffer)
+        Complexity: O(1) amortized due to chunked trimming
         """
         # Auto-initialize if needed
         if mechanism_id not in self._trace_points:
@@ -191,33 +196,41 @@ class PathTraceManager:
 
         # Skip recording during warmup period to avoid initial position glitches
         if frame_count <= self._config.warmup_frames:
-            logger.debug(
-                f"Skipping trace for {mechanism_id} during warmup (frame {frame_count}/{self._config.warmup_frames})"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping trace for %s during warmup (frame %d/%d)",
+                    mechanism_id,
+                    frame_count,
+                    self._config.warmup_frames,
+                )
             return
 
         # Validate position - reject positions at or near (0, 0) which indicate
         # the transform function wasn't properly applied or mechanism not initialized
         if abs(position.x()) < 10 and abs(position.y()) < 10:
-            logger.debug(
-                f"Rejecting invalid trace position for {mechanism_id}: ({position.x():.1f}, {position.y():.1f})"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Rejecting invalid trace position for %s: (%.1f, %.1f)",
+                    mechanism_id,
+                    position.x(),
+                    position.y(),
+                )
             return
 
         # Append point to buffer
         self._trace_points[mechanism_id].append(position)
 
-        # Enforce max points limit (triggers full rebuild when trimmed)
+        # Enforce hard max-points invariant.
         needs_full_rebuild = False
-        if len(self._trace_points[mechanism_id]) > self._config.max_points:
-            self._trace_points[mechanism_id] = self._trace_points[mechanism_id][
-                -self._config.max_points :
-            ]
-            needs_full_rebuild = True  # Buffer trimmed, path is now out of sync
-            self._path_point_count[mechanism_id] = 0  # Reset sync state
-            logger.debug(
-                f"Trimmed trace for {mechanism_id}: {len(self._trace_points[mechanism_id])} points"
-            )
+        max_limit = self._config.max_points
+
+        current_len = len(self._trace_points[mechanism_id])
+        if current_len > max_limit:
+            trim_amount = current_len - max_limit
+            self._trace_points[mechanism_id] = self._trace_points[mechanism_id][trim_amount:]
+            needs_full_rebuild = True  # Buffer trimmed, path is now out of sync.
+            self._path_point_count[mechanism_id] = 0
+            logger.debug("Trimmed trace for %s: removed %d points", mechanism_id, trim_amount)
 
         # Stride gating: update visual only on stride boundaries OR for first 2 points
         points_count = len(self._trace_points[mechanism_id])
@@ -261,7 +274,7 @@ class PathTraceManager:
         if mechanism_id in self._frame_counts:
             del self._frame_counts[mechanism_id]
 
-        logger.debug(f"Cleared trace for mechanism {mechanism_id}")
+        logger.debug("Cleared trace for mechanism %s", mechanism_id)
 
     def clear_all_traces(self, scene: QGraphicsScene) -> None:
         """Clear all traces.
@@ -322,7 +335,7 @@ class PathTraceManager:
         item = self._trace_items.get(mechanism_id)
         if item:
             item.setVisible(visible)
-            logger.debug(f"Set trace visibility for {mechanism_id}: {visible}")
+            logger.debug("Set trace visibility for %s: %s", mechanism_id, visible)
 
     def get_trace_points(self, mechanism_id: str) -> list[QPointF]:
         """Get copy of trace points for mechanism.
@@ -398,7 +411,7 @@ class PathTraceManager:
         if item:
             item.setPath(empty_path)
 
-        logger.debug(f"Cleared trace points only for mechanism {mechanism_id}")
+        logger.debug("Cleared trace points only for mechanism %s", mechanism_id)
 
     def _rebuild_path_full(self, mechanism_id: str) -> None:
         """Rebuild QPainterPath from entire point buffer.
@@ -419,7 +432,6 @@ class PathTraceManager:
 
         if len(trace_points) < 2:
             # Need at least 2 points to draw a path
-            self._path_point_count[mechanism_id] = len(trace_points)
             return
 
         # Build path from all points
@@ -464,8 +476,8 @@ class PathTraceManager:
         # Get or create path
         path = self._trace_paths.get(mechanism_id)
 
-        if path is None or synced_count == 0:
-            # No existing path, do full rebuild
+        if path is None or path.isEmpty() or synced_count == 0:
+            # No existing path (or empty), do full rebuild
             self._rebuild_path_full(mechanism_id)
             return
 

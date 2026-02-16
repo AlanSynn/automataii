@@ -405,15 +405,36 @@ class MechanismOutputCalculator:
                 return to_scene_coords(tracking_point)
 
         # Fallback calculation
-        r_sun = params.get("r_sun", 20)
-        r_planet = params.get("r_planet", 30)
-        arm_length = params.get("arm_length", 15)
+        r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
+        r_planet = float(params.get("r_planet", params.get("gear2_radius", 30.0)))
+        arm_length = float(params.get("arm_length", 15.0))
+        if r_planet <= 0:
+            r_planet = 1.0
+        key_points = layer_data.get("key_points", {})
 
         if to_scene_coords:
             planet_orbital_angle = time
             planet_rotation_angle = -time * (r_sun / r_planet)
 
-            sun_center_orig = np.array([0, 0])
+            if "sun_center" in key_points:
+                sun_center_orig = np.array(key_points["sun_center"], dtype=float)
+            elif "m_sun_x" in params and "m_sun_y" in params:
+                sun_center_orig = np.array(
+                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "sun_x" in params and "sun_y" in params:
+                sun_center_orig = np.array(
+                    [float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "gear1_x" in params and "gear1_y" in params:
+                sun_center_orig = np.array(
+                    [float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0))],
+                    dtype=float,
+                )
+            else:
+                sun_center_orig = np.array([0.0, 0.0], dtype=float)
             planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([
                 np.cos(planet_orbital_angle),
                 np.sin(planet_orbital_angle)

@@ -27,27 +27,18 @@ class GearVisualizer(MechanismVisualizer):
     """Visualizer for gear mechanisms (simple gear pair)."""
 
     # Color scheme for gears
-    GEAR1_COLOR = QColor("#3498db")       # Blue (driver)
-    GEAR2_COLOR = QColor("#e74c3c")       # Red (driven)
-    TOOTH_COLOR = QColor("#2c3e50")       # Dark (tooth outline)
-    CENTER_COLOR = QColor("#f39c12")      # Orange (center)
-    TRACKING_COLOR = QColor("#2ecc71")    # Green (tracking point)
-    MESH_COLOR = QColor("#9b59b6")        # Purple (mesh point)
+    GEAR1_COLOR = QColor("#3498db")  # Blue (driver)
+    GEAR2_COLOR = QColor("#e74c3c")  # Red (driven)
+    TOOTH_COLOR = QColor("#2c3e50")  # Dark (tooth outline)
+    CENTER_COLOR = QColor("#f39c12")  # Orange (center)
+    TRACKING_COLOR = QColor("#2ecc71")  # Green (tracking point)
+    MESH_COLOR = QColor("#9b59b6")  # Purple (mesh point)
 
     def create_visuals(self, mechanism_data: dict[str, Any]) -> list[QGraphicsItem]:
         """
         Create visual representation of gear mechanism.
 
-        Visual items order:
-        - Item 0: Gear 1 body (polygon with teeth)
-        - Item 1: Gear 2 body (polygon with teeth)
-        - Item 2: Gear 1 center pivot
-        - Item 3: Gear 2 center pivot
-        - Item 4: Tracking point on gear 1
-        - Item 5: Mesh point indicator
-
-        Returns:
-            List of QGraphicsItem objects representing the gear mechanism
+        Optimized: Uses QGraphicsItem rotation instead of regenerating geometry.
         """
         visual_items: list[QGraphicsItem] = []
 
@@ -67,45 +58,53 @@ class GearVisualizer(MechanismVisualizer):
         g2_center_t = self.transform_point(g2_center)
 
         # Create gear 1 (driver)
-        gear1_polygon = self._create_gear_polygon(
-            g1_center_t, r1, teeth1, input_angle, self.GEAR1_COLOR
-        )
+        # Create at (0,0) then move and rotate
+        gear1_polygon = self._create_gear_polygon(QPointF(0, 0), r1, teeth1, 0, self.GEAR1_COLOR)
+        gear1_polygon.setPos(g1_center_t)
+        gear1_polygon.setRotation(math.degrees(input_angle))
         gear1_polygon.setZValue(self.config.z_index_base)
         visual_items.append(gear1_polygon)
 
         # Create gear 2 (driven)
-        # Gear 2 rotates opposite direction with ratio r1/r2
         gear2_angle = -input_angle * (r1 / r2) if r2 > 0 else 0
-        # Add phase offset so teeth mesh
         phase_offset = math.pi / teeth2 if teeth2 > 0 else 0
+
         gear2_polygon = self._create_gear_polygon(
-            g2_center_t, r2, teeth2, gear2_angle + phase_offset, self.GEAR2_COLOR
+            QPointF(0, 0), r2, teeth2, phase_offset, self.GEAR2_COLOR
         )
+        gear2_polygon.setPos(g2_center_t)
+        gear2_polygon.setRotation(math.degrees(gear2_angle))
         gear2_polygon.setZValue(self.config.z_index_base)
         visual_items.append(gear2_polygon)
 
         # Create center pivots
         for center, color in [(g1_center_t, self.CENTER_COLOR), (g2_center_t, self.CENTER_COLOR)]:
-            pivot = QGraphicsEllipseItem(center.x() - 6, center.y() - 6, 12, 12)
+            pivot = QGraphicsEllipseItem(-6, -6, 12, 12)
+            pivot.setPos(center)
             pivot.setPen(QPen(color.darker(150), 2))
             pivot.setBrush(QBrush(color))
             pivot.setZValue(self.config.z_index_pivot)
             visual_items.append(pivot)
 
         # Create tracking point on gear 1 surface
+        # Parent it to gear 1 or calculate manually?
+        # Current architecture returns flat list, so calculate position.
+        # To optimize, we could make it a child item, but sticking to flat list for compatibility.
         tracking_pos = self._calculate_tracking_point(g1_center, r1, input_angle)
         tracking_t = self.transform_point(tracking_pos)
-        tracking = QGraphicsEllipseItem(tracking_t.x() - 5, tracking_t.y() - 5, 10, 10)
+        tracking = QGraphicsEllipseItem(-5, -5, 10, 10)
+        tracking.setPos(tracking_t)
         tracking.setPen(QPen(self.TRACKING_COLOR.darker(150), 2))
         tracking.setBrush(QBrush(self.TRACKING_COLOR))
         tracking.setZValue(self.config.z_index_pivot + 1)
         tracking.setToolTip("Tracking Point (Output)")
         visual_items.append(tracking)
 
-        # Create mesh point indicator (where gears meet)
+        # Create mesh point indicator
         mesh_pos = self._calculate_mesh_point(g1_center, g2_center, r1, r2)
         mesh_t = self.transform_point(mesh_pos)
-        mesh = QGraphicsEllipseItem(mesh_t.x() - 4, mesh_t.y() - 4, 8, 8)
+        mesh = QGraphicsEllipseItem(-4, -4, 8, 8)
+        mesh.setPos(mesh_t)
         mesh.setPen(QPen(self.MESH_COLOR.darker(150), 2))
         mesh.setBrush(QBrush(self.MESH_COLOR))
         mesh.setZValue(self.config.z_index_pivot + 2)
@@ -117,7 +116,10 @@ class GearVisualizer(MechanismVisualizer):
     def update_visuals(
         self, visual_items: list[QGraphicsItem], mechanism_data: dict[str, Any]
     ) -> None:
-        """Update existing gear visuals with new mechanism state."""
+        """Update existing gear visuals with new mechanism state.
+
+        Optimized: Updates rotation/position instead of regenerating geometry.
+        """
         if len(visual_items) < 6:
             return
 
@@ -132,37 +134,40 @@ class GearVisualizer(MechanismVisualizer):
         g1_center_t = self.transform_point(g1_center)
         g2_center_t = self.transform_point(g2_center)
 
-        # Update gear 1 polygon
+        # Update gear 1 polygon (Item 0)
         if isinstance(visual_items[0], QGraphicsPolygonItem):
-            gear1_points = self._generate_gear_points(g1_center_t, r1, teeth1, input_angle)
-            visual_items[0].setPolygon(QPolygonF(gear1_points))
+            visual_items[0].setPos(g1_center_t)
+            visual_items[0].setRotation(math.degrees(input_angle))
 
-        # Update gear 2 polygon
+        # Update gear 2 polygon (Item 1)
         if isinstance(visual_items[1], QGraphicsPolygonItem):
             gear2_angle = -input_angle * (r1 / r2) if r2 > 0 else 0
-            phase_offset = math.pi / teeth2 if teeth2 > 0 else 0
-            gear2_points = self._generate_gear_points(
-                g2_center_t, r2, teeth2, gear2_angle + phase_offset
-            )
-            visual_items[1].setPolygon(QPolygonF(gear2_points))
+            visual_items[1].setPos(g2_center_t)
+            # Note: Initial phase offset was baked into the polygon geometry or rotation base
+            # If we baked it into geometry (in create_visuals), we just add delta rotation.
+            # But here we construct absolute rotation.
+            # In create_visuals, we passed phase_offset as initial angle to _create_gear_polygon.
+            # So the polygon geometry is "at phase offset".
+            # We just need to rotate by the motion angle.
+            visual_items[1].setRotation(math.degrees(gear2_angle))
 
-        # Update center pivots
+        # Update center pivots (Item 2, 3)
         if isinstance(visual_items[2], QGraphicsEllipseItem):
-            visual_items[2].setRect(g1_center_t.x() - 6, g1_center_t.y() - 6, 12, 12)
+            visual_items[2].setPos(g1_center_t)
         if isinstance(visual_items[3], QGraphicsEllipseItem):
-            visual_items[3].setRect(g2_center_t.x() - 6, g2_center_t.y() - 6, 12, 12)
+            visual_items[3].setPos(g2_center_t)
 
-        # Update tracking point
+        # Update tracking point (Item 4)
         if isinstance(visual_items[4], QGraphicsEllipseItem):
             tracking_pos = self._calculate_tracking_point(g1_center, r1, input_angle)
             tracking_t = self.transform_point(tracking_pos)
-            visual_items[4].setRect(tracking_t.x() - 5, tracking_t.y() - 5, 10, 10)
+            visual_items[4].setPos(tracking_t)
 
-        # Update mesh point
+        # Update mesh point (Item 5)
         if isinstance(visual_items[5], QGraphicsEllipseItem):
             mesh_pos = self._calculate_mesh_point(g1_center, g2_center, r1, r2)
             mesh_t = self.transform_point(mesh_pos)
-            visual_items[5].setRect(mesh_t.x() - 4, mesh_t.y() - 4, 8, 8)
+            visual_items[5].setPos(mesh_t)
 
     def _get_gear_data(
         self, mechanism_data: dict[str, Any], params: dict[str, Any]
@@ -244,10 +249,10 @@ class GearVisualizer(MechanismVisualizer):
 
             # Each tooth has 4 points: inner-start, outer-start, outer-end, inner-end
             angles = [
-                base_angle,                          # Inner start
-                base_angle + tooth_angle * 0.2,      # Outer start
-                base_angle + tooth_angle * 0.5,      # Outer end
-                base_angle + tooth_angle * 0.7,      # Inner end
+                base_angle,  # Inner start
+                base_angle + tooth_angle * 0.2,  # Outer start
+                base_angle + tooth_angle * 0.5,  # Outer end
+                base_angle + tooth_angle * 0.7,  # Inner end
             ]
             radii = [inner_radius, outer_radius, outer_radius, inner_radius]
 
@@ -259,14 +264,14 @@ class GearVisualizer(MechanismVisualizer):
         return points
 
     @staticmethod
-    def _calculate_tracking_point(
-        center: np.ndarray, radius: float, angle: float
-    ) -> np.ndarray:
+    def _calculate_tracking_point(center: np.ndarray, radius: float, angle: float) -> np.ndarray:
         """Calculate tracking point position on gear surface."""
-        return np.array([
-            center[0] + radius * math.cos(angle),
-            center[1] + radius * math.sin(angle),
-        ])
+        return np.array(
+            [
+                center[0] + radius * math.cos(angle),
+                center[1] + radius * math.sin(angle),
+            ]
+        )
 
     @staticmethod
     def _calculate_mesh_point(
@@ -286,7 +291,9 @@ class GearVisualizer(MechanismVisualizer):
 
         # Mesh point is at r1 distance from g1 center towards g2
         ratio = r1 / dist
-        return np.array([
-            g1_center[0] + dx * ratio,
-            g1_center[1] + dy * ratio,
-        ])
+        return np.array(
+            [
+                g1_center[0] + dx * ratio,
+                g1_center[1] + dy * ratio,
+            ]
+        )

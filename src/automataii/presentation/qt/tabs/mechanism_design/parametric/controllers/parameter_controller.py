@@ -264,6 +264,10 @@ class ParameterController(QObject):
             # Trigger mechanism recalculation
             self._recalculate_mechanism(mechanism_id, layer_data)
 
+            # Notify Foundry of parameter changes (bidirectional sync)
+            if hasattr(self.mechanism_tab, '_emit_mechanism_params_changed'):
+                self.mechanism_tab._emit_mechanism_params_changed(mechanism_id)
+
         except Exception as e:
             logging.error(f"Failed to apply parameter changes: {e}")
 

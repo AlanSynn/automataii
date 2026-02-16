@@ -7,15 +7,15 @@ fivebar, sixbar, etc.).
 """
 
 from automataii.domain.mechanisms.shared.transmission_analyzer import (
-    TransmissionAngleQuality,
-    TransmissionAngleResult,
-    calculate_transmission_angle,
-    classify_transmission_angle,
-    analyze_joint_angle,
-    analyze_link_ratios,
     EXCELLENT_RANGE,
     GOOD_RANGE,
     POOR_RANGE,
+    TransmissionAngleQuality,
+    TransmissionAngleResult,
+    analyze_joint_angle,
+    analyze_link_ratios,
+    calculate_transmission_angle,
+    classify_transmission_angle,
 )
 
 __all__ = [

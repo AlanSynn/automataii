@@ -6,6 +6,7 @@ IK manager connections, and skeleton data formatting.
 
 Design Pattern: Handler (processes external events and updates state)
 """
+
 from __future__ import annotations
 
 import logging
@@ -84,6 +85,9 @@ class SkeletonVisualizationHandler(QObject):
         # Skeleton cache
         self._initial_skeleton_data_cache: dict | None = None
 
+        # Optimization: Cache for joint ID resolution (abstract -> resolved)
+        self._joint_id_cache: dict[str, str | None] = {}
+
         # Callbacks for external state access
         self._get_main_window: Callable[[], Any] = lambda: None
         self._get_current_editor_items: Callable[[], dict[str, CharacterPartItem]] = lambda: {}
@@ -124,7 +128,7 @@ class SkeletonVisualizationHandler(QObject):
         if not main_window:
             return
 
-        if hasattr(main_window, 'ik_manager') and main_window.ik_manager:
+        if hasattr(main_window, "ik_manager") and main_window.ik_manager:
             try:
                 # Connect to skeleton pose updates
                 main_window.ik_manager.skeleton_pose_updated.connect(self.on_skeleton_updated)
@@ -132,11 +136,15 @@ class SkeletonVisualizationHandler(QObject):
                 logging.debug(f"SkeletonVisualizationHandler: Failed to connect to ik_manager: {e}")
 
         # Also connect to skeleton_manager for bend_direction updates
-        if hasattr(main_window, 'skeleton_manager') and main_window.skeleton_manager:
+        if hasattr(main_window, "skeleton_manager") and main_window.skeleton_manager:
             try:
-                main_window.skeleton_manager.skeleton_updated.connect(self.on_skeleton_manager_updated)
+                main_window.skeleton_manager.skeleton_updated.connect(
+                    self.on_skeleton_manager_updated
+                )
             except Exception as e:
-                logging.debug(f"SkeletonVisualizationHandler: Failed to connect to skeleton_manager: {e}")
+                logging.debug(
+                    f"SkeletonVisualizationHandler: Failed to connect to skeleton_manager: {e}"
+                )
 
     # --- Skeleton Updates ---
 
@@ -147,7 +155,10 @@ class SkeletonVisualizationHandler(QObject):
             return
 
         # Update skeleton visualization with new bend_direction values
-        if hasattr(self._mechanism_view, 'skeleton_graphics_item') and self._mechanism_view.skeleton_graphics_item:
+        if (
+            hasattr(self._mechanism_view, "skeleton_graphics_item")
+            and self._mechanism_view.skeleton_graphics_item
+        ):
             try:
                 # Check if skeleton graphics item is valid
                 _ = self._mechanism_view.skeleton_graphics_item.boundingRect()
@@ -156,8 +167,10 @@ class SkeletonVisualizationHandler(QObject):
                 joints_dict = skeleton_data.get("joints", {})
                 for joint_id, joint_data in joints_dict.items():
                     bend_dir = joint_data.get("bend_direction")
-                    if bend_dir is not None and ('elbow' in joint_id or 'knee' in joint_id):
-                        self._mechanism_view.skeleton_graphics_item.set_joint_bend_direction(joint_id, bend_dir)
+                    if bend_dir is not None and ("elbow" in joint_id or "knee" in joint_id):
+                        self._mechanism_view.skeleton_graphics_item.set_joint_bend_direction(
+                            joint_id, bend_dir
+                        )
 
                 # Update the visual
                 self._mechanism_view.skeleton_graphics_item.update()
@@ -165,6 +178,19 @@ class SkeletonVisualizationHandler(QObject):
             except RuntimeError:
                 # Skeleton item was deleted, will be recreated on next update
                 pass
+
+    def _is_skeleton_initialized(self) -> bool:
+        """Check if skeleton graphics item is initialized and valid."""
+        try:
+            skeleton_item = getattr(self._mechanism_view, "skeleton_graphics_item", None)
+            if not skeleton_item:
+                return False
+            # Check for valid C++ object
+            _ = skeleton_item.boundingRect()
+            # Check for internal state
+            return hasattr(skeleton_item, "_joint_items") and bool(skeleton_item._joint_items)
+        except (RuntimeError, AttributeError):
+            return False
 
     @pyqtSlot(dict)
     def on_skeleton_updated(self, skeleton_data: dict | None) -> None:
@@ -182,27 +208,45 @@ class SkeletonVisualizationHandler(QObject):
         if not self._mechanism_view:
             return
 
+        # Optimization: Clear cache if skeleton structure changes drastically
+        # (Heuristic: simple clear on update might be too aggressive if updates are frequent,
+        # but safe if structure is stable during animation)
+        # For animation frames, structure usually doesn't change, only positions.
+        # We'll rely on the existence check in _find_matching_joint_id.
+
         # Validate skeleton data structure
         is_valid_data = False
+        is_raw_data = False
+
         if isinstance(skeleton_data, dict):
             if skeleton_data.get("joints") and len(skeleton_data["joints"]) > 0:
                 is_valid_data = True
             elif all(isinstance(v, tuple | list) and len(v) == 2 for v in skeleton_data.values()):
                 is_valid_data = True
+                is_raw_data = True
 
         if not is_valid_data:
             return
 
         try:
-            # Check if we received raw animation data from IK manager
-            if skeleton_data and all(isinstance(v, tuple | list) and len(v) == 2 for v in skeleton_data.values()):
+            # FAST PATH: Raw animation data (dict[str, tuple]) AND skeleton already initialized
+            if is_raw_data and self._is_skeleton_initialized():
+                # Update skeleton visual directly without data conversion
+                if hasattr(self._mechanism_view, "skeleton_graphics_item"):
+                    self._mechanism_view.skeleton_graphics_item.set_animated_pose(skeleton_data)
+
+                # Update parts directly
+                self._update_parts_from_skeleton(skeleton_data, is_raw_format=True)
+
+                self.skeleton_updated.emit()
+                return
+
+            # SLOW PATH: First run or complex data structure
+            if is_raw_data:
                 # Convert IK manager format Dict[str, Tuple[float, float]] to expected format
                 transformed_data = {
                     "joints": {
-                        joint_id: {
-                            "scene_position": list(pos),
-                            "id": joint_id
-                        }
+                        joint_id: {"scene_position": list(pos), "id": joint_id}
                         for joint_id, pos in skeleton_data.items()
                     }
                 }
@@ -211,7 +255,7 @@ class SkeletonVisualizationHandler(QObject):
                 self.ensure_skeleton_visualization(transformed_data)
 
                 # Now update skeleton animation using the transformed data
-                if hasattr(self._mechanism_view, 'update_skeleton_animation'):
+                if hasattr(self._mechanism_view, "update_skeleton_animation"):
                     self._mechanism_view.update_skeleton_animation(skeleton_data)
 
                 skeleton_data = transformed_data
@@ -220,7 +264,7 @@ class SkeletonVisualizationHandler(QObject):
                 self.ensure_skeleton_visualization(skeleton_data)
 
             # Update part positions from skeleton during animation
-            self._update_parts_from_skeleton(skeleton_data)
+            self._update_parts_from_skeleton(skeleton_data, is_raw_format=False)
 
             self.skeleton_updated.emit()
 
@@ -232,57 +276,68 @@ class SkeletonVisualizationHandler(QObject):
         """
         Find matching joint ID with prefix matching support.
 
-        Handles skeleton joint IDs that have numeric suffixes (e.g., left_hand_9).
-
-        Args:
-            anchor_joint_id: The abstract joint ID (e.g., 'left_hand')
-            joints_dict: Dictionary of skeleton joints
-
-        Returns:
-            Matching joint ID or None if not found
+        Optimized: Uses caching to avoid O(N) linear scan on every frame.
         """
-        # 1. Exact match
+        # 1. Check cache first
+        if anchor_joint_id in self._joint_id_cache:
+            resolved_id = self._joint_id_cache[anchor_joint_id]
+            # Verify the resolved ID still exists in the current joints_dict
+            # (Skeleton structure might have changed)
+            if resolved_id and resolved_id in joints_dict:
+                return resolved_id
+            # If invalid, continue to re-resolve
+
+        # 2. Exact match
         if anchor_joint_id in joints_dict:
+            self._joint_id_cache[anchor_joint_id] = anchor_joint_id
             return anchor_joint_id
 
-        # 2. Prefix matching for suffixed joint IDs (e.g., left_hand -> left_hand_9)
+        # 3. Prefix matching for suffixed joint IDs (e.g., left_hand -> left_hand_9)
         for joint_id in joints_dict:
             # Check if joint_id starts with anchor_joint_id + "_" or equals it
             if joint_id.startswith(anchor_joint_id + "_"):
+                self._joint_id_cache[anchor_joint_id] = joint_id
                 return joint_id
             # Also check for numeric suffix without underscore (e.g., left_hand9)
             if joint_id.startswith(anchor_joint_id) and len(joint_id) > len(anchor_joint_id):
-                suffix = joint_id[len(anchor_joint_id):]
-                if suffix[0].isdigit() or suffix[0] == '_':
+                suffix = joint_id[len(anchor_joint_id) :]
+                if suffix[0].isdigit() or suffix[0] == "_":
+                    self._joint_id_cache[anchor_joint_id] = joint_id
                     return joint_id
 
+        # Cache negative result to avoid repeated scanning for non-existent joints
+        self._joint_id_cache[anchor_joint_id] = None
         return None
 
-    def _update_parts_from_skeleton(self, skeleton_data: dict) -> None:
+    def _update_parts_from_skeleton(self, skeleton_data: dict, is_raw_format: bool = False) -> None:
         """
         Update part positions and rotations based on skeleton joint movements.
 
         Time Complexity: O(p * j) where p = number of parts, j = number of joints
+
+        Args:
+            skeleton_data: Skeleton data dict
+            is_raw_format: If True, skeleton_data is dict[id, (x,y)].
+                           If False, it's dict["joints"][id]["scene_position"]...
         """
-        joints_dict = skeleton_data.get("joints", {})
+        if is_raw_format:
+            joints_dict = skeleton_data
+        else:
+            joints_dict = skeleton_data.get("joints", {})
+
         current_editor_items = self._get_current_editor_items()
         parts_data = self._get_parts_data()
 
         # Debug: Log state once per few frames
-        if not hasattr(self, '_parts_update_log_counter'):
+        if not hasattr(self, "_parts_update_log_counter"):
             self._parts_update_log_counter = 0
         self._parts_update_log_counter += 1
 
         if self._parts_update_log_counter <= 3:
-            logging.debug(f"[PARTS-UPDATE] current_editor_items count: {len(current_editor_items)}, "
-                         f"parts_data count: {len(parts_data)}, joints count: {len(joints_dict)}")
-            if current_editor_items:
-                logging.debug(f"[PARTS-UPDATE] editor_item names: {list(current_editor_items.keys())[:5]}")
-            if parts_data:
-                sample_parts = list(parts_data.items())[:3]
-                for pn, pi in sample_parts:
-                    anchor = getattr(pi, 'anchor_joint_id', None)
-                    logging.debug(f"[PARTS-UPDATE] Part '{pn}' anchor_joint_id: {anchor}")
+            logging.debug(
+                f"[PARTS-UPDATE] current_editor_items count: {len(current_editor_items)}, "
+                f"parts_data count: {len(parts_data)}, joints count: {len(joints_dict)}"
+            )
 
         parts_updated_count = 0
         for part_name, part_item in current_editor_items.items():
@@ -295,22 +350,30 @@ class SkeletonVisualizationHandler(QObject):
             matched_joint_id = self._find_matching_joint_id(anchor_joint_id, joints_dict)
             if not matched_joint_id:
                 if self._parts_update_log_counter <= 3:
-                    logging.debug(f"[PARTS-UPDATE] No match for anchor '{anchor_joint_id}', "
-                                 f"sample joints: {list(joints_dict.keys())[:5]}")
+                    logging.debug(f"[PARTS-UPDATE] No match for anchor '{anchor_joint_id}'")
                 continue
 
-            joint_data = joints_dict[matched_joint_id]
+            # Get position data based on format
+            if is_raw_format:
+                # Raw format: joints_dict[id] = (x, y)
+                position_data = joints_dict[matched_joint_id]
+                joint_data = {"position": position_data}  # Minimal wrap for rotation logic
+            else:
+                # Complex format: joints_dict[id] = {"scene_position": ...}
+                joint_data = joints_dict[matched_joint_id]
+                position_data = joint_data.get("scene_position") or joint_data.get("position")
 
             # 1. UPDATE POSITION (unconditionally)
             scene_pos_to_set = None
-            position_data = joint_data.get("scene_position") or joint_data.get("position")
             if isinstance(position_data, list | tuple) and len(position_data) >= 2:
                 scene_pos_to_set = QPointF(position_data[0], position_data[1])
                 part_item.set_scene_position_from_anchor(scene_pos_to_set, bypass_validation=True)
                 parts_updated_count += 1
 
             # 2. UPDATE ROTATION
-            self._update_part_rotation(part_item, joint_data, joints_dict, scene_pos_to_set)
+            self._update_part_rotation(
+                part_item, joint_data, joints_dict, scene_pos_to_set, is_raw_format
+            )
 
         if self._parts_update_log_counter <= 3:
             logging.debug(f"[PARTS-UPDATE] Updated {parts_updated_count} parts from skeleton")
@@ -323,43 +386,40 @@ class SkeletonVisualizationHandler(QObject):
         joint_data: dict,
         joints_dict: dict,
         scene_pos: QPointF | None,
+        is_raw_format: bool = False,
     ) -> None:
         """
         Update part rotation from joint data.
 
         Uses RELATIVE rotation: calculates the change in bone angle from initial state
         and applies that delta to the part's initial rotation.
-
-        Args:
-            part_item: The character part item to update
-            joint_data: Data for the anchor joint
-            joints_dict: Dictionary of all skeleton joints
-            scene_pos: The anchor position (already set for this part)
         """
         # Try multiple rotation data sources from skeleton data
-        if "world_rotation_degrees" in joint_data:
-            rotation = float(joint_data["world_rotation_degrees"])
-            part_item.setRotation(rotation)
-            return
-
-        if "angle" in joint_data:
-            angle = joint_data["angle"]
-            if isinstance(angle, int | float):
-                rotation_degrees = math.degrees(angle) if abs(angle) <= 2 * math.pi else angle
-                part_item.setRotation(rotation_degrees)
-                return
-
-        if "rotation" in joint_data:
-            rotation = joint_data["rotation"]
-            if isinstance(rotation, int | float):
+        # Note: Raw format usually only has positions, so explicit rotation keys might be missing
+        if not is_raw_format:
+            if "world_rotation_degrees" in joint_data:
+                rotation = float(joint_data["world_rotation_degrees"])
                 part_item.setRotation(rotation)
                 return
+
+            if "angle" in joint_data:
+                angle = joint_data["angle"]
+                if isinstance(angle, int | float):
+                    rotation_degrees = math.degrees(angle) if abs(angle) <= 2 * math.pi else angle
+                    part_item.setRotation(rotation_degrees)
+                    return
+
+            if "rotation" in joint_data:
+                rotation = joint_data["rotation"]
+                if isinstance(rotation, int | float):
+                    part_item.setRotation(rotation)
+                    return
 
         # FALLBACK: Calculate RELATIVE bone angle change from anchor to target joint
         if scene_pos is None:
             return
 
-        part_name = part_item.name() if hasattr(part_item, 'name') else None
+        part_name = part_item.name() if hasattr(part_item, "name") else None
         if not part_name:
             return
 
@@ -372,10 +432,18 @@ class SkeletonVisualizationHandler(QObject):
         if not matched_target_id:
             return
 
-        target_data = joints_dict[matched_target_id]
-        target_pos_data = target_data.get("scene_position") or target_data.get("position")
+        # Get target pos
+        if is_raw_format:
+            target_pos_data = joints_dict[matched_target_id]
+        else:
+            target_data = joints_dict[matched_target_id]
+            target_pos_data = target_data.get("scene_position") or target_data.get("position")
 
-        if not target_pos_data or not isinstance(target_pos_data, list | tuple) or len(target_pos_data) < 2:
+        if (
+            not target_pos_data
+            or not isinstance(target_pos_data, list | tuple)
+            or len(target_pos_data) < 2
+        ):
             return
 
         # Calculate current bone angle FROM anchor TO target
@@ -388,7 +456,7 @@ class SkeletonVisualizationHandler(QObject):
         current_bone_angle = math.degrees(math.atan2(dy, dx))
 
         # Store initial bone angle and part rotation on first call
-        if not hasattr(part_item, '_initial_bone_angle'):
+        if not hasattr(part_item, "_initial_bone_angle"):
             part_item._initial_bone_angle = current_bone_angle
             part_item._initial_part_rotation = part_item.rotation()
 
@@ -406,12 +474,12 @@ class SkeletonVisualizationHandler(QObject):
         Args:
             skeleton_data: Skeleton data to visualize
         """
-        if not hasattr(self._mechanism_view, 'visualize_skeleton'):
+        if not hasattr(self._mechanism_view, "visualize_skeleton"):
             return
 
         try:
             # Check if skeleton graphics item exists and is valid
-            skeleton_item = getattr(self._mechanism_view, 'skeleton_graphics_item', None)
+            skeleton_item = getattr(self._mechanism_view, "skeleton_graphics_item", None)
             needs_initialization = False
 
             if not skeleton_item:
@@ -421,7 +489,7 @@ class SkeletonVisualizationHandler(QObject):
                     # Test if the skeleton item is still valid (not deleted by C++)
                     _ = skeleton_item.boundingRect()
                     # Check if skeleton has joint items for animation
-                    if not hasattr(skeleton_item, '_joint_items') or not skeleton_item._joint_items:
+                    if not hasattr(skeleton_item, "_joint_items") or not skeleton_item._joint_items:
                         needs_initialization = True
                 except RuntimeError as e:
                     if "wrapped C/C++ object" in str(e):
@@ -436,19 +504,28 @@ class SkeletonVisualizationHandler(QObject):
                     self._mechanism_view.visualize_skeleton(skeleton_for_view, hierarchy)
 
                     # Ensure proper Z-order after creation
-                    if hasattr(self._mechanism_view, 'skeleton_graphics_item') and self._mechanism_view.skeleton_graphics_item:
-                        self._mechanism_view.skeleton_graphics_item.setZValue(self.Z_SKELETON_OVERLAY)
+                    if (
+                        hasattr(self._mechanism_view, "skeleton_graphics_item")
+                        and self._mechanism_view.skeleton_graphics_item
+                    ):
+                        self._mechanism_view.skeleton_graphics_item.setZValue(
+                            self.Z_SKELETON_OVERLAY
+                        )
             else:
                 # Skeleton exists, just update animation
-                if skeleton_item and hasattr(skeleton_item, 'set_animated_pose'):
+                if skeleton_item and hasattr(skeleton_item, "set_animated_pose"):
                     pose_data = self.convert_skeleton_data_for_animation(skeleton_data)
                     if pose_data:
                         skeleton_item.set_animated_pose(pose_data)
 
         except Exception as e:
-            logging.debug(f"SkeletonVisualizationHandler: Error in ensure_skeleton_visualization: {e}")
+            logging.debug(
+                f"SkeletonVisualizationHandler: Error in ensure_skeleton_visualization: {e}"
+            )
 
-    def format_skeleton_for_visualization(self, skeleton_data: dict) -> tuple[list[dict], dict[str, list[str]]]:
+    def format_skeleton_for_visualization(
+        self, skeleton_data: dict
+    ) -> tuple[list[dict], dict[str, list[str]]]:
         """
         Format skeleton data for visualize_skeleton method.
 
@@ -494,7 +571,7 @@ class SkeletonVisualizationHandler(QObject):
                 "position": pos_qpoint,
                 "parent": parent_id,
                 "color": "blue",
-                "label": joint_name
+                "label": joint_name,
             }
             skeleton_for_view.append(joint_view_data)
 
@@ -510,7 +587,9 @@ class SkeletonVisualizationHandler(QObject):
 
         return skeleton_for_view, hierarchy
 
-    def convert_skeleton_data_for_animation(self, skeleton_data: dict) -> dict[str, tuple[float, float]]:
+    def convert_skeleton_data_for_animation(
+        self, skeleton_data: dict
+    ) -> dict[str, tuple[float, float]]:
         """
         Convert skeleton data to format expected by set_animated_pose.
 
@@ -547,11 +626,15 @@ class SkeletonVisualizationHandler(QObject):
         Args:
             skeleton_data_dict: Skeleton data to cache
         """
-        self._initial_skeleton_data_cache = skeleton_data_dict.copy() if skeleton_data_dict else None
+        self._initial_skeleton_data_cache = (
+            skeleton_data_dict.copy() if skeleton_data_dict else None
+        )
 
         if self._initial_skeleton_data_cache:
             if self._mechanism_view and hasattr(self._mechanism_view, "set_joint_map"):
-                self._mechanism_view.set_joint_map(self._initial_skeleton_data_cache.get("joint_map"))
+                self._mechanism_view.set_joint_map(
+                    self._initial_skeleton_data_cache.get("joint_map")
+                )
 
             # Ensure skeleton visualization is initialized
             self.ensure_skeleton_visualization(self._initial_skeleton_data_cache)

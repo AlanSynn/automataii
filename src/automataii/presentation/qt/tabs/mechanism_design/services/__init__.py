@@ -7,6 +7,7 @@ from .anchor_movement_handler import AnchorMovementHandler
 from .anchor_position_service import AnchorPositionService
 from .animation_frame_coordinator import AnimationFrameCoordinator
 from .callback_configurator import TabCallbackConfigurator
+from .character_rebind_service import MechanismCharacterRebindService, RebindResult
 from .handle_position_coordinator import HandlePositionCoordinator
 from .mechanism_instantiation_service import MechanismInstantiationService
 from .scene_management_service import SceneManagementService
@@ -19,6 +20,8 @@ __all__ = [
     "AnchorMovementHandler",
     "AnchorPositionService",
     "AnimationFrameCoordinator",
+    "MechanismCharacterRebindService",
+    "RebindResult",
     "HandlePositionCoordinator",
     "MechanismInstantiationService",
     "SceneManagementService",

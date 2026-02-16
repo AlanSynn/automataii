@@ -234,8 +234,12 @@ class GearCache:
         gear_data: dict[str, Any] | None = None,
     ) -> GearCache:
         """Create cache from gear parameters."""
-        r1 = params.get("r1", 30)
-        r2 = params.get("r2", 50)
+        r1 = float(params.get("r1", params.get("gear1_radius", 30)))
+        r2 = float(params.get("r2", params.get("gear2_radius", 50)))
+        if r1 <= 0:
+            r1 = 1.0
+        if r2 <= 0:
+            r2 = 1.0
         distance = r1 + r2
 
         gear1_angles = None
@@ -254,7 +258,7 @@ class GearCache:
             gear1_radius=r1,
             gear2_center=np.array([distance, 0.0]),
             gear2_radius=r2,
-            gear_ratio=r1 / r2,
+            gear_ratio=r1 / r2 if abs(r2) > 1e-9 else 1.0,
             gear1_angles=gear1_angles,
             gear2_angles=gear2_angles,
             num_frames=num_frames,

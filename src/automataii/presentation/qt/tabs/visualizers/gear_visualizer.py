@@ -429,12 +429,26 @@ class PlanetaryGearVisualizer(BaseMechanismVisualizer):
         Returns:
             Dictionary containing simulation results
         """
-        r_sun = params.get("r_sun", 20)
-        r_planet = params.get("r_planet", 30)
-        arm_length = params.get("arm_length", 15)
+        r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
+        r_planet = float(params.get("r_planet", params.get("gear2_radius", 30.0)))
+        arm_length = float(params.get("arm_length", 15.0))
         num_frames = kwargs.get("num_frames", 360)
+        if r_planet <= 0:
+            r_planet = 1.0
 
-        sun_center = np.array([0, 0])
+        if "sun_center" in params and isinstance(params["sun_center"], (list, tuple)):
+            sun_center = np.array(params["sun_center"], dtype=float)
+        elif "m_sun_x" in params and "m_sun_y" in params:
+            sun_center = np.array(
+                [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                dtype=float,
+            )
+        elif "sun_x" in params and "sun_y" in params:
+            sun_center = np.array([float(params["sun_x"]), float(params["sun_y"])], dtype=float)
+        elif "gear1_x" in params and "gear1_y" in params:
+            sun_center = np.array([float(params["gear1_x"]), float(params["gear1_y"])], dtype=float)
+        else:
+            sun_center = np.array([0.0, 0.0], dtype=float)
         orbit_radius = r_sun + r_planet
 
         # Generate positions for each frame
@@ -455,7 +469,7 @@ class PlanetaryGearVisualizer(BaseMechanismVisualizer):
 
         return {
             "gear_positions": {
-                "sun_centers": [[0, 0]] * num_frames,
+                "sun_centers": [sun_center.tolist()] * num_frames,
                 "planet_centers": planet_centers,
                 "tracking_points": tracking_points,
             },
@@ -496,10 +510,48 @@ class PlanetaryGearVisualizer(BaseMechanismVisualizer):
             planet_center = np.array(gear_positions["planet_centers"][frame_idx])
             tracking_point = np.array(gear_positions["tracking_points"][frame_idx])
         else:
-            # Fallback to calculated initial positions
-            sun_center = np.array([0, 0])
-            planet_center = sun_center + (r_sun + r_planet) * np.array([1, 0])
-            tracking_point = planet_center + arm_length * np.array([1, 0])
+            params = mechanism_data.get("params", {})
+            key_points = mechanism_data.get("key_points", {})
+
+            if "sun_center" in key_points:
+                sun_center = np.array(key_points["sun_center"], dtype=float)
+            elif "m_sun_x" in params and "m_sun_y" in params:
+                sun_center = np.array(
+                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "sun_x" in params and "sun_y" in params:
+                sun_center = np.array(
+                    [float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "gear1_x" in params and "gear1_y" in params:
+                sun_center = np.array(
+                    [float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0))],
+                    dtype=float,
+                )
+            else:
+                sun_center = np.array([0.0, 0.0], dtype=float)
+
+            if "planet_center" in key_points:
+                planet_center = np.array(key_points["planet_center"], dtype=float)
+            elif "planet_x" in params and "planet_y" in params:
+                planet_center = np.array(
+                    [float(params.get("planet_x", 0.0)), float(params.get("planet_y", 0.0))],
+                    dtype=float,
+                )
+            elif "gear2_x" in params and "gear2_y" in params:
+                planet_center = np.array(
+                    [float(params.get("gear2_x", 0.0)), float(params.get("gear2_y", 0.0))],
+                    dtype=float,
+                )
+            else:
+                planet_center = sun_center + (r_sun + r_planet) * np.array([1.0, 0.0])
+
+            if "tracking_point" in key_points:
+                tracking_point = np.array(key_points["tracking_point"], dtype=float)
+            else:
+                tracking_point = planet_center + arm_length * np.array([1.0, 0.0])
 
         return sun_center, planet_center, tracking_point
 

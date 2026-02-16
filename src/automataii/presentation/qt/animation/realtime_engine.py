@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
+_TWO_PI = 2.0 * np.pi
 
 
 # =============================================================================
@@ -66,6 +68,7 @@ class MechanismSource:
     mechanism_type: str  # "4_bar_linkage", "cam", "gear", etc.
     params: dict[str, Any]
     simulation_data: dict[str, Any] | None = None
+    precomputed_positions: Any | None = None  # (F, 2, 2) float64 array
     num_frames: int = 360
 
 
@@ -146,7 +149,9 @@ class RealTimeAnimationEngine:
         # Performance stats
         self._last_compute_time = 0.0
         self._avg_compute_time = 0.0
-        self._frame_times: list[float] = []
+        self._frame_times: deque[float] = deque(maxlen=60)
+        self._frame_time_sum = 0.0
+        self._fallback_positions = np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float64)
 
         # Callbacks
         self._on_frame_ready: list[Callable[[FrameData], None]] = []
@@ -173,13 +178,23 @@ class RealTimeAnimationEngine:
             params: Mechanism parameters
             simulation_data: Pre-computed simulation data
         """
+        precomputed_positions = self._build_precomputed_positions(simulation_data)
+        num_frames = int(precomputed_positions.shape[0]) if precomputed_positions is not None else 0
+
         self._mechanisms[mechanism_id] = MechanismSource(
             mechanism_id=mechanism_id,
             mechanism_type=mechanism_type,
             params=params,
             simulation_data=simulation_data,
+            precomputed_positions=precomputed_positions,
+            num_frames=num_frames,
         )
-        logger.debug(f"Registered mechanism: {mechanism_id} ({mechanism_type})")
+        logger.debug(
+            "Registered mechanism: %s (%s, precomputed_frames=%d)",
+            mechanism_id,
+            mechanism_type,
+            num_frames,
+        )
 
     def unregister_mechanism(self, mechanism_id: str) -> None:
         """Remove a mechanism from animation."""
@@ -243,6 +258,10 @@ class RealTimeAnimationEngine:
         self._is_running = True
         self._animation_time = 0.0
         self._frame_count = 0
+        self._frame_times.clear()
+        self._frame_time_sum = 0.0
+        self._last_compute_time = 0.0
+        self._avg_compute_time = 0.0
 
         if self._config.enable_threading:
             self._compute_thread = ComputeThread(
@@ -366,10 +385,14 @@ class RealTimeAnimationEngine:
         # Track performance
         compute_time = time.perf_counter() - start_time
         self._last_compute_time = compute_time
+        if self._frame_times.maxlen is not None and len(self._frame_times) == self._frame_times.maxlen:
+            self._frame_time_sum -= self._frame_times[0]
         self._frame_times.append(compute_time)
-        if len(self._frame_times) > 60:
-            self._frame_times.pop(0)
-        self._avg_compute_time = sum(self._frame_times) / len(self._frame_times)
+        self._frame_time_sum += compute_time
+        if self._frame_times:
+            self._avg_compute_time = self._frame_time_sum / len(self._frame_times)
+        else:
+            self._avg_compute_time = 0.0
 
         return FrameData(
             frame_id=self._frame_count,
@@ -380,29 +403,59 @@ class RealTimeAnimationEngine:
 
     def _compute_mechanisms(self, timestamp: float) -> dict[str, npt.NDArray[np.float64]]:
         """Compute positions for all registered mechanisms."""
-        positions = {}
+        positions: dict[str, npt.NDArray[np.float64]] = {}
+
+        if not self._mechanisms:
+            return positions
+
+        normalized_time = (timestamp % _TWO_PI) / _TWO_PI
 
         for mech_id, source in self._mechanisms.items():
-            if source.simulation_data and "joint_positions" in source.simulation_data:
-                # Use pre-computed simulation data
-                joint_data = source.simulation_data["joint_positions"]
-                num_frames = len(joint_data.get("p1_positions", []))
-
-                if num_frames > 0:
-                    # Map timestamp to frame index
-                    normalized_time = (timestamp % (2 * np.pi)) / (2 * np.pi)
-                    frame_idx = int(normalized_time * (num_frames - 1))
-
-                    # Extract positions
-                    if "p3_positions" in joint_data:
-                        p3 = np.array(joint_data["p3_positions"][frame_idx])
-                        p4 = np.array(joint_data["p4_positions"][frame_idx])
-                        positions[mech_id] = np.array([p3, p4])
+            precomputed = source.precomputed_positions
+            if precomputed is not None and source.num_frames > 0:
+                frame_idx = int(normalized_time * (source.num_frames - 1))
+                positions[mech_id] = precomputed[frame_idx].copy()
             else:
                 # Compute analytically (placeholder for now)
-                positions[mech_id] = np.array([[0.0, 0.0], [1.0, 1.0]])
+                positions[mech_id] = self._fallback_positions.copy()
 
         return positions
+
+    def _build_precomputed_positions(
+        self,
+        simulation_data: dict[str, Any] | None,
+    ) -> npt.NDArray[np.float64] | None:
+        """Precompute mechanism frame positions from simulation payload."""
+        if not simulation_data:
+            return None
+        joint_data = simulation_data.get("joint_positions")
+        if not isinstance(joint_data, dict):
+            return None
+
+        p3_raw = joint_data.get("p3_positions")
+        p4_raw = joint_data.get("p4_positions")
+        if not isinstance(p3_raw, list | tuple) or not isinstance(p4_raw, list | tuple):
+            return None
+        if not p3_raw or not p4_raw:
+            return None
+
+        try:
+            p3 = np.asarray(p3_raw, dtype=np.float64)
+            p4 = np.asarray(p4_raw, dtype=np.float64)
+        except Exception:
+            return None
+
+        if p3.ndim != 2 or p3.shape[1] < 2 or p4.ndim != 2 or p4.shape[1] < 2:
+            return None
+
+        frames = min(int(p3.shape[0]), int(p4.shape[0]))
+        if frames <= 0:
+            return None
+
+        packed = np.empty((frames, 2, 2), dtype=np.float64)
+        packed[:, 0, :] = p3[:frames, :2]
+        packed[:, 1, :] = p4[:frames, :2]
+        return packed
 
     def _compute_skeleton(self, timestamp: float) -> npt.NDArray[np.float64] | None:
         """Compute skeleton joint positions with IK."""

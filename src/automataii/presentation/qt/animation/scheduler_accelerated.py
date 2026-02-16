@@ -182,8 +182,10 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
         Args:
             callback: Function called with FrameData each frame
         """
+        if callback in self._frame_subscribers:
+            return
         self._frame_subscribers.append(callback)
-        logger.debug(f"Frame subscriber added (total: {len(self._frame_subscribers)})")
+        logger.debug("Frame subscriber added (total: %d)", len(self._frame_subscribers))
 
     def unsubscribe_from_frames(
         self,
@@ -215,11 +217,13 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
 
     def _dispatch_frame(self, frame: FrameData) -> None:
         """Dispatch frame data to all subscribers."""
-        for callback in self._frame_subscribers:
+        if not self._frame_subscribers:
+            return
+        for callback in tuple(self._frame_subscribers):
             try:
                 callback(frame)
             except Exception as e:
-                logger.exception(f"Frame subscriber error: {e}")
+                logger.exception("Frame subscriber error: %s", e)
 
     # =========================================================================
     # LIFECYCLE (Extended)
@@ -295,10 +299,7 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
         self._frame_count += 1
 
         # Process subscriptions (sorted by priority)
-        sorted_subs = sorted(
-            self._subscriptions.values(),
-            key=lambda s: s.priority,
-        )
+        sorted_subs = self._get_sorted_subscriptions()
 
         for sub in sorted_subs:
             if not sub.enabled:
@@ -312,7 +313,7 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
             try:
                 sub.callback(delta_time)
             except Exception as e:
-                logger.exception(f"Animation callback error ({sub.owner_id}): {e}")
+                logger.exception("Animation callback error (%s): %s", sub.owner_id, e)
 
     # =========================================================================
     # STATISTICS

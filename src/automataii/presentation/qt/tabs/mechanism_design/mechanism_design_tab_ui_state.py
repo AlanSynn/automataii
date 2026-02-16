@@ -13,6 +13,7 @@ from dataclasses import dataclass
 @dataclass
 class UIState:
     """Data class representing the current UI state."""
+
     has_paths: bool = False
     has_mechanisms: bool = False
     has_enabled_parts: bool = False
@@ -24,6 +25,7 @@ class UIState:
 @dataclass
 class AnimationState:
     """Data class representing animation control state."""
+
     can_play: bool = False
     can_stop: bool = False
     can_reset: bool = False
@@ -82,7 +84,7 @@ class MechanismDesignTabUIState:
         """
         self._current_state.parametric_mode = enabled
 
-        parametric_btn = self.widgets.get('parametric_edit_btn')
+        parametric_btn = self.widgets.get("parametric_edit_btn")
         if parametric_btn:
             if enabled:
                 parametric_btn.setText("Exit Parametric Mode")
@@ -106,9 +108,9 @@ class MechanismDesignTabUIState:
         """
         self._animation_state = animation_state
 
-        play_btn = self.widgets.get('play_btn')
-        stop_btn = self.widgets.get('stop_btn')
-        reset_btn = self.widgets.get('reset_btn')
+        play_btn = self.widgets.get("play_btn")
+        stop_btn = self.widgets.get("stop_btn")
+        reset_btn = self.widgets.get("reset_btn")
 
         if play_btn:
             play_btn.setEnabled(animation_state.can_play)
@@ -144,7 +146,7 @@ class MechanismDesignTabUIState:
 
     def _update_recommendation_button(self) -> None:
         """Update recommendation button state."""
-        recommendation_btn = self.widgets.get('recommendation_btn')
+        recommendation_btn = self.widgets.get("recommendation_btn")
         if not recommendation_btn:
             return
 
@@ -153,11 +155,13 @@ class MechanismDesignTabUIState:
         if self._current_state.has_paths:
             recommendation_btn.setToolTip("Generate mechanisms for motion paths")
         else:
-            recommendation_btn.setToolTip("No motion paths available - draw paths in Editor tab first")
+            recommendation_btn.setToolTip(
+                "No motion paths available - draw paths in Editor tab first"
+            )
 
     def _update_assign_character_button(self) -> None:
         """Update assign character button state."""
-        assign_btn = self.widgets.get('assign_character_btn')
+        assign_btn = self.widgets.get("assign_character_btn")
         if not assign_btn:
             return
 
@@ -171,7 +175,7 @@ class MechanismDesignTabUIState:
 
     def _update_parametric_button(self) -> None:
         """Update parametric edit button state."""
-        parametric_btn = self.widgets.get('parametric_edit_btn')
+        parametric_btn = self.widgets.get("parametric_edit_btn")
         if not parametric_btn:
             return
 
@@ -184,7 +188,7 @@ class MechanismDesignTabUIState:
 
     def _update_blueprint_button(self) -> None:
         """Update blueprint export button state."""
-        blueprint_btn = self.widgets.get('blueprint_btn')
+        blueprint_btn = self.widgets.get("blueprint_btn")
         if not blueprint_btn:
             return
 
@@ -195,7 +199,9 @@ class MechanismDesignTabUIState:
         if can_export:
             blueprint_btn.setToolTip("Export character parts and mechanisms as SVG blueprint")
         else:
-            blueprint_btn.setToolTip("Load character parts and generate mechanisms to enable export")
+            blueprint_btn.setToolTip(
+                "Load character parts and generate mechanisms to enable export"
+            )
 
     def _update_animation_buttons(self) -> None:
         """Update animation control buttons."""
@@ -203,11 +209,14 @@ class MechanismDesignTabUIState:
         if self._current_state.parametric_mode:
             return
 
-        play_btn = self.widgets.get('play_btn')
-        stop_btn = self.widgets.get('stop_btn')
-        reset_btn = self.widgets.get('reset_btn')
+        play_btn = self.widgets.get("play_btn")
+        stop_btn = self.widgets.get("stop_btn")
+        reset_btn = self.widgets.get("reset_btn")
 
-        can_animate = self._current_state.has_enabled_parts and self._current_state.has_paths
+        # Allow animation if we have parts with paths OR if we have mechanisms (Foundry workflow)
+        can_animate = (
+            self._current_state.has_enabled_parts and self._current_state.has_paths
+        ) or self._current_state.has_mechanisms
 
         if play_btn:
             play_btn.setEnabled(can_animate and not self._current_state.animation_running)
@@ -224,9 +233,9 @@ class MechanismDesignTabUIState:
 
     def _update_animation_controls_for_parametric(self, parametric_enabled: bool) -> None:
         """Update animation controls when parametric mode changes."""
-        play_btn = self.widgets.get('play_btn')
-        stop_btn = self.widgets.get('stop_btn')
-        reset_btn = self.widgets.get('reset_btn')
+        play_btn = self.widgets.get("play_btn")
+        stop_btn = self.widgets.get("stop_btn")
+        reset_btn = self.widgets.get("reset_btn")
 
         if parametric_enabled:
             # Disable animation controls in parametric mode

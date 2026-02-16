@@ -542,46 +542,107 @@ class MechanismVisualsFactory:
         )
         mechanism_data['cam_points_local'] = cam_points_local
 
-        # Determine placement: align follower center with bottom of user's path
-        cam_pos = mechanism_data.get('cam_position')
+        # Placement priority:
+        # 1) Explicit edited center in mechanism-space (m_center_*)
+        # 2) Explicit edited center in scene-space (center_*)
+        # 3) Auto-alignment from generated_path (legacy behavior)
+        gen_path = mechanism_data.get("generated_path")
+        explicit_center_mech = None
+        explicit_center_scene = None
+
         try:
-            gen_path = mechanism_data.get('generated_path')
-            if gen_path is not None:
-                brect = gen_path.boundingRect()
-                path_x_center = float(brect.center().x())
-                path_y_bottom = float(brect.bottom())
-                local_y_max = float(np.max(cam_points_local[:, 1]))
-                follower_local_y = local_y_max + scaled_rod_length
-                cam_pos = [path_x_center, path_y_bottom - follower_local_y]
-                mechanism_data['cam_position'] = cam_pos
+            if "m_center_x" in params and "m_center_y" in params:
+                explicit_center_mech = np.array(
+                    [float(params["m_center_x"]), float(params["m_center_y"])], dtype=float
+                )
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
+            explicit_center_mech = None
 
-        # Define mapping as base transform + offset so scale is preserved
-        base_map = transform_function or self._get_scene_transform_function(mechanism_data)
-        if base_map is None:
-            return []
         try:
-            if gen_path is not None:
+            if "center_x" in params and "center_y" in params:
+                explicit_center_scene = QPointF(
+                    float(params["center_x"]), float(params["center_y"])
+                )
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+            explicit_center_scene = None
+
+        if explicit_center_scene is not None:
+            mechanism_data["cam_position"] = [explicit_center_scene.x(), explicit_center_scene.y()]
+        elif explicit_center_mech is None:
+            try:
+                if gen_path is not None:
+                    brect = gen_path.boundingRect()
+                    path_x_center = float(brect.center().x())
+                    path_y_bottom = float(brect.bottom())
+                    local_y_max = float(np.max(cam_points_local[:, 1]))
+                    follower_local_y = local_y_max + scaled_rod_length
+                    mechanism_data["cam_position"] = [
+                        path_x_center,
+                        path_y_bottom - follower_local_y,
+                    ]
+            except Exception:
+                logging.debug("Suppressed exception", exc_info=True)
+
+        base_map = transform_function or self._get_scene_transform_function(mechanism_data)
+        if base_map is None and explicit_center_scene is None:
+            return []
+
+        try:
+            if explicit_center_mech is not None and base_map is not None:
+                def cam_to_scene_coords(p):
+                    if p is None or len(p) != 2:
+                        mapped = base_map(explicit_center_mech)
+                    else:
+                        mapped = base_map(
+                            np.array([float(p[0]), float(p[1])], dtype=float) + explicit_center_mech
+                        )
+                    return QPointF(mapped.x(), mapped.y())
+
+                mechanism_data["cam_transform_function"] = cam_to_scene_coords
+
+            elif explicit_center_scene is not None:
+                center_scene = QPointF(explicit_center_scene.x(), explicit_center_scene.y())
+
+                def cam_to_scene_coords(p):
+                    if p is None or len(p) != 2:
+                        return QPointF(center_scene.x(), center_scene.y())
+                    return QPointF(center_scene.x() + float(p[0]), center_scene.y() + float(p[1]))
+
+                mechanism_data["cam_transform_function"] = cam_to_scene_coords
+
+            elif gen_path is not None and base_map is not None:
                 brect = gen_path.boundingRect()
                 path_x_center = float(brect.center().x())
                 path_y_bottom = float(brect.bottom())
                 local_y_max = float(np.max(cam_points_local[:, 1]))
-                # Place cam such that its top (local_y_max) touches path bottom; ignore rod length for placement
-                follower_local = np.array([0.0, local_y_max])
+                follower_local = np.array([0.0, local_y_max], dtype=float)
                 follower_scene_raw = base_map(follower_local)
                 dx = path_x_center - follower_scene_raw.x()
                 dy = path_y_bottom - follower_scene_raw.y()
+
                 def cam_to_scene_coords(p):
                     if p is None or len(p) != 2:
                         return QPointF(follower_scene_raw.x() + dx, follower_scene_raw.y() + dy)
                     mapped = base_map(p)
                     return QPointF(mapped.x() + dx, mapped.y() + dy)
-                mechanism_data['cam_transform_function'] = cam_to_scene_coords
+
+                mechanism_data["cam_transform_function"] = cam_to_scene_coords
             else:
-                mechanism_data['cam_transform_function'] = base_map
+                mechanism_data["cam_transform_function"] = base_map
         except Exception:
-            mechanism_data['cam_transform_function'] = base_map
+            if explicit_center_scene is not None:
+                center_scene = QPointF(explicit_center_scene.x(), explicit_center_scene.y())
+
+                def cam_to_scene_coords(p):
+                    if p is None or len(p) != 2:
+                        return QPointF(center_scene.x(), center_scene.y())
+                    return QPointF(center_scene.x() + float(p[0]), center_scene.y() + float(p[1]))
+
+                mechanism_data["cam_transform_function"] = cam_to_scene_coords
+            else:
+                mechanism_data["cam_transform_function"] = base_map
         # Bind local mapper for convenience
         cam_to_scene_coords = mechanism_data['cam_transform_function']
         # Initial follower position at topmost y of unrotated cam (ignore rod length for default placement)
@@ -596,6 +657,18 @@ class MechanismVisualsFactory:
         # Transform key points to scene coordinates
         cam_center_scene = cam_to_scene_coords(cam_center_orig)
         follower_scene = cam_to_scene_coords(follower_pos_orig)
+
+        try:
+            u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
+            u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
+            unit_scale = math.hypot(u1.x() - u0.x(), u1.y() - u0.y())
+        except Exception:
+            unit_scale = 1.0
+
+        follower_base_scene = QPointF(
+            float(follower_scene.x()),
+            float(follower_scene.y() - (scaled_rod_length * unit_scale)),
+        )
 
         # Build cam polygon
         cam_polygon_points = []
@@ -621,42 +694,28 @@ class MechanismVisualsFactory:
         self.scene.addItem(cam_body)
         visual_items.append(cam_body)
 
-        # Create follower with appropriate size
-        follower_color = QColor("#ff9800")  # Orange
-        follower_width, follower_height = 20, 15  # Larger for visibility
-        follower_body = QGraphicsRectItem(
-            follower_scene.x() - follower_width/2,
-            follower_scene.y() - follower_height/2,
-            follower_width,
-            follower_height
+        # Build items in the order expected by animator updates:
+        # [cam body, contact point, follower rod, follower head, follower anchor, cam center]
+        # Contact point marker at local +Y max.
+        contact_color = QColor("#e53935")
+        contact_marker = QGraphicsEllipseItem(
+            follower_scene.x() - 5, follower_scene.y() - 5, 10, 10
         )
-        follower_body.setPen(_cosmetic_pen(follower_color.darker(120), 2))
-        follower_body.setBrush(QBrush(follower_color))
-        follower_body.setZValue(16)  # Above cam
-        follower_body.setToolTip("Follower - Moves up/down as cam rotates")
-        self.scene.addItem(follower_body)
-        visual_items.append(follower_body)
+        contact_marker.setPen(_cosmetic_pen(contact_color.darker(130), 2))
+        contact_marker.setBrush(QBrush(contact_color))
+        contact_marker.setZValue(18)
+        contact_marker.setToolTip("Cam Contact Point")
+        self.scene.addItem(contact_marker)
+        visual_items.append(contact_marker)
 
-        # Create cam center marker (rotation point)
-        cam_center_color = QColor("#f44336")  # Red for rotation center
-        cam_center_marker = QGraphicsEllipseItem(
-            cam_center_scene.x() - 5, cam_center_scene.y() - 5, 10, 10
-        )
-        cam_center_marker.setPen(_cosmetic_pen(cam_center_color.darker(150), 2))
-        cam_center_marker.setBrush(QBrush(cam_center_color))
-        cam_center_marker.setZValue(20)  # Top level
-        cam_center_marker.setToolTip("Cam Center - Rotation axis")
-        self.scene.addItem(cam_center_marker)
-        visual_items.append(cam_center_marker)
-
-        # Create follower rod line from cam top (support point) to follower
+        # Create follower rod line from cam top (contact point) to follower.
         rod_pen = _cosmetic_pen("#9e9e9e", 3, Qt.PenStyle.DashLine)
         pts = mechanism_data.get('cam_points_local')
         y_max = float(np.max(pts[:, 1]))
         cam_top_scene = cam_to_scene_coords(np.array([0.0, y_max]))
         follower_rod = QGraphicsLineItem(
             cam_top_scene.x(), cam_top_scene.y(),
-            follower_scene.x(), follower_scene.y()
+            follower_base_scene.x(), follower_base_scene.y()
         )
         follower_rod.setPen(rod_pen)
         follower_rod.setZValue(14)  # Below cam but above parts
@@ -664,9 +723,50 @@ class MechanismVisualsFactory:
         self.scene.addItem(follower_rod)
         visual_items.append(follower_rod)
 
+        # Follower head (animated in-place by visual animator).
+        follower_color = QColor("#ff9800")
+        follower_body = QGraphicsRectItem(
+            follower_base_scene.x() - 15,
+            follower_base_scene.y() - 8,
+            30,
+            15,
+        )
+        follower_body.setPen(_cosmetic_pen(follower_color.darker(120), 2))
+        follower_body.setBrush(QBrush(follower_color))
+        follower_body.setZValue(16)
+        follower_body.setToolTip("Follower Head")
+        self.scene.addItem(follower_body)
+        visual_items.append(follower_body)
+
+        # Follower anchor/guide block.
+        follower_anchor = QGraphicsRectItem(
+            follower_base_scene.x() - 30,
+            follower_base_scene.y() - 45,
+            60,
+            30,
+        )
+        follower_anchor.setPen(_cosmetic_pen("#616161", 2))
+        follower_anchor.setBrush(QBrush(QColor("#bdbdbd")))
+        follower_anchor.setZValue(13)
+        follower_anchor.setToolTip("Follower Guide")
+        self.scene.addItem(follower_anchor)
+        visual_items.append(follower_anchor)
+
+        # Cam center marker (rotation point).
+        cam_center_color = QColor("#f44336")
+        cam_center_marker = QGraphicsEllipseItem(
+            cam_center_scene.x() - 8, cam_center_scene.y() - 8, 16, 16
+        )
+        cam_center_marker.setPen(_cosmetic_pen(cam_center_color.darker(150), 2))
+        cam_center_marker.setBrush(QBrush(cam_center_color))
+        cam_center_marker.setZValue(20)
+        cam_center_marker.setToolTip("Cam Center - Rotation axis")
+        self.scene.addItem(cam_center_marker)
+        visual_items.append(cam_center_marker)
+
         # Store follower's fixed X position in scene coordinates for vertical motion constraint
         try:
-            mechanism_data['follower_fixed_x_scene'] = float(follower_scene.x())
+            mechanism_data['follower_fixed_x_scene'] = float(follower_base_scene.x())
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
@@ -852,33 +952,68 @@ class MechanismVisualsFactory:
 
     def create_gear_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
         """Create visual representation of gear train mechanism."""
-        to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
         params = mechanism_data.get("params", {})
-
-        if not to_scene_coords or not params:
+        if not params:
             return []
 
-        r1 = params.get("r1", 30)
-        r2 = params.get("r2", 50)
+        to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
 
-        # Gear centers in original coordinates - match dataset generator
-        distance = r1 + r2  # Gears touching
-        gear1_center_orig = np.array([0, 0])
-        gear2_center_orig = np.array([distance, 0])
+        r1 = float(params.get("gear1_radius", params.get("r1", 30)))
+        r2 = float(params.get("gear2_radius", params.get("r2", 50)))
+        if r1 <= 0:
+            r1 = 1.0
+        if r2 <= 0:
+            r2 = 1.0
 
-        # Transform to scene coordinates
-        gear1_center_scene = to_scene_coords(gear1_center_orig)
-        gear2_center_scene = to_scene_coords(gear2_center_orig)
+        use_scene_geometry = all(
+            key in params for key in ("gear1_x", "gear1_y", "gear2_x", "gear2_y")
+        )
+
+        if use_scene_geometry:
+            gear1_center_scene = QPointF(float(params["gear1_x"]), float(params["gear1_y"]))
+            gear2_center_scene = QPointF(float(params["gear2_x"]), float(params["gear2_y"]))
+            r1_screen = float(params.get("gear1_radius", r1))
+            r2_screen = float(params.get("gear2_radius", r2))
+            if r1_screen <= 0:
+                r1_screen = r1
+            if r2_screen <= 0:
+                r2_screen = r2
+
+            # Keep names for diagnostics logic below.
+            gear1_center_orig = np.array([0.0, 0.0], dtype=float)
+            gear2_center_orig = np.array(
+                [float(QLineF(gear1_center_scene, gear2_center_scene).length()), 0.0], dtype=float
+            )
+        else:
+            if not to_scene_coords:
+                return []
+
+            key_points = mechanism_data.get("key_points", {})
+            if "gear1_center" in key_points and "gear2_center" in key_points:
+                gear1_center_orig = np.array(key_points["gear1_center"], dtype=float)
+                gear2_center_orig = np.array(key_points["gear2_center"], dtype=float)
+            else:
+                distance = r1 + r2
+                gear1_center_orig = np.array([0.0, 0.0], dtype=float)
+                gear2_center_orig = np.array([distance, 0.0], dtype=float)
+
+            # Transform to scene coordinates
+            gear1_center_scene = to_scene_coords(gear1_center_orig)
+            gear2_center_scene = to_scene_coords(gear2_center_orig)
+
+            # Calculate screen radii from transform scale.
+            gear1_edge_orig = gear1_center_orig + np.array([r1, 0.0], dtype=float)
+            gear1_edge_scene = to_scene_coords(gear1_edge_orig)
+            r1_screen = QLineF(gear1_center_scene, gear1_edge_scene).length()
+
+            gear2_edge_orig = gear2_center_orig + np.array([r2, 0.0], dtype=float)
+            gear2_edge_scene = to_scene_coords(gear2_edge_orig)
+            r2_screen = QLineF(gear2_center_scene, gear2_edge_scene).length()
 
         visual_items = []
 
         # Create gear 1 (driver) with proper screen coordinates
         gear1_color = QColor("#3498db")  # Blue
-
-        # Calculate screen radius for gear1
-        gear1_edge_orig = gear1_center_orig + np.array([r1, 0])
-        gear1_edge_scene = to_scene_coords(gear1_edge_orig)
-        r1_screen = QLineF(gear1_center_scene, gear1_edge_scene).length()
 
         gear1_body = self.scene.addEllipse(
             gear1_center_scene.x() - r1_screen, gear1_center_scene.y() - r1_screen,
@@ -891,11 +1026,6 @@ class MechanismVisualsFactory:
 
         # Create gear 2 (driven) with proper screen coordinates
         gear2_color = QColor("#2ecc71")  # Green
-
-        # Calculate screen radius for gear2
-        gear2_edge_orig = gear2_center_orig + np.array([r2, 0])
-        gear2_edge_scene = to_scene_coords(gear2_edge_orig)
-        r2_screen = QLineF(gear2_center_scene, gear2_edge_scene).length()
 
         gear2_body = self.scene.addEllipse(
             gear2_center_scene.x() - r2_screen, gear2_center_scene.y() - r2_screen,
@@ -956,8 +1086,12 @@ class MechanismVisualsFactory:
             pc2 = self.scene.addEllipse(gear2_center_scene.x() - r2_screen, gear2_center_scene.y() - r2_screen, r2_screen*2, r2_screen*2, dashed)
             pc2.setZValue(12)
             visual_items.append(pc2)
-            d_orig = float(np.linalg.norm(gear2_center_orig - gear1_center_orig))
-            desired = float(r1 + r2)
+            if use_scene_geometry:
+                d_orig = float(QLineF(gear1_center_scene, gear2_center_scene).length())
+                desired = float(r1_screen + r2_screen)
+            else:
+                d_orig = float(np.linalg.norm(gear2_center_orig - gear1_center_orig))
+                desired = float(r1 + r2)
             mismatch = abs(d_orig - desired)
             if mismatch > 0.5:
                 warn = self.scene.addText(f"Center distance off by {mismatch:.1f}")
@@ -996,10 +1130,52 @@ class MechanismVisualsFactory:
             planet_center_orig = np.array(gear_positions["planet_centers"][frame_idx])
             tracking_point_orig = np.array(gear_positions["tracking_points"][frame_idx])
         else:
-            # Fallback to calculated initial positions
-            sun_center_orig = np.array([0, 0])
-            planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([1, 0])  # Initial position
-            tracking_point_orig = planet_center_orig + arm_length * np.array([1, 0])  # Initial tracking point
+            key_points = mechanism_data.get("key_points", {})
+            if "sun_center" in key_points:
+                sun_center_orig = np.array(key_points["sun_center"], dtype=float)
+            elif "m_sun_x" in params and "m_sun_y" in params:
+                sun_center_orig = np.array(
+                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "sun_x" in params and "sun_y" in params:
+                sun_center_orig = np.array(
+                    [float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "gear1_x" in params and "gear1_y" in params:
+                sun_center_orig = np.array(
+                    [float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0))],
+                    dtype=float,
+                )
+            else:
+                sun_center_orig = np.array([0.0, 0.0], dtype=float)
+
+            if "planet_center" in key_points:
+                planet_center_orig = np.array(key_points["planet_center"], dtype=float)
+            elif "m_sun_x" in params and "m_sun_y" in params:
+                m_center = np.array(
+                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                    dtype=float,
+                )
+                planet_center_orig = m_center + (r_sun + r_planet) * np.array([1.0, 0.0], dtype=float)
+            elif "planet_x" in params and "planet_y" in params:
+                planet_center_orig = np.array(
+                    [float(params.get("planet_x", 0.0)), float(params.get("planet_y", 0.0))],
+                    dtype=float,
+                )
+            elif "gear2_x" in params and "gear2_y" in params:
+                planet_center_orig = np.array(
+                    [float(params.get("gear2_x", 0.0)), float(params.get("gear2_y", 0.0))],
+                    dtype=float,
+                )
+            else:
+                planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([1.0, 0.0])
+
+            if "tracking_point" in key_points:
+                tracking_point_orig = np.array(key_points["tracking_point"], dtype=float)
+            else:
+                tracking_point_orig = planet_center_orig + arm_length * np.array([1.0, 0.0])
 
         # Transform to scene coordinates
         sun_center_scene = to_scene_coords(sun_center_orig)

@@ -36,11 +36,11 @@ class ActionManager(QObject):
         # File actions
         self.create_action(
             action_id="load_parts",
-            text="&Load Character Parts...",
+            text="&Load Project...",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DialogOpenButton),
-            tooltip="Load character parts from a file",
+            tooltip="Load a project file",
             shortcut=QKeySequence("Ctrl+O"),
-            status_tip="Load character parts from a file",
+            status_tip="Load a project file",
         )
 
         self.create_action(

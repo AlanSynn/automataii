@@ -67,11 +67,16 @@ class AnimationFrameCoordinator:
         self._animation_speed: float = 1.0
         self._trace_frame_tick: int = 0
         self._mech_rr_cursor: int = 0
+        self._mechanism_id_cache: tuple[str, ...] = ()
+        self._mechanism_cache_ref_id: int | None = None
+        self._mechanism_cache_len: int = -1
 
         # IK throttling state
         self._ik_throttle_timer: QElapsedTimer = QElapsedTimer()
         self._ik_throttle_timer.invalidate()
         self._last_target_pos_by_joint: dict[str, QPointF] = {}
+        self._joint_id_cache: dict[str, str | None] = {}
+        self._joint_id_cache_signature: tuple[int, int, int] | None = None
 
         # Callbacks (injected)
         self._calculate_output_fn: Callable[[str, dict, float, dict], QPointF | None] | None = None
@@ -136,6 +141,9 @@ class AnimationFrameCoordinator:
         self._trace_frame_tick = 0
         self._mech_rr_cursor = 0
         self._last_target_pos_by_joint.clear()
+        self._joint_id_cache.clear()
+        self._joint_id_cache_signature = None
+        self._invalidate_mechanism_cache()
         self._ik_throttle_timer.invalidate()
 
     def update_frame(
@@ -223,8 +231,8 @@ class AnimationFrameCoordinator:
         """
         active_joint_updates: dict[str, QPointF] = {}
 
-        mech_items = list(mechanism_layers.items())
-        total_mechs = len(mech_items)
+        mech_ids = self._get_mechanism_id_cache(mechanism_layers)
+        total_mechs = len(mech_ids)
 
         if total_mechs == 0:
             return active_joint_updates
@@ -236,17 +244,14 @@ class AnimationFrameCoordinator:
         )
 
         start = self._mech_rr_cursor % total_mechs
-        end = start + batch_count
-
-        if end <= total_mechs:
-            selected = mech_items[start:end]
-        else:
-            selected = mech_items[start:] + mech_items[: (end % total_mechs)]
-
-        self._mech_rr_cursor = (self._mech_rr_cursor + batch_count) % total_mechs
 
         # Process selected mechanisms
-        for mechanism_id, layer_data in selected:
+        for offset in range(batch_count):
+            mechanism_id = mech_ids[(start + offset) % total_mechs]
+            layer_data = mechanism_layers.get(mechanism_id)
+            if layer_data is None:
+                self._invalidate_mechanism_cache()
+                continue
             joint_update = self._process_single_mechanism(
                 mechanism_id=mechanism_id,
                 layer_data=layer_data,
@@ -260,7 +265,30 @@ class AnimationFrameCoordinator:
                 joint_id, target_pos = joint_update
                 active_joint_updates[joint_id] = target_pos
 
+        self._mech_rr_cursor = (start + batch_count) % total_mechs
+
         return active_joint_updates
+
+    def _invalidate_mechanism_cache(self) -> None:
+        self._mechanism_id_cache = ()
+        self._mechanism_cache_ref_id = None
+        self._mechanism_cache_len = -1
+
+    def _get_mechanism_id_cache(self, mechanism_layers: dict[str, Any]) -> tuple[str, ...]:
+        cache_ref_id = id(mechanism_layers)
+        cache_len = len(mechanism_layers)
+        if (
+            cache_ref_id != self._mechanism_cache_ref_id
+            or cache_len != self._mechanism_cache_len
+        ):
+            self._mechanism_id_cache = tuple(mechanism_layers.keys())
+            self._mechanism_cache_ref_id = cache_ref_id
+            self._mechanism_cache_len = cache_len
+            if self._mechanism_id_cache:
+                self._mech_rr_cursor %= len(self._mechanism_id_cache)
+            else:
+                self._mech_rr_cursor = 0
+        return self._mechanism_id_cache
 
     def _process_single_mechanism(
         self,
@@ -315,7 +343,12 @@ class AnimationFrameCoordinator:
             if self._update_visuals_fn:
                 self._update_visuals_fn(mechanism_id, self._animation_time, layer_data)
 
-            path_trace_manager.update_trace(mechanism_id, output_pos, scene)
+            path_trace_manager.update_trace(
+                mechanism_id,
+                output_pos,
+                self._trace_frame_tick,
+                scene,
+            )
 
             # Get target joint for IK
             part_info = parts_data.get(part_name)
@@ -354,22 +387,51 @@ class AnimationFrameCoordinator:
         Returns:
             Standardized joint ID or None
         """
+        signature = self._get_joint_cache_signature(skeleton_cache)
+        if signature != self._joint_id_cache_signature:
+            self._joint_id_cache.clear()
+            self._joint_id_cache_signature = signature
+
+        if abstract_joint_id in self._joint_id_cache:
+            return self._joint_id_cache[abstract_joint_id]
+
+        resolved: str | None = None
+
         # Try callback first
         if self._get_standardized_joint_fn:
-            return self._get_standardized_joint_fn(abstract_joint_id)
+            resolved = self._get_standardized_joint_fn(abstract_joint_id)
+            self._joint_id_cache[abstract_joint_id] = resolved
+            return resolved
 
         # Fallback to direct lookup
         if skeleton_cache:
             joint_map = skeleton_cache.get("joint_map", {})
             for orig_name, std_name in joint_map.items():
                 if orig_name == abstract_joint_id:
-                    return std_name
+                    resolved = std_name
+                    self._joint_id_cache[abstract_joint_id] = resolved
+                    return resolved
 
             # Check if already a standard ID
             if abstract_joint_id in skeleton_cache.get("joints", {}):
-                return abstract_joint_id
+                resolved = abstract_joint_id
+                self._joint_id_cache[abstract_joint_id] = resolved
+                return resolved
 
+        self._joint_id_cache[abstract_joint_id] = None
         return None
+
+    def _get_joint_cache_signature(
+        self,
+        skeleton_cache: dict | None,
+    ) -> tuple[int, int, int] | None:
+        if not skeleton_cache:
+            return None
+        joints = skeleton_cache.get("joints", {})
+        joint_map = skeleton_cache.get("joint_map", {})
+        joints_len = len(joints) if isinstance(joints, dict) else 0
+        joint_map_len = len(joint_map) if isinstance(joint_map, dict) else 0
+        return (id(skeleton_cache), joints_len, joint_map_len)
 
     def _apply_ik_targets(
         self,

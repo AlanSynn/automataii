@@ -6,6 +6,7 @@ for UI widget creation, styling, and layout management.
 
 ULTRATHINK Architecture: Composition over inheritance, clear separation of concerns.
 """
+
 import logging
 
 from PyQt6.QtCore import Qt
@@ -156,12 +157,14 @@ class MechanismDesignTabLayout:
 
         # Create mechanism layers list
         mechanism_layers_list = QListWidget()
-        mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
+        mechanism_layers_list.setToolTip(
+            "Parts for mechanisms - black: has motion path, gray: no motion path"
+        )
         mechanism_layers_list.setMinimumHeight(180)
         mechanism_layers_list.setStyleSheet(self._get_list_widget_style())
 
         # Store reference for external access
-        self._created_widgets['mechanism_layers_list'] = mechanism_layers_list
+        self._created_widgets["mechanism_layers_list"] = mechanism_layers_list
 
         parts_layout.addWidget(mechanism_layers_list)
         return parts_group
@@ -182,21 +185,22 @@ class MechanismDesignTabLayout:
         recommendation_btn.setToolTip("Get mechanism recommendations based on motion paths")
         recommendation_btn.setStyleSheet(self._get_primary_button_style_compact())
         buttons_layout.addWidget(recommendation_btn)
-        self._created_widgets['recommendation_btn'] = recommendation_btn
+        self._created_widgets["recommendation_btn"] = recommendation_btn
 
         # Assign Character button
         assign_character_btn = QPushButton("Assign Character")
+        assign_character_btn.setToolTip("Assign a dummy character to mechanisms")
         assign_character_btn.setEnabled(False)
-        assign_character_btn.setToolTip("Assign a dummy character to the mechanism for simulation")
         assign_character_btn.setStyleSheet(self._get_assign_character_button_style())
         buttons_layout.addWidget(assign_character_btn)
-        self._created_widgets['assign_character_btn'] = assign_character_btn
+        self._created_widgets["assign_character_btn"] = assign_character_btn
 
         generation_layout.addLayout(buttons_layout)
 
         # Parametric Design Button (conditionally created)
         try:
             import automataii.presentation.qt.parametric_editor  # noqa: F401
+
             PARAMETRIC_AVAILABLE = True
         except ImportError:
             PARAMETRIC_AVAILABLE = False
@@ -207,11 +211,11 @@ class MechanismDesignTabLayout:
             parametric_edit_btn.setEnabled(False)
             parametric_edit_btn.setStyleSheet(self._get_secondary_button_style())
             generation_layout.addWidget(parametric_edit_btn)
-            self._created_widgets['parametric_edit_btn'] = parametric_edit_btn
+            self._created_widgets["parametric_edit_btn"] = parametric_edit_btn
 
         else:
             # Store None references for parametric features
-            self._created_widgets['parametric_edit_btn'] = None
+            self._created_widgets["parametric_edit_btn"] = None
 
         return generation_group
 
@@ -233,21 +237,21 @@ class MechanismDesignTabLayout:
         play_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         play_btn.setToolTip("Play Animation")
         play_btn.setEnabled(False)
-        self._created_widgets['play_btn'] = play_btn
+        self._created_widgets["play_btn"] = play_btn
 
         # Stop button
         stop_btn = QPushButton()
         stop_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         stop_btn.setToolTip("Stop Animation")
         stop_btn.setEnabled(False)
-        self._created_widgets['stop_btn'] = stop_btn
+        self._created_widgets["stop_btn"] = stop_btn
 
         # Reset button
         reset_btn = QPushButton()
         reset_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         reset_btn.setToolTip("Reset Animation")
         reset_btn.setEnabled(False)
-        self._created_widgets['reset_btn'] = reset_btn
+        self._created_widgets["reset_btn"] = reset_btn
 
         anim_button_layout.addStretch()
         anim_button_layout.addWidget(play_btn)
@@ -270,7 +274,7 @@ class MechanismDesignTabLayout:
         blueprint_btn.setToolTip("Export character parts and mechanisms as SVG blueprint")
         blueprint_btn.setStyleSheet(self._get_accent_button_style())
         export_layout.addWidget(blueprint_btn)
-        self._created_widgets['blueprint_btn'] = blueprint_btn
+        self._created_widgets["blueprint_btn"] = blueprint_btn
 
         # Info label
         blueprint_info_label = QLabel("Exports to single large-format blueprint (1200×1600mm)")
@@ -283,7 +287,7 @@ class MechanismDesignTabLayout:
             }
         """)
         export_layout.addWidget(blueprint_info_label)
-        self._created_widgets['blueprint_info_label'] = blueprint_info_label
+        self._created_widgets["blueprint_info_label"] = blueprint_info_label
 
         return export_group
 
@@ -303,22 +307,22 @@ class MechanismDesignTabLayout:
         zoom_in_btn = QPushButton("+")
         zoom_in_btn.setToolTip("Zoom In")
         zoom_in_btn.setStyleSheet(zoom_button_style)
-        self._created_widgets['zoom_in_btn'] = zoom_in_btn
+        self._created_widgets["zoom_in_btn"] = zoom_in_btn
 
         zoom_out_btn = QPushButton("−")
         zoom_out_btn.setToolTip("Zoom Out")
         zoom_out_btn.setStyleSheet(zoom_button_style)
-        self._created_widgets['zoom_out_btn'] = zoom_out_btn
+        self._created_widgets["zoom_out_btn"] = zoom_out_btn
 
         zoom_fit_btn = QPushButton("⌖")
         zoom_fit_btn.setToolTip("Zoom to Fit")
         zoom_fit_btn.setStyleSheet(zoom_button_style)
-        self._created_widgets['zoom_fit_btn'] = zoom_fit_btn
+        self._created_widgets["zoom_fit_btn"] = zoom_fit_btn
 
         center_character_btn = QPushButton("⎈")
         center_character_btn.setToolTip("Center on Character")
         center_character_btn.setStyleSheet(zoom_button_style)
-        self._created_widgets['center_character_btn'] = center_character_btn
+        self._created_widgets["center_character_btn"] = center_character_btn
 
         zoom_controls_layout.addWidget(zoom_in_btn)
         zoom_controls_layout.addWidget(zoom_out_btn)

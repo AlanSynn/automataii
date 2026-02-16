@@ -1,7 +1,7 @@
 """Domain models and computations for linkage mechanisms."""
 
-from .config import LinkageConfig, LinkageType, LinkRole
 from .compute import UnifiedLinkageMechanism
+from .config import LinkageConfig, LinkageType, LinkRole
 
 __all__ = [
     "LinkageConfig",

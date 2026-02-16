@@ -96,6 +96,8 @@ class CentralAnimationScheduler(QObject):
 
         # Subscriptions
         self._subscriptions: dict[str, AnimationSubscription] = {}
+        self._sorted_subscriptions_cache: tuple[AnimationSubscription, ...] = ()
+        self._subscriptions_dirty = False
 
         # State
         self._running = False
@@ -169,15 +171,17 @@ class CentralAnimationScheduler(QObject):
             enabled=True,
             frame_skip=max(1, frame_skip),
         )
+        self._subscriptions_dirty = True
 
-        logger.debug(f"Animation subscription added: {owner_id} (priority={priority.name})")
+        logger.debug("Animation subscription added: %s (priority=%s)", owner_id, priority.name)
         return owner_id
 
     def unsubscribe(self, owner_id: str) -> bool:
         """Remove a subscription."""
         if owner_id in self._subscriptions:
             del self._subscriptions[owner_id]
-            logger.debug(f"Animation subscription removed: {owner_id}")
+            self._subscriptions_dirty = True
+            logger.debug("Animation subscription removed: %s", owner_id)
             return True
         return False
 
@@ -260,17 +264,22 @@ class CentralAnimationScheduler(QObject):
         self._frame_count += 1
 
         # Debug: Log frame processing (every 30 frames = ~1 second)
-        if self._frame_count % 30 == 1:
-            logger.debug(f"[SCHEDULER] Frame {self._frame_count}: {len(self._subscriptions)} subscriptions, dt={delta_time:.4f}")
+        if logger.isEnabledFor(logging.DEBUG) and self._frame_count % 30 == 1:
+            logger.debug(
+                "[SCHEDULER] Frame %d: %d subscriptions, dt=%.4f",
+                self._frame_count,
+                len(self._subscriptions),
+                delta_time,
+            )
 
         # Emit frame started
         self.frame_started.emit(delta_time)
 
-        # Get sorted subscriptions by priority
-        sorted_subs = sorted(
-            self._subscriptions.values(),
-            key=lambda s: s.priority,
-        )
+        sorted_subs = self._get_sorted_subscriptions()
+
+        if not sorted_subs:
+            self.frame_ended.emit(0.0)
+            return
 
         # Process each subscription
         frame_start = self._elapsed_timer.elapsed()
@@ -286,20 +295,34 @@ class CentralAnimationScheduler(QObject):
             sub._frame_counter = 0
 
             # Debug: Log callback dispatch (first 5 frames only)
-            if self._frame_count <= 5:
-                logger.debug(f"[SCHEDULER] Dispatching to {sub.owner_id}")
+            if logger.isEnabledFor(logging.DEBUG) and self._frame_count <= 5:
+                logger.debug("[SCHEDULER] Dispatching to %s", sub.owner_id)
 
             # Call the callback
             try:
                 sub.callback(delta_time)
             except Exception as e:
-                logger.exception(f"Animation callback error ({sub.owner_id}): {e}")
+                logger.exception("Animation callback error (%s): %s", sub.owner_id, e)
 
         # Calculate frame processing time
         frame_time = (self._elapsed_timer.elapsed() - frame_start) / 1000.0
 
         # Emit frame ended
         self.frame_ended.emit(frame_time)
+
+    def _get_sorted_subscriptions(self) -> tuple[AnimationSubscription, ...]:
+        """Get subscriptions ordered by priority with cache."""
+        if self._subscriptions_dirty or len(self._sorted_subscriptions_cache) != len(
+            self._subscriptions
+        ):
+            self._sorted_subscriptions_cache = tuple(
+                sorted(
+                    self._subscriptions.values(),
+                    key=lambda s: s.priority,
+                )
+            )
+            self._subscriptions_dirty = False
+        return self._sorted_subscriptions_cache
 
     # =========================================================================
     # DEBUG / STATISTICS
@@ -328,5 +351,5 @@ class CentralAnimationScheduler(QObject):
                 "enabled": s.enabled,
                 "frame_skip": s.frame_skip,
             }
-            for s in sorted(self._subscriptions.values(), key=lambda x: x.priority)
+            for s in self._get_sorted_subscriptions()
         ]

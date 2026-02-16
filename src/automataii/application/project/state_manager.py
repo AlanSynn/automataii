@@ -19,6 +19,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -280,6 +281,11 @@ class ProjectStateManager(QObject):
         self._apply_state(new_state, "load_skeleton", {"joints": len(skeleton.joints)}, categories={"skeleton"})
         logger.info(f"Loaded skeleton with {len(skeleton.joints)} joints")
 
+    def clear_skeleton(self) -> None:
+        """Clear skeleton data."""
+        new_state = self._state.with_skeleton(None)
+        self._apply_state(new_state, "clear_skeleton", {}, categories={"skeleton"})
+
     def update_joint(self, joint: JointData) -> None:
         """Update a single joint."""
         if not self._state.skeleton:
@@ -365,6 +371,30 @@ class ProjectStateManager(QObject):
         """Load all mechanisms (typically from project file)."""
         new_state = self._state.with_mechanisms(mechanisms)
         self._apply_state(new_state, "load_mechanisms", {"count": len(mechanisms)}, categories={"mechanisms"})
+
+    # =========================================================================
+    # PROJECT CONTEXT MUTATIONS
+    # =========================================================================
+
+    def set_project_dir(self, project_dir: Path | None) -> None:
+        """Set active project directory."""
+        new_state = self._state.with_project_dir(project_dir)
+        self._apply_state(
+            new_state,
+            "set_project_dir",
+            {"project_dir": str(project_dir) if project_dir else None},
+            categories=set(),
+        )
+
+    def set_image_path(self, image_path: Path | None) -> None:
+        """Set active source image path."""
+        new_state = self._state.with_image_path(image_path)
+        self._apply_state(
+            new_state,
+            "set_image_path",
+            {"image_path": str(image_path) if image_path else None},
+            categories=set(),
+        )
 
     # =========================================================================
     # PROJECT LIFECYCLE

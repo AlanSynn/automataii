@@ -4,12 +4,14 @@ Mechanism Foundry View - Clean UI for interactive mechanism visualization
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QBrush, QColor, QMouseEvent, QPen
+from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QBrush, QColor, QMouseEvent, QPen, QPolygonF
 from PyQt6.QtWidgets import (
     QComboBox,
+    QGraphicsItem,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
@@ -45,18 +47,97 @@ if TYPE_CHECKING:
 else:
     from automataii.application.mechanism_foundry.path_cache import PathCache
     from automataii.domain.mechanisms.cam.compute import CamFollowerMechanism
-    from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig, SafetyLevel
+    from automataii.domain.mechanisms.core.state import (
+        MechanismState,
+        RenderConfig,
+        SafetyLevel,
+        SafetyStatus,
+    )
     from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
     from automataii.presentation.qt.mechanisms.renderers import LinkageRenderer
     from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
+
+
+class _GearTrainPreviewMechanism:
+    """Lightweight Foundry-only mechanism for gear train preview/export."""
+
+    mechanism_type = "gear_train"
+    _module = 3.0
+
+    def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
+        teeth1 = max(1.0, float(parameters.get("gear1_teeth", 12.0)))
+        teeth2 = max(1.0, float(parameters.get("gear2_teeth", 18.0)))
+
+        r1 = teeth1 * self._module
+        r2 = teeth2 * self._module
+        center_distance = r1 + r2 + 2.0
+
+        g1 = (-center_distance / 2.0, 0.0)
+        g2 = (center_distance / 2.0, 0.0)
+
+        theta1 = math.radians(float(input_angle))
+        theta2 = -theta1 * (r1 / r2)
+
+        p1 = (g1[0] + r1 * math.cos(theta1), g1[1] + r1 * math.sin(theta1))
+        p2 = (g2[0] + r2 * math.cos(theta2), g2[1] + r2 * math.sin(theta2))
+
+        return MechanismState(
+            positions={
+                "gear1_center": g1,
+                "gear2_center": g2,
+                "gear1_indicator_end": p1,
+                "gear2_indicator_end": p2,
+            },
+            safety_status=SafetyStatus(SafetyLevel.SAFE, "Gear mesh nominal"),
+            metadata={"r1": r1, "r2": r2, "theta1": theta1, "theta2": theta2},
+        )
+
+
+class _SliderCrankPreviewMechanism:
+    """Lightweight Foundry-only mechanism for slider-crank preview/export."""
+
+    mechanism_type = "slider_crank"
+
+    def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
+        crank = max(1.0, float(parameters.get("crank_length", 80.0)))
+        rod = max(crank + 1.0, float(parameters.get("rod_length", 140.0)))
+
+        theta = math.radians(float(input_angle))
+        crank_end = (crank * math.cos(theta), crank * math.sin(theta))
+
+        inside = max(0.0, rod * rod - crank_end[1] * crank_end[1])
+        slider_x = crank_end[0] + math.sqrt(inside)
+        slider_pin = (slider_x, 0.0)
+
+        warning = abs(crank_end[1]) > rod
+        safety = (
+            SafetyStatus(SafetyLevel.WARNING, "Rod too short for full stroke")
+            if warning
+            else SafetyStatus(SafetyLevel.SAFE, "Kinematics feasible")
+        )
+
+        return MechanismState(
+            positions={
+                "ground_pivot": (0.0, 0.0),
+                "crank_end": crank_end,
+                "slider_pin": slider_pin,
+                "slider_center": slider_pin,
+            },
+            safety_status=safety,
+            metadata={"crank_length": crank, "rod_length": rod},
+        )
 
 
 class MechanismFoundryView(QWidget):
     """Mechanism Foundry View - Interactive mechanism visualization and export."""
 
     # Signal emitted when user requests to export mechanism to Design tab
-    # Carries: (mechanism_type: str, parameters: dict, pivot_point: tuple)
-    export_to_design_requested = pyqtSignal(str, dict, tuple)
+    # Carries: (mechanism_id: str, mechanism_type: str, parameters: dict, pivot_point: tuple)
+    export_to_design_requested = pyqtSignal(str, str, dict, tuple)
+
+    # Signal emitted when mechanism parameters change (for bidirectional sync)
+    # Carries: (mechanism_id: str, mechanism_type: str, parameters: dict)
+    mechanism_parameters_changed = pyqtSignal(str, str, dict)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -66,6 +147,10 @@ class MechanismFoundryView(QWidget):
         self.current_parameters: dict[str, float] = {}
         self.current_angle: float = 30.0
 
+        # Bidirectional sync: track mechanism ID shared with Design Tab
+        self.synced_mechanism_id: str | None = None
+        self._suppress_sync_signal: bool = False  # Prevent infinite loops
+
         self.fourbar_renderer = LinkageRenderer()
         self.render_config = RenderConfig(
             show_forces=True, show_labels=True, show_safety_zones=True
@@ -74,6 +159,10 @@ class MechanismFoundryView(QWidget):
         self.show_forces = True
         self.show_velocity = False
         self.show_trail = False
+        self._last_rendered_state: MechanismState | None = None
+        self._last_rendered_mechanism: Mechanism | None = None
+        self._state_cache_valid = False
+        self._last_safety_html: str | None = None
 
         self.scene = QGraphicsScene()
         self.scene.setSceneRect(-400, -300, 800, 600)
@@ -95,6 +184,10 @@ class MechanismFoundryView(QWidget):
         self.path_preview_overlay = PathPreviewOverlay(self.scene, self.path_cache)
         self.content_loader = ContentLoader()
 
+        # Cache for reusable visual items (performance optimization)
+        # Dictionary mapping key -> QGraphicsItem
+        self.visual_items_cache: dict[str, QGraphicsItem] = {}
+
         # Parameter debounce to avoid expensive renders during slider drag
         self._param_debounce_timer = QTimer()
         self._param_debounce_timer.setSingleShot(True)
@@ -108,6 +201,20 @@ class MechanismFoundryView(QWidget):
         self.info_text = None  # Back-compat for tests expecting info_text attribute
 
         self._build_ui()
+
+    @staticmethod
+    def _to_controller_mechanism_type(mechanism_type: str) -> str:
+        """Normalize mechanism type aliases to controller configuration keys."""
+        return {
+            "fourbar": "four_bar",
+            "four_bar": "four_bar",
+            "4_bar_linkage": "four_bar",
+            "cam": "cam_follower",
+            "gear": "gear_train",
+            "planetary_gear": "gear_train",
+            "slidercrank": "slider_crank",
+            "slider-crank": "slider_crank",
+        }.get(mechanism_type, mechanism_type)
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -163,7 +270,13 @@ class MechanismFoundryView(QWidget):
         return widget
 
     def _on_gallery_mechanism_selected(self, mechanism_type: str) -> None:
-        self._load_mechanism(mechanism_type)
+        canonical_type = self._to_controller_mechanism_type(mechanism_type)
+        if self.mechanism_selector:
+            idx = self.mechanism_selector.findData(canonical_type)
+            if idx >= 0:
+                with blocked_signals(self.mechanism_selector):
+                    self.mechanism_selector.setCurrentIndex(idx)
+        self._load_mechanism(canonical_type)
         if self.stacked_widget:
             self.stacked_widget.setCurrentIndex(1)
 
@@ -225,7 +338,9 @@ class MechanismFoundryView(QWidget):
         toolbar.addSeparator()
 
         export_action = QAction("📤 Add to Mechanism Tab", self)
-        export_action.setToolTip("Add this mechanism configuration to the Mechanism Tab for simulation")
+        export_action.setToolTip(
+            "Add this mechanism configuration to the Mechanism Tab for simulation"
+        )
         export_action.triggered.connect(self._on_export_to_design)
         toolbar.addAction(export_action)
 
@@ -267,13 +382,22 @@ class MechanismFoundryView(QWidget):
 
     def _on_export_to_design(self) -> None:
         """Export current mechanism configuration to Mechanism Design tab."""
-        if not self.current_mechanism or not self.mechanism_selector:
+        if not self.current_mechanism:
             return
 
-        # Get current mechanism type
-        mechanism_type = self.mechanism_selector.currentData()
+        # Always export the actually loaded mechanism type, not stale selector UI state.
+        mechanism_type = self._to_controller_mechanism_type(
+            self.current_mechanism.mechanism_type
+        )
+        if not mechanism_type and self.mechanism_selector:
+            mechanism_type = self.mechanism_selector.currentData()
         if not mechanism_type:
             return
+
+        # Generate mechanism ID for bidirectional sync tracking
+        import uuid
+        mechanism_id = f"foundry_{uuid.uuid4().hex[:8]}"
+        self.synced_mechanism_id = mechanism_id
 
         # Get current parameters (copy to avoid mutation)
         parameters = dict(self.current_parameters)
@@ -282,8 +406,8 @@ class MechanismFoundryView(QWidget):
         # Default pivot at center of mechanism
         pivot_point = (0.0, 0.0)
 
-        # Emit signal for main_window to route to Design tab
-        self.export_to_design_requested.emit(mechanism_type, parameters, pivot_point)
+        # Emit signal for main_window to route to Design tab (includes mechanism_id)
+        self.export_to_design_requested.emit(mechanism_id, mechanism_type, parameters, pivot_point)
 
     def _create_controls_panel(self) -> QWidget:
         panel = QWidget()
@@ -361,21 +485,48 @@ class MechanismFoundryView(QWidget):
         self._load_mechanism(mechanism_type)
 
     def _load_mechanism(self, mechanism_type: str) -> None:
-        if mechanism_type == "four_bar":
+        canonical_type = self._to_controller_mechanism_type(mechanism_type)
+
+        if self.mechanism_selector:
+            idx = self.mechanism_selector.findData(canonical_type)
+            if idx >= 0 and self.mechanism_selector.currentIndex() != idx:
+                with blocked_signals(self.mechanism_selector):
+                    self.mechanism_selector.setCurrentIndex(idx)
+
+        # Clear visual cache when switching mechanism types
+        for item in self.visual_items_cache.values():
+            if item.scene() == self.scene:
+                self.scene.removeItem(item)
+        self.visual_items_cache.clear()
+        self._last_rendered_state = None
+        self._last_rendered_mechanism = None
+        self._state_cache_valid = False
+        self._last_safety_html = None
+
+        # Clear legacy items too just in case
+        for item in list(self.scene.items()):
+            if hasattr(item, "data") and item.data(0) == "mechanism_item":
+                self.scene.removeItem(item)
+
+        if canonical_type == "four_bar":
             self.current_mechanism = FourBarMechanism()
-        elif mechanism_type == "cam_follower":
+        elif canonical_type == "cam_follower":
             self.current_mechanism = CamFollowerMechanism()
+        elif canonical_type == "gear_train":
+            self.current_mechanism = _GearTrainPreviewMechanism()
+        elif canonical_type == "slider_crank":
+            self.current_mechanism = _SliderCrankPreviewMechanism()
         else:
             self.current_mechanism = None
             return
 
-        config = self.controller.get_configuration(mechanism_type)
+        config = self.controller.get_configuration(canonical_type)
         if not config:
             return
 
         self.current_parameters = config.initial_parameters()
         self._rebuild_parameter_sliders(config.parameter_specs)
-        self._update_info_panel(mechanism_type, config)
+        self._update_info_panel(canonical_type, config)
         self._render_mechanism()
 
     def _update_info_panel(self, mechanism_type: str, config) -> None:
@@ -430,6 +581,7 @@ class MechanismFoundryView(QWidget):
     ) -> None:
         """Queue parameter change with debounce. Label updates immediately."""
         self.current_parameters[param_key] = value
+        self._state_cache_valid = False
         if is_integer:
             label.setText(f"{int(value)}")
         else:
@@ -442,14 +594,38 @@ class MechanismFoundryView(QWidget):
         self._render_mechanism()
 
         if self.current_mechanism:
-            config = self.controller.get_configuration(self.current_mechanism.mechanism_type)
+            config_type = self._to_controller_mechanism_type(
+                self.current_mechanism.mechanism_type
+            )
+            config = self.controller.get_configuration(config_type)
             if config:
-                self._update_info_panel(self.current_mechanism.mechanism_type, config)
+                self._update_info_panel(config_type, config)
+
+            # Emit sync signal if we have a synced mechanism (bidirectional sync)
+            if self.synced_mechanism_id and not self._suppress_sync_signal:
+                params = dict(self.current_parameters)
+                params["input_angle"] = self.current_angle
+                self.mechanism_parameters_changed.emit(
+                    self.synced_mechanism_id,
+                    self.current_mechanism.mechanism_type,
+                    params,
+                )
 
     def _on_angle_changed(self, value: int) -> None:
         self.current_angle = float(value)
         self.angle_label.setText(f"{value}°")
+        self._state_cache_valid = False
         self._render_mechanism()
+
+        # Emit sync signal for angle change (bidirectional sync)
+        if self.synced_mechanism_id and self.current_mechanism and not self._suppress_sync_signal:
+            params = dict(self.current_parameters)
+            params["input_angle"] = self.current_angle
+            self.mechanism_parameters_changed.emit(
+                self.synced_mechanism_id,
+                self.current_mechanism.mechanism_type,
+                params,
+            )
 
     def _toggle_play(self) -> None:
         if self.is_playing:
@@ -478,34 +654,255 @@ class MechanismFoundryView(QWidget):
 
     def _render_mechanism(self) -> None:
         if not self.current_mechanism:
+            self._last_rendered_state = None
+            self._last_rendered_mechanism = None
+            self._state_cache_valid = False
             return
 
-        for item in list(self.scene.items()):
-            if hasattr(item, "data") and item.data(0) == "mechanism_item":
-                self.scene.removeItem(item)
+        # Optimization: Only clear items if mechanism type changed or explicit reset needed
+        # For simple parameter updates, we reuse the items via the cache.
+        # However, to be safe against topology changes, we rely on the renderer's update logic.
+        # We NO LONGER clear the scene every frame.
 
         try:
             state = self.current_mechanism.compute_state(
                 self.current_parameters, self.current_angle
             )
+            self._last_rendered_state = state
+            self._last_rendered_mechanism = self.current_mechanism
+            self._state_cache_valid = True
             self._draw_mechanism_state(state)
             self._update_safety_display(state)
         except Exception as e:
+            self._last_rendered_state = None
+            self._last_rendered_mechanism = None
+            self._state_cache_valid = False
+            self._last_safety_html = None
             self.safety_label.setText(f"Error: {str(e)}")
 
     def _draw_mechanism_state(self, state: MechanismState) -> None:
         mechanism_type = self.current_mechanism.mechanism_type if self.current_mechanism else None
 
         if mechanism_type == "fourbar":
-            items = self.fourbar_renderer.render(state, self.scene, self.render_config)
-            for item in items:
-                if item:
-                    item.setData(0, "mechanism_item")
+            # Use optimized update_scene method
+            self.fourbar_renderer.update_scene(
+                state, self.scene, self.render_config, self.visual_items_cache
+            )
             self._show_default_paths(state)
         elif mechanism_type == "cam_follower":
-            self._draw_cam_mechanism(state)
+            self._draw_cam_mechanism_optimized(state)
+        elif mechanism_type == "gear_train":
+            self._draw_gear_mechanism_optimized(state)
+        elif mechanism_type == "slider_crank":
+            self._draw_slider_crank_mechanism_optimized(state)
 
-    def _draw_cam_mechanism(self, state: MechanismState) -> None:
+    def _draw_cam_mechanism_optimized(self, state: MechanismState) -> None:
+        """Optimized drawing for Cam mechanism using item caching."""
+        positions = state.positions
+        cam_center = positions.get("cam_center", (0, 0))
+        contact_point = positions.get("contact_point", (0, 0))
+        follower_base = positions.get("follower_base", (0, 0))
+        follower_end = positions.get("follower_end", (0, 0))
+
+        cache = self.visual_items_cache
+
+        # 1. Cam Profile
+        cam_profile = state.metadata.get("cam_profile", [])
+        if cam_profile:
+            cam_pen = QPen(QColor(70, 130, 180), 3)
+            # Reusing lines for cam profile is tricky because point count might change
+            # But for a fixed resolution profile, we can reuse.
+            # Simpler approach for now: Group profile as a Path or Polygon if possible,
+            # or just manage lines dynamically.
+            # Given cam profile rotates, a QGraphicsPolygonItem is better than many lines.
+
+            poly_points = [QPointF(x, y) for x, y in cam_profile]
+            if poly_points:
+                polygon = QPolygonF(poly_points)
+                if "cam_poly" not in cache:
+                    item = self.scene.addPolygon(
+                        polygon, cam_pen, QBrush(QColor(70, 130, 180, 100))
+                    )
+                    item.setData(0, "mechanism_item")
+                    cache["cam_poly"] = item
+                else:
+                    cache["cam_poly"].setPolygon(polygon)
+
+        # 2. Cam Center
+        if "cam_center" not in cache:
+            item = self.scene.addEllipse(
+                0, 0, 16, 16, QPen(QColor(255, 0, 0), 2), QBrush(QColor(255, 100, 100))
+            )
+            item.setData(0, "mechanism_item")
+            cache["cam_center"] = item
+        cache["cam_center"].setRect(cam_center[0] - 8, cam_center[1] - 8, 16, 16)
+
+        # 3. Contact Point
+        if "contact_pt" not in cache:
+            item = self.scene.addEllipse(
+                0, 0, 10, 10, QPen(QColor(220, 20, 60), 3), QBrush(QColor(220, 20, 60))
+            )
+            item.setData(0, "mechanism_item")
+            cache["contact_pt"] = item
+        cache["contact_pt"].setRect(contact_point[0] - 5, contact_point[1] - 5, 10, 10)
+
+        # 4. Follower Line (Rod)
+        if "follower_rod" not in cache:
+            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor(80, 80, 80), 6))
+            item.setData(0, "mechanism_item")
+            cache["follower_rod"] = item
+        cache["follower_rod"].setLine(
+            float(follower_base[0]),
+            float(follower_base[1]),
+            float(follower_end[0]),
+            float(follower_end[1]),
+        )
+
+        # 5. Follower Head
+        follower_width, follower_height = 30, 15
+        if "follower_head" not in cache:
+            item = self.scene.addRect(
+                0,
+                0,
+                follower_width,
+                follower_height,
+                QPen(QColor(50, 50, 50), 2),
+                QBrush(QColor(120, 120, 120)),
+            )
+            item.setData(0, "mechanism_item")
+            cache["follower_head"] = item
+        cache["follower_head"].setRect(
+            follower_end[0] - follower_width / 2,
+            follower_end[1] - follower_height / 2,
+            follower_width,
+            follower_height,
+        )
+
+        # 6. Guide Line
+        if "guide_line" not in cache:
+            guide_pen = QPen(QColor(150, 150, 150), 2, Qt.PenStyle.DashLine)
+            item = self.scene.addLine(0, 0, 0, 0, guide_pen)
+            item.setData(0, "mechanism_item")
+            cache["guide_line"] = item
+        cache["guide_line"].setLine(
+            float(follower_base[0]),
+            float(follower_base[1] - 50),
+            float(follower_base[0]),
+            float(cam_center[1] + 150),
+        )
+
+        # 7. Base Rect
+        base_width, base_height = 60, 30
+        if "base_rect" not in cache:
+            item = self.scene.addRect(
+                0,
+                0,
+                base_width,
+                base_height,
+                QPen(QColor(80, 80, 80), 3),
+                QBrush(QColor(100, 100, 100)),
+            )
+            item.setData(0, "mechanism_item")
+            cache["base_rect"] = item
+        cache["base_rect"].setRect(
+            follower_base[0] - base_width / 2,
+            follower_base[1] - base_height / 2,
+            base_width,
+            base_height,
+        )
+
+    def _draw_gear_mechanism_optimized(self, state: MechanismState) -> None:
+        """Optimized drawing for gear train preview using item caching."""
+        positions = state.positions
+        metadata = state.metadata or {}
+        cache = self.visual_items_cache
+
+        g1 = positions.get("gear1_center", (-60.0, 0.0))
+        g2 = positions.get("gear2_center", (60.0, 0.0))
+        p1 = positions.get("gear1_indicator_end", (g1[0] + 30.0, g1[1]))
+        p2 = positions.get("gear2_indicator_end", (g2[0] + 45.0, g2[1]))
+
+        r1 = float(metadata.get("r1", 30.0))
+        r2 = float(metadata.get("r2", 45.0))
+
+        if "gear1_body" not in cache:
+            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor("#1f77b4"), 3), QBrush(QColor("#9ecae1")))
+            item.setData(0, "mechanism_item")
+            cache["gear1_body"] = item
+        cache["gear1_body"].setRect(g1[0] - r1, g1[1] - r1, r1 * 2.0, r1 * 2.0)
+
+        if "gear2_body" not in cache:
+            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor("#2ca02c"), 3), QBrush(QColor("#b5e7a0")))
+            item.setData(0, "mechanism_item")
+            cache["gear2_body"] = item
+        cache["gear2_body"].setRect(g2[0] - r2, g2[1] - r2, r2 * 2.0, r2 * 2.0)
+
+        if "gear1_indicator" not in cache:
+            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ffffff"), 2))
+            item.setData(0, "mechanism_item")
+            cache["gear1_indicator"] = item
+        cache["gear1_indicator"].setLine(g1[0], g1[1], p1[0], p1[1])
+
+        if "gear2_indicator" not in cache:
+            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ffffff"), 2))
+            item.setData(0, "mechanism_item")
+            cache["gear2_indicator"] = item
+        cache["gear2_indicator"].setLine(g2[0], g2[1], p2[0], p2[1])
+
+        if "gear_mesh_line" not in cache:
+            mesh_pen = QPen(QColor(120, 120, 120), 1, Qt.PenStyle.DashLine)
+            item = self.scene.addLine(0, 0, 0, 0, mesh_pen)
+            item.setData(0, "mechanism_item")
+            cache["gear_mesh_line"] = item
+        cache["gear_mesh_line"].setLine(g1[0], g1[1], g2[0], g2[1])
+
+    def _draw_slider_crank_mechanism_optimized(self, state: MechanismState) -> None:
+        """Optimized drawing for slider-crank preview using item caching."""
+        positions = state.positions
+        cache = self.visual_items_cache
+
+        ground = positions.get("ground_pivot", (0.0, 0.0))
+        crank_end = positions.get("crank_end", (80.0, 0.0))
+        slider_pin = positions.get("slider_pin", (180.0, 0.0))
+        slider_center = positions.get("slider_center", slider_pin)
+
+        if "slider_guide" not in cache:
+            guide_pen = QPen(QColor(130, 130, 130), 2, Qt.PenStyle.DashLine)
+            item = self.scene.addLine(-260, 0, 260, 0, guide_pen)
+            item.setData(0, "mechanism_item")
+            cache["slider_guide"] = item
+
+        if "crank_link" not in cache:
+            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#1f77b4"), 4))
+            item.setData(0, "mechanism_item")
+            cache["crank_link"] = item
+        cache["crank_link"].setLine(ground[0], ground[1], crank_end[0], crank_end[1])
+
+        if "rod_link" not in cache:
+            item = self.scene.addLine(0, 0, 0, 0, QPen(QColor("#ff7f0e"), 4))
+            item.setData(0, "mechanism_item")
+            cache["rod_link"] = item
+        cache["rod_link"].setLine(crank_end[0], crank_end[1], slider_pin[0], slider_pin[1])
+
+        if "ground_pivot" not in cache:
+            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(110, 110, 110)))
+            item.setData(0, "mechanism_item")
+            cache["ground_pivot"] = item
+        cache["ground_pivot"].setRect(ground[0] - 7, ground[1] - 7, 14, 14)
+
+        if "crank_pin" not in cache:
+            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(220, 120, 80)))
+            item.setData(0, "mechanism_item")
+            cache["crank_pin"] = item
+        cache["crank_pin"].setRect(crank_end[0] - 6, crank_end[1] - 6, 12, 12)
+
+        if "slider_block" not in cache:
+            item = self.scene.addRect(0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(180, 180, 180)))
+            item.setData(0, "mechanism_item")
+            cache["slider_block"] = item
+        cache["slider_block"].setRect(slider_center[0] - 18, slider_center[1] - 12, 36, 24)
+
+    def _draw_mechanism_state_legacy(self, state: MechanismState) -> None:
         positions = state.positions
         cam_center = positions.get("cam_center", (0, 0))
         contact_point = positions.get("contact_point", (0, 0))
@@ -597,7 +994,11 @@ class MechanismFoundryView(QWidget):
             color = "red"
             prefix = "✗"
 
-        self.safety_label.setText(f"<span style='color:{color}'>{prefix} {safety.message}</span>")
+        safety_html = f"<span style='color:{color}'>{prefix} {safety.message}</span>"
+        if safety_html == self._last_safety_html:
+            return
+        self._last_safety_html = safety_html
+        self.safety_label.setText(safety_html)
 
     def _draw_grid(self) -> None:
         major_grid = 100
@@ -662,16 +1063,26 @@ class MechanismFoundryView(QWidget):
     def _get_hovered_point_name(self, view_pos: QPoint) -> str | None:
         scene_pos = self.graphics_view.mapToScene(view_pos)
         threshold = 20.0
+        threshold_sq = threshold * threshold
 
         if not self.current_mechanism:
             return None
 
-        try:
-            state = self.current_mechanism.compute_state(
-                self.current_parameters, self.current_angle
-            )
-        except Exception:
-            return None
+        state = self._last_rendered_state
+        if (
+            not self._state_cache_valid
+            or state is None
+            or self._last_rendered_mechanism is not self.current_mechanism
+        ):
+            try:
+                state = self.current_mechanism.compute_state(
+                    self.current_parameters, self.current_angle
+                )
+            except Exception:
+                return None
+            self._last_rendered_state = state
+            self._last_rendered_mechanism = self.current_mechanism
+            self._state_cache_valid = True
 
         mechanism_type = self.current_mechanism.mechanism_type
 
@@ -686,8 +1097,229 @@ class MechanismFoundryView(QWidget):
             position = state.positions.get(point_name)
             if position:
                 px, py = position
-                distance = ((scene_pos.x() - px) ** 2 + (scene_pos.y() - py) ** 2) ** 0.5
-                if distance < threshold:
+                dx = scene_pos.x() - px
+                dy = scene_pos.y() - py
+                if (dx * dx + dy * dy) < threshold_sq:
                     return point_name
 
         return None
+
+    # --- Bidirectional Sync Methods ---
+
+    def _map_design_params_to_foundry(
+        self,
+        mechanism_type: str,
+        parameters: dict,
+    ) -> dict[str, float]:
+        """Map Design-tab parameter schema to Foundry parameter schema."""
+        mapped: dict[str, float] = {}
+
+        def _pick_float(*keys: str) -> float | None:
+            for key in keys:
+                if key in parameters:
+                    try:
+                        return float(parameters[key])
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
+        mechanism_type = {
+            "4_bar_linkage": "fourbar",
+            "four_bar": "fourbar",
+            "cam": "cam_follower",
+            "gear": "gear_train",
+            "slider-crank": "slider_crank",
+            "slidercrank": "slider_crank",
+        }.get(mechanism_type, mechanism_type)
+
+        if mechanism_type == "fourbar":
+            ground_link = _pick_float("l1", "L1")
+            if ground_link is not None:
+                mapped["ground_link"] = ground_link
+
+            input_link = _pick_float("l2", "L2")
+            if input_link is not None:
+                mapped["input_link"] = input_link
+
+            coupler_link = _pick_float("l3", "L3")
+            if coupler_link is not None:
+                mapped["coupler_link"] = coupler_link
+
+            output_link = _pick_float("l4", "L4")
+            if output_link is not None:
+                mapped["output_link"] = output_link
+
+            input_angle = _pick_float("input_angle", "crank_angle")
+            if input_angle is not None:
+                mapped["input_angle"] = input_angle
+
+        elif mechanism_type == "cam_follower":
+            if "base_radius" in parameters:
+                mapped["cam_radius"] = float(parameters["base_radius"])
+            if "eccentricity" in parameters:
+                mapped["cam_offset"] = float(parameters["eccentricity"])
+            if "follower_rod_length" in parameters:
+                mapped["follower_length"] = float(parameters["follower_rod_length"])
+            if "cam_lobes" in parameters:
+                mapped["cam_lobes"] = float(parameters["cam_lobes"])
+            if "profile_harmonic" in parameters:
+                mapped["profile_harmonic"] = float(parameters["profile_harmonic"])
+            if "input_angle" in parameters:
+                mapped["input_angle"] = float(parameters["input_angle"])
+
+        elif mechanism_type == "gear_train":
+            # Prefer live radii from Design editing over stale tooth-count params.
+            if "gear1_radius" in parameters:
+                mapped["gear1_teeth"] = float(round(float(parameters["gear1_radius"]) / 3.0))
+            elif "r1" in parameters:
+                mapped["gear1_teeth"] = float(round(float(parameters["r1"]) / 3.0))
+            elif "gear1_teeth" in parameters:
+                mapped["gear1_teeth"] = float(parameters["gear1_teeth"])
+
+            if "gear2_radius" in parameters:
+                mapped["gear2_teeth"] = float(round(float(parameters["gear2_radius"]) / 3.0))
+            elif "r2" in parameters:
+                mapped["gear2_teeth"] = float(round(float(parameters["r2"]) / 3.0))
+            elif "gear2_teeth" in parameters:
+                mapped["gear2_teeth"] = float(parameters["gear2_teeth"])
+
+            if "input_torque" in parameters:
+                mapped["input_torque"] = float(parameters["input_torque"])
+            if "input_angle" in parameters:
+                mapped["input_angle"] = float(parameters["input_angle"])
+
+        elif mechanism_type == "slider_crank":
+            if "crank_length" in parameters:
+                mapped["crank_length"] = float(parameters["crank_length"])
+            elif "l2" in parameters:
+                mapped["crank_length"] = float(parameters["l2"])
+
+            if "rod_length" in parameters:
+                mapped["rod_length"] = float(parameters["rod_length"])
+            elif "l3" in parameters:
+                mapped["rod_length"] = float(parameters["l3"])
+            elif "l4" in parameters:
+                mapped["rod_length"] = float(parameters["l4"])
+
+            if "input_angle" in parameters:
+                mapped["input_angle"] = float(parameters["input_angle"])
+            elif "crank_angle" in parameters:
+                mapped["input_angle"] = float(parameters["crank_angle"])
+
+        # Pass through already-compatible keys.
+        for key, value in parameters.items():
+            if key in self.current_parameters and key not in mapped:
+                try:
+                    mapped[key] = float(value)
+                except (TypeError, ValueError):
+                    continue
+
+        return mapped
+
+    def update_from_design_tab(self, mechanism_id: str, parameters: dict) -> None:
+        """Update Foundry view from Design Tab changes (bidirectional sync).
+
+        Called when mechanism parameters are modified in Design Tab.
+        Updates sliders and preview without emitting change signals back.
+
+        Args:
+            mechanism_id: The shared mechanism ID
+            parameters: Updated parameters from Design Tab
+        """
+        # Only update if this is our synced mechanism
+        if mechanism_id != self.synced_mechanism_id:
+            return
+
+        # Suppress signal emission to prevent infinite loop
+        self._suppress_sync_signal = True
+        try:
+            mechanism_type = (
+                self.current_mechanism.mechanism_type if self.current_mechanism else ""
+            )
+            try:
+                mapped_params = self._map_design_params_to_foundry(mechanism_type, parameters)
+            except Exception:
+                mapped_params = {}
+
+            angle_value = mapped_params.get("input_angle")
+            if angle_value is None:
+                if "input_angle" in parameters:
+                    angle_value = float(parameters["input_angle"])
+                elif "crank_angle" in parameters:
+                    angle_value = float(parameters["crank_angle"])
+
+            if angle_value is not None:
+                self.current_angle = float(angle_value)
+                with blocked_signals(self.angle_slider):
+                    self.angle_slider.setValue(int(self.current_angle))
+                self.angle_label.setText(f"{int(self.current_angle)}°")
+
+            config = None
+            if self.current_mechanism:
+                config_type = self._to_controller_mechanism_type(
+                    self.current_mechanism.mechanism_type
+                )
+                config = self.controller.get_configuration(config_type)
+
+            # Update current parameters and slider UI.
+            for key, value in mapped_params.items():
+                if key == "input_angle" or key not in self.current_parameters:
+                    continue
+
+                self.current_parameters[key] = value
+                if key in self.parameter_sliders and config:
+                    slider, label = self.parameter_sliders[key]
+                    for spec in config.parameter_specs:
+                        if spec.key == key:
+                            with blocked_signals(slider):
+                                slider.setValue(int(value / spec.step))
+                            if spec.is_integer:
+                                label.setText(f"{int(value)}")
+                            else:
+                                label.setText(f"{value:.1f}")
+                            break
+
+            # Re-render mechanism with updated parameters
+            self._render_mechanism()
+
+        finally:
+            self._suppress_sync_signal = False
+
+    def set_synced_mechanism(self, mechanism_id: str, mechanism_type: str) -> None:
+        """Set the currently synced mechanism from Design Tab.
+
+        Called when a mechanism is selected in Design Tab that originated from Foundry.
+
+        Args:
+            mechanism_id: The shared mechanism ID
+            mechanism_type: The mechanism type (e.g., "four_bar", "cam_follower")
+        """
+        self.synced_mechanism_id = mechanism_id
+
+        type_mapping = {
+            "fourbar": "four_bar",
+            "4_bar_linkage": "four_bar",
+            "four_bar": "four_bar",
+            "cam_follower": "cam_follower",
+            "cam": "cam_follower",
+            "gear": "gear_train",
+            "gear_train": "gear_train",
+            "planetary_gear": "gear_train",
+            "slider_crank": "slider_crank",
+            "slider-crank": "slider_crank",
+            "slidercrank": "slider_crank",
+        }
+        selector_type = type_mapping.get(mechanism_type, mechanism_type)
+
+        current_selector_type = ""
+        if self.current_mechanism:
+            current_selector_type = type_mapping.get(
+                self.current_mechanism.mechanism_type, self.current_mechanism.mechanism_type
+            )
+
+        if current_selector_type != selector_type:
+            self._load_mechanism(selector_type)
+
+    def clear_synced_mechanism(self) -> None:
+        """Clear the synced mechanism reference."""
+        self.synced_mechanism_id = None

@@ -29,8 +29,16 @@ from automataii.application.managers import MechanismManager, ProjectDataManager
 
 # Import ProjectStateManager, adapters, and serializer (SSOT architecture)
 from automataii.application.project import (
+    BoneData,
+    JointData,
+    MechanismData,
+    PartData,
+    PathData,
+    Point,
     ProjectSerializer,
     ProjectStateManager,
+    SkeletonData,
+    Transform,
 )
 from automataii.application.project.adapters import (
     EditorTabAdapter,
@@ -71,6 +79,18 @@ from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 # from qframelesswindow import FramelessMainWindow
 
 TARGET_CONTROL_POINTS = 8
+_PROJECT_TRANSIENT_LAYER_KEYS = frozenset(
+    {
+        "id",
+        "part_name",
+        "type",
+        "mechanism_type",
+        "params",
+        "enabled",
+        "visual_items",
+    }
+)
+_PROJECT_RUNTIME_LAYER_KEY_SUFFIXES = ("_cache", "_cached")
 
 
 class AutomataDesigner(QMainWindow):
@@ -318,6 +338,11 @@ class AutomataDesigner(QMainWindow):
         self.image_proc_tab.skeleton_updated.connect(self.handle_skeleton_updated_from_tab)
         self.image_proc_tab.request_editor_tab_switch.connect(self.switch_to_editor_tab)
 
+        # Connect character preset loading (ImageProcessing -> MechanismDesign)
+        self.image_proc_tab.character_preset_loaded.connect(
+            self.mechanism_design_tab.apply_character_preset
+        )
+
         # --- Connect Signals from EditorTab ---
         self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation)
         self.editor_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)
@@ -339,6 +364,17 @@ class AutomataDesigner(QMainWindow):
         self.mechanism_foundry_tab.export_to_design_requested.connect(
             self._handle_foundry_export_to_mechanism_tab
         )
+
+        # --- Bidirectional Sync: Foundry ↔ Design Tab ---
+        # Foundry → Design Tab: Parameter changes
+        self.mechanism_foundry_tab.mechanism_parameters_changed.connect(
+            self.mechanism_design_tab.update_from_foundry
+        )
+        # Design Tab → Foundry: Parameter changes
+        self.mechanism_design_tab.mechanism_parameters_changed.connect(
+            self.mechanism_foundry_tab.update_from_design_tab
+        )
+
         # --- Connect Signals from OptionsTab ---
         self.options_tab.animationDurationChanged.connect(self.ik_manager.set_animation_duration)
         if hasattr(self.options_tab, "timingProfileChanged") and hasattr(
@@ -598,6 +634,13 @@ class AutomataDesigner(QMainWindow):
         logging.info(
             f"Attempting to load project data from parts_info.json: {parts_info_json_path}"
         )
+
+        if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+            try:
+                self.mechanism_design_tab.prepare_character_rebind()
+            except Exception:
+                logging.debug("Suppressed exception while preparing character rebind", exc_info=True)
+
         success = self.project_data_manager.load_project_from_file(str(parts_info_json_path))
 
         if success:
@@ -609,6 +652,14 @@ class AutomataDesigner(QMainWindow):
 
         else:
             self.statusBar().showMessage("Failed to load part data. Check logs.", 5000)
+            if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+                try:
+                    self.mechanism_design_tab.cancel_character_rebind()
+                except Exception:
+                    logging.debug(
+                        "Suppressed exception while cancelling character rebind",
+                        exc_info=True,
+                    )
 
     @pyqtSlot(dict)
     def handle_skeleton_updated_from_tab(self, skeleton_data: dict):
@@ -720,24 +771,32 @@ class AutomataDesigner(QMainWindow):
 
     # --- Project Data Handling ---
     def load_parts_dialog(self):
-        """Opens a file dialog to load parts from a JSON file."""
-        start_dir = (
-            str(self.project_data_manager.project_dir)
-            if self.project_data_manager.project_dir
-            else os.path.expanduser("~")
-        )
+        """Open a file dialog and load either a full project or legacy parts JSON."""
+        state_project_dir = self.project_state_manager.state.project_dir
+        if state_project_dir:
+            start_dir = str(state_project_dir)
+        elif self.project_data_manager.project_dir:
+            start_dir = str(self.project_data_manager.project_dir)
+        else:
+            start_dir = os.path.expanduser("~")
 
         filepath, _ = QFileDialog.getOpenFileName(
             self,
-            "Load Character Parts File",
+            "Load Project",
             start_dir,
-            "JSON files (*.json);;All files (*)",
+            "Automataii Projects (*.automataii);;JSON files (*.json);;All files (*)",
         )
-        if filepath:
-            # The actual loading is now handled by ProjectDataManager
-            # MainWindow's load_parts is now just a trigger
-            self.project_data_manager.load_project_from_file(filepath)
-            # The UI updates will be triggered by project_data_manager.project_data_loaded signal
+        if not filepath:
+            return
+
+        file_path_obj = Path(filepath)
+        if file_path_obj.suffix.lower() == ".automataii":
+            self._project_controller.set_status_bar(self.statusBar())
+            self._project_controller.load_project(file_path_obj)
+            return
+
+        # Fallback: legacy character parts JSON.
+        self.project_data_manager.load_project_from_file(filepath)
 
     # REFACTORED: The old content of load_parts is now largely in ProjectDataManager.
     # UI updates and manager notifications will be handled by a slot connected to
@@ -790,6 +849,8 @@ class AutomataDesigner(QMainWindow):
 
             self.statusBar().showMessage(f"Project loaded: {project_directory_path}")
             self.action_manager.update_actions_for_project_state(True)
+            # Mirror loaded runtime data into SSOT so Save Project captures complete state.
+            self._sync_runtime_state_to_ssot(mark_saved=False)
 
             if parts_info:
                 logging.info(
@@ -804,6 +865,14 @@ class AutomataDesigner(QMainWindow):
 
         else:
             logging.error(f"MainWindow: Project loading failed from {project_directory_path}")
+            if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+                try:
+                    self.mechanism_design_tab.cancel_character_rebind()
+                except Exception:
+                    logging.debug(
+                        "Suppressed exception while cancelling character rebind",
+                        exc_info=True,
+                    )
             self._clear_ui_for_failed_load()
             QMessageBox.critical(
                 self,
@@ -841,17 +910,353 @@ class AutomataDesigner(QMainWindow):
         self.skeleton_manager.clear_data()  # This will emit skeleton_updated with None
         if self.ik_manager:
             self.ik_manager.reset_all_ik_systems_and_data()  # Use the new method name
+        self.project_state_manager.new_project()
         self.action_manager.update_actions_for_project_state(False)
         self.statusBar().showMessage("Project data cleared.")
         # Any other UI elements that need to be reset when project is cleared
 
     def save_project_dialog(self):
-        """Opens a file dialog to save the current project via ProjectDataManager."""
-        if hasattr(self.project_data_manager, "save_project_dialog"):
-            self.project_data_manager.save_project_dialog()
-        else:
-            logging.error("ProjectDataManager does not have save_project_dialog method.")
-            QMessageBox.critical(self, "Error", "Save project functionality is not available.")
+        """Save a full project snapshot (state + assets) via SSOT serializer."""
+        self._sync_runtime_state_to_ssot(mark_saved=False)
+        self._project_controller.set_status_bar(self.statusBar())
+        self._project_controller.save_project()
+
+    def _sync_runtime_state_to_ssot(self, mark_saved: bool = False) -> None:
+        """
+        Snapshot current runtime tab state into ProjectStateManager.
+
+        This keeps edits temporary in-memory until explicit Save, and guarantees
+        the serializer captures the latest UI state and generated outcomes.
+        """
+        try:
+            parts = self._collect_parts_for_state()
+            skeleton = self._collect_skeleton_for_state()
+            paths = self._collect_paths_for_state()
+            mechanisms = self._collect_mechanisms_for_state()
+
+            project_dir = (
+                self.project_data_manager.project_dir
+                or self.project_state_manager.state.project_dir
+                or getattr(self, "current_temp_char_dir", None)
+            )
+
+            image_path = None
+            if getattr(self.image_proc_tab, "input_image_path", None):
+                image_path = Path(self.image_proc_tab.input_image_path)
+            elif self.project_state_manager.state.image_path is not None:
+                image_path = self.project_state_manager.state.image_path
+
+            self.project_state_manager.begin_batch()
+            try:
+                self.project_state_manager.load_parts(parts)
+                if skeleton is not None:
+                    self.project_state_manager.load_skeleton(skeleton)
+                else:
+                    self.project_state_manager.clear_skeleton()
+                self.project_state_manager.load_paths(paths)
+                self.project_state_manager.load_mechanisms(mechanisms)
+                self.project_state_manager.set_project_dir(Path(project_dir) if project_dir else None)
+                self.project_state_manager.set_image_path(image_path)
+            finally:
+                self.project_state_manager.end_batch()
+
+            if mark_saved:
+                self.project_state_manager.mark_saved()
+
+            has_project_content = bool(parts or skeleton or paths or mechanisms)
+            self.action_manager.update_actions_for_project_state(has_project_content)
+        except Exception:
+            logging.exception("Failed to sync runtime state to SSOT snapshot")
+
+    def _collect_parts_for_state(self) -> dict[str, PartData]:
+        """Collect parts from runtime tabs/managers into immutable PartData models."""
+        source_parts = self.project_data_manager.get_current_parts_data() or {}
+        if not source_parts and hasattr(self, "editor_tab") and self.editor_tab:
+            source_parts = getattr(self.editor_tab, "current_parts_info", {}) or {}
+
+        project_dir = self.project_data_manager.project_dir
+        parts: dict[str, PartData] = {}
+
+        for part_name, part_info in source_parts.items():
+            try:
+                roi_raw = list(getattr(part_info, "roi", []) or [])
+                while len(roi_raw) < 4:
+                    roi_raw.append(0.0)
+                roi = (
+                    float(roi_raw[0]),
+                    float(roi_raw[1]),
+                    float(roi_raw[2]),
+                    float(roi_raw[3]),
+                )
+
+                image_path = str(getattr(part_info, "image_path", "") or "")
+                if image_path and not Path(image_path).is_absolute() and project_dir is not None:
+                    image_path = str((project_dir / image_path).resolve())
+
+                local_pivot_raw = getattr(part_info, "local_pivot_offset", None)
+                local_pivot = None
+                if isinstance(local_pivot_raw, list | tuple) and len(local_pivot_raw) >= 2:
+                    local_pivot = (float(local_pivot_raw[0]), float(local_pivot_raw[1]))
+
+                parts[str(part_name)] = PartData(
+                    name=str(part_name),
+                    texture_path=image_path,
+                    mask_path=image_path,
+                    anchor_joint=str(getattr(part_info, "anchor_joint_id", "") or "root"),
+                    transform=Transform(x=roi[0], y=roi[1], rotation=0.0, scale=1.0),
+                    z_index=int(float(getattr(part_info, "z_value", 0.0) or 0.0)),
+                    roi=roi,
+                    fill_color=str(
+                        getattr(part_info, "fill_color", "rgba(128,128,128,0.5)")
+                        or "rgba(128,128,128,0.5)"
+                    ),
+                    fixed=bool(getattr(part_info, "fixed", False)),
+                    opacity=float(getattr(part_info, "opacity", 1.0) or 1.0),
+                    group=getattr(part_info, "group", None),
+                    original_svg_path=getattr(part_info, "original_svg_path", None),
+                    enhanced_svg_path=getattr(part_info, "enhanced_svg_path", None),
+                    effective_bbox_offset_x=float(
+                        getattr(part_info, "effective_bbox_offset_x", 0.0) or 0.0
+                    ),
+                    effective_bbox_offset_y=float(
+                        getattr(part_info, "effective_bbox_offset_y", 0.0) or 0.0
+                    ),
+                    show_anchor=bool(getattr(part_info, "show_anchor", False)),
+                    local_pivot_offset=local_pivot,
+                )
+            except Exception:
+                logging.exception("Failed to snapshot part '%s' into SSOT", part_name)
+
+        return parts
+
+    def _collect_skeleton_for_state(self) -> SkeletonData | None:
+        """Collect current standardized skeleton into SkeletonData."""
+        if not self.skeleton_manager:
+            return None
+
+        skeleton_dict = self.skeleton_manager.get_current_skeleton_data()
+        if not skeleton_dict:
+            return None
+
+        raw_joints = skeleton_dict.get("joints", {})
+        if not isinstance(raw_joints, dict) or not raw_joints:
+            return None
+
+        joints: dict[str, JointData] = {}
+        bones: list[BoneData] = []
+        root_joint = ""
+
+        for joint_id, joint_payload in raw_joints.items():
+            if not isinstance(joint_payload, dict):
+                continue
+
+            raw_position = joint_payload.get("position", [0.0, 0.0])
+            x = float(raw_position[0]) if isinstance(raw_position, list | tuple) and len(raw_position) > 0 else 0.0
+            y = float(raw_position[1]) if isinstance(raw_position, list | tuple) and len(raw_position) > 1 else 0.0
+            parent_id = joint_payload.get("parent_id") or joint_payload.get("parent")
+
+            bend_direction_raw = joint_payload.get("bend_direction")
+            bend_direction = 1.0
+            if isinstance(bend_direction_raw, int | float):
+                bend_direction = float(bend_direction_raw)
+
+            joints[str(joint_id)] = JointData(
+                id=str(joint_id),
+                position=Point(x=x, y=y),
+                name=str(joint_payload.get("name") or joint_id),
+                parent=str(parent_id) if parent_id else None,
+                is_locked=bool(joint_payload.get("is_locked", False)),
+                bend_direction=bend_direction,
+            )
+
+            if parent_id:
+                bones.append(BoneData(from_joint=str(parent_id), to_joint=str(joint_id)))
+            elif not root_joint:
+                root_joint = str(joint_id)
+
+        if not root_joint:
+            root_ids = skeleton_dict.get("root_joint_ids", [])
+            if isinstance(root_ids, list) and root_ids:
+                root_joint = str(root_ids[0])
+
+        return SkeletonData(
+            joints=joints,
+            bones=tuple(bones),
+            root_joint=root_joint,
+        )
+
+    def _collect_paths_for_state(self) -> dict[str, PathData]:
+        """Collect editor motion paths into PathData."""
+        if not hasattr(self, "editor_tab") or not self.editor_tab:
+            return {}
+
+        path_data = {}
+        qpaths = self.editor_tab.get_current_path_data()
+        for part_name, qpath in qpaths.items():
+            try:
+                if not qpath or qpath.isEmpty():
+                    continue
+
+                points: list[Point] = []
+                for i in range(qpath.elementCount()):
+                    element = qpath.elementAt(i)
+                    points.append(Point(x=float(element.x), y=float(element.y)))
+
+                if not points:
+                    continue
+
+                first = points[0]
+                last = points[-1]
+                is_closed = abs(first.x - last.x) < 1.0 and abs(first.y - last.y) < 1.0
+
+                path_data[str(part_name)] = PathData(
+                    part_name=str(part_name),
+                    points=tuple(points),
+                    is_closed=is_closed,
+                    enabled=True,
+                )
+            except Exception:
+                logging.exception("Failed to snapshot path for part '%s'", part_name)
+
+        return path_data
+
+    def _serialize_qpainter_path(self, qpath: Any) -> dict[str, Any] | None:
+        """Serialize QPainterPath to portable JSON-friendly structure."""
+        if not isinstance(qpath, QPainterPath) or qpath.isEmpty():
+            return None
+
+        points: list[list[float]] = []
+        try:
+            for idx in range(qpath.elementCount()):
+                elem = qpath.elementAt(idx)
+                points.append([float(elem.x), float(elem.y)])
+        except Exception:
+            return None
+
+        if not points:
+            return None
+
+        first = points[0]
+        last = points[-1]
+        is_closed = abs(first[0] - last[0]) < 1.0 and abs(first[1] - last[1]) < 1.0
+        return {"points": points, "is_closed": is_closed}
+
+    def _sanitize_for_project(
+        self,
+        value: Any,
+        *,
+        _memo: dict[int, Any] | None = None,
+        _seen: set[int] | None = None,
+    ) -> Any:
+        """Recursively sanitize runtime values for JSON serialization."""
+        if value is None or isinstance(value, bool | int | float | str):
+            return value
+
+        if callable(value):
+            return None
+
+        if isinstance(value, Path):
+            return str(value)
+
+        if isinstance(value, QPointF):
+            return [float(value.x()), float(value.y())]
+
+        if isinstance(value, QPainterPath):
+            return self._serialize_qpainter_path(value)
+
+        memo = _memo if _memo is not None else {}
+        seen = _seen if _seen is not None else set()
+        obj_id = id(value)
+
+        if obj_id in seen:
+            return None
+        if obj_id in memo:
+            return memo[obj_id]
+
+        seen.add(obj_id)
+        try:
+            if isinstance(value, dict):
+                out: dict[str, Any] = {}
+                memo[obj_id] = out
+                for k, v in value.items():
+                    sanitized = self._sanitize_for_project(v, _memo=memo, _seen=seen)
+                    if sanitized is not None:
+                        out[str(k)] = sanitized
+                return out
+
+            if isinstance(value, list | tuple | set):
+                out_list: list[Any] = []
+                memo[obj_id] = out_list
+                for item in value:
+                    sanitized = self._sanitize_for_project(item, _memo=memo, _seen=seen)
+                    if sanitized is not None:
+                        out_list.append(sanitized)
+                return out_list
+
+            # NumPy arrays/scalars and similar types
+            if hasattr(value, "tolist"):
+                try:
+                    sanitized = self._sanitize_for_project(value.tolist(), _memo=memo, _seen=seen)
+                    memo[obj_id] = sanitized
+                    return sanitized
+                except Exception:
+                    return None
+
+            return None
+        finally:
+            seen.discard(obj_id)
+
+    def _collect_mechanisms_for_state(self) -> dict[str, MechanismData]:
+        """Collect mechanism layers into immutable MechanismData."""
+        if not hasattr(self, "mechanism_design_tab") or not self.mechanism_design_tab:
+            return {}
+
+        mechanisms: dict[str, MechanismData] = {}
+        layer_map = getattr(self.mechanism_design_tab, "mechanism_layers", {}) or {}
+        enabled_map = getattr(self.mechanism_design_tab, "mechanism_enabled_state", {}) or {}
+
+        for mechanism_id, layer_data in layer_map.items():
+            if not isinstance(layer_data, dict):
+                continue
+
+            part_name = str(layer_data.get("part_name", "") or "")
+            mechanism_type = str(
+                layer_data.get("type", layer_data.get("mechanism_type", "unknown")) or "unknown"
+            )
+            params = layer_data.get("params", {})
+            if not isinstance(params, dict):
+                params = {}
+
+            payload: dict[str, Any] = {}
+            sanitize_memo: dict[int, Any] = {}
+            for key, value in layer_data.items():
+                if isinstance(key, str):
+                    if key.startswith("_") or key.endswith(_PROJECT_RUNTIME_LAYER_KEY_SUFFIXES):
+                        continue
+                if key in _PROJECT_TRANSIENT_LAYER_KEYS:
+                    continue
+                if callable(value):
+                    continue
+                if key == "generated_path":
+                    generated_path_data = self._serialize_qpainter_path(value)
+                    if generated_path_data is not None:
+                        payload["generated_path_data"] = generated_path_data
+                    continue
+
+                sanitized = self._sanitize_for_project(value, _memo=sanitize_memo)
+                if sanitized is not None:
+                    payload[str(key)] = sanitized
+
+            mechanisms[str(mechanism_id)] = MechanismData(
+                id=str(mechanism_id),
+                part_name=part_name,
+                type=mechanism_type,
+                params=dict(params),
+                layer_data=payload,
+                enabled=bool(enabled_map.get(mechanism_id, layer_data.get("enabled", True))),
+            )
+
+        return mechanisms
 
     # --- Slots for EditorTab Signals (Implement these) ---
     @pyqtSlot(str, dict)
@@ -869,6 +1274,8 @@ class AutomataDesigner(QMainWindow):
             return
 
         current_parts_data = self.project_data_manager.get_current_parts_data()
+        if not current_parts_data and hasattr(self, "editor_tab") and self.editor_tab:
+            current_parts_data = self.editor_tab.current_parts_info
         if not current_parts_data or target_part_name not in current_parts_data:
             QMessageBox.warning(
                 self,
@@ -910,9 +1317,9 @@ class AutomataDesigner(QMainWindow):
         # Call actual alignment saving logic here
         self.statusBar().showMessage("Character alignment save requested.")
 
-    @pyqtSlot(str, dict, tuple)
+    @pyqtSlot(str, str, dict, tuple)
     def _handle_foundry_export_to_mechanism_tab(
-        self, mechanism_type: str, parameters: dict, pivot_point: tuple
+        self, mechanism_id: str, mechanism_type: str, parameters: dict, pivot_point: tuple
     ):
         """Handle mechanism export from Foundry to Mechanism Design Tab.
 
@@ -920,20 +1327,39 @@ class AutomataDesigner(QMainWindow):
         Mechanism Design Tab for simulation and character assignment.
         """
         logging.info(
-            f"MainWindow: Received foundry export - type={mechanism_type}, "
+            f"MainWindow: Received foundry export - id={mechanism_id}, type={mechanism_type}, "
             f"params={parameters}, pivot={pivot_point}"
         )
 
-        # Forward to Mechanism Design Tab's import method
+        imported = False
+
+        # Forward to Mechanism Design Tab's import method (with mechanism_id for sync)
         if hasattr(self.mechanism_design_tab, "import_mechanism_from_foundry"):
-            self.mechanism_design_tab.import_mechanism_from_foundry(
-                mechanism_type=mechanism_type,
-                parameters=parameters,
-                pivot_point=pivot_point,
+            imported = bool(
+                self.mechanism_design_tab.import_mechanism_from_foundry(
+                    mechanism_type=mechanism_type,
+                    parameters=parameters,
+                    pivot_point=pivot_point,
+                    mechanism_id=mechanism_id,
+                )
             )
-            self.statusBar().showMessage(
-                f"Mechanism '{mechanism_type}' added to Mechanism Tab"
-            )
+            if imported:
+                self.statusBar().showMessage(
+                    f"Mechanism '{mechanism_type}' added to Mechanism Tab"
+                )
+                # Register sync target in Foundry so subsequent Design edits flow back.
+                if hasattr(self.mechanism_foundry_tab, "set_synced_mechanism"):
+                    self.mechanism_foundry_tab.set_synced_mechanism(
+                        mechanism_id, mechanism_type
+                    )
+            else:
+                logging.warning(
+                    "MechanismDesignTab.import_mechanism_from_foundry returned False for id=%s",
+                    mechanism_id,
+                )
+                self.statusBar().showMessage(
+                    f"Failed to add mechanism '{mechanism_type}' to Mechanism Tab"
+                )
         else:
             logging.warning(
                 "MechanismDesignTab.import_mechanism_from_foundry not available"
@@ -1222,6 +1648,7 @@ class AutomataDesigner(QMainWindow):
         Returns:
             True if save was successful, False otherwise
         """
+        self._sync_runtime_state_to_ssot(mark_saved=False)
         self._project_controller.set_status_bar(self.statusBar())
         return self._project_controller.save_project()
 

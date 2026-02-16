@@ -293,7 +293,13 @@ class HandlePositionCoordinator:
                     if "center" in handle_id and "gear" not in handle_id:
                         new_pos = anchor_positions.get("cam_center") or anchor_positions.get("center")
                     elif "follower" in handle_id:
-                        new_pos = anchor_positions.get("cam_follower") or anchor_positions.get("follower")
+                        new_pos = (
+                            anchor_positions.get("cam_follower")
+                            or anchor_positions.get("follower")
+                            or anchor_positions.get("cam_rod_length")
+                        )
+                    elif "size" in handle_id:
+                        new_pos = anchor_positions.get("cam_size")
                     elif "rod_length" in handle_id:
                         new_pos = anchor_positions.get("cam_rod_length")
                     elif "cam_size" in handle_id:
@@ -314,6 +320,13 @@ class HandlePositionCoordinator:
                         new_pos = anchor_positions.get("sun_center")
                     elif "planet_center" in handle_id:
                         new_pos = anchor_positions.get("planet_center")
+                    elif "planet_radius" in handle_id:
+                        new_pos = anchor_positions.get("planet_radius")
+                    elif "arm_length" in handle_id:
+                        new_pos = (
+                            anchor_positions.get("arm_length")
+                            or anchor_positions.get("tracking_point")
+                        )
 
                 elif mechanism_type == "4_bar_linkage":
                     anchor_name = getattr(handle, 'anchor_name', None)

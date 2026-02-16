@@ -60,6 +60,17 @@ class PartData:
     anchor_joint: str
     transform: Transform = field(default_factory=Transform)
     z_index: int = 0
+    roi: tuple[float, float, float, float] | None = None
+    fill_color: str = "rgba(128,128,128,0.5)"
+    fixed: bool = False
+    opacity: float = 1.0
+    group: str | None = None
+    original_svg_path: str | None = None
+    enhanced_svg_path: str | None = None
+    effective_bbox_offset_x: float = 0.0
+    effective_bbox_offset_y: float = 0.0
+    show_anchor: bool = False
+    local_pivot_offset: tuple[float, float] | None = None
 
     def with_transform(self, transform: Transform) -> PartData:
         return replace(self, transform=transform)
@@ -77,15 +88,53 @@ class PartData:
                 "scale": self.transform.scale,
             },
             "z_index": self.z_index,
+            "roi": list(self.roi) if self.roi is not None else None,
+            "fill_color": self.fill_color,
+            "fixed": self.fixed,
+            "opacity": self.opacity,
+            "group": self.group,
+            "original_svg_path": self.original_svg_path,
+            "enhanced_svg_path": self.enhanced_svg_path,
+            "effective_bbox_offset_x": self.effective_bbox_offset_x,
+            "effective_bbox_offset_y": self.effective_bbox_offset_y,
+            "show_anchor": self.show_anchor,
+            "local_pivot_offset": (
+                list(self.local_pivot_offset) if self.local_pivot_offset is not None else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PartData:
         transform_data = data.get("transform", {})
+        raw_texture_path = data.get("texture_path")
+        if raw_texture_path is None:
+            raw_texture_path = data.get("image_path", "")
+        texture_path = str(raw_texture_path or "")
+
+        raw_mask_path = data.get("mask_path")
+        if raw_mask_path is None:
+            raw_mask_path = texture_path
+        mask_path = str(raw_mask_path or "")
+
+        raw_roi = data.get("roi")
+        roi: tuple[float, float, float, float] | None = None
+        if isinstance(raw_roi, list | tuple) and len(raw_roi) >= 4:
+            roi = (
+                float(raw_roi[0]),
+                float(raw_roi[1]),
+                float(raw_roi[2]),
+                float(raw_roi[3]),
+            )
+
+        raw_local_pivot = data.get("local_pivot_offset")
+        local_pivot_offset: tuple[float, float] | None = None
+        if isinstance(raw_local_pivot, list | tuple) and len(raw_local_pivot) >= 2:
+            local_pivot_offset = (float(raw_local_pivot[0]), float(raw_local_pivot[1]))
+
         return cls(
             name=data["name"],
-            texture_path=data["texture_path"],
-            mask_path=data["mask_path"],
+            texture_path=texture_path,
+            mask_path=mask_path,
             anchor_joint=data["anchor_joint"],
             transform=Transform(
                 x=transform_data.get("x", 0.0),
@@ -94,6 +143,17 @@ class PartData:
                 scale=transform_data.get("scale", 1.0),
             ),
             z_index=data.get("z_index", 0),
+            roi=roi,
+            fill_color=data.get("fill_color", "rgba(128,128,128,0.5)"),
+            fixed=bool(data.get("fixed", False)),
+            opacity=float(data.get("opacity", 1.0)),
+            group=data.get("group"),
+            original_svg_path=data.get("original_svg_path"),
+            enhanced_svg_path=data.get("enhanced_svg_path"),
+            effective_bbox_offset_x=float(data.get("effective_bbox_offset_x", 0.0)),
+            effective_bbox_offset_y=float(data.get("effective_bbox_offset_y", 0.0)),
+            show_anchor=bool(data.get("show_anchor", False)),
+            local_pivot_offset=local_pivot_offset,
         )
 
 
@@ -113,6 +173,7 @@ class JointData:
     """
     id: str
     position: Point
+    name: str | None = None
     parent: str | None = None
     is_locked: bool = False
     bend_direction: float = 1.0
@@ -124,8 +185,10 @@ class JointData:
         return replace(self, is_locked=locked)
 
     def to_dict(self) -> dict[str, Any]:
+        joint_name = self.name or self.id
         return {
             "id": self.id,
+            "name": joint_name,
             "position": self.position.to_tuple(),
             "parent": self.parent,
             "is_locked": self.is_locked,
@@ -138,6 +201,7 @@ class JointData:
         return cls(
             id=data["id"],
             position=Point(x=pos[0], y=pos[1]),
+            name=data.get("name") or data["id"],
             parent=data.get("parent"),
             is_locked=data.get("is_locked", False),
             bend_direction=data.get("bend_direction", 1.0),
@@ -387,22 +451,59 @@ class MechanismData:
     part_name: str
     type: str  # "4_bar_linkage", "cam", "gear", "planetary_gear"
     params: Mapping[str, Any] = field(default_factory=dict)
+    layer_data: Mapping[str, Any] = field(default_factory=dict)
     enabled: bool = True
 
     def with_params(self, params: Mapping[str, Any]) -> MechanismData:
         return replace(self, params=dict(params))
 
+    def with_layer_data(self, layer_data: Mapping[str, Any]) -> MechanismData:
+        return replace(self, layer_data=dict(layer_data))
+
     def with_enabled(self, enabled: bool) -> MechanismData:
         return replace(self, enabled=enabled)
 
+    @staticmethod
+    def _json_safe(value: Any) -> Any:
+        """Convert mechanism payload to JSON-safe values."""
+        if value is None or isinstance(value, bool | int | float | str):
+            return value
+
+        if isinstance(value, Path):
+            return str(value)
+
+        if isinstance(value, Mapping):
+            out: dict[str, Any] = {}
+            for k, v in value.items():
+                out[str(k)] = MechanismData._json_safe(v)
+            return out
+
+        if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+            return [MechanismData._json_safe(v) for v in value]
+
+        # NumPy arrays/scalars or similar structures
+        if hasattr(value, "tolist"):
+            try:
+                return MechanismData._json_safe(value.tolist())
+            except Exception:
+                pass
+
+        # Drop Qt/runtime-heavy objects to avoid serialization failure
+        return None
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        serialized = {
             "id": self.id,
             "part_name": self.part_name,
             "type": self.type,
-            "params": dict(self.params),
+            "params": self._json_safe(dict(self.params)) or {},
             "enabled": self.enabled,
         }
+        if self.layer_data:
+            serialized_layer_data = self._json_safe(dict(self.layer_data)) or {}
+            if serialized_layer_data:
+                serialized["layer_data"] = serialized_layer_data
+        return serialized
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MechanismData:
@@ -411,6 +512,7 @@ class MechanismData:
             part_name=data["part_name"],
             type=data["type"],
             params=data.get("params", {}),
+            layer_data=data.get("layer_data", {}),
             enabled=data.get("enabled", True),
         )
 
@@ -588,12 +690,52 @@ class ProjectState:
         skeleton_data = data.get("skeleton")
 
         image_path_str = data.get("image_path")
+        image_path = None
+        if image_path_str:
+            parsed_image_path = Path(image_path_str)
+            if not parsed_image_path.is_absolute() and project_dir is not None:
+                parsed_image_path = project_dir / parsed_image_path
+            image_path = parsed_image_path
+
+        resolved_parts: dict[str, PartData] = {}
+        for name, pdata in parts_data.items():
+            normalized_part = dict(pdata)
+
+            def _resolve_asset_path(raw_path: Any) -> str:
+                if raw_path is None:
+                    return ""
+                path_str = str(raw_path)
+                if not path_str:
+                    return ""
+                candidate = Path(path_str)
+                if candidate.is_absolute() or project_dir is None:
+                    return path_str
+                return str(project_dir / candidate)
+
+            if "texture_path" in normalized_part or "image_path" in normalized_part:
+                normalized_part["texture_path"] = _resolve_asset_path(
+                    normalized_part.get("texture_path", normalized_part.get("image_path", ""))
+                )
+
+            if "mask_path" in normalized_part:
+                normalized_part["mask_path"] = _resolve_asset_path(normalized_part.get("mask_path", ""))
+
+            if "original_svg_path" in normalized_part:
+                normalized_part["original_svg_path"] = _resolve_asset_path(
+                    normalized_part.get("original_svg_path")
+                )
+            if "enhanced_svg_path" in normalized_part:
+                normalized_part["enhanced_svg_path"] = _resolve_asset_path(
+                    normalized_part.get("enhanced_svg_path")
+                )
+
+            resolved_parts[name] = PartData.from_dict({**normalized_part, "name": name})
 
         return cls(
             project_dir=project_dir,
-            image_path=Path(image_path_str) if image_path_str else None,
+            image_path=image_path,
             metadata=ProjectMetadata.from_dict(data.get("metadata", {})),
-            parts={name: PartData.from_dict({**pdata, "name": name}) for name, pdata in parts_data.items()},
+            parts=resolved_parts,
             skeleton=SkeletonData.from_dict(skeleton_data) if skeleton_data else None,
             paths={name: PathData.from_dict({**pdata, "part_name": name}) for name, pdata in paths_data.items()},
             mechanisms={mid: MechanismData.from_dict(mdata) for mid, mdata in mechanisms_data.items()},

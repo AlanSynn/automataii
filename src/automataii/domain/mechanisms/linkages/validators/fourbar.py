@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 from automataii.domain.mechanisms.linkages.validators.base import LinkageValidator
 from automataii.domain.mechanisms.shared import (
+    analyze_link_ratios,
     calculate_transmission_angle,
     classify_transmission_angle,
-    analyze_link_ratios,
 )
 
 if TYPE_CHECKING:

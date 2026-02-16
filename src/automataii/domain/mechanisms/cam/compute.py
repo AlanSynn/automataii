@@ -40,6 +40,9 @@ class CamParameters:
 class CamFollowerMechanism(Mechanism):
     def __init__(self, parameters: dict[str, float] | None = None):
         self._parameters = self._parse_parameters(parameters or {})
+        # Caching for performance
+        self._cached_base_profile: list[tuple[float, float]] | None = None
+        self._cached_params_hash: int | None = None
 
     @property
     def mechanism_type(self) -> str:
@@ -75,6 +78,15 @@ class CamFollowerMechanism(Mechanism):
         )
 
     def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
+        # Check if parameters (excluding angle) have changed to invalidate cache
+        # We construct a tuple of values relevant to profile generation for hashing
+        param_keys = ("cam_radius", "cam_offset", "cam_lobes", "profile_harmonic")
+        current_param_values = tuple(parameters.get(k) for k in param_keys)
+
+        if self._cached_params_hash != hash(current_param_values):
+            self._cached_base_profile = None
+            self._cached_params_hash = hash(current_param_values)
+
         params_with_angle = {**parameters, "cam_angle": input_angle}
         self._parameters = self._parse_parameters(params_with_angle)
         params = self._parameters
@@ -137,34 +149,46 @@ class CamFollowerMechanism(Mechanism):
         self, cam_radius: float, cam_offset: float, cam_angle: float
     ) -> tuple[float, list[tuple[float, float]]]:
         """
-        Compute cam profile using vectorized NumPy operations.
+        Compute cam profile using cached base profile and vectorized rotation.
 
-        Performance: O(1) NumPy ops vs O(N) Python loop
-        Speedup: 10-20x for 72 points
+        Optimized to reuse base profile points if parameters haven't changed.
         """
-        num_points = 72
         params = self._parameters
 
-        # OPTIMIZATION: Vectorized profile generation
-        # Generate all thetas at once (0 to 2π)
-        thetas = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
+        # 1. Generate or retrieve cached base profile (unrotated)
+        if self._cached_base_profile is None:
+            num_points = 72
+            # Generate all thetas at once (0 to 2π)
+            thetas = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
 
-        # Vectorized radius computation for all points
-        primary_variation = cam_offset * np.cos(params.cam_lobes * thetas)
-        secondary_variation = (cam_offset * params.profile_harmonic) * np.cos(
-            2 * params.cam_lobes * thetas
-        )
-        radii = cam_radius + primary_variation + secondary_variation
+            # Vectorized radius computation
+            primary_variation = cam_offset * np.cos(params.cam_lobes * thetas)
+            secondary_variation = (cam_offset * params.profile_harmonic) * np.cos(
+                2 * params.cam_lobes * thetas
+            )
+            radii = cam_radius + primary_variation + secondary_variation
 
-        # Vectorized coordinate computation
-        rotated_thetas = thetas + cam_angle
-        xs = radii * np.cos(rotated_thetas)
-        ys = radii * np.sin(rotated_thetas)
+            # Base profile (no rotation)
+            base_xs = radii * np.cos(thetas)
+            base_ys = radii * np.sin(thetas)
+            self._cached_base_profile = list(zip(base_xs.tolist(), base_ys.tolist(), strict=True))
 
-        # Convert to list of tuples (required by interface)
-        profile_points = list(zip(xs.tolist(), ys.tolist(), strict=True))
+        # 2. Apply rotation to cached profile
+        # Rotation matrix:
+        # x' = x*cos(a) - y*sin(a)
+        # y' = x*sin(a) + y*cos(a)
+        cos_a = math.cos(cam_angle)
+        sin_a = math.sin(cam_angle)
 
-        # Compute contact radius at follower position
+        # We can optimize this loop using list comp which is faster than recreating numpy arrays per frame
+        # for small N (72), pure python list comp is competitive with numpy overhead
+        profile_points = [
+            (x * cos_a - y * sin_a, x * sin_a + y * cos_a) for x, y in self._cached_base_profile
+        ]
+
+        # 3. Compute contact radius at follower position
+        # Follower is at -90 degrees (270) in world space.
+        # In cam's local frame, this is (-pi/2 - cam_angle)
         follower_contact_theta = -math.pi / 2
         theta_normalized = (follower_contact_theta - cam_angle) % (2 * math.pi)
 

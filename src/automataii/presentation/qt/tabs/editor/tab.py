@@ -690,9 +690,15 @@ class EditorTab(QWidget):
             and self.main_window.project_data_manager.project_dir
         ):
             project_dir = self.main_window.project_data_manager.project_dir
+        elif (
+            self.main_window
+            and hasattr(self.main_window, "project_state_manager")
+            and self.main_window.project_state_manager.state.project_dir
+        ):
+            project_dir = self.main_window.project_state_manager.state.project_dir
         else:
             logging.error(
-                "EditorTab: Project directory not available from ProjectDataManager. Part items may not load correctly."
+                "EditorTab: Project directory not available from ProjectDataManager or ProjectStateManager. Part items may not load correctly."
             )
             # Show a message to the user, as this is critical
             QMessageBox.critical(

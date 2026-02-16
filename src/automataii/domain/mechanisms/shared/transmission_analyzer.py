@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import NamedTuple
 
-
 # Quality thresholds (degrees)
 EXCELLENT_RANGE = (40.0, 140.0)  # Ideal mechanical advantage
 GOOD_RANGE = (30.0, 150.0)       # Acceptable performance

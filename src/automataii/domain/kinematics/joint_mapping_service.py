@@ -7,6 +7,7 @@ No dependencies on presentation layer (Qt) or infrastructure.
 Design Pattern: Domain Service (DDD)
 Architecture: Hexagonal - Domain Core
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -60,6 +61,9 @@ class JointMappingService:
             body_parts_registry: Registry of body part definitions with joints
         """
         self._body_parts = body_parts_registry or {}
+        # Caching for performance
+        self._cached_foot_joints: list[str] | None = None
+        self._last_skeleton_keys: frozenset[str] | None = None
 
     def set_body_parts_registry(self, registry: dict[str, Any]) -> None:
         """Update body parts registry."""
@@ -137,28 +141,43 @@ class JointMappingService:
         if not joints:
             return default_position
 
-        # Look specifically for foot joints
+        # Optimization: Cache foot joint identification
+        current_keys = frozenset(joints.keys())
+        if self._last_skeleton_keys != current_keys:
+            self._cached_foot_joints = []
+            self._last_skeleton_keys = current_keys
+
+            # Identify foot joints once
+            for joint_id in joints.keys():
+                if "foot" in joint_id.lower() or "ankle" in joint_id.lower():
+                    self._cached_foot_joints.append(joint_id)
+
+        # Use cached identification
         foot_joints: list[tuple[float, float]] = []
-        lowest_y = float('-inf')
+        lowest_y = float("-inf")
 
-        for joint_id, joint_data in joints.items():
-            pos = joint_data.get("position", [0, 0])
+        # Fast pass for identified foot joints
+        if self._cached_foot_joints:
+            for joint_id in self._cached_foot_joints:
+                if joint_id in joints:
+                    pos = joints[joint_id].get("position", [0, 0])
+                    foot_joints.append((pos[0], pos[1]))
 
-            # Check if this is likely a foot joint
-            if "foot" in joint_id.lower() or "ankle" in joint_id.lower():
-                foot_joints.append((pos[0], pos[1]))
+        # Track lowest Y (still need to scan all for ground truth if no specific foot joints found)
+        # But if we have identified feet, we can skip full scan or just use feet
+        if not foot_joints:
+            for joint_id, joint_data in joints.items():
+                pos = joint_data.get("position", [0, 0])
+                if pos[1] > lowest_y:
+                    lowest_y = pos[1]
 
-            # Track the lowest Y position (in Qt, y increases downward)
-            if pos[1] > lowest_y:
-                lowest_y = pos[1]
-
-        # If we found foot joints, use their average X
+        # If we found foot joints using cache, calculate average
         if foot_joints:
             avg_x = sum(pos[0] for pos in foot_joints) / len(foot_joints)
             avg_y = sum(pos[1] for pos in foot_joints) / len(foot_joints)
             return (avg_x, avg_y + offset_y)
 
-        # Otherwise, find the lowest joints (likely feet)
+        # Otherwise, find the lowest joints (legacy fallback)
         lowest_joints: list[tuple[float, float]] = []
         for _joint_id, joint_data in joints.items():
             pos = joint_data.get("position", [0, 0])

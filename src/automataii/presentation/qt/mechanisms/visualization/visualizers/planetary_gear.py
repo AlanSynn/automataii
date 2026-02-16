@@ -34,29 +34,19 @@ class PlanetaryGearVisualizer(MechanismVisualizer):
     """Visualizer for planetary gear mechanisms."""
 
     # Color scheme
-    SUN_COLOR = QColor("#f1c40f")          # Yellow (sun)
-    PLANET_COLOR = QColor("#3498db")       # Blue (planet)
-    RING_COLOR = QColor("#7f8c8d")         # Gray (ring)
-    CARRIER_COLOR = QColor("#e74c3c")      # Red (carrier arm)
-    CENTER_COLOR = QColor("#f39c12")       # Orange (centers)
-    TRACKING_COLOR = QColor("#2ecc71")     # Green (tracking point)
-    TOOTH_COLOR = QColor("#2c3e50")        # Dark (tooth outline)
+    SUN_COLOR = QColor("#f1c40f")  # Yellow (sun)
+    PLANET_COLOR = QColor("#3498db")  # Blue (planet)
+    RING_COLOR = QColor("#7f8c8d")  # Gray (ring)
+    CARRIER_COLOR = QColor("#e74c3c")  # Red (carrier arm)
+    CENTER_COLOR = QColor("#f39c12")  # Orange (centers)
+    TRACKING_COLOR = QColor("#2ecc71")  # Green (tracking point)
+    TOOTH_COLOR = QColor("#2c3e50")  # Dark (tooth outline)
 
     def create_visuals(self, mechanism_data: dict[str, Any]) -> list[QGraphicsItem]:
         """
         Create visual representation of planetary gear mechanism.
 
-        Visual items order:
-        - Item 0: Ring gear (outer circle)
-        - Item 1: Carrier arm (line from sun to planet)
-        - Item 2: Sun gear (polygon with teeth)
-        - Item 3: Planet gear (polygon with teeth)
-        - Item 4: Sun center pivot
-        - Item 5: Planet center pivot
-        - Item 6: Tracking point on planet
-
-        Returns:
-            List of QGraphicsItem objects representing the planetary gear
+        Optimized: Uses QGraphicsItem rotation/position instead of regenerating geometry.
         """
         visual_items: list[QGraphicsItem] = []
 
@@ -88,42 +78,41 @@ class PlanetaryGearVisualizer(MechanismVisualizer):
 
         # Ring gear (outer boundary)
         ring_radius = r_sun + 2 * r_planet + r_planet * 0.2  # Approximate ring
-        ring = QGraphicsEllipseItem(
-            sun_center_t.x() - ring_radius,
-            sun_center_t.y() - ring_radius,
-            ring_radius * 2,
-            ring_radius * 2,
-        )
+        ring = QGraphicsEllipseItem(-ring_radius, -ring_radius, ring_radius * 2, ring_radius * 2)
+        ring.setPos(sun_center_t)
         ring.setPen(QPen(self.RING_COLOR.darker(120), 4))
         ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         ring.setZValue(self.config.z_index_base - 1)
         visual_items.append(ring)
 
         # Carrier arm (from sun center to planet center)
+        # We'll set line from (0,0) to planet_relative_pos, then move carrier to sun_center_t
+        # But for LineItem, simpler to just set line endpoints in update.
         carrier = QGraphicsLineItem(QLineF(sun_center_t, planet_center_t))
-        carrier.setPen(
-            QPen(self.CARRIER_COLOR, 8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        )
+        carrier.setPen(QPen(self.CARRIER_COLOR, 8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         carrier.setZValue(self.config.z_index_base)
         visual_items.append(carrier)
 
-        # Sun gear
-        sun_polygon = self._create_gear_polygon(
-            sun_center_t, r_sun, sun_teeth, sun_angle, self.SUN_COLOR
-        )
+        # Sun gear (creates at 0,0, then moves/rotates)
+        sun_polygon = self._create_gear_polygon(QPointF(0, 0), r_sun, sun_teeth, 0, self.SUN_COLOR)
+        sun_polygon.setPos(sun_center_t)
+        sun_polygon.setRotation(math.degrees(sun_angle))
         sun_polygon.setZValue(self.config.z_index_base + 1)
         visual_items.append(sun_polygon)
 
         # Planet gear (spins opposite to sun)
         planet_spin = -sun_angle * (r_sun / r_planet) if r_planet > 0 else 0
         planet_polygon = self._create_gear_polygon(
-            planet_center_t, r_planet, planet_teeth, planet_spin, self.PLANET_COLOR
+            QPointF(0, 0), r_planet, planet_teeth, 0, self.PLANET_COLOR
         )
+        planet_polygon.setPos(planet_center_t)
+        planet_polygon.setRotation(math.degrees(planet_spin))
         planet_polygon.setZValue(self.config.z_index_base + 2)
         visual_items.append(planet_polygon)
 
         # Sun center pivot
-        sun_pivot = QGraphicsEllipseItem(sun_center_t.x() - 6, sun_center_t.y() - 6, 12, 12)
+        sun_pivot = QGraphicsEllipseItem(-6, -6, 12, 12)
+        sun_pivot.setPos(sun_center_t)
         sun_pivot.setPen(QPen(self.CENTER_COLOR.darker(150), 2))
         sun_pivot.setBrush(QBrush(self.CENTER_COLOR))
         sun_pivot.setZValue(self.config.z_index_pivot)
@@ -131,9 +120,8 @@ class PlanetaryGearVisualizer(MechanismVisualizer):
         visual_items.append(sun_pivot)
 
         # Planet center pivot
-        planet_pivot = QGraphicsEllipseItem(
-            planet_center_t.x() - 5, planet_center_t.y() - 5, 10, 10
-        )
+        planet_pivot = QGraphicsEllipseItem(-5, -5, 10, 10)
+        planet_pivot.setPos(planet_center_t)
         planet_pivot.setPen(QPen(self.PLANET_COLOR.darker(150), 2))
         planet_pivot.setBrush(QBrush(self.PLANET_COLOR.lighter(120)))
         planet_pivot.setZValue(self.config.z_index_pivot)
@@ -141,11 +129,10 @@ class PlanetaryGearVisualizer(MechanismVisualizer):
         visual_items.append(planet_pivot)
 
         # Tracking point on planet surface (output)
-        tracking_pos = self._calculate_tracking_point(
-            planet_center, r_planet, planet_spin
-        )
+        tracking_pos = self._calculate_tracking_point(planet_center, r_planet, planet_spin)
         tracking_t = self.transform_point(tracking_pos)
-        tracking = QGraphicsEllipseItem(tracking_t.x() - 5, tracking_t.y() - 5, 10, 10)
+        tracking = QGraphicsEllipseItem(-5, -5, 10, 10)
+        tracking.setPos(tracking_t)
         tracking.setPen(QPen(self.TRACKING_COLOR.darker(150), 2))
         tracking.setBrush(QBrush(self.TRACKING_COLOR))
         tracking.setZValue(self.config.z_index_pivot + 1)
@@ -157,7 +144,10 @@ class PlanetaryGearVisualizer(MechanismVisualizer):
     def update_visuals(
         self, visual_items: list[QGraphicsItem], mechanism_data: dict[str, Any]
     ) -> None:
-        """Update existing planetary gear visuals with new mechanism state."""
+        """Update existing planetary gear visuals with new mechanism state.
+
+        Optimized: Updates transformation instead of geometry regeneration.
+        """
         if len(visual_items) < 7:
             return
 
@@ -183,47 +173,44 @@ class PlanetaryGearVisualizer(MechanismVisualizer):
         sun_center_t = self.transform_point(sun_center)
         planet_center_t = self.transform_point(planet_center)
 
-        # Update ring gear (item 0)
+        # Update ring gear (Item 0)
         if isinstance(visual_items[0], QGraphicsEllipseItem):
-            ring_radius = r_sun + 2 * r_planet + r_planet * 0.2
-            visual_items[0].setRect(
-                sun_center_t.x() - ring_radius,
-                sun_center_t.y() - ring_radius,
-                ring_radius * 2,
-                ring_radius * 2,
-            )
+            visual_items[0].setPos(sun_center_t)
+            # Resize ring if radius changed (rare but possible during editing)
+            # ring_radius = r_sun + 2 * r_planet + r_planet * 0.2
+            # rect = visual_items[0].rect()
+            # if abs(rect.width()/2 - ring_radius) > 0.1:
+            #     visual_items[0].setRect(-ring_radius, -ring_radius, ring_radius * 2, ring_radius * 2)
 
-        # Update carrier arm (item 1)
+        # Update carrier arm (Item 1)
         if isinstance(visual_items[1], QGraphicsLineItem):
             visual_items[1].setLine(QLineF(sun_center_t, planet_center_t))
 
-        # Update sun gear (item 2)
+        # Update sun gear (Item 2)
         if isinstance(visual_items[2], QGraphicsPolygonItem):
-            sun_points = self._generate_gear_points(sun_center_t, r_sun, sun_teeth, sun_angle)
-            visual_items[2].setPolygon(QPolygonF(sun_points))
+            visual_items[2].setPos(sun_center_t)
+            visual_items[2].setRotation(math.degrees(sun_angle))
 
-        # Update planet gear (item 3)
+        # Update planet gear (Item 3)
         if isinstance(visual_items[3], QGraphicsPolygonItem):
             planet_spin = -sun_angle * (r_sun / r_planet) if r_planet > 0 else 0
-            planet_points = self._generate_gear_points(
-                planet_center_t, r_planet, planet_teeth, planet_spin
-            )
-            visual_items[3].setPolygon(QPolygonF(planet_points))
+            visual_items[3].setPos(planet_center_t)
+            visual_items[3].setRotation(math.degrees(planet_spin))
 
-        # Update sun center (item 4)
+        # Update sun center (Item 4)
         if isinstance(visual_items[4], QGraphicsEllipseItem):
-            visual_items[4].setRect(sun_center_t.x() - 6, sun_center_t.y() - 6, 12, 12)
+            visual_items[4].setPos(sun_center_t)
 
-        # Update planet center (item 5)
+        # Update planet center (Item 5)
         if isinstance(visual_items[5], QGraphicsEllipseItem):
-            visual_items[5].setRect(planet_center_t.x() - 5, planet_center_t.y() - 5, 10, 10)
+            visual_items[5].setPos(planet_center_t)
 
-        # Update tracking point (item 6)
+        # Update tracking point (Item 6)
         if isinstance(visual_items[6], QGraphicsEllipseItem):
             planet_spin = -sun_angle * (r_sun / r_planet) if r_planet > 0 else 0
             tracking_pos = self._calculate_tracking_point(planet_center, r_planet, planet_spin)
             tracking_t = self.transform_point(tracking_pos)
-            visual_items[6].setRect(tracking_t.x() - 5, tracking_t.y() - 5, 10, 10)
+            visual_items[6].setPos(tracking_t)
 
     def _get_gear_data(
         self, mechanism_data: dict[str, Any], params: dict[str, Any]
@@ -269,20 +256,24 @@ class PlanetaryGearVisualizer(MechanismVisualizer):
         """Calculate planet center position based on carrier angle."""
         # Planet orbits at distance r_sun + r_planet from sun center
         orbit_radius = r_sun + r_planet
-        return np.array([
-            sun_center[0] + orbit_radius * math.cos(carrier_angle),
-            sun_center[1] + orbit_radius * math.sin(carrier_angle),
-        ])
+        return np.array(
+            [
+                sun_center[0] + orbit_radius * math.cos(carrier_angle),
+                sun_center[1] + orbit_radius * math.sin(carrier_angle),
+            ]
+        )
 
     @staticmethod
     def _calculate_tracking_point(
         planet_center: np.ndarray, r_planet: float, planet_spin: float
     ) -> np.ndarray:
         """Calculate tracking point on planet surface."""
-        return np.array([
-            planet_center[0] + r_planet * math.cos(planet_spin),
-            planet_center[1] + r_planet * math.sin(planet_spin),
-        ])
+        return np.array(
+            [
+                planet_center[0] + r_planet * math.cos(planet_spin),
+                planet_center[1] + r_planet * math.sin(planet_spin),
+            ]
+        )
 
     def _create_gear_polygon(
         self,

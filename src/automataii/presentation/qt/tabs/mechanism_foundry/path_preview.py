@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen
-from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsScene
+from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsScene
 
 if TYPE_CHECKING:
     from automataii.application.mechanism_foundry.path_cache import CachedPath, PathCache

@@ -41,6 +41,8 @@ class FourBarMechanism(Mechanism):
         self._parameters = self._parse_parameters(parameters or {})
         self._last_output_angle: float | None = None
         self._assembly_mode: int | None = None
+        # Optimization: Cache static safety analysis
+        self._cached_static_safety: tuple[int, SafetyStatus | None] = (0, None)  # hash, status
 
     @property
     def mechanism_type(self) -> str:
@@ -65,8 +67,12 @@ class FourBarMechanism(Mechanism):
             gp1 = params["ground_pivot1"]
             gp2 = params["ground_pivot2"]
             # Convert to Point2D tuple if needed
-            ground_pivot1: Point2D = (float(gp1[0]), float(gp1[1])) if not isinstance(gp1, tuple) else gp1
-            ground_pivot2: Point2D = (float(gp2[0]), float(gp2[1])) if not isinstance(gp2, tuple) else gp2
+            ground_pivot1: Point2D = (
+                (float(gp1[0]), float(gp1[1])) if not isinstance(gp1, tuple) else gp1
+            )
+            ground_pivot2: Point2D = (
+                (float(gp2[0]), float(gp2[1])) if not isinstance(gp2, tuple) else gp2
+            )
             ground_link = math.hypot(
                 ground_pivot2[0] - ground_pivot1[0], ground_pivot2[1] - ground_pivot1[1]
             )
@@ -86,6 +92,17 @@ class FourBarMechanism(Mechanism):
         )
 
     def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
+        # Optimization: Don't recreate parameters dataclass if values haven't changed
+        # We check key structural parameters (ignoring angle which changes every frame)
+
+        # Check if we can reuse the existing _parameters object (updated with just angle)
+        # Note: We still need to update input_angle in _parameters
+        # But we can avoid re-parsing the geometry parts
+
+        # For simplicity and robustness given the immutability of dataclass,
+        # we'll create a new one but we could optimize _parse_parameters if it becomes a hotspot.
+        # The main bottleneck is _evaluate_safety.
+
         params_with_angle = {**parameters, "input_angle": input_angle}
         self._parameters = self._parse_parameters(params_with_angle)
         params = self._parameters
@@ -253,7 +270,15 @@ class FourBarMechanism(Mechanism):
     def _evaluate_safety(
         self, ground: float, input_l: float, coupler: float, output: float, input_angle: float
     ) -> SafetyStatus:
-        try:
+        # Optimization: Separate static checks (geometry) from dynamic checks (angles)
+        # to avoid sorting/string building every frame.
+
+        # 1. Static Geometry Analysis (Cached)
+        geometry_hash = hash((ground, input_l, coupler, output))
+        cached_hash, cached_status = self._cached_static_safety
+
+        if geometry_hash != cached_hash or cached_status is None:
+            # Perform expensive static analysis
             links = [
                 (ground, "ground"),
                 (input_l, "input"),
@@ -282,114 +307,153 @@ class FourBarMechanism(Mechanism):
             else:
                 mechanism_class = "Triple-Rocker (Class IV)"
 
-            O1 = (-ground / 2, 0)
-            O4 = (ground / 2, 0)
-            A = (O1[0] + input_l * math.cos(input_angle), O1[1] + input_l * math.sin(input_angle))
+            # Store static findings in details dict to reuse
+            static_details = {
+                "mechanism_class": mechanism_class,
+                "grashof_condition": grashof_condition,
+                "grashof_ratio": grashof_ratio,
+                "max_reach_AB": coupler + output,
+                "min_reach_AB": abs(coupler - output),
+                "link_lengths": link_lengths,
+            }
 
-            distance_AO4 = math.sqrt((A[0] - O4[0]) ** 2 + (A[1] - O4[1]) ** 2)
-
-            max_reach_AB = coupler + output
-            min_reach_AB = abs(coupler - output)
-
-            if distance_AO4 <= max_reach_AB and distance_AO4 >= min_reach_AB:
-                try:
-                    cos_gamma = (
-                        coupler * coupler + output * output - distance_AO4 * distance_AO4
-                    ) / (2 * coupler * output)
-                    cos_gamma = max(-1.0, min(1.0, cos_gamma))
-
-                    transmission_angle = math.degrees(math.acos(abs(cos_gamma)))
-                    transmission_quality = (
-                        "excellent"
-                        if 40 <= transmission_angle <= 140
-                        else "good"
-                        if 30 <= transmission_angle <= 150
-                        else "poor"
-                        if 20 <= transmission_angle <= 160
-                        else "critical"
-                    )
-                except (ValueError, ZeroDivisionError):
-                    # Math domain error or division by zero
-                    transmission_angle = 90
-                    transmission_quality = "unknown"
-            else:
-                transmission_angle = 0
-                transmission_quality = "impossible"
-
-            link_ratio_quality = "excellent"
+            # Pre-compute static quality messages
             quality_messages = []
-
             max_ratio = (
                 max(link_lengths) / min(link_lengths) if min(link_lengths) > 0 else float("inf")
             )
             if max_ratio > 10:
-                link_ratio_quality = "poor"
+                static_details["link_ratio_quality"] = "poor"
                 quality_messages.append(f"Extreme link ratio: {max_ratio:.1f}:1")
             elif max_ratio > 6:
-                link_ratio_quality = "fair"
+                static_details["link_ratio_quality"] = "fair"
                 quality_messages.append(f"High link ratio: {max_ratio:.1f}:1")
+            else:
+                static_details["link_ratio_quality"] = "excellent"
 
             if input_l < ground * 0.1:
                 quality_messages.append("Very small input link")
-                if link_ratio_quality == "excellent":
-                    link_ratio_quality = "fair"
+                if static_details["link_ratio_quality"] == "excellent":
+                    static_details["link_ratio_quality"] = "fair"
 
-            safety_level = SafetyLevel.SAFE
-            safety_message = mechanism_class
+            static_details["quality_messages"] = quality_messages
 
-            if not grashof_condition:
-                if grashof_ratio > 1.1:
-                    safety_level = SafetyLevel.DANGER
-                    safety_message = (
-                        f"No continuous rotation possible (Grashof ratio: {grashof_ratio:.2f})"
-                    )
+            # Cache the result (using a placeholder status)
+            cached_status = SafetyStatus(SafetyLevel.SAFE, "", static_details)
+            self._cached_static_safety = (geometry_hash, cached_status)
+
+        # 2. Dynamic Analysis (Per Frame)
+        details = cached_status.details
+        max_reach_AB = details["max_reach_AB"]
+        min_reach_AB = details["min_reach_AB"]
+
+        # Calculate dynamic positions (simplified from full kinematics)
+        O1 = (-ground / 2, 0)
+        O4 = (ground / 2, 0)
+        A = (O1[0] + input_l * math.cos(input_angle), O1[1] + input_l * math.sin(input_angle))
+        distance_AO4 = math.sqrt((A[0] - O4[0]) ** 2 + (A[1] - O4[1]) ** 2)
+
+        # Transmission Angle
+        transmission_quality = "unknown"
+        transmission_angle = 0.0
+
+        if min_reach_AB <= distance_AO4 <= max_reach_AB:
+            try:
+                cos_gamma = (coupler * coupler + output * output - distance_AO4 * distance_AO4) / (
+                    2 * coupler * output
+                )
+                # Fast clamp
+                if cos_gamma > 1.0:
+                    cos_gamma = 1.0
+                elif cos_gamma < -1.0:
+                    cos_gamma = -1.0
+
+                transmission_angle = math.degrees(math.acos(abs(cos_gamma)))
+
+                # Optimized range checks
+                if 40 <= transmission_angle <= 140:
+                    transmission_quality = "excellent"
+                elif 30 <= transmission_angle <= 150:
+                    transmission_quality = "good"
+                elif 20 <= transmission_angle <= 160:
+                    transmission_quality = "poor"
                 else:
-                    safety_level = SafetyLevel.WARNING
-                    safety_message = f"Limited motion, no continuous rotation (Grashof ratio: {grashof_ratio:.2f})"
-            elif distance_AO4 > max_reach_AB:
-                safety_level = SafetyLevel.DANGER
-                safety_message = f"Links cannot reach current position (distance: {distance_AO4:.1f} > max: {max_reach_AB:.1f})"
-            elif distance_AO4 < min_reach_AB:
-                safety_level = SafetyLevel.DANGER
-                safety_message = (
-                    f"Links interference (distance: {distance_AO4:.1f} < min: {min_reach_AB:.1f})"
+                    transmission_quality = "critical"
+            except (ValueError, ZeroDivisionError):
+                transmission_angle = 90
+        else:
+            transmission_quality = "impossible"
+
+        # Construct Status (Fast path for common cases)
+        safety_level = SafetyLevel.SAFE
+        safety_message = details["mechanism_class"]
+
+        # Only check error conditions if we suspect issues
+        if not details["grashof_condition"]:
+            if details["grashof_ratio"] > 1.1:
+                return SafetyStatus(
+                    SafetyLevel.DANGER,
+                    f"No continuous rotation possible (Grashof ratio: {details['grashof_ratio']:.2f})",
+                    details,
                 )
-            elif transmission_quality == "critical":
-                safety_level = SafetyLevel.DANGER
-                safety_message = f"Critical transmission angle: {transmission_angle:.1f}° (force transmission very poor)"
-            elif transmission_quality == "poor":
-                safety_level = SafetyLevel.WARNING
-                safety_message = (
-                    f"Poor transmission angle: {transmission_angle:.1f}° (low force efficiency)"
-                )
-            elif distance_AO4 > max_reach_AB * 0.95:
-                safety_level = SafetyLevel.WARNING
-                safety_message = "Near reach limit - approaching singular position"
-            elif distance_AO4 < min_reach_AB * 1.05:
-                safety_level = SafetyLevel.WARNING
-                safety_message = "Near interference - approaching singular position"
-            elif link_ratio_quality == "poor":
-                safety_level = SafetyLevel.WARNING
-                safety_message = f"{mechanism_class} - Design quality: {link_ratio_quality}"
             else:
-                if transmission_quality == "excellent":
-                    safety_message = (
-                        f"{mechanism_class} - Optimal design (T.A.: {transmission_angle:.1f}°)"
-                    )
-                else:
-                    safety_message = (
-                        f"{mechanism_class} - Good design (T.A.: {transmission_angle:.1f}°)"
-                    )
+                return SafetyStatus(
+                    SafetyLevel.WARNING,
+                    f"Limited motion, no continuous rotation (Grashof ratio: {details['grashof_ratio']:.2f})",
+                    details,
+                )
 
-            if quality_messages and safety_level == SafetyLevel.SAFE:
-                safety_message += f" - Note: {', '.join(quality_messages)}"
-
-            return SafetyStatus(level=safety_level, message=safety_message, details={})
-
-        except Exception as e:
+        if distance_AO4 > max_reach_AB:
             return SafetyStatus(
-                level=SafetyLevel.DANGER, message=f"Safety evaluation error: {str(e)}", details={}
+                SafetyLevel.DANGER,
+                f"Links cannot reach current position (distance: {distance_AO4:.1f} > max: {max_reach_AB:.1f})",
+                details,
             )
+
+        if distance_AO4 < min_reach_AB:
+            return SafetyStatus(
+                SafetyLevel.DANGER,
+                f"Links interference (distance: {distance_AO4:.1f} < min: {min_reach_AB:.1f})",
+                details,
+            )
+
+        if transmission_quality == "critical":
+            return SafetyStatus(
+                SafetyLevel.DANGER,
+                f"Critical transmission angle: {transmission_angle:.1f}° (force transmission very poor)",
+                details,
+            )
+
+        if transmission_quality == "poor":
+            return SafetyStatus(
+                SafetyLevel.WARNING,
+                f"Poor transmission angle: {transmission_angle:.1f}° (low force efficiency)",
+                details,
+            )
+
+        # Near-limit checks
+        if distance_AO4 > max_reach_AB * 0.95 or distance_AO4 < min_reach_AB * 1.05:
+            return SafetyStatus(
+                SafetyLevel.WARNING, "Near reach limit - approaching singular position", details
+            )
+
+        if details["link_ratio_quality"] == "poor":
+            return SafetyStatus(
+                SafetyLevel.WARNING, f"{safety_message} - Design quality: poor", details
+            )
+
+        # Success path
+        suffix = (
+            f" - Optimal design (T.A.: {transmission_angle:.1f}°)"
+            if transmission_quality == "excellent"
+            else f" - Good design (T.A.: {transmission_angle:.1f}°)"
+        )
+        safety_message += suffix
+
+        if details.get("quality_messages"):
+            safety_message += f" - Note: {', '.join(details['quality_messages'])}"
+
+        return SafetyStatus(level=safety_level, message=safety_message, details=details)
 
     def _calculate_forces(
         self, O1: Point2D, A: Point2D, B: Point2D, O4: Point2D, angle: float

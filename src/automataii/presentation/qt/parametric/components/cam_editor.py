@@ -251,7 +251,10 @@ class CamEditor(MechanismEditor):
 
         if "key_points" not in self.mechanism_data:
             self.mechanism_data["key_points"] = {}
-        self.mechanism_data["key_points"]["cam_center"] = [new_pos.x(), new_pos.y()]
+        if mech is not None:
+            self.mechanism_data["key_points"]["cam_center"] = [float(mech[0]), float(mech[1])]
+        else:
+            self.mechanism_data["key_points"]["cam_center"] = [new_pos.x(), new_pos.y()]
 
         logging.debug(f"[CAM-EDITOR] Updated center to ({new_pos.x():.1f}, {new_pos.y():.1f})")
 
@@ -273,10 +276,44 @@ class CamEditor(MechanismEditor):
 
         if "follower" in self.handles:
             follower_handle = self.handles["follower"]
-            follower_handle.constraints["fixed_x"] = new_pos.x()
+            cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)
+            scaled_base_radius = (
+                float(self.mechanism_data["params"].get("base_radius", 25.0)) * cam_scale_factor
+            )
+            min_y = new_pos.y() - 300
+            max_y = new_pos.y() - (scaled_base_radius + 20)
+
+            # Keep follower constraints consistent with mechanism-space transforms.
+            center_mech = self._to_mech(new_pos)
+            if center_mech is not None:
+                min_scene = self._to_scene((center_mech[0], center_mech[1] - 300))
+                max_scene = self._to_scene(
+                    (
+                        center_mech[0],
+                        center_mech[1]
+                        - float(self.mechanism_data["params"].get("base_radius", 25.0))
+                        - 20,
+                    )
+                )
+                if min_scene is not None:
+                    min_y = min_scene.y()
+                if max_scene is not None:
+                    max_y = max_scene.y()
+
+            follower_handle.constraints["min_y"] = min_y
+            follower_handle.constraints["max_y"] = max_y
             current_follower_pos = follower_handle.scenePos()
             new_follower_pos = current_follower_pos + offset
             follower_handle.setPos(new_follower_pos)
+            follower_handle.constraints["fixed_x"] = new_follower_pos.x()
+
+        # Keep profile-angle controls centered on the moved cam center.
+        center_constraint = QPointF(new_pos.x(), new_pos.y())
+        for angle_handle_id in ("align_max", "rise_end", "dwell_high_end", "return_end"):
+            handle = self.handles.get(angle_handle_id)
+            if handle is not None:
+                handle.constraints["center"] = center_constraint
+        self._refresh_angle_handles()
 
         self._trigger_cam_update()
 
@@ -286,6 +323,18 @@ class CamEditor(MechanismEditor):
             self.mechanism_data["params"]["center_x"],
             self.mechanism_data["params"]["center_y"],
         )
+
+        # Prefer mechanism-space update when transforms are available.
+        center_mech = self._to_mech(center)
+        follower_mech = self._to_mech(new_pos)
+        if center_mech is not None and follower_mech is not None:
+            base_radius_mech = float(self.mechanism_data["params"].get("base_radius", 25.0))
+            distance_mech = abs(center_mech[1] - follower_mech[1])
+            self.mechanism_data["params"]["follower_rod_length"] = max(
+                20.0, distance_mech - base_radius_mech
+            )
+            self._trigger_cam_update()
+            return
 
         base_radius = self.mechanism_data["params"].get("base_radius", 25.0)
         cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)

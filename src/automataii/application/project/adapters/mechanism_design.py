@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtGui import QPainterPath
@@ -233,6 +234,8 @@ class MechanismDesignTabAdapter(TabAdapter):
             # Get current mechanism IDs from tab
             current_ids = set(self._tab.mechanism_layers.keys()) if hasattr(self._tab, 'mechanism_layers') else set()
             state_ids = set(mechanisms.keys())
+            changed_or_added_ids: list[str] = []
+            ui_list_needs_refresh = False
 
             # Remove mechanisms that are no longer in state
             ids_to_remove = current_ids - state_ids
@@ -245,35 +248,49 @@ class MechanismDesignTabAdapter(TabAdapter):
                     self._tab.mechanism_layers.pop(mech_id, None)
                     if hasattr(self._tab, 'mechanism_enabled_state'):
                         self._tab.mechanism_enabled_state.pop(mech_id, None)
+                ui_list_needs_refresh = True
 
             # Add or update mechanisms from state
             for mech_id, mech_data in mechanisms.items():
-                layer_data = self._transform_mechanism_to_layer_data(mech_data)
-
                 if mech_id in current_ids:
                     # Update existing mechanism
                     if hasattr(self._tab, 'mechanism_layers'):
                         existing = self._tab.mechanism_layers.get(mech_id, {})
+                        if self._layer_matches_mechanism_data(existing, mech_data):
+                            if hasattr(self._tab, "mechanism_enabled_state"):
+                                self._tab.mechanism_enabled_state[mech_id] = mech_data.enabled
+                            continue
+
+                        layer_data = self._transform_mechanism_to_layer_data(mech_data)
                         # Preserve visual_items from existing layer_data
                         layer_data["visual_items"] = existing.get("visual_items", [])
                         self._tab.mechanism_layers[mech_id] = layer_data
+                        if hasattr(self._tab, "mechanism_enabled_state"):
+                            self._tab.mechanism_enabled_state[mech_id] = mech_data.enabled
                         logger.debug(f"Updated mechanism '{mech_id}'")
+                        changed_or_added_ids.append(mech_id)
                 else:
                     # Add new mechanism
                     logger.debug(f"Adding mechanism '{mech_id}' from state")
+                    layer_data = self._transform_mechanism_to_layer_data(mech_data)
                     if hasattr(self._tab, '_mvp_presenter') and hasattr(self._tab._mvp_presenter, 'add_mechanism_layer'):
                         self._tab._mvp_presenter.add_mechanism_layer(mech_id, layer_data)
                     elif hasattr(self._tab, 'mechanism_layers'):
                         self._tab.mechanism_layers[mech_id] = layer_data
                         if hasattr(self._tab, 'mechanism_enabled_state'):
                             self._tab.mechanism_enabled_state[mech_id] = mech_data.enabled
+                    changed_or_added_ids.append(mech_id)
+                    ui_list_needs_refresh = True
 
-            # Update the UI list
-            if hasattr(self._tab, '_update_mechanism_layers_list'):
+            # Update the UI list only when membership changed
+            if ui_list_needs_refresh and hasattr(self._tab, '_update_mechanism_layers_list'):
                 self._tab._update_mechanism_layers_list()
 
-            # Regenerate visuals for updated/new mechanisms
-            for mech_id, mech_data in mechanisms.items():
+            # Regenerate visuals only for mechanisms that actually changed
+            for mech_id in changed_or_added_ids:
+                mech_data = mechanisms.get(mech_id)
+                if mech_data is None:
+                    continue
                 layer_data = self._tab.mechanism_layers.get(mech_id) if hasattr(self._tab, 'mechanism_layers') else None
                 if layer_data and hasattr(self._tab, '_generate_mechanism_visuals_directly'):
                     self._tab._generate_mechanism_visuals_directly(
@@ -285,6 +302,49 @@ class MechanismDesignTabAdapter(TabAdapter):
 
         except Exception as e:
             logger.exception(f"Error syncing mechanisms from state: {e}")
+
+    def _layer_matches_mechanism_data(
+        self,
+        existing_layer: Any,
+        mech_data: MechanismData,
+    ) -> bool:
+        """Fast comparison to skip unnecessary mechanism re-renders."""
+        if not isinstance(existing_layer, dict):
+            return False
+
+        if str(existing_layer.get("part_name", "")) != mech_data.part_name:
+            return False
+        if str(existing_layer.get("type", "")) != mech_data.type:
+            return False
+
+        existing_params = existing_layer.get("params", {})
+        if not isinstance(existing_params, dict):
+            return False
+        if existing_params != (dict(mech_data.params) if mech_data.params else {}):
+            return False
+
+        existing_enabled = bool(existing_layer.get("enabled", True))
+        if existing_enabled != mech_data.enabled:
+            return False
+
+        payload = dict(mech_data.layer_data) if mech_data.layer_data else {}
+        if not payload:
+            return True
+
+        for key, value in payload.items():
+            if key == "generated_path_data":
+                cached_generated = existing_layer.get("_generated_path_data")
+                if isinstance(cached_generated, dict):
+                    existing_generated = cached_generated
+                else:
+                    existing_generated = self._serialize_qpath_to_payload(
+                        existing_layer.get("generated_path")
+                    )
+                if existing_generated != value:
+                    return False
+            elif existing_layer.get(key) != value:
+                return False
+        return True
 
     # =========================================================================
     # DATA TRANSFORMATIONS
@@ -300,14 +360,76 @@ class MechanismDesignTabAdapter(TabAdapter):
         Returns:
             Dict in layer_data format for the tab
         """
-        return {
-            "id": mech_data.id,
-            "part_name": mech_data.part_name,
-            "type": mech_data.type,
-            "params": dict(mech_data.params) if mech_data.params else {},
-            "enabled": mech_data.enabled,
-            "visual_items": [],  # Will be populated by visual generation
-        }
+        layer_data = dict(mech_data.layer_data) if mech_data.layer_data else {}
+
+        generated_path_data = layer_data.pop("generated_path_data", None)
+        generated_path = self._transform_serialized_path_to_qpath(generated_path_data)
+        if generated_path is not None and not generated_path.isEmpty():
+            layer_data["generated_path"] = generated_path
+        if isinstance(generated_path_data, dict):
+            layer_data["_generated_path_data"] = generated_path_data
+
+        layer_data.update(
+            {
+                "id": mech_data.id,
+                "part_name": mech_data.part_name,
+                "type": mech_data.type,
+                "params": dict(mech_data.params) if mech_data.params else {},
+                "enabled": mech_data.enabled,
+            }
+        )
+        layer_data.setdefault("visual_items", [])  # Populated by visual generation
+        return layer_data
+
+    def _transform_serialized_path_to_qpath(self, payload: Any) -> QPainterPath | None:
+        """Restore serialized generated-path payload to QPainterPath."""
+        if not isinstance(payload, dict):
+            return None
+
+        raw_points = payload.get("points")
+        if not isinstance(raw_points, list) or not raw_points:
+            return None
+
+        qpath = QPainterPath()
+        try:
+            first = raw_points[0]
+            if not isinstance(first, list | tuple) or len(first) < 2:
+                return None
+            qpath.moveTo(float(first[0]), float(first[1]))
+
+            for point in raw_points[1:]:
+                if not isinstance(point, list | tuple) or len(point) < 2:
+                    continue
+                qpath.lineTo(float(point[0]), float(point[1]))
+
+            if bool(payload.get("is_closed", False)) and len(raw_points) > 2:
+                qpath.closeSubpath()
+        except Exception:
+            logger.debug("Failed to restore generated_path payload", exc_info=True)
+            return None
+
+        return qpath
+
+    def _serialize_qpath_to_payload(self, qpath: Any) -> dict[str, Any] | None:
+        """Serialize QPainterPath to payload for delta comparison."""
+        if not isinstance(qpath, QPainterPath) or qpath.isEmpty():
+            return None
+
+        points: list[list[float]] = []
+        try:
+            for idx in range(qpath.elementCount()):
+                elem = qpath.elementAt(idx)
+                points.append([float(elem.x), float(elem.y)])
+        except Exception:
+            return None
+
+        if not points:
+            return None
+
+        first = points[0]
+        last = points[-1]
+        is_closed = abs(first[0] - last[0]) < 1.0 and abs(first[1] - last[1]) < 1.0
+        return {"points": points, "is_closed": is_closed}
 
     def _transform_parts_to_partinfo(
         self,
@@ -322,25 +444,42 @@ class MechanismDesignTabAdapter(TabAdapter):
         Returns:
             Dict in PartInfo format
         """
+        from automataii.domain.project.models import PartInfoModel
         from automataii.presentation.qt.models import PartInfo
 
         parts_info: dict[str, PartInfo] = {}
+        project_dir = self._state_manager.state.project_dir or Path.cwd()
 
         for name, part_data in parts.items():
             try:
-                part_info = PartInfo(
-                    name=name,
-                    image_path=part_data.texture_path,
-                    roi=[
-                        part_data.transform.x,
-                        part_data.transform.y,
-                        0,  # width
-                        0,  # height
-                    ],
-                    local_pivot_offset=[0, 0],
-                    z_value=float(part_data.z_index),
-                    parent_joint=part_data.anchor_joint,
+                roi = (
+                    list(part_data.roi)
+                    if part_data.roi is not None
+                    else [part_data.transform.x, part_data.transform.y, 0.0, 0.0]
                 )
+
+                model = PartInfoModel(
+                    name=name,
+                    roi=roi,
+                    z_value=float(part_data.z_index),
+                    image_path=part_data.texture_path,
+                    fill_color=part_data.fill_color,
+                    fixed=part_data.fixed,
+                    opacity=part_data.opacity,
+                    group=part_data.group,
+                    original_svg_path=part_data.original_svg_path,
+                    enhanced_svg_path=part_data.enhanced_svg_path,
+                    effective_bbox_offset_x=part_data.effective_bbox_offset_x,
+                    effective_bbox_offset_y=part_data.effective_bbox_offset_y,
+                    show_anchor=part_data.show_anchor,
+                    local_pivot_offset=(
+                        list(part_data.local_pivot_offset)
+                        if part_data.local_pivot_offset is not None
+                        else None
+                    ),
+                    anchor_joint_id=part_data.anchor_joint,
+                )
+                part_info = PartInfo.from_pydantic(model, project_dir=project_dir)
                 parts_info[name] = part_info
 
             except Exception as e:

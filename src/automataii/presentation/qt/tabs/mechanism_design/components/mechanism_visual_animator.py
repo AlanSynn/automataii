@@ -11,6 +11,7 @@ Performance Optimizations:
 - Caches pre-computed joint positions, cam profiles, gear angles
 - Vectorized coordinate transforms where possible
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,7 +52,8 @@ class MechanismVisualAnimator:
     def __init__(
         self,
         get_scene_transform: Callable[[dict], Callable | None],
-        set_line_if_changed: Callable[[QGraphicsLineItem, QPointF, QPointF, float], None] | None = None,
+        set_line_if_changed: Callable[[QGraphicsLineItem, QPointF, QPointF, float], None]
+        | None = None,
         cache_manager: AnimationCacheManager | None = None,
     ) -> None:
         """
@@ -65,11 +67,13 @@ class MechanismVisualAnimator:
         self._get_scene_transform = get_scene_transform
         self._set_line_if_changed = set_line_if_changed or self._default_set_line
         self._cache_manager = cache_manager or AnimationCacheManager()
+        # Helper to access TransformService's batch method if available
+        # We assume get_scene_transform is bound method of TransformService, so we try to find the service instance
+        self._transform_service_ref = getattr(get_scene_transform, "__self__", None)
 
     @property
-    def cache_manager(self) -> AnimationCacheManager:
-        """Access the animation cache manager."""
-        return self._cache_manager
+    def mechanism_type(self) -> str:
+        return "animator"
 
     def build_cache(self, mechanism_id: str, layer_data: dict[str, Any]) -> None:
         """Build animation cache for a mechanism. Call when mechanism is added."""
@@ -93,10 +97,12 @@ class MechanismVisualAnimator:
         """Default line setter with epsilon check."""
         try:
             current = line_item.line()
-            if (abs(current.p1().x() - p1.x()) > eps or
-                abs(current.p1().y() - p1.y()) > eps or
-                abs(current.p2().x() - p2.x()) > eps or
-                abs(current.p2().y() - p2.y()) > eps):
+            if (
+                abs(current.p1().x() - p1.x()) > eps
+                or abs(current.p1().y() - p1.y()) > eps
+                or abs(current.p2().x() - p2.x()) > eps
+                or abs(current.p2().y() - p2.y()) > eps
+            ):
                 line_item.setLine(QLineF(p1, p2))
         except Exception:
             try:
@@ -123,7 +129,9 @@ class MechanismVisualAnimator:
         try:
             mech_type = layer_data.get("type")
             visual_items = layer_data.get("visual_items", [])
-            logging.debug(f"[VISUAL-ANIM] update_visuals called: type={mech_type}, items={len(visual_items)}, time={time:.3f}")
+            logging.debug(
+                f"[VISUAL-ANIM] update_visuals called: type={mech_type}, items={len(visual_items)}, time={time:.3f}"
+            )
 
             if mech_type == "4_bar_linkage":
                 self._update_4bar_visuals(time, layer_data, visual_items, mechanism_id)
@@ -132,7 +140,9 @@ class MechanismVisualAnimator:
             elif mech_type == "6_bar_linkage":
                 self._update_6bar_visuals(time, layer_data, visual_items, mechanism_id)
             elif mech_type == "cam":
-                self._update_cam_visuals(time, layer_data, visual_items, mechanism_id, visuals_factory)
+                self._update_cam_visuals(
+                    time, layer_data, visual_items, mechanism_id, visuals_factory
+                )
             elif mech_type == "gear":
                 self._update_gear_visuals(time, layer_data, visual_items, mechanism_id)
             elif mech_type == "planetary_gear":
@@ -200,10 +210,12 @@ class MechanismVisualAnimator:
 
             params = layer_data.get("params", {})
             # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-            coupler_offset = np.array([
-                params.get("coupler_point_x") or params.get("p_x", 0.0),
-                params.get("coupler_point_y") or params.get("p_y", 0.0),
-            ])
+            coupler_offset = np.array(
+                [
+                    params.get("coupler_point_x") or params.get("p_x", 0.0),
+                    params.get("coupler_point_y") or params.get("p_y", 0.0),
+                ]
+            )
 
         # Calculate coupler point (vectorized)
         coupler_vec = p4 - p3
@@ -253,8 +265,8 @@ class MechanismVisualAnimator:
         moving_pivot_positions = [p3_t, p4_t]
 
         for i, pos in enumerate(moving_pivot_positions):
-            outer_idx = 8 + (i * 2)   # p3 at 8, p4 at 10
-            inner_idx = 9 + (i * 2)   # p3 at 9, p4 at 11
+            outer_idx = 8 + (i * 2)  # p3 at 8, p4 at 10
+            inner_idx = 9 + (i * 2)  # p3 at 9, p4 at 11
 
             if len(visual_items) > outer_idx:
                 outer_pivot = visual_items[outer_idx]
@@ -274,7 +286,9 @@ class MechanismVisualAnimator:
 
         # Log successful update (only for first few frames to avoid spam)
         if time < 0.15:
-            logging.debug(f"[4BAR-ANIM] Updated: p3={p3_t.x():.1f},{p3_t.y():.1f} p4={p4_t.x():.1f},{p4_t.y():.1f}")
+            logging.debug(
+                f"[4BAR-ANIM] Updated: p3={p3_t.x():.1f},{p3_t.y():.1f} p4={p4_t.x():.1f},{p4_t.y():.1f}"
+            )
 
     def _update_5bar_visuals(
         self,
@@ -348,7 +362,9 @@ class MechanismVisualAnimator:
         joint_positions_scene = [p3_t, p4_t, p5_t]
         for i, pos in enumerate(joint_positions_scene):
             item_idx = 4 + i
-            if len(visual_items) > item_idx and isinstance(visual_items[item_idx], QGraphicsEllipseItem):
+            if len(visual_items) > item_idx and isinstance(
+                visual_items[item_idx], QGraphicsEllipseItem
+            ):
                 visual_items[item_idx].setRect(pos.x() - 6, pos.y() - 6, 12, 12)
 
     def _update_6bar_visuals(
@@ -425,7 +441,9 @@ class MechanismVisualAnimator:
         joint_positions_scene = [p3_t, p4_t, p5_t]
         for i, pos in enumerate(joint_positions_scene):
             item_idx = 5 + i
-            if len(visual_items) > item_idx and isinstance(visual_items[item_idx], QGraphicsEllipseItem):
+            if len(visual_items) > item_idx and isinstance(
+                visual_items[item_idx], QGraphicsEllipseItem
+            ):
                 visual_items[item_idx].setRect(pos.x() - 6, pos.y() - 6, 12, 12)
 
     def _update_cam_visuals(
@@ -453,7 +471,7 @@ class MechanismVisualAnimator:
             return
 
         # Get transform function
-        cam_to_scene_coords = layer_data.get('cam_transform_function')
+        cam_to_scene_coords = layer_data.get("cam_transform_function")
         if not cam_to_scene_coords:
             cam_to_scene_coords = self._get_scene_transform(layer_data)
             if not cam_to_scene_coords:
@@ -464,12 +482,18 @@ class MechanismVisualAnimator:
         # Get params for rod length calculation
         params = layer_data.get("params", {})
         follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 40.0))
-        rod_length_multiplier = layer_data.get('rod_length_multiplier', 1.0)
+        rod_length_multiplier = layer_data.get("rod_length_multiplier", 1.0)
         scaled_rod_length = follower_rod_length * rod_length_multiplier
 
+        # Prepare batch transform if available
+        batch_transform = None
+        if self._transform_service_ref and hasattr(
+            self._transform_service_ref, "get_batch_scene_transform"
+        ):
+            batch_transform = self._transform_service_ref.get_batch_scene_transform(layer_data)
+
         # Priority: Use pre-computed cam profile from factory (pear-cam or custom profile)
-        # This ensures animation uses the same profile as the initial visualization
-        cam_points_local = layer_data.get('cam_points_local')
+        cam_points_local = layer_data.get("cam_points_local")
 
         if cam_points_local is not None and len(cam_points_local) > 0:
             # Apply rotation to the pre-computed profile
@@ -482,28 +506,29 @@ class MechanismVisualAnimator:
                 rotated_y = cam_points_local[:, 0] * sin_a + cam_points_local[:, 1] * cos_a
                 rotated_profile = np.column_stack([rotated_x, rotated_y])
             else:
-                # Handle list of points - convert to numpy first
                 pts_array = np.array(cam_points_local)
                 rotated_x = pts_array[:, 0] * cos_a - pts_array[:, 1] * sin_a
                 rotated_y = pts_array[:, 0] * sin_a + pts_array[:, 1] * cos_a
                 rotated_profile = np.column_stack([rotated_x, rotated_y])
 
-            # Transform to scene coordinates
-            cam_polygon_points = [cam_to_scene_coords(pt) for pt in rotated_profile]
+            # Transform to scene coordinates (Batch Optimized)
+            if batch_transform:
+                cam_polygon_points = batch_transform(rotated_profile)
+            else:
+                cam_polygon_points = [cam_to_scene_coords(pt) for pt in rotated_profile]
 
-            # Calculate contact radius: find the point at -π/2 - cam_angle in local frame
-            # For pear-cam, use the actual profile radius at the follower angle
+            # Calculate contact radius
             follower_angle_in_profile = -np.pi / 2 - cam_angle
-            # Normalize to 0..2π range
             follower_angle_norm = follower_angle_in_profile % (2 * np.pi)
-            # Find closest point in the profile
             num_pts = len(cam_points_local)
             profile_idx = int((follower_angle_norm / (2 * np.pi)) * num_pts) % num_pts
-            if isinstance(cam_points_local, np.ndarray):
+
+            # Safe indexing
+            if isinstance(cam_points_local, list):
                 contact_pt = cam_points_local[profile_idx]
             else:
                 contact_pt = cam_points_local[profile_idx]
-            contact_radius = float(np.sqrt(contact_pt[0]**2 + contact_pt[1]**2))
+            contact_radius = float(np.sqrt(contact_pt[0] ** 2 + contact_pt[1] ** 2))
 
         else:
             # Fallback: Try to use cache (harmonic formula)
@@ -515,37 +540,50 @@ class MechanismVisualAnimator:
                 contact_radius = cache.get_contact_radius(cam_angle)
                 scaled_rod_length = cache.rod_length
 
-                # Transform all points at once
-                cam_polygon_points = [cam_to_scene_coords(pt) for pt in rotated_profile]
+                # Transform all points at once (Batch Optimized)
+                if batch_transform:
+                    cam_polygon_points = batch_transform(rotated_profile)
+                else:
+                    cam_polygon_points = [cam_to_scene_coords(pt) for pt in rotated_profile]
             else:
                 # Last fallback: compute harmonic formula directly
+                # (Keep legacy loop for robustness in edge cases)
                 base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
                 cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
                 cam_lobes = int(params.get("cam_lobes", 1))
                 profile_harmonic = params.get("profile_harmonic", 0.3)
 
-                cam_scale_factor = layer_data.get('cam_scale_factor', 1.0)
+                cam_scale_factor = layer_data.get("cam_scale_factor", 1.0)
 
                 scaled_base_radius = base_radius * cam_scale_factor
                 scaled_cam_offset = cam_offset * cam_scale_factor
 
                 num_points = 72
-                cam_polygon_points = []
-                for i in range(num_points):
-                    theta = (i / num_points) * 2 * np.pi
-                    primary_var = scaled_cam_offset * np.cos(cam_lobes * theta)
-                    secondary_var = (scaled_cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * theta)
-                    r = scaled_base_radius + primary_var + secondary_var
-                    rotated_theta = theta + cam_angle
-                    x = r * np.cos(rotated_theta)
-                    y = r * np.sin(rotated_theta)
-                    scene_point = cam_to_scene_coords(np.array([x, y]))
-                    cam_polygon_points.append(scene_point)
+                # Generate points
+                thetas = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
+                primary_var = scaled_cam_offset * np.cos(cam_lobes * thetas)
+                secondary_var = (scaled_cam_offset * profile_harmonic) * np.cos(
+                    2 * cam_lobes * thetas
+                )
+                radii = scaled_base_radius + primary_var + secondary_var
+
+                rotated_thetas = thetas + cam_angle
+                xs = radii * np.cos(rotated_thetas)
+                ys = radii * np.sin(rotated_thetas)
+
+                raw_points = np.column_stack([xs, ys])
+
+                if batch_transform:
+                    cam_polygon_points = batch_transform(raw_points)
+                else:
+                    cam_polygon_points = [cam_to_scene_coords(pt) for pt in raw_points]
 
                 # Calculate contact radius for fallback
                 follower_theta = -np.pi / 2 - cam_angle
                 primary = scaled_cam_offset * np.cos(cam_lobes * follower_theta)
-                secondary = (scaled_cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * follower_theta)
+                secondary = (scaled_cam_offset * profile_harmonic) * np.cos(
+                    2 * cam_lobes * follower_theta
+                )
                 contact_radius = scaled_base_radius + primary + secondary
 
         # Cam center in mechanism coordinates
@@ -572,7 +610,7 @@ class MechanismVisualAnimator:
         rod_scene = scaled_rod_length * unit_scale
 
         # Follower X is fixed at cam center X
-        follower_x = layer_data.get('follower_fixed_x_scene', cam_center_scene.x())
+        follower_x = layer_data.get("follower_fixed_x_scene", cam_center_scene.x())
 
         # Follower base Y (at end of rod above contact due to gravity)
         # In scene coords, Y+ is down, so subtract rod_scene to move upward
@@ -584,10 +622,7 @@ class MechanismVisualAnimator:
 
         # Update follower rod (item 2)
         if len(visual_items) > 2 and isinstance(visual_items[2], QGraphicsLineItem):
-            visual_items[2].setLine(QLineF(
-                contact_scene,
-                QPointF(follower_x, follower_base_y)
-            ))
+            visual_items[2].setLine(QLineF(contact_scene, QPointF(follower_x, follower_base_y)))
 
         # Update follower head (item 3)
         if len(visual_items) > 3 and isinstance(visual_items[3], QGraphicsRectItem):
@@ -615,24 +650,39 @@ class MechanismVisualAnimator:
         if len(visual_items) < 4:
             return
 
-        to_scene_coords = self._get_scene_transform(layer_data)
-        if not to_scene_coords:
-            return
+        params = layer_data.get("params", {})
+        use_scene_geometry = all(
+            key in params for key in ("gear1_x", "gear1_y", "gear2_x", "gear2_y")
+        )
+
+        to_scene_coords = None
+        if not use_scene_geometry:
+            to_scene_coords = self._get_scene_transform(layer_data)
+            if not to_scene_coords:
+                return
 
         # Try to use cache first
         cache = self._cache_manager.get_gear_cache(mechanism_id) if mechanism_id else None
 
+        r1 = float(params.get("gear1_radius", params.get("r1", 30)))
+        r2 = float(params.get("gear2_radius", params.get("r2", 50)))
+        if r1 <= 0:
+            r1 = 1.0
+        if r2 <= 0:
+            r2 = 1.0
+
+        theta1 = time
+        theta2 = -theta1 * (r1 / r2)
+
         if cache:
-            gear1_center = cache.gear1_center
-            gear2_center = cache.gear2_center
-            r1 = cache.gear1_radius
-            r2 = cache.gear2_radius
+            gear1_center = np.array(cache.gear1_center, dtype=float)
+            gear2_center = np.array(cache.gear2_center, dtype=float)
+            if not use_scene_geometry:
+                r1 = cache.gear1_radius
+                r2 = cache.gear2_radius
             theta1, theta2 = cache.get_angles(time)
         else:
             # Fallback
-            params = layer_data.get("params", {})
-            r1 = params.get("r1", 30)
-            r2 = params.get("r2", 50)
             full_sim_data = layer_data.get("full_simulation_data", {})
             gear_data = full_sim_data.get("gear_data", {})
 
@@ -653,44 +703,58 @@ class MechanismVisualAnimator:
                     full_rotations = int(time / (2 * np.pi))
                     theta1 = gear1_angles[frame_index] + full_rotations * 2 * np.pi
                     theta2 = gear2_angles[frame_index] + full_rotations * 2 * np.pi * (-r1 / r2)
-            else:
-                theta1 = time
-                theta2 = -theta1 * (r1 / r2)
 
-        # Transform to scene coordinates
-        g1_center_scene = to_scene_coords(gear1_center)
-        g2_center_scene = to_scene_coords(gear2_center)
+        if use_scene_geometry:
+            g1_center_scene = QPointF(float(params["gear1_x"]), float(params["gear1_y"]))
+            g2_center_scene = QPointF(float(params["gear2_x"]), float(params["gear2_y"]))
+            r1_screen = float(params.get("gear1_radius", r1))
+            r2_screen = float(params.get("gear2_radius", r2))
+            if r1_screen <= 0:
+                r1_screen = r1
+            if r2_screen <= 0:
+                r2_screen = r2
+        else:
+            # Transform to scene coordinates from mechanism space.
+            g1_center_scene = to_scene_coords(gear1_center)
+            g2_center_scene = to_scene_coords(gear2_center)
 
-        # Calculate screen-space radii
-        gear1_edge_orig = gear1_center + np.array([r1, 0])
-        gear1_edge_scene = to_scene_coords(gear1_edge_orig)
-        r1_screen = QLineF(g1_center_scene, gear1_edge_scene).length()
+            gear1_edge_orig = gear1_center + np.array([r1, 0])
+            gear1_edge_scene = to_scene_coords(gear1_edge_orig)
+            r1_screen = QLineF(g1_center_scene, gear1_edge_scene).length()
 
-        gear2_edge_orig = gear2_center + np.array([r2, 0])
-        gear2_edge_scene = to_scene_coords(gear2_edge_orig)
-        r2_screen = QLineF(g2_center_scene, gear2_edge_scene).length()
+            gear2_edge_orig = gear2_center + np.array([r2, 0])
+            gear2_edge_scene = to_scene_coords(gear2_edge_orig)
+            r2_screen = QLineF(g2_center_scene, gear2_edge_scene).length()
 
         # Update gear bodies
         if len(visual_items) >= 2:
-            if hasattr(visual_items[0], 'setRect'):
+            if hasattr(visual_items[0], "setRect"):
                 visual_items[0].setRect(
-                    g1_center_scene.x() - r1_screen, g1_center_scene.y() - r1_screen,
-                    r1_screen * 2, r1_screen * 2
+                    g1_center_scene.x() - r1_screen,
+                    g1_center_scene.y() - r1_screen,
+                    r1_screen * 2,
+                    r1_screen * 2,
                 )
-            if hasattr(visual_items[1], 'setRect'):
+            if hasattr(visual_items[1], "setRect"):
                 visual_items[1].setRect(
-                    g2_center_scene.x() - r2_screen, g2_center_scene.y() - r2_screen,
-                    r2_screen * 2, r2_screen * 2
+                    g2_center_scene.x() - r2_screen,
+                    g2_center_scene.y() - r2_screen,
+                    r2_screen * 2,
+                    r2_screen * 2,
                 )
 
         # Update rotation indicators
         if len(visual_items) >= 4:
             if isinstance(visual_items[2], QGraphicsLineItem):
-                end1 = g1_center_scene + QPointF(r1_screen * math.cos(theta1), r1_screen * math.sin(theta1))
+                end1 = g1_center_scene + QPointF(
+                    r1_screen * math.cos(theta1), r1_screen * math.sin(theta1)
+                )
                 visual_items[2].setLine(QLineF(g1_center_scene, end1))
 
             if isinstance(visual_items[3], QGraphicsLineItem):
-                end2 = g2_center_scene + QPointF(r2_screen * math.cos(theta2), r2_screen * math.sin(theta2))
+                end2 = g2_center_scene + QPointF(
+                    r2_screen * math.cos(theta2), r2_screen * math.sin(theta2)
+                )
                 visual_items[3].setLine(QLineF(g2_center_scene, end2))
 
     def _update_planetary_gear_visuals(
@@ -723,9 +787,32 @@ class MechanismVisualAnimator:
         else:
             # Fallback
             params = layer_data.get("params", {})
-            r_sun = params.get("r_sun", 20)
-            r_planet = params.get("r_planet", 30)
-            arm_length = params.get("arm_length", 15)
+            r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
+            r_planet = float(params.get("r_planet", params.get("gear2_radius", 30.0)))
+            arm_length = float(params.get("arm_length", 15.0))
+            if r_planet <= 0:
+                r_planet = 1.0
+
+            key_points = layer_data.get("key_points", {})
+            if "sun_center" in key_points:
+                base_sun_center = np.array(key_points["sun_center"], dtype=float)
+            elif "m_sun_x" in params and "m_sun_y" in params:
+                base_sun_center = np.array(
+                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "sun_x" in params and "sun_y" in params:
+                base_sun_center = np.array(
+                    [float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0))],
+                    dtype=float,
+                )
+            elif "gear1_x" in params and "gear1_y" in params:
+                base_sun_center = np.array(
+                    [float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0))],
+                    dtype=float,
+                )
+            else:
+                base_sun_center = np.array([0.0, 0.0], dtype=float)
 
             normalized_time = time / (2 * math.pi)
             if reverse_direction:
@@ -750,23 +837,23 @@ class MechanismVisualAnimator:
                 else:
                     planet_orbital_angle = time
                     planet_rotation_angle = -time * (r_sun / r_planet)
-                    sun_center_orig = np.array([0, 0])
-                    planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([
-                        np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)
-                    ])
-                    tracking_point_orig = planet_center_orig + arm_length * np.array([
-                        np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)
-                    ])
+                    sun_center_orig = base_sun_center
+                    planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array(
+                        [np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)]
+                    )
+                    tracking_point_orig = planet_center_orig + arm_length * np.array(
+                        [np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)]
+                    )
             else:
                 planet_orbital_angle = time
                 planet_rotation_angle = -time * (r_sun / r_planet)
-                sun_center_orig = np.array([0, 0])
-                planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([
-                    np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)
-                ])
-                tracking_point_orig = planet_center_orig + arm_length * np.array([
-                    np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)
-                ])
+                sun_center_orig = base_sun_center
+                planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array(
+                    [np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)]
+                )
+                tracking_point_orig = planet_center_orig + arm_length * np.array(
+                    [np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)]
+                )
 
         # Transform to scene coordinates
         planet_center_scene = to_scene_coords(planet_center_orig)
@@ -782,7 +869,7 @@ class MechanismVisualAnimator:
                 planet_center_scene.x() - r_planet_screen,
                 planet_center_scene.y() - r_planet_screen,
                 r_planet_screen * 2,
-                r_planet_screen * 2
+                r_planet_screen * 2,
             )
 
         # Update arm line (item 2)
@@ -791,8 +878,4 @@ class MechanismVisualAnimator:
 
         # Update tracking point marker (item 3)
         if len(visual_items) > 3 and isinstance(visual_items[3], QGraphicsEllipseItem):
-            visual_items[3].setRect(
-                tracking_scene.x() - 8,
-                tracking_scene.y() - 8,
-                16, 16
-            )
+            visual_items[3].setRect(tracking_scene.x() - 8, tracking_scene.y() - 8, 16, 16)
