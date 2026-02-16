@@ -1,15 +1,19 @@
 """
 pytest configuration and fixtures
 """
-import sys
 import os
+import sys
 from pathlib import Path
+
+import pytest
 
 # Add src to path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-import pytest
+# Default Qt tests to headless mode to prevent platform plugin crashes
+# in environments without a window server (e.g., CI/sandbox runs).
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 @pytest.fixture

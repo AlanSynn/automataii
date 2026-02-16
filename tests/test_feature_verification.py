@@ -8,8 +8,6 @@ Comprehensive feature verification tests for:
 
 import logging
 import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -153,7 +151,6 @@ class TestMenuActions:
 
     def test_action_manager_creates_all_actions(self):
         """Verify ActionManager creates all required actions."""
-        from unittest.mock import MagicMock
 
         from PyQt6.QtWidgets import QApplication, QMainWindow
 

@@ -1,4 +1,5 @@
 import sys
+
 from PyQt6.QtWidgets import QApplication
 
 from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView

@@ -10,7 +10,7 @@ Tests:
 """
 
 import time
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 import pytest
 from PyQt6.QtWidgets import QApplication, QGraphicsScene

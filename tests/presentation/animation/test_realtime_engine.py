@@ -15,7 +15,6 @@ import time
 from typing import TYPE_CHECKING
 
 import numpy as np
-import pytest
 
 if TYPE_CHECKING:
     pass
@@ -229,6 +228,39 @@ class TestFrameComputation:
         assert len(frame.mechanism_positions["mech_1"]) == 2
 
         engine.stop()
+
+    def test_frame_uses_precomputed_positions_without_p1_series(self) -> None:
+        """Engine should accept simulation payloads that provide only p3/p4 tracks."""
+        from automataii.presentation.qt.animation.realtime_engine import (
+            EngineConfig,
+            RealTimeAnimationEngine,
+        )
+
+        config = EngineConfig(enable_threading=False)
+        engine = RealTimeAnimationEngine(config)
+
+        sim_data = {
+            "joint_positions": {
+                "p3_positions": [[1.0, 2.0], [3.0, 4.0]],
+                "p4_positions": [[5.0, 6.0], [7.0, 8.0]],
+            }
+        }
+        engine.register_mechanism(
+            mechanism_id="mech_1",
+            mechanism_type="4_bar_linkage",
+            params={},
+            simulation_data=sim_data,
+        )
+
+        engine.start()
+        frame = engine.compute_frame_sync(0.0)
+        engine.stop()
+
+        assert "mech_1" in frame.mechanism_positions
+        points = frame.mechanism_positions["mech_1"]
+        assert points.shape == (2, 2)
+        assert np.allclose(points[0], [1.0, 2.0])
+        assert np.allclose(points[1], [5.0, 6.0])
 
     def test_frame_contains_skeleton_joints(self) -> None:
         """Frame should contain skeleton joints."""

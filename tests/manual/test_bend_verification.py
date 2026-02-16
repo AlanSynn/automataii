@@ -1,11 +1,8 @@
 #!/usr/bin/env python
 """Verification test for bend direction"""
 
-import sys
-import time
 import logging
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
+import sys
 
 # Set up detailed logging
 logging.basicConfig(

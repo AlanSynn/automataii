@@ -1,14 +1,16 @@
 #!/usr/bin/env python
 """Integration test for bend direction in IK animation."""
 
-import sys
 import logging
+import sys
+
 import pytest
 from PyQt6.QtCore import QPointF, QTimer
 from PyQt6.QtWidgets import QApplication
+
 from automataii.application.managers import SkeletonManager
-from automataii.presentation.qt.kinematics import IKManager
 from automataii.domain.skeleton import StandardizedJointModel, StandardizedSkeletonModel
+from automataii.presentation.qt.kinematics import IKManager
 from automataii.presentation.qt.models import PartInfo
 
 # Skip this manual/integration test in automated runs
@@ -21,7 +23,7 @@ class MockMainWindow:
     def __init__(self):
         self.skeleton_manager = SkeletonManager()
         self.editor_tab = None
-        
+
     def statusBar(self):
         class MockStatusBar:
             def showMessage(self, msg, timeout=0):
@@ -57,7 +59,7 @@ def create_test_skeleton():
             parent_id="left_elbow_8",
         ),
     }
-    
+
     skeleton = StandardizedSkeletonModel(
         joints=joints,
         root_joint_ids=["hip_0"],
@@ -78,33 +80,33 @@ def create_test_skeleton():
         },
         source_format="test",
     )
-    
+
     return skeleton
 
 def test_bend_direction_flow():
     """Test the complete flow of bend direction from user click to animation."""
-    
+
     print("\n" + "="*60)
     print("BEND DIRECTION INTEGRATION TEST")
     print("="*60)
-    
+
     # Create application
     app = QApplication(sys.argv)
-    
+
     # Setup components
     main_window = MockMainWindow()
     skeleton_manager = main_window.skeleton_manager
     ik_manager = IKManager(main_window)
     ik_manager.set_skeleton_manager(skeleton_manager)
-    
+
     # Create test skeleton
     test_skeleton = create_test_skeleton()
-    
+
     print("\n1. Loading skeleton...")
     skeleton_dict = test_skeleton.model_dump()
     skeleton_manager._standardized_skeleton_model = test_skeleton
     skeleton_manager.skeleton_updated.emit(skeleton_dict)
-    
+
     # Set project parts data
     parts_data = {
         "left_arm_upper": PartInfo(
@@ -128,35 +130,35 @@ def test_bend_direction_flow():
             ],
         ),
     }
-    
+
     print("\n2. Setting project parts data...")
     ik_manager.set_project_parts_data(parts_data)
-    
+
     # Check initial bend directions
     print("\n3. Initial bend directions:")
     print(f"   sim_joint_bend_directions: {ik_manager.sim_joint_bend_directions}")
-    
+
     # Simulate user clicking on joint to change bend direction
     print("\n4. Simulating user click on left_elbow_8 to change bend direction...")
     skeleton_manager.set_joint_bend_direction("left_elbow_8", -1.0)
-    
+
     # This should trigger skeleton_updated signal
     updated_skeleton = skeleton_manager.get_current_skeleton_data()
     if updated_skeleton:
         print(f"   Skeleton updated with new bend_direction for left_elbow_8: {updated_skeleton['joints']['left_elbow_8'].get('bend_direction')}")
-    
+
     # Check if IK manager received the update
     print("\n5. After user click, bend directions in IK manager:")
     print(f"   sim_joint_bend_directions: {ik_manager.sim_joint_bend_directions}")
-    
+
     # Test animation step
     print("\n6. Testing animation step...")
     ik_manager.start_animation()
-    
+
     def check_animation():
         print("\n7. During animation:")
         print(f"   Current bend directions: {ik_manager.sim_joint_bend_directions}")
-        
+
         # Check if the bend direction is being used in two-bone IK
         if "left_elbow_8" in ik_manager.sim_joint_bend_directions:
             bend_dir = ik_manager.sim_joint_bend_directions["left_elbow_8"]
@@ -167,7 +169,7 @@ def test_bend_direction_flow():
                 print("   ✗ User-set bend direction was lost!")
         else:
             print("   ✗ left_elbow_8 not found in sim_joint_bend_directions")
-        
+
         if "left_elbow" in ik_manager.sim_joint_bend_directions:
             bend_dir = ik_manager.sim_joint_bend_directions["left_elbow"]
             print(f"   ✓ Bend direction for left_elbow: {bend_dir}")
@@ -175,16 +177,16 @@ def test_bend_direction_flow():
                 print("   ✓ Abstract name also has correct bend direction!")
             else:
                 print("   ✗ Abstract name has wrong bend direction!")
-        
+
         ik_manager.stop_animation()
         app.quit()
-    
+
     # Run animation for a short time
     QTimer.singleShot(100, check_animation)
-    
+
     # Start event loop
     app.exec()
-    
+
     print("\n" + "="*60)
     print("TEST COMPLETE")
     print("="*60)

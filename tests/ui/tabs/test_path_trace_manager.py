@@ -21,7 +21,6 @@ from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import 
     PathTraceManager,
 )
 
-
 # ============================================================================
 # FIXTURES
 # ============================================================================
@@ -44,8 +43,9 @@ def scene(qapp):
 
 @pytest.fixture
 def manager():
-    """Create PathTraceManager with default config."""
-    return PathTraceManager()
+    """Create PathTraceManager with default config (no warmup for tests)."""
+    config = PathTraceConfig(warmup_frames=0)
+    return PathTraceManager(config=config)
 
 
 @pytest.fixture
@@ -184,8 +184,9 @@ def test_update_trace_appends_point(manager, scene):
     mechanism_id = "mech_1"
     manager.init_trace(mechanism_id, scene)
 
-    point1 = QPointF(10.0, 20.0)
-    point2 = QPointF(15.0, 25.0)
+    # Use coordinates > 10
+    point1 = QPointF(20.0, 20.0)
+    point2 = QPointF(25.0, 25.0)
 
     manager.update_trace(mechanism_id, point1, frame_tick=0)
     assert len(manager._trace_points[mechanism_id]) == 1
@@ -204,8 +205,10 @@ def test_update_trace_enforces_max_points(manager, scene):
     max_points = manager._config.max_points
 
     # Add max_points + 50 points
+    # Use coordinates > 10
     for i in range(max_points + 50):
-        manager.update_trace(mechanism_id, QPointF(float(i), float(i)), frame_tick=i)
+        val = float(i + 20)
+        manager.update_trace(mechanism_id, QPointF(val, val), frame_tick=i)
 
     # Should only keep last max_points
     assert len(manager._trace_points[mechanism_id]) == max_points
@@ -221,23 +224,24 @@ def test_update_trace_respects_stride_gating(manager, scene):
     manager.init_trace(mechanism_id, scene)
 
     # Add first point (won't render - need 2 points for a line)
-    manager.update_trace(mechanism_id, QPointF(0.0, 0.0), frame_tick=0)
+    # Use coordinates > 10 to avoid invalid position check
+    manager.update_trace(mechanism_id, QPointF(20.0, 20.0), frame_tick=0)
     synced_after_point1 = manager._path_point_count.get(mechanism_id, 0)
     assert synced_after_point1 == 1  # Tracked but can't draw a line yet
 
     # Add second point (should always update for first 2 points)
-    manager.update_trace(mechanism_id, QPointF(1.0, 1.0), frame_tick=1)
+    manager.update_trace(mechanism_id, QPointF(21.0, 21.0), frame_tick=1)
     synced_after_point2 = manager._path_point_count.get(mechanism_id, 0)
     assert synced_after_point2 == 2  # Now we have 2 synced points
     assert not manager._trace_paths[mechanism_id].isEmpty()  # Path has content
 
     # Now test stride gating for subsequent points
     # stride=2, so frame_tick=2,4,6,... should update
-    manager.update_trace(mechanism_id, QPointF(2.0, 2.0), frame_tick=2)
+    manager.update_trace(mechanism_id, QPointF(22.0, 22.0), frame_tick=2)
     synced_after_stride_hit = manager._path_point_count.get(mechanism_id, 0)
     assert synced_after_stride_hit == 3  # Should update (stride hit)
 
-    manager.update_trace(mechanism_id, QPointF(3.0, 3.0), frame_tick=3)
+    manager.update_trace(mechanism_id, QPointF(23.0, 23.0), frame_tick=3)
     synced_after_stride_miss = manager._path_point_count.get(mechanism_id, 0)
     assert synced_after_stride_miss == 3  # Should NOT update (stride miss)
 
@@ -252,14 +256,15 @@ def test_update_trace_updates_first_two_points_immediately(manager, scene):
     manager.init_trace(mechanism_id, scene)
 
     # Add first point at frame_tick=1 (stride miss, but should still attempt update)
-    manager.update_trace(mechanism_id, QPointF(0.0, 0.0), frame_tick=1)
+    # Use coordinates > 10 to avoid invalid position check
+    manager.update_trace(mechanism_id, QPointF(20.0, 20.0), frame_tick=1)
     assert len(manager._trace_points[mechanism_id]) == 1
     synced_after_1 = manager._path_point_count.get(mechanism_id, 0)
     # First point is tracked but can't draw a line (need 2 points)
     assert synced_after_1 == 1
 
     # Add second point at frame_tick=3 (stride miss, but should still update)
-    manager.update_trace(mechanism_id, QPointF(1.0, 1.0), frame_tick=3)
+    manager.update_trace(mechanism_id, QPointF(21.0, 21.0), frame_tick=3)
     assert len(manager._trace_points[mechanism_id]) == 2
     synced_after_2 = manager._path_point_count.get(mechanism_id, 0)
     # Second point should be synced (first 2 points always update)
@@ -285,7 +290,8 @@ def test_update_trace_builds_painter_path(manager, scene):
     mechanism_id = "mech_1"
     manager.init_trace(mechanism_id, scene)
 
-    points = [QPointF(0.0, 0.0), QPointF(10.0, 10.0), QPointF(20.0, 5.0)]
+    # Use coordinates > 10
+    points = [QPointF(20.0, 20.0), QPointF(30.0, 30.0), QPointF(40.0, 25.0)]
 
     for i, point in enumerate(points):
         manager.update_trace(mechanism_id, point, frame_tick=i * 2)  # Always hit stride
@@ -295,6 +301,7 @@ def test_update_trace_builds_painter_path(manager, scene):
 
     # Path should start at first point
     assert path.elementAt(0).x == points[0].x()
+    assert path.elementAt(0).y == points[0].y()
     assert path.elementAt(0).y == points[0].y()
 
 
@@ -320,7 +327,8 @@ def test_clear_trace_removes_data_structures(manager, scene):
     """Test clear_trace removes all data structures for mechanism."""
     mechanism_id = "mech_1"
     manager.init_trace(mechanism_id, scene)
-    manager.update_trace(mechanism_id, QPointF(10.0, 20.0), frame_tick=0)
+    # Use coordinates > 10
+    manager.update_trace(mechanism_id, QPointF(20.0, 30.0), frame_tick=0)
 
     assert mechanism_id in manager._trace_items
     assert mechanism_id in manager._trace_points
@@ -406,7 +414,8 @@ def test_get_trace_points_returns_copy(manager, scene):
     mechanism_id = "mech_1"
     manager.init_trace(mechanism_id, scene)
 
-    original_points = [QPointF(0.0, 0.0), QPointF(10.0, 10.0)]
+    # Use coordinates > 10 to avoid invalid position check
+    original_points = [QPointF(20.0, 20.0), QPointF(30.0, 30.0)]
     for i, point in enumerate(original_points):
         manager.update_trace(mechanism_id, point, frame_tick=i * 2)
 
@@ -448,15 +457,15 @@ def test_set_trace_visible_handles_nonexistent_mechanism(manager):
 
 def test_update_trace_with_zero_stride(scene):
     """Test update_trace with stride=1 (update every frame)."""
-    config = PathTraceConfig(update_stride=1)
+    config = PathTraceConfig(update_stride=1, warmup_frames=0)
     manager = PathTraceManager(config=config)
 
     mechanism_id = "mech_1"
     manager.init_trace(mechanism_id, scene)
 
-    # Add 5 points
+    # Add 5 points (use coordinates > 10 to avoid invalid position check)
     for i in range(5):
-        manager.update_trace(mechanism_id, QPointF(float(i), float(i)), frame_tick=i)
+        manager.update_trace(mechanism_id, QPointF(float(i + 20), float(i + 20)), frame_tick=i)
 
     # Path should be updated after each point (stride=1)
     path = manager._trace_paths[mechanism_id]
@@ -469,7 +478,8 @@ def test_init_trace_with_already_initialized_mechanism(manager, scene):
 
     # First init
     manager.init_trace(mechanism_id, scene)
-    manager.update_trace(mechanism_id, QPointF(10.0, 20.0), frame_tick=0)
+    # Use coordinates > 10
+    manager.update_trace(mechanism_id, QPointF(20.0, 30.0), frame_tick=0)
     assert len(manager._trace_points[mechanism_id]) == 1
 
     # Second init (should clear previous data)
@@ -492,8 +502,10 @@ def test_full_trace_lifecycle(manager, scene):
     assert mechanism_id in manager._trace_items
 
     # Update 100 times
+    # Use coordinates > 10 to avoid invalid position check
     for i in range(100):
-        manager.update_trace(mechanism_id, QPointF(float(i), float(i)), frame_tick=i)
+        val = float(i + 20)
+        manager.update_trace(mechanism_id, QPointF(val, val), frame_tick=i)
 
     assert len(manager._trace_points[mechanism_id]) == 100
     assert not manager._trace_paths[mechanism_id].isEmpty()
@@ -512,12 +524,15 @@ def test_multiple_mechanisms_independent_traces(manager, scene):
     manager.init_trace(mech_2, scene)
 
     # Update mech_1 with 10 points
+    # Use coordinates > 10 to avoid invalid position check
     for i in range(10):
-        manager.update_trace(mech_1, QPointF(float(i), 0.0), frame_tick=i * 2)
+        val = float(i + 20)
+        manager.update_trace(mech_1, QPointF(val, 0.0), frame_tick=i * 2)
 
     # Update mech_2 with 20 points
     for i in range(20):
-        manager.update_trace(mech_2, QPointF(0.0, float(i)), frame_tick=i * 2)
+        val = float(i + 20)
+        manager.update_trace(mech_2, QPointF(0.0, val), frame_tick=i * 2)
 
     # Should be independent
     assert len(manager._trace_points[mech_1]) == 10
@@ -530,8 +545,10 @@ def test_trace_persistence_across_visibility_changes(manager, scene):
     manager.init_trace(mechanism_id, scene)
 
     # Add points
+    # Use coordinates > 10 to avoid invalid position check
     for i in range(10):
-        manager.update_trace(mechanism_id, QPointF(float(i), float(i)), frame_tick=i * 2)
+        val = float(i + 20)
+        manager.update_trace(mechanism_id, QPointF(val, val), frame_tick=i * 2)
 
     # Hide
     manager.set_trace_visible(mechanism_id, False)
@@ -555,8 +572,10 @@ def test_max_points_invariant(manager, scene):
     max_points = manager._config.max_points
 
     # Add way more than max_points
+    # Use coordinates > 10
     for i in range(max_points * 3):
-        manager.update_trace(mechanism_id, QPointF(float(i), float(i)), frame_tick=i)
+        val = float(i + 20)
+        manager.update_trace(mechanism_id, QPointF(val, val), frame_tick=i)
 
         # Invariant: should never exceed max_points
         assert len(manager._trace_points[mechanism_id]) <= max_points
@@ -570,16 +589,16 @@ def test_stride_gating_invariant(manager, scene):
     stride = manager._config.update_stride
 
     # Add first 2 points (should always update)
-    manager.update_trace(mechanism_id, QPointF(0.0, 0.0), frame_tick=0)
-    manager.update_trace(mechanism_id, QPointF(1.0, 1.0), frame_tick=1)
+    # Use coordinates > 10
+    manager.update_trace(mechanism_id, QPointF(20.0, 20.0), frame_tick=0)
+    manager.update_trace(mechanism_id, QPointF(21.0, 21.0), frame_tick=1)
 
     # Now test stride invariant
     prev_path = manager._trace_paths[mechanism_id]
 
     for frame_tick in range(2, 50):
-        manager.update_trace(
-            mechanism_id, QPointF(float(frame_tick), float(frame_tick)), frame_tick=frame_tick
-        )
+        val = float(frame_tick + 20)
+        manager.update_trace(mechanism_id, QPointF(val, val), frame_tick=frame_tick)
         current_path = manager._trace_paths[mechanism_id]
 
         if frame_tick % stride == 0:
@@ -638,8 +657,10 @@ def test_clear_trace_points_only_preserves_item(manager, scene):
     manager.init_trace(mechanism_id, scene)
 
     # Add points
+    # Use coordinates > 10 to avoid invalid position check
     for i in range(10):
-        manager.update_trace(mechanism_id, QPointF(float(i), float(i)), frame_tick=i * 2)
+        val = float(i + 20)
+        manager.update_trace(mechanism_id, QPointF(val, val), frame_tick=i * 2)
 
     assert len(manager._trace_points[mechanism_id]) == 10
     assert not manager._trace_paths[mechanism_id].isEmpty()

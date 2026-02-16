@@ -5,16 +5,14 @@ These tests capture the expected behavior of domain state classes
 to ensure refactoring doesn't change their semantics.
 """
 
-import math
-import pytest
 
 from automataii.domain.mechanisms.core.state import (
-    SafetyLevel,
     ForceType,
-    SafetyStatus,
     ForceVector,
     MechanismState,
     RenderConfig,
+    SafetyLevel,
+    SafetyStatus,
 )
 
 

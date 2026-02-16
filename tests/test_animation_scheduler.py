@@ -1,16 +1,15 @@
 """
 Tests for Animation Scheduler and Viewport Controller.
 """
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 from automataii.presentation.qt.animation import (
-    CentralAnimationScheduler,
     AnimationPriority,
+    CentralAnimationScheduler,
     ViewportController,
-    ViewportConfig,
 )
-
 
 # Module-level QApplication to persist across tests
 _app = None
@@ -21,8 +20,9 @@ def get_qapp():
     global _app
     if _app is None:
         try:
-            from PyQt6.QtWidgets import QApplication
             import sys
+
+            from PyQt6.QtWidgets import QApplication
             _app = QApplication.instance() or QApplication(sys.argv)
         except ImportError:
             pytest.skip("PyQt6 not available")

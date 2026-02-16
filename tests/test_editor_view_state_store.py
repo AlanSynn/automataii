@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from automataii.application.editor import EditorViewState, EditorViewStateStore
+from automataii.application.editor import EditorViewStateStore
 
 
 def test_state_store_notifies_listeners():

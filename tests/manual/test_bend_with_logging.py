@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 """Test bend direction with detailed logging"""
 
-import sys
-import time
 import logging
+import sys
+
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
+
 from automataii.presentation.qt.main_window import MainWindow
 
 # Set up detailed logging
@@ -16,11 +16,11 @@ logging.basicConfig(
 
 def main():
     app = QApplication(sys.argv)
-    
+
     # Create main window
     main_window = MainWindow()
     main_window.show()
-    
+
     print("\n" + "="*80)
     print("BEND DIRECTION TEST - Watch for these log messages:")
     print("="*80)
@@ -33,7 +33,7 @@ def main():
     print("3. Press Play to see animation")
     print("4. Watch console for bend direction messages")
     print("="*80 + "\n")
-    
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":

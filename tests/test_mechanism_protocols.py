@@ -5,9 +5,8 @@ Note: MechanismRenderer is a concrete class in presentation layer, not a Protoco
 Protocol tests only apply to Mechanism which is defined in domain.mechanisms.core.protocols.
 """
 
-import pytest
 from automataii.domain.mechanisms.core.protocols import Mechanism
-from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig
+from automataii.domain.mechanisms.core.state import MechanismState
 
 
 class TestMechanismProtocol:

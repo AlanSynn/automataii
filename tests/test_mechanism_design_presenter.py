@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-from typing import Iterable
-
-import pytest
+from collections.abc import Iterable
 
 from automataii.application.mechanism_design import (
     MechanismDesignController,
     MechanismDesignPresenter,
-    MechanismDesignState,
     MechanismLayer,
     PartPath,
     Recommendation,

@@ -6,7 +6,6 @@ to ensure refactoring doesn't change the mathematical behavior.
 """
 
 import pytest
-from automataii.domain.mechanisms.core.state import MechanismState
 
 
 class TestFourBarMechanismGoldenMaster:

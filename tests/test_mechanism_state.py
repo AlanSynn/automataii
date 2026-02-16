@@ -6,15 +6,16 @@ to maintain architectural purity and avoid Qt dependencies in the domain.
 """
 
 import math
+
 import pytest
+
 from automataii.domain.mechanisms.core.state import (
-    SafetyLevel,
     ForceType,
-    SafetyStatus,
     ForceVector,
     MechanismState,
     RenderConfig,
-    ColorRGBA,
+    SafetyLevel,
+    SafetyStatus,
 )
 
 

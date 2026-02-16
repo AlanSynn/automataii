@@ -3,7 +3,10 @@ import math
 import pytest
 
 from automataii.domain.mechanisms.core.state import SafetyLevel
-from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism, FourBarParameters
+from automataii.domain.mechanisms.linkages.fourbar.compute import (
+    FourBarMechanism,
+    FourBarParameters,
+)
 
 
 class TestFourBarParameters:

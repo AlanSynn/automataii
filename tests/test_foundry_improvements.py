@@ -7,8 +7,8 @@ Test script to verify Mechanism Foundry improvements:
 """
 
 import sys
-import pytest
 
+import pytest
 from PyQt6.QtWidgets import QApplication
 
 from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView

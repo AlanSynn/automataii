@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Final test for bend direction functionality"""
 
-import sys
 import logging
+import sys
 
 # Set up logging to see bend direction messages
 logging.basicConfig(

@@ -2,29 +2,31 @@
 
 import sys
 from pathlib import Path
+
 import cv2
 
 # Add the src directory to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from automataii.domain.animation.image_to_annotations import image_to_annotations
 from automataii.domain.animation.body_parts_extractor import BodyPartsExtractor
+from automataii.domain.animation.image_to_annotations import image_to_annotations
+
 
 def test_elephant_image():
     """Test the elephant image texture extraction"""
-    
+
     # Process the elephant image
     img_path = "image_123650291.JPG"
-    
+
     print(f"Testing texture extraction for: {img_path}")
-    
+
     # Step 1: Generate annotations
     print("Step 1: Generating annotations...")
     results = image_to_annotations(img_path)
-    
+
     if results:
         print(f"Annotations created in: {results['output_dir']}")
-        
+
         # Step 2: Extract body parts
         print("Step 2: Extracting body parts...")
         extractor = BodyPartsExtractor(
@@ -33,9 +35,9 @@ def test_elephant_image():
             generate_animations=False
         )
         extractor.process()
-        
+
         print(f"Body parts extracted to: {Path(results['output_dir']) / 'body_parts'}")
-        
+
         # Check the results
         output_dir = Path(results['output_dir']) / "body_parts"
         if output_dir.exists():
@@ -43,7 +45,7 @@ def test_elephant_image():
             print(f"\nFound {len(parts_found)} body part images:")
             for part in parts_found:
                 print(f"  - {part.name}")
-                
+
             # Check if textures have content
             for part_path in parts_found[:3]:  # Check first 3 parts
                 img = cv2.imread(str(part_path), cv2.IMREAD_UNCHANGED)

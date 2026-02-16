@@ -15,18 +15,18 @@ if len(img.shape) == 3:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     std_dev = np.std(gray)
     unique_colors = len(np.unique(gray))
-    
+
     print(f"Standard deviation: {std_dev}")
     print(f"Unique colors: {unique_colors}")
-    
+
     is_line_art = unique_colors < 50 or std_dev < 30
     print(f"Is line art: {is_line_art}")
-    
+
     # Check the dominant color
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
     most_common = np.argmax(hist)
     print(f"Most common gray value: {most_common}")
-    
+
     # Check percentage of white/near-white pixels
     white_pixels = np.sum(gray > 240)
     total_pixels = gray.size

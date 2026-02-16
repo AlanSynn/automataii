@@ -3,14 +3,14 @@ Tests for mechanism registry.
 """
 
 import pytest
-from automataii.domain.mechanisms.core.protocols import Mechanism
-from automataii.domain.mechanisms.core.state import MechanismState
+
 from automataii.domain.mechanisms.catalog.registry import (
-    MechanismRegistry,
     MechanismNotFoundError,
+    MechanismRegistry,
     get_mechanism,
     list_mechanism_types,
 )
+from automataii.domain.mechanisms.core.state import MechanismState
 
 
 class MockMechanism:

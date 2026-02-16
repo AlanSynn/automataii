@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import time
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 
 if TYPE_CHECKING:
     pass

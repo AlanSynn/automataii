@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Test CAM position relative to character."""
 
-import numpy as np
 import pytest
 
 # Manual CAM position exploration; skip during automated pytest.
@@ -11,7 +10,7 @@ def test_character_position():
     """Test character position detection."""
     print("Character Position Test:")
     print("="*40)
-    
+
     # Simulate character joints (example)
     joints = {
         "head": {"position": [300, 200]},
@@ -19,7 +18,7 @@ def test_character_position():
         "left_foot": {"position": [280, 450]},
         "right_foot": {"position": [320, 450]}
     }
-    
+
     # Find lowest joint (feet)
     lowest_y = float('-inf')
     lowest_pos = None
@@ -29,44 +28,44 @@ def test_character_position():
             lowest_y = pos[1]
             lowest_pos = pos
             lowest_joint = joint_id
-    
+
     print(f"Lowest joint: {lowest_joint} at {lowest_pos}")
-    
+
     # CAM position should be below feet
     cam_position = [lowest_pos[0], lowest_pos[1] + 50]
     print(f"CAM position: {cam_position}")
-    
+
     return cam_position
 
 def test_cam_scale_and_position():
     """Test final CAM scale and position."""
     print("\nFinal CAM Configuration:")
     print("="*40)
-    
+
     # Current scaling
     base_radius = 25.0
     eccentricity = 10.0
     rod_length = 40.0
-    
+
     cam_scale_factor = 0.08
     rod_length_multiplier = 1.2
-    
+
     scaled_base_radius = base_radius * cam_scale_factor
     scaled_eccentricity = eccentricity * cam_scale_factor
     scaled_rod_length = rod_length * rod_length_multiplier
-    
-    print(f"Scaled CAM dimensions:")
+
+    print("Scaled CAM dimensions:")
     print(f"  Base radius: {scaled_base_radius:.2f}mm")
     print(f"  Eccentricity: {scaled_eccentricity:.2f}mm")
     print(f"  Rod length: {scaled_rod_length:.1f}mm")
     print(f"  CAM diameter: {(scaled_base_radius + scaled_eccentricity)*2:.2f}mm")
-    
+
     # Position
     cam_pos = test_character_position()
     print(f"\nCAM positioned at: {cam_pos}")
-    print(f"  X: Centered with character")
-    print(f"  Y: 50 units below feet")
-    
+    print("  X: Centered with character")
+    print("  Y: 50 units below feet")
+
     # Verify CAM is below character
     if cam_pos[1] > 450:  # Feet at 450
         print("✓ CAM is correctly positioned below character")
@@ -77,7 +76,7 @@ def test_egg_shape():
     """Test egg shape orientation."""
     print("\nEgg Shape Orientation:")
     print("="*40)
-    
+
     # With cos(theta) formula, egg is wider at right (0°)
     print("Current formula: lift = eccentricity * (1 + cos(theta)) / 2")
     print("  At   0° (right):  Maximum radius (widest part)")
@@ -92,10 +91,10 @@ def main():
     print("CAM POSITION AND SCALE VERIFICATION")
     print("="*50)
     print()
-    
+
     test_cam_scale_and_position()
     test_egg_shape()
-    
+
     print("\n" + "="*50)
     print("SUMMARY")
     print("="*50)

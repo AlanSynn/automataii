@@ -7,7 +7,7 @@ does not cause AttributeErrors related to uninitialized coordinators.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

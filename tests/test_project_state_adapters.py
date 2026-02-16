@@ -3,20 +3,23 @@ Tests for Project State Adapters.
 
 Verifies data transformations and signal handling.
 """
+from pathlib import Path
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 from automataii.application.project import (
-    ProjectStateManager,
-    PartData,
-    SkeletonData,
     JointData,
+    MechanismData,
+    PartData,
     PathData,
     Point,
+    ProjectStateManager,
+    SkeletonData,
 )
 from automataii.application.project.adapters import (
-    ImageProcessingTabAdapter,
     EditorTabAdapter,
+    ImageProcessingTabAdapter,
     MechanismDesignTabAdapter,
 )
 
@@ -134,7 +137,7 @@ class TestImageProcessingTabAdapter:
         # Check head part
         head = result["head"]
         assert head.name == "head"
-        assert head.texture_path == "head.png"
+        assert head.texture_path.endswith("head.png")
         assert head.anchor_joint == "neck"
         assert head.transform.x == 50
         assert head.transform.y == 30
@@ -144,6 +147,35 @@ class TestImageProcessingTabAdapter:
         body = result["body"]
         assert body.name == "body"
         assert body.anchor_joint == "hip"
+
+    def test_transform_parts_info_character_schema(self, adapter, tmp_path):
+        """Test nested character.parts schema from generated parts_info.json."""
+        image_file = tmp_path / "head.png"
+        image_file.write_bytes(b"png")
+
+        parts_info = {
+            "character": {
+                "parts": {
+                    "head": {
+                        "image_path": "head.png",
+                        "roi": [10, 20, 30, 40],
+                        "anchor_joint_id": "neck",
+                        "z_value": 3.0,
+                        "fill_color": "rgba(255,0,0,0.5)",
+                    },
+                },
+            },
+        }
+
+        result = adapter._transform_parts_info(parts_info, str(tmp_path))
+
+        assert "head" in result
+        head = result["head"]
+        assert Path(head.texture_path).is_absolute()
+        assert Path(head.texture_path).exists()
+        assert head.anchor_joint == "neck"
+        assert head.roi == (10.0, 20.0, 30.0, 40.0)
+        assert head.z_index == 3
 
     def test_on_skeleton_updated_calls_state_manager(self, adapter, mock_tab, state_manager):
         """Test skeleton update flows to state manager."""
@@ -177,6 +209,7 @@ class TestImageProcessingTabAdapter:
         call_args = mock_tab.on_skeleton_updated_externally.call_args[0]
         assert call_args[0] is not None
         assert "joints" in call_args[0]
+        assert call_args[0]["joints"]["root"]["name"] == "root"
 
 
 class TestProjectStateManagerIntegration:
@@ -186,11 +219,12 @@ class TestProjectStateManagerIntegration:
         """Test state manager initializes correctly."""
         # This will fail if PyQt6 is not properly set up
         try:
-            from PyQt6.QtWidgets import QApplication
             import sys
 
+            from PyQt6.QtWidgets import QApplication
+
             # Create QApplication if not exists
-            app = QApplication.instance() or QApplication(sys.argv)
+            _ = QApplication.instance() or QApplication(sys.argv)
 
             manager = ProjectStateManager()
             assert manager.state is not None
@@ -204,10 +238,11 @@ class TestProjectStateManagerIntegration:
     def test_load_parts_updates_state(self):
         """Test load_parts updates state and emits signals."""
         try:
-            from PyQt6.QtWidgets import QApplication
             import sys
 
-            app = QApplication.instance() or QApplication(sys.argv)
+            from PyQt6.QtWidgets import QApplication
+
+            _ = QApplication.instance() or QApplication(sys.argv)
 
             manager = ProjectStateManager()
 
@@ -241,10 +276,11 @@ class TestProjectStateManagerIntegration:
     def test_undo_redo(self):
         """Test undo/redo functionality."""
         try:
-            from PyQt6.QtWidgets import QApplication
             import sys
 
-            app = QApplication.instance() or QApplication(sys.argv)
+            from PyQt6.QtWidgets import QApplication
+
+            _ = QApplication.instance() or QApplication(sys.argv)
 
             manager = ProjectStateManager()
 
@@ -363,8 +399,6 @@ class TestEditorTabAdapter:
     def test_transform_pathdata_to_qpath(self, adapter):
         """Test PathData to QPainterPath transformation."""
         try:
-            from PyQt6.QtGui import QPainterPath
-
             path_data = PathData(
                 part_name="test",
                 points=(
@@ -414,6 +448,8 @@ class TestEditorTabAdapter:
 
         mock_tab.on_skeleton_updated.assert_called_once()
         mock_tab.cache_initial_skeleton.assert_called_once()
+        skeleton_dict = mock_tab.cache_initial_skeleton.call_args[0][0]
+        assert skeleton_dict["joints"]["root"]["name"] == "root"
 
 
 class TestMechanismDesignTabAdapter:
@@ -422,7 +458,6 @@ class TestMechanismDesignTabAdapter:
     @pytest.fixture
     def state_manager(self):
         """Create mock state manager."""
-        from automataii.application.project import MechanismData
 
         manager = MagicMock(spec=ProjectStateManager)
         manager.parts_changed = MagicMock()
@@ -518,6 +553,16 @@ class TestMechanismDesignTabAdapter:
 
         mock_tab.on_skeleton_updated.assert_called_once()
         mock_tab.cache_initial_skeleton.assert_called_once()
+        skeleton_dict = mock_tab.cache_initial_skeleton.call_args[0][0]
+        assert skeleton_dict["joints"]["root"]["name"] == "root"
+
+    def test_joint_data_to_dict_includes_name_for_ik_compat(self):
+        joint = JointData(id="hip_1", position=Point(x=10, y=20))
+
+        serialized = joint.to_dict()
+
+        assert serialized["id"] == "hip_1"
+        assert serialized["name"] == "hip_1"
 
     def test_add_mechanism_for_part(self, adapter, state_manager):
         """Test adding a mechanism for a part."""
@@ -552,3 +597,28 @@ class TestMechanismDesignTabAdapter:
 
         except ImportError:
             pytest.skip("PyQt6 not available")
+
+    def test_transform_mechanism_to_layer_data_restores_generated_path(self, adapter):
+        mech_data = MechanismData(
+            id="mech_1",
+            part_name="arm",
+            type="4_bar_linkage",
+            params={"l1": 120.0},
+            layer_data={
+                "source": "foundry",
+                "generated_path_data": {
+                    "points": [[10.0, 20.0], [30.0, 40.0], [50.0, 45.0]],
+                    "is_closed": False,
+                },
+            },
+            enabled=True,
+        )
+
+        layer_data = adapter._transform_mechanism_to_layer_data(mech_data)
+
+        assert layer_data["id"] == "mech_1"
+        assert layer_data["source"] == "foundry"
+        assert "generated_path_data" not in layer_data
+        assert "generated_path" in layer_data
+        assert layer_data["generated_path"].isEmpty() is False
+        assert layer_data["generated_path"].elementCount() == 3

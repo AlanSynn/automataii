@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
+    pass
 
 # Skip all tests if running in headless environment
 pytestmark = pytest.mark.skipif(

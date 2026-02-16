@@ -2,7 +2,9 @@
 """Performance validation for Phase 1 hover preview implementation."""
 
 import time
+
 import numpy as np
+
 from automataii.application.mechanism_foundry.path_cache import PathCache
 from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
 

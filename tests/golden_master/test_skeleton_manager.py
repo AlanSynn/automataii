@@ -21,8 +21,9 @@ class TestSkeletonManagerGoldenMaster:
     @pytest.fixture
     def qapp(self):
         """Create QApplication for Qt-based tests."""
-        from PyQt6.QtWidgets import QApplication
         import sys
+
+        from PyQt6.QtWidgets import QApplication
 
         app = QApplication.instance()
         if app is None:
