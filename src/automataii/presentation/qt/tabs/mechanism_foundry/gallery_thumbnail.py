@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
     QLabel,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -26,11 +27,13 @@ class GalleryThumbnail(QFrame):
         display_name: str,
         description: str,
         parent: QWidget | None = None,
+        motion_summary: str = "",
     ):
         super().__init__(parent)
         self.mechanism_type = mechanism_type
         self.display_name = display_name
         self.description = description
+        self.motion_summary = motion_summary
         self.current_angle = 0.0
         self.mechanism: Mechanism | None = None
 
@@ -55,10 +58,12 @@ class GalleryThumbnail(QFrame):
             """
         )
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(280)
+        self.setMinimumHeight(300)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
+        layout.setContentsMargins(14, 14, 14, 12)
 
         title_label = QLabel(self.display_name)
         title_label.setStyleSheet(
@@ -70,9 +75,28 @@ class GalleryThumbnail(QFrame):
         )
         layout.addWidget(title_label)
 
+        motion_label = QLabel()
+        if self.motion_summary:
+            motion_label.setText(f"Motions: {self.motion_summary}")
+        else:
+            motion_label.setText("Motions: Preview available")
+        motion_label.setWordWrap(True)
+        motion_label.setStyleSheet(
+            """
+            color: #4f46e5;
+            font-size: 11px;
+            font-weight: 600;
+            background-color: #eef2ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 10px;
+            padding: 4px 8px;
+            """
+        )
+        layout.addWidget(motion_label)
+
         desc_label = QLabel(self.description)
         desc_label.setWordWrap(True)
-        desc_label.setMaximumHeight(60)
+        desc_label.setMaximumHeight(72)
         desc_label.setStyleSheet(
             """
             font-size: 12px;
@@ -89,7 +113,8 @@ class GalleryThumbnail(QFrame):
         self.graphics_view = QGraphicsView(self.scene)
         self.graphics_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.graphics_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.graphics_view.setFixedHeight(140)
+        self.graphics_view.setMinimumHeight(130)
+        self.graphics_view.setMaximumHeight(165)
         self.graphics_view.setStyleSheet("border: 1px solid #ddd; border-radius: 4px;")
         layout.addWidget(self.graphics_view)
 

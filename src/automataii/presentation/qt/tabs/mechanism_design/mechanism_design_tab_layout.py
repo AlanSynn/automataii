@@ -46,6 +46,10 @@ class MechanismDesignTabLayout:
     - Data management
     """
 
+    CONTROL_PANEL_MIN_WIDTH = 220
+    CONTROL_PANEL_PREFERRED_WIDTH = 300
+    CONTROL_PANEL_MAX_WIDTH = 460
+
     def __init__(self):
         """Initialize the layout manager."""
         self._created_widgets = {}  # Track created widgets for cleanup
@@ -74,11 +78,13 @@ class MechanismDesignTabLayout:
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Create and add control panel (left side, fixed width)
+        # Create and add control panel (left side, resizable with guard rails)
         control_panel_area = self._create_control_panel_area()
-        control_panel_area.setMinimumWidth(300)
-        control_panel_area.setMaximumWidth(300)
-        control_panel_area.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        control_panel_area.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH)
+        control_panel_area.setMaximumWidth(self.CONTROL_PANEL_MAX_WIDTH)
+        control_panel_area.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
         splitter.addWidget(control_panel_area)
 
         # Create mechanism scene and view (right side, resizable)
@@ -95,11 +101,12 @@ class MechanismDesignTabLayout:
         tab_widget.mechanism_view = mechanism_view
 
         splitter.addWidget(mechanism_view)
-        splitter.setCollapsible(0, False)
+        splitter.setChildrenCollapsible(True)
+        splitter.setCollapsible(0, True)
         splitter.setCollapsible(1, False)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([300, 900])
+        splitter.setSizes([self.CONTROL_PANEL_PREFERRED_WIDTH, 900])
 
         main_layout.addWidget(splitter)
 
@@ -107,9 +114,13 @@ class MechanismDesignTabLayout:
         """Create the scrollable control panel area."""
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(300)
+        scroll_area.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH)
+        scroll_area.setMaximumWidth(self.CONTROL_PANEL_MAX_WIDTH)
+        scroll_area.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         control_panel = self._create_control_panel()
         scroll_area.setWidget(control_panel)
@@ -144,7 +155,7 @@ class MechanismDesignTabLayout:
         panel_layout.addWidget(view_controls_group)
 
         panel_layout.addStretch(1)
-        control_panel.setMinimumWidth(280)
+        control_panel.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH - 20)
 
         return control_panel
 
@@ -278,6 +289,7 @@ class MechanismDesignTabLayout:
 
         # Info label
         blueprint_info_label = QLabel("Exports to single large-format blueprint (1200×1600mm)")
+        blueprint_info_label.setWordWrap(True)
         blueprint_info_label.setStyleSheet("""
             QLabel {
                 color: #666;

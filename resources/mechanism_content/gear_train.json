@@ -1,6 +1,8 @@
 {
   "title": "Gear Train",
-  "goal": "Gear trains transmit rotational motion with precise speed and torque ratios. They enable speed reduction or multiplication while maintaining mechanical efficiency and reliability.",
+  "goal": "Transfers rotational power with predictable speed ratio and torque conversion through meshing gears.",
+  "gallery_summary": "Transmit rotation with controlled speed and torque ratios using meshing gears.",
+  "motions": ["Circular"],
   "parts": [
     "Driver Gear: Input gear receiving power",
     "Driven Gear: Output gear delivering power",

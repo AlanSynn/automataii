@@ -26,6 +26,10 @@ def test_view_initial_four_bar_loaded(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
     view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
 
     assert view.current_mechanism.mechanism_type == "fourbar"
     assert len(view.parameter_sliders) == 4
@@ -37,9 +41,11 @@ def test_view_mechanism_switching(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
     view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("cam_follower")
+    assert idx >= 0
 
-    view.mechanism_selector.setCurrentIndex(1)
-    view._on_mechanism_changed(1)
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
 
     assert view.current_mechanism.mechanism_type == "cam_follower"
     assert "cam_radius" in view.current_parameters
@@ -80,6 +86,10 @@ def test_hover_hit_test_reuses_cached_state(qapp, monkeypatch):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
     view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
     assert view.current_mechanism is not None
 
     original_compute = view.current_mechanism.compute_state
@@ -120,6 +130,18 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
     view._on_export_to_design()
     assert captured
     assert captured[0][0] == "slider_crank"
+
+
+def test_motion_modes_label_populates_for_four_bar(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    assert view.motion_modes_label is not None
+    text = view.motion_modes_label.text()
+
+    assert "Motions:" in text
+    assert "Circular" in text
+    assert "Oscillatory" in text
 
 
 def test_map_design_params_to_foundry_gear_prefers_live_radii(qapp):

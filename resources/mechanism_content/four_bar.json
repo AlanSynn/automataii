@@ -1,36 +1,33 @@
 {
   "title": "Four-Bar Linkage",
-  "goal": "A four-bar linkage is one of the fundamental mechanisms in mechanical engineering. It converts rotational motion into complex curved trajectories, enabling versatile motion patterns with simple construction.",
+  "goal": "Transforms crank rotation into controlled oscillatory output and coupler trajectories for motion design.",
+  "gallery_summary": "Create swinging, back-and-forth, or circular motion through four connected bars.",
+  "motions": ["Circular", "Oscillatory"],
   "parts": [
+    "4 bar-shaped links forming one closed chain",
     "Ground Link: Fixed base connecting two pivot points",
-    "Input Link (Crank): Rotating driver link providing input motion",
+    "Input Link (Crank): Rotating driver link that provides input motion",
     "Coupler: Floating link connecting input and output",
-    "Output Link (Rocker): Driven link producing output motion"
+    "Output Link (Rocker): Driven link that produces output motion"
   ],
   "advantages": [
-    "Simple and robust mechanical construction",
-    "Reliable motion transmission with minimal wear",
-    "Wide range of achievable motion paths",
-    "Easy to manufacture and assemble",
-    "Predictable and repeatable motion patterns"
+    "Produces versatile motion outputs",
+    "Simple construction with high reliability",
+    "Low friction and good energy efficiency"
   ],
   "disadvantages": [
-    "Limited to planar (2D) motion only",
-    "May have singular positions (dead points)",
-    "Output motion depends on all link ratios",
-    "Difficult to achieve precise straight-line motion"
+    "Limited to planar (2D) motion",
+    "Can reach singular or dead-point positions"
   ],
   "materials": [
-    "Metal bars or rods for structural links",
-    "Precision bearings or bushings for pivot joints",
-    "Fasteners and pins for assembly",
-    "Lubricants for smooth operation"
+    "Rigid link bars with low-backlash joints",
+    "Precision bearings or bushings at pivots",
+    "Fasteners and pins sized for cyclic loading"
   ],
   "cautions": [
+    "Full rotation capability is required before assembly (check Warnings).",
     "Verify clearances to avoid link collisions",
-    "Check for full rotation capability before assembly",
-    "Ensure proper joint lubrication for longevity",
-    "Consider mechanical advantage at extreme positions"
+    "Evaluate transmission quality near extreme positions"
   ],
   "parameter_options": {},
   "diagram_path": null,

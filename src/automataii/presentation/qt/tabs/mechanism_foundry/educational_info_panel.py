@@ -1,3 +1,5 @@
+from html import escape
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QScrollArea, QTextEdit, QVBoxLayout, QWidget
 
@@ -54,142 +56,107 @@ class EducationalInfoPanel(QWidget):
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
             font-size: 13px;
-            line-height: 1.6;
-            color: #2c3e50;
-            padding: 16px;
+            line-height: 1.55;
+            color: #243447;
+            padding: 14px 14px 18px 14px;
             margin: 0;
+            background: #f7fafc;
         }
         h1 {
-            font-size: 20px;
-            font-weight: 600;
-            color: #1a202c;
+            font-size: 24px;
+            font-weight: 800;
+            color: #172b4d;
             margin: 0 0 12px 0;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #3498db;
-        }
-        h2 {
-            font-size: 14px;
-            font-weight: 600;
-            color: #34495e;
-            margin: 16px 0 8px 0;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .goal {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 16px;
-            font-size: 13px;
-            line-height: 1.7;
+            letter-spacing: -0.3px;
         }
         .section {
-            margin-bottom: 16px;
+            margin: 0 0 12px 0;
+            background: #ffffff;
+            border: 1px solid #e5eaf1;
+            border-radius: 12px;
+            padding: 12px 12px 10px 12px;
+        }
+        .section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #49607a;
+            letter-spacing: 0.45px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        .goal-card {
+            background: linear-gradient(140deg, #2f80ed 0%, #4f46e5 100%);
+            color: #ffffff;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }
+        .chip-row {
+            display: block;
+            margin-bottom: 4px;
+        }
+        .chip {
+            display: inline-block;
+            margin: 0 6px 6px 0;
+            padding: 3px 10px;
+            border-radius: 999px;
+            border: 1px solid #c9d8f7;
+            background: #eef4ff;
+            color: #2a4f9b;
+            font-size: 12px;
+            font-weight: 600;
         }
         ul {
-            margin: 4px 0;
-            padding-left: 20px;
+            margin: 6px 0 4px 0;
+            padding-left: 18px;
         }
         li {
             margin: 6px 0;
-            line-height: 1.5;
         }
-        .advantages li::marker {
-            content: "✓ ";
-            color: #27ae60;
-            font-weight: bold;
+        .components li::marker {
+            color: #2f80ed;
         }
-        .disadvantages li::marker {
-            content: "⚠ ";
-            color: #e67e22;
-            font-weight: bold;
+        .features li::marker {
+            color: #16a34a;
         }
-        .parts li::marker {
-            content: "⚙ ";
-            color: #3498db;
+        .tradeoffs li::marker {
+            color: #d97706;
         }
         .materials li::marker {
-            content: "■ ";
-            color: #95a5a6;
+            color: #64748b;
         }
-        .cautions {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
+        .warning-card {
+            background: #fff7e6;
+            border: 1px solid #f4d08d;
+            border-left: 4px solid #e8a627;
             padding: 12px;
-            border-radius: 4px;
-            margin-top: 8px;
+            border-radius: 10px;
+            margin-top: 10px;
         }
-        .cautions h2 {
+        .warning-title {
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
             margin-top: 0;
-            color: #856404;
+            color: #8a5a00;
         }
-        .cautions ul {
+        .warning-card ul {
             margin-bottom: 0;
-        }
-        .cautions li {
-            color: #856404;
-        }
-        .cautions li::marker {
-            content: "⚠️ ";
+            color: #7a5100;
         }
         </style>
         """
 
-        parts_html = ""
-        if c.parts:
-            parts_html = f"""
-            <div class="section parts">
-                <h2>Components</h2>
-                <ul>
-                    {"".join(f"<li>{part}</li>" for part in c.parts)}
-                </ul>
-            </div>
-            """
-
-        advantages_html = ""
-        if c.advantages:
-            advantages_html = f"""
-            <div class="section advantages">
-                <h2>Advantages</h2>
-                <ul>
-                    {"".join(f"<li>{adv}</li>" for adv in c.advantages)}
-                </ul>
-            </div>
-            """
-
-        disadvantages_html = ""
-        if c.disadvantages:
-            disadvantages_html = f"""
-            <div class="section disadvantages">
-                <h2>Limitations</h2>
-                <ul>
-                    {"".join(f"<li>{dis}</li>" for dis in c.disadvantages)}
-                </ul>
-            </div>
-            """
-
-        materials_html = ""
-        if c.materials:
-            materials_html = f"""
-            <div class="section materials">
-                <h2>Materials</h2>
-                <ul>
-                    {"".join(f"<li>{mat}</li>" for mat in c.materials)}
-                </ul>
-            </div>
-            """
-
-        cautions_html = ""
-        if c.cautions:
-            cautions_html = f"""
-            <div class="cautions">
-                <h2>⚠️ Important Considerations</h2>
-                <ul>
-                    {"".join(f"<li>{cau}</li>" for cau in c.cautions)}
-                </ul>
-            </div>
-            """
+        motions = self._render_motion_chips(c.motions)
+        components = self._render_section("Components", c.parts, "components")
+        features = self._render_section("Feature Highlights", c.advantages, "features")
+        tradeoffs = self._render_section("Design Trade-offs", c.disadvantages, "tradeoffs")
+        materials = self._render_section("Build & Materials", c.materials, "materials")
+        cautions = self._render_warning(c.cautions)
 
         html = f"""
         <!DOCTYPE html>
@@ -198,15 +165,52 @@ class EducationalInfoPanel(QWidget):
             {style}
         </head>
         <body>
-            <h1>{c.title}</h1>
-            <div class="goal">{c.goal}</div>
-            {parts_html}
-            {advantages_html}
-            {disadvantages_html}
-            {materials_html}
-            {cautions_html}
+            <h1>{escape(c.title)}</h1>
+            <div class="goal-card">{escape(c.goal)}</div>
+            {motions}
+            {components}
+            {features}
+            {tradeoffs}
+            {materials}
+            {cautions}
         </body>
         </html>
         """
 
         return html
+
+    @staticmethod
+    def _render_motion_chips(motions: tuple[str, ...]) -> str:
+        if not motions:
+            return ""
+        chips = "".join(f'<span class="chip">{escape(str(m))}</span>' for m in motions)
+        return f"""
+        <div class="section">
+            <div class="section-title">Motions</div>
+            <div class="chip-row">{chips}</div>
+        </div>
+        """
+
+    @staticmethod
+    def _render_section(title: str, items: tuple[str, ...], class_name: str) -> str:
+        if not items:
+            return ""
+        rendered_items = "".join(f"<li>{escape(str(item))}</li>" for item in items)
+        return f"""
+        <div class="section {class_name}">
+            <div class="section-title">{escape(title)}</div>
+            <ul>{rendered_items}</ul>
+        </div>
+        """
+
+    @staticmethod
+    def _render_warning(items: tuple[str, ...]) -> str:
+        if not items:
+            return ""
+        rendered_items = "".join(f"<li>{escape(str(item))}</li>" for item in items)
+        return f"""
+        <div class="warning-card">
+            <div class="warning-title">Important Considerations</div>
+            <ul>{rendered_items}</ul>
+        </div>
+        """

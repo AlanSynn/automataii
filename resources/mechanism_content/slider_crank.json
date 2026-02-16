@@ -1,6 +1,8 @@
 {
   "title": "Slider-Crank Mechanism",
-  "goal": "The slider-crank mechanism is essential for converting between rotary and linear motion. Widely used in engines, pumps, and compressors, it provides efficient reciprocating motion.",
+  "goal": "Converts crank rotation into linear reciprocating stroke for piston-style motion and pumping cycles.",
+  "gallery_summary": "Convert rotary input into linear reciprocating motion for engine-like mechanisms.",
+  "motions": ["Circular", "Linear", "Reciprocating"],
   "parts": [
     "Crank: Rotating link attached to drive shaft",
     "Connecting Rod: Links crank to slider",

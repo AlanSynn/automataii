@@ -1,4 +1,4 @@
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -31,19 +33,41 @@ class OptionsTab(QWidget):
     def __init__(self, initial_anim_duration: float = 2.0, parent=None):
         super().__init__(parent)
         self._initial_anim_duration = initial_anim_duration
+        self._scroll_area: QScrollArea | None = None
+        self._content_widget: QWidget | None = None
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            15, 15, 15, 15
-        )  # Add more padding around the tab content
-        layout.setSpacing(20)  # Increase spacing between groups
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self._scroll_area = QScrollArea(self)
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._scroll_area.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        root_layout.addWidget(self._scroll_area)
+
+        self._content_widget = QWidget(self._scroll_area)
+        self._content_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self._scroll_area.setWidget(self._content_widget)
+
+        layout = QVBoxLayout(self._content_widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(14)
 
         # --- Appearance Settings ---
         appearance_group = QGroupBox("Appearance")
-        appearance_layout = QFormLayout(appearance_group)
-        appearance_layout.setSpacing(10)  # Spacing within the form
+        appearance_layout = self._create_group_form_layout(appearance_group)
 
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Light", "Dark"])
@@ -79,12 +103,11 @@ class OptionsTab(QWidget):
         )
         appearance_layout.addRow(self.part_props_toggle_check)
 
-        layout.addWidget(appearance_group)
+        self._add_group(layout, appearance_group)
 
         # --- Simulation Settings ---
         simulation_group = QGroupBox("Simulation")
-        simulation_layout = QFormLayout(simulation_group)
-        simulation_layout.setSpacing(10)
+        simulation_layout = self._create_group_form_layout(simulation_group)
 
         self.anim_duration_spin = QDoubleSpinBox()
         self.anim_duration_spin.setRange(0.1, 60.0)  # Min 0.1s, Max 60s
@@ -114,12 +137,11 @@ class OptionsTab(QWidget):
         )
         simulation_layout.addRow("Timing Profile:", self.timing_combo)
 
-        layout.addWidget(simulation_group)
+        self._add_group(layout, simulation_group)
 
         # --- Performance Settings ---
         performance_group = QGroupBox("Performance")
-        perf_layout = QFormLayout(performance_group)
-        perf_layout.setSpacing(10)
+        perf_layout = self._create_group_form_layout(performance_group)
 
         self.perf_preset_combo = QComboBox()
         self.perf_preset_combo.addItems(["Fast", "Balanced", "High"])  # Presets
@@ -138,6 +160,10 @@ class OptionsTab(QWidget):
             "Balanced: default settings\n"
             "High: finer visuals, more updates"
         )
+        self.perf_help_label.setWordWrap(True)
+        self.perf_help_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         self.perf_help_label.setStyleSheet("color: #666; font-size: 10px;")
         perf_layout.addRow(self.perf_help_label)
 
@@ -154,12 +180,11 @@ class OptionsTab(QWidget):
         )
         perf_layout.addRow("Physics Snap Mode:", self.physics_snap_combo)
 
-        layout.addWidget(performance_group)
+        self._add_group(layout, performance_group)
 
         # --- Debug Settings ---
         debug_group = QGroupBox("Debugging")
-        debug_layout = QFormLayout(debug_group)
-        debug_layout.setSpacing(10)
+        debug_layout = self._create_group_form_layout(debug_group)
 
         self.debug_mode_check = QCheckBox("Enable Debug Visuals")
         self.debug_mode_check.setChecked(False)  # Debug mode off by default
@@ -172,12 +197,11 @@ class OptionsTab(QWidget):
         )
         debug_layout.addRow(self.debug_mode_check)
 
-        layout.addWidget(debug_group)
+        self._add_group(layout, debug_group)
 
         # --- Workflow Settings ---
         workflow_group = QGroupBox("Workflow Customization")
-        workflow_layout = QFormLayout(workflow_group)
-        workflow_layout.setSpacing(10)
+        workflow_layout = self._create_group_form_layout(workflow_group)
 
         self.adv_proc_toggle_check = QCheckBox("Show Detailed Processing Steps")
         self.adv_proc_toggle_check.setChecked(False)  # Hidden by default
@@ -192,12 +216,11 @@ class OptionsTab(QWidget):
         )
         workflow_layout.addRow(self.adv_proc_toggle_check)
 
-        layout.addWidget(workflow_group)
+        self._add_group(layout, workflow_group)
 
         # --- Display Unit Settings ---
         unit_settings_group = QGroupBox("Grid & Display Units")
-        unit_settings_layout = QFormLayout(unit_settings_group)
-        unit_settings_layout.setSpacing(10)
+        unit_settings_layout = self._create_group_form_layout(unit_settings_group)
 
         self.unit_combo = QComboBox()
         self.unit_combo.addItems(["cm", "inch", "px"])  # Standard units
@@ -208,9 +231,24 @@ class OptionsTab(QWidget):
         )
         unit_settings_layout.addRow("Grid Unit System:", self.unit_combo)
 
-        layout.addWidget(unit_settings_group)
+        self._add_group(layout, unit_settings_group)
 
         layout.addStretch()  # Push all groups to the top
+
+    @staticmethod
+    def _create_group_form_layout(group: QGroupBox) -> QFormLayout:
+        layout = QFormLayout(group)
+        layout.setSpacing(8)
+        layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+        layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        return layout
+
+    @staticmethod
+    def _add_group(parent_layout: QVBoxLayout, group: QGroupBox) -> None:
+        group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        parent_layout.addWidget(group)
 
     def _on_unit_changed(self, unit_text: str):
         """Emits signals when the unit system selection changes."""

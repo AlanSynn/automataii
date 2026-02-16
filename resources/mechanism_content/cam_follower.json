@@ -1,6 +1,8 @@
 {
   "title": "Cam-Follower Mechanism",
-  "goal": "A cam-follower system converts continuous rotary motion into precisely controlled linear or oscillating motion. The cam profile determines the exact output motion, enabling custom motion sequences.",
+  "goal": "Uses a rotating cam profile to generate precise follower displacement, timing events, and repeatable cycles.",
+  "gallery_summary": "Create a repeating pattern by rotating a cam shape to push a follower up and down.",
+  "motions": ["Circular", "Linear", "Oscillatory"],
   "parts": [
     "Cam: Rotating element with specially shaped profile",
     "Follower: Element maintaining contact with cam surface",

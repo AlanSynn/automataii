@@ -26,6 +26,8 @@ class MechanismContent:
     parameter_options: dict[str, tuple[ParameterOption, ...]]
     diagram_path: str | None
     tags: tuple[str, ...]
+    motions: tuple[str, ...] = ()
+    gallery_summary: str | None = None
 
 
 class ContentLoader:
@@ -68,6 +70,11 @@ class ContentLoader:
                 for opt in options
             )
 
+        tags = tuple(data.get("tags", []))
+        motions_raw = tuple(data.get("motions", []))
+        motions = motions_raw or self._derive_motions(tags)
+        gallery_summary = data.get("gallery_summary")
+
         return MechanismContent(
             title=data["title"],
             goal=data["goal"],
@@ -78,7 +85,9 @@ class ContentLoader:
             cautions=tuple(data.get("cautions", [])),
             parameter_options=param_options,
             diagram_path=data.get("diagram_path"),
-            tags=tuple(data.get("tags", [])),
+            tags=tags,
+            motions=motions,
+            gallery_summary=gallery_summary,
         )
 
     def _create_default_content(self, mechanism_type: str) -> MechanismContent:
@@ -93,7 +102,25 @@ class ContentLoader:
             parameter_options={},
             diagram_path=None,
             tags=(),
+            motions=(),
+            gallery_summary=None,
         )
+
+    @staticmethod
+    def _derive_motions(tags: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = {str(tag).strip().lower() for tag in tags}
+        motions: list[str] = []
+
+        if "rotary" in normalized:
+            motions.append("Circular")
+        if "oscillating" in normalized:
+            motions.append("Oscillatory")
+        if "linear" in normalized or "reciprocating" in normalized:
+            motions.append("Linear")
+        if "intermittent" in normalized:
+            motions.append("Intermittent")
+
+        return tuple(dict.fromkeys(motions))
 
     def list_available_content(self) -> list[str]:
         if not self.content_dir.exists():

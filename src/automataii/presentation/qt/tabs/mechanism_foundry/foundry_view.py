@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QSplitter,
     QStackedWidget,
@@ -27,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from automataii.application.mechanism_foundry import (
     ContentLoader,
+    MechanismContent,
     MechanismFoundryController,
     ParameterSpec,
 )
@@ -139,6 +142,13 @@ class MechanismFoundryView(QWidget):
     # Carries: (mechanism_id: str, mechanism_type: str, parameters: dict)
     mechanism_parameters_changed = pyqtSignal(str, str, dict)
 
+    SIDE_PANEL_MIN_WIDTH = 220
+    SIDE_PANEL_PREFERRED_WIDTH = 300
+    SIDE_PANEL_MAX_WIDTH = 460
+    INFO_PANEL_MIN_WIDTH = 180
+    INFO_PANEL_PREFERRED_WIDTH = 260
+    INFO_PANEL_MAX_WIDTH = 420
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
 
@@ -199,6 +209,7 @@ class MechanismFoundryView(QWidget):
         self.editor_widget: QWidget | None = None
         self.stacked_widget: QStackedWidget | None = None
         self.info_text = None  # Back-compat for tests expecting info_text attribute
+        self.motion_modes_label: QLabel | None = None
 
         self._build_ui()
 
@@ -243,7 +254,7 @@ class MechanismFoundryView(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(8)
-        splitter.setChildrenCollapsible(False)
+        splitter.setChildrenCollapsible(True)
 
         controls_widget = self._create_controls_panel()
         splitter.addWidget(controls_widget)
@@ -260,7 +271,12 @@ class MechanismFoundryView(QWidget):
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
         splitter.setStretchFactor(2, 1)
-        splitter.setSizes([350, 600, 300])
+        splitter.setCollapsible(0, True)
+        splitter.setCollapsible(1, False)
+        splitter.setCollapsible(2, True)
+        splitter.setSizes(
+            [self.SIDE_PANEL_PREFERRED_WIDTH, 700, self.INFO_PANEL_PREFERRED_WIDTH]
+        )
 
         layout.addWidget(splitter)
 
@@ -348,8 +364,11 @@ class MechanismFoundryView(QWidget):
 
     def _create_info_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setMinimumWidth(250)
-        panel.setMaximumWidth(350)
+        panel.setMinimumWidth(self.INFO_PANEL_MIN_WIDTH)
+        panel.setMaximumWidth(self.INFO_PANEL_MAX_WIDTH)
+        panel.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -410,9 +429,18 @@ class MechanismFoundryView(QWidget):
         self.export_to_design_requested.emit(mechanism_id, mechanism_type, parameters, pivot_point)
 
     def _create_controls_panel(self) -> QWidget:
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setMinimumWidth(self.SIDE_PANEL_MIN_WIDTH)
+        scroll_area.setMaximumWidth(self.SIDE_PANEL_MAX_WIDTH)
+        scroll_area.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
+
         panel = QWidget()
-        panel.setMinimumWidth(300)
-        panel.setMaximumWidth(400)
+        panel.setMinimumWidth(self.SIDE_PANEL_MIN_WIDTH - 20)
         layout = QVBoxLayout(panel)
 
         selector_group = QGroupBox("Mechanism Selection")
@@ -450,6 +478,23 @@ class MechanismFoundryView(QWidget):
 
         display_group = QGroupBox("Display Options")
         display_layout = QVBoxLayout()
+        self.motion_modes_label = QLabel("Motions: -")
+        self.motion_modes_label.setWordWrap(True)
+        self.motion_modes_label.setStyleSheet(
+            """
+            QLabel {
+                color: #4f46e5;
+                font-size: 12px;
+                font-weight: 600;
+                background-color: #eef2ff;
+                border: 1px solid #c7d2fe;
+                border-radius: 10px;
+                padding: 6px 8px;
+            }
+            """
+        )
+        display_layout.addWidget(self.motion_modes_label)
+
         self.safety_label = QLabel("Status: Unknown")
         display_layout.addWidget(self.safety_label)
         display_group.setLayout(display_layout)
@@ -457,7 +502,8 @@ class MechanismFoundryView(QWidget):
 
         layout.addStretch()
 
-        return panel
+        scroll_area.setWidget(panel)
+        return scroll_area
 
     def _populate_mechanism_selector(self) -> None:
         if self.mechanism_selector is None:
@@ -532,6 +578,16 @@ class MechanismFoundryView(QWidget):
     def _update_info_panel(self, mechanism_type: str, config) -> None:
         content = self.content_loader.load_content(mechanism_type)
         self.info_panel.set_content(content)
+        self._update_motion_modes(content)
+
+    def _update_motion_modes(self, content: MechanismContent) -> None:
+        if self.motion_modes_label is None:
+            return
+
+        motions = [str(m).strip() for m in getattr(content, "motions", ()) if str(m).strip()]
+        if not motions:
+            motions = ["Preview-based motion"]
+        self.motion_modes_label.setText(f"Motions: {' / '.join(motions)}")
 
     def _rebuild_parameter_sliders(self, specs: tuple[ParameterSpec, ...]) -> None:
         for slider, label in self.parameter_sliders.values():

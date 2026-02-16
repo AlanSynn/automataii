@@ -68,9 +68,16 @@ class GalleryView(QWidget):
 
         for item in mechanisms:
             content = self.content_loader.load_content(item.mechanism_type)
-            description = content.goal[:120] + "..." if len(content.goal) > 120 else content.goal
+            description = self._build_gallery_description(content.goal, content.gallery_summary)
+            motion_summary = " / ".join(content.motions) if content.motions else ""
 
-            thumbnail = GalleryThumbnail(item.mechanism_type, item.display_name, description, self)
+            thumbnail = GalleryThumbnail(
+                item.mechanism_type,
+                item.display_name,
+                description,
+                self,
+                motion_summary=motion_summary,
+            )
             thumbnail.clicked.connect(self._on_thumbnail_clicked)
 
             grid_layout.addWidget(thumbnail, row, col)
@@ -88,3 +95,17 @@ class GalleryView(QWidget):
 
     def _on_thumbnail_clicked(self, mechanism_type: str) -> None:
         self.mechanism_selected.emit(mechanism_type)
+
+    @staticmethod
+    def _build_gallery_description(goal: str, gallery_summary: str | None) -> str:
+        if gallery_summary:
+            return str(gallery_summary).strip()
+
+        clean = str(goal).strip()
+        if not clean:
+            return ""
+
+        first_sentence = clean.split(".")[0].strip()
+        if first_sentence and len(first_sentence) <= 120:
+            return first_sentence + "."
+        return clean[:117].rstrip() + "..."

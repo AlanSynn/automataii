@@ -18,7 +18,9 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -72,6 +74,8 @@ class ImageProcessingTab(QWidget):
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         control_panel = QWidget()
         control_panel.setSizePolicy(
@@ -168,7 +172,9 @@ class ImageProcessingTab(QWidget):
 
         self.image_zoom_combo = QComboBox()
         self.image_zoom_combo.setEditable(True)
-        self.image_zoom_combo.setFixedSize(80, 28)
+        self.image_zoom_combo.setMinimumWidth(80)
+        self.image_zoom_combo.setMaximumWidth(120)
+        self.image_zoom_combo.setFixedHeight(28)
         self.image_zoom_combo.setStyleSheet(
             """
             QComboBox {
@@ -189,7 +195,9 @@ class ImageProcessingTab(QWidget):
         self.image_zoom_combo.setToolTip("Zoom level")
 
         self.image_fit_btn = QPushButton("Fit")
-        self.image_fit_btn.setFixedSize(45, 28)
+        self.image_fit_btn.setMinimumWidth(45)
+        self.image_fit_btn.setMaximumWidth(75)
+        self.image_fit_btn.setFixedHeight(28)
         self.image_fit_btn.setStyleSheet(
             """
             QPushButton {
@@ -259,8 +267,30 @@ class ImageProcessingTab(QWidget):
             QApplication.instance().processEvents()  # Allow layout to settle
             position_image_zoom_toolbar()
 
-        layout.addWidget(control_panel)
-        layout.addWidget(right_panel, 1)
+        control_scroll = QScrollArea(self)
+        control_scroll.setWidgetResizable(True)
+        control_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        control_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        control_scroll.setMinimumWidth(220)
+        control_scroll.setMaximumWidth(440)
+        control_scroll.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
+        control_panel.setMinimumWidth(200)
+        control_scroll.setWidget(control_panel)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter.setHandleWidth(8)
+        splitter.setChildrenCollapsible(True)
+        splitter.addWidget(control_scroll)
+        splitter.addWidget(right_panel)
+        splitter.setCollapsible(0, True)
+        splitter.setCollapsible(1, False)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([300, 900])
+
+        layout.addWidget(splitter)
         self.setLayout(layout)
 
         self.load_image_btn.clicked.connect(self.load_input_image)

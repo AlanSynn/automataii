@@ -84,6 +84,10 @@ class EditorTabUIBuilder:
     Time Complexity: O(1) - fixed number of widgets
     """
 
+    CONTROL_PANEL_MIN_WIDTH = 220
+    CONTROL_PANEL_PREFERRED_WIDTH = 300
+    CONTROL_PANEL_MAX_WIDTH = 460
+
     def __init__(self, parent: QWidget, editor_view: EditorView):
         """
         Initialize the UI builder.
@@ -118,9 +122,13 @@ class EditorTabUIBuilder:
         """Build the left control panel with all groups."""
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setFixedWidth(300)
+        scroll_area.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH)
+        scroll_area.setMaximumWidth(self.CONTROL_PANEL_MAX_WIDTH)
+        scroll_area.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         control_panel = QWidget()
         panel_layout = QVBoxLayout(control_panel)
@@ -134,7 +142,7 @@ class EditorTabUIBuilder:
         view_refs = self._build_view_controls_group(panel_layout)
 
         panel_layout.addStretch(1)
-        control_panel.setMinimumWidth(280)
+        control_panel.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH - 20)
         scroll_area.setWidget(control_panel)
 
         # Combine all refs
@@ -366,20 +374,18 @@ class EditorTabUIBuilder:
     def _build_splitter(self, scroll_area: QScrollArea) -> QSplitter:
         """Build the splitter containing control panel and editor view."""
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(True)
 
-        # Left panel - fixed width
-        scroll_area.setMinimumWidth(300)
-        scroll_area.setMaximumWidth(300)
-        scroll_area.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        # Left panel - resizable within guard rails
         splitter.addWidget(scroll_area)
 
         # Right canvas - resizable
         splitter.addWidget(self._editor_view)
 
-        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(0, True)
         splitter.setCollapsible(1, False)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([300, 900])
+        splitter.setSizes([self.CONTROL_PANEL_PREFERRED_WIDTH, 900])
 
         return splitter

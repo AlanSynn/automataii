@@ -115,7 +115,7 @@
       "icon": "⚙️",
       "mechanisms": {
         "simple_cam": {
-          "name": "Simple Cam-Follower",
+          "name": "Cam-Follower",
           "description": "Basic cam mechanism with follower for precise motion control",
           "type": "cam_follower",
           "class": "CamFollower",
@@ -166,7 +166,7 @@
       "icon": "⚙️",
       "mechanisms": {
         "simple_gear_train": {
-          "name": "Simple Gear Train",
+          "name": "Gear Train",
           "description": "Two meshing gears for speed and torque conversion",
           "type": "gear_train",
           "class": "SimpleGearTrain",
