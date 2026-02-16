@@ -29,6 +29,8 @@ class OptionsTab(QWidget):
     unitChanged = pyqtSignal(str)  # NEW: Signal for unit changes
     performancePresetChanged = pyqtSignal(str)  # NEW: Performance preset changes
     physicsSnapModeChanged = pyqtSignal(str)  # NEW: Physics snap intensity changes
+    gridSystemEnabledChanged = pyqtSignal(bool)
+    gridCellSizeChanged = pyqtSignal(float)
 
     def __init__(self, initial_anim_duration: float = 2.0, parent=None):
         super().__init__(parent)
@@ -231,6 +233,28 @@ class OptionsTab(QWidget):
         )
         unit_settings_layout.addRow("Grid Unit System:", self.unit_combo)
 
+        self.grid_system_check = QCheckBox("Enable Grid System")
+        self.grid_system_check.setChecked(True)
+        self.grid_system_check.toggled.connect(self._on_grid_system_toggled)
+        self.grid_system_check.setToolTip(
+            "Enable grid snapping for Foundry and Mechanism Design."
+        )
+        unit_settings_layout.addRow(self.grid_system_check)
+
+        self.grid_cell_size_spin = QDoubleSpinBox()
+        self.grid_cell_size_spin.setRange(0.5, 20.0)
+        self.grid_cell_size_spin.setSingleStep(0.5)
+        self.grid_cell_size_spin.setDecimals(1)
+        self.grid_cell_size_spin.setSuffix(" cm")
+        self.grid_cell_size_spin.setValue(2.5)
+        self.grid_cell_size_spin.valueChanged.connect(
+            self._on_grid_cell_size_changed
+        )
+        self.grid_cell_size_spin.setToolTip(
+            "Grid cell size used for length snapping in centimeters."
+        )
+        unit_settings_layout.addRow("Grid Cell Size:", self.grid_cell_size_spin)
+
         self._add_group(layout, unit_settings_group)
 
         layout.addStretch()  # Push all groups to the top
@@ -256,6 +280,15 @@ class OptionsTab(QWidget):
         self.setting_changed.emit(
             "unit_system", unit_text
         )  # Also emit through generic signal
+
+    def _on_grid_system_toggled(self, enabled: bool) -> None:
+        self.grid_cell_size_spin.setEnabled(enabled)
+        self.gridSystemEnabledChanged.emit(enabled)
+        self.setting_changed.emit("grid_system_enabled", enabled)
+
+    def _on_grid_cell_size_changed(self, value: float) -> None:
+        self.gridCellSizeChanged.emit(float(value))
+        self.setting_changed.emit("grid_cell_size_cm", float(value))
 
     def _on_timing_profile_changed(self, text: str):
         # Normalize to code-friendly names
@@ -300,3 +333,7 @@ class OptionsTab(QWidget):
         }
         label = mapping.get(str(mode).strip().lower(), "Balanced")
         self.physics_snap_combo.setCurrentText(label)
+
+    def set_grid_system_input(self, enabled: bool, cell_size_cm: float) -> None:
+        self.grid_system_check.setChecked(bool(enabled))
+        self.grid_cell_size_spin.setValue(float(cell_size_cm))

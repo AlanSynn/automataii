@@ -201,6 +201,8 @@ class AutomataDesigner(QMainWindow):
         self.dark_style = DARK_STYLE
 
         self.visualization_layer_x_offset = 10.0  # Horizontal offset for visualization layers
+        self._grid_system_enabled = True
+        self._grid_cell_size_cm = 2.5
 
         # Load Parts and Styles
 
@@ -432,6 +434,13 @@ class AutomataDesigner(QMainWindow):
                         )
             except Exception:
                 logging.exception("Failed to connect physics snap mode option")
+
+        if hasattr(self.options_tab, "set_grid_system_input"):
+            self.options_tab.set_grid_system_input(
+                self._grid_system_enabled,
+                self._grid_cell_size_cm,
+            )
+        self._apply_grid_system_settings()
 
         # Connect menu actions using ActionManager
         self.action_manager.connect_action("new_project", self.new_project_ssot)
@@ -1958,6 +1967,15 @@ class AutomataDesigner(QMainWindow):
             setting_name == "unit_system"
         ):  # Assuming this will be the setting_name from OptionsTab
             self._handle_unit_changed(str(value))
+        elif setting_name == "grid_system_enabled":
+            self._grid_system_enabled = bool(value)
+            self._apply_grid_system_settings()
+        elif setting_name == "grid_cell_size_cm":
+            try:
+                self._grid_cell_size_cm = max(0.1, float(value))
+            except (TypeError, ValueError):
+                self._grid_cell_size_cm = 2.5
+            self._apply_grid_system_settings()
         elif setting_name == "performance_preset":
             try:
                 preset = str(value)
@@ -2009,7 +2027,34 @@ class AutomataDesigner(QMainWindow):
                 "MainWindow: ImageProcessingView or its set_display_unit method not found."
             )
 
+        if (
+            hasattr(self, "mechanism_design_tab")
+            and self.mechanism_design_tab
+            and hasattr(self.mechanism_design_tab, "mechanism_view")
+            and self.mechanism_design_tab.mechanism_view
+            and hasattr(self.mechanism_design_tab.mechanism_view, "set_display_unit")
+        ):
+            self.mechanism_design_tab.mechanism_view.set_display_unit(unit)
+        else:
+            logging.warning(
+                "MainWindow: MechanismDesignView or its set_display_unit method not found."
+            )
+
         self.statusBar().showMessage(f"Display unit set to {unit}", 3000)
+
+    def _apply_grid_system_settings(self) -> None:
+        enabled = bool(self._grid_system_enabled)
+        cell_cm = max(0.1, float(self._grid_cell_size_cm))
+
+        if hasattr(self, "mechanism_foundry_tab") and self.mechanism_foundry_tab:
+            setter = getattr(self.mechanism_foundry_tab, "set_grid_system", None)
+            if callable(setter):
+                setter(enabled, cell_cm)
+
+        if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
+            setter = getattr(self.mechanism_design_tab, "configure_grid_system", None)
+            if callable(setter):
+                setter(enabled, cell_cm)
 
     def _handle_project_manager_error(self, error_message: str):
         """Handles error signals from the ProjectDataManager."""

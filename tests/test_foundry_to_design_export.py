@@ -220,6 +220,42 @@ class TestMechanismDesignTabImport:
         assert hasattr(MechanismDesignTab, "import_mechanism_from_foundry")
 
 
+class TestMechanismDesignGridSettings:
+    def test_snap_lengths_to_grid_2_5cm_for_four_bar(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        tab = MechanismDesignTab.__new__(MechanismDesignTab)
+        tab._grid_system_enabled = True
+        tab._grid_cell_cm = 2.5
+
+        snapped = MechanismDesignTab._snap_lengths_to_grid(
+            tab,
+            "four_bar",
+            {"l2": 41.0, "l3": 59.9, "l4": 76.2},
+        )
+
+        assert snapped["l2"] == 50.0
+        assert snapped["l3"] == 50.0
+        assert snapped["l4"] == 75.0
+        assert snapped["L2"] == 50.0
+        assert snapped["L3"] == 50.0
+        assert snapped["L4"] == 75.0
+
+    def test_extract_grid_settings_from_foundry_payload(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        tab = MechanismDesignTab.__new__(MechanismDesignTab)
+        tab._grid_system_enabled = True
+        tab._grid_cell_cm = 2.5
+
+        settings = MechanismDesignTab._extract_grid_settings_from_foundry_parameters(
+            tab,
+            {"grid_system_enabled": False, "grid_cell_cm": 5.0},
+        )
+
+        assert settings == (False, 5.0)
+
+
 class TestMechanismDesignPresenterPayloadCompat:
     """Ensure presenter accepts both legacy and normalized mechanism payload keys."""
 

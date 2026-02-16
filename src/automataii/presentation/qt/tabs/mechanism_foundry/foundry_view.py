@@ -156,6 +156,10 @@ class MechanismFoundryView(QWidget):
         self.current_mechanism: Mechanism | None = None
         self.current_parameters: dict[str, float] = {}
         self.current_angle: float = 30.0
+        self._grid_system_enabled = True
+        self._grid_cell_cm = 2.5
+        self._grid_items: list[QGraphicsItem] = []
+        self._parameter_specs_by_key: dict[str, ParameterSpec] = {}
 
         # Bidirectional sync: track mechanism ID shared with Design Tab
         self.synced_mechanism_id: str | None = None
@@ -399,6 +403,13 @@ class MechanismFoundryView(QWidget):
     def _toggle_path_preview(self) -> None:
         self.path_preview_overlay.set_enabled(self.path_preview_action.isChecked())
 
+    def _build_sync_payload_parameters(self) -> dict[str, float | bool]:
+        params: dict[str, float | bool] = dict(self.current_parameters)
+        params["input_angle"] = self.current_angle
+        params["grid_system_enabled"] = self._grid_system_enabled
+        params["grid_cell_cm"] = self._grid_cell_cm
+        return params
+
     def _on_export_to_design(self) -> None:
         """Export current mechanism configuration to Mechanism Design tab."""
         if not self.current_mechanism:
@@ -418,9 +429,8 @@ class MechanismFoundryView(QWidget):
         mechanism_id = f"foundry_{uuid.uuid4().hex[:8]}"
         self.synced_mechanism_id = mechanism_id
 
-        # Get current parameters (copy to avoid mutation)
-        parameters = dict(self.current_parameters)
-        parameters["input_angle"] = self.current_angle
+        # Get current parameters + grid settings (copy to avoid mutation)
+        parameters = self._build_sync_payload_parameters()
 
         # Default pivot at center of mechanism
         pivot_point = (0.0, 0.0)
@@ -595,9 +605,11 @@ class MechanismFoundryView(QWidget):
             label.deleteLater()
 
         self.parameter_sliders.clear()
+        self._parameter_specs_by_key = {}
         clear_layout(self.params_layout)
 
         for spec in specs:
+            self._parameter_specs_by_key[spec.key] = spec
             row_layout = QHBoxLayout()
 
             label_text = spec.key.replace("_", " ").title()
@@ -632,18 +644,96 @@ class MechanismFoundryView(QWidget):
             self.params_layout.addWidget(slider)
             self.parameter_sliders[spec.key] = (slider, value_label)
 
+        self._apply_grid_snap_to_current_parameters()
+
     def _on_parameter_changed(
         self, param_key: str, value: float, label: QLabel, is_integer: bool = False
     ) -> None:
         """Queue parameter change with debounce. Label updates immediately."""
-        self.current_parameters[param_key] = value
+        adjusted_value = self._snap_parameter_value_if_needed(param_key, value)
+        if adjusted_value != value and param_key in self.parameter_sliders:
+            slider, _ = self.parameter_sliders[param_key]
+            spec = self._parameter_specs_by_key.get(param_key)
+            if spec and spec.step > 0:
+                slider_value = int(round(adjusted_value / spec.step))
+                with blocked_signals(slider):
+                    slider.setValue(slider_value)
+
+        self.current_parameters[param_key] = adjusted_value
         self._state_cache_valid = False
         if is_integer:
-            label.setText(f"{int(value)}")
+            label.setText(f"{int(adjusted_value)}")
         else:
-            label.setText(f"{value:.1f}")
-        self._pending_param = (param_key, value, label, is_integer)
+            label.setText(f"{adjusted_value:.1f}")
+        self._pending_param = (param_key, adjusted_value, label, is_integer)
         self._param_debounce_timer.start()
+
+    @property
+    def _grid_step_mm(self) -> float:
+        return max(0.1, float(self._grid_cell_cm) * 10.0)
+
+    @staticmethod
+    def _is_length_spec(spec: ParameterSpec | None) -> bool:
+        if spec is None:
+            return False
+        unit = (spec.unit or "").strip().lower()
+        return unit in {"mm", "millimeter", "millimeters"}
+
+    def _snap_parameter_value_if_needed(self, param_key: str, value: float) -> float:
+        spec = self._parameter_specs_by_key.get(param_key)
+        if not self._grid_system_enabled or not self._is_length_spec(spec):
+            return float(value)
+
+        step_mm = self._grid_step_mm
+        snapped = round(float(value) / step_mm) * step_mm
+
+        if spec:
+            snapped = min(max(snapped, spec.min_value), spec.max_value)
+            if spec.is_integer:
+                snapped = round(snapped)
+        return float(snapped)
+
+    def _apply_grid_snap_to_current_parameters(self) -> None:
+        """Apply current grid snapping policy to all length parameters."""
+        if not self._grid_system_enabled:
+            return
+
+        changed = False
+        for key, spec in self._parameter_specs_by_key.items():
+            if not self._is_length_spec(spec):
+                continue
+
+            current = self.current_parameters.get(key)
+            if current is None:
+                continue
+
+            snapped = self._snap_parameter_value_if_needed(key, float(current))
+            if abs(snapped - float(current)) < 1e-6:
+                continue
+
+            self.current_parameters[key] = snapped
+            changed = True
+
+            if key in self.parameter_sliders and spec.step > 0:
+                slider, label = self.parameter_sliders[key]
+                slider_value = int(round(snapped / spec.step))
+                with blocked_signals(slider):
+                    slider.setValue(slider_value)
+                if spec.is_integer:
+                    label.setText(f"{int(snapped)}")
+                else:
+                    label.setText(f"{snapped:.1f}")
+
+        if changed:
+            self._state_cache_valid = False
+            self._render_mechanism()
+
+    def set_grid_system(self, enabled: bool, cell_cm: float) -> None:
+        """Configure grid visibility and snapping in Foundry."""
+        self._grid_system_enabled = bool(enabled)
+        self._grid_cell_cm = max(0.1, float(cell_cm))
+        self._draw_grid()
+        self._apply_grid_snap_to_current_parameters()
 
     def _apply_pending_parameter(self) -> None:
         """Apply debounced parameter change."""
@@ -659,8 +749,7 @@ class MechanismFoundryView(QWidget):
 
             # Emit sync signal if we have a synced mechanism (bidirectional sync)
             if self.synced_mechanism_id and not self._suppress_sync_signal:
-                params = dict(self.current_parameters)
-                params["input_angle"] = self.current_angle
+                params = self._build_sync_payload_parameters()
                 self.mechanism_parameters_changed.emit(
                     self.synced_mechanism_id,
                     self.current_mechanism.mechanism_type,
@@ -675,8 +764,7 @@ class MechanismFoundryView(QWidget):
 
         # Emit sync signal for angle change (bidirectional sync)
         if self.synced_mechanism_id and self.current_mechanism and not self._suppress_sync_signal:
-            params = dict(self.current_parameters)
-            params["input_angle"] = self.current_angle
+            params = self._build_sync_payload_parameters()
             self.mechanism_parameters_changed.emit(
                 self.synced_mechanism_id,
                 self.current_mechanism.mechanism_type,
@@ -1057,29 +1145,54 @@ class MechanismFoundryView(QWidget):
         self.safety_label.setText(safety_html)
 
     def _draw_grid(self) -> None:
-        major_grid = 100
-        major_color = QColor(150, 150, 150, 120)
+        for item in self._grid_items:
+            if item.scene() == self.scene:
+                self.scene.removeItem(item)
+        self._grid_items.clear()
+
+        if not self._grid_system_enabled:
+            return
+
+        cell_grid = max(1, int(round(self._grid_step_mm)))
+        major_interval = max(1, int(round(100.0 / cell_grid)))
+        minor_color = QColor(190, 190, 190, 75)
+        major_color = QColor(145, 145, 145, 120)
         axis_color = QColor(100, 100, 100, 200)
 
         rect = self.scene.sceneRect()
-        pen = QPen(major_color, 1, Qt.PenStyle.SolidLine)
+        minor_pen = QPen(minor_color, 1, Qt.PenStyle.SolidLine)
+        major_pen = QPen(major_color, 1, Qt.PenStyle.SolidLine)
 
-        for x in range(int(rect.left()), int(rect.right()), major_grid):
+        start_x = int(rect.left() // cell_grid) * cell_grid
+        end_x = int(rect.right()) + cell_grid
+        index_x = 0
+        for x in range(start_x, end_x, cell_grid):
+            pen = major_pen if index_x % major_interval == 0 else minor_pen
             line = self.scene.addLine(x, rect.top(), x, rect.bottom(), pen)
             line.setZValue(-99)
+            self._grid_items.append(line)
+            index_x += 1
 
-        for y in range(int(rect.top()), int(rect.bottom()), major_grid):
+        start_y = int(rect.top() // cell_grid) * cell_grid
+        end_y = int(rect.bottom()) + cell_grid
+        index_y = 0
+        for y in range(start_y, end_y, cell_grid):
+            pen = major_pen if index_y % major_interval == 0 else minor_pen
             line = self.scene.addLine(rect.left(), y, rect.right(), y, pen)
             line.setZValue(-99)
+            self._grid_items.append(line)
+            index_y += 1
 
         axis_pen = QPen(axis_color, 2, Qt.PenStyle.SolidLine)
         x_axis = self.scene.addLine(rect.left(), 0, rect.right(), 0, axis_pen)
         y_axis = self.scene.addLine(0, rect.top(), 0, rect.bottom(), axis_pen)
         x_axis.setZValue(-98)
         y_axis.setZValue(-98)
+        self._grid_items.extend([x_axis, y_axis])
 
         origin = self.scene.addEllipse(-3, -3, 6, 6, axis_pen, QBrush(axis_color))
         origin.setZValue(-97)
+        self._grid_items.append(origin)
 
     def _show_default_paths(self, state: MechanismState) -> None:
         """Show default paths for all tracked points."""
@@ -1322,17 +1435,18 @@ class MechanismFoundryView(QWidget):
                 if key == "input_angle" or key not in self.current_parameters:
                     continue
 
-                self.current_parameters[key] = value
+                adjusted_value = self._snap_parameter_value_if_needed(key, float(value))
+                self.current_parameters[key] = adjusted_value
                 if key in self.parameter_sliders and config:
                     slider, label = self.parameter_sliders[key]
                     for spec in config.parameter_specs:
                         if spec.key == key:
                             with blocked_signals(slider):
-                                slider.setValue(int(value / spec.step))
+                                slider.setValue(int(round(adjusted_value / spec.step)))
                             if spec.is_integer:
-                                label.setText(f"{int(value)}")
+                                label.setText(f"{int(adjusted_value)}")
                             else:
-                                label.setText(f"{value:.1f}")
+                                label.setText(f"{adjusted_value:.1f}")
                             break
 
             # Re-render mechanism with updated parameters

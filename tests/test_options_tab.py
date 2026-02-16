@@ -53,3 +53,15 @@ def test_option_group_form_layouts_wrap_long_rows() -> None:
             layout.fieldGrowthPolicy()
             == QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
         )
+
+
+def test_grid_system_controls_defaults_and_toggle() -> None:
+    _ = _get_app()
+    tab = OptionsTab()
+
+    assert tab.grid_system_check.isChecked() is True
+    assert tab.grid_cell_size_spin.value() == 2.5
+    assert tab.grid_cell_size_spin.isEnabled() is True
+
+    tab.grid_system_check.setChecked(False)
+    assert tab.grid_cell_size_spin.isEnabled() is False

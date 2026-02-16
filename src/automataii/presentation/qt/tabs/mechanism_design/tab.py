@@ -255,6 +255,8 @@ class MechanismDesignTab(QWidget):
         self._scene_recently_cleared = False
         self._preserve_mechanisms_on_next_set_parts = False
         self._pending_character_rebind = False
+        self._grid_system_enabled = True
+        self._grid_cell_cm = 2.5
 
         # Feature-flagged presenter
         self._presenter = None
@@ -1633,6 +1635,157 @@ class MechanismDesignTab(QWidget):
     def _on_export_blueprint(self):
         self.blueprint_exporter.export_all()
 
+    @property
+    def _grid_step_mm(self) -> float:
+        return max(0.1, float(getattr(self, "_grid_cell_cm", 2.5)) * 10.0)
+
+    @staticmethod
+    def _normalize_foundry_mechanism_type(mechanism_type: str) -> str:
+        return {
+            "fourbar": "four_bar",
+            "4_bar_linkage": "four_bar",
+            "slider_crank": "slider_crank",
+            "slider-crank": "slider_crank",
+            "slidercrank": "slider_crank",
+            "cam": "cam_follower",
+            "gear": "gear_train",
+        }.get(mechanism_type, mechanism_type)
+
+    @staticmethod
+    def _length_param_keys_for_foundry_type(mechanism_type: str) -> tuple[str, ...]:
+        normalized = MechanismDesignTab._normalize_foundry_mechanism_type(mechanism_type)
+        if normalized in ("four_bar", "slider_crank"):
+            return (
+                "l1",
+                "l2",
+                "l3",
+                "l4",
+                "L1",
+                "L2",
+                "L3",
+                "L4",
+                "ground_link",
+                "input_link",
+                "coupler_link",
+                "output_link",
+                "crank_length",
+                "rod_length",
+            )
+        if normalized == "cam_follower":
+            return (
+                "cam_radius",
+                "cam_offset",
+                "follower_length",
+                "base_radius",
+                "eccentricity",
+                "follower_rod_length",
+            )
+        return ()
+
+    def _snap_lengths_to_grid(
+        self,
+        mechanism_type: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not bool(getattr(self, "_grid_system_enabled", False)):
+            return dict(params)
+
+        snapped = dict(params)
+        step_mm = self._grid_step_mm
+        for key in self._length_param_keys_for_foundry_type(mechanism_type):
+            if key not in snapped:
+                continue
+            try:
+                snapped[key] = round(float(snapped[key]) / step_mm) * step_mm
+            except (TypeError, ValueError):
+                continue
+
+        for lower_key, upper_key in (
+            ("l1", "L1"),
+            ("l2", "L2"),
+            ("l3", "L3"),
+            ("l4", "L4"),
+        ):
+            if lower_key in snapped and upper_key in snapped:
+                try:
+                    snapped[upper_key] = float(snapped[lower_key])
+                except (TypeError, ValueError):
+                    continue
+            elif lower_key in snapped:
+                try:
+                    snapped[upper_key] = float(snapped[lower_key])
+                except (TypeError, ValueError):
+                    continue
+            elif upper_key in snapped:
+                try:
+                    snapped[lower_key] = float(snapped[upper_key])
+                except (TypeError, ValueError):
+                    continue
+        return snapped
+
+    def _extract_grid_settings_from_foundry_parameters(
+        self,
+        parameters: dict[str, Any],
+    ) -> tuple[bool, float] | None:
+        has_setting = (
+            "grid_system_enabled" in parameters
+            or "grid_cell_cm" in parameters
+        )
+        if not has_setting:
+            return None
+
+        try:
+            enabled = bool(parameters.get("grid_system_enabled", getattr(self, "_grid_system_enabled", True)))
+            cell_cm = max(0.1, float(parameters.get("grid_cell_cm", getattr(self, "_grid_cell_cm", 2.5))))
+            return enabled, cell_cm
+        except (TypeError, ValueError):
+            return bool(getattr(self, "_grid_system_enabled", True)), float(
+                getattr(self, "_grid_cell_cm", 2.5)
+            )
+
+    def configure_grid_system(self, enabled: bool, cell_cm: float) -> None:
+        self._grid_system_enabled = bool(enabled)
+        self._grid_cell_cm = max(0.1, float(cell_cm))
+
+        if (
+            hasattr(self, "mechanism_view")
+            and self.mechanism_view
+            and hasattr(self.mechanism_view, "set_grid_configuration")
+        ):
+            self.mechanism_view.set_grid_configuration(
+                self._grid_system_enabled,
+                self._grid_cell_cm,
+            )
+
+        if not self._grid_system_enabled or not self.mechanism_layers:
+            return
+
+        changed_ids: list[str] = []
+        for mechanism_id, layer_data in self.mechanism_layers.items():
+            params = layer_data.get("params")
+            if not isinstance(params, dict):
+                continue
+            snapped = self._snap_lengths_to_grid(
+                str(layer_data.get("type", "")),
+                params,
+            )
+            if snapped == params:
+                continue
+            layer_data["params"] = snapped
+            changed_ids.append(mechanism_id)
+
+        for mechanism_id in changed_ids:
+            layer_data = self.mechanism_layers.get(mechanism_id)
+            if not layer_data:
+                continue
+            self._regenerate_foundry_layer_simulation(mechanism_id, layer_data)
+            if hasattr(self, "_visual_animator") and self._visual_animator:
+                self._visual_animator.build_cache(mechanism_id, layer_data)
+            self._render_mechanism_layer(mechanism_id)
+
+        if changed_ids and self.mechanism_scene:
+            self.mechanism_scene.update()
+
     # --- Foundry Integration ---
 
     def import_mechanism_from_foundry(
@@ -1661,6 +1814,21 @@ class MechanismDesignTab(QWidget):
 
         logging.info(f"Importing mechanism from Foundry: {mechanism_type} (id={mechanism_id})")
 
+        import_params = dict(parameters)
+        grid_settings = MechanismDesignTab._extract_grid_settings_from_foundry_parameters(
+            self,
+            import_params,
+        )
+        if grid_settings:
+            self.configure_grid_system(*grid_settings)
+        import_params.pop("grid_system_enabled", None)
+        import_params.pop("grid_cell_cm", None)
+        import_params = MechanismDesignTab._snap_lengths_to_grid(
+            self,
+            mechanism_type,
+            import_params,
+        )
+
         # Ensure character exists (auto-load default/dummy if needed)
         has_character = self._ensure_character_for_foundry_import()
 
@@ -1688,7 +1856,7 @@ class MechanismDesignTab(QWidget):
         # Create layer data from Foundry export
         layer_data = self._mechanism_instantiation.create_layer_data_from_foundry(
             mechanism_type=mechanism_type,
-            parameters=parameters,
+            parameters=import_params,
             pivot_point=pivot_point,
             part_name=part_name,
             scene_position=scene_position,
@@ -1756,29 +1924,45 @@ class MechanismDesignTab(QWidget):
             logging.debug(f"Mechanism {mechanism_id} not found in Design Tab")
             return
 
+        update_params = dict(parameters)
+        grid_settings = MechanismDesignTab._extract_grid_settings_from_foundry_parameters(
+            self,
+            update_params,
+        )
+        if grid_settings:
+            self.configure_grid_system(*grid_settings)
+        update_params.pop("grid_system_enabled", None)
+        update_params.pop("grid_cell_cm", None)
+
         layer_data = self.mechanism_layers[mechanism_id]
 
         # Suppress signal emission to prevent infinite loop
         self._suppress_foundry_sync = True
         try:
             # Normalize Foundry schema to Design schema before updating layer params.
-            mapped_params = dict(parameters)
+            mapped_params = dict(update_params)
             try:
                 if hasattr(self, "_mechanism_instantiation") and self._mechanism_instantiation:
                     mapped_params = self._mechanism_instantiation.map_foundry_params_to_internal(
-                        mechanism_type, parameters
+                        mechanism_type, update_params
                     )
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
+
+            mapped_params = MechanismDesignTab._snap_lengths_to_grid(
+                self,
+                mechanism_type,
+                mapped_params,
+            )
 
             # Preserve mechanism-space/editor coordinates from existing params.
             merged_params = dict(layer_data.get("params", {}))
             merged_params.update(mapped_params)
 
             # Preserve input angle and map it to crank_angle for linkage previews.
-            if "input_angle" in parameters:
+            if "input_angle" in update_params:
                 try:
-                    input_angle = float(parameters["input_angle"])
+                    input_angle = float(update_params["input_angle"])
                     merged_params["input_angle"] = input_angle
                     if mechanism_type in ("four_bar", "fourbar"):
                         merged_params["crank_angle"] = input_angle

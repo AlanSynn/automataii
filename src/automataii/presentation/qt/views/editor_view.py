@@ -235,6 +235,8 @@ class EditorView(QGraphicsView):
 
         # Unit and DPI settings
         self.display_unit = "cm"  # Default unit: 'cm', 'inch', or 'px'
+        self.grid_enabled = True
+        self.grid_cell_size_cm = 1.0
         try:
             self.dpi = QApplication.primaryScreen().logicalDotsPerInch()
         except AttributeError:
@@ -272,11 +274,36 @@ class EditorView(QGraphicsView):
         if unit.lower() in ["cm", "inch", "px"]:
             self.display_unit = unit.lower()
             logging.info(f"EditorView: Display unit set to {self.display_unit}")
+            self._invalidate_grid_cache()
             self.viewport().update()  # Trigger a repaint of the background
         else:
             logging.warning(
                 f"EditorView: Invalid display unit '{unit}'. Using current: {self.display_unit}"
             )
+
+    def set_grid_enabled(self, enabled: bool) -> None:
+        """Enable or disable background grid rendering."""
+        self.grid_enabled = bool(enabled)
+        self._invalidate_grid_cache()
+        self.viewport().update()
+
+    def set_grid_cell_size_cm(self, cell_size_cm: float) -> None:
+        """Set the grid cell size for centimeter-based rendering."""
+        self.grid_cell_size_cm = max(0.1, float(cell_size_cm))
+        self._invalidate_grid_cache()
+        self.viewport().update()
+
+    def set_grid_configuration(self, enabled: bool, cell_size_cm: float) -> None:
+        """Apply grid on/off and cell size as a single atomic update."""
+        self.grid_enabled = bool(enabled)
+        self.grid_cell_size_cm = max(0.1, float(cell_size_cm))
+        self._invalidate_grid_cache()
+        self.viewport().update()
+
+    def _invalidate_grid_cache(self) -> None:
+        self._grid_cache_key = None
+        self._grid_minor_path = None
+        self._grid_major_path = None
 
     def set_joint_map(self, joint_map: dict[str, str] | None):
         """Sets the joint map (original name to standardized ID)."""
@@ -294,20 +321,23 @@ class EditorView(QGraphicsView):
         instead of thousands of individual drawLine() calls.
         """
         super().drawBackground(painter, rect)
+        if not self.grid_enabled:
+            return
 
         # Calculate grid_size_pixels based on display_unit and DPI
         if self.display_unit == "cm":
             cm_to_inch = 1 / 2.54
-            grid_size_pixels = int(self.dpi * cm_to_inch)
+            grid_size_pixels = int(self.dpi * cm_to_inch * self.grid_cell_size_cm)
+            major_interval = max(1, int(round(10.0 / self.grid_cell_size_cm)))
         elif self.display_unit == "inch":
             grid_size_pixels = int(self.dpi)
+            major_interval = 1
         else:
             grid_size_pixels = 20
+            major_interval = 5
 
         if grid_size_pixels <= 0:
             grid_size_pixels = 20
-
-        major_interval = 1 if self.display_unit in ["cm", "inch"] else 5
 
         # Get visible rectangle in scene coordinates
         visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()

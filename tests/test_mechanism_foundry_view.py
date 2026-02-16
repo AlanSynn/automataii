@@ -130,6 +130,28 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
     view._on_export_to_design()
     assert captured
     assert captured[0][0] == "slider_crank"
+    assert captured[0][1]["grid_system_enabled"] is True
+    assert captured[0][1]["grid_cell_cm"] == 2.5
+
+
+def test_length_parameter_snaps_to_2_5cm_grid_when_enabled(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    _, label = view.parameter_sliders["input_link"]
+
+    view.set_grid_system(True, 2.5)
+    view._on_parameter_changed("input_link", 41.0, label, False)
+    assert view.current_parameters["input_link"] == 50.0
+
+    view.set_grid_system(False, 2.5)
+    view._on_parameter_changed("input_link", 41.0, label, False)
+    assert view.current_parameters["input_link"] == 41.0
 
 
 def test_motion_modes_label_populates_for_four_bar(qapp):
