@@ -89,7 +89,19 @@ class PartInfo:
     ) -> PartInfo:
         """Creates a PartInfo instance from a validated PartInfoModel."""
         resolved_img_path = model.image_path
-        if project_dir and model.image_path and not Path(model.image_path).is_absolute():
-            resolved_img_path = str(project_dir / model.image_path)
+        if model.image_path and not Path(model.image_path).is_absolute():
+            image_path = Path(model.image_path)
+
+            # 1) Prefer already-valid relative paths (e.g., repo-relative example assets).
+            if image_path.exists():
+                resolved_img_path = str(image_path.resolve())
+            # 2) Then try project-local resolution (normal saved-project behavior).
+            elif project_dir:
+                project_candidate = project_dir / image_path
+                if project_candidate.exists():
+                    resolved_img_path = str(project_candidate.resolve())
+                else:
+                    # 3) Final fallback: keep project-relative path for downstream handling.
+                    resolved_img_path = str(project_candidate)
 
         return cls(model, resolved_image_path=resolved_img_path)

@@ -285,11 +285,61 @@ class ProjectDataManager(QObject):
             return None
 
         skeleton = char_cfg_data["skeleton"]
-        if not isinstance(skeleton, list):
-            logging.warning(f"Invalid 'skeleton' (not a list) in {char_cfg_path}.")
+        if isinstance(skeleton, list):
+            return skeleton
+
+        # Some pipelines emit a standardized structure:
+        # skeleton: {joints: {id -> {name, position/loc, parent_id/parent}}, hierarchy: {...}}
+        # Normalize that into the list form expected by the existing YAML joint parser.
+        if isinstance(skeleton, dict):
+            joints_payload = skeleton.get("joints", {})
+            if not isinstance(joints_payload, dict):
+                logging.warning(
+                    f"Invalid 'skeleton.joints' (not a dict) in {char_cfg_path}."
+                )
+                return None
+
+            normalized: list[dict[str, Any]] = []
+            for joint_id, joint_data in joints_payload.items():
+                if not isinstance(joint_data, dict):
+                    continue
+
+                joint_name = joint_data.get("name") or joint_data.get("id") or str(joint_id)
+                loc = (
+                    joint_data.get("loc")
+                    or joint_data.get("coordinates")
+                    or joint_data.get("position")
+                )
+                parent = joint_data.get("parent")
+                if parent is None:
+                    parent = joint_data.get("parent_id")
+
+                if not isinstance(loc, list | tuple) or len(loc) != 2:
+                    continue
+
+                normalized.append(
+                    {
+                        "name": str(joint_name),
+                        "parent": str(parent) if parent is not None else None,
+                        "loc": [float(loc[0]), float(loc[1])],
+                    }
+                )
+
+            if normalized:
+                logging.info(
+                    "Normalized %d joints from standardized char_cfg skeleton in %s",
+                    len(normalized),
+                    char_cfg_path,
+                )
+                return normalized
+
+            logging.warning(
+                f"No valid joints found under standardized 'skeleton.joints' in {char_cfg_path}."
+            )
             return None
 
-        return skeleton
+        logging.warning(f"Invalid 'skeleton' (unsupported type) in {char_cfg_path}.")
+        return None
 
     def _parse_yaml_joints(
         self, joints_raw: list[dict[str, Any]]
