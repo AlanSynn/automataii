@@ -7,8 +7,14 @@ from automataii.presentation.qt.tabs.mechanism_design.services.character_rebind_
 )
 
 
-def _part(anchor_joint_id: str, x: float = 0.0, y: float = 0.0) -> SimpleNamespace:
-    return SimpleNamespace(anchor_joint_id=anchor_joint_id, x=x, y=y, roi=[x, y, 20.0, 20.0])
+def _part(
+    anchor_joint_id: str,
+    x: float = 0.0,
+    y: float = 0.0,
+    roi_extent: float | None = None,
+) -> SimpleNamespace:
+    roi = [x, y, roi_extent, roi_extent] if roi_extent is not None else None
+    return SimpleNamespace(anchor_joint_id=anchor_joint_id, x=x, y=y, roi=roi)
 
 
 def test_rebind_linkage_uses_name_match_first_and_refits_to_anchor() -> None:
@@ -118,3 +124,51 @@ def test_rebind_falls_back_to_torso_when_no_name_match() -> None:
     assert result.failed_ids == []
     assert result.changed_ids == ["random_mechanism"]
     assert mechanism_layers["random_mechanism"]["part_name"] == "torso"
+
+
+def test_rebind_linkage_rescales_when_target_part_extent_is_very_different() -> None:
+    service = MechanismCharacterRebindService(scene_to_mech=lambda _layer, pos: pos)
+
+    mechanism_layers = {
+        "right_arm_linkage_1": {
+            "type": "4_bar_linkage",
+            "part_name": "right_arm",
+            "params": {
+                "l1": 600.0,
+                "l2": 260.0,
+                "l3": 300.0,
+                "l4": 280.0,
+                "ground_pivot_1": [0.0, 0.0],
+                "ground_pivot_2": [600.0, 0.0],
+            },
+            "key_points": {
+                "ground_pivot_1": [0.0, 0.0],
+                "ground_pivot_2": [600.0, 0.0],
+                "crank_end": [200.0, -120.0],
+                "rocker_end": [400.0, -110.0],
+            },
+        }
+    }
+    parts_data = {
+        "right_arm": _part("right_elbow", x=10.0, y=10.0, roi_extent=30.0),
+    }
+    skeleton_cache = {"joints": {"right_elbow": {"position": [300.0, 200.0]}}}
+
+    result = service.rebind_all(mechanism_layers, parts_data, skeleton_cache)
+
+    assert result.failed_ids == []
+    assert result.changed_ids == ["right_arm_linkage_1"]
+
+    params = mechanism_layers["right_arm_linkage_1"]["params"]
+    p1 = params["ground_pivot_1"]
+    p2 = params["ground_pivot_2"]
+    l1 = params["l1"]
+    mid_x = (p1[0] + p2[0]) * 0.5
+    mid_y = (p1[1] + p2[1]) * 0.5
+
+    assert abs(mid_x - 300.0) < 1e-6
+    assert abs(mid_y - 200.0) < 1e-6
+    assert 100.0 <= l1 <= 220.0
+    assert params["l2"] < 260.0
+    assert params["l3"] < 300.0
+    assert params["l4"] < 280.0

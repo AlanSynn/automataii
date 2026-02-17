@@ -38,6 +38,9 @@ class TransformService:
         Returns:
             Transform function or None if transform cannot be created
         """
+        if self._is_scene_space_layer(layer_data):
+            return self._identity_scene_transform
+
         transform_params = layer_data.get("transform_params")
         target_path = layer_data.get("generated_path")
 
@@ -169,6 +172,9 @@ class TransformService:
         Returns:
             Function taking (N, 2) numpy array and returning list[QPointF]
         """
+        if self._is_scene_space_layer(layer_data):
+            return self._identity_batch_scene_transform
+
         transform_params = layer_data.get("transform_params")
         target_path = layer_data.get("generated_path")
 
@@ -253,6 +259,9 @@ class TransformService:
         Returns:
             Inverse transform function or None if transform cannot be created
         """
+        if self._is_scene_space_layer(layer_data):
+            return self._identity_inverse_scene_transform
+
         transform_params = layer_data.get("transform_params")
         target_path = layer_data.get("generated_path")
 
@@ -324,3 +333,40 @@ class TransformService:
 
         except (KeyError, ValueError, TypeError):
             return None
+
+    @staticmethod
+    def _is_scene_space_layer(layer_data: dict[str, Any]) -> bool:
+        if not isinstance(layer_data, dict):
+            return False
+
+        if layer_data.get("coordinate_space") == "scene":
+            return True
+
+        if bool(layer_data.get("scene_coordinates")):
+            return True
+
+        # Backward-compatible heuristic for existing Foundry layers that persist
+        # absolute key_points without generated path transforms.
+        source = str(layer_data.get("source", ""))
+        key_points = layer_data.get("key_points")
+        has_key_points = isinstance(key_points, dict) and bool(key_points)
+        no_target_path = layer_data.get("generated_path") is None
+        return source == "foundry" and has_key_points and no_target_path
+
+    @staticmethod
+    def _identity_scene_transform(point: np.ndarray) -> QPointF:
+        if point is None or len(point) < 2:
+            return QPointF()
+        return QPointF(float(point[0]), float(point[1]))
+
+    @staticmethod
+    def _identity_batch_scene_transform(points: np.ndarray) -> list[QPointF]:
+        if points is None or len(points) == 0:
+            return []
+        return [QPointF(float(p[0]), float(p[1])) for p in points if len(p) >= 2]
+
+    @staticmethod
+    def _identity_inverse_scene_transform(scene_point: QPointF) -> np.ndarray:
+        if scene_point is None:
+            return np.array([0.0, 0.0], dtype=float)
+        return np.array([scene_point.x(), scene_point.y()], dtype=float)

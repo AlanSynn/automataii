@@ -186,7 +186,7 @@ class MechanismDesignTabLayout:
         generation_group.setStyleSheet(self._get_group_style())
         generation_layout = QVBoxLayout(generation_group)
 
-        # Horizontal layout for Get Mechanism and Assign Character buttons
+        # Primary mechanism action button row
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(8)
 
@@ -198,13 +198,9 @@ class MechanismDesignTabLayout:
         buttons_layout.addWidget(recommendation_btn)
         self._created_widgets["recommendation_btn"] = recommendation_btn
 
-        # Assign Character button
-        assign_character_btn = QPushButton("Assign Character")
-        assign_character_btn.setToolTip("Assign a dummy character to mechanisms")
-        assign_character_btn.setEnabled(False)
-        assign_character_btn.setStyleSheet(self._get_assign_character_button_style())
-        buttons_layout.addWidget(assign_character_btn)
-        self._created_widgets["assign_character_btn"] = assign_character_btn
+        # Assign Character button intentionally removed from Mechanism Design tab.
+        # Character assignment is handled in Image Processing flow.
+        self._created_widgets["assign_character_btn"] = None
 
         generation_layout.addLayout(buttons_layout)
 

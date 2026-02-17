@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import cv2
+import numpy as np
 import yaml
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -53,6 +54,9 @@ class ImageProcessingTab(QWidget):
         self.current_annotation_results: AnnotationResults | None = None
         self.skeleton_data: dict | None = None
         self.active_camera_dialogs: list = []
+        self._input_source: str | None = None
+        self.auto_assign_on_input: bool = False
+        self.assign_character_btn: QPushButton | None = None
 
         self.image_proc_scene = QGraphicsScene(self)
         self.image_proc_view = ImageProcessingView(self.image_proc_scene, self)
@@ -147,16 +151,19 @@ class ImageProcessingTab(QWidget):
         view_controls_layout.addLayout(zoom_controls_layout)
         panel_layout.addWidget(view_controls_group)
 
-        panel_layout.addStretch()
-
-        # Character Assignment Group
+        # Character replacement group (manual trigger only)
         char_group = QGroupBox("Character Setup")
         char_layout = QVBoxLayout(char_group)
-        self.assign_character_btn = QPushButton("Assign Character")
-        self.assign_character_btn.setToolTip("Select a character preset for the mechanism design tab")
-        self.assign_character_btn.clicked.connect(self.open_character_assignment_dialog)
+        self.assign_character_btn = QPushButton("Replace Character")
+        self.assign_character_btn.setToolTip(
+            "Replace the current dummy character with a processed user image"
+        )
+        self.assign_character_btn.setEnabled(False)
+        self.assign_character_btn.clicked.connect(self._assign_character_from_image)
         char_layout.addWidget(self.assign_character_btn)
         panel_layout.addWidget(char_group)
+
+        panel_layout.addStretch()
 
         # Right View Area (ImageProcessingView is owned by MainWindow but displayed here)
         right_panel = QWidget()
@@ -311,6 +318,36 @@ class ImageProcessingTab(QWidget):
         self.zoom_out_btn.clicked.connect(lambda: self.image_proc_view.zoom(-1))
         self.zoom_fit_btn.clicked.connect(self.image_proc_view.zoom_to_fit)
         self.zoom_reset_btn.clicked.connect(self.image_proc_view.reset_view)
+        self.update_button_states()
+
+    def _infer_character_dir(self, image_path: str) -> str:
+        potential_char_dir = os.path.dirname(image_path)
+        if (
+            os.path.exists(os.path.join(potential_char_dir, "character_data"))
+            or os.path.exists(os.path.join(potential_char_dir, "output"))
+            or os.path.exists(os.path.join(potential_char_dir, "parts_info.json"))
+        ):
+            return potential_char_dir
+        if os.path.basename(potential_char_dir) in ["source_images", "input_images", "images"]:
+            return os.path.dirname(potential_char_dir)
+        return potential_char_dir
+
+    def _on_input_ready(self, image_path: str, source: str, status_prefix: str) -> None:
+        self.input_image_path = image_path
+        self.character_dir = self._infer_character_dir(image_path)
+        self._input_source = source
+        self.current_annotation_results = None
+        self.current_temp_char_dir = None
+        self.skeleton_data = None
+        if self.image_proc_view:
+            self.image_proc_view.load_skeleton(None)
+        if self.editing_mode and hasattr(self, "manual_segmentation_btn"):
+            self.manual_segmentation_btn.setEnabled(True)
+        self.processing_steps_group.setVisible(True)
+        status_bar = self.main_window.statusBar() if self.main_window else None
+        if status_bar:
+            status_bar.showMessage(f"{status_prefix}: {os.path.basename(image_path)}")
+        self.update_button_states()
 
     def load_input_image(self):
         filepath, _ = QFileDialog.getOpenFileName(
@@ -322,48 +359,11 @@ class ImageProcessingTab(QWidget):
         if not filepath:
             return
         if self.image_proc_view.load_image(filepath):
-            self.input_image_path = filepath
-
-            # Enable manual segmentation editing button if in editing mode
-            if self.editing_mode and hasattr(self, 'manual_segmentation_btn'):
-                self.manual_segmentation_btn.setEnabled(True)
-
-            # Try to infer character_dir if not set, or if new image is in a different place
-            potential_char_dir = os.path.dirname(filepath)
-            # A simple heuristic: if a 'character_data' or 'output' subdir exists, or parts_info.json, assume it's a root
-            if (
-                os.path.exists(os.path.join(potential_char_dir, "character_data"))
-                or os.path.exists(os.path.join(potential_char_dir, "output"))
-                or os.path.exists(os.path.join(potential_char_dir, "parts_info.json"))
-            ):
-                self.character_dir = potential_char_dir
-            elif os.path.basename(potential_char_dir) in [
-                "source_images",
-                "input_images",
-                "images",
-            ]:
-                self.character_dir = os.path.dirname(
-                    potential_char_dir
-                )  # Go one level up
-            else:  # Default to image's directory if no better guess
-                self.character_dir = potential_char_dir
-
-            self.main_window.statusBar().showMessage(
-                f"Loaded input image: {os.path.basename(filepath)}"
+            self._on_input_ready(
+                image_path=filepath,
+                source="file",
+                status_prefix="Loaded input image",
             )
-            # Automatically try to process if an image is loaded
-            # self.process_image() # Or user clicks process button
-            if self.input_image_path and self.character_dir:
-                self.process_image()  # This will internally call load_skeleton
-                # Check if skeleton was loaded successfully before creating parts
-                if self.skeleton_data:  # Check if skeleton_data was set by process_image (via load_skeleton)
-                    self.create_parts_from_skeleton()
-                else:
-                    QMessageBox.warning(
-                        self,
-                        "Processing Step Skipped",
-                        "Skeleton not found after image processing. Body part generation was skipped.",
-                    )
         else:
             QMessageBox.warning(self, "Load Error", f"Could not load image: {filepath}")
 
@@ -496,32 +496,83 @@ class ImageProcessingTab(QWidget):
                 f"Error generating parts from manual segmentation: {e}"
             )
 
-    def open_character_assignment_dialog(self):
-        """Open character selection dialog to assign a dummy character preset."""
-        from automataii.presentation.qt.dialogs.character_selection_dialog import (
-            CharacterSelectionDialog,
-        )
+    def _assign_character_from_image(self) -> None:
+        """
+        Assign character from the currently prepared image input.
 
-        try:
-            dialog = CharacterSelectionDialog(self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                selected_preset = dialog.get_selected_preset()
-                if selected_preset:
-                    # Emit signal to notify MainWindow -> MechanismDesignTab
-                    self.character_preset_loaded.emit(selected_preset.id)
+        Input must come from either "Load Image File" or "Capture Camera".
+        """
+        if not self.input_image_path:
+            self.load_input_image()
+            if not self.input_image_path:
+                return
 
-                    self.main_window.statusBar().showMessage(
-                        f"Assigned character preset: {selected_preset.name}"
-                    )
-                    QMessageBox.information(
-                        self,
-                        "Character Assigned",
-                        f"Character '{selected_preset.name}' has been assigned to the Mechanism Design tab.",
-                    )
-        except Exception as e:
-            QMessageBox.critical(
-                self, "Error", f"Failed to open character selection dialog: {e}"
+        if (
+            not self.current_annotation_results
+            or not self.current_temp_char_dir
+            or not self.skeleton_data
+        ):
+            self.process_image()
+
+        if (
+            not self.current_annotation_results
+            or not self.current_temp_char_dir
+            or not self.skeleton_data
+        ):
+            QMessageBox.warning(
+                self,
+                "Assign Failed",
+                "Character processing did not complete. Check image quality and try again.",
             )
+            return
+
+        self.create_parts_from_skeleton()
+
+    def open_character_assignment_dialog(self):
+        """
+        Backward-compatible alias for old call sites.
+
+        Historically this opened a preset picker; now assignment is image-driven.
+        """
+        self._assign_character_from_image()
+
+    def _is_dummy_mechanism_design_session(self) -> bool:
+        """
+        Return True when the app is currently using a dummy character while
+        Mechanism Design already contains user work (mechanism layers).
+        """
+        mw = self.main_window
+        if mw is None:
+            return False
+
+        design_tab = getattr(mw, "mechanism_design_tab", None)
+        mechanism_layers = getattr(design_tab, "mechanism_layers", None)
+        has_design_work = isinstance(mechanism_layers, dict) and bool(mechanism_layers)
+        if not has_design_work:
+            return False
+
+        # First, inspect known project directory hints.
+        project_dir = getattr(getattr(mw, "project_data_manager", None), "project_dir", None)
+        if project_dir and "dummy" in str(project_dir).lower():
+            return True
+
+        # Fallback: inspect loaded part image paths.
+        parts_candidates: list[dict] = []
+        for candidate in (
+            getattr(design_tab, "parts_data", None),
+            getattr(getattr(mw, "editor_tab", None), "current_parts_info", None),
+            getattr(getattr(mw, "project_data_manager", None), "parts", None),
+        ):
+            if isinstance(candidate, dict) and candidate:
+                parts_candidates.append(candidate)
+
+        for parts in parts_candidates:
+            for part in parts.values():
+                image_path = str(getattr(part, "image_path", "") or "")
+                if image_path and "dummy" in image_path.lower():
+                    return True
+
+        return False
 
     def _extract_part_info_from_mask(self, part_name: str, mask: any, original_image: any) -> dict:
         """Extract part information from a segmentation mask"""
@@ -593,42 +644,11 @@ class ImageProcessingTab(QWidget):
             return False
 
         if self.image_proc_view.load_image(image_path):
-            self.input_image_path = image_path
-            potential_char_dir = os.path.dirname(image_path)
-            if (
-                os.path.exists(os.path.join(potential_char_dir, "character_data"))
-                or os.path.exists(os.path.join(potential_char_dir, "output"))
-                or os.path.exists(os.path.join(potential_char_dir, "parts_info.json"))
-            ):
-                self.character_dir = potential_char_dir
-            elif os.path.basename(potential_char_dir) in [
-                "source_images",
-                "input_images",
-                "images",
-            ]:
-                self.character_dir = os.path.dirname(
-                    potential_char_dir
-                )
-            else:
-                self.character_dir = potential_char_dir
-
-            self.main_window.statusBar().showMessage(
-                f"Loaded input image: {os.path.basename(image_path)}"
+            self._on_input_ready(
+                image_path=image_path,
+                source="file",
+                status_prefix="Loaded input image",
             )
-
-            self.processing_steps_group.setVisible(True)
-            self.update_button_states()
-            if self.input_image_path and self.character_dir:
-                self.process_image()
-                if self.skeleton_data:
-                    self.create_parts_from_skeleton()
-                else:
-                    QMessageBox.warning(
-                        self,
-                        "Processing Step Skipped",
-                        "Skeleton not found after image processing. Body part generation was skipped.",
-                    )
-
             return True
         else:
             QMessageBox.warning(
@@ -658,12 +678,11 @@ class ImageProcessingTab(QWidget):
                 try:
                     cv2.imwrite(temp_path, dialog.captured_image)
                     if self.image_proc_view.load_image(temp_path):
-                        self.input_image_path = temp_path
-                        self.character_dir = temp_dir  # Use temp dir for captured image output by default
-                        self.main_window.statusBar().showMessage(
-                            f"Loaded captured image: {os.path.basename(temp_path)}"
+                        self._on_input_ready(
+                            image_path=temp_path,
+                            source="camera",
+                            status_prefix="Loaded captured image",
                         )
-                        # self.process_image() # Or user clicks process button
                     else:
                         QMessageBox.warning(
                             self,
@@ -990,6 +1009,240 @@ class ImageProcessingTab(QWidget):
             generate_enabled=(has_skeleton and has_image),
             skeleton_tools_enabled=has_skeleton,
         )
+        if self.assign_character_btn is not None:
+            enable_replace = has_image or self._is_dummy_mechanism_design_session()
+            self.assign_character_btn.setEnabled(enable_replace)
+            if enable_replace and not has_image:
+                self.assign_character_btn.setToolTip(
+                    "Dummy mechanism session detected. Click to load an image and replace character."
+                )
+            elif enable_replace:
+                self.assign_character_btn.setToolTip(
+                    "Replace current character using the loaded/captured image"
+                )
+            else:
+                self.assign_character_btn.setToolTip(
+                    "Load/capture an image, or open a dummy mechanism session in Mechanism Design"
+                )
+
+    def _has_loaded_preview_image(self) -> bool:
+        """Return True when the image view currently has a valid pixmap loaded."""
+        return bool(
+            self.image_proc_view
+            and self.image_proc_view.image_item
+            and not self.image_proc_view.image_item.pixmap().isNull()
+        )
+
+    def _collect_character_preview_dirs(self) -> list[Path]:
+        """Collect character/project directories that may hold preview assets."""
+        mw = self.main_window
+        candidate_dirs: list[Path] = []
+
+        def _add_dir(path_like: str | Path | None) -> None:
+            if not path_like:
+                return
+            try:
+                path = Path(path_like)
+            except Exception:
+                return
+            if not path.exists():
+                return
+            if path.is_file():
+                path = path.parent
+            if path not in candidate_dirs:
+                candidate_dirs.append(path)
+
+        _add_dir(self.character_dir)
+        _add_dir(self.current_temp_char_dir)
+        if mw is not None:
+            _add_dir(getattr(mw, "current_temp_char_dir", None))
+            project_data_manager = getattr(mw, "project_data_manager", None)
+            _add_dir(getattr(project_data_manager, "project_dir", None))
+            project_state_manager = getattr(mw, "project_state_manager", None)
+            state = getattr(project_state_manager, "state", None)
+            _add_dir(getattr(state, "project_dir", None) if state is not None else None)
+
+        return candidate_dirs
+
+    def _iter_character_preview_candidates(self, preview_names: tuple[str, ...]):
+        """
+        Yield candidate preview image paths from current project/character contexts.
+
+        Priority:
+        1) Active character/project directories.
+        2) Known preview files in those directories.
+        """
+        for base_dir in self._collect_character_preview_dirs():
+            for filename in preview_names:
+                candidate = base_dir / filename
+                if candidate.exists() and candidate.is_file():
+                    yield str(candidate)
+
+    def _iter_parts_data_candidates(self) -> list[dict]:
+        """Collect loaded part dictionaries from tabs/managers in priority order."""
+        mw = self.main_window
+        if mw is None:
+            return []
+
+        candidates: list[dict] = []
+        for maybe_parts in (
+            getattr(getattr(mw, "editor_tab", None), "current_parts_info", None),
+            getattr(getattr(mw, "mechanism_design_tab", None), "parts_data", None),
+            getattr(getattr(mw, "project_data_manager", None), "parts", None),
+        ):
+            if isinstance(maybe_parts, dict) and maybe_parts:
+                candidates.append(maybe_parts)
+        return candidates
+
+    def _resolve_part_image_path(self, raw_path: str, base_dirs: list[Path]) -> Path | None:
+        """Resolve absolute image path for a part image."""
+        if not raw_path:
+            return None
+
+        candidate = Path(raw_path)
+        if candidate.is_absolute():
+            return candidate if candidate.exists() else None
+        if candidate.exists():
+            return candidate
+
+        for base_dir in base_dirs:
+            full_path = base_dir / candidate
+            if full_path.exists():
+                return full_path
+        return None
+
+    def _create_composited_parts_preview(self) -> str | None:
+        """
+        Build a preview image from part PNGs using ROI placement.
+
+        This avoids showing segmentation/debug visuals when no full texture exists.
+        """
+        base_dirs = self._collect_character_preview_dirs()
+        for parts_dict in self._iter_parts_data_candidates():
+            layered_parts: list[tuple[float, float, float, float, float, Path]] = []
+            for part in parts_dict.values():
+                roi = getattr(part, "roi", None)
+                if not isinstance(roi, list | tuple) or len(roi) < 4:
+                    continue
+                try:
+                    x = float(roi[0])
+                    y = float(roi[1])
+                    w = float(roi[2])
+                    h = float(roi[3])
+                except (TypeError, ValueError):
+                    continue
+                if w <= 0.0 or h <= 0.0:
+                    continue
+
+                image_path = str(getattr(part, "image_path", "") or "")
+                resolved_path = self._resolve_part_image_path(image_path, base_dirs)
+                if resolved_path is None:
+                    continue
+
+                try:
+                    z_value = float(getattr(part, "z_value", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    z_value = 0.0
+                layered_parts.append((z_value, x, y, w, h, resolved_path))
+
+            if not layered_parts:
+                continue
+
+            min_x = min(item[1] for item in layered_parts)
+            min_y = min(item[2] for item in layered_parts)
+            max_x = max(item[1] + item[3] for item in layered_parts)
+            max_y = max(item[2] + item[4] for item in layered_parts)
+
+            canvas_w = max(1, int(round(max_x - min_x)))
+            canvas_h = max(1, int(round(max_y - min_y)))
+            canvas = np.zeros((canvas_h, canvas_w, 4), dtype=np.uint8)
+
+            for _z, x, y, w, h, image_path in sorted(layered_parts, key=lambda item: item[0]):
+                src = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+                if src is None:
+                    continue
+
+                if src.ndim == 2:
+                    src = cv2.cvtColor(src, cv2.COLOR_GRAY2BGRA)
+                elif src.shape[2] == 3:
+                    src = cv2.cvtColor(src, cv2.COLOR_BGR2BGRA)
+
+                target_w = max(1, int(round(w)))
+                target_h = max(1, int(round(h)))
+                if src.shape[1] != target_w or src.shape[0] != target_h:
+                    interpolation = (
+                        cv2.INTER_AREA
+                        if src.shape[1] > target_w or src.shape[0] > target_h
+                        else cv2.INTER_LINEAR
+                    )
+                    src = cv2.resize(src, (target_w, target_h), interpolation=interpolation)
+
+                dst_x = int(round(x - min_x))
+                dst_y = int(round(y - min_y))
+                x1 = max(0, dst_x)
+                y1 = max(0, dst_y)
+                x2 = min(canvas_w, dst_x + target_w)
+                y2 = min(canvas_h, dst_y + target_h)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+
+                src_crop = src[y1 - dst_y : y2 - dst_y, x1 - dst_x : x2 - dst_x]
+                dst_crop = canvas[y1:y2, x1:x2]
+
+                alpha = (src_crop[:, :, 3].astype(np.float32) / 255.0)[:, :, None]
+                dst_crop[:, :, :3] = (
+                    src_crop[:, :, :3].astype(np.float32) * alpha
+                    + dst_crop[:, :, :3].astype(np.float32) * (1.0 - alpha)
+                ).astype(np.uint8)
+                dst_crop[:, :, 3] = np.maximum(dst_crop[:, :, 3], src_crop[:, :, 3])
+
+            preview_dir = Path(tempfile.gettempdir()) / "automataii" / "preview_cache"
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            preview_path = preview_dir / f"parts_preview_{int(time.time() * 1000)}.png"
+            if cv2.imwrite(str(preview_path), canvas):
+                return str(preview_path)
+
+        return None
+
+    def _try_load_external_character_preview(self) -> bool:
+        """
+        Load a preview image for externally loaded characters (dummy/project load).
+
+        This keeps the Image Processing tab visually in sync even when no input
+        image was manually loaded in this tab.
+        """
+        if not self.image_proc_view:
+            return False
+        if self._has_loaded_preview_image():
+            return True
+
+        # Prefer "real" previews first.
+        for candidate in self._iter_character_preview_candidates(("image.png", "texture.png")):
+            if self.image_proc_view.load_image(candidate):
+                logging.info(
+                    "ImageProcessingTab: Loaded external character preview image: %s",
+                    candidate,
+                )
+                return True
+
+        # If no texture/image exists (e.g., dummy character), build composited preview from parts.
+        composited = self._create_composited_parts_preview()
+        if composited and self.image_proc_view.load_image(composited):
+            logging.info(
+                "ImageProcessingTab: Loaded composited parts preview image: %s",
+                composited,
+            )
+            return True
+
+        # Last-resort preview assets.
+        for candidate in self._iter_character_preview_candidates(("segmentation_vis.png", "mask.png")):
+            if self.image_proc_view.load_image(candidate):
+                logging.info(
+                    "ImageProcessingTab: Loaded fallback preview image: %s",
+                    candidate,
+                )
+                return True
+        return False
 
     def on_parts_loaded_in_editor(self, _loaded: bool):
         """
@@ -1011,6 +1264,8 @@ class ImageProcessingTab(QWidget):
         # 5. MainWindow tells EditorTab to populate from ProjectDataManager.
         # So, this slot might be less critical if the above flow is robust.
 
+        if _loaded:
+            self._try_load_external_character_preview()
         self.update_button_states()  # General state update
 
     def on_skeleton_updated_externally(self, skeleton_data: dict | None):
@@ -1020,15 +1275,10 @@ class ImageProcessingTab(QWidget):
         Updates the view in this tab if a texture is loaded.
         """
         self.skeleton_data = skeleton_data
-        texture_loaded = False
-        if (
-            self.image_proc_view
-            and self.image_proc_view.image_item
-            and not self.image_proc_view.image_item.pixmap().isNull()
-        ):
-            texture_loaded = True
+        if self.skeleton_data and not self._has_loaded_preview_image():
+            self._try_load_external_character_preview()
 
-        if texture_loaded and self.skeleton_data:
+        if self._has_loaded_preview_image() and self.skeleton_data:
             self.image_proc_view.load_skeleton(self.skeleton_data)
         elif not self.skeleton_data:
             if self.image_proc_view:
@@ -1061,6 +1311,7 @@ class ImageProcessingTab(QWidget):
         self.current_temp_char_dir = None
         self.current_annotation_results = None
         self.skeleton_data = None
+        self._input_source = None
 
         # Update UI state
         self.update_button_states()

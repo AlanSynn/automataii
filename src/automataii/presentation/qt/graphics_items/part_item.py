@@ -210,7 +210,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
                     self.part_pixmap = temp_pixmap.scaled(
                         target_width,
                         target_height,
-                        Qt.AspectRatioMode.KeepAspectRatio,  # Or IgnoreAspectRatio if ROI defines exact output size
+                        Qt.AspectRatioMode.IgnoreAspectRatio,
                         Qt.TransformationMode.SmoothTransformation,
                     )
                 else:

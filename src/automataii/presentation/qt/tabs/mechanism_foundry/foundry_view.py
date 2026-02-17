@@ -148,6 +148,7 @@ class MechanismFoundryView(QWidget):
     INFO_PANEL_MIN_WIDTH = 180
     INFO_PANEL_PREFERRED_WIDTH = 260
     INFO_PANEL_MAX_WIDTH = 420
+    OUTPUT_POINT_MODE_KEY = "output_point_mode"
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -214,6 +215,7 @@ class MechanismFoundryView(QWidget):
         self.stacked_widget: QStackedWidget | None = None
         self.info_text = None  # Back-compat for tests expecting info_text attribute
         self.motion_modes_label: QLabel | None = None
+        self.output_point_selector: QComboBox | None = None
 
         self._build_ui()
 
@@ -401,14 +403,62 @@ class MechanismFoundryView(QWidget):
         self._render_mechanism()
 
     def _toggle_path_preview(self) -> None:
-        self.path_preview_overlay.set_enabled(self.path_preview_action.isChecked())
+        enabled = self.path_preview_action.isChecked()
+        self.path_preview_overlay.set_enabled(enabled)
+        if enabled:
+            # Redraw immediately so toggle-on has visible feedback without extra user action.
+            self._render_mechanism()
 
-    def _build_sync_payload_parameters(self) -> dict[str, float | bool]:
-        params: dict[str, float | bool] = dict(self.current_parameters)
+    def _build_sync_payload_parameters(self) -> dict[str, object]:
+        params: dict[str, object] = dict(self.current_parameters)
         params["input_angle"] = self.current_angle
         params["grid_system_enabled"] = self._grid_system_enabled
         params["grid_cell_cm"] = self._grid_cell_cm
         return params
+
+    def _capture_export_snapshot(self) -> dict[str, object] | None:
+        """Capture current rendered mechanism geometry for Design import fidelity."""
+        if not self.current_mechanism:
+            return None
+
+        state = self._last_rendered_state
+        if (
+            not self._state_cache_valid
+            or state is None
+            or self._last_rendered_mechanism is not self.current_mechanism
+        ):
+            try:
+                state = self.current_mechanism.compute_state(
+                    self.current_parameters,
+                    self.current_angle,
+                )
+            except Exception:
+                return None
+
+        if state is None:
+            return None
+
+        positions: dict[str, list[float]] = {}
+        for key, value in state.positions.items():
+            if not isinstance(value, list | tuple) or len(value) < 2:
+                continue
+            try:
+                positions[str(key)] = [float(value[0]), float(value[1])]
+            except (TypeError, ValueError):
+                continue
+
+        if self.current_mechanism.mechanism_type == "fourbar":
+            coupler_point = self._calculate_fourbar_coupler_point(state)
+            if coupler_point is not None:
+                positions["coupler_point"] = [float(coupler_point[0]), float(coupler_point[1])]
+
+        if not positions:
+            return None
+
+        return {
+            "mechanism_type": self.current_mechanism.mechanism_type,
+            "positions": positions,
+        }
 
     def _on_export_to_design(self) -> None:
         """Export current mechanism configuration to Mechanism Design tab."""
@@ -431,6 +481,9 @@ class MechanismFoundryView(QWidget):
 
         # Get current parameters + grid settings (copy to avoid mutation)
         parameters = self._build_sync_payload_parameters()
+        export_snapshot = self._capture_export_snapshot()
+        if export_snapshot:
+            parameters["__foundry_snapshot__"] = export_snapshot
 
         # Default pivot at center of mechanism
         pivot_point = (0.0, 0.0)
@@ -482,6 +535,13 @@ class MechanismFoundryView(QWidget):
         self.angle_slider.setValue(30)
         self.angle_slider.valueChanged.connect(self._on_angle_changed)
         animation_layout.addWidget(self.angle_slider)
+
+        output_point_row = QHBoxLayout()
+        output_point_row.addWidget(QLabel("Motion Point:"))
+        self.output_point_selector = QComboBox()
+        self.output_point_selector.currentIndexChanged.connect(self._on_motion_point_mode_changed)
+        output_point_row.addWidget(self.output_point_selector)
+        animation_layout.addLayout(output_point_row)
 
         animation_group.setLayout(animation_layout)
         layout.addWidget(animation_group)
@@ -581,9 +641,86 @@ class MechanismFoundryView(QWidget):
             return
 
         self.current_parameters = config.initial_parameters()
+        self._refresh_motion_point_selector(canonical_type)
         self._rebuild_parameter_sliders(config.parameter_specs)
         self._update_info_panel(canonical_type, config)
         self._render_mechanism()
+
+    @staticmethod
+    def _motion_point_options_for_mechanism(
+        mechanism_type: str,
+    ) -> list[tuple[str, str]]:
+        if mechanism_type == "four_bar":
+            return [
+                ("Joint A (Input)", "joint_a"),
+                ("Joint B (Output)", "joint_b"),
+            ]
+        if mechanism_type == "cam_follower":
+            return [
+                ("Follower Base", "follower_base"),
+                ("Contact Point", "contact_point"),
+            ]
+        return []
+
+    def _refresh_motion_point_selector(self, mechanism_type: str) -> None:
+        if self.output_point_selector is None:
+            return
+
+        options = self._motion_point_options_for_mechanism(mechanism_type)
+        selector = self.output_point_selector
+        if not options:
+            with blocked_signals(selector):
+                selector.clear()
+            selector.setEnabled(False)
+            selector.setVisible(False)
+            self.current_parameters.pop(self.OUTPUT_POINT_MODE_KEY, None)
+            return
+
+        selector.setEnabled(True)
+        selector.setVisible(True)
+
+        default_value = {
+            "four_bar": "joint_b",
+            "cam_follower": "follower_base",
+        }.get(mechanism_type, options[0][1])
+        current_value = str(
+            self.current_parameters.get(self.OUTPUT_POINT_MODE_KEY, default_value)
+        )
+        if mechanism_type == "cam_follower" and current_value == "follower_end":
+            current_value = "follower_base"
+
+        with blocked_signals(selector):
+            selector.clear()
+            selected_index = 0
+            for index, (label, value) in enumerate(options):
+                selector.addItem(label, value)
+                if value == current_value:
+                    selected_index = index
+            selector.setCurrentIndex(selected_index)
+
+        selected_value = selector.currentData()
+        if isinstance(selected_value, str) and selected_value:
+            self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = selected_value
+
+    def _on_motion_point_mode_changed(self, index: int) -> None:
+        if self.output_point_selector is None or index < 0:
+            return
+
+        value = self.output_point_selector.itemData(index)
+        if not isinstance(value, str) or not value:
+            return
+
+        self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = value
+        self._state_cache_valid = False
+        self._render_mechanism()
+
+        if self.synced_mechanism_id and self.current_mechanism and not self._suppress_sync_signal:
+            params = self._build_sync_payload_parameters()
+            self.mechanism_parameters_changed.emit(
+                self.synced_mechanism_id,
+                self.current_mechanism.mechanism_type,
+                params,
+            )
 
     def _update_info_panel(self, mechanism_type: str, config) -> None:
         content = self.content_loader.load_content(mechanism_type)
@@ -832,6 +969,7 @@ class MechanismFoundryView(QWidget):
             self.fourbar_renderer.update_scene(
                 state, self.scene, self.render_config, self.visual_items_cache
             )
+            self._update_fourbar_coupler_visual(state)
             self._show_default_paths(state)
         elif mechanism_type == "cam_follower":
             self._draw_cam_mechanism_optimized(state)
@@ -839,6 +977,118 @@ class MechanismFoundryView(QWidget):
             self._draw_gear_mechanism_optimized(state)
         elif mechanism_type == "slider_crank":
             self._draw_slider_crank_mechanism_optimized(state)
+
+    def _calculate_fourbar_coupler_point(
+        self,
+        state: MechanismState,
+    ) -> tuple[float, float] | None:
+        positions = state.positions
+        a = positions.get("A")
+        b = positions.get("B")
+        if (
+            not isinstance(a, list | tuple)
+            or len(a) < 2
+            or not isinstance(b, list | tuple)
+            or len(b) < 2
+        ):
+            return None
+
+        try:
+            p3x, p3y = float(a[0]), float(a[1])
+            p4x, p4y = float(b[0]), float(b[1])
+        except (TypeError, ValueError):
+            return None
+
+        coupler_x = self.current_parameters.get("coupler_point_x")
+        coupler_y = self.current_parameters.get("coupler_point_y")
+        if coupler_x is None:
+            coupler_x = self.current_parameters.get("p_x", 0.0)
+        if coupler_y is None:
+            coupler_y = self.current_parameters.get("p_y", 0.0)
+        try:
+            cp_x = float(coupler_x)
+            cp_y = float(coupler_y)
+        except (TypeError, ValueError):
+            cp_x = 0.0
+            cp_y = 0.0
+
+        dx = p4x - p3x
+        dy = p4y - p3y
+        link_length = math.hypot(dx, dy)
+        if link_length <= 1e-9:
+            return (p3x, p3y)
+
+        unit_x = dx / link_length
+        unit_y = dy / link_length
+        normal_x = -unit_y
+        normal_y = unit_x
+        return (
+            p3x + cp_x * unit_x + cp_y * normal_x,
+            p3y + cp_x * unit_y + cp_y * normal_y,
+        )
+
+    def _update_fourbar_coupler_visual(self, state: MechanismState) -> None:
+        positions = state.positions
+        a = positions.get("A")
+        b = positions.get("B")
+        coupler = self._calculate_fourbar_coupler_point(state)
+        if (
+            not isinstance(a, list | tuple)
+            or len(a) < 2
+            or not isinstance(b, list | tuple)
+            or len(b) < 2
+            or coupler is None
+        ):
+            return
+
+        p3 = QPointF(float(a[0]), float(a[1]))
+        p4 = QPointF(float(b[0]), float(b[1]))
+        p_c = QPointF(coupler[0], coupler[1])
+
+        # Same semantics as Design tab: if coupler point is collinear, render only line.
+        area = abs(
+            p3.x() * (p4.y() - p_c.y())
+            + p4.x() * (p_c.y() - p3.y())
+            + p_c.x() * (p3.y() - p4.y())
+        ) * 0.5
+
+        cache = self.visual_items_cache
+        triangle_key = "fourbar_coupler_triangle"
+        marker_key = "fourbar_coupler_point"
+
+        if area > 1e-3:
+            triangle = QPolygonF([p3, p4, p_c])
+            if triangle_key not in cache:
+                item = self.scene.addPolygon(
+                    triangle,
+                    QPen(QColor("#5dade2"), 2),
+                    QBrush(QColor(124, 252, 176, 150)),
+                )
+                item.setZValue(8.0)
+                item.setData(0, "mechanism_item")
+                cache[triangle_key] = item
+            else:
+                cache[triangle_key].setPolygon(triangle)
+                cache[triangle_key].setVisible(True)
+        elif triangle_key in cache:
+            cache[triangle_key].setVisible(False)
+
+        if marker_key not in cache:
+            marker = self.scene.addEllipse(
+                p_c.x() - 5.0,
+                p_c.y() - 5.0,
+                10.0,
+                10.0,
+                QPen(QColor("#1e8449"), 2),
+                QBrush(QColor("#27ae60")),
+            )
+            marker.setZValue(11.0)
+            marker.setData(0, "mechanism_item")
+            cache[marker_key] = marker
+        else:
+            marker = cache[marker_key]
+            marker.setRect(p_c.x() - 5.0, p_c.y() - 5.0, 10.0, 10.0)
+            marker.setVisible(True)
 
     def _draw_cam_mechanism_optimized(self, state: MechanismState) -> None:
         """Optimized drawing for Cam mechanism using item caching."""
@@ -1203,7 +1453,7 @@ class MechanismFoundryView(QWidget):
         if mechanism_type == "fourbar":
             default_points = ["A", "B"]
         elif mechanism_type == "cam_follower":
-            default_points = ["follower_end", "contact_point"]
+            default_points = ["follower_base", "contact_point"]
         else:
             return
 
@@ -1258,7 +1508,7 @@ class MechanismFoundryView(QWidget):
         if mechanism_type == "fourbar":
             test_points = ["A", "B"]
         elif mechanism_type == "cam_follower":
-            test_points = ["follower_end", "contact_point"]
+            test_points = ["follower_base", "contact_point"]
         else:
             return None
 
@@ -1279,9 +1529,9 @@ class MechanismFoundryView(QWidget):
         self,
         mechanism_type: str,
         parameters: dict,
-    ) -> dict[str, float]:
+    ) -> dict[str, object]:
         """Map Design-tab parameter schema to Foundry parameter schema."""
-        mapped: dict[str, float] = {}
+        mapped: dict[str, object] = {}
 
         def _pick_float(*keys: str) -> float | None:
             for key in keys:
@@ -1335,6 +1585,15 @@ class MechanismFoundryView(QWidget):
                 mapped["profile_harmonic"] = float(parameters["profile_harmonic"])
             if "input_angle" in parameters:
                 mapped["input_angle"] = float(parameters["input_angle"])
+
+        if self.OUTPUT_POINT_MODE_KEY in parameters:
+            mode = parameters.get(self.OUTPUT_POINT_MODE_KEY)
+            if isinstance(mode, str) and mode:
+                normalized_mode = mode.strip().lower()
+                if mechanism_type == "cam_follower" and normalized_mode == "follower_end":
+                    mapped[self.OUTPUT_POINT_MODE_KEY] = "follower_base"
+                else:
+                    mapped[self.OUTPUT_POINT_MODE_KEY] = normalized_mode
 
         elif mechanism_type == "gear_train":
             # Prefer live radii from Design editing over stale tooth-count params.
@@ -1432,7 +1691,20 @@ class MechanismFoundryView(QWidget):
 
             # Update current parameters and slider UI.
             for key, value in mapped_params.items():
-                if key == "input_angle" or key not in self.current_parameters:
+                if key == "input_angle":
+                    continue
+
+                if key == self.OUTPUT_POINT_MODE_KEY:
+                    if isinstance(value, str) and value:
+                        self.current_parameters[key] = value
+                        if self.current_mechanism:
+                            canonical_type = self._to_controller_mechanism_type(
+                                self.current_mechanism.mechanism_type
+                            )
+                            self._refresh_motion_point_selector(canonical_type)
+                    continue
+
+                if key not in self.current_parameters:
                     continue
 
                 adjusted_value = self._snap_parameter_value_if_needed(key, float(value))

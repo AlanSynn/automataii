@@ -21,6 +21,7 @@ class _AnchorTarget:
     part_name: str
     anchor_joint_id: str | None
     scene_position: tuple[float, float]
+    part_extent_scene: float | None = None
 
 
 @dataclass
@@ -113,7 +114,23 @@ class MechanismCharacterRebindService:
             part_name=target_part_name,
             anchor_joint_id=str(anchor_joint_id) if anchor_joint_id else None,
             scene_position=scene_pos,
+            part_extent_scene=self._extract_part_extent_scene(part_info),
         )
+
+    @staticmethod
+    def _extract_part_extent_scene(part_info: Any) -> float | None:
+        roi = getattr(part_info, "roi", None)
+        if not isinstance(roi, list | tuple) or len(roi) < 4:
+            return None
+        try:
+            width = float(roi[2])
+            height = float(roi[3])
+        except (TypeError, ValueError):
+            return None
+        extent = min(abs(width), abs(height))
+        if extent <= 0.0:
+            return None
+        return extent
 
     def _resolve_joint_scene_position(
         self,
@@ -164,6 +181,24 @@ class MechanismCharacterRebindService:
         # Fallback transform used by TransformService when generated_path is missing.
         return ((scene_position[0] - 400.0) / 2.0, (scene_position[1] - 300.0) / 2.0)
 
+    def _scene_span_to_mechanism_length(
+        self,
+        layer_data: dict[str, Any],
+        center_scene: tuple[float, float],
+        scene_span: float,
+    ) -> float | None:
+        if scene_span <= 0.0:
+            return None
+        try:
+            p0 = self._scene_to_mechanism(layer_data, center_scene)
+            p1 = self._scene_to_mechanism(
+                layer_data,
+                (center_scene[0] + float(scene_span), center_scene[1]),
+            )
+            return max(0.0, math.hypot(p1[0] - p0[0], p1[1] - p0[1]))
+        except Exception:  # pragma: no cover - defensive fallback
+            return None
+
     @staticmethod
     def _point(
         value: Any,
@@ -205,6 +240,39 @@ class MechanismCharacterRebindService:
         p1_new = (p1[0] + dx, p1[1] + dy)
         p2_new = (p2[0] + dx, p2[1] + dy)
         l1_new = max(1.0, min(5000.0, math.hypot(p2_new[0] - p1_new[0], p2_new[1] - p1_new[1])))
+        scale_factor = 1.0
+
+        # Scale linkage to a usable size for the new part if previous size is far off.
+        # Keeps behavior stable while preventing tiny/oversized mechanisms after character swap.
+        if target.part_extent_scene:
+            desired_scene_span = max(140.0, min(420.0, target.part_extent_scene * 1.25))
+            desired_mech_span = self._scene_span_to_mechanism_length(
+                layer_data, target.scene_position, desired_scene_span
+            )
+            if desired_mech_span and l1_new > 0.0:
+                min_allowed = desired_mech_span * 0.75
+                max_allowed = desired_mech_span * 1.35
+                clamped_l1 = min(max(l1_new, min_allowed), max_allowed)
+                scale_factor = clamped_l1 / l1_new
+                if abs(scale_factor - 1.0) > 0.01:
+                    p1_new = (
+                        desired_mid[0] + (p1_new[0] - desired_mid[0]) * scale_factor,
+                        desired_mid[1] + (p1_new[1] - desired_mid[1]) * scale_factor,
+                    )
+                    p2_new = (
+                        desired_mid[0] + (p2_new[0] - desired_mid[0]) * scale_factor,
+                        desired_mid[1] + (p2_new[1] - desired_mid[1]) * scale_factor,
+                    )
+                    l1_new = max(
+                        1.0,
+                        min(
+                            5000.0,
+                            math.hypot(
+                                p2_new[0] - p1_new[0],
+                                p2_new[1] - p1_new[1],
+                            ),
+                        ),
+                    )
 
         params["ground_pivot_1"] = [p1_new[0], p1_new[1]]
         params["ground_pivot_2"] = [p2_new[0], p2_new[1]]
@@ -220,6 +288,7 @@ class MechanismCharacterRebindService:
                 1.0,
                 min(5000.0, self._float(params.get(low_key, params.get(high_key, default)), default)),
             )
+            val = max(1.0, min(5000.0, val * scale_factor))
             params[low_key] = val
             params[high_key] = val
 
@@ -235,13 +304,19 @@ class MechanismCharacterRebindService:
 
         if crank_src is not None:
             crank = self._point(crank_src, (p1_new[0], p1_new[1] - params["l2"]))
-            crank = (crank[0] + dx, crank[1] + dy)
+            crank = (
+                desired_mid[0] + ((crank[0] + dx) - desired_mid[0]) * scale_factor,
+                desired_mid[1] + ((crank[1] + dy) - desired_mid[1]) * scale_factor,
+            )
         else:
             crank = (p1_new[0], p1_new[1] - params["l2"])
 
         if rocker_src is not None:
             rocker = self._point(rocker_src, (p2_new[0], p2_new[1] - params["l4"]))
-            rocker = (rocker[0] + dx, rocker[1] + dy)
+            rocker = (
+                desired_mid[0] + ((rocker[0] + dx) - desired_mid[0]) * scale_factor,
+                desired_mid[1] + ((rocker[1] + dy) - desired_mid[1]) * scale_factor,
+            )
         else:
             rocker = (p2_new[0], p2_new[1] - params["l4"])
 
@@ -275,6 +350,27 @@ class MechanismCharacterRebindService:
         params["center_x"] = float(scene_x)
         params["center_y"] = float(scene_y)
         layer_data["cam_position"] = [float(scene_x), float(scene_y)]
+
+        if target.part_extent_scene:
+            desired_scene_radius = max(35.0, min(150.0, target.part_extent_scene * 0.35))
+            desired_scene_rod = max(60.0, min(260.0, target.part_extent_scene * 0.9))
+            desired_mech_radius = self._scene_span_to_mechanism_length(
+                layer_data, target.scene_position, desired_scene_radius
+            )
+            desired_mech_rod = self._scene_span_to_mechanism_length(
+                layer_data, target.scene_position, desired_scene_rod
+            )
+            if desired_mech_radius:
+                min_radius = desired_mech_radius * 0.7
+                max_radius = desired_mech_radius * 1.4
+                params["base_radius"] = min(max(params["base_radius"], min_radius), max_radius)
+            if desired_mech_rod:
+                min_rod = desired_mech_rod * 0.65
+                max_rod = desired_mech_rod * 1.6
+                params["follower_rod_length"] = min(
+                    max(params["follower_rod_length"], min_rod),
+                    max_rod,
+                )
 
         layer_data["cam_scale_factor"] = max(
             0.1,

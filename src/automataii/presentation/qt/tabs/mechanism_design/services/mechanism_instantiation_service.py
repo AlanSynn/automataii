@@ -9,6 +9,7 @@ Design Pattern: Factory (mechanism layer creation)
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from pathlib import Path
 from typing import Any
@@ -564,10 +565,11 @@ class MechanismInstantiationService:
     def create_layer_data_from_foundry(
         self,
         mechanism_type: str,
-        parameters: dict[str, float],
+        parameters: dict[str, Any],
         pivot_point: tuple[float, float],
         part_name: str | None = None,
         scene_position: tuple[float, float] | None = None,
+        foundry_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Create layer data from Mechanism Foundry export.
@@ -601,6 +603,11 @@ class MechanismInstantiationService:
         normalized_part_name = (
             part_name.strip() if isinstance(part_name, str) and part_name.strip() else None
         )
+        snapshot_positions = {}
+        if isinstance(foundry_snapshot, dict):
+            raw_positions = foundry_snapshot.get("positions")
+            if isinstance(raw_positions, dict):
+                snapshot_positions = raw_positions
 
         # Default scene position if not provided
         pos = scene_position or (400.0, 300.0)
@@ -621,23 +628,114 @@ class MechanismInstantiationService:
             "full_simulation_data": {},
             "reverse_direction": False,
             "source": "foundry",
+            "coordinate_space": "scene",
         }
 
         # Type-specific configuration
         if internal_type == "4_bar_linkage":
+            o1 = self._snapshot_point(snapshot_positions, "O1")
+            o4 = self._snapshot_point(snapshot_positions, "O4")
+            a = self._snapshot_point(snapshot_positions, "A")
+            b = self._snapshot_point(snapshot_positions, "B")
+            coupler_point = self._snapshot_point(snapshot_positions, "coupler_point")
+            dx = 0.0
+            dy = 0.0
+
+            if o1 and o4:
+                center = ((o1[0] + o4[0]) * 0.5, (o1[1] + o4[1]) * 0.5)
+                reference = coupler_point or center
+                dx, dy = pos[0] - reference[0], pos[1] - reference[1]
+                gp1 = (o1[0] + dx, o1[1] + dy)
+                gp2 = (o4[0] + dx, o4[1] + dy)
+                crank = (a[0] + dx, a[1] + dy) if a else None
+                rocker = (b[0] + dx, b[1] + dy) if b else None
+            else:
+                l1 = float(params.get("l1", params.get("L1", 150.0)))
+                l2 = float(params.get("l2", params.get("L2", 40.0)))
+                l3 = float(params.get("l3", params.get("L3", 120.0)))
+                l4 = float(params.get("l4", params.get("L4", 130.0)))
+                input_angle = float(params.get("input_angle", params.get("crank_angle", 30.0)))
+                theta = math.radians(input_angle)
+
+                gp1 = (pos[0] - l1 * 0.5, pos[1])
+                gp2 = (pos[0] + l1 * 0.5, pos[1])
+                crank = (gp1[0] + l2 * math.cos(theta), gp1[1] + l2 * math.sin(theta))
+                rocker = self._solve_circle_intersection(crank, l3, gp2, l4)
+                if rocker is None:
+                    rocker = (gp2[0], gp2[1] - l4)
+
             layer_data["key_points"] = {
-                "ground_pivot_1": [pos[0] - 50, pos[1]],
-                "ground_pivot_2": [pos[0] + 50, pos[1]],
-                "crank_end": [pos[0] - 50, pos[1] - 40],
-                "rocker_end": [pos[0] + 50, pos[1] - 80],
+                "ground_pivot_1": [gp1[0], gp1[1]],
+                "ground_pivot_2": [gp2[0], gp2[1]],
+                "crank_end": [crank[0], crank[1]] if crank else [gp1[0], gp1[1]],
+                "rocker_end": [rocker[0], rocker[1]] if rocker else [gp2[0], gp2[1]],
             }
 
+            gp1_arr = layer_data["key_points"]["ground_pivot_1"]
+            gp2_arr = layer_data["key_points"]["ground_pivot_2"]
+            crank_arr = layer_data["key_points"]["crank_end"]
+            rocker_arr = layer_data["key_points"]["rocker_end"]
+            l1 = math.hypot(gp2_arr[0] - gp1_arr[0], gp2_arr[1] - gp1_arr[1])
+            l2 = math.hypot(crank_arr[0] - gp1_arr[0], crank_arr[1] - gp1_arr[1])
+            l3 = math.hypot(rocker_arr[0] - crank_arr[0], rocker_arr[1] - crank_arr[1])
+            l4 = math.hypot(rocker_arr[0] - gp2_arr[0], rocker_arr[1] - gp2_arr[1])
+            params["l1"] = params["L1"] = float(l1)
+            params["l2"] = params["L2"] = float(l2)
+            params["l3"] = params["L3"] = float(l3)
+            params["l4"] = params["L4"] = float(l4)
+            params["ground_pivot_1"] = [gp1_arr[0], gp1_arr[1]]
+            params["ground_pivot_2"] = [gp2_arr[0], gp2_arr[1]]
+
+            if coupler_point and crank and rocker:
+                coupler_world = (coupler_point[0] + dx, coupler_point[1] + dy)
+                coupler_vec = (
+                    rocker_arr[0] - crank_arr[0],
+                    rocker_arr[1] - crank_arr[1],
+                )
+                coupler_len = math.hypot(coupler_vec[0], coupler_vec[1])
+                if coupler_len > 1e-9:
+                    coupler_unit = (
+                        coupler_vec[0] / coupler_len,
+                        coupler_vec[1] / coupler_len,
+                    )
+                    coupler_normal = (-coupler_unit[1], coupler_unit[0])
+                    coupler_to_point = (
+                        coupler_world[0] - crank_arr[0],
+                        coupler_world[1] - crank_arr[1],
+                    )
+                    point_x = (
+                        coupler_to_point[0] * coupler_unit[0]
+                        + coupler_to_point[1] * coupler_unit[1]
+                    )
+                    point_y = (
+                        coupler_to_point[0] * coupler_normal[0]
+                        + coupler_to_point[1] * coupler_normal[1]
+                    )
+                    params["coupler_point_x"] = float(point_x)
+                    params["coupler_point_y"] = float(point_y)
+                    params["p_x"] = float(point_x)
+                    params["p_y"] = float(point_y)
+
         elif internal_type == "cam":
-            layer_data["cam_position"] = list(pos)
+            cam_center = self._snapshot_point(snapshot_positions, "cam_center")
+            if cam_center:
+                dx, dy = pos[0] - cam_center[0], pos[1] - cam_center[1]
+                translated_center = (cam_center[0] + dx, cam_center[1] + dy)
+                layer_data["cam_position"] = [translated_center[0], translated_center[1]]
+                translated_key_points: dict[str, list[float]] = {}
+                for key in ("cam_center", "follower_base", "follower_end", "contact_point"):
+                    source = self._snapshot_point(snapshot_positions, key)
+                    if source:
+                        translated_key_points[key] = [source[0] + dx, source[1] + dy]
+                if translated_key_points:
+                    layer_data["key_points"] = translated_key_points
+            else:
+                layer_data["cam_position"] = list(pos)
+
             layer_data["cam_scale_factor"] = 1.0
             layer_data["rod_length_multiplier"] = 1.0
-            params["center_x"] = pos[0]
-            params["center_y"] = pos[1]
+            params["center_x"] = layer_data["cam_position"][0]
+            params["center_y"] = layer_data["cam_position"][1]
             # Ensure harmonic parameters are present
             params.setdefault("cam_lobes", 1)
             params.setdefault("profile_harmonic", 0.3)
@@ -657,10 +755,48 @@ class MechanismInstantiationService:
 
         return layer_data
 
+    @staticmethod
+    def _snapshot_point(
+        positions: dict[str, Any],
+        key: str,
+    ) -> tuple[float, float] | None:
+        raw = positions.get(key)
+        if isinstance(raw, list | tuple) and len(raw) >= 2:
+            try:
+                return (float(raw[0]), float(raw[1]))
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    @staticmethod
+    def _solve_circle_intersection(
+        p1: tuple[float, float],
+        r1: float,
+        p2: tuple[float, float],
+        r2: float,
+    ) -> tuple[float, float] | None:
+        dx = p2[0] - p1[0]
+        dy = p2[1] - p1[1]
+        d = math.hypot(dx, dy)
+        if d <= 1e-9 or d > (r1 + r2) or d < abs(r1 - r2):
+            return None
+
+        a = ((r1 * r1) - (r2 * r2) + (d * d)) / (2.0 * d)
+        h_sq = (r1 * r1) - (a * a)
+        if h_sq < 0.0:
+            return None
+        h = math.sqrt(h_sq)
+
+        xm = p1[0] + (a * dx / d)
+        ym = p1[1] + (a * dy / d)
+        rx = -dy * (h / d)
+        ry = dx * (h / d)
+        return (xm + rx, ym + ry)
+
     def map_foundry_params_to_internal(
         self,
         foundry_type: str,
-        foundry_params: dict[str, float],
+        foundry_params: dict[str, Any],
     ) -> dict[str, Any]:
         """Public adapter for Foundry -> Design parameter mapping."""
         return self._map_foundry_params_to_internal(foundry_type, foundry_params)
@@ -668,7 +804,7 @@ class MechanismInstantiationService:
     def _map_foundry_params_to_internal(
         self,
         foundry_type: str,
-        foundry_params: dict[str, float],
+        foundry_params: dict[str, Any],
     ) -> dict[str, Any]:
         """
         Map Foundry parameter names to internal Design tab parameter names.
@@ -703,6 +839,13 @@ class MechanismInstantiationService:
                 angle = float(foundry_params["input_angle"])
                 params["input_angle"] = angle
                 params["crank_angle"] = angle
+            output_mode = foundry_params.get("output_point_mode")
+            if isinstance(output_mode, str):
+                normalized_mode = output_mode.strip().lower()
+                if normalized_mode in {"joint_a", "joint_b", "coupler", "coupler_point"}:
+                    params["output_point_mode"] = (
+                        "coupler" if normalized_mode == "coupler_point" else normalized_mode
+                    )
 
         elif normalized_type == "cam_follower":
             # Map Foundry cam params to internal
@@ -713,6 +856,13 @@ class MechanismInstantiationService:
             params["profile_harmonic"] = foundry_params.get("profile_harmonic", 0.3)
             if "input_angle" in foundry_params:
                 params["input_angle"] = float(foundry_params["input_angle"])
+            output_mode = foundry_params.get("output_point_mode")
+            if isinstance(output_mode, str):
+                normalized_mode = output_mode.strip().lower()
+                if normalized_mode in {"follower_base", "follower_end"}:
+                    params["output_point_mode"] = "follower_base"
+                elif normalized_mode == "contact_point":
+                    params["output_point_mode"] = "contact_point"
 
         elif normalized_type == "gear_train":
             params["gear1_teeth"] = int(foundry_params.get("gear1_teeth", 12))

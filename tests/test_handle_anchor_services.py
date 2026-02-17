@@ -137,3 +137,42 @@ def test_handle_position_coordinator_updates_planetary_radius_and_arm_handles() 
     assert radius_handle.pos.y() == radius_target.y()
     assert arm_handle.pos.x() == arm_target.x()
     assert arm_handle.pos.y() == arm_target.y()
+
+
+def test_transform_service_uses_identity_for_foundry_scene_space_layer() -> None:
+    service = TransformService()
+    layer_data = {
+        "source": "foundry",
+        "coordinate_space": "scene",
+        "generated_path": None,
+        "transform_params": {"center": [0.0, 0.0], "scale": 1.0, "rotation": 0.0},
+        "key_points": {"ground_pivot_1": [350.0, 220.0]},
+    }
+
+    to_scene = service.get_scene_transform(layer_data)
+    assert to_scene is not None
+    point = to_scene([350.0, 220.0])
+    assert point.x() == 350.0
+    assert point.y() == 220.0
+
+    to_mech = service.get_inverse_scene_transform(layer_data)
+    assert to_mech is not None
+    mech_point = to_mech(QPointF(350.0, 220.0))
+    assert float(mech_point[0]) == 350.0
+    assert float(mech_point[1]) == 220.0
+
+
+def test_transform_service_uses_foundry_heuristic_for_legacy_layers() -> None:
+    service = TransformService()
+    layer_data = {
+        "source": "foundry",
+        "generated_path": None,
+        "transform_params": {"center": [0.0, 0.0], "scale": 1.0, "rotation": 0.0},
+        "key_points": {"ground_pivot_1": [500.0, 310.0]},
+    }
+
+    to_scene = service.get_scene_transform(layer_data)
+    assert to_scene is not None
+    point = to_scene([500.0, 310.0])
+    assert point.x() == 500.0
+    assert point.y() == 310.0

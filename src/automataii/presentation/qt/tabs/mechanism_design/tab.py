@@ -362,10 +362,6 @@ class MechanismDesignTab(QWidget):
         self._parametric_mode_controller = ParametricModeController(parent=self)
         self._recommendation_controller = RecommendationController(parent=self)
 
-        # Connect internal signals for the restored Assign Character button
-        if self.assign_character_btn:
-            self.assign_character_btn.clicked.connect(self._on_assign_dummy_character)
-
         # Connect all signals using new signal manager (after components are ready)
         self.signal_manager.connect_all_signals(self)
 

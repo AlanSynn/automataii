@@ -152,6 +152,7 @@ class SkeletonVisualizationHandler(QObject):
     def on_skeleton_manager_updated(self, skeleton_data: dict | None) -> None:
         """Handle skeleton updates from skeleton_manager (for bend_direction sync)."""
         if not skeleton_data:
+            self._clear_skeleton_visualization()
             return
 
         # Update skeleton visualization with new bend_direction values
@@ -202,6 +203,7 @@ class SkeletonVisualizationHandler(QObject):
         """
         # Validate skeleton_data first
         if not skeleton_data:
+            self._clear_skeleton_visualization()
             return
 
         # Check if mechanism_view exists
@@ -226,6 +228,7 @@ class SkeletonVisualizationHandler(QObject):
                 is_raw_data = True
 
         if not is_valid_data:
+            self._clear_skeleton_visualization()
             return
 
         try:
@@ -642,3 +645,27 @@ class SkeletonVisualizationHandler(QObject):
             # Only position parts at anchor joints if animation is NOT running
             if not self._is_animation_running():
                 self._position_parts_at_anchor_joints()
+        else:
+            self._clear_skeleton_visualization()
+
+    def _clear_skeleton_visualization(self) -> None:
+        """
+        Clear skeleton overlay and related mapping/cache state.
+
+        This is required when character/skeleton data is replaced so stale dummy
+        skeleton visuals do not remain in Mechanism Design.
+        """
+        self._initial_skeleton_data_cache = None
+        self._joint_id_cache.clear()
+
+        if self._mechanism_view and hasattr(self._mechanism_view, "set_joint_map"):
+            self._mechanism_view.set_joint_map(None)
+
+        if self._mechanism_view and hasattr(self._mechanism_view, "visualize_skeleton"):
+            try:
+                self._mechanism_view.visualize_skeleton([], {})
+            except Exception:
+                logging.debug(
+                    "SkeletonVisualizationHandler: Failed to clear skeleton visualization",
+                    exc_info=True,
+                )

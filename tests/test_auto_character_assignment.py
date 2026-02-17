@@ -212,3 +212,90 @@ class TestAutoCharacterAssignment:
 
         tab._map_orphan_mechanisms_to_character.assert_called_once()
         assert tab._pending_character_rebind is False
+
+    def test_project_data_cleared_is_suppressed_during_character_swap_load(self) -> None:
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window._suppress_project_data_cleared_ui_once = True
+        window.editor_tab = MagicMock()
+        window.mechanism_design_tab = MagicMock()
+        window.skeleton_manager = MagicMock()
+        window.ik_manager = MagicMock()
+        window.project_state_manager = MagicMock()
+        window.action_manager = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+
+        AutomataDesigner._handle_project_data_cleared(window)
+
+        window.editor_tab.clear_editor_content.assert_not_called()
+        window.mechanism_design_tab.clear_mechanism_data.assert_not_called()
+        window.skeleton_manager.clear_data.assert_not_called()
+        window.project_state_manager.new_project.assert_not_called()
+        window.action_manager.update_actions_for_project_state.assert_not_called()
+        assert window._suppress_project_data_cleared_ui_once is True
+
+    def test_project_data_cleared_resets_ui_when_not_suppressed(self) -> None:
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window._suppress_project_data_cleared_ui_once = False
+        window.editor_tab = MagicMock()
+        window.mechanism_design_tab = MagicMock()
+        window.skeleton_manager = MagicMock()
+        window.ik_manager = MagicMock()
+        window.project_state_manager = MagicMock()
+        window.action_manager = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+
+        AutomataDesigner._handle_project_data_cleared(window)
+
+        window.editor_tab.clear_editor_content.assert_called_once()
+        window.mechanism_design_tab.clear_mechanism_data.assert_called_once()
+        window.skeleton_manager.clear_data.assert_called_once()
+        window.ik_manager.reset_all_ik_systems_and_data.assert_called_once()
+        window.project_state_manager.new_project.assert_called_once()
+        window.action_manager.update_actions_for_project_state.assert_called_once_with(False)
+        status_bar.showMessage.assert_called_once()
+
+    def test_failed_character_swap_load_keeps_existing_ui_state(self) -> None:
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window._character_swap_load_in_progress = True
+        window._suppress_project_data_cleared_ui_once = False
+        window._auto_scale_character_to_dummy_next_load = False
+        window.mechanism_design_tab = MagicMock()
+        window._clear_ui_for_failed_load = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window.action_manager = MagicMock()
+
+        with patch("automataii.presentation.qt.main_window.QMessageBox.critical"):
+            AutomataDesigner._handle_project_data_loaded(window, False, "/tmp/project", {})
+
+        window._clear_ui_for_failed_load.assert_not_called()
+        window.action_manager.update_actions_for_project_state.assert_not_called()
+        status_bar.showMessage.assert_called()
+
+    def test_failed_non_swap_load_clears_ui_state(self) -> None:
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window._character_swap_load_in_progress = False
+        window._suppress_project_data_cleared_ui_once = False
+        window._auto_scale_character_to_dummy_next_load = False
+        window.mechanism_design_tab = MagicMock()
+        window._clear_ui_for_failed_load = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window.action_manager = MagicMock()
+
+        with patch("automataii.presentation.qt.main_window.QMessageBox.critical"):
+            AutomataDesigner._handle_project_data_loaded(window, False, "/tmp/project", {})
+
+        window._clear_ui_for_failed_load.assert_called_once()
+        window.action_manager.update_actions_for_project_state.assert_called_once_with(False)
+        status_bar.showMessage.assert_called()

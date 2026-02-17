@@ -44,6 +44,34 @@ class MechanismOutputCalculator:
         """
         self._get_scene_transform = get_scene_transform
 
+    @staticmethod
+    def _normalize_output_mode(mechanism_type: str, mode: object) -> str | None:
+        if not isinstance(mode, str) or not mode:
+            return None
+
+        normalized = mode.strip().lower()
+        if mechanism_type == "4_bar_linkage":
+            return {
+                "joint_a": "joint_a",
+                "a": "joint_a",
+                "input": "joint_a",
+                "joint_b": "joint_b",
+                "b": "joint_b",
+                "output": "joint_b",
+                "coupler": "coupler",
+                "coupler_point": "coupler",
+            }.get(normalized)
+
+        if mechanism_type == "cam":
+            return {
+                "follower_base": "follower_base",
+                "follower_end": "follower_base",
+                "contact_point": "contact_point",
+                "contact": "contact_point",
+            }.get(normalized)
+
+        return normalized
+
     def extract_key_points_from_simulation(
         self,
         full_sim_data: dict,
@@ -173,6 +201,15 @@ class MechanismOutputCalculator:
         p3 = np.array(joint_positions["p3_positions"][frame_index])
         p4 = np.array(joint_positions["p4_positions"][frame_index])
 
+        output_mode = self._normalize_output_mode(
+            "4_bar_linkage",
+            params.get("output_point_mode"),
+        )
+        if output_mode == "joint_a":
+            return to_scene_coords(p3)
+        if output_mode == "joint_b":
+            return to_scene_coords(p4)
+
         # Calculate coupler point
         # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
         coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0)
@@ -273,7 +310,7 @@ class MechanismOutputCalculator:
         Uses pre-computed cam profile from factory when available,
         falling back to harmonic formula for compatibility.
 
-        Returns the follower base position (where part would attach).
+        Returns selected cam output point.
         """
         # Get rod length params
         follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 40.0))
@@ -345,6 +382,13 @@ class MechanismOutputCalculator:
         # In scene coords, Y+ is down, so subtract rod_scene to move upward
         # Gravity physics: follower is above cam, rod extends upward
         follower_base_y = contact_scene.y() - rod_scene
+
+        output_mode = self._normalize_output_mode(
+            "cam",
+            params.get("output_point_mode"),
+        )
+        if output_mode == "contact_point":
+            return QPointF(float(contact_scene.x()), float(contact_scene.y()))
 
         return QPointF(float(follower_x), float(follower_base_y))
 

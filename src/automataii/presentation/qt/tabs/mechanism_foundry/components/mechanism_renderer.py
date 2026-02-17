@@ -301,7 +301,7 @@ class MechanismRenderer:
         if mechanism_type == "fourbar":
             default_points = ["A", "B"]
         elif mechanism_type == "cam_follower":
-            default_points = ["follower_end", "contact_point"]
+            default_points = ["follower_base", "contact_point"]
         else:
             return
 

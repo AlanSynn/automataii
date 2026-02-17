@@ -18,6 +18,22 @@ if TYPE_CHECKING:
 
 
 class LinkageRenderer:
+    @staticmethod
+    def _remove_cached_item(scene: QGraphicsScene, cache: dict[str, QGraphicsItem], key: str) -> None:
+        item = cache.pop(key, None)
+        if item is None:
+            return
+        if item.scene() is scene:
+            scene.removeItem(item)
+
+    def _clear_force_items(
+        self,
+        scene: QGraphicsScene,
+        cache: dict[str, QGraphicsItem],
+    ) -> None:
+        for key in [k for k in cache if k.startswith("force_")]:
+            self._remove_cached_item(scene, cache, key)
+
     def render(
         self,
         state: MechanismState,
@@ -132,9 +148,10 @@ class LinkageRenderer:
         self._update_moving_joint(scene, B, "B", config.show_labels, cache, used_keys)
 
         # Update Forces (Forces are dynamic, simpler to recreate or pool)
-        # For now, we'll recreate forces but manage them via a special group key prefix
         if config.show_forces and state.forces:
             self._update_forces(scene, state.forces, cache, used_keys)
+        else:
+            self._clear_force_items(scene, cache)
 
         # Cleanup unused items
         # (Optional: implement if topology changes frequently, but for 4-bar it's static)
@@ -382,8 +399,15 @@ class LinkageRenderer:
         cache: dict[str, QGraphicsItem],
         used_keys: set[str],
     ) -> None:
-        # Prune old force items that are no longer in the current force list
-        # This is a bit simplistic but works given forces change rapidly
+        active_force_prefixes = {f"force_{force_id}" for force_id in forces}
+        stale_keys = [
+            key
+            for key in cache
+            if key.startswith("force_") and not any(key.startswith(prefix) for prefix in active_force_prefixes)
+        ]
+        for key in stale_keys:
+            self._remove_cached_item(scene, cache, key)
+
         for force_id, force_vec in forces.items():
             base_key = f"force_{force_id}"
             line_key = f"{base_key}_arrow"
@@ -392,6 +416,8 @@ class LinkageRenderer:
             used_keys.add(head_key)
 
             pos = force_vec.position
+            if isinstance(pos, list | tuple) and len(pos) >= 2:
+                pos = QPointF(float(pos[0]), float(pos[1]))
             mag = force_vec.magnitude
             angle_rad = math.radians(force_vec.angle)
             scale = 2.0
@@ -401,6 +427,9 @@ class LinkageRenderer:
             end_pt = QPointF(end_x, end_y)
 
             color = force_vec.color or QColor(255, 0, 0, 200)
+            if isinstance(color, list | tuple) and len(color) >= 3:
+                alpha = int(color[3]) if len(color) >= 4 else 200
+                color = QColor(int(color[0]), int(color[1]), int(color[2]), alpha)
             pen = QPen(color, 2)
 
             # Arrow Line
@@ -596,6 +625,8 @@ class LinkageRenderer:
 
         for _force_id, force_vec in forces.items():
             pos = force_vec.position
+            if isinstance(pos, list | tuple) and len(pos) >= 2:
+                pos = QPointF(float(pos[0]), float(pos[1]))
             mag = force_vec.magnitude
             angle_rad = math.radians(force_vec.angle)
 
@@ -604,6 +635,9 @@ class LinkageRenderer:
             end_y = pos.y() + mag * scale * math.sin(angle_rad)
 
             color = force_vec.color or QColor(255, 0, 0, 200)
+            if isinstance(color, list | tuple) and len(color) >= 3:
+                alpha = int(color[3]) if len(color) >= 4 else 200
+                color = QColor(int(color[0]), int(color[1]), int(color[2]), alpha)
             pen = QPen(color, 2)
             arrow_line = scene.addLine(pos.x(), pos.y(), end_x, end_y, pen)
             items.append(arrow_line)

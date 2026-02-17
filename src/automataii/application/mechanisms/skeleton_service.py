@@ -59,11 +59,11 @@ class SkeletonService:
                     pos = (float(joint_pos[0]), float(joint_pos[1]))
                     if position_setter:
                         position_setter(part_item, pos)
-                    # Restore original rotation from skeleton data (NOT reset to 0)
-                    # This preserves the part's orientation as defined in the skeleton
-                    if rotation_setter:
-                        original_rotation = joint_data.get("rotation", 0.0)
-                        rotation_setter(part_item, float(original_rotation))
+                    # Do not apply generic skeleton joint rotation during initial placement.
+                    # Joint rotation is often defined in a different reference frame and can
+                    # rotate body-part textures unexpectedly on character replacement.
+                    if rotation_setter and "part_rotation_degrees" in joint_data:
+                        rotation_setter(part_item, float(joint_data["part_rotation_degrees"]))
                     positioned_count += 1
 
         return positioned_count

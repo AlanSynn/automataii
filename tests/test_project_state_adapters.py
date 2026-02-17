@@ -439,7 +439,15 @@ class TestEditorTabAdapter:
         adapter.attach(mock_tab)
 
         skeleton = SkeletonData(
-            joints={"root": JointData(id="root", position=Point(x=100, y=200))},
+            joints={
+                "root": JointData(id="root", position=Point(x=100, y=200), name="root"),
+                "hip_1": JointData(
+                    id="hip_1",
+                    position=Point(x=100, y=240),
+                    name="hip",
+                    parent="root",
+                ),
+            },
             bones=(),
             root_joint="root",
         )
@@ -450,6 +458,10 @@ class TestEditorTabAdapter:
         mock_tab.cache_initial_skeleton.assert_called_once()
         skeleton_dict = mock_tab.cache_initial_skeleton.call_args[0][0]
         assert skeleton_dict["joints"]["root"]["name"] == "root"
+        assert skeleton_dict["joints"]["hip_1"]["parent_id"] == "root"
+        assert skeleton_dict["joint_map"]["hip"] == "hip_1"
+        assert skeleton_dict["hierarchy"]["root"] == ["hip_1"]
+        assert "root" in skeleton_dict["root_joint_ids"]
 
 
 class TestMechanismDesignTabAdapter:
@@ -544,7 +556,15 @@ class TestMechanismDesignTabAdapter:
         adapter.attach(mock_tab)
 
         skeleton = SkeletonData(
-            joints={"root": JointData(id="root", position=Point(x=100, y=200))},
+            joints={
+                "root": JointData(id="root", position=Point(x=100, y=200), name="root"),
+                "neck_3": JointData(
+                    id="neck_3",
+                    position=Point(x=100, y=180),
+                    name="neck",
+                    parent="root",
+                ),
+            },
             bones=(),
             root_joint="root",
         )
@@ -555,6 +575,9 @@ class TestMechanismDesignTabAdapter:
         mock_tab.cache_initial_skeleton.assert_called_once()
         skeleton_dict = mock_tab.cache_initial_skeleton.call_args[0][0]
         assert skeleton_dict["joints"]["root"]["name"] == "root"
+        assert skeleton_dict["joint_map"]["neck"] == "neck_3"
+        assert skeleton_dict["hierarchy"]["root"] == ["neck_3"]
+        assert skeleton_dict["joints"]["neck_3"]["parent_id"] == "root"
 
     def test_joint_data_to_dict_includes_name_for_ik_compat(self):
         joint = JointData(id="hip_1", position=Point(x=10, y=20))
@@ -563,6 +586,18 @@ class TestMechanismDesignTabAdapter:
 
         assert serialized["id"] == "hip_1"
         assert serialized["name"] == "hip_1"
+
+    def test_joint_data_from_dict_accepts_parent_id_alias(self):
+        parsed = JointData.from_dict(
+            {
+                "id": "neck_3",
+                "name": "neck",
+                "position": [10.0, 20.0],
+                "parent_id": "root_0",
+            }
+        )
+
+        assert parsed.parent == "root_0"
 
     def test_add_mechanism_for_part(self, adapter, state_manager):
         """Test adding a mechanism for a part."""

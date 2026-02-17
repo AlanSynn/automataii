@@ -191,6 +191,7 @@ class JointData:
             "name": joint_name,
             "position": self.position.to_tuple(),
             "parent": self.parent,
+            "parent_id": self.parent,
             "is_locked": self.is_locked,
             "bend_direction": self.bend_direction,
         }
@@ -198,11 +199,14 @@ class JointData:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> JointData:
         pos = data.get("position", [0, 0])
+        parent = data.get("parent")
+        if parent is None:
+            parent = data.get("parent_id")
         return cls(
             id=data["id"],
             position=Point(x=pos[0], y=pos[1]),
             name=data.get("name") or data["id"],
-            parent=data.get("parent"),
+            parent=parent,
             is_locked=data.get("is_locked", False),
             bend_direction=data.get("bend_direction", 1.0),
         )
@@ -245,9 +249,33 @@ class SkeletonData:
         return self.joints.get(joint_id)
 
     def to_dict(self) -> dict[str, Any]:
+        joints_dict = {jid: j.to_dict() for jid, j in self.joints.items()}
+        joint_map: dict[str, str] = {}
+        hierarchy: dict[str, list[str]] = {}
+        root_joint_ids: list[str] = []
+
+        for joint_id, joint in self.joints.items():
+            joint_name = joint.name or joint.id
+            joint_map[joint_name] = joint_id
+
+            parent_id = joint.parent
+            if parent_id:
+                hierarchy.setdefault(parent_id, []).append(joint_id)
+            else:
+                root_joint_ids.append(joint_id)
+
+        root_joint = self.root_joint
+        if not root_joint and root_joint_ids:
+            root_joint = root_joint_ids[0]
+        if root_joint and root_joint not in root_joint_ids:
+            root_joint_ids.insert(0, root_joint)
+
         return {
-            "root_joint": self.root_joint,
-            "joints": {jid: j.to_dict() for jid, j in self.joints.items()},
+            "root_joint": root_joint,
+            "root_joint_ids": root_joint_ids,
+            "joint_map": joint_map,
+            "hierarchy": hierarchy,
+            "joints": joints_dict,
             "bones": [b.to_dict() for b in self.bones],
         }
 

@@ -47,10 +47,10 @@ class TestMechanismInstantiationService:
 
         # Verify parameter mapping
         params = layer_data["params"]
-        assert params["l1"] == 150.0  # ground_link -> l1
-        assert params["l2"] == 40.0   # input_link -> l2
-        assert params["l3"] == 120.0  # coupler_link -> l3
-        assert params["l4"] == 130.0  # output_link -> l4
+        assert params["l1"] == pytest.approx(150.0)  # ground_link -> l1
+        assert params["l2"] == pytest.approx(40.0)   # input_link -> l2
+        assert params["l3"] == pytest.approx(120.0)  # coupler_link -> l3
+        assert params["l4"] == pytest.approx(130.0)  # output_link -> l4
 
     def test_create_layer_data_from_foundry_cam(self):
         """Test creating layer data from Foundry cam_follower export."""
@@ -67,6 +67,7 @@ class TestMechanismInstantiationService:
             "follower_length": 100.0,
             "cam_lobes": 2,
             "profile_harmonic": 0.4,
+            "output_point_mode": "contact_point",
         }
 
         layer_data = service.create_layer_data_from_foundry(
@@ -94,6 +95,7 @@ class TestMechanismInstantiationService:
         assert params["follower_rod_length"] == 100.0  # follower_length -> follower_rod_length
         assert params["cam_lobes"] == 2
         assert params["profile_harmonic"] == 0.4
+        assert params["output_point_mode"] == "contact_point"
 
     def test_create_layer_data_from_foundry_gear(self):
         """Test creating layer data from Foundry gear_train export."""
@@ -152,11 +154,114 @@ class TestMechanismInstantiationService:
         assert layer_data["type"] == "4_bar_linkage"
         assert layer_data["source"] == "foundry"
         params = layer_data["params"]
-        assert params["l2"] == 80.0
-        assert params["l3"] == 140.0
-        assert params["l4"] == 140.0
+        assert params["l2"] == pytest.approx(80.0)
+        assert params["l3"] == pytest.approx(140.0)
+        assert params["l4"] == pytest.approx(140.0)
         assert params["l1"] > 0.0
         assert params["crank_angle"] == 35.0
+
+    def test_create_layer_data_from_foundry_preserves_four_bar_snapshot_geometry(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="four_bar",
+            parameters={
+                "ground_link": 150.0,
+                "input_link": 40.0,
+                "coupler_link": 120.0,
+                "output_link": 130.0,
+                "input_angle": 30.0,
+            },
+            pivot_point=(0.0, 0.0),
+            part_name="torso",
+            scene_position=(400.0, 300.0),
+            foundry_snapshot={
+                "positions": {
+                    "O1": [-75.0, 0.0],
+                    "O4": [75.0, 0.0],
+                    "A": [-40.0, 20.0],
+                    "B": [60.0, 45.0],
+                }
+            },
+        )
+
+        key_points = layer_data["key_points"]
+        assert key_points["ground_pivot_1"] == [325.0, 300.0]
+        assert key_points["ground_pivot_2"] == [475.0, 300.0]
+        assert key_points["crank_end"] == [360.0, 320.0]
+        assert key_points["rocker_end"] == [460.0, 345.0]
+        assert layer_data["params"]["l1"] == 150.0
+        assert layer_data["params"]["L1"] == 150.0
+
+    def test_create_layer_data_from_foundry_preserves_cam_snapshot_center(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="cam_follower",
+            parameters={
+                "cam_radius": 60.0,
+                "cam_offset": 20.0,
+                "follower_length": 100.0,
+            },
+            pivot_point=(0.0, 0.0),
+            part_name="torso",
+            scene_position=(520.0, 360.0),
+            foundry_snapshot={
+                "positions": {
+                    "cam_center": [0.0, 0.0],
+                    "follower_base": [0.0, -140.0],
+                    "follower_end": [0.0, -70.0],
+                    "contact_point": [0.0, -60.0],
+                }
+            },
+        )
+
+        assert layer_data["cam_position"] == [520.0, 360.0]
+        assert layer_data["params"]["center_x"] == 520.0
+        assert layer_data["params"]["center_y"] == 360.0
+        assert layer_data["key_points"]["cam_center"] == [520.0, 360.0]
+        assert layer_data["key_points"]["follower_base"] == [520.0, 220.0]
+
+    def test_create_layer_data_from_foundry_anchors_to_snapshot_coupler_point(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="four_bar",
+            parameters={
+                "ground_link": 150.0,
+                "input_link": 40.0,
+                "coupler_link": 120.0,
+                "output_link": 130.0,
+                "input_angle": 30.0,
+            },
+            pivot_point=(0.0, 0.0),
+            part_name="torso",
+            scene_position=(400.0, 300.0),
+            foundry_snapshot={
+                "positions": {
+                    "O1": [-75.0, 0.0],
+                    "O4": [75.0, 0.0],
+                    "A": [-40.0, 20.0],
+                    "B": [60.0, 45.0],
+                    "coupler_point": [10.0, 15.0],
+                }
+            },
+        )
+
+        key_points = layer_data["key_points"]
+        assert key_points["ground_pivot_1"] == [315.0, 285.0]
+        assert key_points["ground_pivot_2"] == [465.0, 285.0]
+        assert key_points["crank_end"] == [350.0, 305.0]
+        assert key_points["rocker_end"] == [450.0, 330.0]
 
     def test_create_layer_data_from_foundry_normalizes_blank_part_name(self):
         """Blank/whitespace part names should not be preserved in layer data."""
@@ -194,6 +299,25 @@ class TestMechanismInstantiationService:
 
         assert len(ids) == 10  # All IDs should be unique
 
+    def test_map_foundry_params_to_internal_preserves_output_point_mode(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+
+        linkage_params = service.map_foundry_params_to_internal(
+            "four_bar",
+            {"ground_link": 150.0, "output_point_mode": "joint_a"},
+        )
+        cam_params = service.map_foundry_params_to_internal(
+            "cam_follower",
+            {"cam_radius": 60.0, "output_point_mode": "follower_end"},
+        )
+
+        assert linkage_params["output_point_mode"] == "joint_a"
+        assert cam_params["output_point_mode"] == "follower_base"
+
 
 class TestFoundryViewExportSignal:
     """Test MechanismFoundryView export signal emission."""
@@ -218,6 +342,101 @@ class TestMechanismDesignTabImport:
         )
 
         assert hasattr(MechanismDesignTab, "import_mechanism_from_foundry")
+
+    def test_resolve_target_part_uses_existing_selection_when_valid(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import (
+            MechanismDesignTab,
+        )
+
+        fake_tab = SimpleNamespace(
+            selected_part_name="left_arm",
+            parts_data={
+                "head": SimpleNamespace(anchor_joint_id="neck"),
+                "left_arm": SimpleNamespace(anchor_joint_id="left_elbow"),
+            },
+            _prompt_target_part_for_foundry_import=lambda _: "head",
+            _select_part_in_list=lambda _: None,
+        )
+
+        part_name = MechanismDesignTab._resolve_target_part_for_foundry_import(fake_tab)
+        assert part_name == "left_arm"
+
+    def test_resolve_target_part_prompts_user_when_none_selected(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import (
+            MechanismDesignTab,
+        )
+
+        selected: list[str] = []
+        fake_tab = SimpleNamespace(
+            selected_part_name=None,
+            parts_data={
+                "head": SimpleNamespace(anchor_joint_id="neck"),
+                "torso": SimpleNamespace(anchor_joint_id="root"),
+            },
+            _prompt_target_part_for_foundry_import=lambda parts: "torso",
+            _select_part_in_list=lambda part: selected.append(part),
+            _mvp_presenter=SimpleNamespace(select_part=lambda _: None),
+        )
+
+        part_name = MechanismDesignTab._resolve_target_part_for_foundry_import(fake_tab)
+        assert part_name == "torso"
+        assert fake_tab.selected_part_name == "torso"
+        assert selected == ["torso"]
+
+    def test_resolve_foundry_import_scene_position_prefers_part_anchor_joint(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import (
+            MechanismDesignTab,
+        )
+
+        fake_tab = SimpleNamespace(
+            parts_data={"left_arm": SimpleNamespace(anchor_joint_id="left_shoulder", roi=[0, 0, 50, 20])},
+            initial_skeleton_cache={
+                "joints": {
+                    "left_shoulder": {"position": [512.0, 274.0]},
+                }
+            },
+            mechanism_view=None,
+        )
+        fake_tab._resolve_joint_scene_position_for_part = (
+            lambda part_name: MechanismDesignTab._resolve_joint_scene_position_for_part(
+                fake_tab, part_name
+            )
+        )
+
+        position = MechanismDesignTab._resolve_foundry_import_scene_position(fake_tab, "left_arm")
+        assert position == (512.0, 274.0)
+
+    def test_resolve_joint_scene_position_prefers_part_item_anchor(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import (
+            MechanismDesignTab,
+        )
+
+        class _DummyPoint:
+            def __init__(self, x: float, y: float):
+                self._x = x
+                self._y = y
+
+            def x(self) -> float:
+                return self._x
+
+            def y(self) -> float:
+                return self._y
+
+        class _DummyPartItem:
+            def transformOriginPoint(self):
+                return _DummyPoint(0.0, 0.0)
+
+            def mapToScene(self, _point):
+                return _DummyPoint(450.0, 260.0)
+
+        fake_tab = SimpleNamespace(
+            current_editor_items={"left_arm": _DummyPartItem()},
+            parts_data={"left_arm": SimpleNamespace(anchor_joint_id="left_shoulder", roi=[0, 0, 50, 20])},
+            initial_skeleton_cache=None,
+        )
+
+        position = MechanismDesignTab._resolve_joint_scene_position_for_part(fake_tab, "left_arm")
+        assert position == (450.0, 260.0)
 
 
 class TestMechanismDesignGridSettings:
@@ -389,6 +608,37 @@ class TestMechanismDesignTabFoundryUpdate:
         fake_tab._regenerate_foundry_layer_simulation.assert_called_once_with("mech_1", layer_data)
         fake_tab._visual_animator.build_cache.assert_called_once_with("mech_1", layer_data)
         fake_tab._render_mechanism_layer.assert_called_once_with("mech_1")
+
+    def test_update_from_foundry_applies_output_point_mode(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        layer_data = {
+            "type": "4_bar_linkage",
+            "foundry_synced": True,
+            "params": {"l1": 100.0, "l2": 40.0, "l3": 90.0, "l4": 80.0},
+        }
+        fake_tab = SimpleNamespace(
+            mechanism_layers={"mech_1": layer_data},
+            _suppress_foundry_sync=False,
+            _mechanism_instantiation=SimpleNamespace(
+                map_foundry_params_to_internal=MagicMock(
+                    return_value={"output_point_mode": "joint_a"}
+                )
+            ),
+            _regenerate_foundry_layer_simulation=MagicMock(),
+            _visual_animator=SimpleNamespace(build_cache=MagicMock()),
+            _render_mechanism_layer=MagicMock(),
+            mechanism_scene=SimpleNamespace(update=MagicMock()),
+        )
+
+        MechanismDesignTab.update_from_foundry(
+            fake_tab,
+            mechanism_id="mech_1",
+            mechanism_type="four_bar",
+            parameters={"output_point_mode": "joint_a"},
+        )
+
+        assert fake_tab.mechanism_layers["mech_1"]["params"]["output_point_mode"] == "joint_a"
 
 
 if __name__ == "__main__":

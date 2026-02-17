@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from pathlib import Path
@@ -94,6 +95,249 @@ _PROJECT_TRANSIENT_LAYER_KEYS = frozenset(
     }
 )
 _PROJECT_RUNTIME_LAYER_KEY_SUFFIXES = ("_cache", "_cached")
+_DEFAULT_DUMMY_REFERENCE_HEIGHT_PX = 960.0
+_CHARACTER_SCALE_LOWER_RATIO = 0.8
+_CHARACTER_SCALE_UPPER_RATIO = 1.25
+_CHARACTER_SCALE_MIN = 0.5
+_CHARACTER_SCALE_MAX = 4.0
+_SKELETON_PART_HEIGHT_RATIO_MIN = 0.6
+_SKELETON_PART_HEIGHT_RATIO_MAX = 1.8
+
+
+def _calculate_parts_bbox(parts_info: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    min_x: float | None = None
+    min_y: float | None = None
+    max_x: float | None = None
+    max_y: float | None = None
+
+    for part in parts_info.values():
+        roi = getattr(part, "roi", None)
+        if not isinstance(roi, list | tuple) or len(roi) < 4:
+            continue
+        try:
+            x = float(roi[0])
+            y = float(roi[1])
+            w = float(roi[2])
+            h = float(roi[3])
+        except (TypeError, ValueError):
+            continue
+        if w <= 0.0 or h <= 0.0:
+            continue
+
+        x2 = x + w
+        y2 = y + h
+        min_x = x if min_x is None else min(min_x, x)
+        min_y = y if min_y is None else min(min_y, y)
+        max_x = x2 if max_x is None else max(max_x, x2)
+        max_y = y2 if max_y is None else max(max_y, y2)
+
+    if min_x is None or min_y is None or max_x is None or max_y is None:
+        return None
+    return (min_x, min_y, max_x, max_y)
+
+
+def _extract_joint_position(joint_raw: dict[str, Any]) -> tuple[float, float] | None:
+    for key in ("position", "coordinates", "loc", "scene_position"):
+        value = joint_raw.get(key)
+        if isinstance(value, list | tuple) and len(value) >= 2:
+            try:
+                return (float(value[0]), float(value[1]))
+            except (TypeError, ValueError):
+                continue
+
+    if "x" in joint_raw and "y" in joint_raw:
+        try:
+            return (float(joint_raw["x"]), float(joint_raw["y"]))
+        except (TypeError, ValueError):
+            return None
+
+    return None
+
+
+def _calculate_skeleton_bbox(
+    raw_skeleton_data: list[dict[str, Any]] | None,
+) -> tuple[float, float, float, float] | None:
+    if not raw_skeleton_data:
+        return None
+
+    min_x: float | None = None
+    min_y: float | None = None
+    max_x: float | None = None
+    max_y: float | None = None
+
+    for joint_raw in raw_skeleton_data:
+        if not isinstance(joint_raw, dict):
+            continue
+        joint_pos = _extract_joint_position(joint_raw)
+        if joint_pos is None:
+            continue
+        x, y = joint_pos
+        min_x = x if min_x is None else min(min_x, x)
+        min_y = y if min_y is None else min(min_y, y)
+        max_x = x if max_x is None else max(max_x, x)
+        max_y = y if max_y is None else max(max_y, y)
+
+    if min_x is None or min_y is None or max_x is None or max_y is None:
+        return None
+    return (min_x, min_y, max_x, max_y)
+
+
+def _scale_parts_in_place(
+    parts_info: dict[str, PartInfo],
+    scale_factor: float,
+    center: tuple[float, float],
+) -> None:
+    if abs(scale_factor - 1.0) < 1e-6:
+        return
+
+    cx, cy = center
+    for part in parts_info.values():
+        roi = getattr(part, "roi", None)
+        if isinstance(roi, list | tuple) and len(roi) >= 4:
+            try:
+                x = float(roi[0])
+                y = float(roi[1])
+                w = float(roi[2])
+                h = float(roi[3])
+            except (TypeError, ValueError):
+                continue
+
+            new_x = cx + (x - cx) * scale_factor
+            new_y = cy + (y - cy) * scale_factor
+            new_w = max(1.0, w * scale_factor)
+            new_h = max(1.0, h * scale_factor)
+
+            part.roi = [new_x, new_y, new_w, new_h]
+            part.x = new_x
+            part.y = new_y
+
+        local_pivot_offset = getattr(part, "local_pivot_offset", None)
+        if isinstance(local_pivot_offset, list | tuple) and len(local_pivot_offset) >= 2:
+            try:
+                part.local_pivot_offset = [
+                    float(local_pivot_offset[0]) * scale_factor,
+                    float(local_pivot_offset[1]) * scale_factor,
+                ]
+            except (TypeError, ValueError):
+                pass
+
+        if hasattr(part, "effective_bbox_offset_x"):
+            try:
+                part.effective_bbox_offset_x = float(part.effective_bbox_offset_x) * scale_factor
+            except (TypeError, ValueError):
+                pass
+        if hasattr(part, "effective_bbox_offset_y"):
+            try:
+                part.effective_bbox_offset_y = float(part.effective_bbox_offset_y) * scale_factor
+            except (TypeError, ValueError):
+                pass
+
+
+def _scale_skeleton_raw_in_place(
+    raw_skeleton_data: list[dict[str, Any]],
+    scale_factor: float,
+    center: tuple[float, float],
+) -> None:
+    if abs(scale_factor - 1.0) < 1e-6:
+        return
+
+    cx, cy = center
+    for joint_raw in raw_skeleton_data:
+        if not isinstance(joint_raw, dict):
+            continue
+
+        for key in ("position", "coordinates", "loc", "scene_position"):
+            value = joint_raw.get(key)
+            if not isinstance(value, list | tuple) or len(value) < 2:
+                continue
+            try:
+                x = float(value[0])
+                y = float(value[1])
+            except (TypeError, ValueError):
+                continue
+            joint_raw[key] = [
+                cx + (x - cx) * scale_factor,
+                cy + (y - cy) * scale_factor,
+            ]
+
+        if "x" in joint_raw and "y" in joint_raw:
+            try:
+                x = float(joint_raw["x"])
+                y = float(joint_raw["y"])
+                joint_raw["x"] = cx + (x - cx) * scale_factor
+                joint_raw["y"] = cy + (y - cy) * scale_factor
+            except (TypeError, ValueError):
+                continue
+
+
+def _translate_skeleton_raw_in_place(
+    raw_skeleton_data: list[dict[str, Any]],
+    dx: float,
+    dy: float,
+) -> None:
+    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+        return
+
+    for joint_raw in raw_skeleton_data:
+        if not isinstance(joint_raw, dict):
+            continue
+
+        for key in ("position", "coordinates", "loc", "scene_position"):
+            value = joint_raw.get(key)
+            if not isinstance(value, list | tuple) or len(value) < 2:
+                continue
+            try:
+                x = float(value[0])
+                y = float(value[1])
+            except (TypeError, ValueError):
+                continue
+            joint_raw[key] = [x + dx, y + dy]
+
+        if "x" in joint_raw and "y" in joint_raw:
+            try:
+                joint_raw["x"] = float(joint_raw["x"]) + dx
+                joint_raw["y"] = float(joint_raw["y"]) + dy
+            except (TypeError, ValueError):
+                continue
+
+
+def _align_skeleton_bbox_to_parts_in_place(
+    raw_skeleton_data: list[dict[str, Any]],
+    parts_bbox: tuple[float, float, float, float] | None,
+) -> bool:
+    if not raw_skeleton_data or not parts_bbox:
+        return False
+
+    skeleton_bbox = _calculate_skeleton_bbox(raw_skeleton_data)
+    if not skeleton_bbox:
+        return False
+
+    parts_h = max(0.0, parts_bbox[3] - parts_bbox[1])
+    skeleton_h = max(0.0, skeleton_bbox[3] - skeleton_bbox[1])
+    if parts_h <= 1.0 or skeleton_h <= 1.0:
+        return False
+
+    ratio = skeleton_h / parts_h
+    if _SKELETON_PART_HEIGHT_RATIO_MIN <= ratio <= _SKELETON_PART_HEIGHT_RATIO_MAX:
+        return False
+
+    skeleton_center = (
+        float(skeleton_bbox[0] + skeleton_bbox[2]) * 0.5,
+        float(skeleton_bbox[1] + skeleton_bbox[3]) * 0.5,
+    )
+    parts_center = (
+        float(parts_bbox[0] + parts_bbox[2]) * 0.5,
+        float(parts_bbox[1] + parts_bbox[3]) * 0.5,
+    )
+
+    prealign_scale = parts_h / skeleton_h
+    _scale_skeleton_raw_in_place(raw_skeleton_data, prealign_scale, skeleton_center)
+    _translate_skeleton_raw_in_place(
+        raw_skeleton_data,
+        dx=parts_center[0] - skeleton_center[0],
+        dy=parts_center[1] - skeleton_center[1],
+    )
+    return True
 
 
 class AutomataDesigner(QMainWindow):
@@ -204,6 +448,10 @@ class AutomataDesigner(QMainWindow):
         self.visualization_layer_x_offset = 10.0  # Horizontal offset for visualization layers
         self._grid_system_enabled = True
         self._grid_cell_size_cm = 2.5
+        self._auto_scale_character_to_dummy_next_load = False
+        self._suppress_project_data_cleared_ui_once = False
+        self._character_swap_load_in_progress = False
+        self._dummy_reference_height_px: float | None = None
 
         # Load Parts and Styles
 
@@ -824,6 +1072,12 @@ class AutomataDesigner(QMainWindow):
             except Exception:
                 logging.debug("Suppressed exception while preparing character rebind", exc_info=True)
 
+        # Preserve runtime mechanisms/state while ProjectDataManager clears/reloads
+        # internal project buffers for an in-place character replacement.
+        self._suppress_project_data_cleared_ui_once = True
+        self._character_swap_load_in_progress = True
+        # Image-processing driven character swap should be normalized to dummy-scale baseline.
+        self._auto_scale_character_to_dummy_next_load = True
         success = self.project_data_manager.load_project_from_file(str(parts_info_json_path))
 
         if success:
@@ -835,6 +1089,9 @@ class AutomataDesigner(QMainWindow):
             self._mark_workflow_stage_complete("tab_character_selection")
 
         else:
+            self._suppress_project_data_cleared_ui_once = False
+            self._character_swap_load_in_progress = False
+            self._auto_scale_character_to_dummy_next_load = False
             self.statusBar().showMessage("Failed to load part data. Check logs.", 5000)
             if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
                 try:
@@ -983,6 +1240,117 @@ class AutomataDesigner(QMainWindow):
         # Fallback: legacy character parts JSON.
         self.project_data_manager.load_project_from_file(filepath)
 
+    def _get_dummy_reference_height_px(self) -> float:
+        """Get/calculate reference character height from bundled dummy assets."""
+        if self._dummy_reference_height_px is not None:
+            return self._dummy_reference_height_px
+
+        candidates: list[Path] = [Path.cwd() / "resources" / "presets" / "characters" / "dummy"]
+        module_path = Path(__file__).resolve()
+        for parent_idx in (4, 3):
+            try:
+                candidates.append(
+                    module_path.parents[parent_idx]
+                    / "resources"
+                    / "presets"
+                    / "characters"
+                    / "dummy"
+                )
+            except IndexError:
+                continue
+
+        for dummy_dir in candidates:
+            parts_path = dummy_dir / "parts_info.json"
+            if not parts_path.exists():
+                continue
+            try:
+                with open(parts_path, encoding="utf-8") as f:
+                    payload = json.load(f)
+                parts_payload = payload.get("character", {}).get("parts", {})
+                parts_info_dummy: dict[str, Any] = {}
+                if isinstance(parts_payload, dict):
+                    for part_name, part_dict in parts_payload.items():
+                        if not isinstance(part_dict, dict):
+                            continue
+                        roi = part_dict.get("roi")
+                        parts_info_dummy[str(part_name)] = type(
+                            "_DummyPartInfo",
+                            (),
+                            {"roi": roi},
+                        )()
+                dummy_bbox = _calculate_parts_bbox(parts_info_dummy)
+                if dummy_bbox:
+                    self._dummy_reference_height_px = max(1.0, dummy_bbox[3] - dummy_bbox[1])
+                    return self._dummy_reference_height_px
+            except Exception:
+                logging.debug(
+                    "MainWindow: Failed reading dummy reference parts_info for scale normalization.",
+                    exc_info=True,
+                )
+
+        self._dummy_reference_height_px = _DEFAULT_DUMMY_REFERENCE_HEIGHT_PX
+        return self._dummy_reference_height_px
+
+    def _normalize_character_scale_to_dummy(
+        self,
+        parts_info: dict[str, PartInfo],
+        raw_skeleton_data: list[dict[str, Any]] | None,
+    ) -> tuple[dict[str, PartInfo], list[dict[str, Any]] | None, float]:
+        """Normalize loaded character size to dummy reference if size diverges too much."""
+        if not parts_info:
+            return parts_info, raw_skeleton_data, 1.0
+
+        parts_bbox = _calculate_parts_bbox(parts_info)
+        skeleton_bbox = _calculate_skeleton_bbox(raw_skeleton_data)
+
+        if (
+            parts_bbox
+            and isinstance(raw_skeleton_data, list)
+            and raw_skeleton_data
+            and _align_skeleton_bbox_to_parts_in_place(raw_skeleton_data, parts_bbox)
+        ):
+            skeleton_bbox = _calculate_skeleton_bbox(raw_skeleton_data)
+            logging.info(
+                "MainWindow: Pre-aligned skeleton bbox to parts bbox before dummy-scale normalization."
+            )
+
+        current_height = 0.0
+        if parts_bbox:
+            current_height = max(0.0, parts_bbox[3] - parts_bbox[1])
+        if current_height <= 1.0 and skeleton_bbox:
+            current_height = max(0.0, skeleton_bbox[3] - skeleton_bbox[1])
+
+        if current_height <= 1.0:
+            return parts_info, raw_skeleton_data, 1.0
+
+        target_height = max(1.0, self._get_dummy_reference_height_px())
+        scale_factor = target_height / current_height
+
+        if _CHARACTER_SCALE_LOWER_RATIO <= scale_factor <= _CHARACTER_SCALE_UPPER_RATIO:
+            return parts_info, raw_skeleton_data, 1.0
+
+        scale_factor = max(_CHARACTER_SCALE_MIN, min(_CHARACTER_SCALE_MAX, scale_factor))
+
+        center_bbox = parts_bbox or skeleton_bbox
+        if not center_bbox:
+            return parts_info, raw_skeleton_data, 1.0
+        center = (
+            float(center_bbox[0] + center_bbox[2]) * 0.5,
+            float(center_bbox[1] + center_bbox[3]) * 0.5,
+        )
+
+        _scale_parts_in_place(parts_info, scale_factor, center)
+        if isinstance(raw_skeleton_data, list) and raw_skeleton_data:
+            _scale_skeleton_raw_in_place(raw_skeleton_data, scale_factor, center)
+
+        logging.info(
+            "MainWindow: Normalized character scale to dummy reference (scale=%.3f, current_h=%.1f, target_h=%.1f).",
+            scale_factor,
+            current_height,
+            target_height,
+        )
+        return parts_info, raw_skeleton_data, scale_factor
+
     # REFACTORED: The old content of load_parts is now largely in ProjectDataManager.
     # UI updates and manager notifications will be handled by a slot connected to
     # ProjectDataManager.project_data_loaded.
@@ -995,13 +1363,29 @@ class AutomataDesigner(QMainWindow):
         parts_info: dict[str, PartInfo],  # from ProjectDataManager
     ):
         """Handles the project_data_loaded signal from ProjectDataManager."""
+        character_swap_load = bool(self._character_swap_load_in_progress)
+        self._character_swap_load_in_progress = False
+        self._suppress_project_data_cleared_ui_once = False
         if success:
             logging.info(
                 f"MainWindow: Project data loaded successfully from {project_directory_path}"
             )
+            apply_dummy_scale = bool(self._auto_scale_character_to_dummy_next_load)
+            self._auto_scale_character_to_dummy_next_load = False
+
             self.project_dir = Path(
                 project_directory_path
             )  # Update project_dir in MainWindow, ensure it's Path
+
+            current_skeleton_data_raw = (
+                self.project_data_manager.raw_skeleton_data
+            )  # This is List[Dict]
+
+            scale_factor_applied = 1.0
+            if apply_dummy_scale:
+                parts_info, current_skeleton_data_raw, scale_factor_applied = (
+                    self._normalize_character_scale_to_dummy(parts_info, current_skeleton_data_raw)
+                )
 
             # Clear stale cached skeleton in tabs before applying new parts.
             # This prevents previous dummy skeleton anchors from being reused while new data loads.
@@ -1020,9 +1404,6 @@ class AutomataDesigner(QMainWindow):
             if hasattr(self.ik_manager, "set_project_parts_data"):
                 self.ik_manager.set_project_parts_data(parts_info)
 
-            current_skeleton_data_raw = (
-                self.project_data_manager.raw_skeleton_data
-            )  # This is List[Dict]
             if current_skeleton_data_raw:
                 # SkeletonManager loads from raw, then emits standardized data
                 skeleton_loaded = self.skeleton_manager.load_skeleton_from_project_data(
@@ -1050,6 +1431,19 @@ class AutomataDesigner(QMainWindow):
                             and isinstance(fallback_payload.get("skeleton"), list)
                             and fallback_payload.get("skeleton")
                         ):
+                            if apply_dummy_scale and scale_factor_applied != 1.0:
+                                skeleton_list = fallback_payload.get("skeleton")
+                                fallback_bbox = _calculate_skeleton_bbox(skeleton_list)
+                                if fallback_bbox:
+                                    fallback_center = (
+                                        float(fallback_bbox[0] + fallback_bbox[2]) * 0.5,
+                                        float(fallback_bbox[1] + fallback_bbox[3]) * 0.5,
+                                    )
+                                    _scale_skeleton_raw_in_place(
+                                        skeleton_list,
+                                        scale_factor_applied,
+                                        fallback_center,
+                                    )
                             fallback_loaded = self.skeleton_manager.load_skeleton_from_dict(
                                 fallback_payload,
                                 source_format="animated_drawings",
@@ -1073,7 +1467,12 @@ class AutomataDesigner(QMainWindow):
 
             self.image_proc_tab.on_parts_loaded_in_editor(True)
 
-            self.statusBar().showMessage(f"Project loaded: {project_directory_path}")
+            if apply_dummy_scale and scale_factor_applied != 1.0:
+                self.statusBar().showMessage(
+                    f"Project loaded: {project_directory_path} (scaled {scale_factor_applied:.2f}x to dummy baseline)."
+                )
+            else:
+                self.statusBar().showMessage(f"Project loaded: {project_directory_path}")
             self.action_manager.update_actions_for_project_state(True)
             # Mirror loaded runtime data into SSOT so Save Project captures complete state.
             self._sync_runtime_state_to_ssot(mark_saved=False)
@@ -1092,6 +1491,7 @@ class AutomataDesigner(QMainWindow):
 
         else:
             logging.error(f"MainWindow: Project loading failed from {project_directory_path}")
+            self._auto_scale_character_to_dummy_next_load = False
             if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
                 try:
                     self.mechanism_design_tab.cancel_character_rebind()
@@ -1100,14 +1500,21 @@ class AutomataDesigner(QMainWindow):
                         "Suppressed exception while cancelling character rebind",
                         exc_info=True,
                     )
-            self._clear_ui_for_failed_load()
+            if not character_swap_load:
+                self._clear_ui_for_failed_load()
             QMessageBox.critical(
                 self,
                 "Load Project Error",
                 f"Failed to load project from {project_directory_path}.",
             )
-            self.statusBar().showMessage("Project loading failed.")
-            self.action_manager.update_actions_for_project_state(False)
+            if character_swap_load:
+                self.statusBar().showMessage(
+                    "Character assignment failed. Keeping previous mechanism/character state.",
+                    5000,
+                )
+            else:
+                self.statusBar().showMessage("Project loading failed.")
+                self.action_manager.update_actions_for_project_state(False)
 
     def _clear_ui_for_failed_load(self):
         """Helper to clear relevant UI parts when project loading fails after an attempt."""
@@ -1131,6 +1538,12 @@ class AutomataDesigner(QMainWindow):
     @pyqtSlot()
     def _handle_project_data_cleared(self):
         """Handles the project_data_cleared signal from ProjectDataManager."""
+        if self._suppress_project_data_cleared_ui_once:
+            logging.info(
+                "MainWindow: Suppressing project_data_cleared UI reset for in-place character replacement."
+            )
+            return
+
         logging.info("MainWindow: Handling project data cleared signal.")
         self.editor_tab.clear_editor_content()  # This will also clear EditorTab's _initial_skeleton_data_cache
         self.mechanism_design_tab.clear_mechanism_data()  # Clear mechanism design tab
