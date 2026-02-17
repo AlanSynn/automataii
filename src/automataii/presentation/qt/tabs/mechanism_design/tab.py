@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsLineItem,
+    QInputDialog,
     QMessageBox,
     QWidget,
 )
@@ -255,6 +256,8 @@ class MechanismDesignTab(QWidget):
         self._scene_recently_cleared = False
         self._preserve_mechanisms_on_next_set_parts = False
         self._pending_character_rebind = False
+        self._skeleton_cache_generation = 0
+        self._required_rebind_skeleton_generation: int | None = None
         self._grid_system_enabled = True
         self._grid_cell_cm = 2.5
 
@@ -623,6 +626,16 @@ class MechanismDesignTab(QWidget):
 
     def prepare_character_rebind(self) -> None:
         """Preserve mechanisms during next character load and request rebind."""
+        current_cache = getattr(self, "_initial_skeleton_data_cache", None)
+        has_cached_skeleton = bool(
+            isinstance(current_cache, dict) and current_cache.get("joints")
+        )
+        if has_cached_skeleton:
+            # Wait for the next skeleton cache refresh to avoid rebinding against stale (e.g. dummy) joints.
+            self._required_rebind_skeleton_generation = self._skeleton_cache_generation + 1
+        else:
+            # No skeleton cached yet; allow rebind as soon as parts are ready.
+            self._required_rebind_skeleton_generation = self._skeleton_cache_generation
         self._preserve_mechanisms_on_next_set_parts = True
         self._pending_character_rebind = True
 
@@ -630,6 +643,7 @@ class MechanismDesignTab(QWidget):
         """Clear pending/preserve flags if character load is aborted or fails."""
         self._preserve_mechanisms_on_next_set_parts = False
         self._pending_character_rebind = False
+        self._required_rebind_skeleton_generation = None
 
     def _attempt_pending_character_rebind(self) -> None:
         if not self._pending_character_rebind:
@@ -642,12 +656,22 @@ class MechanismDesignTab(QWidget):
         if not self.parts_data:
             return
 
+        required_generation = self._required_rebind_skeleton_generation
+        if (
+            required_generation is not None
+            and self._skeleton_cache_generation < required_generation
+        ):
+            return
+
         self._map_orphan_mechanisms_to_character()
 
         skeleton_cache = getattr(self, "_initial_skeleton_data_cache", None)
         joints = skeleton_cache.get("joints") if isinstance(skeleton_cache, dict) else None
         has_skeleton_data = isinstance(joints, dict) and bool(joints)
-        if has_skeleton_data:
+        if required_generation is not None and self._skeleton_cache_generation >= required_generation:
+            self._pending_character_rebind = False
+            self._required_rebind_skeleton_generation = None
+        elif has_skeleton_data:
             self._pending_character_rebind = False
 
     def _position_parts_at_anchor_joints(self):
@@ -685,6 +709,7 @@ class MechanismDesignTab(QWidget):
     def cache_initial_skeleton(self, skeleton_data_dict: dict | None):
         self._skeleton_handler.cache_initial_skeleton(skeleton_data_dict)
         self._initial_skeleton_data_cache = self._skeleton_handler.initial_skeleton_data_cache
+        self._skeleton_cache_generation += 1
         self._attempt_pending_character_rebind()
 
     def set_animation_scheduler(self, scheduler) -> None:
@@ -861,12 +886,126 @@ class MechanismDesignTab(QWidget):
             )
             part_name = None
 
-        if not part_name and self.parts_data:
-            part_name = next(iter(self.parts_data.keys()), None)
-            if part_name:
-                self.selected_part_name = part_name
-                logging.info("Auto-selected part: %s", part_name)
+        if part_name:
+            return part_name
+
+        available_parts = [str(name) for name in self.parts_data.keys()]
+        if not available_parts:
+            return None
+
+        part_name = self._prompt_target_part_for_foundry_import(available_parts)
+        if part_name:
+            self.selected_part_name = part_name
+            if getattr(self, "_mvp_presenter", None):
+                try:
+                    self._mvp_presenter.select_part(part_name)
+                except Exception:
+                    logging.debug("Suppressed exception while selecting part in presenter", exc_info=True)
+            if hasattr(self, "_select_part_in_list"):
+                self._select_part_in_list(part_name)
+            logging.info("Selected target part for Foundry import: %s", part_name)
+        else:
+            logging.info("Foundry import canceled: target part selection canceled by user")
         return part_name
+
+    def _prompt_target_part_for_foundry_import(self, available_parts: list[str]) -> str | None:
+        if not available_parts:
+            return None
+        if len(available_parts) == 1:
+            return available_parts[0]
+
+        selected_part, ok = QInputDialog.getItem(
+            self,
+            "Select Target Part",
+            "Assign imported mechanism to part:",
+            available_parts,
+            0,
+            False,
+        )
+        if not ok or not selected_part:
+            return None
+        return str(selected_part)
+
+    def _resolve_joint_scene_position_for_part(self, part_name: str) -> tuple[float, float] | None:
+        part_item = (
+            self.current_editor_items.get(part_name)
+            if isinstance(getattr(self, "current_editor_items", None), dict)
+            else None
+        )
+        if part_item is not None:
+            try:
+                if hasattr(part_item, "mapToScene") and hasattr(part_item, "transformOriginPoint"):
+                    anchor_scene = part_item.mapToScene(part_item.transformOriginPoint())
+                    return (float(anchor_scene.x()), float(anchor_scene.y()))
+                if hasattr(part_item, "sceneBoundingRect"):
+                    rect = part_item.sceneBoundingRect()
+                    center = rect.center()
+                    return (float(center.x()), float(center.y()))
+            except Exception:
+                logging.debug(
+                    "Suppressed exception while resolving part-item scene position for %s",
+                    part_name,
+                    exc_info=True,
+                )
+
+        part_info = self.parts_data.get(part_name) if isinstance(self.parts_data, dict) else None
+        if not part_info:
+            return None
+
+        anchor_joint_id = getattr(part_info, "anchor_joint_id", None)
+        if isinstance(anchor_joint_id, str) and anchor_joint_id:
+            skeleton_cache = getattr(self, "initial_skeleton_cache", None)
+            joints = skeleton_cache.get("joints", {}) if isinstance(skeleton_cache, dict) else {}
+            if isinstance(joints, dict) and joints:
+                joint_data = joints.get(anchor_joint_id)
+                if not joint_data:
+                    for joint_id, candidate in joints.items():
+                        if not isinstance(joint_id, str):
+                            continue
+                        if joint_id.startswith(anchor_joint_id + "_"):
+                            joint_data = candidate
+                            break
+                        if joint_id.startswith(anchor_joint_id) and len(joint_id) > len(anchor_joint_id):
+                            suffix = joint_id[len(anchor_joint_id):]
+                            if suffix and suffix[0].isdigit():
+                                joint_data = candidate
+                                break
+
+                if isinstance(joint_data, dict):
+                    raw_position = joint_data.get("position") or joint_data.get("scene_position")
+                    if (
+                        isinstance(raw_position, list | tuple)
+                        and len(raw_position) >= 2
+                    ):
+                        try:
+                            return (float(raw_position[0]), float(raw_position[1]))
+                        except (TypeError, ValueError):
+                            pass
+
+        roi = getattr(part_info, "roi", None)
+        if isinstance(roi, list | tuple) and len(roi) >= 4:
+            try:
+                return (
+                    float(roi[0]) + (float(roi[2]) * 0.5),
+                    float(roi[1]) + (float(roi[3]) * 0.5),
+                )
+            except (TypeError, ValueError):
+                return None
+
+        return None
+
+    def _resolve_foundry_import_scene_position(self, part_name: str) -> tuple[float, float]:
+        anchor_scene_position = self._resolve_joint_scene_position_for_part(part_name)
+        if anchor_scene_position is not None:
+            return anchor_scene_position
+
+        scene_position = (400.0, 300.0)
+        if self.mechanism_view:
+            view_center = self.mechanism_view.mapToScene(
+                self.mechanism_view.viewport().rect().center()
+            )
+            scene_position = (view_center.x(), view_center.y())
+        return scene_position
 
     def load_character_from_directory(self, char_dir: Path) -> bool:
         """Load a character from a directory containing parts_info.json.
@@ -904,8 +1043,6 @@ class MechanismDesignTab(QWidget):
             )
 
             if success:
-                # Map orphan mechanisms to newly loaded character
-                self._map_orphan_mechanisms_to_character()
                 logging.info(f"Loaded character from {char_dir}")
             else:
                 self.cancel_character_rebind()
@@ -1023,22 +1160,25 @@ class MechanismDesignTab(QWidget):
                 part_info = PartInfo.from_pydantic(model, project_dir=Path.cwd())
                 parts_data[part_name] = part_info
 
-            # 5. Cache skeleton for IK and positioning
+            # 5. Preserve mechanisms and request rebind before skeleton/parts update.
+            # Order matters: this ensures rebind waits for the new skeleton generation.
+            self.prepare_character_rebind()
+
+            # 6. Cache skeleton for IK and positioning
             if skeleton_dict:
                 self.cache_initial_skeleton(skeleton_dict)
 
-            # 6. Set parts data (without clearing existing mechanisms)
-            self.prepare_character_rebind()
+            # 7. Set parts data (without clearing existing mechanisms)
             self.set_parts_data(parts_data, clear_mechanisms=False)
 
-            # 7. Ensure skeleton visualization is displayed
+            # 8. Ensure skeleton visualization is displayed
             if hasattr(self, '_skeleton_handler') and self._skeleton_handler:
                 self._skeleton_handler.ensure_skeleton_visualization(skeleton_dict)
 
-            # 8. Map orphan mechanisms (created without character) to the new parts
+            # 9. Map orphan mechanisms (created without character) to the new parts
             self._map_orphan_mechanisms_to_character()
 
-            # 9. Center view on the character
+            # 10. Center view on the character
             self.center_on_character()
 
             logging.info(f"Applied preset '{preset.name}' with {len(parts_data)} parts")
@@ -1815,6 +1955,7 @@ class MechanismDesignTab(QWidget):
         logging.info(f"Importing mechanism from Foundry: {mechanism_type} (id={mechanism_id})")
 
         import_params = dict(parameters)
+        foundry_snapshot = import_params.pop("__foundry_snapshot__", None)
         grid_settings = MechanismDesignTab._extract_grid_settings_from_foundry_parameters(
             self,
             import_params,
@@ -1845,13 +1986,8 @@ class MechanismDesignTab(QWidget):
                 )
             return False
 
-        # Get scene position - use view center or character center
-        scene_position = (400.0, 300.0)
-        if self.mechanism_view:
-            view_center = self.mechanism_view.mapToScene(
-                self.mechanism_view.viewport().rect().center()
-            )
-            scene_position = (view_center.x(), view_center.y())
+        # Place mechanism near the selected part (fallback: current view center).
+        scene_position = self._resolve_foundry_import_scene_position(part_name)
 
         # Create layer data from Foundry export
         layer_data = self._mechanism_instantiation.create_layer_data_from_foundry(
@@ -1860,6 +1996,7 @@ class MechanismDesignTab(QWidget):
             pivot_point=pivot_point,
             part_name=part_name,
             scene_position=scene_position,
+            foundry_snapshot=foundry_snapshot if isinstance(foundry_snapshot, dict) else None,
         )
 
         if not layer_data:
@@ -1925,6 +2062,7 @@ class MechanismDesignTab(QWidget):
             return
 
         update_params = dict(parameters)
+        update_params.pop("__foundry_snapshot__", None)
         grid_settings = MechanismDesignTab._extract_grid_settings_from_foundry_parameters(
             self,
             update_params,

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import yaml
 from PyQt6.QtCore import (
     QPointF,
     Qt,
@@ -352,10 +353,8 @@ class AutomataDesigner(QMainWindow):
         self.image_proc_tab.skeleton_updated.connect(self.handle_skeleton_updated_from_tab)
         self.image_proc_tab.request_editor_tab_switch.connect(self.switch_to_editor_tab)
 
-        # Connect character preset loading (ImageProcessing -> MechanismDesign)
-        self.image_proc_tab.character_preset_loaded.connect(
-            self.mechanism_design_tab.apply_character_preset
-        )
+        # Character assignment from ImageProcessing is image-driven.
+        # (Legacy preset signal remains available for backward compatibility.)
 
         # --- Connect Signals from EditorTab ---
         self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation)
@@ -1004,6 +1003,13 @@ class AutomataDesigner(QMainWindow):
                 project_directory_path
             )  # Update project_dir in MainWindow, ensure it's Path
 
+            # Clear stale cached skeleton in tabs before applying new parts.
+            # This prevents previous dummy skeleton anchors from being reused while new data loads.
+            if hasattr(self.editor_tab, "cache_initial_skeleton"):
+                self.editor_tab.cache_initial_skeleton(None)
+            if hasattr(self.mechanism_design_tab, "cache_initial_skeleton"):
+                self.mechanism_design_tab.cache_initial_skeleton(None)
+
             # Pass PartInfo data to EditorTab. It no longer needs texture_atlas_pixmap.
             self.editor_tab.set_parts_data(parts_info)
 
@@ -1019,17 +1025,51 @@ class AutomataDesigner(QMainWindow):
             )  # This is List[Dict]
             if current_skeleton_data_raw:
                 # SkeletonManager loads from raw, then emits standardized data
-                self.skeleton_manager.load_skeleton_from_project_data(
+                skeleton_loaded = self.skeleton_manager.load_skeleton_from_project_data(
                     current_skeleton_data_raw, parts_info
                 )
+                if not skeleton_loaded:
+                    logging.warning(
+                        "MainWindow: Skeleton load failed for project %s; clearing stale skeleton state.",
+                        project_directory_path,
+                    )
+                    self.skeleton_manager.clear_data()
                 # The actual caching in EditorTab happens when skeleton_manager.skeleton_updated is emitted
                 # and handled by _on_skeleton_manager_updated, which then calls editor_tab.cache_initial_skeleton.
             else:
-                self.skeleton_manager.clear_data()  # Will emit skeleton_updated(None)
-                if hasattr(self.editor_tab, "cache_initial_skeleton"):
-                    self.editor_tab.cache_initial_skeleton(
-                        None
-                    )  # Ensure cache is cleared if no skeleton
+                # Fallback: if parts load succeeded but skeleton list was omitted, try char_cfg.yaml
+                # in the same directory before clearing skeleton state.
+                fallback_loaded = False
+                fallback_char_cfg = Path(project_directory_path) / "char_cfg.yaml"
+                if fallback_char_cfg.exists():
+                    try:
+                        with open(fallback_char_cfg, encoding="utf-8") as f:
+                            fallback_payload = yaml.safe_load(f)
+                        if (
+                            isinstance(fallback_payload, dict)
+                            and isinstance(fallback_payload.get("skeleton"), list)
+                            and fallback_payload.get("skeleton")
+                        ):
+                            fallback_loaded = self.skeleton_manager.load_skeleton_from_dict(
+                                fallback_payload,
+                                source_format="animated_drawings",
+                            )
+                            if fallback_loaded:
+                                logging.info(
+                                    "MainWindow: Loaded skeleton from fallback char_cfg.yaml at %s",
+                                    fallback_char_cfg,
+                                )
+                    except Exception:
+                        logging.exception(
+                            "MainWindow: Failed to load fallback char_cfg.yaml for skeleton"
+                        )
+
+                if not fallback_loaded:
+                    self.skeleton_manager.clear_data()  # Will emit skeleton_updated(None)
+                    if hasattr(self.editor_tab, "cache_initial_skeleton"):
+                        self.editor_tab.cache_initial_skeleton(
+                            None
+                        )  # Ensure cache is cleared if no skeleton
 
             self.image_proc_tab.on_parts_loaded_in_editor(True)
 

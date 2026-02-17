@@ -185,3 +185,30 @@ class TestAutoCharacterAssignment:
 
         assert result is False
         tab.cancel_character_rebind.assert_called()
+
+    def test_pending_rebind_waits_for_new_skeleton_generation(self, tab):
+        """Rebind should not run against stale cached skeleton while character replacement is in progress."""
+        tab.parts_data = {"torso": MagicMock(anchor_joint_id="torso")}
+        tab.mechanism_layers = {
+            "mech_1": {
+                "id": "mech_1",
+                "type": "4_bar_linkage",
+                "part_name": None,
+                "params": {},
+                "key_points": {},
+            }
+        }
+        tab._initial_skeleton_data_cache = {"joints": {"root": {"position": [10.0, 10.0]}}}
+        tab._skeleton_cache_generation = 5
+        tab._map_orphan_mechanisms_to_character = MagicMock()
+
+        tab.prepare_character_rebind()
+        tab._attempt_pending_character_rebind()
+
+        tab._map_orphan_mechanisms_to_character.assert_not_called()
+        assert tab._pending_character_rebind is True
+
+        tab.cache_initial_skeleton({"joints": {"root": {"position": [100.0, 200.0]}}})
+
+        tab._map_orphan_mechanisms_to_character.assert_called_once()
+        assert tab._pending_character_rebind is False
