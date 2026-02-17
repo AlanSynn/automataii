@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
 import yaml
 from PyQt6.QtCore import (
     QPointF,
@@ -102,6 +104,8 @@ _CHARACTER_SCALE_MIN = 0.5
 _CHARACTER_SCALE_MAX = 4.0
 _SKELETON_PART_HEIGHT_RATIO_MIN = 0.6
 _SKELETON_PART_HEIGHT_RATIO_MAX = 1.8
+_PART_TO_SKELETON_MIN_RATIO = 0.9
+_PART_TO_SKELETON_MAX_SCALE = 4.0
 
 
 def _calculate_parts_bbox(parts_info: dict[str, Any]) -> tuple[float, float, float, float] | None:
@@ -128,6 +132,76 @@ def _calculate_parts_bbox(parts_info: dict[str, Any]) -> tuple[float, float, flo
         y2 = y + h
         min_x = x if min_x is None else min(min_x, x)
         min_y = y if min_y is None else min(min_y, y)
+        max_x = x2 if max_x is None else max(max_x, x2)
+        max_y = y2 if max_y is None else max(max_y, y2)
+
+    if min_x is None or min_y is None or max_x is None or max_y is None:
+        return None
+    return (min_x, min_y, max_x, max_y)
+
+
+def _calculate_visible_parts_bbox(parts_info: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    """
+    Calculate bbox from actually visible part pixels (alpha/content), not ROI rectangles.
+
+    This is more robust than raw ROI when extraction includes generous padding.
+    """
+    min_x: float | None = None
+    min_y: float | None = None
+    max_x: float | None = None
+    max_y: float | None = None
+
+    for part in parts_info.values():
+        roi = getattr(part, "roi", None)
+        image_path = getattr(part, "image_path", None)
+        if not isinstance(roi, list | tuple) or len(roi) < 4:
+            continue
+        if not image_path:
+            continue
+
+        try:
+            roi_x = float(roi[0])
+            roi_y = float(roi[1])
+            roi_w = float(roi[2])
+            roi_h = float(roi[3])
+        except (TypeError, ValueError):
+            continue
+        if roi_w <= 0.0 or roi_h <= 0.0:
+            continue
+
+        try:
+            img = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+        except Exception:
+            img = None
+        if img is None or img.size == 0:
+            continue
+
+        if img.ndim == 2:
+            visible = img > 0
+        elif img.shape[2] == 4:
+            # Prefer alpha for extracted part textures.
+            visible = img[:, :, 3] > 8
+        else:
+            # Fallback for non-alpha images.
+            visible = np.any(img > 8, axis=2)
+
+        ys, xs = np.where(visible)
+        if xs.size == 0 or ys.size == 0:
+            continue
+
+        img_h, img_w = img.shape[:2]
+        if img_w <= 0 or img_h <= 0:
+            continue
+        sx = roi_w / float(img_w)
+        sy = roi_h / float(img_h)
+
+        x1 = roi_x + (float(xs.min()) * sx)
+        y1 = roi_y + (float(ys.min()) * sy)
+        x2 = roi_x + ((float(xs.max()) + 1.0) * sx)
+        y2 = roi_y + ((float(ys.max()) + 1.0) * sy)
+
+        min_x = x1 if min_x is None else min(min_x, x1)
+        min_y = y1 if min_y is None else min(min_y, y1)
         max_x = x2 if max_x is None else max(max_x, x2)
         max_y = y2 if max_y is None else max(max_y, y2)
 
@@ -233,6 +307,84 @@ def _scale_parts_in_place(
                 pass
 
 
+def _translate_parts_in_place(
+    parts_info: dict[str, PartInfo],
+    dx: float,
+    dy: float,
+) -> None:
+    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+        return
+
+    for part in parts_info.values():
+        roi = getattr(part, "roi", None)
+        if isinstance(roi, list | tuple) and len(roi) >= 4:
+            try:
+                x = float(roi[0]) + dx
+                y = float(roi[1]) + dy
+                w = float(roi[2])
+                h = float(roi[3])
+            except (TypeError, ValueError):
+                continue
+            part.roi = [x, y, w, h]
+            part.x = x
+            part.y = y
+
+
+def _align_parts_bbox_to_skeleton_in_place(
+    parts_info: dict[str, PartInfo],
+    raw_skeleton_data: list[dict[str, Any]] | None,
+) -> bool:
+    """
+    Upscale/recenter parts when they are noticeably smaller than the loaded skeleton.
+
+    This guards cases where segmentation output is valid but too tight compared to
+    skeleton coordinates, causing visual "tiny parts vs large skeleton" mismatch.
+    """
+    if not parts_info or not raw_skeleton_data:
+        return False
+
+    parts_bbox = _calculate_visible_parts_bbox(parts_info) or _calculate_parts_bbox(parts_info)
+    skeleton_bbox = _calculate_skeleton_bbox(raw_skeleton_data)
+    if not parts_bbox or not skeleton_bbox:
+        return False
+
+    parts_h = max(0.0, parts_bbox[3] - parts_bbox[1])
+    skeleton_h = max(0.0, skeleton_bbox[3] - skeleton_bbox[1])
+    if parts_h <= 1.0 or skeleton_h <= 1.0:
+        return False
+
+    part_to_skeleton_ratio = parts_h / skeleton_h
+    if part_to_skeleton_ratio >= _PART_TO_SKELETON_MIN_RATIO:
+        return False
+
+    scale_factor = skeleton_h / parts_h
+    scale_factor = max(1.0, min(_PART_TO_SKELETON_MAX_SCALE, scale_factor))
+    parts_center = (
+        float(parts_bbox[0] + parts_bbox[2]) * 0.5,
+        float(parts_bbox[1] + parts_bbox[3]) * 0.5,
+    )
+    skeleton_center = (
+        float(skeleton_bbox[0] + skeleton_bbox[2]) * 0.5,
+        float(skeleton_bbox[1] + skeleton_bbox[3]) * 0.5,
+    )
+
+    _scale_parts_in_place(parts_info, scale_factor, parts_center)
+    updated_parts_bbox = _calculate_parts_bbox(parts_info)
+    if not updated_parts_bbox:
+        return True
+
+    updated_parts_center = (
+        float(updated_parts_bbox[0] + updated_parts_bbox[2]) * 0.5,
+        float(updated_parts_bbox[1] + updated_parts_bbox[3]) * 0.5,
+    )
+    _translate_parts_in_place(
+        parts_info,
+        dx=skeleton_center[0] - updated_parts_center[0],
+        dy=skeleton_center[1] - updated_parts_center[1],
+    )
+    return True
+
+
 def _scale_skeleton_raw_in_place(
     raw_skeleton_data: list[dict[str, Any]],
     scale_factor: float,
@@ -304,6 +456,8 @@ def _translate_skeleton_raw_in_place(
 def _align_skeleton_bbox_to_parts_in_place(
     raw_skeleton_data: list[dict[str, Any]],
     parts_bbox: tuple[float, float, float, float] | None,
+    *,
+    force: bool = False,
 ) -> bool:
     if not raw_skeleton_data or not parts_bbox:
         return False
@@ -318,7 +472,7 @@ def _align_skeleton_bbox_to_parts_in_place(
         return False
 
     ratio = skeleton_h / parts_h
-    if _SKELETON_PART_HEIGHT_RATIO_MIN <= ratio <= _SKELETON_PART_HEIGHT_RATIO_MAX:
+    if not force and _SKELETON_PART_HEIGHT_RATIO_MIN <= ratio <= _SKELETON_PART_HEIGHT_RATIO_MAX:
         return False
 
     skeleton_center = (
@@ -451,6 +605,8 @@ class AutomataDesigner(QMainWindow):
         self._auto_scale_character_to_dummy_next_load = False
         self._suppress_project_data_cleared_ui_once = False
         self._character_swap_load_in_progress = False
+        self._runtime_to_ssot_sync_in_progress = False
+        self._force_skeleton_parts_alignment_next_load = False
         self._dummy_reference_height_px: float | None = None
 
         # Load Parts and Styles
@@ -1017,10 +1173,15 @@ class AutomataDesigner(QMainWindow):
             try:
                 import shutil
 
-                shutil.copy2(source_char_cfg_path, dest_char_cfg_path)
-                logging.info(
-                    f"Copied {source_char_cfg_path} to {dest_char_cfg_path} for ProjectDataManager."
-                )
+                if source_char_cfg_path.resolve() != dest_char_cfg_path.resolve():
+                    shutil.copy2(source_char_cfg_path, dest_char_cfg_path)
+                    logging.info(
+                        f"Copied {source_char_cfg_path} to {dest_char_cfg_path} for ProjectDataManager."
+                    )
+                else:
+                    logging.info(
+                        "Source char_cfg.yaml already in target directory, skipping copy."
+                    )
 
                 # texture.png is no longer copied as it's not used as an atlas.
                 # Individual part PNGs/SVGs are expected in final_bpe_char_dir_str.
@@ -1030,8 +1191,11 @@ class AutomataDesigner(QMainWindow):
                     source_mask_path = Path(source_mask_path_str)
                     dest_mask_path = Path(final_bpe_char_dir_str) / "mask.png"
                     if source_mask_path.exists():
-                        shutil.copy2(source_mask_path, dest_mask_path)
-                        logging.info(f"Copied {source_mask_path} to {dest_mask_path}.")
+                        if source_mask_path.resolve() != dest_mask_path.resolve():
+                            shutil.copy2(source_mask_path, dest_mask_path)
+                            logging.info(f"Copied {source_mask_path} to {dest_mask_path}.")
+                        else:
+                            logging.info("Source mask.png already in target directory, skipping copy.")
                     else:
                         logging.warning(
                             f"Source mask.png not found at {source_mask_path}, cannot copy."
@@ -1066,18 +1230,48 @@ class AutomataDesigner(QMainWindow):
             f"Attempting to load project data from parts_info.json: {parts_info_json_path}"
         )
 
+        # Replacement context is only when user is replacing an active dummy-based
+        # mechanism session. Plain "Load Image" should not preserve/rebind/scale-to-dummy.
+        is_dummy_replacement_session = False
+        image_proc_tab = getattr(self, "image_proc_tab", None)
+        if (
+            image_proc_tab is not None
+            and hasattr(image_proc_tab, "_is_dummy_mechanism_design_session")
+        ):
+            try:
+                is_dummy_replacement_session = bool(
+                    image_proc_tab._is_dummy_mechanism_design_session()
+                )
+            except Exception:
+                logging.debug(
+                    "MainWindow: Failed to evaluate dummy replacement session flag.",
+                    exc_info=True,
+                )
+
         if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
             try:
-                self.mechanism_design_tab.prepare_character_rebind()
+                if is_dummy_replacement_session:
+                    self.mechanism_design_tab.prepare_character_rebind()
+                else:
+                    self.mechanism_design_tab.cancel_character_rebind()
             except Exception:
-                logging.debug("Suppressed exception while preparing character rebind", exc_info=True)
+                logging.debug(
+                    "Suppressed exception while updating character rebind state",
+                    exc_info=True,
+                )
 
-        # Preserve runtime mechanisms/state while ProjectDataManager clears/reloads
-        # internal project buffers for an in-place character replacement.
-        self._suppress_project_data_cleared_ui_once = True
-        self._character_swap_load_in_progress = True
-        # Image-processing driven character swap should be normalized to dummy-scale baseline.
-        self._auto_scale_character_to_dummy_next_load = True
+        # Preserve runtime mechanisms/state only for dummy replacement.
+        self._suppress_project_data_cleared_ui_once = is_dummy_replacement_session
+        self._character_swap_load_in_progress = is_dummy_replacement_session
+        self._auto_scale_character_to_dummy_next_load = is_dummy_replacement_session
+        self._force_skeleton_parts_alignment_next_load = True
+        logging.info(
+            "MainWindow: parts_generated context resolved (dummy_replacement=%s, preserve_ui=%s, scale_to_dummy=%s, force_skel_align=%s)",
+            is_dummy_replacement_session,
+            self._suppress_project_data_cleared_ui_once,
+            self._auto_scale_character_to_dummy_next_load,
+            self._force_skeleton_parts_alignment_next_load,
+        )
         success = self.project_data_manager.load_project_from_file(str(parts_info_json_path))
 
         if success:
@@ -1092,6 +1286,7 @@ class AutomataDesigner(QMainWindow):
             self._suppress_project_data_cleared_ui_once = False
             self._character_swap_load_in_progress = False
             self._auto_scale_character_to_dummy_next_load = False
+            self._force_skeleton_parts_alignment_next_load = False
             self.statusBar().showMessage("Failed to load part data. Check logs.", 5000)
             if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
                 try:
@@ -1372,6 +1567,10 @@ class AutomataDesigner(QMainWindow):
             )
             apply_dummy_scale = bool(self._auto_scale_character_to_dummy_next_load)
             self._auto_scale_character_to_dummy_next_load = False
+            force_skeleton_align = bool(
+                self.__dict__.get("_force_skeleton_parts_alignment_next_load", False)
+            )
+            self.__dict__["_force_skeleton_parts_alignment_next_load"] = False
 
             self.project_dir = Path(
                 project_directory_path
@@ -1385,6 +1584,38 @@ class AutomataDesigner(QMainWindow):
             if apply_dummy_scale:
                 parts_info, current_skeleton_data_raw, scale_factor_applied = (
                     self._normalize_character_scale_to_dummy(parts_info, current_skeleton_data_raw)
+                )
+
+            parts_upscaled_to_skeleton = False
+            if (
+                isinstance(current_skeleton_data_raw, list)
+                and current_skeleton_data_raw
+                and _align_parts_bbox_to_skeleton_in_place(
+                    parts_info, current_skeleton_data_raw
+                )
+            ):
+                parts_upscaled_to_skeleton = True
+                logging.info(
+                    "MainWindow: Upscaled/recentered parts to match skeleton bbox for load consistency."
+                )
+
+            # Safety reconcile for severe skeleton/parts mismatches on normal Load Image flow.
+            # If parts were already upscaled to skeleton, keep skeleton as-is and skip this branch.
+            parts_bbox = _calculate_visible_parts_bbox(parts_info) or _calculate_parts_bbox(parts_info)
+            if (
+                (force_skeleton_align or not parts_upscaled_to_skeleton)
+                and parts_bbox
+                and isinstance(current_skeleton_data_raw, list)
+                and current_skeleton_data_raw
+                and _align_skeleton_bbox_to_parts_in_place(
+                    current_skeleton_data_raw,
+                    parts_bbox,
+                    force=force_skeleton_align,
+                )
+            ):
+                logging.info(
+                    "MainWindow: Reconciled skeleton/parts bbox before scene load (force=%s).",
+                    force_skeleton_align,
                 )
 
             # Clear stale cached skeleton in tabs before applying new parts.
@@ -1492,6 +1723,7 @@ class AutomataDesigner(QMainWindow):
         else:
             logging.error(f"MainWindow: Project loading failed from {project_directory_path}")
             self._auto_scale_character_to_dummy_next_load = False
+            self._force_skeleton_parts_alignment_next_load = False
             if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
                 try:
                     self.mechanism_design_tab.cancel_character_rebind()
@@ -1569,6 +1801,7 @@ class AutomataDesigner(QMainWindow):
         the serializer captures the latest UI state and generated outcomes.
         """
         try:
+            self._runtime_to_ssot_sync_in_progress = True
             parts = self._collect_parts_for_state()
             skeleton = self._collect_skeleton_for_state()
             paths = self._collect_paths_for_state()
@@ -1607,12 +1840,16 @@ class AutomataDesigner(QMainWindow):
             self.action_manager.update_actions_for_project_state(has_project_content)
         except Exception:
             logging.exception("Failed to sync runtime state to SSOT snapshot")
+        finally:
+            self._runtime_to_ssot_sync_in_progress = False
 
     def _collect_parts_for_state(self) -> dict[str, PartData]:
         """Collect parts from runtime tabs/managers into immutable PartData models."""
-        source_parts = self.project_data_manager.get_current_parts_data() or {}
-        if not source_parts and hasattr(self, "editor_tab") and self.editor_tab:
+        source_parts: dict[str, Any] = {}
+        if hasattr(self, "editor_tab") and self.editor_tab:
             source_parts = getattr(self.editor_tab, "current_parts_info", {}) or {}
+        if not source_parts:
+            source_parts = self.project_data_manager.get_current_parts_data() or {}
 
         project_dir = self.project_data_manager.project_dir
         parts: dict[str, PartData] = {}
@@ -2242,7 +2479,9 @@ class AutomataDesigner(QMainWindow):
         # Create and attach ImageProcessingTab adapter
         if hasattr(self, "image_proc_tab") and self.image_proc_tab:
             self._image_proc_adapter = ImageProcessingTabAdapter(
-                self.project_state_manager, parent=self
+                self.project_state_manager,
+                parent=self,
+                prefer_main_window_pipeline=True,
             )
             self._image_proc_adapter.attach(self.image_proc_tab)
             logging.debug("ImageProcessingTab adapter attached")

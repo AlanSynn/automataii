@@ -107,3 +107,10 @@ class TabAdapter(QObject, metaclass=QObjectABCMeta):
     def _unsubscribe_from_state(self) -> None:
         """Unsubscribe from state manager. Override if needed."""
         pass
+
+    def _is_runtime_to_ssot_sync_in_progress(self) -> bool:
+        """Return True when MainWindow is mirroring runtime state into SSOT."""
+        parent = self.parent()
+        if parent is None:
+            return False
+        return bool(getattr(parent, "_runtime_to_ssot_sync_in_progress", False))

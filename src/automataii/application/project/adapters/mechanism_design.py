@@ -154,6 +154,11 @@ class MechanismDesignTabAdapter(TabAdapter):
         """
         if not self._tab:
             return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug(
+                "MechanismDesignTabAdapter: Suppressing parts sync during runtime->SSOT mirror"
+            )
+            return
 
         logger.info(f"MechanismDesignTabAdapter: Forwarding {len(parts)} parts to tab")
 
@@ -176,6 +181,11 @@ class MechanismDesignTabAdapter(TabAdapter):
         """
         if not self._tab:
             return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug(
+                "MechanismDesignTabAdapter: Suppressing skeleton sync during runtime->SSOT mirror"
+            )
+            return
 
         # Convert to dict format
         skeleton_dict = skeleton.to_dict() if skeleton else None
@@ -195,6 +205,11 @@ class MechanismDesignTabAdapter(TabAdapter):
         Converts PathData to QPainterPath and forwards to tab.
         """
         if not self._tab:
+            return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug(
+                "MechanismDesignTabAdapter: Suppressing path sync during runtime->SSOT mirror"
+            )
             return
 
         logger.info(f"MechanismDesignTabAdapter: Forwarding {len(paths)} paths to tab")
@@ -226,6 +241,11 @@ class MechanismDesignTabAdapter(TabAdapter):
         3. Updating existing mechanisms with changed params
         """
         if not self._tab:
+            return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug(
+                "MechanismDesignTabAdapter: Suppressing mechanism sync during runtime->SSOT mirror"
+            )
             return
 
         logger.info(f"MechanismDesignTabAdapter: Syncing {len(mechanisms)} mechanisms from state")

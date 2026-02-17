@@ -5,6 +5,7 @@ Based on our successful test_onnx_inference.py implementation
 """
 
 import logging
+import math
 import sys
 from pathlib import Path
 from typing import TypedDict
@@ -246,6 +247,48 @@ class ONNXImageProcessor:
 
 def segment(img: np.ndarray) -> np.ndarray:
     """Robust segmentation for both photos and line art"""
+    def _to_binary(mask: np.ndarray) -> np.ndarray:
+        return (mask > 0).astype(np.uint8) * 255
+
+    def _keep_significant_components(
+        mask: np.ndarray,
+        *,
+        min_pixels: int = 64,
+        min_total_ratio: float = 0.003,
+        min_largest_ratio: float = 0.01,
+    ) -> np.ndarray:
+        """Keep all meaningful connected components instead of only the largest one."""
+        binary = _to_binary(mask)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        if num_labels <= 2:
+            return binary
+
+        component_areas = stats[1:, cv2.CC_STAT_AREA]
+        if component_areas.size == 0:
+            return binary
+
+        largest_area = int(component_areas.max())
+        total_foreground = int(component_areas.sum())
+        area_threshold = max(
+            min_pixels,
+            int(total_foreground * min_total_ratio),
+            int(largest_area * min_largest_ratio),
+        )
+
+        kept = np.zeros_like(binary)
+        kept_any = False
+        for label_id in range(1, num_labels):
+            area = int(stats[label_id, cv2.CC_STAT_AREA])
+            if area >= area_threshold:
+                kept[labels == label_id] = 255
+                kept_any = True
+
+        if not kept_any:
+            largest_label = int(np.argmax(component_areas)) + 1
+            kept[labels == largest_label] = 255
+
+        return kept
+
     # Check if image has alpha channel
     has_alpha = img.shape[2] == 4 if len(img.shape) == 3 else False
 
@@ -265,13 +308,7 @@ def segment(img: np.ndarray) -> np.ndarray:
             # Fill holes
             mask_filled = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
 
-            # Use largest component
-            contours, _ = cv2.findContours(mask_filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                largest = max(contours, key=cv2.contourArea)
-                mask = np.zeros_like(mask)
-                cv2.drawContours(mask, [largest], -1, 255, -1)
-                return mask
+            return _keep_significant_components(mask_filled)
 
     # Fallback to content-based segmentation
     if len(img.shape) == 3:
@@ -294,42 +331,8 @@ def segment(img: np.ndarray) -> np.ndarray:
         # Use morphology to connect broken lines
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
-
-        # Find all contours (both external and internal)
-        contours, hierarchy = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-        if contours:
-            # Create a mask with all contours filled
-            mask = np.zeros((h, w), dtype=np.uint8)
-
-            # Find the bounding contour (outermost shape)
-            # This is typically the character outline
-            areas = [cv2.contourArea(c) for c in contours]
-            if areas:
-                # Get contours sorted by area
-                sorted_indices = np.argsort(areas)[::-1]
-
-                # Take the largest contour that's not the entire image
-                image_area = h * w
-                for idx in sorted_indices:
-                    area = areas[idx]
-                    if area < image_area * 0.9:  # Not the entire image
-                        # Draw this contour and fill it
-                        cv2.drawContours(mask, [contours[idx]], -1, 255, -1)
-
-                        # Also fill any child contours (holes inside)
-                        if hierarchy is not None:
-                            # Fill all children
-                            child_idx = hierarchy[0][idx][2]  # First child
-                            while child_idx != -1:
-                                cv2.drawContours(mask, [contours[child_idx]], -1, 255, -1)
-                                child_idx = hierarchy[0][child_idx][0]  # Next sibling
-                        break
-
-            # Fill any remaining holes
-            mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
-
-            return mask
+        mask = ndimage.binary_fill_holes(binary > 0).astype(np.uint8) * 255
+        return _keep_significant_components(mask)
     else:
         # Photo or dark background - use adaptive threshold
         binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 115, 8)
@@ -362,15 +365,137 @@ def segment(img: np.ndarray) -> np.ndarray:
         mask = np.ones((h, w), dtype=np.uint8) * 255
         return mask
 
-    # Get the largest contour
-    largest_contour = max(contours, key=cv2.contourArea)
-    mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.drawContours(mask, [largest_contour], -1, 255, -1)
-
-    # Fill holes
+    mask = _keep_significant_components(im_floodfill)
     mask = ndimage.binary_fill_holes(mask > 0).astype(np.uint8) * 255
 
     return mask
+
+
+def _compute_mask_bbox(mask: np.ndarray) -> tuple[float, float, float, float] | None:
+    ys, xs = np.where(mask > 0)
+    if xs.size == 0 or ys.size == 0:
+        return None
+    return (
+        float(xs.min()),
+        float(ys.min()),
+        float(xs.max()),
+        float(ys.max()),
+    )
+
+
+def _compute_skeleton_bbox(skeleton: list[dict]) -> tuple[float, float, float, float] | None:
+    points: list[tuple[float, float]] = []
+    for joint in skeleton:
+        loc = joint.get("loc")
+        if isinstance(loc, list | tuple) and len(loc) >= 2:
+            try:
+                points.append((float(loc[0]), float(loc[1])))
+            except (TypeError, ValueError):
+                continue
+    if not points:
+        return None
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _reconcile_skeleton_to_mask(
+    skeleton: list[dict],
+    mask: np.ndarray,
+) -> list[dict]:
+    """
+    Refit skeleton to segmentation silhouette when keypoints are badly mismatched.
+
+    This guards cartoon/mascot images where pose estimation can produce oversized
+    human-like skeletons, which then fragment part extraction.
+    """
+    if not skeleton:
+        return skeleton
+
+    mask_bbox = _compute_mask_bbox(mask)
+    skeleton_bbox = _compute_skeleton_bbox(skeleton)
+    if mask_bbox is None or skeleton_bbox is None:
+        return skeleton
+
+    mx1, my1, mx2, my2 = mask_bbox
+    sx1, sy1, sx2, sy2 = skeleton_bbox
+    mw = max(1.0, mx2 - mx1)
+    mh = max(1.0, my2 - my1)
+    sw = max(1.0, sx2 - sx1)
+    sh = max(1.0, sy2 - sy1)
+
+    mask_center = ((mx1 + mx2) * 0.5, (my1 + my2) * 0.5)
+    skeleton_center = ((sx1 + sx2) * 0.5, (sy1 + sy2) * 0.5)
+    center_dist = math.hypot(
+        mask_center[0] - skeleton_center[0],
+        mask_center[1] - skeleton_center[1],
+    )
+    mask_diag = max(1.0, math.hypot(mw, mh))
+    ratio_h = sh / mh
+    ratio_w = sw / mw
+
+    joints_total = 0
+    joints_outside = 0
+    pad_x = mw * 0.08
+    pad_y = mh * 0.08
+    for joint in skeleton:
+        loc = joint.get("loc")
+        if not isinstance(loc, list | tuple) or len(loc) < 2:
+            continue
+        try:
+            x = float(loc[0])
+            y = float(loc[1])
+        except (TypeError, ValueError):
+            continue
+        joints_total += 1
+        if x < (mx1 - pad_x) or x > (mx2 + pad_x) or y < (my1 - pad_y) or y > (my2 + pad_y):
+            joints_outside += 1
+
+    outside_ratio = (joints_outside / joints_total) if joints_total else 0.0
+    needs_refit = (
+        ratio_h < 0.55
+        or ratio_h > 1.45
+        or ratio_w < 0.35
+        or ratio_w > 1.8
+        or center_dist > (mask_diag * 0.18)
+        or outside_ratio > 0.35
+    )
+    if not needs_refit:
+        return skeleton
+
+    # Allow aggressive correction for extreme pose/model mismatches.
+    # Conservative clamping here can leave oversized skeletons on small/cartoon characters.
+    scale = min(mw / sw, mh / sh)
+    scale = max(0.05, min(8.0, scale))
+    tx = mask_center[0] - skeleton_center[0]
+    ty = mask_center[1] - skeleton_center[1]
+    clamp_pad_x = mw * 0.1
+    clamp_pad_y = mh * 0.1
+
+    for joint in skeleton:
+        loc = joint.get("loc")
+        if not isinstance(loc, list | tuple) or len(loc) < 2:
+            continue
+        try:
+            x = float(loc[0])
+            y = float(loc[1])
+        except (TypeError, ValueError):
+            continue
+
+        x = skeleton_center[0] + (x - skeleton_center[0]) * scale + tx
+        y = skeleton_center[1] + (y - skeleton_center[1]) * scale + ty
+        x = min(max(x, mx1 - clamp_pad_x), mx2 + clamp_pad_x)
+        y = min(max(y, my1 - clamp_pad_y), my2 + clamp_pad_y)
+        joint["loc"] = [int(round(x)), int(round(y))]
+
+    logging.info(
+        "image_to_annotations: Refit skeleton to mask bbox (ratio_h=%.2f, ratio_w=%.2f, outside=%.2f, scale=%.2f).",
+        ratio_h,
+        ratio_w,
+        outside_ratio,
+        scale,
+    )
+    return skeleton
 
 
 def create_skeleton_config(keypoints):
@@ -487,6 +612,10 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
             joint['loc'] = [orig_x - left, orig_y - top]  # Convert to cropped coordinates
             joint['loc_original'] = [orig_x, orig_y]  # Keep original coordinates
 
+        # Build silhouette mask early so skeleton can be reconciled to actual character bounds.
+        mask = segment(cropped)
+        skeleton = _reconcile_skeleton_to_mask(skeleton, mask)
+
         char_cfg = {
             "skeleton": skeleton,
             "height": cropped.shape[0],
@@ -499,8 +628,6 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
         }
 
         # Step 4: Save outputs
-        # Create mask first
-        mask = segment(cropped)
         mask_path = outdir / "mask.png"
         cv2.imwrite(str(mask_path), mask)
 

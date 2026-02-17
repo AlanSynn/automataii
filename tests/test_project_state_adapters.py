@@ -193,6 +193,39 @@ class TestImageProcessingTabAdapter:
         call_args = state_manager.load_skeleton.call_args[0]
         assert isinstance(call_args[0], SkeletonData)
 
+    def test_parts_generated_defers_to_mainwindow_pipeline(
+        self, state_manager, mock_tab, tmp_path
+    ):
+        """Adapter should not double-load parts when MainWindow pipeline is active."""
+        adapter = ImageProcessingTabAdapter(state_manager, prefer_main_window_pipeline=True)
+        adapter.attach(mock_tab)
+
+        payload_path = tmp_path / "parts_info.json"
+        payload_path.write_text(
+            '{"parts": {"head": {"image_path": "head.png", "roi": [0, 0, 10, 10]}}}',
+            encoding="utf-8",
+        )
+
+        adapter._on_parts_generated({"char_cfg_path": str(tmp_path / "char_cfg.yaml")}, str(tmp_path))
+
+        state_manager.load_parts.assert_not_called()
+
+    def test_skeleton_updated_defers_to_mainwindow_pipeline(self, state_manager, mock_tab):
+        """Adapter should not double-load skeleton when MainWindow pipeline is active."""
+        adapter = ImageProcessingTabAdapter(state_manager, prefer_main_window_pipeline=True)
+        adapter.attach(mock_tab)
+
+        adapter._on_skeleton_updated(
+            {
+                "skeleton": [
+                    {"name": "root", "loc": [0, 0], "parent": None},
+                    {"name": "neck", "loc": [0, -10], "parent": "root"},
+                ]
+            }
+        )
+
+        state_manager.load_skeleton.assert_not_called()
+
     def test_state_skeleton_change_updates_tab(self, adapter, mock_tab, state_manager):
         """Test state manager skeleton change updates tab."""
         adapter.attach(mock_tab)

@@ -160,6 +160,9 @@ class EditorTabAdapter(TabAdapter):
         """
         if not self._tab:
             return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug("EditorTabAdapter: Suppressing parts sync during runtime->SSOT mirror")
+            return
 
         logger.info(f"EditorTabAdapter: Forwarding {len(parts)} parts to tab")
 
@@ -181,6 +184,9 @@ class EditorTabAdapter(TabAdapter):
         Forwards to tab's on_skeleton_updated and cache_initial_skeleton.
         """
         if not self._tab:
+            return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug("EditorTabAdapter: Suppressing skeleton sync during runtime->SSOT mirror")
             return
 
         # Convert to dict format
@@ -204,6 +210,9 @@ class EditorTabAdapter(TabAdapter):
         Syncs the tab's visual paths with the state.
         """
         if not self._tab:
+            return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug("EditorTabAdapter: Suppressing path sync during runtime->SSOT mirror")
             return
 
         # Only update if we have parts loaded

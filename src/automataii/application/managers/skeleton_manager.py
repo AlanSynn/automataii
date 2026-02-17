@@ -75,12 +75,13 @@ class SkeletonManager(QObject):
         Returns:
             True if loading and processing were successful, False otherwise.
         """
-        self.clear_data()  # Start fresh
+        # Start fresh without emitting transient "empty skeleton" updates.
+        self.clear_data(emit_signals=False)
         if not data or not isinstance(data, dict):
             logging.warning(
                 "SkeletonManager: No data provided or data is not a dictionary."
             )
-            # self.skeleton_updated.emit({}) # Emitted by clear_data
+            self.clear_data()
             return False
 
         self._raw_input_skeleton_data = data  # Store the input
@@ -182,15 +183,16 @@ class SkeletonManager(QObject):
             wrapper_dict, source_format="animated_drawings"
         )
 
-    def clear_data(self) -> None:
+    def clear_data(self, *, emit_signals: bool = True) -> None:
         """Clears all internal skeleton data and emits relevant signals."""
         logging.info("SkeletonManager: Clearing all internal skeleton data.")
         self._raw_input_skeleton_data = None
         self._standardized_skeleton_model = None
-        self.skeleton_data_cleared.emit()
-        self.skeleton_updated.emit(
-            {}
-        )  # Emit empty dict to signal state change to empty
+        if emit_signals:
+            self.skeleton_data_cleared.emit()
+            self.skeleton_updated.emit(
+                {}
+            )  # Emit empty dict to signal state change to empty
 
     def _is_animated_drawings_format(self, data: dict[str, Any]) -> bool:
         """Checks if the provided data dictionary matches the Animated Drawings char_cfg.yaml structure."""

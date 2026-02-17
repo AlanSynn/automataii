@@ -396,6 +396,86 @@ class BodyPartsExtractor:
             if part_name not in part_masks:
                 part_masks[part_name] = np.zeros_like(self.mask)
 
+        part_masks = self._synthesize_missing_limb_masks(part_masks)
+
+        return part_masks
+
+    def _resolve_joint_position(self, joint_name: str) -> tuple[int, int] | None:
+        if not self.texture_relative_joint_map:
+            return None
+        if joint_name in self.texture_relative_joint_map:
+            return self.texture_relative_joint_map[joint_name]
+        for existing_name, pos in self.texture_relative_joint_map.items():
+            if existing_name.startswith(joint_name):
+                return pos
+        return None
+
+    def _synthesize_missing_limb_masks(
+        self,
+        part_masks: dict[str, np.ndarray],
+    ) -> dict[str, np.ndarray]:
+        """
+        Synthesize fallback masks for limb parts that collapsed to empty/near-empty.
+
+        This keeps extracted part sets structurally complete when pose joints are
+        overly compact (common for small cartoon avatars).
+        """
+        if self.mask is None or self.texture_relative_joint_map is None:
+            return part_masks
+
+        h, w = self.mask.shape[:2]
+        char_mask = (self.mask > 0).astype(np.uint8) * 255
+        min_pixels = max(24, int((h * w) * 0.0004))
+        thickness = max(3, int(round(min(h, w) * 0.03)))
+        fallback_parts = (
+            "left_arm_upper",
+            "right_arm_upper",
+            "left_arm_lower",
+            "right_arm_lower",
+            "left_leg_upper",
+            "right_leg_upper",
+            "left_leg_lower",
+            "right_leg_lower",
+        )
+
+        for part_name in fallback_parts:
+            current_mask = part_masks.get(part_name)
+            current_area = int(np.count_nonzero(current_mask)) if current_mask is not None else 0
+            if current_area >= min_pixels:
+                continue
+
+            part_def = BODY_PARTS.get(part_name, {})
+            joints = part_def.get("joints", [])
+            if not isinstance(joints, list) or len(joints) < 2:
+                continue
+
+            resolved_points: list[tuple[int, int]] = []
+            for joint_name in joints:
+                pos = self._resolve_joint_position(str(joint_name))
+                if pos is not None:
+                    resolved_points.append((int(pos[0]), int(pos[1])))
+            if len(resolved_points) < 2:
+                continue
+
+            p1 = resolved_points[0]
+            p2 = resolved_points[-1]
+
+            fallback = np.zeros_like(char_mask)
+            cv2.line(fallback, p1, p2, 255, thickness=thickness, lineType=cv2.LINE_AA)
+            cap_radius = max(2, thickness // 2)
+            cv2.circle(fallback, p1, cap_radius, 255, -1)
+            cv2.circle(fallback, p2, cap_radius, 255, -1)
+            fallback = cv2.bitwise_and(fallback, char_mask)
+
+            fallback_area = int(np.count_nonzero(fallback))
+            if fallback_area <= 0:
+                continue
+
+            if current_mask is None:
+                part_masks[part_name] = fallback
+            else:
+                part_masks[part_name] = np.maximum(current_mask, fallback)
+
         return part_masks
 
     def _visualize_segmentation(self):

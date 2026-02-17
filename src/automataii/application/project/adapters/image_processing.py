@@ -45,6 +45,16 @@ class ImageProcessingTabAdapter(TabAdapter):
     - skeleton_changed → on_skeleton_updated_externally
     """
 
+    def __init__(
+        self,
+        state_manager,
+        parent=None,
+        *,
+        prefer_main_window_pipeline: bool = False,
+    ) -> None:
+        super().__init__(state_manager, parent)
+        self._prefer_main_window_pipeline = prefer_main_window_pipeline
+
     def _connect_tab_signals(self) -> None:
         """Connect to ImageProcessingTab's output signals."""
         if not self._tab:
@@ -89,6 +99,13 @@ class ImageProcessingTabAdapter(TabAdapter):
             annotation_results: Annotation results dict from image_to_annotations
             output_dir: Directory where parts_info.json was generated
         """
+        if self._should_defer_parts_generated_to_main_window(annotation_results, output_dir):
+            logger.info(
+                "ImageProcessingTabAdapter: Received parts_generated for %s; deferred to MainWindow pipeline.",
+                output_dir,
+            )
+            return
+
         logger.info(f"ImageProcessingTabAdapter: Parts generated in {output_dir}")
 
         try:
@@ -111,6 +128,21 @@ class ImageProcessingTabAdapter(TabAdapter):
         except Exception as e:
             logger.exception(f"Error processing parts_generated: {e}")
 
+    def _should_defer_parts_generated_to_main_window(
+        self,
+        annotation_results: dict,
+        output_dir: str,
+    ) -> bool:
+        """Return True when MainWindow already owns the full parts load pipeline."""
+        if not self._prefer_main_window_pipeline:
+            return False
+        if not isinstance(annotation_results, dict):
+            return False
+        # MainWindow legacy loader path requires char_cfg_path and parts_info.json.
+        if not annotation_results.get("char_cfg_path"):
+            return False
+        return (Path(output_dir) / "parts_info.json").exists()
+
     def _on_skeleton_updated(self, skeleton_data: dict) -> None:
         """
         Handle skeleton_updated signal from ImageProcessingTab.
@@ -118,6 +150,11 @@ class ImageProcessingTabAdapter(TabAdapter):
         Args:
             skeleton_data: Raw skeleton dict from char_cfg.yaml
         """
+        if self._prefer_main_window_pipeline:
+            logger.info(
+                "ImageProcessingTabAdapter: Received skeleton_updated; deferred to MainWindow pipeline."
+            )
+            return
         logger.info("ImageProcessingTabAdapter: Skeleton updated from tab")
 
         try:
@@ -140,6 +177,11 @@ class ImageProcessingTabAdapter(TabAdapter):
         Forwards to tab's on_skeleton_updated_externally method.
         """
         if not self._tab:
+            return
+        if self._is_runtime_to_ssot_sync_in_progress():
+            logger.debug(
+                "ImageProcessingTabAdapter: Suppressing skeleton sync during runtime->SSOT mirror"
+            )
             return
 
         # Convert back to dict format for tab compatibility

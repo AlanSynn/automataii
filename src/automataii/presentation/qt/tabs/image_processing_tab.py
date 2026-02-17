@@ -343,13 +343,28 @@ class ImageProcessingTab(QWidget):
             self.image_proc_view.load_skeleton(None)
         if self.editing_mode and hasattr(self, "manual_segmentation_btn"):
             self.manual_segmentation_btn.setEnabled(True)
-        self.processing_steps_group.setVisible(True)
+        # Keep detailed workflow controls hidden by default.
+        # They can be re-enabled from Options (advanced processing toggle).
+        self.processing_steps_group.setVisible(False)
         status_bar = self.main_window.statusBar() if self.main_window else None
         if status_bar:
             status_bar.showMessage(f"{status_prefix}: {os.path.basename(image_path)}")
         self.update_button_states()
 
-    def load_input_image(self):
+    def _auto_apply_loaded_image_to_editor(self) -> bool:
+        """Run processing + parts generation and handoff to editor in one flow."""
+        self.process_image()
+        if (
+            not self.current_annotation_results
+            or not self.current_temp_char_dir
+            or not self.skeleton_data
+        ):
+            return False
+
+        generated = self.create_parts_from_skeleton(show_success_dialog=False)
+        return generated
+
+    def load_input_image(self, *, auto_apply: bool = True):
         filepath, _ = QFileDialog.getOpenFileName(
             self,
             "Load Input Image",
@@ -364,6 +379,8 @@ class ImageProcessingTab(QWidget):
                 source="file",
                 status_prefix="Loaded input image",
             )
+            if auto_apply:
+                self._auto_apply_loaded_image_to_editor()
         else:
             QMessageBox.warning(self, "Load Error", f"Could not load image: {filepath}")
 
@@ -503,9 +520,13 @@ class ImageProcessingTab(QWidget):
         Input must come from either "Load Image File" or "Capture Camera".
         """
         if not self.input_image_path:
-            self.load_input_image()
+            # If image is not loaded yet, loading will auto-process/replace.
+            self.load_input_image(auto_apply=True)
             if not self.input_image_path:
                 return
+            # auto_apply=True already executed process + parts generation path.
+            # Avoid running it again in this handler.
+            return
 
         if (
             not self.current_annotation_results
@@ -526,7 +547,7 @@ class ImageProcessingTab(QWidget):
             )
             return
 
-        self.create_parts_from_skeleton()
+        self.create_parts_from_skeleton(show_success_dialog=False)
 
     def open_character_assignment_dialog(self):
         """
@@ -649,6 +670,7 @@ class ImageProcessingTab(QWidget):
                 source="file",
                 status_prefix="Loaded input image",
             )
+            self._auto_apply_loaded_image_to_editor()
             return True
         else:
             QMessageBox.warning(
@@ -736,7 +758,10 @@ class ImageProcessingTab(QWidget):
                         5000,
                     )
 
-                    if self.load_skeleton_data_from_config(char_cfg_file_path):
+                    if self.load_skeleton_data_from_config(
+                        char_cfg_file_path,
+                        emit_signal=False,
+                    ):
                         if self.image_proc_view.load_image(
                             annotation_results["texture_path"]
                         ):
@@ -779,7 +804,12 @@ class ImageProcessingTab(QWidget):
 
         self.update_button_states()
 
-    def load_skeleton_data_from_config(self, char_cfg_filepath: str) -> bool:
+    def load_skeleton_data_from_config(
+        self,
+        char_cfg_filepath: str,
+        *,
+        emit_signal: bool = False,
+    ) -> bool:
         if not char_cfg_filepath or not os.path.exists(char_cfg_filepath):
             if char_cfg_filepath:  # Only show error if a path was given but invalid
                 QMessageBox.warning(
@@ -806,10 +836,16 @@ class ImageProcessingTab(QWidget):
                 ):  # Heuristic
                     self.character_dir = potential_char_dir
 
-                self.main_window.statusBar().showMessage(
-                    f"Loaded skeleton: {os.path.basename(char_cfg_filepath)}"
-                )
-                self.skeleton_updated.emit(self.skeleton_data)  # Emit signal
+                status_bar = self.main_window.statusBar() if self.main_window else None
+                if status_bar:
+                    status_bar.showMessage(
+                        f"Loaded skeleton: {os.path.basename(char_cfg_filepath)}"
+                    )
+                # Keep image-processing skeleton local by default.
+                # Global skeleton should be updated when character replacement
+                # is committed through parts/project load flow.
+                if emit_signal:
+                    self.skeleton_updated.emit(self.skeleton_data)
                 self.update_button_states()  # Update states, which will include the new group
                 return True
             else:
@@ -863,17 +899,21 @@ class ImageProcessingTab(QWidget):
                 )
 
             self.skeleton_data = current_skeleton_data  # Update internal state
-            self.main_window.statusBar().showMessage(
-                f"Skeleton saved to {os.path.basename(save_path)}"
-            )
-            self.skeleton_updated.emit(self.skeleton_data)  # Emit signal
+            status_bar = self.main_window.statusBar() if self.main_window else None
+            if status_bar:
+                status_bar.showMessage(
+                    f"Skeleton saved to {os.path.basename(save_path)}"
+                )
+            # Keep edited skeleton local in Image Processing tab.
+            # Character replacement flow will publish authoritative skeleton.
+            # self.skeleton_updated.emit(self.skeleton_data)
 
         except Exception as e:
             QMessageBox.critical(
                 self, "Save Skeleton Error", f"Could not save skeleton: {e}"
             )
 
-    def create_parts_from_skeleton(self):
+    def create_parts_from_skeleton(self, *, show_success_dialog: bool = True) -> bool:
         """Initiates part creation using BodyPartsExtractor based on current skeleton and image."""
         if (
             not self.current_annotation_results
@@ -886,7 +926,7 @@ class ImageProcessingTab(QWidget):
                 "Missing Data",
                 "Cannot create parts. Texture, char_cfg, or temp directory not available. Please process image first.",
             )
-            return
+            return False
 
 
         self.main_window.statusBar().showMessage("Generating character parts...", 5000)
@@ -903,16 +943,12 @@ class ImageProcessingTab(QWidget):
             bpe_output_dir = Path(self.current_temp_char_dir) / "bpe_output"
             bpe_output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Copy original image as texture and image.png to preserve original quality
-            import shutil
-            if self.input_image_path:
-                # Copy as texture.png (used by some parts of the system)
-                processed_texture_path = Path(self.current_temp_char_dir) / "texture.png"
-                shutil.copy2(self.input_image_path, processed_texture_path)
-
-                # Copy as image.png (the main original image used by BodyPartsExtractor)
-                original_image_path = Path(self.current_temp_char_dir) / "image.png"
-                shutil.copy2(self.input_image_path, original_image_path)
+            # Keep annotation-generated texture/mask coordinate system intact.
+            # Only refresh texture/image from input when dimensions exactly match
+            # the generated mask. Otherwise parts can fragment due to ROI mismatch.
+            self._refresh_texture_from_input_if_compatible(
+                Path(self.current_temp_char_dir)
+            )
 
             self.body_parts_extractor = BodyPartsExtractor(
                 char_dir=str(
@@ -940,14 +976,15 @@ class ImageProcessingTab(QWidget):
                     f"parts_info.json was not created by BodyPartsExtractor at the expected location:\\n{expected_parts_info_path}\\n\\nPlease check the application logs for errors from BodyPartsExtractor.",
                 )
                 progress_dialog.close()
-                return
+                return False
             self.current_parts_info_path = str(expected_parts_info_path)
 
             progress_dialog.close()
             msg_parts_generated = "Character parts generated successfully"
             if self.main_window.debug_mode:
                 msg_parts_generated += f"in: {actual_bpe_output_dir_from_extractor}"
-            QMessageBox.information(self, "Parts Generated", msg_parts_generated)
+            if show_success_dialog:
+                QMessageBox.information(self, "Parts Generated", msg_parts_generated)
 
             if self.current_annotation_results:
                 # Pass the actual_bpe_output_dir_from_extractor where parts_info.json resides
@@ -956,13 +993,58 @@ class ImageProcessingTab(QWidget):
                     str(actual_bpe_output_dir_from_extractor),
                 )
             self.update_button_states()
+            return True
 
         except Exception as e:
             progress_dialog.close()
             QMessageBox.critical(self, "Part Creation Error", f"An error occurred: {e}")
+            return False
         finally:
             if progress_dialog.isVisible():
                 progress_dialog.close()
+
+    def _refresh_texture_from_input_if_compatible(self, char_dir: Path) -> bool:
+        """Refresh texture/image from input only when mask dimensions match."""
+        if not self.input_image_path:
+            return False
+
+        input_path = Path(self.input_image_path)
+        if not input_path.exists():
+            return False
+
+        mask_path = char_dir / "mask.png"
+        texture_path = char_dir / "texture.png"
+        image_path = char_dir / "image.png"
+        if not mask_path.exists() or not texture_path.exists():
+            return False
+
+        input_img = cv2.imread(str(input_path), cv2.IMREAD_UNCHANGED)
+        mask_img = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+        if input_img is None or mask_img is None:
+            return False
+
+        input_h, input_w = input_img.shape[:2]
+        mask_h, mask_w = mask_img.shape[:2]
+        if input_h != mask_h or input_w != mask_w:
+            logging.info(
+                "ImageProcessingTab: Keeping annotation texture (input=%sx%s, mask=%sx%s).",
+                input_w,
+                input_h,
+                mask_w,
+                mask_h,
+            )
+            return False
+
+        import shutil
+
+        shutil.copy2(input_path, texture_path)
+        shutil.copy2(input_path, image_path)
+        logging.info(
+            "ImageProcessingTab: Refreshed texture/image from input (size=%sx%s).",
+            input_w,
+            input_h,
+        )
+        return True
 
     def _handle_image_zoom_change(self, zoom_text: str):
         """Handle zoom change from the combo box."""
@@ -1010,7 +1092,8 @@ class ImageProcessingTab(QWidget):
             skeleton_tools_enabled=has_skeleton,
         )
         if self.assign_character_btn is not None:
-            enable_replace = has_image or self._is_dummy_mechanism_design_session()
+            is_dummy_session = self._is_dummy_mechanism_design_session()
+            enable_replace = is_dummy_session
             self.assign_character_btn.setEnabled(enable_replace)
             if enable_replace and not has_image:
                 self.assign_character_btn.setToolTip(
@@ -1018,11 +1101,11 @@ class ImageProcessingTab(QWidget):
                 )
             elif enable_replace:
                 self.assign_character_btn.setToolTip(
-                    "Replace current character using the loaded/captured image"
+                    "Replace dummy character using the loaded image"
                 )
             else:
                 self.assign_character_btn.setToolTip(
-                    "Load/capture an image, or open a dummy mechanism session in Mechanism Design"
+                    "Replace Character is available when a dummy character session exists in Mechanism Design"
                 )
 
     def _has_loaded_preview_image(self) -> bool:

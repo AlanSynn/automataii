@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -299,3 +302,254 @@ class TestAutoCharacterAssignment:
         window._clear_ui_for_failed_load.assert_called_once()
         window.action_manager.update_actions_for_project_state.assert_called_once_with(False)
         status_bar.showMessage.assert_called()
+
+    def test_project_load_reconciles_when_skeleton_smaller_than_parts(self) -> None:
+        from automataii.presentation.qt.main_window import (
+            AutomataDesigner,
+            _calculate_skeleton_bbox,
+        )
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window._character_swap_load_in_progress = False
+        window._suppress_project_data_cleared_ui_once = False
+        window._auto_scale_character_to_dummy_next_load = False
+        window.project_dir = None
+        window._sync_runtime_state_to_ssot = MagicMock()
+        window._mark_workflow_stage_complete = MagicMock()
+        window.switch_to_editor_tab = MagicMock()
+
+        window.project_data_manager = MagicMock()
+        window.project_data_manager.raw_skeleton_data = [
+            {"name": "root", "position": [0.0, 0.0]},
+            {"name": "tip", "position": [0.0, 100.0]},
+        ]
+
+        window.editor_tab = MagicMock()
+        window.mechanism_design_tab = MagicMock()
+        window.ik_manager = MagicMock()
+        window.skeleton_manager = MagicMock()
+        window.skeleton_manager.load_skeleton_from_project_data.return_value = True
+        window.image_proc_tab = MagicMock()
+        window.action_manager = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window.tab_widget = MagicMock()
+        window.tab_widget.currentWidget.return_value = window.editor_tab
+
+        parts_info = {
+            "torso": SimpleNamespace(
+                roi=[0.0, 0.0, 100.0, 400.0],
+                x=0.0,
+                y=0.0,
+                local_pivot_offset=[50.0, 50.0],
+                effective_bbox_offset_x=0.0,
+                effective_bbox_offset_y=0.0,
+            )
+        }
+
+        AutomataDesigner._handle_project_data_loaded(
+            window,
+            True,
+            "/tmp/project",
+            parts_info,
+        )
+
+        assert window.skeleton_manager.load_skeleton_from_project_data.called
+        loaded_raw = window.skeleton_manager.load_skeleton_from_project_data.call_args[0][0]
+        loaded_bbox = _calculate_skeleton_bbox(loaded_raw)
+        assert loaded_bbox is not None
+        loaded_height = loaded_bbox[3] - loaded_bbox[1]
+        assert abs(loaded_height - 400.0) < 1e-6
+
+    def test_project_load_upscales_parts_when_smaller_than_skeleton(self) -> None:
+        from automataii.presentation.qt.main_window import (
+            AutomataDesigner,
+            _calculate_parts_bbox,
+        )
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window._character_swap_load_in_progress = False
+        window._suppress_project_data_cleared_ui_once = False
+        window._auto_scale_character_to_dummy_next_load = False
+        window.project_dir = None
+        window._sync_runtime_state_to_ssot = MagicMock()
+        window._mark_workflow_stage_complete = MagicMock()
+        window.switch_to_editor_tab = MagicMock()
+
+        window.project_data_manager = MagicMock()
+        window.project_data_manager.raw_skeleton_data = [
+            {"name": "root", "position": [50.0, 0.0]},
+            {"name": "tip", "position": [50.0, 200.0]},
+        ]
+
+        window.editor_tab = MagicMock()
+        window.mechanism_design_tab = MagicMock()
+        window.ik_manager = MagicMock()
+        window.skeleton_manager = MagicMock()
+        window.skeleton_manager.load_skeleton_from_project_data.return_value = True
+        window.image_proc_tab = MagicMock()
+        window.action_manager = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window.tab_widget = MagicMock()
+        window.tab_widget.currentWidget.return_value = window.editor_tab
+
+        parts_info = {
+            "torso": SimpleNamespace(
+                roi=[0.0, 0.0, 60.0, 60.0],
+                x=0.0,
+                y=0.0,
+                local_pivot_offset=[30.0, 30.0],
+                effective_bbox_offset_x=0.0,
+                effective_bbox_offset_y=0.0,
+            )
+        }
+
+        AutomataDesigner._handle_project_data_loaded(
+            window,
+            True,
+            "/tmp/project",
+            parts_info,
+        )
+
+        loaded_parts = window.editor_tab.set_parts_data.call_args[0][0]
+        bbox = _calculate_parts_bbox(loaded_parts)
+        assert bbox is not None
+        height = bbox[3] - bbox[1]
+        assert abs(height - 200.0) < 1e-6
+
+    def test_project_load_forces_skeleton_alignment_for_image_pipeline(self) -> None:
+        from automataii.presentation.qt.main_window import (
+            AutomataDesigner,
+            _calculate_skeleton_bbox,
+        )
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window._character_swap_load_in_progress = False
+        window._suppress_project_data_cleared_ui_once = False
+        window._auto_scale_character_to_dummy_next_load = False
+        window._force_skeleton_parts_alignment_next_load = True
+        window.project_dir = None
+        window._sync_runtime_state_to_ssot = MagicMock()
+        window._mark_workflow_stage_complete = MagicMock()
+        window.switch_to_editor_tab = MagicMock()
+
+        window.project_data_manager = MagicMock()
+        # Ratio 130/200 = 0.65 (near threshold), should still align when force flag is set.
+        window.project_data_manager.raw_skeleton_data = [
+            {"name": "root", "position": [50.0, 20.0]},
+            {"name": "tip", "position": [50.0, 150.0]},
+        ]
+
+        window.editor_tab = MagicMock()
+        window.mechanism_design_tab = MagicMock()
+        window.ik_manager = MagicMock()
+        window.skeleton_manager = MagicMock()
+        window.skeleton_manager.load_skeleton_from_project_data.return_value = True
+        window.image_proc_tab = MagicMock()
+        window.action_manager = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window.tab_widget = MagicMock()
+        window.tab_widget.currentWidget.return_value = window.editor_tab
+
+        parts_info = {
+            "torso": SimpleNamespace(
+                roi=[0.0, 0.0, 100.0, 200.0],
+                x=0.0,
+                y=0.0,
+                local_pivot_offset=[50.0, 50.0],
+                effective_bbox_offset_x=0.0,
+                effective_bbox_offset_y=0.0,
+            )
+        }
+
+        AutomataDesigner._handle_project_data_loaded(
+            window,
+            True,
+            "/tmp/project",
+            parts_info,
+        )
+
+        loaded_raw = window.skeleton_manager.load_skeleton_from_project_data.call_args[0][0]
+        loaded_bbox = _calculate_skeleton_bbox(loaded_raw)
+        assert loaded_bbox is not None
+        loaded_height = loaded_bbox[3] - loaded_bbox[1]
+        assert abs(loaded_height - 200.0) < 1e-6
+        assert window._force_skeleton_parts_alignment_next_load is False
+
+    def test_parts_generated_uses_dummy_replacement_context_when_dummy_session(
+        self, tmp_path: Path
+    ) -> None:
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.mechanism_design_tab = MagicMock()
+        window.image_proc_tab = MagicMock()
+        window.image_proc_tab._is_dummy_mechanism_design_session.return_value = True
+        window.project_data_manager = MagicMock()
+        window.project_data_manager.load_project_from_file.return_value = True
+        window._mark_workflow_stage_complete = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window._suppress_project_data_cleared_ui_once = False
+        window._character_swap_load_in_progress = False
+        window._auto_scale_character_to_dummy_next_load = False
+
+        project_dir = tmp_path / "char"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "parts_info.json").write_text("{}", encoding="utf-8")
+        char_cfg_path = project_dir / "char_cfg.yaml"
+        char_cfg_path.write_text("skeleton: []\n", encoding="utf-8")
+
+        annotation_results = {
+            "char_cfg_path": str(char_cfg_path),
+        }
+
+        AutomataDesigner.handle_parts_generated_from_tab(
+            window, annotation_results, str(project_dir)
+        )
+
+        window.mechanism_design_tab.prepare_character_rebind.assert_called_once()
+        window.mechanism_design_tab.cancel_character_rebind.assert_not_called()
+        assert window._suppress_project_data_cleared_ui_once is True
+        assert window._character_swap_load_in_progress is True
+        assert window._auto_scale_character_to_dummy_next_load is True
+
+    def test_parts_generated_load_image_context_skips_dummy_replacement_flags(
+        self, tmp_path: Path
+    ) -> None:
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.mechanism_design_tab = MagicMock()
+        window.image_proc_tab = MagicMock()
+        window.image_proc_tab._is_dummy_mechanism_design_session.return_value = False
+        window.project_data_manager = MagicMock()
+        window.project_data_manager.load_project_from_file.return_value = True
+        window._mark_workflow_stage_complete = MagicMock()
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window._suppress_project_data_cleared_ui_once = True
+        window._character_swap_load_in_progress = True
+        window._auto_scale_character_to_dummy_next_load = True
+
+        project_dir = tmp_path / "char"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "parts_info.json").write_text(json.dumps({}), encoding="utf-8")
+        char_cfg_path = project_dir / "char_cfg.yaml"
+        char_cfg_path.write_text("skeleton: []\n", encoding="utf-8")
+
+        annotation_results = {
+            "char_cfg_path": str(char_cfg_path),
+        }
+
+        AutomataDesigner.handle_parts_generated_from_tab(
+            window, annotation_results, str(project_dir)
+        )
+
+        window.mechanism_design_tab.prepare_character_rebind.assert_not_called()
+        window.mechanism_design_tab.cancel_character_rebind.assert_called_once()
+        assert window._suppress_project_data_cleared_ui_once is False
+        assert window._character_swap_load_in_progress is False
+        assert window._auto_scale_character_to_dummy_next_load is False
