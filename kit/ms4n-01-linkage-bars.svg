@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 771.82 1073.65" version="1.1">
+  <title>MS4N 01 Linkage Length Lab and One-Change Bars</title>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #0071bc; stroke-width: 0.8; stroke-miterlimit: 10; }
+      .guide { fill: none; stroke: #999999; stroke-width: 0.5; stroke-dasharray: 4 4; }
+      .fillcut { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 14px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 9px; }
+      .card { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; }
+      .soft { fill: #f5f7fa; stroke: #999999; stroke-width: 0.5; }
+    </style>
+  </defs>
+    <text class="label" x="24" y="30" font-size="16" text-anchor="start">MS4N-01 Linkage Length Lab: bars use the bar-board pitch</text>
+    <path class="cut" d="M 65 57.2 L 140.12 57.2 A 24.8 24.8 0 0 1 140.12 106.8 L 65 106.8 A 24.8 24.8 0 0 1 65 57.2 Z"/>
+    <circle class="cut" cx="65" cy="82" r="7.09"/>
+    <circle class="cut" cx="140.12" cy="82" r="7.09"/>
+    <text class="tiny" x="65" y="124" font-size="9" text-anchor="middle">fixed 2-hole</text>
+    <text class="tiny" x="140.12" y="124" font-size="9" text-anchor="middle">2H</text>
+    <line class="score" x1="102.56" y1="56.5" x2="102.56" y2="64.5"/>
+    <line class="score" x1="102.56" y1="99.5" x2="102.56" y2="107.5"/>
+    <path class="cut" d="M 65 127.2 L 215.24 127.2 A 24.8 24.8 0 0 1 215.24 176.8 L 65 176.8 A 24.8 24.8 0 0 1 65 127.2 Z"/>
+    <circle class="cut" cx="65" cy="152" r="7.09"/>
+    <circle class="cut" cx="140.12" cy="152" r="7.09"/>
+    <circle class="cut" cx="215.24" cy="152" r="7.09"/>
+    <text class="tiny" x="65" y="194" font-size="9" text-anchor="middle">fixed 3-hole</text>
+    <text class="tiny" x="215.24" y="194" font-size="9" text-anchor="middle">3H</text>
+    <line class="score" x1="102.56" y1="126.5" x2="102.56" y2="134.5"/>
+    <line class="score" x1="102.56" y1="169.5" x2="102.56" y2="177.5"/>
+    <line class="score" x1="177.68" y1="126.5" x2="177.68" y2="134.5"/>
+    <line class="score" x1="177.68" y1="169.5" x2="177.68" y2="177.5"/>
+    <path class="cut" d="M 65 197.2 L 290.36 197.2 A 24.8 24.8 0 0 1 290.36 246.8 L 65 246.8 A 24.8 24.8 0 0 1 65 197.2 Z"/>
+    <circle class="cut" cx="65" cy="222" r="7.09"/>
+    <circle class="cut" cx="140.12" cy="222" r="7.09"/>
+    <circle class="cut" cx="215.24" cy="222" r="7.09"/>
+    <circle class="cut" cx="290.36" cy="222" r="7.09"/>
+    <text class="tiny" x="65" y="264" font-size="9" text-anchor="middle">fixed 4-hole</text>
+    <text class="tiny" x="290.36" y="264" font-size="9" text-anchor="middle">4H</text>
+    <line class="score" x1="102.56" y1="196.5" x2="102.56" y2="204.5"/>
+    <line class="score" x1="102.56" y1="239.5" x2="102.56" y2="247.5"/>
+    <line class="score" x1="177.68" y1="196.5" x2="177.68" y2="204.5"/>
+    <line class="score" x1="177.68" y1="239.5" x2="177.68" y2="247.5"/>
+    <line class="score" x1="252.8" y1="196.5" x2="252.8" y2="204.5"/>
+    <line class="score" x1="252.8" y1="239.5" x2="252.8" y2="247.5"/>
+    <path class="cut" d="M 65 267.2 L 365.48 267.2 A 24.8 24.8 0 0 1 365.48 316.8 L 65 316.8 A 24.8 24.8 0 0 1 65 267.2 Z"/>
+    <circle class="cut" cx="65" cy="292" r="7.09"/>
+    <circle class="cut" cx="140.12" cy="292" r="7.09"/>
+    <circle class="cut" cx="215.24" cy="292" r="7.09"/>
+    <circle class="cut" cx="290.36" cy="292" r="7.09"/>
+    <circle class="cut" cx="365.48" cy="292" r="7.09"/>
+    <text class="tiny" x="65" y="334" font-size="9" text-anchor="middle">fixed 5-hole</text>
+    <text class="tiny" x="365.48" y="334" font-size="9" text-anchor="middle">5H</text>
+    <line class="score" x1="102.56" y1="266.5" x2="102.56" y2="274.5"/>
+    <line class="score" x1="102.56" y1="309.5" x2="102.56" y2="317.5"/>
+    <line class="score" x1="177.68" y1="266.5" x2="177.68" y2="274.5"/>
+    <line class="score" x1="177.68" y1="309.5" x2="177.68" y2="317.5"/>
+    <line class="score" x1="252.8" y1="266.5" x2="252.8" y2="274.5"/>
+    <line class="score" x1="252.8" y1="309.5" x2="252.8" y2="317.5"/>
+    <line class="score" x1="327.92" y1="266.5" x2="327.92" y2="274.5"/>
+    <line class="score" x1="327.92" y1="309.5" x2="327.92" y2="317.5"/>
+    <path class="cut" d="M 65 337.2 L 440.6 337.2 A 24.8 24.8 0 0 1 440.6 386.8 L 65 386.8 A 24.8 24.8 0 0 1 65 337.2 Z"/>
+    <circle class="cut" cx="65" cy="362" r="7.09"/>
+    <circle class="cut" cx="140.12" cy="362" r="7.09"/>
+    <circle class="cut" cx="215.24" cy="362" r="7.09"/>
+    <circle class="cut" cx="290.36" cy="362" r="7.09"/>
+    <circle class="cut" cx="365.48" cy="362" r="7.09"/>
+    <circle class="cut" cx="440.6" cy="362" r="7.09"/>
+    <text class="tiny" x="65" y="404" font-size="9" text-anchor="middle">fixed 6-hole</text>
+    <text class="tiny" x="440.6" y="404" font-size="9" text-anchor="middle">6H</text>
+    <line class="score" x1="102.56" y1="336.5" x2="102.56" y2="344.5"/>
+    <line class="score" x1="102.56" y1="379.5" x2="102.56" y2="387.5"/>
+    <line class="score" x1="177.68" y1="336.5" x2="177.68" y2="344.5"/>
+    <line class="score" x1="177.68" y1="379.5" x2="177.68" y2="387.5"/>
+    <line class="score" x1="252.8" y1="336.5" x2="252.8" y2="344.5"/>
+    <line class="score" x1="252.8" y1="379.5" x2="252.8" y2="387.5"/>
+    <line class="score" x1="327.92" y1="336.5" x2="327.92" y2="344.5"/>
+    <line class="score" x1="327.92" y1="379.5" x2="327.92" y2="387.5"/>
+    <line class="score" x1="403.04" y1="336.5" x2="403.04" y2="344.5"/>
+    <line class="score" x1="403.04" y1="379.5" x2="403.04" y2="387.5"/>
+    <path class="cut" d="M 65 407.2 L 515.72 407.2 A 24.8 24.8 0 0 1 515.72 456.8 L 65 456.8 A 24.8 24.8 0 0 1 65 407.2 Z"/>
+    <circle class="cut" cx="65" cy="432" r="7.09"/>
+    <circle class="cut" cx="140.12" cy="432" r="7.09"/>
+    <circle class="cut" cx="215.24" cy="432" r="7.09"/>
+    <circle class="cut" cx="290.36" cy="432" r="7.09"/>
+    <circle class="cut" cx="365.48" cy="432" r="7.09"/>
+    <circle class="cut" cx="440.6" cy="432" r="7.09"/>
+    <circle class="cut" cx="515.72" cy="432" r="7.09"/>
+    <text class="tiny" x="65" y="474" font-size="9" text-anchor="middle">fixed 7-hole</text>
+    <text class="tiny" x="515.72" y="474" font-size="9" text-anchor="middle">7H</text>
+    <line class="score" x1="102.56" y1="406.5" x2="102.56" y2="414.5"/>
+    <line class="score" x1="102.56" y1="449.5" x2="102.56" y2="457.5"/>
+    <line class="score" x1="177.68" y1="406.5" x2="177.68" y2="414.5"/>
+    <line class="score" x1="177.68" y1="449.5" x2="177.68" y2="457.5"/>
+    <line class="score" x1="252.8" y1="406.5" x2="252.8" y2="414.5"/>
+    <line class="score" x1="252.8" y1="449.5" x2="252.8" y2="457.5"/>
+    <line class="score" x1="327.92" y1="406.5" x2="327.92" y2="414.5"/>
+    <line class="score" x1="327.92" y1="449.5" x2="327.92" y2="457.5"/>
+    <line class="score" x1="403.04" y1="406.5" x2="403.04" y2="414.5"/>
+    <line class="score" x1="403.04" y1="449.5" x2="403.04" y2="457.5"/>
+    <line class="score" x1="478.16" y1="406.5" x2="478.16" y2="414.5"/>
+    <line class="score" x1="478.16" y1="449.5" x2="478.16" y2="457.5"/>
+    <path class="cut" d="M 65 477.2 L 590.84 477.2 A 24.8 24.8 0 0 1 590.84 526.8 L 65 526.8 A 24.8 24.8 0 0 1 65 477.2 Z"/>
+    <circle class="cut" cx="65" cy="502" r="7.09"/>
+    <circle class="cut" cx="140.12" cy="502" r="7.09"/>
+    <circle class="cut" cx="215.24" cy="502" r="7.09"/>
+    <circle class="cut" cx="290.36" cy="502" r="7.09"/>
+    <circle class="cut" cx="365.48" cy="502" r="7.09"/>
+    <circle class="cut" cx="440.6" cy="502" r="7.09"/>
+    <circle class="cut" cx="515.72" cy="502" r="7.09"/>
+    <circle class="cut" cx="590.84" cy="502" r="7.09"/>
+    <text class="tiny" x="65" y="544" font-size="9" text-anchor="middle">fixed 8-hole</text>
+    <text class="tiny" x="590.84" y="544" font-size="9" text-anchor="middle">8H</text>
+    <line class="score" x1="102.56" y1="476.5" x2="102.56" y2="484.5"/>
+    <line class="score" x1="102.56" y1="519.5" x2="102.56" y2="527.5"/>
+    <line class="score" x1="177.68" y1="476.5" x2="177.68" y2="484.5"/>
+    <line class="score" x1="177.68" y1="519.5" x2="177.68" y2="527.5"/>
+    <line class="score" x1="252.8" y1="476.5" x2="252.8" y2="484.5"/>
+    <line class="score" x1="252.8" y1="519.5" x2="252.8" y2="527.5"/>
+    <line class="score" x1="327.92" y1="476.5" x2="327.92" y2="484.5"/>
+    <line class="score" x1="327.92" y1="519.5" x2="327.92" y2="527.5"/>
+    <line class="score" x1="403.04" y1="476.5" x2="403.04" y2="484.5"/>
+    <line class="score" x1="403.04" y1="519.5" x2="403.04" y2="527.5"/>
+    <line class="score" x1="478.16" y1="476.5" x2="478.16" y2="484.5"/>
+    <line class="score" x1="478.16" y1="519.5" x2="478.16" y2="527.5"/>
+    <line class="score" x1="553.28" y1="476.5" x2="553.28" y2="484.5"/>
+    <line class="score" x1="553.28" y1="519.5" x2="553.28" y2="527.5"/>
+    <path class="cut" d="M 65 580.2 L 215.24 580.2 A 24.8 24.8 0 0 1 215.24 629.8 L 65 629.8 A 24.8 24.8 0 0 1 65 580.2 Z"/>
+    <path class="cut" d="M 102.56 598.5 L 177.68 598.5 A 6.5 6.5 0 0 1 177.68 611.5 L 102.56 611.5 A 6.5 6.5 0 0 1 102.56 598.5 Z"/>
+    <circle class="cut" cx="65" cy="605" r="7.09"/>
+    <circle class="cut" cx="215.24" cy="605" r="7.09"/>
+    <text class="tiny" x="140.12" y="647" font-size="9" text-anchor="middle">one-change slot 3H</text>
+    <path class="cut" d="M 65 650.2 L 290.36 650.2 A 24.8 24.8 0 0 1 290.36 699.8 L 65 699.8 A 24.8 24.8 0 0 1 65 650.2 Z"/>
+    <path class="cut" d="M 102.56 668.5 L 252.8 668.5 A 6.5 6.5 0 0 1 252.8 681.5 L 102.56 681.5 A 6.5 6.5 0 0 1 102.56 668.5 Z"/>
+    <circle class="cut" cx="65" cy="675" r="7.09"/>
+    <circle class="cut" cx="290.36" cy="675" r="7.09"/>
+    <text class="tiny" x="177.68" y="717" font-size="9" text-anchor="middle">one-change slot 4H</text>
+    <path class="cut" d="M 65 720.2 L 365.48 720.2 A 24.8 24.8 0 0 1 365.48 769.8 L 65 769.8 A 24.8 24.8 0 0 1 65 720.2 Z"/>
+    <path class="cut" d="M 102.56 738.5 L 327.92 738.5 A 6.5 6.5 0 0 1 327.92 751.5 L 102.56 751.5 A 6.5 6.5 0 0 1 102.56 738.5 Z"/>
+    <circle class="cut" cx="65" cy="745" r="7.09"/>
+    <circle class="cut" cx="365.48" cy="745" r="7.09"/>
+    <text class="tiny" x="215.24" y="787" font-size="9" text-anchor="middle">one-change slot 5H</text>
+    <path class="cut" d="M 65 790.2 L 440.6 790.2 A 24.8 24.8 0 0 1 440.6 839.8 L 65 839.8 A 24.8 24.8 0 0 1 65 790.2 Z"/>
+    <path class="cut" d="M 102.56 808.5 L 403.04 808.5 A 6.5 6.5 0 0 1 403.04 821.5 L 102.56 821.5 A 6.5 6.5 0 0 1 102.56 808.5 Z"/>
+    <circle class="cut" cx="65" cy="815" r="7.09"/>
+    <circle class="cut" cx="440.6" cy="815" r="7.09"/>
+    <text class="tiny" x="252.8" y="857" font-size="9" text-anchor="middle">one-change slot 6H</text>
+    <path class="cut" d="M 65 860.2 L 515.72 860.2 A 24.8 24.8 0 0 1 515.72 909.8 L 65 909.8 A 24.8 24.8 0 0 1 65 860.2 Z"/>
+    <path class="cut" d="M 102.56 878.5 L 478.16 878.5 A 6.5 6.5 0 0 1 478.16 891.5 L 102.56 891.5 A 6.5 6.5 0 0 1 102.56 878.5 Z"/>
+    <circle class="cut" cx="65" cy="885" r="7.09"/>
+    <circle class="cut" cx="515.72" cy="885" r="7.09"/>
+    <text class="tiny" x="290.36" y="927" font-size="9" text-anchor="middle">one-change slot 7H</text>
+    <path class="cut" d="M 555 100 L 625 128 L 555 156 Z"/>
+    <circle class="cut" cx="570" cy="128" r="7.09"/>
+    <text class="tiny" x="590" y="134" font-size="9" text-anchor="middle">INPUT</text>
+    <path class="cut" d="M 660 100 L 730 128 L 660 156 Z"/>
+    <circle class="cut" cx="675" cy="128" r="7.09"/>
+    <text class="tiny" x="695" y="134" font-size="9" text-anchor="middle">OUTPUT</text>
+    <path class="cut" d="M 555 240 L 625 268 L 555 296 Z"/>
+    <circle class="cut" cx="570" cy="268" r="7.09"/>
+    <text class="tiny" x="590" y="274" font-size="9" text-anchor="middle">FIXED</text>
+    <path class="cut" d="M 660 240 L 730 268 L 660 296 Z"/>
+    <circle class="cut" cx="675" cy="268" r="7.09"/>
+    <text class="tiny" x="695" y="274" font-size="9" text-anchor="middle">TRACE</text>
+    <circle class="cut" cx="540" cy="425" r="18"/>
+    <circle class="cut" cx="540" cy="425" r="7.09"/>
+    <text class="tiny" x="540" y="456" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="588" cy="425" r="18"/>
+    <circle class="cut" cx="588" cy="425" r="7.09"/>
+    <text class="tiny" x="588" y="456" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="636" cy="425" r="18"/>
+    <circle class="cut" cx="636" cy="425" r="7.09"/>
+    <text class="tiny" x="636" y="456" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="684" cy="425" r="18"/>
+    <circle class="cut" cx="684" cy="425" r="7.09"/>
+    <text class="tiny" x="684" y="456" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="540" cy="483" r="18"/>
+    <circle class="cut" cx="540" cy="483" r="7.09"/>
+    <text class="tiny" x="540" y="514" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="588" cy="483" r="18"/>
+    <circle class="cut" cx="588" cy="483" r="7.09"/>
+    <text class="tiny" x="588" y="514" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="636" cy="483" r="18"/>
+    <circle class="cut" cx="636" cy="483" r="7.09"/>
+    <text class="tiny" x="636" y="514" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="684" cy="483" r="18"/>
+    <circle class="cut" cx="684" cy="483" r="7.09"/>
+    <text class="tiny" x="684" y="514" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="540" cy="541" r="18"/>
+    <circle class="cut" cx="540" cy="541" r="7.09"/>
+    <text class="tiny" x="540" y="572" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="588" cy="541" r="18"/>
+    <circle class="cut" cx="588" cy="541" r="7.09"/>
+    <text class="tiny" x="588" y="572" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="636" cy="541" r="18"/>
+    <circle class="cut" cx="636" cy="541" r="7.09"/>
+    <text class="tiny" x="636" y="572" font-size="8" text-anchor="middle">spacer</text>
+    <circle class="cut" cx="684" cy="541" r="18"/>
+    <circle class="cut" cx="684" cy="541" r="7.09"/>
+    <text class="tiny" x="684" y="572" font-size="8" text-anchor="middle">spacer</text>
+    <text class="tiny" x="540" y="620" font-size="10" text-anchor="start">연구 포인트: link length / pivot 위치만 바꿔 before-after path를 비교</text>
+</svg>

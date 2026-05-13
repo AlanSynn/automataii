@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 771.82 1073.65" version="1.1">
+  <title>MS4N 00 Bar Board Guide Overlay</title>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #0071bc; stroke-width: 0.8; stroke-miterlimit: 10; }
+      .guide { fill: none; stroke: #999999; stroke-width: 0.5; stroke-dasharray: 4 4; }
+      .fillcut { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 14px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 9px; }
+      .card { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; }
+      .soft { fill: #f5f7fa; stroke: #999999; stroke-width: 0.5; }
+    </style>
+  </defs>
+    <text class="label" x="24" y="30" font-size="16" text-anchor="start">MS4N-00 bar-board guide overlay: use with kit/bar-board.svg</text>
+    <text class="tiny" x="10.92" y="63" font-size="9" text-anchor="middle">A</text>
+    <line class="guide" x1="10.92" y1="72" x2="10.92" y2="1031.65"/>
+    <text class="tiny" x="86.04" y="63" font-size="9" text-anchor="middle">B</text>
+    <line class="guide" x1="86.04" y1="72" x2="86.04" y2="1031.65"/>
+    <text class="tiny" x="161.16" y="63" font-size="9" text-anchor="middle">C</text>
+    <line class="guide" x1="161.16" y1="72" x2="161.16" y2="1031.65"/>
+    <text class="tiny" x="236.28" y="63" font-size="9" text-anchor="middle">D</text>
+    <line class="guide" x1="236.28" y1="72" x2="236.28" y2="1031.65"/>
+    <text class="tiny" x="311.4" y="63" font-size="9" text-anchor="middle">E</text>
+    <line class="guide" x1="311.4" y1="72" x2="311.4" y2="1031.65"/>
+    <text class="tiny" x="386.52" y="63" font-size="9" text-anchor="middle">F</text>
+    <line class="guide" x1="386.52" y1="72" x2="386.52" y2="1031.65"/>
+    <text class="tiny" x="461.64" y="63" font-size="9" text-anchor="middle">G</text>
+    <line class="guide" x1="461.64" y1="72" x2="461.64" y2="1031.65"/>
+    <text class="tiny" x="536.76" y="63" font-size="9" text-anchor="middle">H</text>
+    <line class="guide" x1="536.76" y1="72" x2="536.76" y2="1031.65"/>
+    <text class="tiny" x="611.88" y="63" font-size="9" text-anchor="middle">I</text>
+    <line class="guide" x1="611.88" y1="72" x2="611.88" y2="1031.65"/>
+    <text class="tiny" x="687" y="63" font-size="9" text-anchor="middle">J</text>
+    <line class="guide" x1="687" y1="72" x2="687" y2="1031.65"/>
+    <text class="tiny" x="762.12" y="63" font-size="9" text-anchor="middle">K</text>
+    <line class="guide" x1="762.12" y1="72" x2="762.12" y2="1031.65"/>
+    <text class="tiny" x="33" y="14" font-size="9" text-anchor="middle">1</text>
+    <line class="guide" x1="48" y1="11" x2="736.82" y2="11"/>
+    <circle class="score" cx="10.92" cy="11" r="9.21"/>
+    <circle class="score" cx="86.04" cy="11" r="9.21"/>
+    <circle class="score" cx="161.16" cy="11" r="9.21"/>
+    <circle class="score" cx="236.28" cy="11" r="9.21"/>
+    <circle class="score" cx="311.4" cy="11" r="9.21"/>
+    <circle class="score" cx="386.52" cy="11" r="9.21"/>
+    <circle class="score" cx="461.64" cy="11" r="9.21"/>
+    <circle class="score" cx="536.76" cy="11" r="9.21"/>
+    <circle class="score" cx="611.88" cy="11" r="9.21"/>
+    <circle class="score" cx="687" cy="11" r="9.21"/>
+    <circle class="score" cx="762.12" cy="11" r="9.21"/>
+    <text class="tiny" x="33" y="89.12" font-size="9" text-anchor="middle">2</text>
+    <line class="guide" x1="48" y1="86.12" x2="736.82" y2="86.12"/>
+    <circle class="score" cx="10.92" cy="86.12" r="9.21"/>
+    <circle class="score" cx="86.04" cy="86.12" r="9.21"/>
+    <circle class="score" cx="161.16" cy="86.12" r="9.21"/>
+    <circle class="score" cx="236.28" cy="86.12" r="9.21"/>
+    <circle class="score" cx="311.4" cy="86.12" r="9.21"/>
+    <circle class="score" cx="386.52" cy="86.12" r="9.21"/>
+    <circle class="score" cx="461.64" cy="86.12" r="9.21"/>
+    <circle class="score" cx="536.76" cy="86.12" r="9.21"/>
+    <circle class="score" cx="611.88" cy="86.12" r="9.21"/>
+    <circle class="score" cx="687" cy="86.12" r="9.21"/>
+    <circle class="score" cx="762.12" cy="86.12" r="9.21"/>
+    <text class="tiny" x="33" y="164.24" font-size="9" text-anchor="middle">3</text>
+    <line class="guide" x1="48" y1="161.24" x2="736.82" y2="161.24"/>
+    <circle class="score" cx="10.92" cy="161.24" r="9.21"/>
+    <circle class="score" cx="86.04" cy="161.24" r="9.21"/>
+    <circle class="score" cx="161.16" cy="161.24" r="9.21"/>
+    <circle class="score" cx="236.28" cy="161.24" r="9.21"/>
+    <circle class="score" cx="311.4" cy="161.24" r="9.21"/>
+    <circle class="score" cx="386.52" cy="161.24" r="9.21"/>
+    <circle class="score" cx="461.64" cy="161.24" r="9.21"/>
+    <circle class="score" cx="536.76" cy="161.24" r="9.21"/>
+    <circle class="score" cx="611.88" cy="161.24" r="9.21"/>
+    <circle class="score" cx="687" cy="161.24" r="9.21"/>
+    <circle class="score" cx="762.12" cy="161.24" r="9.21"/>
+    <text class="tiny" x="33" y="239.36" font-size="9" text-anchor="middle">4</text>
+    <line class="guide" x1="48" y1="236.36" x2="736.82" y2="236.36"/>
+    <circle class="score" cx="10.92" cy="236.36" r="9.21"/>
+    <circle class="score" cx="86.04" cy="236.36" r="9.21"/>
+    <circle class="score" cx="161.16" cy="236.36" r="9.21"/>
+    <circle class="score" cx="236.28" cy="236.36" r="9.21"/>
+    <circle class="score" cx="311.4" cy="236.36" r="9.21"/>
+    <circle class="score" cx="386.52" cy="236.36" r="9.21"/>
+    <circle class="score" cx="461.64" cy="236.36" r="9.21"/>
+    <circle class="score" cx="536.76" cy="236.36" r="9.21"/>
+    <circle class="score" cx="611.88" cy="236.36" r="9.21"/>
+    <circle class="score" cx="687" cy="236.36" r="9.21"/>
+    <circle class="score" cx="762.12" cy="236.36" r="9.21"/>
+    <text class="tiny" x="33" y="314.48" font-size="9" text-anchor="middle">5</text>
+    <line class="guide" x1="48" y1="311.48" x2="736.82" y2="311.48"/>
+    <circle class="score" cx="10.92" cy="311.48" r="9.21"/>
+    <circle class="score" cx="86.04" cy="311.48" r="9.21"/>
+    <circle class="score" cx="161.16" cy="311.48" r="9.21"/>
+    <circle class="score" cx="236.28" cy="311.48" r="9.21"/>
+    <circle class="score" cx="311.4" cy="311.48" r="9.21"/>
+    <circle class="score" cx="386.52" cy="311.48" r="9.21"/>
+    <circle class="score" cx="461.64" cy="311.48" r="9.21"/>
+    <circle class="score" cx="536.76" cy="311.48" r="9.21"/>
+    <circle class="score" cx="611.88" cy="311.48" r="9.21"/>
+    <circle class="score" cx="687" cy="311.48" r="9.21"/>
+    <circle class="score" cx="762.12" cy="311.48" r="9.21"/>
+    <text class="tiny" x="33" y="389.6" font-size="9" text-anchor="middle">6</text>
+    <line class="guide" x1="48" y1="386.6" x2="736.82" y2="386.6"/>
+    <circle class="score" cx="10.92" cy="386.6" r="9.21"/>
+    <circle class="score" cx="86.04" cy="386.6" r="9.21"/>
+    <circle class="score" cx="161.16" cy="386.6" r="9.21"/>
+    <circle class="score" cx="236.28" cy="386.6" r="9.21"/>
+    <circle class="score" cx="311.4" cy="386.6" r="9.21"/>
+    <circle class="score" cx="386.52" cy="386.6" r="9.21"/>
+    <circle class="score" cx="461.64" cy="386.6" r="9.21"/>
+    <circle class="score" cx="536.76" cy="386.6" r="9.21"/>
+    <circle class="score" cx="611.88" cy="386.6" r="9.21"/>
+    <circle class="score" cx="687" cy="386.6" r="9.21"/>
+    <circle class="score" cx="762.12" cy="386.6" r="9.21"/>
+    <text class="tiny" x="33" y="464.72" font-size="9" text-anchor="middle">7</text>
+    <line class="guide" x1="48" y1="461.72" x2="736.82" y2="461.72"/>
+    <circle class="score" cx="10.92" cy="461.72" r="9.21"/>
+    <circle class="score" cx="86.04" cy="461.72" r="9.21"/>
+    <circle class="score" cx="161.16" cy="461.72" r="9.21"/>
+    <circle class="score" cx="236.28" cy="461.72" r="9.21"/>
+    <circle class="score" cx="311.4" cy="461.72" r="9.21"/>
+    <circle class="score" cx="386.52" cy="461.72" r="9.21"/>
+    <circle class="score" cx="461.64" cy="461.72" r="9.21"/>
+    <circle class="score" cx="536.76" cy="461.72" r="9.21"/>
+    <circle class="score" cx="611.88" cy="461.72" r="9.21"/>
+    <circle class="score" cx="687" cy="461.72" r="9.21"/>
+    <circle class="score" cx="762.12" cy="461.72" r="9.21"/>
+    <text class="tiny" x="33" y="539.84" font-size="9" text-anchor="middle">8</text>
+    <line class="guide" x1="48" y1="536.84" x2="736.82" y2="536.84"/>
+    <circle class="score" cx="10.92" cy="536.84" r="9.21"/>
+    <circle class="score" cx="86.04" cy="536.84" r="9.21"/>
+    <circle class="score" cx="161.16" cy="536.84" r="9.21"/>
+    <circle class="score" cx="236.28" cy="536.84" r="9.21"/>
+    <circle class="score" cx="311.4" cy="536.84" r="9.21"/>
+    <circle class="score" cx="386.52" cy="536.84" r="9.21"/>
+    <circle class="score" cx="461.64" cy="536.84" r="9.21"/>
+    <circle class="score" cx="536.76" cy="536.84" r="9.21"/>
+    <circle class="score" cx="611.88" cy="536.84" r="9.21"/>
+    <circle class="score" cx="687" cy="536.84" r="9.21"/>
+    <circle class="score" cx="762.12" cy="536.84" r="9.21"/>
+    <text class="tiny" x="33" y="614.96" font-size="9" text-anchor="middle">9</text>
+    <line class="guide" x1="48" y1="611.96" x2="736.82" y2="611.96"/>
+    <circle class="score" cx="10.92" cy="611.96" r="9.21"/>
+    <circle class="score" cx="86.04" cy="611.96" r="9.21"/>
+    <circle class="score" cx="161.16" cy="611.96" r="9.21"/>
+    <circle class="score" cx="236.28" cy="611.96" r="9.21"/>
+    <circle class="score" cx="311.4" cy="611.96" r="9.21"/>
+    <circle class="score" cx="386.52" cy="611.96" r="9.21"/>
+    <circle class="score" cx="461.64" cy="611.96" r="9.21"/>
+    <circle class="score" cx="536.76" cy="611.96" r="9.21"/>
+    <circle class="score" cx="611.88" cy="611.96" r="9.21"/>
+    <circle class="score" cx="687" cy="611.96" r="9.21"/>
+    <circle class="score" cx="762.12" cy="611.96" r="9.21"/>
+    <text class="tiny" x="33" y="690.08" font-size="9" text-anchor="middle">10</text>
+    <line class="guide" x1="48" y1="687.08" x2="736.82" y2="687.08"/>
+    <circle class="score" cx="10.92" cy="687.08" r="9.21"/>
+    <circle class="score" cx="86.04" cy="687.08" r="9.21"/>
+    <circle class="score" cx="161.16" cy="687.08" r="9.21"/>
+    <circle class="score" cx="236.28" cy="687.08" r="9.21"/>
+    <circle class="score" cx="311.4" cy="687.08" r="9.21"/>
+    <circle class="score" cx="386.52" cy="687.08" r="9.21"/>
+    <circle class="score" cx="461.64" cy="687.08" r="9.21"/>
+    <circle class="score" cx="536.76" cy="687.08" r="9.21"/>
+    <circle class="score" cx="611.88" cy="687.08" r="9.21"/>
+    <circle class="score" cx="687" cy="687.08" r="9.21"/>
+    <circle class="score" cx="762.12" cy="687.08" r="9.21"/>
+    <text class="tiny" x="33" y="765.2" font-size="9" text-anchor="middle">11</text>
+    <line class="guide" x1="48" y1="762.2" x2="736.82" y2="762.2"/>
+    <circle class="score" cx="10.92" cy="762.2" r="9.21"/>
+    <circle class="score" cx="86.04" cy="762.2" r="9.21"/>
+    <circle class="score" cx="161.16" cy="762.2" r="9.21"/>
+    <circle class="score" cx="236.28" cy="762.2" r="9.21"/>
+    <circle class="score" cx="311.4" cy="762.2" r="9.21"/>
+    <circle class="score" cx="386.52" cy="762.2" r="9.21"/>
+    <circle class="score" cx="461.64" cy="762.2" r="9.21"/>
+    <circle class="score" cx="536.76" cy="762.2" r="9.21"/>
+    <circle class="score" cx="611.88" cy="762.2" r="9.21"/>
+    <circle class="score" cx="687" cy="762.2" r="9.21"/>
+    <circle class="score" cx="762.12" cy="762.2" r="9.21"/>
+    <text class="tiny" x="33" y="840.32" font-size="9" text-anchor="middle">12</text>
+    <line class="guide" x1="48" y1="837.32" x2="736.82" y2="837.32"/>
+    <circle class="score" cx="10.92" cy="837.32" r="9.21"/>
+    <circle class="score" cx="86.04" cy="837.32" r="9.21"/>
+    <circle class="score" cx="161.16" cy="837.32" r="9.21"/>
+    <circle class="score" cx="236.28" cy="837.32" r="9.21"/>
+    <circle class="score" cx="311.4" cy="837.32" r="9.21"/>
+    <circle class="score" cx="386.52" cy="837.32" r="9.21"/>
+    <circle class="score" cx="461.64" cy="837.32" r="9.21"/>
+    <circle class="score" cx="536.76" cy="837.32" r="9.21"/>
+    <circle class="score" cx="611.88" cy="837.32" r="9.21"/>
+    <circle class="score" cx="687" cy="837.32" r="9.21"/>
+    <circle class="score" cx="762.12" cy="837.32" r="9.21"/>
+    <text class="tiny" x="33" y="915.44" font-size="9" text-anchor="middle">13</text>
+    <line class="guide" x1="48" y1="912.44" x2="736.82" y2="912.44"/>
+    <circle class="score" cx="10.92" cy="912.44" r="9.21"/>
+    <circle class="score" cx="86.04" cy="912.44" r="9.21"/>
+    <circle class="score" cx="161.16" cy="912.44" r="9.21"/>
+    <circle class="score" cx="236.28" cy="912.44" r="9.21"/>
+    <circle class="score" cx="311.4" cy="912.44" r="9.21"/>
+    <circle class="score" cx="386.52" cy="912.44" r="9.21"/>
+    <circle class="score" cx="461.64" cy="912.44" r="9.21"/>
+    <circle class="score" cx="536.76" cy="912.44" r="9.21"/>
+    <circle class="score" cx="611.88" cy="912.44" r="9.21"/>
+    <circle class="score" cx="687" cy="912.44" r="9.21"/>
+    <circle class="score" cx="762.12" cy="912.44" r="9.21"/>
+    <text class="tiny" x="33" y="990.56" font-size="9" text-anchor="middle">14</text>
+    <line class="guide" x1="48" y1="987.56" x2="736.82" y2="987.56"/>
+    <circle class="score" cx="10.92" cy="987.56" r="9.21"/>
+    <circle class="score" cx="86.04" cy="987.56" r="9.21"/>
+    <circle class="score" cx="161.16" cy="987.56" r="9.21"/>
+    <circle class="score" cx="236.28" cy="987.56" r="9.21"/>
+    <circle class="score" cx="311.4" cy="987.56" r="9.21"/>
+    <circle class="score" cx="386.52" cy="987.56" r="9.21"/>
+    <circle class="score" cx="461.64" cy="987.56" r="9.21"/>
+    <circle class="score" cx="536.76" cy="987.56" r="9.21"/>
+    <circle class="score" cx="611.88" cy="987.56" r="9.21"/>
+    <circle class="score" cx="687" cy="987.56" r="9.21"/>
+    <circle class="score" cx="762.12" cy="987.56" r="9.21"/>
+    <text class="tiny" x="33" y="1065.68" font-size="9" text-anchor="middle">15</text>
+    <line class="guide" x1="48" y1="1062.68" x2="736.82" y2="1062.68"/>
+    <circle class="score" cx="10.92" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="86.04" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="161.16" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="236.28" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="311.4" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="386.52" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="461.64" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="536.76" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="611.88" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="687" cy="1062.68" r="9.21"/>
+    <circle class="score" cx="762.12" cy="1062.68" r="9.21"/>
+    <rect class="score" x="70" y="105" width="250" height="250" rx="12" ry="12"/>
+    <text class="label" x="82" y="130" font-size="12" text-anchor="start">CAM ZONE</text>
+    <text class="tiny" x="82" y="148" font-size="8" text-anchor="start">shape → lift/rhythm</text>
+    <rect class="score" x="355" y="105" width="330" height="250" rx="12" ry="12"/>
+    <text class="label" x="367" y="130" font-size="12" text-anchor="start">LINKAGE ZONE</text>
+    <text class="tiny" x="367" y="148" font-size="8" text-anchor="start">length/pivot → path</text>
+    <rect class="score" x="70" y="405" width="250" height="240" rx="12" ry="12"/>
+    <text class="label" x="82" y="430" font-size="12" text-anchor="start">GEAR ZONE</text>
+    <text class="tiny" x="82" y="448" font-size="8" text-anchor="start">ratio → timing</text>
+    <rect class="score" x="355" y="405" width="330" height="240" rx="12" ry="12"/>
+    <text class="label" x="367" y="430" font-size="12" text-anchor="start">CHARACTER ZONE</text>
+    <text class="tiny" x="367" y="448" font-size="8" text-anchor="start">motion → expression</text>
+    <rect class="score" x="70" y="720" width="615" height="210" rx="12" ry="12"/>
+    <text class="label" x="82" y="745" font-size="12" text-anchor="start">TRACE / EXPLANATION</text>
+    <text class="tiny" x="82" y="763" font-size="8" text-anchor="start">before → change → after → why</text>
+    <rect class="score" x="105" y="965" width="160" height="48" rx="8" ry="8"/>
+    <text class="tiny" x="185" y="994" font-size="9" text-anchor="middle">1. 무엇을 바꿨나?</text>
+    <rect class="score" x="295" y="965" width="160" height="48" rx="8" ry="8"/>
+    <text class="tiny" x="375" y="994" font-size="9" text-anchor="middle">2. 움직임이 어떻게 달라졌나?</text>
+    <rect class="score" x="485" y="965" width="160" height="48" rx="8" ry="8"/>
+    <text class="tiny" x="565" y="994" font-size="9" text-anchor="middle">3. 왜 그렇게 됐나?</text>
+</svg>

@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 771.82 1073.65" version="1.1">
+  <title>MS4N 06 One-Change Prompt and Research Trace Cards</title>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #0071bc; stroke-width: 0.8; stroke-miterlimit: 10; }
+      .guide { fill: none; stroke: #999999; stroke-width: 0.5; stroke-dasharray: 4 4; }
+      .fillcut { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 14px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 9px; }
+      .card { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; }
+      .soft { fill: #f5f7fa; stroke: #999999; stroke-width: 0.5; }
+    </style>
+  </defs>
+    <text class="label" x="24" y="30" font-size="15" text-anchor="start">MS4N-06 Prompt cards: one change → one motion consequence → one explanation</text>
+    <rect class="card" x="35" y="65" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="45" y="87" font-size="12" text-anchor="start">Pivot만 옮기기</text>
+    <text class="tiny" x="195" y="87" font-size="8" text-anchor="end">PIVOT</text>
+    <text class="tiny" x="45" y="108" font-size="8" text-anchor="start">다른 것은 그대로</text>
+    <text class="tiny" x="45" y="121" font-size="8" text-anchor="start">움직임 path 비교</text>
+    <text class="tiny" x="45" y="134" font-size="8" text-anchor="start">왜 달라졌나?</text>
+    <rect class="score" x="45" y="143" width="7" height="7"/>
+    <text class="tiny" x="58" y="150" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="45" y="156" width="7" height="7"/>
+    <text class="tiny" x="58" y="163" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="45" y="169" width="7" height="7"/>
+    <text class="tiny" x="58" y="176" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="217" y="65" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="227" y="87" font-size="12" text-anchor="start">Link 길이만 바꾸기</text>
+    <text class="tiny" x="377" y="87" font-size="8" text-anchor="end">LINK</text>
+    <text class="tiny" x="227" y="108" font-size="8" text-anchor="start">짧게/길게</text>
+    <text class="tiny" x="227" y="121" font-size="8" text-anchor="start">진폭/방향 관찰</text>
+    <text class="tiny" x="227" y="134" font-size="8" text-anchor="start">예측 먼저 쓰기</text>
+    <rect class="score" x="227" y="143" width="7" height="7"/>
+    <text class="tiny" x="240" y="150" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="227" y="156" width="7" height="7"/>
+    <text class="tiny" x="240" y="163" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="227" y="169" width="7" height="7"/>
+    <text class="tiny" x="240" y="176" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="399" y="65" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="409" y="87" font-size="12" text-anchor="start">Cam 모양만 바꾸기</text>
+    <text class="tiny" x="559" y="87" font-size="8" text-anchor="end">CAM</text>
+    <text class="tiny" x="409" y="108" font-size="8" text-anchor="start">봉우리/완만함</text>
+    <text class="tiny" x="409" y="121" font-size="8" text-anchor="start">높이/리듬 관찰</text>
+    <text class="tiny" x="409" y="134" font-size="8" text-anchor="start">trace에 표시</text>
+    <rect class="score" x="409" y="143" width="7" height="7"/>
+    <text class="tiny" x="422" y="150" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="409" y="156" width="7" height="7"/>
+    <text class="tiny" x="422" y="163" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="409" y="169" width="7" height="7"/>
+    <text class="tiny" x="422" y="176" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="581" y="65" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="591" y="87" font-size="12" text-anchor="start">Gear만 바꾸기</text>
+    <text class="tiny" x="741" y="87" font-size="8" text-anchor="end">GEAR</text>
+    <text class="tiny" x="591" y="108" font-size="8" text-anchor="start">작은/큰 기어</text>
+    <text class="tiny" x="591" y="121" font-size="8" text-anchor="start">속도/방향 관찰</text>
+    <text class="tiny" x="591" y="134" font-size="8" text-anchor="start">비율 설명</text>
+    <rect class="score" x="591" y="143" width="7" height="7"/>
+    <text class="tiny" x="604" y="150" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="591" y="156" width="7" height="7"/>
+    <text class="tiny" x="604" y="163" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="591" y="169" width="7" height="7"/>
+    <text class="tiny" x="604" y="176" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="35" y="225" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="45" y="247" font-size="12" text-anchor="start">연결점만 바꾸기</text>
+    <text class="tiny" x="195" y="247" font-size="8" text-anchor="end">ATTACH</text>
+    <text class="tiny" x="45" y="268" font-size="8" text-anchor="start">캐릭터 팔/날개</text>
+    <text class="tiny" x="45" y="281" font-size="8" text-anchor="start">표현 의미 비교</text>
+    <text class="tiny" x="45" y="294" font-size="8" text-anchor="start">감정 단어 붙이기</text>
+    <rect class="score" x="45" y="303" width="7" height="7"/>
+    <text class="tiny" x="58" y="310" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="45" y="316" width="7" height="7"/>
+    <text class="tiny" x="58" y="323" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="45" y="329" width="7" height="7"/>
+    <text class="tiny" x="58" y="336" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="217" y="225" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="227" y="247" font-size="12" text-anchor="start">Jam Detective</text>
+    <text class="tiny" x="377" y="247" font-size="8" text-anchor="end">FAIL</text>
+    <text class="tiny" x="227" y="268" font-size="8" text-anchor="start">멈춘 곳 찾기</text>
+    <text class="tiny" x="227" y="281" font-size="8" text-anchor="start">마찰/충돌/정렬</text>
+    <text class="tiny" x="227" y="294" font-size="8" text-anchor="start">수정 전후 기록</text>
+    <rect class="score" x="227" y="303" width="7" height="7"/>
+    <text class="tiny" x="240" y="310" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="227" y="316" width="7" height="7"/>
+    <text class="tiny" x="240" y="323" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="227" y="329" width="7" height="7"/>
+    <text class="tiny" x="240" y="336" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="399" y="225" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="409" y="247" font-size="12" text-anchor="start">Prediction</text>
+    <text class="tiny" x="559" y="247" font-size="8" text-anchor="end">PRED</text>
+    <text class="tiny" x="409" y="268" font-size="8" text-anchor="start">바꾸기 전 예측</text>
+    <text class="tiny" x="409" y="281" font-size="8" text-anchor="start">실제와 비교</text>
+    <text class="tiny" x="409" y="294" font-size="8" text-anchor="start">틀렸다면 왜?</text>
+    <rect class="score" x="409" y="303" width="7" height="7"/>
+    <text class="tiny" x="422" y="310" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="409" y="316" width="7" height="7"/>
+    <text class="tiny" x="422" y="323" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="409" y="329" width="7" height="7"/>
+    <text class="tiny" x="422" y="336" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="581" y="225" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="591" y="247" font-size="12" text-anchor="start">Mismatch</text>
+    <text class="tiny" x="741" y="247" font-size="8" text-anchor="end">TWIN</text>
+    <text class="tiny" x="591" y="268" font-size="8" text-anchor="start">시뮬레이션 vs 실제</text>
+    <text class="tiny" x="591" y="281" font-size="8" text-anchor="start">헐거움/마찰/재료</text>
+    <text class="tiny" x="591" y="294" font-size="8" text-anchor="start">새 가설 만들기</text>
+    <rect class="score" x="591" y="303" width="7" height="7"/>
+    <text class="tiny" x="604" y="310" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="591" y="316" width="7" height="7"/>
+    <text class="tiny" x="604" y="323" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="591" y="329" width="7" height="7"/>
+    <text class="tiny" x="604" y="336" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="35" y="385" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="45" y="407" font-size="12" text-anchor="start">Teacher Prompt</text>
+    <text class="tiny" x="195" y="407" font-size="8" text-anchor="end">TEACH</text>
+    <text class="tiny" x="45" y="428" font-size="8" text-anchor="start">무엇을 바꿨니?</text>
+    <text class="tiny" x="45" y="441" font-size="8" text-anchor="start">어떻게 달라졌니?</text>
+    <text class="tiny" x="45" y="454" font-size="8" text-anchor="start">증거는 어디 있니?</text>
+    <rect class="score" x="45" y="463" width="7" height="7"/>
+    <text class="tiny" x="58" y="470" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="45" y="476" width="7" height="7"/>
+    <text class="tiny" x="58" y="483" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="45" y="489" width="7" height="7"/>
+    <text class="tiny" x="58" y="496" font-size="7" text-anchor="start">왜?</text>
+    <rect class="card" x="217" y="385" width="170" height="128" rx="8" ry="8"/>
+    <text class="label" x="227" y="407" font-size="12" text-anchor="start">Portfolio</text>
+    <text class="tiny" x="377" y="407" font-size="8" text-anchor="end">TRACE</text>
+    <text class="tiny" x="227" y="428" font-size="8" text-anchor="start">before 사진</text>
+    <text class="tiny" x="227" y="441" font-size="8" text-anchor="start">after 사진</text>
+    <text class="tiny" x="227" y="454" font-size="8" text-anchor="start">내 설명 고르기</text>
+    <rect class="score" x="227" y="463" width="7" height="7"/>
+    <text class="tiny" x="240" y="470" font-size="7" text-anchor="start">바꾼 것</text>
+    <rect class="score" x="227" y="476" width="7" height="7"/>
+    <text class="tiny" x="240" y="483" font-size="7" text-anchor="start">달라진 motion</text>
+    <rect class="score" x="227" y="489" width="7" height="7"/>
+    <text class="tiny" x="240" y="496" font-size="7" text-anchor="start">왜?</text>
+    <text class="tiny" x="40" y="570" font-size="10" text-anchor="start">Blank fiducial/trace markers: print labels or replace with ArUco/AprilTag IDs</text>
+    <rect class="cut" x="45" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="55" y="620" width="28" height="28"/>
+    <text class="tiny" x="69" y="675" font-size="8" text-anchor="middle">M01</text>
+    <rect class="cut" x="131" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="141" y="620" width="28" height="28"/>
+    <text class="tiny" x="155" y="675" font-size="8" text-anchor="middle">M02</text>
+    <rect class="cut" x="217" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="227" y="620" width="28" height="28"/>
+    <text class="tiny" x="241" y="675" font-size="8" text-anchor="middle">M03</text>
+    <rect class="cut" x="303" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="313" y="620" width="28" height="28"/>
+    <text class="tiny" x="327" y="675" font-size="8" text-anchor="middle">M04</text>
+    <rect class="cut" x="389" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="399" y="620" width="28" height="28"/>
+    <text class="tiny" x="413" y="675" font-size="8" text-anchor="middle">M05</text>
+    <rect class="cut" x="475" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="485" y="620" width="28" height="28"/>
+    <text class="tiny" x="499" y="675" font-size="8" text-anchor="middle">M06</text>
+    <rect class="cut" x="561" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="571" y="620" width="28" height="28"/>
+    <text class="tiny" x="585" y="675" font-size="8" text-anchor="middle">M07</text>
+    <rect class="cut" x="647" y="610" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="657" y="620" width="28" height="28"/>
+    <text class="tiny" x="671" y="675" font-size="8" text-anchor="middle">M08</text>
+    <rect class="cut" x="45" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="55" y="710" width="28" height="28"/>
+    <text class="tiny" x="69" y="765" font-size="8" text-anchor="middle">M09</text>
+    <rect class="cut" x="131" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="141" y="710" width="28" height="28"/>
+    <text class="tiny" x="155" y="765" font-size="8" text-anchor="middle">M10</text>
+    <rect class="cut" x="217" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="227" y="710" width="28" height="28"/>
+    <text class="tiny" x="241" y="765" font-size="8" text-anchor="middle">M11</text>
+    <rect class="cut" x="303" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="313" y="710" width="28" height="28"/>
+    <text class="tiny" x="327" y="765" font-size="8" text-anchor="middle">M12</text>
+    <rect class="cut" x="389" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="399" y="710" width="28" height="28"/>
+    <text class="tiny" x="413" y="765" font-size="8" text-anchor="middle">M13</text>
+    <rect class="cut" x="475" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="485" y="710" width="28" height="28"/>
+    <text class="tiny" x="499" y="765" font-size="8" text-anchor="middle">M14</text>
+    <rect class="cut" x="561" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="571" y="710" width="28" height="28"/>
+    <text class="tiny" x="585" y="765" font-size="8" text-anchor="middle">M15</text>
+    <rect class="cut" x="647" y="700" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="657" y="710" width="28" height="28"/>
+    <text class="tiny" x="671" y="765" font-size="8" text-anchor="middle">M16</text>
+    <rect class="cut" x="45" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="55" y="800" width="28" height="28"/>
+    <text class="tiny" x="69" y="855" font-size="8" text-anchor="middle">M17</text>
+    <rect class="cut" x="131" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="141" y="800" width="28" height="28"/>
+    <text class="tiny" x="155" y="855" font-size="8" text-anchor="middle">M18</text>
+    <rect class="cut" x="217" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="227" y="800" width="28" height="28"/>
+    <text class="tiny" x="241" y="855" font-size="8" text-anchor="middle">M19</text>
+    <rect class="cut" x="303" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="313" y="800" width="28" height="28"/>
+    <text class="tiny" x="327" y="855" font-size="8" text-anchor="middle">M20</text>
+    <rect class="cut" x="389" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="399" y="800" width="28" height="28"/>
+    <text class="tiny" x="413" y="855" font-size="8" text-anchor="middle">M21</text>
+    <rect class="cut" x="475" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="485" y="800" width="28" height="28"/>
+    <text class="tiny" x="499" y="855" font-size="8" text-anchor="middle">M22</text>
+    <rect class="cut" x="561" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="571" y="800" width="28" height="28"/>
+    <text class="tiny" x="585" y="855" font-size="8" text-anchor="middle">M23</text>
+    <rect class="cut" x="647" y="790" width="48" height="48" rx="3" ry="3"/>
+    <rect class="score" x="657" y="800" width="28" height="28"/>
+    <text class="tiny" x="671" y="855" font-size="8" text-anchor="middle">M24</text>
+    <text class="tiny" x="40" y="930" font-size="10" text-anchor="start">연구 trace 필드: changed_parameter / motion_consequence / explanation / breakdown / repair</text>
+</svg>

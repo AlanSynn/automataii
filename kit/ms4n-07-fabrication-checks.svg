@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 771.82 1073.65" version="1.1">
+  <title>MS4N 07 Fabrication Checker, Tolerance, Spacers</title>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #0071bc; stroke-width: 0.8; stroke-miterlimit: 10; }
+      .guide { fill: none; stroke: #999999; stroke-width: 0.5; stroke-dasharray: 4 4; }
+      .fillcut { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 14px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 9px; }
+      .card { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; }
+      .soft { fill: #f5f7fa; stroke: #999999; stroke-width: 0.5; }
+    </style>
+  </defs>
+    <text class="label" x="24" y="30" font-size="15" text-anchor="start">MS4N-07 Fabrication checks: turn physical breakdowns into explanation data</text>
+    <text class="label" x="55" y="75" font-size="12" text-anchor="start">Hole tolerance ladder (test before workshop)</text>
+    <circle class="cut" cx="65" cy="125" r="24"/>
+    <circle class="cut" cx="65" cy="125" r="5.8"/>
+    <text class="tiny" x="65" y="171" font-size="8" text-anchor="middle">r5.8</text>
+    <circle class="cut" cx="135" cy="125" r="24"/>
+    <circle class="cut" cx="135" cy="125" r="6.3"/>
+    <text class="tiny" x="135" y="171" font-size="8" text-anchor="middle">r6.3</text>
+    <circle class="cut" cx="205" cy="125" r="24"/>
+    <circle class="cut" cx="205" cy="125" r="6.8"/>
+    <text class="tiny" x="205" y="171" font-size="8" text-anchor="middle">r6.8</text>
+    <circle class="cut" cx="275" cy="125" r="24"/>
+    <circle class="cut" cx="275" cy="125" r="7.1"/>
+    <text class="tiny" x="275" y="171" font-size="8" text-anchor="middle">r7.1</text>
+    <circle class="cut" cx="345" cy="125" r="24"/>
+    <circle class="cut" cx="345" cy="125" r="7.5"/>
+    <text class="tiny" x="345" y="171" font-size="8" text-anchor="middle">r7.5</text>
+    <circle class="cut" cx="415" cy="125" r="24"/>
+    <circle class="cut" cx="415" cy="125" r="8"/>
+    <text class="tiny" x="415" y="171" font-size="8" text-anchor="middle">r8.0</text>
+    <circle class="cut" cx="485" cy="125" r="24"/>
+    <circle class="cut" cx="485" cy="125" r="8.5"/>
+    <text class="tiny" x="485" y="171" font-size="8" text-anchor="middle">r8.5</text>
+    <circle class="cut" cx="555" cy="125" r="24"/>
+    <circle class="cut" cx="555" cy="125" r="9.2"/>
+    <text class="tiny" x="555" y="171" font-size="8" text-anchor="middle">r9.2</text>
+    <circle class="cut" cx="625" cy="125" r="24"/>
+    <circle class="cut" cx="625" cy="125" r="9.8"/>
+    <text class="tiny" x="625" y="171" font-size="8" text-anchor="middle">r9.8</text>
+    <text class="label" x="55" y="220" font-size="12" text-anchor="start">Washers / spacer stack labels</text>
+    <circle class="cut" cx="70" cy="280" r="28"/>
+    <circle class="cut" cx="70" cy="280" r="7.09"/>
+    <text class="tiny" x="70" y="321" font-size="8" text-anchor="middle">0.5mm</text>
+    <circle class="cut" cx="175" cy="280" r="28"/>
+    <circle class="cut" cx="175" cy="280" r="7.09"/>
+    <text class="tiny" x="175" y="321" font-size="8" text-anchor="middle">1mm</text>
+    <circle class="cut" cx="280" cy="280" r="28"/>
+    <circle class="cut" cx="280" cy="280" r="7.09"/>
+    <text class="tiny" x="280" y="321" font-size="8" text-anchor="middle">2mm</text>
+    <circle class="cut" cx="385" cy="280" r="28"/>
+    <circle class="cut" cx="385" cy="280" r="7.09"/>
+    <text class="tiny" x="385" y="321" font-size="8" text-anchor="middle">3mm</text>
+    <circle class="cut" cx="490" cy="280" r="28"/>
+    <circle class="cut" cx="490" cy="280" r="7.09"/>
+    <text class="tiny" x="490" y="321" font-size="8" text-anchor="middle">5mm</text>
+    <circle class="cut" cx="595" cy="280" r="28"/>
+    <circle class="cut" cx="595" cy="280" r="7.09"/>
+    <text class="tiny" x="595" y="321" font-size="8" text-anchor="middle">8mm</text>
+    <circle class="cut" cx="70" cy="375" r="28"/>
+    <circle class="cut" cx="70" cy="375" r="7.09"/>
+    <text class="tiny" x="70" y="416" font-size="8" text-anchor="middle">10mm</text>
+    <circle class="cut" cx="175" cy="375" r="28"/>
+    <circle class="cut" cx="175" cy="375" r="7.09"/>
+    <text class="tiny" x="175" y="416" font-size="8" text-anchor="middle">15mm</text>
+    <circle class="cut" cx="280" cy="375" r="28"/>
+    <circle class="cut" cx="280" cy="375" r="7.09"/>
+    <text class="tiny" x="280" y="416" font-size="8" text-anchor="middle">20mm</text>
+    <circle class="cut" cx="385" cy="375" r="28"/>
+    <circle class="cut" cx="385" cy="375" r="7.09"/>
+    <text class="tiny" x="385" y="416" font-size="8" text-anchor="middle">30mm</text>
+    <circle class="cut" cx="490" cy="375" r="28"/>
+    <circle class="cut" cx="490" cy="375" r="7.09"/>
+    <text class="tiny" x="490" y="416" font-size="8" text-anchor="middle">loosemm</text>
+    <circle class="cut" cx="595" cy="375" r="28"/>
+    <circle class="cut" cx="595" cy="375" r="7.09"/>
+    <text class="tiny" x="595" y="416" font-size="8" text-anchor="middle">tightmm</text>
+    <text class="label" x="55" y="505" font-size="12" text-anchor="start">Interference / clearance gauges</text>
+    <rect class="cut" x="60" y="560" width="80" height="52" rx="6" ry="6"/>
+    <path class="cut" d="M 80 583.5 L 120 583.5 A 2.5 2.5 0 0 1 120 588.5 L 80 588.5 A 2.5 2.5 0 0 1 80 583.5 Z"/>
+    <text class="tiny" x="100" y="632" font-size="8" text-anchor="middle">gap 5</text>
+    <rect class="cut" x="170" y="560" width="80" height="52" rx="6" ry="6"/>
+    <path class="cut" d="M 190 582 L 230 582 A 4 4 0 0 1 230 590 L 190 590 A 4 4 0 0 1 190 582 Z"/>
+    <text class="tiny" x="210" y="632" font-size="8" text-anchor="middle">gap 8</text>
+    <rect class="cut" x="280" y="560" width="80" height="52" rx="6" ry="6"/>
+    <path class="cut" d="M 300 581 L 340 581 A 5 5 0 0 1 340 591 L 300 591 A 5 5 0 0 1 300 581 Z"/>
+    <text class="tiny" x="320" y="632" font-size="8" text-anchor="middle">gap 10</text>
+    <rect class="cut" x="390" y="560" width="80" height="52" rx="6" ry="6"/>
+    <path class="cut" d="M 410 580 L 450 580 A 6 6 0 0 1 450 592 L 410 592 A 6 6 0 0 1 410 580 Z"/>
+    <text class="tiny" x="430" y="632" font-size="8" text-anchor="middle">gap 12</text>
+    <rect class="cut" x="500" y="560" width="80" height="52" rx="6" ry="6"/>
+    <path class="cut" d="M 520 578.5 L 560 578.5 A 7.5 7.5 0 0 1 560 593.5 L 520 593.5 A 7.5 7.5 0 0 1 520 578.5 Z"/>
+    <text class="tiny" x="540" y="632" font-size="8" text-anchor="middle">gap 15</text>
+    <rect class="cut" x="610" y="560" width="80" height="52" rx="6" ry="6"/>
+    <path class="cut" d="M 630 576 L 670 576 A 10 10 0 0 1 670 596 L 630 596 A 10 10 0 0 1 630 576 Z"/>
+    <text class="tiny" x="650" y="632" font-size="8" text-anchor="middle">gap 20</text>
+    <rect class="cut" x="55" y="720" width="180" height="72" rx="8" ry="8"/>
+    <text class="label" x="145" y="750" font-size="11" text-anchor="middle">FRICTION</text>
+    <text class="tiny" x="145" y="772" font-size="8" text-anchor="middle">failure → evidence → repair</text>
+    <rect class="cut" x="280" y="720" width="180" height="72" rx="8" ry="8"/>
+    <text class="label" x="370" y="750" font-size="11" text-anchor="middle">COLLISION</text>
+    <text class="tiny" x="370" y="772" font-size="8" text-anchor="middle">failure → evidence → repair</text>
+    <rect class="cut" x="505" y="720" width="180" height="72" rx="8" ry="8"/>
+    <text class="label" x="595" y="750" font-size="11" text-anchor="middle">LOOSE</text>
+    <text class="tiny" x="595" y="772" font-size="8" text-anchor="middle">failure → evidence → repair</text>
+    <rect class="cut" x="55" y="830" width="180" height="72" rx="8" ry="8"/>
+    <text class="label" x="145" y="860" font-size="11" text-anchor="middle">OVER-CONSTRAINED</text>
+    <text class="tiny" x="145" y="882" font-size="8" text-anchor="middle">failure → evidence → repair</text>
+    <rect class="cut" x="280" y="830" width="180" height="72" rx="8" ry="8"/>
+    <text class="label" x="370" y="860" font-size="11" text-anchor="middle">MISALIGNED</text>
+    <text class="tiny" x="370" y="882" font-size="8" text-anchor="middle">failure → evidence → repair</text>
+    <rect class="cut" x="505" y="830" width="180" height="72" rx="8" ry="8"/>
+    <text class="label" x="595" y="860" font-size="11" text-anchor="middle">MATERIAL BEND</text>
+    <text class="tiny" x="595" y="882" font-size="8" text-anchor="middle">failure → evidence → repair</text>
+</svg>

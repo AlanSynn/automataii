@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 771.82 1073.65" version="1.1">
+  <title>MS4N 05 Character Action Layer and Output Interfaces</title>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #0071bc; stroke-width: 0.8; stroke-miterlimit: 10; }
+      .guide { fill: none; stroke: #999999; stroke-width: 0.5; stroke-dasharray: 4 4; }
+      .fillcut { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; stroke-miterlimit: 10; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 14px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 9px; }
+      .card { fill: #ffffff; stroke: #ed1c24; stroke-width: 1; }
+      .soft { fill: #f5f7fa; stroke: #999999; stroke-width: 0.5; }
+    </style>
+  </defs>
+    <text class="label" x="24" y="30" font-size="16" text-anchor="start">MS4N-05 Character connectors: output motion → expressive action</text>
+    <path class="cut" d="M 140 80 C 200 85 230 145 210 215 C 195 270 100 270 85 215 C 65 145 80 85 140 80 Z"/>
+    <circle class="cut" cx="105" cy="145" r="7.09"/>
+    <circle class="cut" cx="175" cy="145" r="7.09"/>
+    <circle class="cut" cx="140" cy="105" r="7.09"/>
+    <circle class="cut" cx="140" cy="195" r="7.09"/>
+    <circle class="cut" cx="105" cy="225" r="7.09"/>
+    <circle class="cut" cx="175" cy="225" r="7.09"/>
+    <text class="tiny" x="140" y="293" font-size="9" text-anchor="middle">body A</text>
+    <path class="cut" d="M 460 80 C 520 85 550 145 530 215 C 515 270 420 270 405 215 C 385 145 400 85 460 80 Z"/>
+    <circle class="cut" cx="425" cy="145" r="7.09"/>
+    <circle class="cut" cx="495" cy="145" r="7.09"/>
+    <circle class="cut" cx="460" cy="105" r="7.09"/>
+    <circle class="cut" cx="460" cy="195" r="7.09"/>
+    <circle class="cut" cx="425" cy="225" r="7.09"/>
+    <circle class="cut" cx="495" cy="225" r="7.09"/>
+    <text class="tiny" x="460" y="293" font-size="9" text-anchor="middle">body B</text>
+    <path class="cut" d="M 60 385 C 130 340 250 345 320 385 C 250 425 130 430 60 385 Z"/>
+    <circle class="cut" cx="92" cy="385" r="7.09"/>
+    <circle class="cut" cx="155" cy="385" r="7.09"/>
+    <circle class="cut" cx="220" cy="385" r="7.09"/>
+    <circle class="cut" cx="285" cy="385" r="7.09"/>
+    <text class="tiny" x="190" y="442" font-size="8" text-anchor="middle">arm 1</text>
+    <path class="cut" d="M 400 385 C 470 340 590 345 660 385 C 590 425 470 430 400 385 Z"/>
+    <circle class="cut" cx="432" cy="385" r="7.09"/>
+    <circle class="cut" cx="495" cy="385" r="7.09"/>
+    <circle class="cut" cx="560" cy="385" r="7.09"/>
+    <circle class="cut" cx="625" cy="385" r="7.09"/>
+    <text class="tiny" x="530" y="442" font-size="8" text-anchor="middle">arm 2</text>
+    <path class="cut" d="M 60 495 C 130 450 250 455 320 495 C 250 535 130 540 60 495 Z"/>
+    <circle class="cut" cx="92" cy="495" r="7.09"/>
+    <circle class="cut" cx="155" cy="495" r="7.09"/>
+    <circle class="cut" cx="220" cy="495" r="7.09"/>
+    <circle class="cut" cx="285" cy="495" r="7.09"/>
+    <text class="tiny" x="190" y="552" font-size="8" text-anchor="middle">wing 1</text>
+    <path class="cut" d="M 400 495 C 470 450 590 455 660 495 C 590 535 470 540 400 495 Z"/>
+    <circle class="cut" cx="432" cy="495" r="7.09"/>
+    <circle class="cut" cx="495" cy="495" r="7.09"/>
+    <circle class="cut" cx="560" cy="495" r="7.09"/>
+    <circle class="cut" cx="625" cy="495" r="7.09"/>
+    <text class="tiny" x="530" y="552" font-size="8" text-anchor="middle">wing 2</text>
+    <path class="cut" d="M 60 605 C 130 560 250 565 320 605 C 250 645 130 650 60 605 Z"/>
+    <circle class="cut" cx="92" cy="605" r="7.09"/>
+    <circle class="cut" cx="155" cy="605" r="7.09"/>
+    <circle class="cut" cx="220" cy="605" r="7.09"/>
+    <circle class="cut" cx="285" cy="605" r="7.09"/>
+    <text class="tiny" x="190" y="662" font-size="8" text-anchor="middle">tail 1</text>
+    <path class="cut" d="M 400 605 C 470 560 590 565 660 605 C 590 645 470 650 400 605 Z"/>
+    <circle class="cut" cx="432" cy="605" r="7.09"/>
+    <circle class="cut" cx="495" cy="605" r="7.09"/>
+    <circle class="cut" cx="560" cy="605" r="7.09"/>
+    <circle class="cut" cx="625" cy="605" r="7.09"/>
+    <text class="tiny" x="530" y="662" font-size="8" text-anchor="middle">tail 2</text>
+    <path class="cut" d="M 60 715 C 130 670 250 675 320 715 C 250 755 130 760 60 715 Z"/>
+    <circle class="cut" cx="92" cy="715" r="7.09"/>
+    <circle class="cut" cx="155" cy="715" r="7.09"/>
+    <circle class="cut" cx="220" cy="715" r="7.09"/>
+    <circle class="cut" cx="285" cy="715" r="7.09"/>
+    <text class="tiny" x="190" y="772" font-size="8" text-anchor="middle">head bob 1</text>
+    <path class="cut" d="M 400 715 C 470 670 590 675 660 715 C 590 755 470 760 400 715 Z"/>
+    <circle class="cut" cx="432" cy="715" r="7.09"/>
+    <circle class="cut" cx="495" cy="715" r="7.09"/>
+    <circle class="cut" cx="560" cy="715" r="7.09"/>
+    <circle class="cut" cx="625" cy="715" r="7.09"/>
+    <text class="tiny" x="530" y="772" font-size="8" text-anchor="middle">head bob 2</text>
+    <rect class="cut" x="70" y="845" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="95" cy="865" r="7.09"/>
+    <circle class="cut" cx="150" cy="865" r="7.09"/>
+    <text class="tiny" x="122" y="903" font-size="8" text-anchor="middle">motion tab</text>
+    <rect class="cut" x="230" y="845" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="255" cy="865" r="7.09"/>
+    <circle class="cut" cx="310" cy="865" r="7.09"/>
+    <text class="tiny" x="282" y="903" font-size="8" text-anchor="middle">motion tab</text>
+    <rect class="cut" x="390" y="845" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="415" cy="865" r="7.09"/>
+    <circle class="cut" cx="470" cy="865" r="7.09"/>
+    <text class="tiny" x="442" y="903" font-size="8" text-anchor="middle">motion tab</text>
+    <rect class="cut" x="550" y="845" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="575" cy="865" r="7.09"/>
+    <circle class="cut" cx="630" cy="865" r="7.09"/>
+    <text class="tiny" x="602" y="903" font-size="8" text-anchor="middle">motion tab</text>
+    <rect class="cut" x="70" y="930" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="95" cy="950" r="7.09"/>
+    <circle class="cut" cx="150" cy="950" r="7.09"/>
+    <text class="tiny" x="122" y="988" font-size="8" text-anchor="middle">motion tab</text>
+    <rect class="cut" x="230" y="930" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="255" cy="950" r="7.09"/>
+    <circle class="cut" cx="310" cy="950" r="7.09"/>
+    <text class="tiny" x="282" y="988" font-size="8" text-anchor="middle">motion tab</text>
+    <rect class="cut" x="390" y="930" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="415" cy="950" r="7.09"/>
+    <circle class="cut" cx="470" cy="950" r="7.09"/>
+    <text class="tiny" x="442" y="988" font-size="8" text-anchor="middle">motion tab</text>
+    <rect class="cut" x="550" y="930" width="105" height="40" rx="8" ry="8"/>
+    <circle class="cut" cx="575" cy="950" r="7.09"/>
+    <circle class="cut" cx="630" cy="950" r="7.09"/>
+    <text class="tiny" x="602" y="988" font-size="8" text-anchor="middle">motion tab</text>
+</svg>
