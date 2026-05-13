@@ -470,6 +470,13 @@ src/automataii/examples/
 *.yaml
 *.html
 
+# MS4N physical kit files are source assets despite global SVG/OBJ ignores.
+!kit/
+!kit/**/*.svg
+!kit/**/*.obj
+!kit/**/*.json
+!kit/**/*.yaml
+
 *venv*
 tmp/
 .claude/
@@ -486,3 +493,7 @@ tmp/
 .uv-cache
 .cursor
 .refactor_backup/
+
+# Keep macOS metadata out even under broad resource unignore rules.
+.DS_Store
+**/.DS_Store
