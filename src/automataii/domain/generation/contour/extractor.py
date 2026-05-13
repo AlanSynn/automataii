@@ -7,13 +7,45 @@ Pure domain logic using OpenCV/NumPy - NO Qt dependencies.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
+from typing import SupportsFloat, SupportsIndex, cast
 
 import cv2
 import numpy as np
 
 from automataii.domain.generation.contour.models import ManufacturingContour
+
+_FloatPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+_SVG_COORD_PATTERN = re.compile(
+    r"([ML])\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+    r"[\s,]+([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)"
+)
+
+
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(_FloatPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _nonnegative_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result >= 0.0 else default
+
+
+def _as_uint8_mask(mask: np.ndarray) -> np.ndarray:
+    if mask.dtype == np.uint8:
+        return mask
+    try:
+        numeric_mask = mask.astype(np.float64, copy=False)
+    except (TypeError, ValueError):
+        return np.zeros(mask.shape, dtype=np.uint8)
+    finite = np.nan_to_num(numeric_mask, nan=0.0, posinf=255.0, neginf=0.0)
+    return np.clip(finite, 0.0, 255.0).astype(np.uint8)
 
 
 class AdvancedContourExtractor:
@@ -27,8 +59,8 @@ class AdvancedContourExtractor:
             tolerance: Douglas-Peucker simplification tolerance
             min_area: Minimum contour area to consider (filters noise)
         """
-        self.tolerance = tolerance
-        self.min_area = min_area
+        self.tolerance = _nonnegative_finite_float(tolerance, 2.0)
+        self.min_area = _nonnegative_finite_float(min_area, 100.0)
         self.logger = logging.getLogger(__name__)
 
     def extract_manufacturing_contours(
@@ -43,6 +75,9 @@ class AdvancedContourExtractor:
         Returns:
             List of ManufacturingContour objects
         """
+        if not isinstance(png_path, str | bytes | os.PathLike):
+            self.logger.error("PNG path must be path-like, got %r", png_path)
+            return []
         if not os.path.exists(png_path):
             self.logger.error(f"PNG file not found: {png_path}")
             return []
@@ -77,7 +112,7 @@ class AdvancedContourExtractor:
                     continue
 
                 # 5. Simplify contours using Douglas-Peucker algorithm
-                epsilon = self.tolerance
+                epsilon = _nonnegative_finite_float(self.tolerance, 2.0)
                 simplified_contour = cv2.approxPolyDP(contour, epsilon, True)
 
                 # 6. Convert to manufacturing-precision SVG paths
@@ -99,15 +134,17 @@ class AdvancedContourExtractor:
 
     def _extract_alpha_mask(self, image: np.ndarray) -> np.ndarray | None:
         """Extract alpha mask from image based on format."""
+        if not isinstance(image, np.ndarray) or image.size == 0:
+            return None
         if len(image.shape) == 2:
             # Grayscale image
-            return image
+            return _as_uint8_mask(image)
         elif len(image.shape) < 3:
             # Invalid image format (1D array or similar)
             return None
         elif image.shape[2] == 3:
             # RGB image - create mask from non-background pixels
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(_as_uint8_mask(image), cv2.COLOR_BGR2GRAY)
 
             # Use adaptive thresholding for better edge detection
             alpha_mask = cv2.adaptiveThreshold(
@@ -129,7 +166,7 @@ class AdvancedContourExtractor:
             return alpha_mask
         elif image.shape[2] == 4:
             # RGBA image - use alpha channel
-            return image[:, :, 3]
+            return _as_uint8_mask(image[:, :, 3])
         return None
 
     def _preprocess_mask(self, alpha_mask: np.ndarray) -> np.ndarray:
@@ -138,8 +175,11 @@ class AdvancedContourExtractor:
         Applies Canny edge detection and adaptive thresholding.
         """
         # Ensure binary mask
-        if alpha_mask.dtype != np.uint8:
-            alpha_mask = alpha_mask.astype(np.uint8)
+        if not isinstance(alpha_mask, np.ndarray) or alpha_mask.size == 0 or alpha_mask.ndim < 2:
+            return np.zeros((1, 1), dtype=np.uint8)
+        if len(alpha_mask.shape) > 2:
+            alpha_mask = alpha_mask[:, :, 0]
+        alpha_mask = _as_uint8_mask(alpha_mask)
 
         # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(alpha_mask, (5, 5), 0)
@@ -180,7 +220,15 @@ class AdvancedContourExtractor:
         Performance: Uses list comprehension + join instead of string concatenation
         for O(N) vs O(N²) complexity.
         """
-        if len(contour) == 0:
+        if not isinstance(contour, np.ndarray) or contour.size == 0 or contour.ndim == 0:
+            return ""
+
+        try:
+            points = np.asarray(contour, dtype=float).reshape(-1, 2)
+        except (TypeError, ValueError):
+            return ""
+        finite_points = points[np.isfinite(points).all(axis=1)]
+        if finite_points.size == 0:
             return ""
 
         # OPTIMIZATION: Use list + join instead of string concatenation
@@ -189,13 +237,13 @@ class AdvancedContourExtractor:
         parts = []
 
         # Start with MoveTo command
-        first_point = contour[0][0]
+        first_point = finite_points[0]
         parts.append(f"M {first_point[0]:.2f} {first_point[1]:.2f}")
 
         # Add LineTo commands for each subsequent point using list comprehension
         parts.extend(
-            f"L {contour[i][0][0]:.2f} {contour[i][0][1]:.2f}"
-            for i in range(1, len(contour))
+            f"L {finite_points[i][0]:.2f} {finite_points[i][1]:.2f}"
+            for i in range(1, len(finite_points))
         )
 
         # Close the path
@@ -207,18 +255,21 @@ class AdvancedContourExtractor:
         self, svg_path: str, offset_x: float, offset_y: float
     ) -> str:
         """Apply offset to SVG path coordinates."""
-        if not svg_path:
+        if not isinstance(svg_path, str) or not svg_path:
             return ""
+        offset_x = _finite_float(offset_x, 0.0)
+        offset_y = _finite_float(offset_y, 0.0)
 
         def offset_coords(match: re.Match[str]) -> str:
             command = match.group(1)
-            x = float(match.group(2)) + offset_x
-            y = float(match.group(3)) + offset_y
+            x = _finite_float(match.group(2), math.nan) + offset_x
+            y = _finite_float(match.group(3), math.nan) + offset_y
+            if not math.isfinite(x) or not math.isfinite(y):
+                return match.group(0)
             return f"{command} {x:.2f} {y:.2f}"
 
         # Match coordinate patterns like "M 123.45 67.89" or "L 123.45 67.89"
-        pattern = r"([ML]) ([\d\.-]+) ([\d\.-]+)"
-        offset_path = re.sub(pattern, offset_coords, svg_path)
+        offset_path = _SVG_COORD_PATTERN.sub(offset_coords, svg_path)
 
         return offset_path
 

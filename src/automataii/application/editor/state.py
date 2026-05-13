@@ -1,9 +1,32 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+import math
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import SupportsFloat, SupportsIndex, cast
 
 Point = tuple[float, float]
+_FloatPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(_FloatPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _finite_point(value: object) -> Point | None:
+    if isinstance(value, str | bytes | bytearray) or not isinstance(value, Sequence):
+        return None
+    if len(value) < 2:
+        return None
+    x = _finite_float(value[0], math.nan)
+    y = _finite_float(value[1], math.nan)
+    if not math.isfinite(x) or not math.isfinite(y):
+        return None
+    return x, y
 
 
 @dataclass(frozen=True)
@@ -32,13 +55,20 @@ class EditorViewState:
         return replace(self, selected_part=part)
 
     def start_path(self, start_points: Iterable[Point]) -> EditorViewState:
-        points = tuple((float(x), float(y)) for x, y in start_points)
+        points = tuple(
+            point
+            for raw_point in start_points
+            if (point := _finite_point(raw_point)) is not None
+        )
         return replace(self, drawing_path=True, path_points=points, path_closed=False)
 
     def append_point(self, point: Point) -> EditorViewState:
         if not self.drawing_path:
             raise RuntimeError("Cannot append point when drawing_path is False")
-        return replace(self, path_points=self.path_points + ((float(point[0]), float(point[1])),))
+        normalized = _finite_point(point)
+        if normalized is None:
+            raise ValueError("Path point must contain two finite numbers")
+        return replace(self, path_points=self.path_points + (normalized,))
 
     def finish_path(self, closed: bool) -> EditorViewState:
         if not self.drawing_path:
@@ -49,10 +79,13 @@ class EditorViewState:
         return replace(self, drawing_path=False, path_points=(), path_closed=False)
 
     def with_zoom_level(self, zoom: float) -> EditorViewState:
-        return replace(self, zoom_level=zoom)
+        zoom_level = _finite_float(zoom, self.zoom_level)
+        if zoom_level <= 0.0:
+            zoom_level = self.zoom_level
+        return replace(self, zoom_level=zoom_level)
 
     def with_pan_offset(self, offset: Point) -> EditorViewState:
-        return replace(self, pan_offset=(float(offset[0]), float(offset[1])))
+        return replace(self, pan_offset=_finite_point(offset) or self.pan_offset)
 
     def with_pinching(self, pinching: bool) -> EditorViewState:
         return replace(self, pinching=pinching)
@@ -60,7 +93,8 @@ class EditorViewState:
     def with_animation(self, running: bool, time: float | None = None) -> EditorViewState:
         if time is None:
             time = self.animation_time
-        return replace(self, animation_running=running, animation_time=float(time))
+        animation_time = _finite_float(time, self.animation_time)
+        return replace(self, animation_running=running, animation_time=max(0.0, animation_time))
 
     def with_hovered_control(self, control_id: str | None) -> EditorViewState:
         return replace(self, hovered_control=control_id)
@@ -73,10 +107,16 @@ class EditorViewState:
         def _convert(mapping: Mapping[str, Iterable[Point]] | None) -> Mapping[str, tuple[Point, ...]]:
             if not mapping:
                 return {}
-            return {
-                name: tuple((float(x), float(y)) for x, y in points)
-                for name, points in mapping.items()
-            }
+            converted: dict[str, tuple[Point, ...]] = {}
+            for name, points in mapping.items():
+                finite_points = tuple(
+                    point
+                    for raw_point in points
+                    if (point := _finite_point(raw_point)) is not None
+                )
+                if finite_points:
+                    converted[name] = finite_points
+            return converted
 
         return replace(
             self,

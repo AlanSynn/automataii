@@ -42,6 +42,99 @@ MECHANISM_TYPE_MAPPING: dict[str, str] = {
 }
 
 
+FOUNDRY_TO_DESIGN_TYPE_MAPPING: dict[str, str] = {
+    "four_bar": "4_bar_linkage",
+    "cam_follower": "cam",
+    "gear_train": "gear",
+    "slider_crank": "4_bar_linkage",  # Approximate with 4-bar for now
+}
+
+FOUNDRY_TYPE_ALIASES: dict[str, str] = {
+    "fourbar": "four_bar",
+    "four_bar_linkage": "four_bar",
+    "4_bar_linkage": "four_bar",
+    "cam": "cam_follower",
+    "gear": "gear_train",
+    "slider-crank": "slider_crank",
+    "slidercrank": "slider_crank",
+}
+
+
+class UnsupportedMechanismTypeError(ValueError):
+    """Raised when a mechanism factory receives an unsupported type."""
+
+
+def _finite_float(value: Any, default: float) -> float:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _positive_finite_float(value: Any, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result > 0.0 else default
+
+
+def _positive_int(value: Any, default: int, minimum: int = 1) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return default
+    return result if result >= minimum else default
+
+
+def _finite_point(value: Any, default: tuple[float, float] | None = None) -> tuple[float, float] | None:
+    if not isinstance(value, list | tuple) or len(value) < 2:
+        return default
+    x = _finite_float(value[0], math.nan)
+    y = _finite_float(value[1], math.nan)
+    if not math.isfinite(x) or not math.isfinite(y):
+        return default
+    return x, y
+
+
+def _finite_path_rows(raw: Any) -> np.ndarray | None:
+    try:
+        rows = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if rows.ndim != 2 or rows.shape[0] == 0 or rows.shape[1] < 2:
+        return None
+    rows = rows[:, :2]
+    if not bool(np.isfinite(rows).all()):
+        return None
+    return rows
+
+
+def _mapping_lookup(mapping: dict[str, str], value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    direct = mapping.get(stripped)
+    if direct:
+        return direct
+    normalized = stripped.casefold()
+    for key, mapped in mapping.items():
+        if key.casefold() == normalized:
+            return mapped
+    return None
+
+
+def _normalize_foundry_type(foundry_type: str) -> str:
+    """Normalize Foundry type aliases while rejecting malformed type payloads."""
+    if not isinstance(foundry_type, str) or not foundry_type.strip():
+        raise UnsupportedMechanismTypeError(f"Unsupported Foundry mechanism type: {foundry_type}")
+
+    foundry_type_key = foundry_type.strip().lower()
+    return FOUNDRY_TYPE_ALIASES.get(foundry_type_key, foundry_type_key)
+
+
 class MechanismInstantiationService:
     """
     Service for creating and configuring mechanism layer data.
@@ -75,12 +168,14 @@ class MechanismInstantiationService:
             Internal type string (e.g., "4_bar_linkage", "gear", "planetary_gear")
         """
         # First try original_json_type for more specific mapping (e.g., Planetary Gear)
-        if original_json_type:
-            mapped = MECHANISM_TYPE_MAPPING.get(original_json_type)
-            if mapped:
-                return mapped
+        mapped = _mapping_lookup(MECHANISM_TYPE_MAPPING, original_json_type)
+        if mapped:
+            return mapped
         # Fall back to display type mapping
-        return MECHANISM_TYPE_MAPPING.get(display_type, "4_bar_linkage")
+        mapped = _mapping_lookup(MECHANISM_TYPE_MAPPING, display_type)
+        if mapped:
+            return mapped
+        raise UnsupportedMechanismTypeError(f"Unsupported mechanism type: {display_type}")
 
     def generate_mechanism_id(self, short: bool = False) -> str:
         """
@@ -113,15 +208,16 @@ class MechanismInstantiationService:
             Tuple of (cam_position, params_update) where params_update
             contains center_x and center_y
         """
-        default_pos = fallback_position or [400.0, 300.0]
+        fallback = _finite_point(fallback_position, (400.0, 300.0))
+        default_pos = [fallback[0], fallback[1]] if fallback is not None else [400.0, 300.0]
 
         if not path or path.isEmpty():
             return default_pos, {"center_x": default_pos[0], "center_y": default_pos[1]}
 
         try:
             if self._qpainterpath_to_numpy:
-                path_np = self._qpainterpath_to_numpy(path)
-                if path_np is not None and len(path_np) > 0:
+                path_np = _finite_path_rows(self._qpainterpath_to_numpy(path))
+                if path_np is not None:
                     # Get X center and lowest Y point
                     path_x_center = float(np.mean(path_np[:, 0]))
                     path_y_max = float(np.max(path_np[:, 1]))
@@ -152,8 +248,8 @@ class MechanismInstantiationService:
 
         try:
             if self._qpainterpath_to_numpy:
-                path_np = self._qpainterpath_to_numpy(path)
-                if path_np is not None and len(path_np) > 0:
+                path_np = _finite_path_rows(self._qpainterpath_to_numpy(path))
+                if path_np is not None:
                     # Compute total lift from target path
                     path_y_min = float(np.min(path_np[:, 1]))
                     path_y_max = float(np.max(path_np[:, 1]))
@@ -168,10 +264,11 @@ class MechanismInstantiationService:
 
                     # Normalize eccentricity
                     ecc_norm = total_lift_screen / user_scale if user_scale > 0 else total_lift_screen
+                    ecc_norm = _positive_finite_float(ecc_norm, 1e-6)
 
                     return {
-                        "eccentricity": max(1e-6, ecc_norm),
-                        "base_radius": 0.3 * ecc_norm,
+                        "eccentricity": ecc_norm,
+                        "base_radius": max(1e-6, 0.3 * ecc_norm),
                     }
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
@@ -220,8 +317,8 @@ class MechanismInstantiationService:
 
         try:
             if self._qpainterpath_to_numpy:
-                path_np = self._qpainterpath_to_numpy(path)
-                if path_np is not None and len(path_np) > 0:
+                path_np = _finite_path_rows(self._qpainterpath_to_numpy(path))
+                if path_np is not None:
                     # Get path height (vertical motion range)
                     path_y_min = float(np.min(path_np[:, 1]))
                     path_y_max = float(np.max(path_np[:, 1]))
@@ -230,6 +327,8 @@ class MechanismInstantiationService:
                     # Calculate cam's total visual height
                     # Cam max radius = base_radius + eccentricity
                     # Visual height ≈ 2 * (base_radius + eccentricity)
+                    base_radius = _positive_finite_float(base_radius, 40.0)
+                    eccentricity = _positive_finite_float(eccentricity, 20.0)
                     cam_visual_height = 2.0 * (base_radius + eccentricity)
 
                     if cam_visual_height > 1e-6 and path_height > 1e-6:
@@ -273,7 +372,7 @@ class MechanismInstantiationService:
             if not self._qpainterpath_to_numpy:
                 return {}
 
-            path_np = self._qpainterpath_to_numpy(path)
+            path_np = _finite_path_rows(self._qpainterpath_to_numpy(path))
             if path_np is None or len(path_np) < 2:
                 return {}
 
@@ -351,6 +450,8 @@ class MechanismInstantiationService:
         original_json_type = mechanism_data.get("original_json_type")
         internal_type = self.map_mechanism_type(mechanism_type_value, original_json_type)
         mechanism_id = self.generate_mechanism_id()
+        raw_params = mechanism_data.get("parameters", {})
+        params = raw_params.copy() if isinstance(raw_params, dict) else {}
 
         # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
         # The dialog stores the exact path the user drew for THIS mechanism recommendation.
@@ -363,7 +464,7 @@ class MechanismInstantiationService:
         graphics_data = {
             "mechanism_id": mechanism_id,
             "mechanism_type": internal_type,
-            "params": mechanism_data.get("parameters", {}),
+            "params": params,
             "transform_params": mechanism_data.get("transform_params"),
             "generated_path": effective_target_path,
             "visualization_params": mechanism_data.get("visualization_params"),
@@ -420,7 +521,10 @@ class MechanismInstantiationService:
         mechanism_id = self.generate_mechanism_id(short=True)
 
         raw_params = candidate_data.get("parameters", {})
+        raw_params = raw_params if isinstance(raw_params, dict) else {}
         params = convert_params_fn(mechanism_type_value, raw_params) if convert_params_fn else raw_params
+        if not isinstance(params, dict):
+            params = {}
 
         # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
         # The dialog stores the exact path the user drew for THIS mechanism recommendation.
@@ -490,8 +594,8 @@ class MechanismInstantiationService:
         else:
             # Standard cam configuration for non-vertical paths
             params = layer_data.get("params", {})
-            base_radius = float(params.get("base_radius", 40.0))
-            eccentricity = float(params.get("eccentricity", 20.0))
+            base_radius = _positive_finite_float(params.get("base_radius", 40.0), 40.0)
+            eccentricity = _positive_finite_float(params.get("eccentricity", 20.0), 20.0)
 
             # Calculate scale factor based on user's path dimensions
             cam_scale_factor = self.calculate_cam_scale_factor(path, base_radius, eccentricity)
@@ -543,15 +647,15 @@ class MechanismInstantiationService:
             ecc_params = self.calculate_cam_eccentricity_from_path(path)
             if ecc_params:
                 layer_data["params"]["eccentricity"] = ecc_params.get("eccentricity", layer_data["params"].get("eccentricity", 10))
-                br = layer_data["params"].get("base_radius")
-                ecc = ecc_params.get("eccentricity", 10)
-                if br is None or br <= 0 or br > 3 * ecc:
+                br = _positive_finite_float(layer_data["params"].get("base_radius"), math.nan)
+                ecc = _positive_finite_float(ecc_params.get("eccentricity", 10), 10.0)
+                if not math.isfinite(br) or br > 3 * ecc:
                     layer_data["params"]["base_radius"] = ecc_params.get("base_radius", 0.3 * ecc)
 
             # Calculate scale factor based on user's path dimensions
             params = layer_data.get("params", {})
-            base_radius = float(params.get("base_radius", 40.0))
-            eccentricity = float(params.get("eccentricity", 20.0))
+            base_radius = _positive_finite_float(params.get("base_radius", 40.0), 40.0)
+            eccentricity = _positive_finite_float(params.get("eccentricity", 20.0), 20.0)
             cam_scale_factor = self.calculate_cam_scale_factor(path, base_radius, eccentricity)
             layer_data["cam_scale_factor"] = cam_scale_factor
             layer_data["rod_length_multiplier"] = cam_scale_factor  # Scale rod proportionally
@@ -587,19 +691,22 @@ class MechanismInstantiationService:
         Returns:
             Layer data dictionary ready for add_mechanism_layer
         """
-        # Map Foundry type to internal type
-        type_mapping = {
-            "four_bar": "4_bar_linkage",
-            "cam_follower": "cam",
-            "gear_train": "gear",
-            "slider_crank": "4_bar_linkage",  # Approximate with 4-bar for now
-        }
-        internal_type = type_mapping.get(mechanism_type, "4_bar_linkage")
+        canonical_foundry_type = _normalize_foundry_type(mechanism_type)
+
+        # Map Foundry type to internal type. Unknown types must fail explicitly;
+        # silently treating catalog drift as a 4-bar linkage hides factory bugs.
+        try:
+            internal_type = FOUNDRY_TO_DESIGN_TYPE_MAPPING[canonical_foundry_type]
+        except KeyError as exc:
+            raise UnsupportedMechanismTypeError(
+                f"Unsupported Foundry mechanism type: {mechanism_type}"
+            ) from exc
 
         mechanism_id = self.generate_mechanism_id(short=True)
 
         # Map Foundry parameter names to internal parameter names
-        params = self.map_foundry_params_to_internal(mechanism_type, parameters)
+        safe_parameters = parameters if isinstance(parameters, dict) else {}
+        params = self.map_foundry_params_to_internal(canonical_foundry_type, safe_parameters)
         normalized_part_name = (
             part_name.strip() if isinstance(part_name, str) and part_name.strip() else None
         )
@@ -610,7 +717,12 @@ class MechanismInstantiationService:
                 snapshot_positions = raw_positions
 
         # Default scene position if not provided
-        pos = scene_position or (400.0, 300.0)
+        pos = _finite_point(scene_position, (400.0, 300.0))
+        if pos is None:
+            pos = (400.0, 300.0)
+        pivot = _finite_point(pivot_point, (0.0, 0.0))
+        if pivot is None:
+            pivot = (0.0, 0.0)
 
         layer_data: dict[str, Any] = {
             "id": mechanism_id,
@@ -620,7 +732,7 @@ class MechanismInstantiationService:
             "visual_items": [],
             "generated_path": None,
             "transform_params": {
-                "center": list(pivot_point),
+                "center": list(pivot),
                 "scale": 1.0,
                 "rotation": 0,
             },
@@ -628,8 +740,11 @@ class MechanismInstantiationService:
             "full_simulation_data": {},
             "reverse_direction": False,
             "source": "foundry",
+            "source_type": canonical_foundry_type,
             "coordinate_space": "scene",
         }
+        if canonical_foundry_type == "slider_crank":
+            layer_data["approximated_as"] = internal_type
 
         # Type-specific configuration
         if internal_type == "4_bar_linkage":
@@ -640,21 +755,25 @@ class MechanismInstantiationService:
             coupler_point = self._snapshot_point(snapshot_positions, "coupler_point")
             dx = 0.0
             dy = 0.0
+            gp1: tuple[float, float]
+            gp2: tuple[float, float]
+            crank: tuple[float, float]
+            rocker: tuple[float, float] | None
 
-            if o1 and o4:
+            if o1 is not None and o4 is not None and a is not None and b is not None:
                 center = ((o1[0] + o4[0]) * 0.5, (o1[1] + o4[1]) * 0.5)
                 reference = coupler_point or center
                 dx, dy = pos[0] - reference[0], pos[1] - reference[1]
                 gp1 = (o1[0] + dx, o1[1] + dy)
                 gp2 = (o4[0] + dx, o4[1] + dy)
-                crank = (a[0] + dx, a[1] + dy) if a else None
-                rocker = (b[0] + dx, b[1] + dy) if b else None
+                crank = (a[0] + dx, a[1] + dy)
+                rocker = (b[0] + dx, b[1] + dy)
             else:
-                l1 = float(params.get("l1", params.get("L1", 150.0)))
-                l2 = float(params.get("l2", params.get("L2", 40.0)))
-                l3 = float(params.get("l3", params.get("L3", 120.0)))
-                l4 = float(params.get("l4", params.get("L4", 130.0)))
-                input_angle = float(params.get("input_angle", params.get("crank_angle", 30.0)))
+                l1 = _positive_finite_float(params.get("l1", params.get("L1", 150.0)), 150.0)
+                l2 = _positive_finite_float(params.get("l2", params.get("L2", 40.0)), 40.0)
+                l3 = _positive_finite_float(params.get("l3", params.get("L3", 120.0)), 120.0)
+                l4 = _positive_finite_float(params.get("l4", params.get("L4", 130.0)), 130.0)
+                input_angle = _finite_float(params.get("input_angle", params.get("crank_angle", 30.0)), 30.0)
                 theta = math.radians(input_angle)
 
                 gp1 = (pos[0] - l1 * 0.5, pos[1])
@@ -686,7 +805,7 @@ class MechanismInstantiationService:
             params["ground_pivot_1"] = [gp1_arr[0], gp1_arr[1]]
             params["ground_pivot_2"] = [gp2_arr[0], gp2_arr[1]]
 
-            if coupler_point and crank and rocker:
+            if coupler_point is not None and crank is not None and rocker is not None:
                 coupler_world = (coupler_point[0] + dx, coupler_point[1] + dy)
                 coupler_vec = (
                     rocker_arr[0] - crank_arr[0],
@@ -718,14 +837,14 @@ class MechanismInstantiationService:
 
         elif internal_type == "cam":
             cam_center = self._snapshot_point(snapshot_positions, "cam_center")
-            if cam_center:
+            if cam_center is not None:
                 dx, dy = pos[0] - cam_center[0], pos[1] - cam_center[1]
                 translated_center = (cam_center[0] + dx, cam_center[1] + dy)
                 layer_data["cam_position"] = [translated_center[0], translated_center[1]]
                 translated_key_points: dict[str, list[float]] = {}
                 for key in ("cam_center", "follower_base", "follower_end", "contact_point"):
                     source = self._snapshot_point(snapshot_positions, key)
-                    if source:
+                    if source is not None:
                         translated_key_points[key] = [source[0] + dx, source[1] + dy]
                 if translated_key_points:
                     layer_data["key_points"] = translated_key_points
@@ -741,8 +860,8 @@ class MechanismInstantiationService:
             params.setdefault("profile_harmonic", 0.3)
 
         elif internal_type == "gear":
-            r1 = float(params.get("gear1_radius", params.get("r1", 36.0)))
-            r2 = float(params.get("gear2_radius", params.get("r2", 54.0)))
+            r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1", 36.0)), 36.0)
+            r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2", 54.0)), 54.0)
             center_distance = max(10.0, r1 + r2 + 2.0)
             layer_data["key_points"] = {
                 "gear1_center": [pos[0] - center_distance / 2.0, pos[1]],
@@ -760,13 +879,7 @@ class MechanismInstantiationService:
         positions: dict[str, Any],
         key: str,
     ) -> tuple[float, float] | None:
-        raw = positions.get(key)
-        if isinstance(raw, list | tuple) and len(raw) >= 2:
-            try:
-                return (float(raw[0]), float(raw[1]))
-            except (TypeError, ValueError):
-                return None
-        return None
+        return _finite_point(positions.get(key))
 
     @staticmethod
     def _solve_circle_intersection(
@@ -778,7 +891,14 @@ class MechanismInstantiationService:
         dx = p2[0] - p1[0]
         dy = p2[1] - p1[1]
         d = math.hypot(dx, dy)
-        if d <= 1e-9 or d > (r1 + r2) or d < abs(r1 - r2):
+        if (
+            not all(math.isfinite(value) for value in (p1[0], p1[1], p2[0], p2[1], r1, r2))
+            or r1 <= 0.0
+            or r2 <= 0.0
+            or d <= 1e-9
+            or d > (r1 + r2)
+            or d < abs(r1 - r2)
+        ):
             return None
 
         a = ((r1 * r1) - (r2 * r2) + (d * d)) / (2.0 * d)
@@ -818,25 +938,18 @@ class MechanismInstantiationService:
         """
         params: dict[str, Any] = {}
 
-        normalized_type = {
-            "fourbar": "four_bar",
-            "4_bar_linkage": "four_bar",
-            "cam": "cam_follower",
-            "gear": "gear_train",
-            "slidercrank": "slider_crank",
-            "slider-crank": "slider_crank",
-        }.get(foundry_type, foundry_type)
+        normalized_type = _normalize_foundry_type(foundry_type)
 
         if normalized_type == "four_bar":
             # Map: ground_link -> l1, input_link -> l2, coupler_link -> l3, output_link -> l4
-            params["l1"] = foundry_params.get("ground_link", 150.0)
-            params["l2"] = foundry_params.get("input_link", 40.0)
-            params["l3"] = foundry_params.get("coupler_link", 120.0)
-            params["l4"] = foundry_params.get("output_link", 130.0)
-            params["coupler_point_x"] = foundry_params.get("coupler_point_x", 60.0)
-            params["coupler_point_y"] = foundry_params.get("coupler_point_y", 30.0)
+            params["l1"] = _positive_finite_float(foundry_params.get("ground_link", 150.0), 150.0)
+            params["l2"] = _positive_finite_float(foundry_params.get("input_link", 40.0), 40.0)
+            params["l3"] = _positive_finite_float(foundry_params.get("coupler_link", 120.0), 120.0)
+            params["l4"] = _positive_finite_float(foundry_params.get("output_link", 130.0), 130.0)
+            params["coupler_point_x"] = _finite_float(foundry_params.get("coupler_point_x", 60.0), 60.0)
+            params["coupler_point_y"] = _finite_float(foundry_params.get("coupler_point_y", 30.0), 30.0)
             if "input_angle" in foundry_params:
-                angle = float(foundry_params["input_angle"])
+                angle = _finite_float(foundry_params["input_angle"], 30.0)
                 params["input_angle"] = angle
                 params["crank_angle"] = angle
             output_mode = foundry_params.get("output_point_mode")
@@ -849,13 +962,17 @@ class MechanismInstantiationService:
 
         elif normalized_type == "cam_follower":
             # Map Foundry cam params to internal
-            params["base_radius"] = foundry_params.get("cam_radius", 60.0)
-            params["eccentricity"] = foundry_params.get("cam_offset", 20.0)
-            params["follower_rod_length"] = foundry_params.get("follower_length", 100.0)
-            params["cam_lobes"] = int(foundry_params.get("cam_lobes", 1))
-            params["profile_harmonic"] = foundry_params.get("profile_harmonic", 0.3)
+            params["base_radius"] = _positive_finite_float(foundry_params.get("cam_radius", 60.0), 60.0)
+            params["eccentricity"] = _finite_float(foundry_params.get("cam_offset", 20.0), 20.0)
+            if params["eccentricity"] < 0.0:
+                params["eccentricity"] = 20.0
+            params["follower_rod_length"] = _positive_finite_float(
+                foundry_params.get("follower_length", 100.0), 100.0
+            )
+            params["cam_lobes"] = _positive_int(foundry_params.get("cam_lobes", 1), 1)
+            params["profile_harmonic"] = _finite_float(foundry_params.get("profile_harmonic", 0.3), 0.3)
             if "input_angle" in foundry_params:
-                params["input_angle"] = float(foundry_params["input_angle"])
+                params["input_angle"] = _finite_float(foundry_params["input_angle"], 0.0)
             output_mode = foundry_params.get("output_point_mode")
             if isinstance(output_mode, str):
                 normalized_mode = output_mode.strip().lower()
@@ -865,21 +982,21 @@ class MechanismInstantiationService:
                     params["output_point_mode"] = "contact_point"
 
         elif normalized_type == "gear_train":
-            params["gear1_teeth"] = int(foundry_params.get("gear1_teeth", 12))
-            params["gear2_teeth"] = int(foundry_params.get("gear2_teeth", 18))
-            params["r1"] = foundry_params.get("gear1_teeth", 12) * 3  # tooth * module
-            params["r2"] = foundry_params.get("gear2_teeth", 18) * 3
+            params["gear1_teeth"] = _positive_int(foundry_params.get("gear1_teeth", 12), 12)
+            params["gear2_teeth"] = _positive_int(foundry_params.get("gear2_teeth", 18), 18)
+            params["r1"] = params["gear1_teeth"] * 3  # tooth * module
+            params["r2"] = params["gear2_teeth"] * 3
             params["gear1_radius"] = float(params["r1"])
             params["gear2_radius"] = float(params["r2"])
             if "input_torque" in foundry_params:
-                params["input_torque"] = float(foundry_params["input_torque"])
+                params["input_torque"] = _finite_float(foundry_params["input_torque"], 0.0)
             if "input_angle" in foundry_params:
-                params["input_angle"] = float(foundry_params["input_angle"])
+                params["input_angle"] = _finite_float(foundry_params["input_angle"], 0.0)
 
         elif normalized_type == "slider_crank":
             # Approximate slider-crank with a 4-bar payload for current Design internals.
-            crank_length = float(foundry_params.get("crank_length", 80.0))
-            rod_length = float(foundry_params.get("rod_length", 140.0))
+            crank_length = _positive_finite_float(foundry_params.get("crank_length", 80.0), 80.0)
+            rod_length = _positive_finite_float(foundry_params.get("rod_length", 140.0), 140.0)
 
             params["l2"] = crank_length
             params["l3"] = rod_length
@@ -889,11 +1006,11 @@ class MechanismInstantiationService:
             params["coupler_point_y"] = 0.0
 
             if "input_angle" in foundry_params:
-                angle = float(foundry_params["input_angle"])
+                angle = _finite_float(foundry_params["input_angle"], 0.0)
                 params["input_angle"] = angle
                 params["crank_angle"] = angle
             if "gas_pressure" in foundry_params:
-                params["gas_pressure"] = float(foundry_params["gas_pressure"])
+                params["gas_pressure"] = _finite_float(foundry_params["gas_pressure"], 0.0)
 
         else:
             # Copy params as-is for unknown types

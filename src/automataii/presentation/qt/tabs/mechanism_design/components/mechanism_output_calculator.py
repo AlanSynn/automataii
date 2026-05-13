@@ -16,8 +16,66 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath
 
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float as _finite_float,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_param as _finite_param,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    positive_finite_float as _positive_finite_float,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    positive_finite_param as _positive_finite_param,
+)
+
 if TYPE_CHECKING:
     pass
+
+
+SceneTransform = Callable[[np.ndarray], QPointF]
+
+
+def _point_array(raw: object) -> np.ndarray | None:
+    try:
+        point = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if point.ndim != 1 or len(point) < 2:
+        return None
+    point = point[:2]
+    if not bool(np.isfinite(point).all()):
+        return None
+    return point
+
+
+def _position_rows(raw: object) -> np.ndarray | None:
+    try:
+        rows = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if rows.ndim != 2 or rows.shape[0] == 0 or rows.shape[1] < 2:
+        return None
+    rows = rows[:, :2]
+    if not bool(np.isfinite(rows).all()):
+        return None
+    return rows
+
+
+def _bounded_frame_index(time: float, num_frames: int, reverse_direction: bool = False) -> int | None:
+    if num_frames <= 0 or not math.isfinite(time):
+        return None
+
+    normalized_time = time / (2 * math.pi)
+    if reverse_direction:
+        normalized_time = 1.0 - normalized_time
+
+    frame_index = int(normalized_time * (num_frames - 1))
+    return max(0, min(frame_index, num_frames - 1))
+
+
+def _finite_qpoint(point: QPointF) -> bool:
+    return math.isfinite(point.x()) and math.isfinite(point.y())
 
 
 class MechanismOutputCalculator:
@@ -34,7 +92,7 @@ class MechanismOutputCalculator:
 
     def __init__(
         self,
-        get_scene_transform: Callable[[dict], Callable | None],
+        get_scene_transform: Callable[[dict], SceneTransform | None],
     ) -> None:
         """
         Initialize calculator.
@@ -153,6 +211,8 @@ class MechanismOutputCalculator:
         Time Complexity: O(1) for indexed lookup
         """
         full_sim_data = layer_data.get("full_simulation_data", {})
+        if not math.isfinite(_finite_float(time, math.nan)):
+            return None
 
         if mech_type == "4_bar_linkage":
             return self._calculate_4bar_output(params, time, layer_data, full_sim_data)
@@ -186,20 +246,23 @@ class MechanismOutputCalculator:
         if "p1_positions" not in joint_positions or not to_scene_coords:
             return None
 
-        num_frames = len(joint_positions["p1_positions"])
-        normalized_time = time / (2 * math.pi)
+        p3_positions = _position_rows(joint_positions.get("p3_positions"))
+        p4_positions = _position_rows(joint_positions.get("p4_positions"))
+        if p3_positions is None or p4_positions is None:
+            return self._calculate_manual_output("4_bar_linkage", params, time, layer_data)
 
-        # Direction correction
-        reverse_direction = layer_data.get("reverse_direction", False)
-        if reverse_direction:
-            normalized_time = 1.0 - normalized_time
-
-        frame_index = int(normalized_time * (num_frames - 1))
-        frame_index = max(0, min(frame_index, num_frames - 1))
+        num_frames = min(len(p3_positions), len(p4_positions))
+        frame_index = _bounded_frame_index(
+            time,
+            num_frames,
+            reverse_direction=bool(layer_data.get("reverse_direction", False)),
+        )
+        if frame_index is None:
+            return None
 
         # Get exact positions from dataset
-        p3 = np.array(joint_positions["p3_positions"][frame_index])
-        p4 = np.array(joint_positions["p4_positions"][frame_index])
+        p3 = p3_positions[frame_index]
+        p4 = p4_positions[frame_index]
 
         output_mode = self._normalize_output_mode(
             "4_bar_linkage",
@@ -212,8 +275,8 @@ class MechanismOutputCalculator:
 
         # Calculate coupler point
         # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-        coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0)
-        coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0)
+        coupler_point_x = _finite_param(params, "coupler_point_x", "p_x", default=0.0)
+        coupler_point_y = _finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
         coupler_vec = p4 - p3
         coupler_length = np.linalg.norm(coupler_vec)
@@ -243,22 +306,24 @@ class MechanismOutputCalculator:
             if "p5_positions" in joint_positions and to_scene_coords:
                 num_frames = len(joint_positions["p5_positions"])
                 if num_frames > 0:
-                    normalized_time = time / (2 * math.pi)
                     reverse_direction = layer_data.get("reverse_direction", False)
-                    if reverse_direction:
-                        normalized_time = 1.0 - normalized_time
 
-                    frame_index = int(normalized_time * (num_frames - 1))
-                    frame_index = max(0, min(frame_index, num_frames - 1))
+                    frame_index = _bounded_frame_index(time, num_frames, reverse_direction)
+                    if frame_index is None:
+                        return None
 
-                    p5 = np.array(joint_positions["p5_positions"][frame_index])
+                    p5 = _point_array(joint_positions["p5_positions"][frame_index])
+                    if p5 is None:
+                        return None
                     return to_scene_coords(p5)
 
         # Fallback: use key_points center if available
         key_points = layer_data.get("key_points", {})
         to_scene_coords = self._get_scene_transform(layer_data)
         if "coupler_point" in key_points and to_scene_coords:
-            return to_scene_coords(np.array(key_points["coupler_point"]))
+            coupler_point = _point_array(key_points["coupler_point"])
+            if coupler_point is not None:
+                return to_scene_coords(coupler_point)
 
         return None
 
@@ -279,22 +344,24 @@ class MechanismOutputCalculator:
             if "p6_positions" in joint_positions and to_scene_coords:
                 num_frames = len(joint_positions["p6_positions"])
                 if num_frames > 0:
-                    normalized_time = time / (2 * math.pi)
                     reverse_direction = layer_data.get("reverse_direction", False)
-                    if reverse_direction:
-                        normalized_time = 1.0 - normalized_time
 
-                    frame_index = int(normalized_time * (num_frames - 1))
-                    frame_index = max(0, min(frame_index, num_frames - 1))
+                    frame_index = _bounded_frame_index(time, num_frames, reverse_direction)
+                    if frame_index is None:
+                        return None
 
-                    p6 = np.array(joint_positions["p6_positions"][frame_index])
+                    p6 = _point_array(joint_positions["p6_positions"][frame_index])
+                    if p6 is None:
+                        return None
                     return to_scene_coords(p6)
 
         # Fallback: use key_points end_effector if available
         key_points = layer_data.get("key_points", {})
         to_scene_coords = self._get_scene_transform(layer_data)
         if "end_effector" in key_points and to_scene_coords:
-            return to_scene_coords(np.array(key_points["end_effector"]))
+            end_effector = _point_array(key_points["end_effector"])
+            if end_effector is not None:
+                return to_scene_coords(end_effector)
 
         return None
 
@@ -313,8 +380,13 @@ class MechanismOutputCalculator:
         Returns selected cam output point.
         """
         # Get rod length params
-        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 40.0))
-        rod_len_mul = layer_data.get('rod_length_multiplier', 1.0)
+        follower_rod_length = _positive_finite_param(
+            params,
+            "follower_rod_length",
+            "follower_length",
+            default=40.0,
+        )
+        rod_len_mul = _positive_finite_float(layer_data.get('rod_length_multiplier', 1.0), 1.0)
         scaled_rod_length = follower_rod_length * rod_len_mul
 
         cam_to_scene = layer_data.get('cam_transform_function') or self._get_scene_transform(layer_data)
@@ -325,29 +397,27 @@ class MechanismOutputCalculator:
 
         # Priority: Use pre-computed cam profile from factory
         cam_points_local = layer_data.get('cam_points_local')
+        cam_profile = _position_rows(cam_points_local) if cam_points_local is not None else None
 
-        if cam_points_local is not None and len(cam_points_local) > 0:
+        if cam_profile is not None:
             # Calculate contact radius from actual profile
             # Find the point at -π/2 - cam_angle in local frame (before rotation)
             follower_angle_in_profile = -math.pi / 2 - cam_angle
             # Normalize to 0..2π range
             follower_angle_norm = follower_angle_in_profile % (2 * math.pi)
             # Find closest point in the profile
-            num_pts = len(cam_points_local)
+            num_pts = len(cam_profile)
             profile_idx = int((follower_angle_norm / (2 * math.pi)) * num_pts) % num_pts
-            if isinstance(cam_points_local, np.ndarray):
-                contact_pt = cam_points_local[profile_idx]
-            else:
-                contact_pt = cam_points_local[profile_idx]
+            contact_pt = cam_profile[profile_idx]
             contact_radius = float(np.sqrt(contact_pt[0]**2 + contact_pt[1]**2))
         else:
             # Fallback: Use harmonic formula
-            base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
-            cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
-            cam_lobes = int(params.get("cam_lobes", 1))
-            profile_harmonic = params.get("profile_harmonic", 0.3)
+            base_radius = _positive_finite_param(params, "base_radius", "cam_radius", default=60.0)
+            cam_offset = _finite_param(params, "eccentricity", "cam_offset", default=20.0)
+            cam_lobes = max(1, int(_positive_finite_param(params, "cam_lobes", default=1.0)))
+            profile_harmonic = _finite_param(params, "profile_harmonic", default=0.3)
 
-            cam_scale_factor = layer_data.get('cam_scale_factor', 1.0)
+            cam_scale_factor = _positive_finite_float(layer_data.get('cam_scale_factor', 1.0), 1.0)
 
             scaled_base_radius = base_radius * cam_scale_factor
             scaled_cam_offset = cam_offset * cam_scale_factor
@@ -357,6 +427,9 @@ class MechanismOutputCalculator:
             primary_var = scaled_cam_offset * math.cos(cam_lobes * follower_contact_theta)
             secondary_var = (scaled_cam_offset * profile_harmonic) * math.cos(2 * cam_lobes * follower_contact_theta)
             contact_radius = scaled_base_radius + primary_var + secondary_var
+
+        if not math.isfinite(contact_radius):
+            return None
 
         # Contact point in mechanism coordinates (always at bottom)
         contact_local = np.array([0.0, -contact_radius])
@@ -369,12 +442,14 @@ class MechanismOutputCalculator:
             unit_scale = ((u1.x() - u0.x()) ** 2 + (u1.y() - u0.y()) ** 2) ** 0.5
         except Exception:
             unit_scale = 1.0
+        if not math.isfinite(unit_scale) or unit_scale <= 0.0:
+            unit_scale = 1.0
 
         rod_scene = scaled_rod_length * unit_scale
 
         # Follower X is fixed at cam center X
-        follower_x = layer_data.get('follower_fixed_x_scene')
-        if follower_x is None:
+        follower_x = _finite_float(layer_data.get('follower_fixed_x_scene'), math.nan)
+        if not math.isfinite(follower_x):
             center_scene = cam_to_scene(np.array([0.0, 0.0]))
             follower_x = center_scene.x()
 
@@ -415,11 +490,13 @@ class MechanismOutputCalculator:
                 return to_scene_coords(tracking_point)
 
         # Fallback to manual calculation
-        r1 = params.get("r1", 30)
+        r1 = _positive_finite_param(params, "r1", "gear1_radius", default=30.0)
         key_points = layer_data.get("key_points", {})
 
         if to_scene_coords:
-            gear1_center = np.array(key_points.get("gear1_center", [0, 0]))
+            gear1_center = _point_array(key_points.get("gear1_center"))
+            if gear1_center is None:
+                gear1_center = np.array([0.0, 0.0])
             theta1 = time
             output_point_orig = gear1_center + np.array([r1 * np.cos(theta1), r1 * np.sin(theta1)])
             return to_scene_coords(output_point_orig)
@@ -449,32 +526,40 @@ class MechanismOutputCalculator:
                 return to_scene_coords(tracking_point)
 
         # Fallback calculation
-        r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
-        r_planet = float(params.get("r_planet", params.get("gear2_radius", 30.0)))
-        arm_length = float(params.get("arm_length", 15.0))
-        if r_planet <= 0:
-            r_planet = 1.0
+        r_sun = _positive_finite_param(params, "r_sun", "gear1_radius", default=20.0)
+        r_planet = _positive_finite_param(params, "r_planet", "gear2_radius", default=30.0)
+        arm_length = _positive_finite_param(params, "arm_length", default=15.0)
         key_points = layer_data.get("key_points", {})
 
         if to_scene_coords:
             planet_orbital_angle = time
             planet_rotation_angle = -time * (r_sun / r_planet)
 
-            if "sun_center" in key_points:
-                sun_center_orig = np.array(key_points["sun_center"], dtype=float)
+            sun_center = _point_array(key_points.get("sun_center"))
+            if sun_center is not None:
+                sun_center_orig = sun_center
             elif "m_sun_x" in params and "m_sun_y" in params:
                 sun_center_orig = np.array(
-                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
+                    [
+                        _finite_param(params, "m_sun_x", default=0.0),
+                        _finite_param(params, "m_sun_y", default=0.0),
+                    ],
                     dtype=float,
                 )
             elif "sun_x" in params and "sun_y" in params:
                 sun_center_orig = np.array(
-                    [float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0))],
+                    [
+                        _finite_param(params, "sun_x", default=0.0),
+                        _finite_param(params, "sun_y", default=0.0),
+                    ],
                     dtype=float,
                 )
             elif "gear1_x" in params and "gear1_y" in params:
                 sun_center_orig = np.array(
-                    [float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0))],
+                    [
+                        _finite_param(params, "gear1_x", default=0.0),
+                        _finite_param(params, "gear1_y", default=0.0),
+                    ],
                     dtype=float,
                 )
             else:
@@ -511,18 +596,23 @@ class MechanismOutputCalculator:
         p1_coords = key_points.get("ground_pivot_1")
         p2_coords = key_points.get("ground_pivot_2")
         # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-        coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0) or 0.0
-        coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0) or 0.0
+        coupler_point_x = _finite_param(params, "coupler_point_x", "p_x", default=0.0)
+        coupler_point_y = _finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
-        if not all([l2 is not None, l3 is not None, l4 is not None, p1_coords, p2_coords]):
+        l2 = _positive_finite_float(l2, math.nan)
+        l3 = _positive_finite_float(l3, math.nan)
+        l4 = _positive_finite_float(l4, math.nan)
+        p1 = _point_array(p1_coords)
+        p2 = _point_array(p2_coords)
+        if not all(math.isfinite(length) for length in (l2, l3, l4)) or p1 is None or p2 is None:
             return None
 
-        p1 = np.array(p1_coords, dtype=float)
-        p2 = np.array(p2_coords, dtype=float)
         p3 = p1 + np.array([l2 * math.cos(time), l2 * math.sin(time)])
 
         d_sq = np.sum((p2 - p3) ** 2)
         d = np.sqrt(d_sq)
+        if not math.isfinite(float(d)) or np.isclose(d, 0.0):
+            return None
         if not (abs(l3 - l4) <= d <= (l3 + l4)):
             return None
 
@@ -566,17 +656,24 @@ class MechanismOutputCalculator:
 
         Time Complexity: O(n) where n = num_points
         """
+        if isinstance(num_points, bool) or not isinstance(num_points, int) or num_points <= 0:
+            return None
+
         joint_motion_path = QPainterPath()
 
         try:
             mech_type = layer_data.get("type")
             params = layer_data.get("params", {})
+            if not isinstance(mech_type, str):
+                return None
+            if not isinstance(params, dict):
+                params = {}
 
             for i in range(num_points + 1):
                 angle = (i / num_points) * 2 * math.pi
                 joint_pos = self.calculate_output(mech_type, params, angle, layer_data)
 
-                if joint_pos:
+                if joint_pos is not None and _finite_qpoint(joint_pos):
                     if i == 0:
                         joint_motion_path.moveTo(joint_pos)
                     else:

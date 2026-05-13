@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from automataii.presentation.qt.animation.compute_thread import FrameData
 from automataii.presentation.qt.animation.realtime_engine import (
@@ -281,6 +281,7 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
         Returns:
             Computed frame data
         """
+        delta_time = self._normalized_delta_time(delta_time)
         frame = self._engine.compute_frame_sync(delta_time)
         self._dispatch_frame(frame)
         return frame
@@ -294,6 +295,7 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
         Args:
             delta_time: Time since last frame
         """
+        delta_time = self._normalized_delta_time(delta_time)
         # Update timing
         self._total_time += delta_time
         self._frame_count += 1
@@ -312,8 +314,19 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
 
             try:
                 sub.callback(delta_time)
+                sub._consecutive_errors = 0
             except Exception as e:
+                sub._consecutive_errors += 1
                 logger.exception("Animation callback error (%s): %s", sub.owner_id, e)
+                if sub._consecutive_errors >= self.CALLBACK_ERROR_DISABLE_THRESHOLD:
+                    sub.enabled = False
+                    sub._disabled_after_errors = True
+                    sub._frame_counter = 0
+                    logger.error(
+                        "Animation subscription disabled after %d consecutive errors: %s",
+                        sub._consecutive_errors,
+                        sub.owner_id,
+                    )
 
     # =========================================================================
     # STATISTICS
@@ -326,7 +339,7 @@ class AcceleratedAnimationScheduler(CentralAnimationScheduler):
         Returns:
             Engine performance and state info
         """
-        return self._engine.get_stats()
+        return cast(dict[str, Any], self._engine.get_stats())
 
     def get_combined_stats(self) -> dict[str, Any]:
         """

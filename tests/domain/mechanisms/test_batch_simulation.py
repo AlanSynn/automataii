@@ -104,6 +104,33 @@ class TestBatchSimulationService:
         # Last angle should be close to 360 but not exactly (endpoint=False)
         assert result.angles[-1] < 360.0
 
+    @pytest.mark.parametrize("num_frames", [0, -1, True])
+    def test_generate_animation_frames_rejects_invalid_frame_counts(
+        self,
+        service: BatchSimulationService,
+        fourbar_mechanism,
+        fourbar_params,
+        num_frames,
+    ):
+        """Invalid frame counts should fail early with a clear error."""
+        with pytest.raises(ValueError, match="num_frames"):
+            service.generate_animation_frames(
+                fourbar_mechanism,
+                fourbar_params,
+                num_frames=num_frames,
+            )
+
+    def test_generate_animation_frames_rejects_non_finite_angles(
+        self, service: BatchSimulationService, fourbar_mechanism, fourbar_params
+    ):
+        """NaN/inf angles should not enter the batch simulation arrays."""
+        with pytest.raises(ValueError, match="finite"):
+            service.generate_animation_frames(
+                fourbar_mechanism,
+                fourbar_params,
+                start_angle=float("nan"),
+            )
+
     def test_compute_motion_path(
         self, service: BatchSimulationService, fourbar_mechanism, fourbar_params
     ):
@@ -124,6 +151,23 @@ class TestBatchSimulationService:
         )
 
         assert path is None
+
+    @pytest.mark.parametrize("resolution", [0, -10, False])
+    def test_compute_motion_path_rejects_invalid_resolution(
+        self,
+        service: BatchSimulationService,
+        fourbar_mechanism,
+        fourbar_params,
+        resolution,
+    ):
+        """Invalid path resolution should fail before producing empty UI paths."""
+        with pytest.raises(ValueError, match="resolution"):
+            service.compute_motion_path(
+                fourbar_mechanism,
+                fourbar_params,
+                "A",
+                resolution=resolution,
+            )
 
     def test_default_service_singleton(self):
         """Default service getter returns same instance."""
@@ -204,3 +248,32 @@ class TestCamBatchSimulation:
         # Check cam-specific positions
         assert "cam_center" in result.positions
         assert "contact_point" in result.positions
+
+    def test_cam_zero_offset_safety_does_not_divide_by_zero(self):
+        """A concentric cam is valid and should not crash safety evaluation."""
+        mechanism = CamFollowerMechanism()
+        state = mechanism.compute_state(
+            {
+                "cam_radius": 80.0,
+                "cam_offset": 0.0,
+                "follower_length": 100.0,
+            },
+            input_angle=45.0,
+        )
+
+        assert state.metadata["contact_radius"] == 80.0
+        assert "Validation error" not in state.safety_status.message
+
+    def test_cam_spring_force_uses_configured_base_radius(self):
+        """Spring force should be zero when contact radius equals the configured radius."""
+        mechanism = CamFollowerMechanism()
+        state = mechanism.compute_state(
+            {
+                "cam_radius": 80.0,
+                "cam_offset": 0.0,
+                "follower_length": 100.0,
+            },
+            input_angle=0.0,
+        )
+
+        assert state.forces["spring"].magnitude == 0.0

@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from automataii.config.z_indices import Z_MECHANISM_PIVOT, Z_SELECTION_MARKER
+from automataii.presentation.qt.mechanism_parameter_utils import finite_float, finite_param
 
 from .protocol import BaseMechanismVisualizer
 
@@ -104,8 +105,12 @@ class FourBarVisualizer(BaseMechanismVisualizer):
                 p4 = np.array(joint_positions["p4_positions"][0])
 
                 # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-                coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0)
-                coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0)
+                coupler_point_x = finite_param(
+                    params, "coupler_point_x", "p_x", default=0.0
+                )
+                coupler_point_y = finite_param(
+                    params, "coupler_point_y", "p_y", default=0.0
+                )
 
                 coupler_vec = p4 - p3
                 coupler_length = np.linalg.norm(coupler_vec)
@@ -134,8 +139,11 @@ class FourBarVisualizer(BaseMechanismVisualizer):
         p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
 
         # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-        coupler_point_x = params.get("coupler_point_x") or params.get("p_x", l3 / 2)
-        coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0)
+        default_coupler_x = finite_float(l3, 0.0) / 2.0
+        coupler_point_x = finite_param(
+            params, "coupler_point_x", "p_x", default=default_coupler_x
+        )
+        coupler_point_y = finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
         coupler_vec = p4 - p3
         coupler_length = np.linalg.norm(coupler_vec)

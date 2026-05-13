@@ -15,8 +15,10 @@ def test_run_blueprint_export_scenario(tmp_path):
     assert data["layout"]["item_count"] >= 2
     assert data["mechanism"]["mechanism_type"] == "four_bar"
     assert "ground_link" in data["mechanism"]["parameter_keys"]
+    assert data["generated_at"].endswith("Z")
 
     metrics_path = tmp_path / "foundry_blueprint_metrics.json"
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert metrics["mechanism_type"] == "four_bar"
     assert metrics["duration_ms"] >= 0
+    assert metrics["timestamp"] == data["generated_at"]

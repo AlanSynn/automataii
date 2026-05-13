@@ -6,6 +6,7 @@ Handles creation and update of gear mechanism visuals.
 
 Design Pattern: Strategy (implements MechanismVisualizerProtocol)
 """
+
 from __future__ import annotations
 
 import logging
@@ -436,7 +437,7 @@ class PlanetaryGearVisualizer(BaseMechanismVisualizer):
         if r_planet <= 0:
             r_planet = 1.0
 
-        if "sun_center" in params and isinstance(params["sun_center"], (list, tuple)):
+        if "sun_center" in params and isinstance(params["sun_center"], list | tuple):
             sun_center = np.array(params["sun_center"], dtype=float)
         elif "m_sun_x" in params and "m_sun_y" in params:
             sun_center = np.array(

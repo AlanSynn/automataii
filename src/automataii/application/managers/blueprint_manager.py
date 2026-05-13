@@ -42,10 +42,13 @@ class BlueprintExportManager(QObject):
     export_completed = pyqtSignal(bool, str)  # success, message
 
     def __new__(cls) -> 'BlueprintExportManager':
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
+        if cls._instance is not None:
+            return cls._instance
+        # Do not cache the PyQt QObject before QObject.__init__ runs. Holding a
+        # half-initialized SIP wrapper as the singleton can segfault on macOS.
+        instance = super().__new__(cls)
+        instance._initialized = False
+        return instance
 
     def __init__(self) -> None:
         if self._initialized:
@@ -69,6 +72,7 @@ class BlueprintExportManager(QObject):
         self._composer = BlueprintComposer()
 
         self.logger.debug("BlueprintExportManager singleton initialized")
+        type(self)._instance = self
 
     @classmethod
     def get_instance(cls) -> 'BlueprintExportManager':

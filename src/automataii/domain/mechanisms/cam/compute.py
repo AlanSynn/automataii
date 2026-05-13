@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import SupportsFloat, SupportsIndex, cast
 
 import numpy as np
 
@@ -26,6 +27,8 @@ from automataii.domain.mechanisms.core.state import (
     SafetyStatus,
 )
 
+_NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
 
 @dataclass(frozen=True)
 class CamParameters:
@@ -37,12 +40,40 @@ class CamParameters:
     profile_harmonic: float = 0.3
 
 
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(_NumericPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _positive_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result > 0.0 else default
+
+
+def _non_negative_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result >= 0.0 else default
+
+
+def _positive_int(value: object, default: int = 1) -> int:
+    if isinstance(value, bool):
+        return default
+    raw = _finite_float(value, math.nan)
+    if not math.isfinite(raw) or not raw.is_integer():
+        return default
+    result = int(raw)
+    return int(max(1, result))
+
+
 class CamFollowerMechanism(Mechanism):
     def __init__(self, parameters: dict[str, float] | None = None):
         self._parameters = self._parse_parameters(parameters or {})
         # Caching for performance
         self._cached_base_profile: list[tuple[float, float]] | None = None
-        self._cached_params_hash: int | None = None
+        self._cached_profile_params: tuple[float, float, int, float] | None = None
 
     @property
     def mechanism_type(self) -> str:
@@ -58,34 +89,76 @@ class CamFollowerMechanism(Mechanism):
         if missing:
             raise ValueError(f"Missing required parameters: {missing}")
 
-        if parameters["cam_radius"] <= 0:
+        try:
+            cam_radius = float(parameters["cam_radius"])
+            cam_offset = float(parameters["cam_offset"])
+            follower_length = float(parameters["follower_length"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Cam parameters must be numeric") from exc
+
+        for key, value in (
+            ("cam_radius", cam_radius),
+            ("cam_offset", cam_offset),
+            ("follower_length", follower_length),
+        ):
+            if not math.isfinite(value):
+                raise ValueError(f"{key} must be finite, got {parameters[key]}")
+
+        if cam_radius <= 0:
             raise ValueError(f"cam_radius must be positive, got {parameters['cam_radius']}")
-        if parameters["cam_offset"] < 0:
+        if cam_offset < 0:
             raise ValueError(f"cam_offset must be non-negative, got {parameters['cam_offset']}")
-        if parameters["follower_length"] <= 0:
+        if follower_length <= 0:
             raise ValueError(
                 f"follower_length must be positive, got {parameters['follower_length']}"
             )
+        if "cam_lobes" in parameters:
+            lobes = parameters["cam_lobes"]
+            try:
+                lobes_int = int(lobes)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"cam_lobes must be a positive integer, got {lobes}") from exc
+            if isinstance(lobes, bool) or lobes_int < 1:
+                raise ValueError(f"cam_lobes must be a positive integer, got {lobes}")
+        if "profile_harmonic" in parameters:
+            try:
+                profile_harmonic = float(parameters["profile_harmonic"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"profile_harmonic must be finite, got {parameters['profile_harmonic']}"
+                ) from exc
+            if not math.isfinite(profile_harmonic):
+                raise ValueError(
+                    f"profile_harmonic must be finite, got {parameters['profile_harmonic']}"
+                )
 
     def _parse_parameters(self, params: dict) -> CamParameters:
         return CamParameters(
-            cam_radius=params.get("cam_radius", 60.0),
-            cam_offset=params.get("cam_offset", 20.0),
-            follower_length=params.get("follower_length", 100.0),
-            cam_angle=params.get("cam_angle", 0.0),
-            cam_lobes=int(params.get("cam_lobes", 1)),
-            profile_harmonic=params.get("profile_harmonic", 0.3),
+            cam_radius=_positive_finite_float(params.get("cam_radius", 60.0), 60.0),
+            cam_offset=_non_negative_finite_float(params.get("cam_offset", 20.0), 20.0),
+            follower_length=_positive_finite_float(
+                params.get("follower_length", 100.0),
+                100.0,
+            ),
+            cam_angle=_finite_float(params.get("cam_angle", 0.0), 0.0),
+            cam_lobes=_positive_int(params.get("cam_lobes", 1), 1),
+            profile_harmonic=_finite_float(params.get("profile_harmonic", 0.3), 0.3),
         )
 
     def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
         # Check if parameters (excluding angle) have changed to invalidate cache
         # We construct a tuple of values relevant to profile generation for hashing
-        param_keys = ("cam_radius", "cam_offset", "cam_lobes", "profile_harmonic")
-        current_param_values = tuple(parameters.get(k) for k in param_keys)
+        parsed_profile_params = self._parse_parameters(parameters)
+        current_param_values = (
+            parsed_profile_params.cam_radius,
+            parsed_profile_params.cam_offset,
+            parsed_profile_params.cam_lobes,
+            parsed_profile_params.profile_harmonic,
+        )
 
-        if self._cached_params_hash != hash(current_param_values):
+        if self._cached_profile_params != current_param_values:
             self._cached_base_profile = None
-            self._cached_params_hash = hash(current_param_values)
+            self._cached_profile_params = current_param_values
 
         params_with_angle = {**parameters, "cam_angle": input_angle}
         self._parameters = self._parse_parameters(params_with_angle)
@@ -128,6 +201,7 @@ class CamFollowerMechanism(Mechanism):
             follower_end,
             cam_angle_rad,
             contact_radius,
+            params.cam_radius,
             follower_stress,
         )
 
@@ -208,6 +282,7 @@ class CamFollowerMechanism(Mechanism):
         follower_end: Point2D,
         cam_angle: float,
         contact_radius: float,
+        cam_radius: float,
         follower_stress: float,
     ) -> dict[str, ForceVector]:
         forces = {}
@@ -234,7 +309,7 @@ class CamFollowerMechanism(Mechanism):
             label="Friction",
         )
 
-        spring_force = abs(contact_radius - 60) * 0.5
+        spring_force = abs(contact_radius - cam_radius) * 0.5
         forces["spring"] = ForceVector(
             position=follower_end,
             magnitude=spring_force,
@@ -259,7 +334,11 @@ class CamFollowerMechanism(Mechanism):
     ) -> SafetyStatus:
         issues = []
 
-        contact_stress_ratio = abs(contact_radius - params.cam_radius) / params.cam_offset
+        contact_stress_ratio = (
+            abs(contact_radius - params.cam_radius) / params.cam_offset
+            if params.cam_offset > 1e-9
+            else 0.0
+        )
         if contact_stress_ratio > 0.9:
             issues.append(f"High contact stress ({contact_stress_ratio:.1%})")
 

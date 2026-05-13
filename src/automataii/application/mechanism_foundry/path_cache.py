@@ -20,13 +20,23 @@ class PathCacheKey:
     mechanism_type: str
     parameters: tuple[tuple[str, float], ...]
     point_name: str
+    angle_samples: int = 360
 
     @classmethod
     def from_dict(
-        cls, mechanism_type: str, params: dict[str, float], point_name: str
+        cls,
+        mechanism_type: str,
+        params: dict[str, float],
+        point_name: str,
+        angle_samples: int = 360,
     ) -> PathCacheKey:
         sorted_params = tuple(sorted(params.items()))
-        return cls(mechanism_type=mechanism_type, parameters=sorted_params, point_name=point_name)
+        return cls(
+            mechanism_type=mechanism_type,
+            parameters=sorted_params,
+            point_name=point_name,
+            angle_samples=angle_samples,
+        )
 
 
 @dataclass(frozen=True)
@@ -54,11 +64,16 @@ class PathCache:
 
     def put(self, key: PathCacheKey, path: CachedPath) -> None:
         estimated_size = len(path.points) * 2 * 8 + len(path.angles) * 8 + 8
+        existing = self._cache.pop(key, None)
+        if existing is not None:
+            self._current_size_bytes -= self._estimate_size(existing)
+
+        if estimated_size > self._max_size_bytes:
+            return
 
         while self._current_size_bytes + estimated_size > self._max_size_bytes and self._cache:
             oldest_key, oldest_path = self._cache.popitem(last=False)
-            old_size = len(oldest_path.points) * 2 * 8 + len(oldest_path.angles) * 8 + 8
-            self._current_size_bytes -= old_size
+            self._current_size_bytes -= self._estimate_size(oldest_path)
 
         self._cache[key] = path
         self._current_size_bytes += estimated_size
@@ -70,23 +85,33 @@ class PathCache:
         point_name: str,
         angle_samples: int = 360,
     ) -> CachedPath:
-        key = PathCacheKey.from_dict(mechanism.mechanism_type, params, point_name)
+        if isinstance(angle_samples, bool) or not isinstance(angle_samples, int):
+            raise ValueError(f"angle_samples must be an integer, got {type(angle_samples)}")
+        if angle_samples <= 0:
+            raise ValueError(f"angle_samples must be positive, got {angle_samples}")
+
+        key = PathCacheKey.from_dict(
+            mechanism.mechanism_type,
+            params,
+            point_name,
+            angle_samples,
+        )
 
         cached = self.get(key)
         if cached:
             return cached
 
-        angles = tuple(np.linspace(0, 360, angle_samples, endpoint=False))
+        angles = tuple(float(angle) for angle in np.linspace(0, 360, angle_samples, endpoint=False))
         points = []
 
         for angle in angles:
             try:
                 state = mechanism.compute_state(params, angle)
                 position = state.positions.get(point_name)
-                if position:
-                    points.append(position)
-                else:
+                if position is None or len(position) < 2:
                     points.append((0.0, 0.0))
+                else:
+                    points.append((float(position[0]), float(position[1])))
             except Exception:
                 points.append((0.0, 0.0))
 
@@ -103,12 +128,15 @@ class PathCache:
         keys_to_remove = [key for key in self._cache if key.mechanism_type == mechanism_type]
         for key in keys_to_remove:
             path = self._cache.pop(key)
-            size = len(path.points) * 2 * 8 + len(path.angles) * 8 + 8
-            self._current_size_bytes -= size
+            self._current_size_bytes -= self._estimate_size(path)
 
     def clear(self) -> None:
         self._cache.clear()
         self._current_size_bytes = 0
+
+    @staticmethod
+    def _estimate_size(path: CachedPath) -> int:
+        return len(path.points) * 2 * 8 + len(path.angles) * 8 + 8
 
     @property
     def hit_rate(self) -> float:

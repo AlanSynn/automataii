@@ -26,11 +26,13 @@ class Selector(Generic[T, R]):
         self,
         selector_func: Callable[[State[T]], R],
         dependencies: list | None = None,
-        memoize: bool = True
+        memoize: bool = True,
+        max_cache_size: int = 100,
     ):
         self.selector_func = selector_func
         self.dependencies = dependencies or []
         self.memoize = memoize
+        self.max_cache_size = max(1, int(max_cache_size))
         self._cache: dict[str, tuple[Any, R]] = {}
         self._name = selector_func.__name__ if hasattr(selector_func, '__name__') else 'anonymous'
 
@@ -44,24 +46,28 @@ class Selector(Generic[T, R]):
 
         # Check cache
         if cache_key in self._cache:
-            cached_state, cached_result = self._cache[cache_key]
-            if self._states_equal(state.data, cached_state):
-                return cached_result
+            _cached_state, cached_result = self._cache[cache_key]
+            return cached_result
 
         # Compute result
         result = self.selector_func(state)
 
         # Store in cache
-        self._cache[cache_key] = (state.data, result)
+        self._cache[cache_key] = (self._cache_data(state), result)
 
-        # Limit cache size
-        if len(self._cache) > 100:
-            # Remove oldest entries
-            oldest_keys = list(self._cache.keys())[:50]
-            for key in oldest_keys:
-                del self._cache[key]
+        self._trim_cache()
 
         return result
+
+    def _trim_cache(self) -> None:
+        """Trim cache using insertion order when it exceeds the configured size."""
+        if len(self._cache) <= self.max_cache_size:
+            return
+
+        overflow = len(self._cache) - self.max_cache_size
+        oldest_keys = list(self._cache.keys())[:overflow]
+        for key in oldest_keys:
+            del self._cache[key]
 
     def _create_cache_key(self, state: State[T]) -> str:
         """Create cache key from state using JSON serialization (secure alternative to pickle).
@@ -70,28 +76,29 @@ class Selector(Generic[T, R]):
             Uses JSON instead of pickle to prevent arbitrary code execution.
             Uses SHA256 instead of MD5 to prevent hash collision attacks.
         """
+        cache_data = self._cache_data(state)
         try:
-            # Try to create a hash of the relevant state parts
-            if self.dependencies:
-                # Hash only dependencies
-                dep_data = {}
-                for dep in self.dependencies:
-                    if hasattr(state.data, dep):
-                        dep_data[dep] = getattr(state.data, dep)
-                    elif isinstance(state.data, dict) and dep in state.data:
-                        dep_data[dep] = state.data[dep]
-
-                state_json = self._serialize_to_json(dep_data)
-            else:
-                # Hash entire state
-                state_json = self._serialize_to_json(state.data)
+            state_json = self._serialize_to_json(cache_data)
 
             # Use SHA256 instead of MD5 (collision-resistant)
             return hashlib.sha256(state_json.encode('utf-8')).hexdigest()
 
         except (ValueError, TypeError, AttributeError):
             # Fallback to string representation
-            return hashlib.sha256(repr(state.data).encode('utf-8')).hexdigest()
+            return hashlib.sha256(repr(cache_data).encode('utf-8')).hexdigest()
+
+    def _cache_data(self, state: State[T]) -> Any:
+        """Return the exact state subset that participates in memoization."""
+        if not self.dependencies:
+            return state.data
+
+        dep_data = {}
+        for dep in self.dependencies:
+            if hasattr(state.data, dep):
+                dep_data[dep] = getattr(state.data, dep)
+            elif isinstance(state.data, dict) and dep in state.data:
+                dep_data[dep] = state.data[dep]
+        return dep_data
 
     def _serialize_to_json(self, data: Any) -> str:
         """Serialize data to JSON string for hashing.
@@ -110,14 +117,6 @@ class Selector(Generic[T, R]):
             return repr(obj)
 
         return json.dumps(data, default=json_default, sort_keys=True, ensure_ascii=False)
-
-    def _states_equal(self, state1: Any, state2: Any) -> bool:
-        """Check if two states are equal."""
-        try:
-            return state1 == state2
-        except (TypeError, ValueError, AttributeError):
-            # Fallback to string comparison for non-comparable types
-            return str(state1) == str(state2)
 
     def clear_cache(self) -> None:
         """Clear selector cache."""
@@ -173,25 +172,7 @@ def memoize(
         Decorator that creates a memoized selector
     """
     def decorator(func: Callable) -> Selector:
-        selector = Selector(func, dependencies=dependencies, memoize=True)
-
-        # Override cache size
-        original_call = selector.__call__
-
-        def cached_call(state: State) -> Any:
-            result = original_call(state)
-
-            # Trim cache if needed
-            if len(selector._cache) > cache_size:
-                # Keep only the most recent entries
-                recent_keys = list(selector._cache.keys())[-cache_size//2:]
-                new_cache = {k: selector._cache[k] for k in recent_keys}
-                selector._cache = new_cache
-
-            return result
-
-        selector.__call__ = cached_call
-        return selector
+        return Selector(func, dependencies=dependencies, memoize=True, max_cache_size=cache_size)
 
     return decorator
 
@@ -201,7 +182,7 @@ class SelectorRegistry:
     Registry for managing selectors and their dependencies.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._selectors: dict[str, Selector] = {}
         self._dependencies: dict[str, set] = {}
 

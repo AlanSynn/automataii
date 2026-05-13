@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from .contract import SUPPORTED_EXPORT_TYPES as FOUNDRY_SUPPORTED_EXPORT_TYPES
+
 Point = tuple[float, float]
 
 
@@ -46,10 +48,9 @@ class MechanismSpec:
         return replace(self, metadata=merged)
 
 
-SUPPORTED_EXPORT_TYPES: frozenset[str] = frozenset(
+SUPPORTED_EXPORT_TYPES: frozenset[str] = FOUNDRY_SUPPORTED_EXPORT_TYPES | frozenset(
     [
         # Legacy linkages (backward compatibility)
-        "four_bar",
         "four_bar_linkage",
         "4_bar_linkage",
         # Unified linkage architecture
@@ -57,7 +58,6 @@ SUPPORTED_EXPORT_TYPES: frozenset[str] = frozenset(
         "unified_linkage",
         # Other mechanisms
         "cam",
-        "cam_follower",
         "gear",
         "planetary_gear",
     ]

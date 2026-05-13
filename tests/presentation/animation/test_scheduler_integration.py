@@ -136,7 +136,7 @@ class TestFrameDataDispatch:
         scheduler.start_engine_only()
 
         # Manually compute and dispatch frames
-        for i in range(5):
+        for _ in range(5):
             frame = scheduler.compute_and_dispatch(0.016)
             assert frame is not None
 
@@ -210,6 +210,49 @@ class TestBackwardsCompatibility:
         scheduler.stop_engine_only()
 
         assert call_count == 5
+
+    def test_manual_frame_processing_clamps_invalid_delta_time(self) -> None:
+        from automataii.presentation.qt.animation.scheduler import AnimationPriority
+        from automataii.presentation.qt.animation.scheduler_accelerated import (
+            AcceleratedAnimationScheduler,
+        )
+
+        scheduler = AcceleratedAnimationScheduler(enable_threading=False)
+        deltas: list[float] = []
+        scheduler.subscribe(
+            callback=lambda dt: deltas.append(dt),
+            priority=AnimationPriority.NORMAL,
+            owner_id="delta_recorder",
+        )
+
+        scheduler.process_frame_manual(float("nan"))
+        scheduler.process_frame_manual(999.0)
+
+        assert deltas[0] == scheduler._frame_time_ms / 1000.0
+        assert deltas[1] == scheduler.MAX_DELTA_TIME_SECONDS
+
+    def test_manual_frame_processing_disables_repeatedly_failing_callbacks(self) -> None:
+        from automataii.presentation.qt.animation.scheduler import AnimationPriority
+        from automataii.presentation.qt.animation.scheduler_accelerated import (
+            AcceleratedAnimationScheduler,
+        )
+
+        scheduler = AcceleratedAnimationScheduler(enable_threading=False)
+        calls = 0
+
+        def callback(_dt: float) -> None:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("boom")
+
+        scheduler.subscribe(callback, AnimationPriority.NORMAL, "flaky")
+
+        for _ in range(scheduler.CALLBACK_ERROR_DISABLE_THRESHOLD + 1):
+            scheduler.process_frame_manual(0.016)
+
+        sub = scheduler.list_subscriptions()[0]
+        assert calls == scheduler.CALLBACK_ERROR_DISABLE_THRESHOLD
+        assert sub["enabled"] is False
 
     def test_pause_resume_works(self) -> None:
         """Pause/resume should work with accelerated mode."""

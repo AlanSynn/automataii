@@ -55,16 +55,16 @@ MECHANISM_CONFIGS: dict[str, MechanismConfiguration] = {
         mechanism_type="four_bar",
         parameter_specs=(
             ParameterSpec(
-                "ground_link", "Ground Link (mm)", 30.0, 300.0, 150.0, "float", "mm", step=1.0
+                "ground_link", "Ground Link (mm)", 30.0, 600.0, 150.0, "float", "mm", step=1.0
             ),
             ParameterSpec(
-                "input_link", "Input Link (mm)", 10.0, 150.0, 40.0, "float", "mm", step=1.0
+                "input_link", "Input Link (mm)", 10.0, 300.0, 40.0, "float", "mm", step=1.0
             ),
             ParameterSpec(
-                "coupler_link", "Coupler Link (mm)", 20.0, 250.0, 120.0, "float", "mm", step=1.0
+                "coupler_link", "Coupler Link (mm)", 20.0, 500.0, 120.0, "float", "mm", step=1.0
             ),
             ParameterSpec(
-                "output_link", "Output Link (mm)", 20.0, 250.0, 130.0, "float", "mm", step=1.0
+                "output_link", "Output Link (mm)", 20.0, 500.0, 130.0, "float", "mm", step=1.0
             ),
         ),
         extra_defaults={"input_angle": 30.0},
@@ -124,9 +124,16 @@ MECHANISM_CONFIGS: dict[str, MechanismConfiguration] = {
 }
 
 CATALOG_TYPE_TO_MECHANISM_TYPE: dict[str, str] = {
+    "four_bar": "four_bar",
     "four_bar_linkage": "four_bar",
+    "4_bar_linkage": "four_bar",
+    "cam": "cam_follower",
     "cam_follower": "cam_follower",
+    "gear": "gear_train",
     "gear_train": "gear_train",
+    "slider_crank": "slider_crank",
+    "slider-crank": "slider_crank",
+    "slidercrank": "slider_crank",
 }
 
 
@@ -265,7 +272,8 @@ class MechanismFoundryController:
     def default_configuration(mechanism_type: str | None) -> MechanismConfiguration | None:
         if mechanism_type is None:
             return None
-        return MECHANISM_CONFIGS.get(mechanism_type)
+        canonical_type = MechanismFoundryController._map_catalog_type(mechanism_type)
+        return MECHANISM_CONFIGS.get(canonical_type or mechanism_type)
 
     @staticmethod
     def fallback_items() -> Sequence[MechanismItem]:
@@ -301,7 +309,8 @@ class MechanismFoundryController:
     def _map_catalog_type(mech_type: str | None) -> str | None:
         if mech_type is None:
             return None
-        return CATALOG_TYPE_TO_MECHANISM_TYPE.get(mech_type)
+        normalized = mech_type.strip().lower()
+        return CATALOG_TYPE_TO_MECHANISM_TYPE.get(normalized)
 
     def export_mechanism_to_design(
         self,

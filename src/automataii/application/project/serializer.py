@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import shutil
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -98,6 +99,10 @@ class V1ToV2Migrator:
                 "created_at": datetime.now().isoformat(),
                 "modified_at": datetime.now().isoformat(),
             }
+        else:
+            metadata = dict(migrated["metadata"])
+            metadata["version"] = "2.0"
+            migrated["metadata"] = metadata
 
         # Rename layers to parts if needed
         if "layers" in migrated and "parts" not in migrated:
@@ -212,6 +217,13 @@ class ProjectSerializer:
         bundle_root = save_root / f"{path.stem}_assets"
         copied_sources: dict[Path, str] = {}
 
+        def _safe_stem_hint(stem_hint: str) -> str:
+            safe = "".join(
+                char if char.isalnum() or char in {"_", "-"} else "_"
+                for char in stem_hint
+            ).strip("._-")
+            return safe or "asset"
+
         def _resolve_source_path(raw_path: str | None) -> Path | None:
             if not raw_path:
                 return None
@@ -246,7 +258,8 @@ class ProjectSerializer:
             source_suffix = source_path.suffix
             if not source_suffix:
                 source_suffix = ".bin"
-            base_name = f"{stem_hint}{source_suffix}"
+            safe_stem = _safe_stem_hint(stem_hint)
+            base_name = f"{safe_stem}{source_suffix}"
             dest_path = dest_dir / base_name
 
             def _same_file_content(lhs: Path, rhs: Path) -> bool:
@@ -272,7 +285,7 @@ class ProjectSerializer:
 
             counter = 1
             while dest_path.exists() and dest_path.resolve() != source_path.resolve():
-                candidate = dest_dir / f"{stem_hint}_{counter}{source_suffix}"
+                candidate = dest_dir / f"{safe_stem}_{counter}{source_suffix}"
                 if candidate.exists() and _same_file_content(source_path, candidate):
                     relative = str(candidate.relative_to(save_root))
                     copied_sources[source_path] = relative
@@ -321,6 +334,14 @@ class ProjectSerializer:
     def _create_backup(self, path: Path) -> None:
         """Create backup of existing file."""
         backup_path = path.with_suffix(f".backup{path.suffix}")
+        if backup_path.exists():
+            counter = 1
+            while True:
+                candidate = path.with_suffix(f".backup{counter}{path.suffix}")
+                if not candidate.exists():
+                    backup_path = candidate
+                    break
+                counter += 1
         try:
             shutil.copy2(path, backup_path)
             logger.debug(f"Backup created: {backup_path}")
@@ -407,9 +428,23 @@ class ProjectSerializer:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
 
+            if not isinstance(data, dict):
+                return False, "Project root must be a JSON object"
+
+            metadata = data.get("metadata")
+            if metadata is not None and not isinstance(metadata, dict):
+                return False, "metadata section must be an object"
+
             # Check required fields
             if "metadata" not in data and "parts" not in data:
                 return False, "Missing required sections"
+
+            for section in ("parts", "mechanisms", "paths"):
+                if section in data and not isinstance(data[section], dict):
+                    return False, f"{section} section must be an object"
+
+            if "skeleton" in data and not isinstance(data["skeleton"], dict):
+                return False, "skeleton section must be an object"
 
             return True, None
 
@@ -427,15 +462,21 @@ class ProjectSerializer:
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
+            if not isinstance(data, dict):
+                return None
 
             metadata = data.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            parts = data.get("parts", {})
+            mechanisms = data.get("mechanisms", {})
             return {
                 "name": metadata.get("name", path.stem),
                 "version": metadata.get("version", "unknown"),
                 "created_at": metadata.get("created_at"),
                 "modified_at": metadata.get("modified_at"),
-                "parts_count": len(data.get("parts", {})),
-                "mechanisms_count": len(data.get("mechanisms", {})),
+                "parts_count": len(parts) if isinstance(parts, dict) else 0,
+                "mechanisms_count": len(mechanisms) if isinstance(mechanisms, dict) else 0,
             }
         except Exception:
             return None
@@ -464,9 +505,23 @@ class AutoSaveManager:
         interval_seconds: int = DEFAULT_INTERVAL_SECONDS,
     ) -> None:
         self._serializer = serializer
-        self._interval = interval_seconds
+        self._interval = self._normalize_interval(interval_seconds)
         self._last_save: datetime | None = None
         self._autosave_dir: Path | None = None
+
+    @classmethod
+    def _normalize_interval(cls, interval_seconds: object) -> int:
+        if isinstance(interval_seconds, bool):
+            return cls.DEFAULT_INTERVAL_SECONDS
+        if not isinstance(interval_seconds, int | str):
+            return cls.DEFAULT_INTERVAL_SECONDS
+        try:
+            interval = int(interval_seconds)
+        except (TypeError, ValueError):
+            return cls.DEFAULT_INTERVAL_SECONDS
+        if not math.isfinite(float(interval)) or interval <= 0:
+            return cls.DEFAULT_INTERVAL_SECONDS
+        return int(interval)
 
     def setup(self, project_dir: Path) -> None:
         """Setup autosave directory."""

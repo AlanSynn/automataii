@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
     QGraphicsPolygonItem,
 )
 
+from automataii.presentation.qt.mechanism_parameter_utils import finite_param
+
 from ..base import MechanismVisualizer
 
 
@@ -187,8 +189,8 @@ class FourBarVisualizer(MechanismVisualizer):
                                  params: dict[str, Any]) -> np.ndarray:
         """Calculate coupler point position."""
         # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-        coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0)
-        coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0)
+        coupler_point_x = finite_param(params, "coupler_point_x", "p_x", default=0.0)
+        coupler_point_y = finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
         coupler_vec = p4 - p3
         coupler_length = np.linalg.norm(coupler_vec)

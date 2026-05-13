@@ -6,6 +6,7 @@ does not cause AttributeErrors related to uninitialized coordinators.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -143,19 +144,51 @@ class TestMechanismTypeHandling:
     ])
     def test_mechanism_type_mapping(self, mechanism_type: str, internal_type: str):
         """Verify mechanism type mapping from display names to internal types."""
-        MECHANISM_TYPE_MAPPING = {
-            "4-Bar Linkage": "4_bar_linkage",
-            "4-bar Coupler": "4_bar_linkage",
-            "Cam & Follower": "cam",
-            "Cam-Follower": "cam",
-            "Gears (Simple Pair)": "gear",
-            "Gear Contact": "gear",
-            "Simple Gear": "gear",
-            "Planetary Gear": "planetary_gear",
-        }
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
 
-        result = MECHANISM_TYPE_MAPPING.get(mechanism_type, "4_bar_linkage")
+        result = MechanismInstantiationService().map_mechanism_type(mechanism_type)
         assert result == internal_type
+
+    def test_preview_unknown_mechanism_does_not_fallback_to_4bar(self, caplog):
+        """Preview must not hide unsupported recommendation types as a 4-bar."""
+        from automataii.presentation.qt.tabs.mechanism_design.controllers.recommendation_controller import (
+            RecommendationController,
+        )
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        controller = RecommendationController(parent=None)
+        controller._instantiation_service = MechanismInstantiationService()
+        controller._get_scene_fn = lambda: object()
+        controller._create_4bar_visuals_fn = MagicMock(return_value=["unexpected"])
+
+        with caplog.at_level(logging.WARNING):
+            controller._show_preview({"type": "Unknown Mechanism"})
+
+        controller._create_4bar_visuals_fn.assert_not_called()
+        assert controller._preview_items == []
+        assert "Skipping unsupported mechanism preview" in caplog.text
+
+    def test_preview_known_4bar_still_creates_4bar_visuals(self):
+        from automataii.presentation.qt.tabs.mechanism_design.controllers.recommendation_controller import (
+            RecommendationController,
+        )
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        controller = RecommendationController(parent=None)
+        controller._instantiation_service = MechanismInstantiationService()
+        controller._get_scene_fn = lambda: object()
+        controller._create_4bar_visuals_fn = MagicMock(return_value=["4bar-preview"])
+
+        controller._show_preview({"type": "Four-Bar Linkage"})
+
+        controller._create_4bar_visuals_fn.assert_called_once()
+        assert controller._preview_items == ["4bar-preview"]
 
 
 class TestRecommendationControllerFlow:

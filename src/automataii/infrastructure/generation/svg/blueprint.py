@@ -1,9 +1,39 @@
 import logging
+import math
+from html import escape as escape_xml
 
 from automataii.domain.generation.contour import AdvancedContourExtractor
 from automataii.infrastructure.generation.processors.png_blueprint import (
     PNGBlueprintProcessor,
 )
+
+
+def _positive_dimension(value: object, default: float) -> float:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) and number > 0.0 else default
+
+
+def _safe_svg_text(value: object) -> str:
+    return escape_xml(str(value or ""), quote=True)
+
+
+def _safe_snapshot_data_uri(snapshot_data_uri: object) -> str | None:
+    if not isinstance(snapshot_data_uri, str):
+        return None
+    value = snapshot_data_uri.strip()
+    allowed_prefixes = (
+        "data:image/png;base64,",
+        "data:image/jpeg;base64,",
+        "data:image/jpg;base64,",
+        "data:image/webp;base64,",
+        "data:image/gif;base64,",
+    )
+    if not value.lower().startswith(allowed_prefixes):
+        return None
+    return escape_xml(value, quote=True)
 
 
 def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
@@ -26,9 +56,17 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
         SVG string containing the complete blueprint
     """
     logger = logging.getLogger(__name__)
+    layout_items = list(layout_items) if layout_items is not None else []
+    page_width_mm = max(120.0, _positive_dimension(page_width_mm, 800.0))
+    page_height_mm = max(120.0, _positive_dimension(page_height_mm, 600.0))
+    title = _safe_svg_text(title)
+    scale_info = _safe_svg_text(scale_info)
+    snapshot_data_uri = _safe_snapshot_data_uri(snapshot_data_uri)
+    unit_system = "imperial" if unit_system == "imperial" else "metric"
 
     # Unit conversion functions
     def format_dimension(value_mm: float) -> str:
+        value_mm = _positive_dimension(value_mm, 0.0)
         if unit_system == "imperial":
             inches = value_mm / 25.4
             if inches < 1.0:
@@ -116,8 +154,8 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
     spacing = 40  # Very generous spacing between items
 
     # Separate parts and mechanisms
-    part_items = [item for item in layout_items if item.item_type == 'part']
-    mechanism_items = [item for item in layout_items if item.item_type == 'mechanism']
+    part_items = [item for item in layout_items if getattr(item, "item_type", None) == 'part']
+    mechanism_items = [item for item in layout_items if getattr(item, "item_type", None) == 'mechanism']
 
     logger.info(f"Large blueprint: {len(part_items)} parts, {len(mechanism_items)} mechanisms")
 
@@ -150,14 +188,17 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
         row_width = page_width_mm - (2 * margin_x)
 
         for item in part_items:
+            bounds = getattr(item, "bounds", None)
+            item_width = _positive_dimension(getattr(bounds, "width", 0.0), 1.0)
+            item_height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0)
             # Check if we need to start a new row
-            if parts_x + item.bounds.width + spacing > row_width:
+            if parts_x + item_width + spacing > row_width:
                 parts_x = 0
                 parts_y += max_row_height + spacing
                 max_row_height = 0
 
             # Add part with its original SVG content (cleaned of data attributes)
-            clean_svg_content = item.svg_content
+            clean_svg_content = str(getattr(item, "svg_content", "") or "")
             # Remove the data-clip-def attribute since we've moved the definitions to the main defs section
             if 'data-clip-def=' in clean_svg_content:
                 start = clean_svg_content.find(' data-clip-def="')
@@ -170,8 +211,8 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
             svg_parts.append('</g>')
 
             # Update position for next item
-            parts_x += item.bounds.width + spacing
-            max_row_height = max(max_row_height, item.bounds.height)
+            parts_x += item_width + spacing
+            max_row_height = max(max_row_height, item_height)
 
         content_y += parts_y + max_row_height + 80
         svg_parts.append('</g>')
@@ -190,22 +231,30 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
         row_width = page_width_mm - (2 * margin_x)  # Define row_width for mechanisms section
 
         for item in mechanism_items:
+            bounds = getattr(item, "bounds", None)
+            item_width = _positive_dimension(getattr(bounds, "width", 0.0), 1.0)
+            item_height = _positive_dimension(getattr(bounds, "height", 0.0), 1.0)
             # Check if we need to start a new row
-            if mech_x + item.bounds.width + mech_spacing > row_width:
+            if mech_x + item_width + mech_spacing > row_width:
                 mech_x = 0
                 mech_y += max_row_height + mech_spacing
                 max_row_height = 0
 
             # Add mechanism with its SVG content
             svg_parts.append(f'<g transform="translate({mech_x},{mech_y})">')
-            svg_parts.append(item.svg_content)
+            svg_parts.append(str(getattr(item, "svg_content", "") or ""))
             svg_parts.append('</g>')
 
-            logger.debug(f"Added mechanism at ({mech_x},{mech_y}): {item.name} - {item.svg_content[:100]}...")
+            logger.debug(
+                "Added mechanism at (%s,%s): %s",
+                mech_x,
+                mech_y,
+                getattr(item, "name", "unknown"),
+            )
 
             # Update position for next item
-            mech_x += item.bounds.width + mech_spacing
-            max_row_height = max(max_row_height, item.bounds.height)
+            mech_x += item_width + mech_spacing
+            max_row_height = max(max_row_height, item_height)
 
         svg_parts.append('</g>')
 
@@ -659,5 +708,3 @@ def _create_fallback_part_svg(item, x_offset: float, y_offset: float, padding: f
     except Exception as e:
         logging.error(f"Error creating fallback part SVG: {e}")
         return ""
-
-

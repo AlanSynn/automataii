@@ -26,6 +26,11 @@ from automataii.config.z_indices import (
     Z_MECHANISM_PIVOT,
     Z_SELECTION_MARKER,
 )
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    finite_param,
+    positive_finite_float,
+)
 
 
 def _cosmetic_pen(
@@ -51,6 +56,55 @@ def _cosmetic_pen(
     pen = QPen(color, width, style, cap)
     pen.setCosmetic(True)  # Width doesn't scale with view transform
     return pen
+
+
+def _finite_point_array(raw: object) -> np.ndarray | None:
+    try:
+        point = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if point.ndim != 1 or len(point) < 2:
+        return None
+    point = point[:2]
+    if not bool(np.isfinite(point).all()):
+        return None
+    return point
+
+
+def _first_position_point(raw: object) -> np.ndarray | None:
+    if isinstance(raw, np.ndarray):
+        if raw.ndim == 1:
+            return _finite_point_array(raw[:2])
+        if raw.ndim == 2 and raw.shape[0] > 0:
+            return _finite_point_array(raw[0, :2])
+        return None
+
+    if isinstance(raw, list | tuple):
+        if not raw:
+            return None
+        first_point = _finite_point_array(raw[0])
+        if first_point is not None:
+            return first_point
+        return _finite_point_array(raw)
+
+    return _finite_point_array(raw)
+
+
+def _point_from_params(params: dict, x_key: str, y_key: str) -> np.ndarray | None:
+    if x_key not in params or y_key not in params:
+        return None
+    x_value = finite_float(params.get(x_key), math.nan)
+    y_value = finite_float(params.get(y_key), math.nan)
+    if not math.isfinite(x_value) or not math.isfinite(y_value):
+        return None
+    return np.array([x_value, y_value], dtype=float)
+
+
+def _first_point(*points: np.ndarray | None) -> np.ndarray | None:
+    for point in points:
+        if point is not None:
+            return point
+    return None
 
 
 class MechanismVisualsFactory:
@@ -93,8 +147,12 @@ class MechanismVisualsFactory:
 
                 # Calculate initial coupler point position (same as dataset)
                 # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-                coupler_point_x = params.get("coupler_point_x") or params.get("p_x", 0.0)
-                coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0)
+                coupler_point_x = finite_param(
+                    params, "coupler_point_x", "p_x", default=0.0
+                )
+                coupler_point_y = finite_param(
+                    params, "coupler_point_y", "p_y", default=0.0
+                )
 
                 coupler_vec = p4 - p3
                 coupler_length = np.linalg.norm(coupler_vec)
@@ -122,8 +180,13 @@ class MechanismVisualsFactory:
             p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
 
             # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-            coupler_point_x = params.get("coupler_point_x") or params.get("p_x", l3/2)
-            coupler_point_y = params.get("coupler_point_y") or params.get("p_y", 0.0)
+            default_coupler_x = finite_float(l3, 0.0) / 2.0
+            coupler_point_x = finite_param(
+                params, "coupler_point_x", "p_x", default=default_coupler_x
+            )
+            coupler_point_y = finite_param(
+                params, "coupler_point_y", "p_y", default=0.0
+            )
 
             coupler_vec = p4 - p3
             coupler_length = np.linalg.norm(coupler_vec)
@@ -1113,69 +1176,64 @@ class MechanismVisualsFactory:
         if not to_scene_coords or not params:
             return []
 
-        r_sun = params.get("r_sun", 20)
-        r_planet = params.get("r_planet", 30)
-        arm_length = params.get("arm_length", 15)
+        r_sun = positive_finite_float(params.get("r_sun", 20), 20.0)
+        r_planet = positive_finite_float(params.get("r_planet", 30), 30.0)
+        arm_length = positive_finite_float(params.get("arm_length", 15), 15.0)
 
         visual_items = []
 
         # Try to get initial positions from simulation data
         full_sim_data = mechanism_data.get("full_simulation_data", {})
-        gear_positions = full_sim_data.get("gear_positions", {})
+        gear_positions = (
+            full_sim_data.get("gear_positions", {}) if isinstance(full_sim_data, dict) else {}
+        )
+        if not isinstance(gear_positions, dict):
+            gear_positions = {}
 
-        if gear_positions and "sun_centers" in gear_positions and len(gear_positions["sun_centers"]) > 0:
+        sim_sun_center = _first_position_point(gear_positions.get("sun_centers"))
+        sim_planet_center = _first_position_point(gear_positions.get("planet_centers"))
+        sim_tracking_point = _first_position_point(gear_positions.get("tracking_points"))
+
+        if (
+            sim_sun_center is not None
+            and sim_planet_center is not None
+            and sim_tracking_point is not None
+        ):
             # Use simulation data for accurate positioning
-            frame_idx = 0
-            sun_center_orig = np.array(gear_positions["sun_centers"][frame_idx])
-            planet_center_orig = np.array(gear_positions["planet_centers"][frame_idx])
-            tracking_point_orig = np.array(gear_positions["tracking_points"][frame_idx])
+            sun_center_orig = sim_sun_center
+            planet_center_orig = sim_planet_center
+            tracking_point_orig = sim_tracking_point
         else:
             key_points = mechanism_data.get("key_points", {})
-            if "sun_center" in key_points:
-                sun_center_orig = np.array(key_points["sun_center"], dtype=float)
-            elif "m_sun_x" in params and "m_sun_y" in params:
-                sun_center_orig = np.array(
-                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
-                    dtype=float,
-                )
-            elif "sun_x" in params and "sun_y" in params:
-                sun_center_orig = np.array(
-                    [float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0))],
-                    dtype=float,
-                )
-            elif "gear1_x" in params and "gear1_y" in params:
-                sun_center_orig = np.array(
-                    [float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0))],
-                    dtype=float,
-                )
-            else:
+            if not isinstance(key_points, dict):
+                key_points = {}
+
+            sun_center = _first_point(
+                _finite_point_array(key_points.get("sun_center")),
+                _point_from_params(params, "m_sun_x", "m_sun_y"),
+                _point_from_params(params, "sun_x", "sun_y"),
+                _point_from_params(params, "gear1_x", "gear1_y"),
+            )
+            if sun_center is None:
                 sun_center_orig = np.array([0.0, 0.0], dtype=float)
-
-            if "planet_center" in key_points:
-                planet_center_orig = np.array(key_points["planet_center"], dtype=float)
-            elif "m_sun_x" in params and "m_sun_y" in params:
-                m_center = np.array(
-                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
-                    dtype=float,
-                )
-                planet_center_orig = m_center + (r_sun + r_planet) * np.array([1.0, 0.0], dtype=float)
-            elif "planet_x" in params and "planet_y" in params:
-                planet_center_orig = np.array(
-                    [float(params.get("planet_x", 0.0)), float(params.get("planet_y", 0.0))],
-                    dtype=float,
-                )
-            elif "gear2_x" in params and "gear2_y" in params:
-                planet_center_orig = np.array(
-                    [float(params.get("gear2_x", 0.0)), float(params.get("gear2_y", 0.0))],
-                    dtype=float,
-                )
             else:
+                sun_center_orig = sun_center
+
+            planet_center = _first_point(
+                _finite_point_array(key_points.get("planet_center")),
+                _point_from_params(params, "planet_x", "planet_y"),
+                _point_from_params(params, "gear2_x", "gear2_y"),
+            )
+            if planet_center is None:
                 planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([1.0, 0.0])
-
-            if "tracking_point" in key_points:
-                tracking_point_orig = np.array(key_points["tracking_point"], dtype=float)
             else:
+                planet_center_orig = planet_center
+
+            tracking_point = _finite_point_array(key_points.get("tracking_point"))
+            if tracking_point is None:
                 tracking_point_orig = planet_center_orig + arm_length * np.array([1.0, 0.0])
+            else:
+                tracking_point_orig = tracking_point
 
         # Transform to scene coordinates
         sun_center_scene = to_scene_coords(sun_center_orig)

@@ -20,6 +20,13 @@ if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import PathTraceManager
 
 
+JointCacheSignature = tuple[tuple[tuple[str, str], ...], tuple[str, ...]]
+
+
+def _finite_qpoint(point: QPointF) -> bool:
+    return math.isfinite(point.x()) and math.isfinite(point.y())
+
+
 class IKManagerProtocol(Protocol):
     """Protocol for IK manager interface."""
 
@@ -76,7 +83,7 @@ class AnimationFrameCoordinator:
         self._ik_throttle_timer.invalidate()
         self._last_target_pos_by_joint: dict[str, QPointF] = {}
         self._joint_id_cache: dict[str, str | None] = {}
-        self._joint_id_cache_signature: tuple[int, int, int] | None = None
+        self._joint_id_cache_signature: JointCacheSignature | None = None
 
         # Callbacks (injected)
         self._calculate_output_fn: Callable[[str, dict, float, dict], QPointF | None] | None = None
@@ -275,13 +282,15 @@ class AnimationFrameCoordinator:
         self._mechanism_cache_len = -1
 
     def _get_mechanism_id_cache(self, mechanism_layers: dict[str, Any]) -> tuple[str, ...]:
+        current_ids = tuple(mechanism_layers.keys())
         cache_ref_id = id(mechanism_layers)
         cache_len = len(mechanism_layers)
         if (
             cache_ref_id != self._mechanism_cache_ref_id
             or cache_len != self._mechanism_cache_len
+            or current_ids != self._mechanism_id_cache
         ):
-            self._mechanism_id_cache = tuple(mechanism_layers.keys())
+            self._mechanism_id_cache = current_ids
             self._mechanism_cache_ref_id = cache_ref_id
             self._mechanism_cache_len = cache_len
             if self._mechanism_id_cache:
@@ -336,7 +345,7 @@ class AnimationFrameCoordinator:
                 layer_data,
             )
 
-            if not output_pos:
+            if output_pos is None or not _finite_qpoint(output_pos):
                 return None
 
             # Update mechanism visuals and path trace
@@ -424,14 +433,18 @@ class AnimationFrameCoordinator:
     def _get_joint_cache_signature(
         self,
         skeleton_cache: dict | None,
-    ) -> tuple[int, int, int] | None:
+    ) -> JointCacheSignature | None:
         if not skeleton_cache:
             return None
         joints = skeleton_cache.get("joints", {})
         joint_map = skeleton_cache.get("joint_map", {})
-        joints_len = len(joints) if isinstance(joints, dict) else 0
-        joint_map_len = len(joint_map) if isinstance(joint_map, dict) else 0
-        return (id(skeleton_cache), joints_len, joint_map_len)
+        joint_keys = tuple(sorted(str(key) for key in joints)) if isinstance(joints, dict) else ()
+        joint_map_items = (
+            tuple(sorted((str(key), str(value)) for key, value in joint_map.items()))
+            if isinstance(joint_map, dict)
+            else ()
+        )
+        return (joint_map_items, joint_keys)
 
     def _apply_ik_targets(
         self,

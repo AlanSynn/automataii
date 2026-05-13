@@ -29,7 +29,9 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from .animation_cache import AnimationCacheManager
+from automataii.presentation.qt.mechanism_parameter_utils import finite_param
+
+from .animation_cache import AnimationCacheManager, GearCache, PlanetaryGearCache
 
 if TYPE_CHECKING:
     pass
@@ -212,8 +214,8 @@ class MechanismVisualAnimator:
             # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
             coupler_offset = np.array(
                 [
-                    params.get("coupler_point_x") or params.get("p_x", 0.0),
-                    params.get("coupler_point_y") or params.get("p_y", 0.0),
+                    finite_param(params, "coupler_point_x", "p_x", default=0.0),
+                    finite_param(params, "coupler_point_y", "p_y", default=0.0),
                 ]
             )
 
@@ -685,24 +687,16 @@ class MechanismVisualAnimator:
             # Fallback
             full_sim_data = layer_data.get("full_simulation_data", {})
             gear_data = full_sim_data.get("gear_data", {})
-
-            distance = r1 + r2
-            gear1_center = np.array([0, 0])
-            gear2_center = np.array([distance, 0])
+            key_points = layer_data.get("key_points", {})
+            fallback_cache = GearCache.from_params(params, gear_data, key_points)
+            gear1_center = np.array(fallback_cache.gear1_center, dtype=float)
+            gear2_center = np.array(fallback_cache.gear2_center, dtype=float)
+            if not use_scene_geometry:
+                r1 = fallback_cache.gear1_radius
+                r2 = fallback_cache.gear2_radius
 
             if gear_data and "gear1_angles" in gear_data and "gear2_angles" in gear_data:
-                gear1_angles = gear_data["gear1_angles"]
-                gear2_angles = gear_data["gear2_angles"]
-                num_frames = len(gear1_angles)
-
-                if num_frames > 0:
-                    normalized_time = (time / (2 * np.pi)) % 1.0
-                    frame_index = int(normalized_time * (num_frames - 1))
-                    frame_index = max(0, min(frame_index, num_frames - 1))
-
-                    full_rotations = int(time / (2 * np.pi))
-                    theta1 = gear1_angles[frame_index] + full_rotations * 2 * np.pi
-                    theta2 = gear2_angles[frame_index] + full_rotations * 2 * np.pi * (-r1 / r2)
+                theta1, theta2 = fallback_cache.get_angles(time)
 
         if use_scene_geometry:
             g1_center_scene = QPointF(float(params["gear1_x"]), float(params["gear1_y"]))
@@ -715,6 +709,7 @@ class MechanismVisualAnimator:
                 r2_screen = r2
         else:
             # Transform to scene coordinates from mechanism space.
+            assert to_scene_coords is not None
             g1_center_scene = to_scene_coords(gear1_center)
             g2_center_scene = to_scene_coords(gear2_center)
 
@@ -787,73 +782,14 @@ class MechanismVisualAnimator:
         else:
             # Fallback
             params = layer_data.get("params", {})
-            r_sun = float(params.get("r_sun", params.get("gear1_radius", 20.0)))
-            r_planet = float(params.get("r_planet", params.get("gear2_radius", 30.0)))
-            arm_length = float(params.get("arm_length", 15.0))
-            if r_planet <= 0:
-                r_planet = 1.0
-
-            key_points = layer_data.get("key_points", {})
-            if "sun_center" in key_points:
-                base_sun_center = np.array(key_points["sun_center"], dtype=float)
-            elif "m_sun_x" in params and "m_sun_y" in params:
-                base_sun_center = np.array(
-                    [float(params.get("m_sun_x", 0.0)), float(params.get("m_sun_y", 0.0))],
-                    dtype=float,
-                )
-            elif "sun_x" in params and "sun_y" in params:
-                base_sun_center = np.array(
-                    [float(params.get("sun_x", 0.0)), float(params.get("sun_y", 0.0))],
-                    dtype=float,
-                )
-            elif "gear1_x" in params and "gear1_y" in params:
-                base_sun_center = np.array(
-                    [float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0))],
-                    dtype=float,
-                )
-            else:
-                base_sun_center = np.array([0.0, 0.0], dtype=float)
-
-            normalized_time = time / (2 * math.pi)
-            if reverse_direction:
-                normalized_time = 1.0 - normalized_time
-
             full_sim_data = layer_data.get("full_simulation_data", {})
             gear_positions = full_sim_data.get("gear_positions", {})
-
-            if gear_positions and "planet_centers" in gear_positions:
-                planet_centers = gear_positions.get("planet_centers", [])
-                sun_centers = gear_positions.get("sun_centers", [])
-                tracking_points = gear_positions.get("tracking_points", [])
-
-                if planet_centers and sun_centers and tracking_points:
-                    num_frames = len(planet_centers)
-                    frame_index = int(normalized_time * (num_frames - 1))
-                    frame_index = max(0, min(frame_index, num_frames - 1))
-
-                    sun_center_orig = np.array(sun_centers[frame_index])
-                    planet_center_orig = np.array(planet_centers[frame_index])
-                    tracking_point_orig = np.array(tracking_points[frame_index])
-                else:
-                    planet_orbital_angle = time
-                    planet_rotation_angle = -time * (r_sun / r_planet)
-                    sun_center_orig = base_sun_center
-                    planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array(
-                        [np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)]
-                    )
-                    tracking_point_orig = planet_center_orig + arm_length * np.array(
-                        [np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)]
-                    )
-            else:
-                planet_orbital_angle = time
-                planet_rotation_angle = -time * (r_sun / r_planet)
-                sun_center_orig = base_sun_center
-                planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array(
-                    [np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)]
-                )
-                tracking_point_orig = planet_center_orig + arm_length * np.array(
-                    [np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)]
-                )
+            key_points = layer_data.get("key_points", {})
+            fallback_cache = PlanetaryGearCache.from_params(params, gear_positions, key_points)
+            r_planet = fallback_cache.r_planet
+            sun_center_orig, planet_center_orig, tracking_point_orig = (
+                fallback_cache.get_positions(time, reverse_direction)
+            )
 
         # Transform to scene coordinates
         planet_center_scene = to_scene_coords(planet_center_orig)

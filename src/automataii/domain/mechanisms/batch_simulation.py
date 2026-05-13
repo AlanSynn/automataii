@@ -216,6 +216,15 @@ class BatchSimulationService:
         Returns:
             BatchSimulationResult for animation
         """
+        if isinstance(num_frames, bool) or not isinstance(num_frames, int):
+            raise ValueError(f"num_frames must be an integer, got {type(num_frames)}")
+        if num_frames <= 0:
+            raise ValueError(f"num_frames must be positive, got {num_frames}")
+        if not np.isfinite(float(start_angle)) or not np.isfinite(float(end_angle)):
+            raise ValueError(
+                f"start_angle and end_angle must be finite, got {start_angle}, {end_angle}"
+            )
+
         angles = np.linspace(start_angle, end_angle, num_frames, endpoint=False)
         return self.simulate_batch(mechanism, parameters, angles, include_states=False)
 
@@ -238,6 +247,11 @@ class BatchSimulationService:
         Returns:
             (N, 2) array of path points, or None if joint not found
         """
+        if isinstance(resolution, bool) or not isinstance(resolution, int):
+            raise ValueError(f"resolution must be an integer, got {type(resolution)}")
+        if resolution <= 0:
+            raise ValueError(f"resolution must be positive, got {resolution}")
+
         result = self.generate_animation_frames(
             mechanism, parameters, num_frames=resolution
         )

@@ -102,6 +102,8 @@ class GeometryBuffer:
     POSITION_SIZE = 2  # x, y
     COLOR_SIZE = 4  # r, g, b, a
     VERTEX_SIZE = POSITION_SIZE + COLOR_SIZE  # 6 floats = 24 bytes
+    _CIRCLE_UNIT_CACHE: dict[int, npt.NDArray[np.float32]] = {}
+    _CIRCLE_INDEX_CACHE: dict[int, npt.NDArray[np.uint32]] = {}
 
     def __init__(self, max_vertices: int = 10000, max_indices: int = 30000):
         """
@@ -145,6 +147,33 @@ class GeometryBuffer:
         """Clear all geometry."""
         self._vertex_count = 0
         self._index_count = 0
+
+    @classmethod
+    def _circle_unit_vertices(cls, segments: int) -> npt.NDArray[np.float32]:
+        """Return cached unit-circle perimeter vertices for a segment count."""
+        cached = cls._CIRCLE_UNIT_CACHE.get(segments)
+        if cached is not None:
+            return cached
+
+        angles = np.arange(segments, dtype=np.float32) * (2.0 * math.pi / float(segments))
+        vertices = np.column_stack((np.cos(angles), np.sin(angles))).astype(np.float32)
+        cls._CIRCLE_UNIT_CACHE[segments] = vertices
+        return vertices
+
+    @classmethod
+    def _circle_index_offsets(cls, segments: int) -> npt.NDArray[np.uint32]:
+        """Return cached triangle-fan indices relative to a circle's base vertex."""
+        cached = cls._CIRCLE_INDEX_CACHE.get(segments)
+        if cached is not None:
+            return cached
+
+        perimeter = np.arange(segments, dtype=np.uint32)
+        offsets = np.empty(segments * 3, dtype=np.uint32)
+        offsets[0::3] = 0
+        offsets[1::3] = 1 + perimeter
+        offsets[2::3] = 1 + ((perimeter + 1) % segments)
+        cls._CIRCLE_INDEX_CACHE[segments] = offsets
+        return offsets
 
     def add_line(
         self,
@@ -240,6 +269,8 @@ class GeometryBuffer:
             color: RGBA color (0-1 range)
             segments: Number of segments (more = smoother)
         """
+        if segments < 3 or radius <= 0.0:
+            return
         if self._vertex_count + segments + 1 > self.max_vertices:
             return
         if self._index_count + segments * 3 > self.max_indices:
@@ -251,22 +282,19 @@ class GeometryBuffer:
         self._vertices[base_idx, 0:2] = center
         self._vertices[base_idx, 2:6] = color
 
-        # Perimeter vertices
-        for i in range(segments):
-            angle = 2.0 * math.pi * i / segments
-            x = center[0] + radius * math.cos(angle)
-            y = center[1] + radius * math.sin(angle)
-
-            self._vertices[base_idx + 1 + i, 0:2] = (x, y)
-            self._vertices[base_idx + 1 + i, 2:6] = color
+        # Perimeter vertices. Vectorized writes avoid per-segment Python loops
+        # during animation batching and keep performance tests stable under load.
+        unit_vertices = self._circle_unit_vertices(segments)
+        perimeter_slice = self._vertices[base_idx + 1:base_idx + 1 + segments]
+        perimeter_slice[:, 0] = float(center[0]) + (float(radius) * unit_vertices[:, 0])
+        perimeter_slice[:, 1] = float(center[1]) + (float(radius) * unit_vertices[:, 1])
+        perimeter_slice[:, 2:6] = color
 
         # Triangle fan indices
         idx_base = self._index_count
-        for i in range(segments):
-            next_i = (i + 1) % segments
-            self._indices[idx_base + i * 3] = base_idx  # Center
-            self._indices[idx_base + i * 3 + 1] = base_idx + 1 + i
-            self._indices[idx_base + i * 3 + 2] = base_idx + 1 + next_i
+        self._indices[idx_base:idx_base + segments * 3] = (
+            self._circle_index_offsets(segments) + base_idx
+        )
 
         self._vertex_count += segments + 1
         self._index_count += segments * 3

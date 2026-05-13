@@ -6,9 +6,11 @@ into the Design tab with correct parameter mapping.
 """
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 
@@ -196,6 +198,110 @@ class TestMechanismInstantiationService:
         assert layer_data["params"]["l1"] == 150.0
         assert layer_data["params"]["L1"] == 150.0
 
+    def test_create_layer_data_from_foundry_ignores_incomplete_four_bar_snapshot(self):
+        """Partial snapshots must not collapse missing joints into zero-length links."""
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="four_bar",
+            parameters={
+                "ground_link": 150.0,
+                "input_link": 40.0,
+                "coupler_link": 120.0,
+                "output_link": 130.0,
+                "input_angle": 0.0,
+            },
+            pivot_point=(0.0, 0.0),
+            part_name="torso",
+            scene_position=(400.0, 300.0),
+            foundry_snapshot={
+                "positions": {
+                    "O1": [-75.0, 0.0],
+                    "O4": [75.0, 0.0],
+                }
+            },
+        )
+
+        assert layer_data["params"]["l1"] == pytest.approx(150.0)
+        assert layer_data["params"]["l2"] == pytest.approx(40.0)
+        assert layer_data["key_points"]["crank_end"] != layer_data["key_points"]["ground_pivot_1"]
+
+    def test_create_layer_data_from_foundry_accepts_explicit_aliases(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+
+        fourbar = service.create_layer_data_from_foundry(
+            mechanism_type=" FourBar ",
+            parameters={"ground_link": 150.0, "input_link": 40.0},
+            pivot_point=(0.0, 0.0),
+            scene_position=(400.0, 300.0),
+        )
+        slider = service.create_layer_data_from_foundry(
+            mechanism_type="slider-crank",
+            parameters={"crank_length": 80.0, "rod_length": 140.0},
+            pivot_point=(0.0, 0.0),
+            scene_position=(400.0, 300.0),
+        )
+
+        assert fourbar["type"] == "4_bar_linkage"
+        assert fourbar["source_type"] == "four_bar"
+        assert slider["type"] == "4_bar_linkage"
+        assert slider["source_type"] == "slider_crank"
+        assert slider["approximated_as"] == "4_bar_linkage"
+
+    def test_create_layer_data_from_foundry_rejects_malformed_type_payloads(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+            UnsupportedMechanismTypeError,
+        )
+
+        service = MechanismInstantiationService()
+
+        for bad_type in ("", "   ", None):
+            with pytest.raises(UnsupportedMechanismTypeError):
+                service.create_layer_data_from_foundry(
+                    mechanism_type=bad_type,  # type: ignore[arg-type]
+                    parameters={},
+                    pivot_point=(0.0, 0.0),
+                    scene_position=(400.0, 300.0),
+                )
+
+    def test_map_foundry_gear_string_teeth_do_not_concatenate_radius(self):
+        """String tooth counts should be numeric, not Python string repetition."""
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        params = service.map_foundry_params_to_internal(
+            " Gear ",
+            {"gear1_teeth": "12", "gear2_teeth": "18"},
+        )
+
+        assert params["gear1_teeth"] == 12
+        assert params["gear2_teeth"] == 18
+        assert params["r1"] == 36
+        assert params["r2"] == 54
+        assert params["gear1_radius"] == 36.0
+        assert params["gear2_radius"] == 54.0
+
+    def test_map_foundry_params_rejects_malformed_type_payload(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+            UnsupportedMechanismTypeError,
+        )
+
+        service = MechanismInstantiationService()
+
+        with pytest.raises(UnsupportedMechanismTypeError):
+            service.map_foundry_params_to_internal(None, {})  # type: ignore[arg-type]
+
     def test_create_layer_data_from_foundry_preserves_cam_snapshot_center(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
             MechanismInstantiationService,
@@ -279,6 +385,118 @@ class TestMechanismInstantiationService:
         )
 
         assert layer_data["part_name"] is None
+
+    def test_recommendation_cam_configuration_sanitizes_bad_numeric_payloads(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data, graphics_data = service.create_layer_data_from_recommendation(
+            mechanism_data={
+                "type": " cam & follower ",
+                "parameters": {
+                    "base_radius": "bad",
+                    "eccentricity": float("nan"),
+                },
+            },
+            target_path=None,
+            fallback_position=[math.nan, "bad"],
+        )
+
+        assert layer_data["type"] == "cam"
+        assert layer_data["params"]["center_x"] == pytest.approx(400.0)
+        assert layer_data["params"]["center_y"] == pytest.approx(300.0)
+        assert math.isfinite(layer_data["cam_scale_factor"])
+        assert graphics_data["transform_params"]["scale"] == 1.0
+
+    def test_cam_path_analysis_ignores_non_finite_converter_rows(self):
+        from PyQt6.QtGui import QPainterPath
+
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        service.set_path_converter(lambda _path: np.array([[0.0, 0.0], [math.nan, 5.0]]))
+        path = QPainterPath()
+        path.moveTo(0.0, 0.0)
+        path.lineTo(0.0, 10.0)
+
+        cam_position, params = service.calculate_cam_position_from_path(
+            path,
+            fallback_position=[10.0, 20.0],
+        )
+
+        assert cam_position == [10.0, 20.0]
+        assert params == {"center_x": 10.0, "center_y": 20.0}
+        assert service.calculate_cam_eccentricity_from_path(path) == {}
+        assert service.calculate_cam_params_for_vertical_path(path) == {}
+
+    def test_create_layer_data_from_foundry_sanitizes_invalid_numeric_payloads(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="four_bar",
+            parameters={
+                "ground_link": float("nan"),
+                "input_link": "bad",
+                "coupler_link": -1.0,
+                "output_link": 0.0,
+                "input_angle": float("inf"),
+            },
+            pivot_point=(math.nan, 0.0),
+            scene_position=(math.inf, "bad"),
+            foundry_snapshot={"positions": {"O1": [math.nan, 0.0]}},
+        )
+
+        assert layer_data["transform_params"]["center"] == [0.0, 0.0]
+        assert layer_data["params"]["l1"] == pytest.approx(150.0)
+        assert layer_data["params"]["l2"] == pytest.approx(40.0)
+        assert layer_data["params"]["l3"] == pytest.approx(120.0)
+        assert layer_data["params"]["l4"] == pytest.approx(130.0)
+        for point in layer_data["key_points"].values():
+            assert all(math.isfinite(value) for value in point)
+
+    def test_map_foundry_params_sanitizes_bad_cam_gear_and_slider_values(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+
+        cam = service.map_foundry_params_to_internal(
+            "cam_follower",
+            {
+                "cam_radius": float("nan"),
+                "cam_offset": -5.0,
+                "follower_length": "bad",
+                "cam_lobes": 0,
+                "profile_harmonic": float("inf"),
+            },
+        )
+        gear = service.map_foundry_params_to_internal(
+            "gear_train",
+            {"gear1_teeth": True, "gear2_teeth": "bad"},
+        )
+        slider = service.map_foundry_params_to_internal(
+            "slider_crank",
+            {"crank_length": float("nan"), "rod_length": -1.0, "gas_pressure": "bad"},
+        )
+
+        assert cam["base_radius"] == pytest.approx(60.0)
+        assert cam["eccentricity"] == pytest.approx(20.0)
+        assert cam["follower_rod_length"] == pytest.approx(100.0)
+        assert cam["cam_lobes"] == 1
+        assert cam["profile_harmonic"] == pytest.approx(0.3)
+        assert gear["gear1_teeth"] == 12
+        assert gear["gear2_teeth"] == 18
+        assert slider["l2"] == pytest.approx(80.0)
+        assert slider["l3"] == pytest.approx(140.0)
+        assert slider["gas_pressure"] == pytest.approx(0.0)
 
     def test_mechanism_id_uniqueness(self):
         """Test that each created layer has unique ID."""
@@ -460,6 +678,24 @@ class TestMechanismDesignGridSettings:
         assert snapped["L3"] == 50.0
         assert snapped["L4"] == 75.0
 
+    def test_snap_lengths_to_grid_keeps_positive_lengths_on_grid(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        tab = MechanismDesignTab.__new__(MechanismDesignTab)
+        tab._grid_system_enabled = True
+        tab._grid_cell_cm = 2.5
+
+        snapped = MechanismDesignTab._snap_lengths_to_grid(
+            tab,
+            "four_bar",
+            {"l2": 12.5, "l3": 1.0},
+        )
+
+        assert snapped["l2"] == 25.0
+        assert snapped["l3"] == 25.0
+        assert snapped["L2"] == 25.0
+        assert snapped["L3"] == 25.0
+
     def test_extract_grid_settings_from_foundry_payload(self):
         from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 
@@ -473,6 +709,30 @@ class TestMechanismDesignGridSettings:
         )
 
         assert settings == (False, 5.0)
+
+    def test_extract_grid_settings_parses_string_false(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        tab = MechanismDesignTab.__new__(MechanismDesignTab)
+        tab._grid_system_enabled = True
+        tab._grid_cell_cm = 2.5
+
+        settings = MechanismDesignTab._extract_grid_settings_from_foundry_parameters(
+            tab,
+            {"grid_system_enabled": "false", "grid_cell_cm": "2.5"},
+        )
+
+        assert settings == (False, 2.5)
+
+    def test_foundry_mechanism_type_normalization_ignores_case_and_whitespace(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        assert (
+            MechanismDesignTab._normalize_foundry_mechanism_type(" Four_Bar_Linkage ")
+            == "four_bar"
+        )
+        assert MechanismDesignTab._normalize_foundry_mechanism_type(" CAM ") == "cam_follower"
+        assert "cam_offset" in MechanismDesignTab._length_param_keys_for_foundry_type(" CAM ")
 
 
 class TestMechanismDesignPresenterPayloadCompat:
@@ -639,6 +899,186 @@ class TestMechanismDesignTabFoundryUpdate:
         )
 
         assert fake_tab.mechanism_layers["mech_1"]["params"]["output_point_mode"] == "joint_a"
+
+    def test_update_from_foundry_refreshes_gear_geometry_and_cache(self):
+        from automataii.presentation.qt.tabs.mechanism_design.components.animation_cache import (
+            AnimationCacheManager,
+        )
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        layer_data = {
+            "type": "gear",
+            "foundry_synced": True,
+            "params": {
+                "gear1_teeth": 12,
+                "gear2_teeth": 18,
+                "r1": 36.0,
+                "r2": 54.0,
+                "gear1_radius": 36.0,
+                "gear2_radius": 54.0,
+                "gear1_x": 55.0,
+                "gear1_y": 100.0,
+                "gear2_x": 145.0,
+                "gear2_y": 100.0,
+            },
+            "key_points": {
+                "gear1_center": [55.0, 100.0],
+                "gear2_center": [145.0, 100.0],
+            },
+            "full_simulation_data": {},
+        }
+        cache_manager = AnimationCacheManager()
+        build_cache = MagicMock(side_effect=cache_manager.build_cache)
+        fake_tab = SimpleNamespace(
+            mechanism_layers={"gear_1": layer_data},
+            _suppress_foundry_sync=False,
+            _mechanism_instantiation=SimpleNamespace(
+                map_foundry_params_to_internal=MagicMock(
+                    return_value={
+                        "gear1_teeth": 20,
+                        "gear2_teeth": 10,
+                        "r1": 60.0,
+                        "r2": 30.0,
+                        "gear1_radius": 60.0,
+                        "gear2_radius": 30.0,
+                    }
+                )
+            ),
+            _visual_animator=SimpleNamespace(build_cache=build_cache),
+            _render_mechanism_layer=MagicMock(),
+            mechanism_scene=SimpleNamespace(update=MagicMock()),
+        )
+        fake_tab._regenerate_foundry_layer_simulation = (
+            lambda mechanism_id, data: MechanismDesignTab._regenerate_foundry_layer_simulation(
+                fake_tab, mechanism_id, data
+            )
+        )
+
+        MechanismDesignTab.update_from_foundry(
+            fake_tab,
+            mechanism_id="gear_1",
+            mechanism_type="gear_train",
+            parameters={"gear1_teeth": 20, "gear2_teeth": 10},
+        )
+
+        updated_params = layer_data["params"]
+        updated_key_points = layer_data["key_points"]
+        assert updated_params["gear1_radius"] == pytest.approx(60.0)
+        assert updated_params["gear2_radius"] == pytest.approx(30.0)
+        assert updated_key_points["gear1_center"] == pytest.approx([54.0, 100.0])
+        assert updated_key_points["gear2_center"] == pytest.approx([146.0, 100.0])
+        assert updated_params["gear1_x"] == pytest.approx(54.0)
+        assert updated_params["gear2_x"] == pytest.approx(146.0)
+
+        gear_data = layer_data["full_simulation_data"]["gear_data"]
+        assert gear_data["gear1_centers"][0] == pytest.approx([54.0, 100.0])
+        assert gear_data["gear2_centers"][0] == pytest.approx([146.0, 100.0])
+
+        cache = cache_manager.get_gear_cache("gear_1")
+        assert cache is not None
+        assert cache.gear1_center.tolist() == pytest.approx([54.0, 100.0])
+        assert cache.gear2_center.tolist() == pytest.approx([146.0, 100.0])
+        build_cache.assert_called_once_with("gear_1", layer_data)
+        fake_tab._render_mechanism_layer.assert_called_once_with("gear_1")
+
+
+class TestMainWindowFoundryExportRouting:
+    """Test MainWindow's Foundry -> Design route failure handling."""
+
+    @staticmethod
+    def _make_window(import_result=True, import_side_effect=None):
+        from automataii.presentation.qt.main_window import MainWindow
+
+        status_bar = SimpleNamespace(showMessage=MagicMock())
+        import_method = MagicMock(return_value=import_result, side_effect=import_side_effect)
+        window = SimpleNamespace(
+            mechanism_design_tab=SimpleNamespace(
+                import_mechanism_from_foundry=import_method,
+            ),
+            mechanism_foundry_tab=SimpleNamespace(
+                set_synced_mechanism=MagicMock(),
+                clear_synced_mechanism=MagicMock(),
+            ),
+            statusBar=MagicMock(return_value=status_bar),
+            _mark_workflow_stage_complete=MagicMock(),
+            _switch_to_mechanism_design_tab=MagicMock(),
+        )
+        window._clear_foundry_sync_target = lambda: MainWindow._clear_foundry_sync_target(window)
+        return window
+
+    def test_failed_foundry_export_import_clears_stale_sync_target(self):
+        from automataii.presentation.qt.main_window import MainWindow
+
+        window = self._make_window(import_result=False)
+
+        MainWindow._handle_foundry_export_to_mechanism_tab(
+            window,
+            mechanism_id="foundry_bad",
+            mechanism_type="unknown_custom",
+            parameters={},
+            pivot_point=(0.0, 0.0),
+        )
+
+        window.mechanism_foundry_tab.clear_synced_mechanism.assert_called_once()
+        window.mechanism_foundry_tab.set_synced_mechanism.assert_not_called()
+        window._switch_to_mechanism_design_tab.assert_called_once()
+
+    def test_exception_during_foundry_export_import_clears_stale_sync_target(self):
+        from automataii.presentation.qt.main_window import MainWindow
+
+        window = self._make_window(import_side_effect=RuntimeError("import failed"))
+
+        MainWindow._handle_foundry_export_to_mechanism_tab(
+            window,
+            mechanism_id="foundry_raises",
+            mechanism_type="four_bar",
+            parameters={},
+            pivot_point=(0.0, 0.0),
+        )
+
+        window.mechanism_foundry_tab.clear_synced_mechanism.assert_called_once()
+        window.mechanism_foundry_tab.set_synced_mechanism.assert_not_called()
+        window._switch_to_mechanism_design_tab.assert_called_once()
+
+    def test_missing_foundry_import_method_clears_stale_sync_target(self):
+        from automataii.presentation.qt.main_window import MainWindow
+
+        window = self._make_window(import_result=True)
+        delattr(window.mechanism_design_tab, "import_mechanism_from_foundry")
+
+        MainWindow._handle_foundry_export_to_mechanism_tab(
+            window,
+            mechanism_id="foundry_missing_import",
+            mechanism_type="four_bar",
+            parameters={},
+            pivot_point=(0.0, 0.0),
+        )
+
+        window.mechanism_foundry_tab.clear_synced_mechanism.assert_called_once()
+        window.mechanism_foundry_tab.set_synced_mechanism.assert_not_called()
+        window._switch_to_mechanism_design_tab.assert_called_once()
+
+    def test_successful_foundry_export_import_registers_sync_target(self):
+        from automataii.presentation.qt.main_window import MainWindow
+
+        window = self._make_window(import_result=True)
+
+        MainWindow._handle_foundry_export_to_mechanism_tab(
+            window,
+            mechanism_id="foundry_ok",
+            mechanism_type="four_bar",
+            parameters={"ground_link": 100.0},
+            pivot_point=(0.0, 0.0),
+        )
+
+        window.mechanism_foundry_tab.set_synced_mechanism.assert_called_once_with(
+            "foundry_ok",
+            "four_bar",
+        )
+        window.mechanism_foundry_tab.clear_synced_mechanism.assert_not_called()
+        window._mark_workflow_stage_complete.assert_any_call("tab_mechanism_foundry")
+        window._mark_workflow_stage_complete.assert_any_call("tab_mechanism_design")
+        window._switch_to_mechanism_design_tab.assert_called_once()
 
 
 if __name__ == "__main__":

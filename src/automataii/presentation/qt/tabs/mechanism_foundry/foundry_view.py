@@ -5,7 +5,7 @@ Mechanism Foundry View - Clean UI for interactive mechanism visualization
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex, cast
 
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QBrush, QColor, QMouseEvent, QPen, QPolygonF
@@ -43,7 +43,12 @@ if TYPE_CHECKING:
     from automataii.application.mechanism_foundry.path_cache import PathCache
     from automataii.domain.mechanisms.cam.compute import CamFollowerMechanism
     from automataii.domain.mechanisms.core.protocols import Mechanism
-    from automataii.domain.mechanisms.core.state import MechanismState, RenderConfig, SafetyLevel
+    from automataii.domain.mechanisms.core.state import (
+        MechanismState,
+        RenderConfig,
+        SafetyLevel,
+        SafetyStatus,
+    )
     from automataii.domain.mechanisms.linkages.fourbar.compute import FourBarMechanism
     from automataii.presentation.qt.mechanisms.renderers import LinkageRenderer
     from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
@@ -60,6 +65,33 @@ else:
     from automataii.presentation.qt.mechanisms.renderers import LinkageRenderer
     from automataii.presentation.qt.tabs.mechanism_foundry.path_preview import PathPreviewOverlay
 
+_FloatPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object, default: float) -> float:
+    if isinstance(value, bool):
+        return default
+    try:
+        result = float(cast(_FloatPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _positive_finite_float(value: object, default: float, minimum: float = 0.0) -> float:
+    result = _finite_float(value, default)
+    return result if result > minimum else default
+
+
+def _finite_point_pair(value: object) -> tuple[float, float] | None:
+    if not isinstance(value, list | tuple) or len(value) < 2:
+        return None
+    x = _finite_float(value[0], math.nan)
+    y = _finite_float(value[1], math.nan)
+    if not math.isfinite(x) or not math.isfinite(y):
+        return None
+    return x, y
+
 
 class _GearTrainPreviewMechanism:
     """Lightweight Foundry-only mechanism for gear train preview/export."""
@@ -68,8 +100,10 @@ class _GearTrainPreviewMechanism:
     _module = 3.0
 
     def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
-        teeth1 = max(1.0, float(parameters.get("gear1_teeth", 12.0)))
-        teeth2 = max(1.0, float(parameters.get("gear2_teeth", 18.0)))
+        if not isinstance(parameters, dict):
+            parameters = {}
+        teeth1 = _positive_finite_float(parameters.get("gear1_teeth", 12.0), 12.0)
+        teeth2 = _positive_finite_float(parameters.get("gear2_teeth", 18.0), 18.0)
 
         r1 = teeth1 * self._module
         r2 = teeth2 * self._module
@@ -78,7 +112,7 @@ class _GearTrainPreviewMechanism:
         g1 = (-center_distance / 2.0, 0.0)
         g2 = (center_distance / 2.0, 0.0)
 
-        theta1 = math.radians(float(input_angle))
+        theta1 = math.radians(_finite_float(input_angle, 0.0))
         theta2 = -theta1 * (r1 / r2)
 
         p1 = (g1[0] + r1 * math.cos(theta1), g1[1] + r1 * math.sin(theta1))
@@ -102,10 +136,12 @@ class _SliderCrankPreviewMechanism:
     mechanism_type = "slider_crank"
 
     def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
-        crank = max(1.0, float(parameters.get("crank_length", 80.0)))
-        rod = max(crank + 1.0, float(parameters.get("rod_length", 140.0)))
+        if not isinstance(parameters, dict):
+            parameters = {}
+        crank = _positive_finite_float(parameters.get("crank_length", 80.0), 80.0)
+        rod = max(crank + 1.0, _positive_finite_float(parameters.get("rod_length", 140.0), 140.0))
 
-        theta = math.radians(float(input_angle))
+        theta = math.radians(_finite_float(input_angle, 0.0))
         crank_end = (crank * math.cos(theta), crank * math.sin(theta))
 
         inside = max(0.0, rod * rod - crank_end[1] * crank_end[1])
@@ -220,11 +256,20 @@ class MechanismFoundryView(QWidget):
         self._build_ui()
 
     @staticmethod
-    def _to_controller_mechanism_type(mechanism_type: str) -> str:
+    def _normalize_mechanism_type_key(mechanism_type: str) -> str:
+        """Normalize type strings received from catalog, Design tab, or tests."""
+        if not isinstance(mechanism_type, str):
+            return ""
+        return mechanism_type.strip().lower()
+
+    @classmethod
+    def _to_controller_mechanism_type(cls, mechanism_type: str) -> str:
         """Normalize mechanism type aliases to controller configuration keys."""
+        mechanism_type = cls._normalize_mechanism_type_key(mechanism_type)
         return {
             "fourbar": "four_bar",
             "four_bar": "four_bar",
+            "four_bar_linkage": "four_bar",
             "4_bar_linkage": "four_bar",
             "cam": "cam_follower",
             "gear": "gear_train",
@@ -280,9 +325,7 @@ class MechanismFoundryView(QWidget):
         splitter.setCollapsible(0, True)
         splitter.setCollapsible(1, False)
         splitter.setCollapsible(2, True)
-        splitter.setSizes(
-            [self.SIDE_PANEL_PREFERRED_WIDTH, 700, self.INFO_PANEL_PREFERRED_WIDTH]
-        )
+        splitter.setSizes([self.SIDE_PANEL_PREFERRED_WIDTH, 700, self.INFO_PANEL_PREFERRED_WIDTH])
 
         layout.addWidget(splitter)
 
@@ -372,9 +415,7 @@ class MechanismFoundryView(QWidget):
         panel = QWidget()
         panel.setMinimumWidth(self.INFO_PANEL_MIN_WIDTH)
         panel.setMaximumWidth(self.INFO_PANEL_MAX_WIDTH)
-        panel.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
-        )
+        panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -410,10 +451,24 @@ class MechanismFoundryView(QWidget):
             self._render_mechanism()
 
     def _build_sync_payload_parameters(self) -> dict[str, object]:
-        params: dict[str, object] = dict(self.current_parameters)
-        params["input_angle"] = self.current_angle
+        params: dict[str, object] = {}
+        for raw_key, raw_value in self.current_parameters.items():
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            if key == self.OUTPUT_POINT_MODE_KEY:
+                output_mode = str(raw_value).strip() if isinstance(raw_value, str) else ""
+                if output_mode:
+                    params[key] = output_mode
+                continue
+
+            numeric_value = _finite_float(raw_value, math.nan)
+            if math.isfinite(numeric_value):
+                params[key] = numeric_value
+
+        params["input_angle"] = _finite_float(self.current_angle, 0.0)
         params["grid_system_enabled"] = self._grid_system_enabled
-        params["grid_cell_cm"] = self._grid_cell_cm
+        params["grid_cell_cm"] = _positive_finite_float(self._grid_cell_cm, 0.1, minimum=0.0)
         return params
 
     def _capture_export_snapshot(self) -> dict[str, object] | None:
@@ -440,23 +495,28 @@ class MechanismFoundryView(QWidget):
 
         positions: dict[str, list[float]] = {}
         for key, value in state.positions.items():
-            if not isinstance(value, list | tuple) or len(value) < 2:
+            point = _finite_point_pair(value)
+            if point is None:
                 continue
-            try:
-                positions[str(key)] = [float(value[0]), float(value[1])]
-            except (TypeError, ValueError):
+            point_key = str(key).strip()
+            if not point_key:
                 continue
+            positions[point_key] = [point[0], point[1]]
 
         if self.current_mechanism.mechanism_type == "fourbar":
             coupler_point = self._calculate_fourbar_coupler_point(state)
-            if coupler_point is not None:
-                positions["coupler_point"] = [float(coupler_point[0]), float(coupler_point[1])]
+            finite_coupler_point = _finite_point_pair(coupler_point)
+            if finite_coupler_point is not None:
+                positions["coupler_point"] = [
+                    finite_coupler_point[0],
+                    finite_coupler_point[1],
+                ]
 
         if not positions:
             return None
 
         return {
-            "mechanism_type": self.current_mechanism.mechanism_type,
+            "mechanism_type": str(self.current_mechanism.mechanism_type).strip(),
             "positions": positions,
         }
 
@@ -466,9 +526,7 @@ class MechanismFoundryView(QWidget):
             return
 
         # Always export the actually loaded mechanism type, not stale selector UI state.
-        mechanism_type = self._to_controller_mechanism_type(
-            self.current_mechanism.mechanism_type
-        )
+        mechanism_type = self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
         if not mechanism_type and self.mechanism_selector:
             mechanism_type = self.mechanism_selector.currentData()
         if not mechanism_type:
@@ -476,6 +534,7 @@ class MechanismFoundryView(QWidget):
 
         # Generate mechanism ID for bidirectional sync tracking
         import uuid
+
         mechanism_id = f"foundry_{uuid.uuid4().hex[:8]}"
         self.synced_mechanism_id = mechanism_id
 
@@ -498,9 +557,7 @@ class MechanismFoundryView(QWidget):
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll_area.setMinimumWidth(self.SIDE_PANEL_MIN_WIDTH)
         scroll_area.setMaximumWidth(self.SIDE_PANEL_MAX_WIDTH)
-        scroll_area.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
-        )
+        scroll_area.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
         panel = QWidget()
         panel.setMinimumWidth(self.SIDE_PANEL_MIN_WIDTH - 20)
@@ -549,6 +606,7 @@ class MechanismFoundryView(QWidget):
         display_group = QGroupBox("Display Options")
         display_layout = QVBoxLayout()
         self.motion_modes_label = QLabel("Motions: -")
+        self.motion_modes_label.setTextFormat(Qt.TextFormat.PlainText)
         self.motion_modes_label.setWordWrap(True)
         self.motion_modes_label.setStyleSheet(
             """
@@ -683,9 +741,7 @@ class MechanismFoundryView(QWidget):
             "four_bar": "joint_b",
             "cam_follower": "follower_base",
         }.get(mechanism_type, options[0][1])
-        current_value = str(
-            self.current_parameters.get(self.OUTPUT_POINT_MODE_KEY, default_value)
-        )
+        current_value = str(self.current_parameters.get(self.OUTPUT_POINT_MODE_KEY, default_value))
         if mechanism_type == "cam_follower" and current_value == "follower_end":
             current_value = "follower_base"
 
@@ -700,7 +756,7 @@ class MechanismFoundryView(QWidget):
 
         selected_value = selector.currentData()
         if isinstance(selected_value, str) and selected_value:
-            self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = selected_value
+            self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = selected_value  # type: ignore[assignment]
 
     def _on_motion_point_mode_changed(self, index: int) -> None:
         if self.output_point_selector is None or index < 0:
@@ -710,7 +766,7 @@ class MechanismFoundryView(QWidget):
         if not isinstance(value, str) or not value:
             return
 
-        self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = value
+        self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = value  # type: ignore[assignment]
         self._state_cache_valid = False
         self._render_mechanism()
 
@@ -722,7 +778,7 @@ class MechanismFoundryView(QWidget):
                 params,
             )
 
-    def _update_info_panel(self, mechanism_type: str, config) -> None:
+    def _update_info_panel(self, mechanism_type: str, config: object) -> None:
         content = self.content_loader.load_content(mechanism_type)
         self.info_panel.set_content(content)
         self._update_motion_modes(content)
@@ -731,10 +787,23 @@ class MechanismFoundryView(QWidget):
         if self.motion_modes_label is None:
             return
 
-        motions = [str(m).strip() for m in getattr(content, "motions", ()) if str(m).strip()]
+        raw_motions = getattr(content, "motions", ())
+        motion_values: tuple[object, ...]
+        if isinstance(raw_motions, str):
+            motion_values = (raw_motions,)
+        else:
+            try:
+                motion_values = tuple(raw_motions)
+            except TypeError:
+                motion_values = ()
+
+        motions = [str(m).strip() for m in motion_values if str(m).strip()]
         if not motions:
             motions = ["Preview-based motion"]
-        self.motion_modes_label.setText(f"Motions: {' / '.join(motions)}")
+        text = f"Motions: {' / '.join(motions[:6])}"
+        if len(text) > 240:
+            text = f"{text[:239]}…"
+        self.motion_modes_label.setText(text)
 
     def _rebuild_parameter_sliders(self, specs: tuple[ParameterSpec, ...]) -> None:
         for slider, label in self.parameter_sliders.values():
@@ -807,7 +876,7 @@ class MechanismFoundryView(QWidget):
 
     @property
     def _grid_step_mm(self) -> float:
-        return max(0.1, float(self._grid_cell_cm) * 10.0)
+        return max(0.1, _positive_finite_float(self._grid_cell_cm, 0.1) * 10.0)
 
     @staticmethod
     def _is_length_spec(spec: ParameterSpec | None) -> bool:
@@ -818,14 +887,24 @@ class MechanismFoundryView(QWidget):
 
     def _snap_parameter_value_if_needed(self, param_key: str, value: float) -> float:
         spec = self._parameter_specs_by_key.get(param_key)
+        default = _finite_float(spec.default_value, 0.0) if spec else 0.0
+        raw_value = _finite_float(value, default)
         if not self._grid_system_enabled or not self._is_length_spec(spec):
-            return float(value)
+            return raw_value
 
         step_mm = self._grid_step_mm
-        snapped = round(float(value) / step_mm) * step_mm
+        if raw_value > 0.0:
+            snapped_units = max(1, int((raw_value / step_mm) + 0.5))
+            snapped = snapped_units * step_mm
+        else:
+            snapped = round(raw_value / step_mm) * step_mm
 
         if spec:
-            snapped = min(max(snapped, spec.min_value), spec.max_value)
+            min_value = _finite_float(spec.min_value, snapped)
+            max_value = _finite_float(spec.max_value, snapped)
+            if min_value > max_value:
+                min_value, max_value = max_value, min_value
+            snapped = min(max(snapped, min_value), max_value)
             if spec.is_integer:
                 snapped = round(snapped)
         return float(snapped)
@@ -844,8 +923,12 @@ class MechanismFoundryView(QWidget):
             if current is None:
                 continue
 
-            snapped = self._snap_parameter_value_if_needed(key, float(current))
-            if abs(snapped - float(current)) < 1e-6:
+            current_value = _finite_float(current, math.nan)
+            if not math.isfinite(current_value):
+                continue
+
+            snapped = self._snap_parameter_value_if_needed(key, current_value)
+            if abs(snapped - current_value) < 1e-6:
                 continue
 
             self.current_parameters[key] = snapped
@@ -868,7 +951,7 @@ class MechanismFoundryView(QWidget):
     def set_grid_system(self, enabled: bool, cell_cm: float) -> None:
         """Configure grid visibility and snapping in Foundry."""
         self._grid_system_enabled = bool(enabled)
-        self._grid_cell_cm = max(0.1, float(cell_cm))
+        self._grid_cell_cm = _positive_finite_float(cell_cm, 0.1, minimum=0.0)
         self._draw_grid()
         self._apply_grid_snap_to_current_parameters()
 
@@ -877,9 +960,7 @@ class MechanismFoundryView(QWidget):
         self._render_mechanism()
 
         if self.current_mechanism:
-            config_type = self._to_controller_mechanism_type(
-                self.current_mechanism.mechanism_type
-            )
+            config_type = self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
             config = self.controller.get_configuration(config_type)
             if config:
                 self._update_info_panel(config_type, config)
@@ -1046,11 +1127,14 @@ class MechanismFoundryView(QWidget):
         p_c = QPointF(coupler[0], coupler[1])
 
         # Same semantics as Design tab: if coupler point is collinear, render only line.
-        area = abs(
-            p3.x() * (p4.y() - p_c.y())
-            + p4.x() * (p_c.y() - p3.y())
-            + p_c.x() * (p3.y() - p4.y())
-        ) * 0.5
+        area = (
+            abs(
+                p3.x() * (p4.y() - p_c.y())
+                + p4.x() * (p_c.y() - p3.y())
+                + p_c.x() * (p3.y() - p4.y())
+            )
+            * 0.5
+        )
 
         cache = self.visual_items_cache
         triangle_key = "fourbar_coupler_triangle"
@@ -1220,13 +1304,17 @@ class MechanismFoundryView(QWidget):
         r2 = float(metadata.get("r2", 45.0))
 
         if "gear1_body" not in cache:
-            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor("#1f77b4"), 3), QBrush(QColor("#9ecae1")))
+            item = self.scene.addEllipse(
+                0, 0, 1, 1, QPen(QColor("#1f77b4"), 3), QBrush(QColor("#9ecae1"))
+            )
             item.setData(0, "mechanism_item")
             cache["gear1_body"] = item
         cache["gear1_body"].setRect(g1[0] - r1, g1[1] - r1, r1 * 2.0, r1 * 2.0)
 
         if "gear2_body" not in cache:
-            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor("#2ca02c"), 3), QBrush(QColor("#b5e7a0")))
+            item = self.scene.addEllipse(
+                0, 0, 1, 1, QPen(QColor("#2ca02c"), 3), QBrush(QColor("#b5e7a0"))
+            )
             item.setData(0, "mechanism_item")
             cache["gear2_body"] = item
         cache["gear2_body"].setRect(g2[0] - r2, g2[1] - r2, r2 * 2.0, r2 * 2.0)
@@ -1279,19 +1367,25 @@ class MechanismFoundryView(QWidget):
         cache["rod_link"].setLine(crank_end[0], crank_end[1], slider_pin[0], slider_pin[1])
 
         if "ground_pivot" not in cache:
-            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(110, 110, 110)))
+            item = self.scene.addEllipse(
+                0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(110, 110, 110))
+            )
             item.setData(0, "mechanism_item")
             cache["ground_pivot"] = item
         cache["ground_pivot"].setRect(ground[0] - 7, ground[1] - 7, 14, 14)
 
         if "crank_pin" not in cache:
-            item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(220, 120, 80)))
+            item = self.scene.addEllipse(
+                0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(220, 120, 80))
+            )
             item.setData(0, "mechanism_item")
             cache["crank_pin"] = item
         cache["crank_pin"].setRect(crank_end[0] - 6, crank_end[1] - 6, 12, 12)
 
         if "slider_block" not in cache:
-            item = self.scene.addRect(0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(180, 180, 180)))
+            item = self.scene.addRect(
+                0, 0, 1, 1, QPen(QColor(40, 40, 40), 2), QBrush(QColor(180, 180, 180))
+            )
             item.setData(0, "mechanism_item")
             cache["slider_block"] = item
         cache["slider_block"].setRect(slider_center[0] - 18, slider_center[1] - 12, 36, 24)
@@ -1532,21 +1626,30 @@ class MechanismFoundryView(QWidget):
     ) -> dict[str, object]:
         """Map Design-tab parameter schema to Foundry parameter schema."""
         mapped: dict[str, object] = {}
+        if not isinstance(parameters, dict):
+            return mapped
 
         def _pick_float(*keys: str) -> float | None:
             for key in keys:
                 if key in parameters:
-                    try:
-                        return float(parameters[key])
-                    except (TypeError, ValueError):
+                    value = _finite_float(parameters[key], math.nan)
+                    if not math.isfinite(value):
                         continue
+                    return value
             return None
 
+        mechanism_type = self._normalize_mechanism_type_key(mechanism_type)
         mechanism_type = {
             "4_bar_linkage": "fourbar",
+            "four_bar_linkage": "fourbar",
             "four_bar": "fourbar",
+            "fourbar": "fourbar",
             "cam": "cam_follower",
+            "cam_follower": "cam_follower",
             "gear": "gear_train",
+            "gear_train": "gear_train",
+            "planetary_gear": "gear_train",
+            "slider_crank": "slider_crank",
             "slider-crank": "slider_crank",
             "slidercrank": "slider_crank",
         }.get(mechanism_type, mechanism_type)
@@ -1573,18 +1676,62 @@ class MechanismFoundryView(QWidget):
                 mapped["input_angle"] = input_angle
 
         elif mechanism_type == "cam_follower":
-            if "base_radius" in parameters:
-                mapped["cam_radius"] = float(parameters["base_radius"])
-            if "eccentricity" in parameters:
-                mapped["cam_offset"] = float(parameters["eccentricity"])
-            if "follower_rod_length" in parameters:
-                mapped["follower_length"] = float(parameters["follower_rod_length"])
-            if "cam_lobes" in parameters:
-                mapped["cam_lobes"] = float(parameters["cam_lobes"])
-            if "profile_harmonic" in parameters:
-                mapped["profile_harmonic"] = float(parameters["profile_harmonic"])
-            if "input_angle" in parameters:
-                mapped["input_angle"] = float(parameters["input_angle"])
+            cam_radius = _pick_float("base_radius")
+            if cam_radius is not None:
+                mapped["cam_radius"] = cam_radius
+            cam_offset = _pick_float("eccentricity")
+            if cam_offset is not None:
+                mapped["cam_offset"] = cam_offset
+            follower_length = _pick_float("follower_rod_length")
+            if follower_length is not None:
+                mapped["follower_length"] = follower_length
+            cam_lobes = _pick_float("cam_lobes")
+            if cam_lobes is not None:
+                mapped["cam_lobes"] = cam_lobes
+            profile_harmonic = _pick_float("profile_harmonic")
+            if profile_harmonic is not None:
+                mapped["profile_harmonic"] = profile_harmonic
+            input_angle = _pick_float("input_angle")
+            if input_angle is not None:
+                mapped["input_angle"] = input_angle
+
+        elif mechanism_type == "gear_train":
+            # Prefer live radii from Design editing over stale tooth-count params.
+            gear1_radius = _pick_float("gear1_radius", "r1")
+            if gear1_radius is not None and gear1_radius > 0.0:
+                mapped["gear1_teeth"] = float(round(gear1_radius / 3.0))
+            else:
+                gear1_teeth = _pick_float("gear1_teeth")
+                if gear1_teeth is not None:
+                    mapped["gear1_teeth"] = gear1_teeth
+
+            gear2_radius = _pick_float("gear2_radius", "r2")
+            if gear2_radius is not None and gear2_radius > 0.0:
+                mapped["gear2_teeth"] = float(round(gear2_radius / 3.0))
+            else:
+                gear2_teeth = _pick_float("gear2_teeth")
+                if gear2_teeth is not None:
+                    mapped["gear2_teeth"] = gear2_teeth
+
+            input_torque = _pick_float("input_torque")
+            if input_torque is not None:
+                mapped["input_torque"] = input_torque
+            input_angle = _pick_float("input_angle")
+            if input_angle is not None:
+                mapped["input_angle"] = input_angle
+
+        elif mechanism_type == "slider_crank":
+            crank_length = _pick_float("crank_length", "l2")
+            if crank_length is not None:
+                mapped["crank_length"] = crank_length
+
+            rod_length = _pick_float("rod_length", "l3", "l4")
+            if rod_length is not None:
+                mapped["rod_length"] = rod_length
+
+            input_angle = _pick_float("input_angle", "crank_angle")
+            if input_angle is not None:
+                mapped["input_angle"] = input_angle
 
         if self.OUTPUT_POINT_MODE_KEY in parameters:
             mode = parameters.get(self.OUTPUT_POINT_MODE_KEY)
@@ -1595,52 +1742,13 @@ class MechanismFoundryView(QWidget):
                 else:
                     mapped[self.OUTPUT_POINT_MODE_KEY] = normalized_mode
 
-        elif mechanism_type == "gear_train":
-            # Prefer live radii from Design editing over stale tooth-count params.
-            if "gear1_radius" in parameters:
-                mapped["gear1_teeth"] = float(round(float(parameters["gear1_radius"]) / 3.0))
-            elif "r1" in parameters:
-                mapped["gear1_teeth"] = float(round(float(parameters["r1"]) / 3.0))
-            elif "gear1_teeth" in parameters:
-                mapped["gear1_teeth"] = float(parameters["gear1_teeth"])
-
-            if "gear2_radius" in parameters:
-                mapped["gear2_teeth"] = float(round(float(parameters["gear2_radius"]) / 3.0))
-            elif "r2" in parameters:
-                mapped["gear2_teeth"] = float(round(float(parameters["r2"]) / 3.0))
-            elif "gear2_teeth" in parameters:
-                mapped["gear2_teeth"] = float(parameters["gear2_teeth"])
-
-            if "input_torque" in parameters:
-                mapped["input_torque"] = float(parameters["input_torque"])
-            if "input_angle" in parameters:
-                mapped["input_angle"] = float(parameters["input_angle"])
-
-        elif mechanism_type == "slider_crank":
-            if "crank_length" in parameters:
-                mapped["crank_length"] = float(parameters["crank_length"])
-            elif "l2" in parameters:
-                mapped["crank_length"] = float(parameters["l2"])
-
-            if "rod_length" in parameters:
-                mapped["rod_length"] = float(parameters["rod_length"])
-            elif "l3" in parameters:
-                mapped["rod_length"] = float(parameters["l3"])
-            elif "l4" in parameters:
-                mapped["rod_length"] = float(parameters["l4"])
-
-            if "input_angle" in parameters:
-                mapped["input_angle"] = float(parameters["input_angle"])
-            elif "crank_angle" in parameters:
-                mapped["input_angle"] = float(parameters["crank_angle"])
-
         # Pass through already-compatible keys.
         for key, value in parameters.items():
             if key in self.current_parameters and key not in mapped:
-                try:
-                    mapped[key] = float(value)
-                except (TypeError, ValueError):
+                numeric_value = _finite_float(value, math.nan)
+                if not math.isfinite(numeric_value):
                     continue
+                mapped[key] = numeric_value
 
         return mapped
 
@@ -1657,27 +1765,28 @@ class MechanismFoundryView(QWidget):
         # Only update if this is our synced mechanism
         if mechanism_id != self.synced_mechanism_id:
             return
+        if not isinstance(parameters, dict):
+            return
 
         # Suppress signal emission to prevent infinite loop
         self._suppress_sync_signal = True
         try:
-            mechanism_type = (
-                self.current_mechanism.mechanism_type if self.current_mechanism else ""
-            )
+            mechanism_type = self.current_mechanism.mechanism_type if self.current_mechanism else ""
             try:
                 mapped_params = self._map_design_params_to_foundry(mechanism_type, parameters)
             except Exception:
                 mapped_params = {}
 
             angle_value = mapped_params.get("input_angle")
-            if angle_value is None:
+            angle_number = _finite_float(angle_value, math.nan)
+            if not math.isfinite(angle_number):
                 if "input_angle" in parameters:
-                    angle_value = float(parameters["input_angle"])
+                    angle_number = _finite_float(parameters["input_angle"], math.nan)
                 elif "crank_angle" in parameters:
-                    angle_value = float(parameters["crank_angle"])
+                    angle_number = _finite_float(parameters["crank_angle"], math.nan)
 
-            if angle_value is not None:
-                self.current_angle = float(angle_value)
+            if math.isfinite(angle_number):
+                self.current_angle = angle_number % 360.0
                 with blocked_signals(self.angle_slider):
                     self.angle_slider.setValue(int(self.current_angle))
                 self.angle_label.setText(f"{int(self.current_angle)}°")
@@ -1696,7 +1805,7 @@ class MechanismFoundryView(QWidget):
 
                 if key == self.OUTPUT_POINT_MODE_KEY:
                     if isinstance(value, str) and value:
-                        self.current_parameters[key] = value
+                        self.current_parameters[key] = value  # type: ignore[assignment]
                         if self.current_mechanism:
                             canonical_type = self._to_controller_mechanism_type(
                                 self.current_mechanism.mechanism_type
@@ -1707,7 +1816,11 @@ class MechanismFoundryView(QWidget):
                 if key not in self.current_parameters:
                     continue
 
-                adjusted_value = self._snap_parameter_value_if_needed(key, float(value))
+                value_number = _finite_float(value, math.nan)
+                if not math.isfinite(value_number):
+                    continue
+
+                adjusted_value = self._snap_parameter_value_if_needed(key, value_number)
                 self.current_parameters[key] = adjusted_value
                 if key in self.parameter_sliders and config:
                     slider, label = self.parameter_sliders[key]
@@ -1751,13 +1864,15 @@ class MechanismFoundryView(QWidget):
             "slider-crank": "slider_crank",
             "slidercrank": "slider_crank",
         }
-        selector_type = type_mapping.get(mechanism_type, mechanism_type)
+        mechanism_type_key = self._normalize_mechanism_type_key(mechanism_type)
+        selector_type = type_mapping.get(mechanism_type_key, mechanism_type_key)
 
         current_selector_type = ""
         if self.current_mechanism:
-            current_selector_type = type_mapping.get(
-                self.current_mechanism.mechanism_type, self.current_mechanism.mechanism_type
+            current_type_key = self._normalize_mechanism_type_key(
+                self.current_mechanism.mechanism_type
             )
+            current_selector_type = type_mapping.get(current_type_key, current_type_key)
 
         if current_selector_type != selector_type:
             self._load_mechanism(selector_type)

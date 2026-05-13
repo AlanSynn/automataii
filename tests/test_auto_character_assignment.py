@@ -303,7 +303,7 @@ class TestAutoCharacterAssignment:
         window.action_manager.update_actions_for_project_state.assert_called_once_with(False)
         status_bar.showMessage.assert_called()
 
-    def test_project_load_reconciles_when_skeleton_smaller_than_parts(self) -> None:
+    def test_project_load_keeps_skeleton_scale_for_plain_image_load(self) -> None:
         from automataii.presentation.qt.main_window import (
             AutomataDesigner,
             _calculate_skeleton_bbox,
@@ -359,9 +359,9 @@ class TestAutoCharacterAssignment:
         loaded_bbox = _calculate_skeleton_bbox(loaded_raw)
         assert loaded_bbox is not None
         loaded_height = loaded_bbox[3] - loaded_bbox[1]
-        assert abs(loaded_height - 400.0) < 1e-6
+        assert abs(loaded_height - 100.0) < 1e-6
 
-    def test_project_load_upscales_parts_when_smaller_than_skeleton(self) -> None:
+    def test_project_load_keeps_part_scale_for_plain_image_load(self) -> None:
         from automataii.presentation.qt.main_window import (
             AutomataDesigner,
             _calculate_parts_bbox,
@@ -416,7 +416,7 @@ class TestAutoCharacterAssignment:
         bbox = _calculate_parts_bbox(loaded_parts)
         assert bbox is not None
         height = bbox[3] - bbox[1]
-        assert abs(height - 200.0) < 1e-6
+        assert abs(height - 60.0) < 1e-6
 
     def test_project_load_forces_skeleton_alignment_for_image_pipeline(self) -> None:
         from automataii.presentation.qt.main_window import (
@@ -495,6 +495,7 @@ class TestAutoCharacterAssignment:
         window._suppress_project_data_cleared_ui_once = False
         window._character_swap_load_in_progress = False
         window._auto_scale_character_to_dummy_next_load = False
+        window._force_skeleton_parts_alignment_next_load = False
 
         project_dir = tmp_path / "char"
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -515,6 +516,7 @@ class TestAutoCharacterAssignment:
         assert window._suppress_project_data_cleared_ui_once is True
         assert window._character_swap_load_in_progress is True
         assert window._auto_scale_character_to_dummy_next_load is True
+        assert window._force_skeleton_parts_alignment_next_load is True
 
     def test_parts_generated_load_image_context_skips_dummy_replacement_flags(
         self, tmp_path: Path
@@ -533,6 +535,7 @@ class TestAutoCharacterAssignment:
         window._suppress_project_data_cleared_ui_once = True
         window._character_swap_load_in_progress = True
         window._auto_scale_character_to_dummy_next_load = True
+        window._force_skeleton_parts_alignment_next_load = True
 
         project_dir = tmp_path / "char"
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -553,3 +556,4 @@ class TestAutoCharacterAssignment:
         assert window._suppress_project_data_cleared_ui_once is False
         assert window._character_swap_load_in_progress is False
         assert window._auto_scale_character_to_dummy_next_load is False
+        assert window._force_skeleton_parts_alignment_next_load is False

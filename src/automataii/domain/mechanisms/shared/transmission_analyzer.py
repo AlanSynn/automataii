@@ -24,13 +24,14 @@ from typing import NamedTuple
 
 # Quality thresholds (degrees)
 EXCELLENT_RANGE = (40.0, 140.0)  # Ideal mechanical advantage
-GOOD_RANGE = (30.0, 150.0)       # Acceptable performance
-POOR_RANGE = (20.0, 160.0)       # Degraded but functional
+GOOD_RANGE = (30.0, 150.0)  # Acceptable performance
+POOR_RANGE = (20.0, 160.0)  # Degraded but functional
 # Outside POOR_RANGE = Critical (near lock-up)
 
 
 class TransmissionAngleQuality(Enum):
     """Quality classification for transmission angles."""
+
     EXCELLENT = "excellent"
     GOOD = "good"
     POOR = "poor"
@@ -47,6 +48,7 @@ class TransmissionAngleResult(NamedTuple):
         quality: Quality classification
         message: Human-readable description
     """
+
     angle_deg: float
     quality: TransmissionAngleQuality
     message: str
@@ -87,9 +89,9 @@ def calculate_transmission_angle(
     try:
         # Law of cosines: cos(γ) = (c² + o² - d²) / (2co)
         # where c=coupler, o=output, d=distance
-        cos_gamma = (
-            coupler_length**2 + output_length**2 - dist_coupler_output**2
-        ) / (2 * coupler_length * output_length)
+        cos_gamma = (coupler_length**2 + output_length**2 - dist_coupler_output**2) / (
+            2 * coupler_length * output_length
+        )
 
         # Clamp to valid range for acos (numerical stability)
         cos_gamma = max(-1.0, min(1.0, cos_gamma))
@@ -114,35 +116,35 @@ def classify_transmission_angle(angle_deg: float | None) -> TransmissionAngleRes
         return TransmissionAngleResult(
             angle_deg=0.0,
             quality=TransmissionAngleQuality.IMPOSSIBLE,
-            message="Invalid geometry: cannot form mechanism"
+            message="Invalid geometry: cannot form mechanism",
         )
 
     if EXCELLENT_RANGE[0] <= angle_deg <= EXCELLENT_RANGE[1]:
         return TransmissionAngleResult(
             angle_deg=angle_deg,
             quality=TransmissionAngleQuality.EXCELLENT,
-            message=f"Excellent transmission angle: {angle_deg:.1f}°"
+            message=f"Excellent transmission angle: {angle_deg:.1f}°",
         )
 
     if GOOD_RANGE[0] <= angle_deg <= GOOD_RANGE[1]:
         return TransmissionAngleResult(
             angle_deg=angle_deg,
             quality=TransmissionAngleQuality.GOOD,
-            message=f"Good transmission angle: {angle_deg:.1f}°"
+            message=f"Good transmission angle: {angle_deg:.1f}°",
         )
 
     if POOR_RANGE[0] <= angle_deg <= POOR_RANGE[1]:
         return TransmissionAngleResult(
             angle_deg=angle_deg,
             quality=TransmissionAngleQuality.POOR,
-            message=f"Poor transmission angle: {angle_deg:.1f}° (reduced efficiency)"
+            message=f"Poor transmission angle: {angle_deg:.1f}° (reduced efficiency)",
         )
 
     # Critical - near lock-up condition
     return TransmissionAngleResult(
         angle_deg=angle_deg,
         quality=TransmissionAngleQuality.CRITICAL,
-        message=f"Critical transmission angle: {angle_deg:.1f}° (near lock-up)"
+        message=f"Critical transmission angle: {angle_deg:.1f}° (near lock-up)",
     )
 
 
@@ -180,7 +182,7 @@ def analyze_joint_angle(
         return TransmissionAngleResult(
             angle_deg=0.0,
             quality=TransmissionAngleQuality.UNKNOWN,
-            message="Degenerate joint: zero-length link"
+            message="Degenerate joint: zero-length link",
         )
 
     # Dot product and angle calculation
@@ -194,7 +196,7 @@ def analyze_joint_angle(
         return TransmissionAngleResult(
             angle_deg=0.0,
             quality=TransmissionAngleQuality.UNKNOWN,
-            message="Could not compute joint angle"
+            message="Could not compute joint angle",
         )
 
 
@@ -207,6 +209,7 @@ class LinkRatioResult:
         quality: Quality classification string
         message: Human-readable description
     """
+
     max_ratio: float
     quality: str
     message: str
@@ -237,20 +240,14 @@ def analyze_link_ratios(
         >>> print(f"Link ratio: {result.max_ratio:.1f}:1 ({result.quality})")
     """
     if not link_lengths:
-        return LinkRatioResult(
-            max_ratio=0.0,
-            quality="unknown",
-            message="No link lengths provided"
-        )
+        return LinkRatioResult(max_ratio=0.0, quality="unknown", message="No link lengths provided")
 
     # Filter out invalid lengths
-    valid_lengths = [l for l in link_lengths if l > 0]
+    valid_lengths = [length for length in link_lengths if length > 0]
 
     if len(valid_lengths) < 2:
         return LinkRatioResult(
-            max_ratio=0.0,
-            quality="unknown",
-            message="Insufficient valid link lengths"
+            max_ratio=0.0, quality="unknown", message="Insufficient valid link lengths"
         )
 
     min_length = min(valid_lengths)
@@ -261,18 +258,16 @@ def analyze_link_ratios(
         return LinkRatioResult(
             max_ratio=max_ratio,
             quality="poor",
-            message=f"Extreme link ratio: {max_ratio:.1f}:1 (may cause binding)"
+            message=f"Extreme link ratio: {max_ratio:.1f}:1 (may cause binding)",
         )
 
     if max_ratio > warning_ratio:
         return LinkRatioResult(
             max_ratio=max_ratio,
             quality="fair",
-            message=f"High link ratio: {max_ratio:.1f}:1 (reduced efficiency)"
+            message=f"High link ratio: {max_ratio:.1f}:1 (reduced efficiency)",
         )
 
     return LinkRatioResult(
-        max_ratio=max_ratio,
-        quality="excellent",
-        message=f"Good link ratios: {max_ratio:.1f}:1"
+        max_ratio=max_ratio, quality="excellent", message=f"Good link ratios: {max_ratio:.1f}:1"
     )

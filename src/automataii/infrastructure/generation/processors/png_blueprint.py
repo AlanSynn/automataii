@@ -6,7 +6,9 @@ Integrates with existing body parts extractor workflow.
 """
 
 import logging
+import math
 import os
+from html import escape as escape_xml
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,18 @@ class PNGBlueprintProcessor:
 
     def __init__(self, tolerance: float = 1.5):
         self.extractor = AdvancedContourExtractor(tolerance=tolerance)
+
+    @staticmethod
+    def _nonnegative_finite_float(value: object, default: float = 0.0) -> float:
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+        return number if math.isfinite(number) and number >= 0.0 else default
+
+    @staticmethod
+    def _safe_svg_text(value: object) -> str:
+        return escape_xml(str(value or ""), quote=True)
 
     def process_part_png(self, part_item: Any) -> ManufacturingContour | None:
         """
@@ -120,13 +134,14 @@ class PNGBlueprintProcessor:
         if not part_items:
             logging.warning("No part items provided for blueprint generation")
             return ""
+        padding = self._nonnegative_finite_float(padding, 20.0)
 
         svg_parts = []
         current_x = padding
         current_y = padding
-        max_row_height = 0
-        total_width = 0
-        total_height = 0
+        max_row_height = 0.0
+        total_width = 0.0
+        total_height = 0.0
 
         for item in part_items:
             # Extract manufacturing contour from PNG
@@ -139,7 +154,10 @@ class PNGBlueprintProcessor:
             # Get part name
             part_name = "Unknown Part"
             if hasattr(item, "part_info") and item.part_info:
-                part_name = getattr(item.part_info, "name", "Unknown Part")
+                if isinstance(item.part_info, dict):
+                    part_name = item.part_info.get("name", "Unknown Part")
+                else:
+                    part_name = getattr(item.part_info, "name", "Unknown Part")
 
             # Get contour bounding box
             x, y, w, h = manufacturing_contour.bounding_rect
@@ -161,7 +179,7 @@ class PNGBlueprintProcessor:
                 if current_x > 600:
                     current_x = padding
                     current_y += max_row_height + padding
-                    max_row_height = 0
+                    max_row_height = 0.0
 
         total_height = current_y + max_row_height + padding
         total_width = max(600, total_width + padding)
@@ -207,18 +225,26 @@ class PNGBlueprintProcessor:
         part_name: str,
     ) -> str:
         """Create detailed manufacturing SVG for a single part."""
+        x_offset = self._nonnegative_finite_float(x_offset)
+        y_offset = self._nonnegative_finite_float(y_offset)
 
         # Get contour dimensions
-        cx, cy, width, height = manufacturing_contour.bounding_rect
+        cx, cy, raw_width, raw_height = manufacturing_contour.bounding_rect
+        width = self._nonnegative_finite_float(raw_width)
+        height = self._nonnegative_finite_float(raw_height)
+        area = self._nonnegative_finite_float(manufacturing_contour.area)
+        perimeter = self._nonnegative_finite_float(manufacturing_contour.perimeter)
+        part_name_text = self._safe_svg_text(part_name)
 
         # Apply offset to SVG path
         offset_path = self.extractor._apply_offset_to_path(
             manufacturing_contour.svg_path, x_offset - cx, y_offset - cy
         )
+        offset_path = escape_xml(offset_path, quote=True)
 
         # Create detailed manufacturing part SVG
         part_svg = f'''
-    <g class="manufacturing-part" data-name="{part_name}">
+    <g class="manufacturing-part" data-name="{part_name_text}">
         <!-- PNG-extracted contour outline -->
         <path d="{offset_path}" class="part-outline"/>
 
@@ -227,7 +253,7 @@ class PNGBlueprintProcessor:
 
         <!-- Part label -->
         <text x="{x_offset + width/2:.2f}" y="{y_offset - 5:.2f}"
-              class="part-label" text-anchor="middle">{part_name}</text>
+              class="part-label" text-anchor="middle">{part_name_text}</text>
 
         <!-- Dimensions -->
         <g class="dimensions">
@@ -251,7 +277,7 @@ class PNGBlueprintProcessor:
         <!-- Manufacturing notes -->
         <text x="{x_offset:.2f}" y="{y_offset + height + 35:.2f}"
               class="manufacturing-note">
-              Area: {manufacturing_contour.area:.0f}mm² | Perimeter: {manufacturing_contour.perimeter:.1f}mm
+              Area: {area:.0f}mm² | Perimeter: {perimeter:.1f}mm
         </text>
     </g>
 '''

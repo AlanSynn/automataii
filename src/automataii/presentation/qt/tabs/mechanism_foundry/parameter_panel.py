@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import html
+import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
+from typing import SupportsFloat, SupportsIndex, cast
 
 from PyQt6.QtCore import QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -29,6 +32,50 @@ from automataii.application.mechanism_foundry import MechanismContent, Parameter
 from automataii.presentation.qt.shared import blocked_signals, clear_layout
 
 MM_PER_INCH = 25.4
+MAX_SLIDER_STEPS = 10_000
+_FloatPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(_FloatPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _positive_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result > 0.0 else default
+
+
+def _finite_range(min_value: object, max_value: object, default_min: float, default_max: float) -> tuple[float, float]:
+    low = _finite_float(min_value, default_min)
+    high = _finite_float(max_value, default_max)
+    if low == high:
+        high = low + 1.0
+    if low > high:
+        low, high = high, low
+    return low, high
+
+
+def _bounded_step(min_unit: float, max_unit: float, requested_step: object) -> tuple[float, int]:
+    span = max(0.0, max_unit - min_unit)
+    step = _positive_finite_float(requested_step, 1.0)
+    if span <= 0.0:
+        return 1.0, 1
+    total_steps = max(1, int(round(span / step)))
+    if total_steps > MAX_SLIDER_STEPS:
+        total_steps = MAX_SLIDER_STEPS
+        step = span / total_steps
+    return step, total_steps
+
+
+def _slider_index(value: object, default: int = 0) -> int:
+    try:
+        return int(cast(SupportsIndex, value))
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 class UnitSystem(str, Enum):
@@ -37,12 +84,14 @@ class UnitSystem(str, Enum):
 
 
 def _mm_to_unit(value_mm: float, unit: UnitSystem) -> float:
+    value_mm = _finite_float(value_mm, 0.0)
     if unit == UnitSystem.MILLIMETER:
         return value_mm
     return value_mm / MM_PER_INCH
 
 
 def _unit_to_mm(value_unit: float, unit: UnitSystem) -> float:
+    value_unit = _finite_float(value_unit, 0.0)
     if unit == UnitSystem.MILLIMETER:
         return value_unit
     return value_unit * MM_PER_INCH
@@ -131,9 +180,17 @@ class _DimensionControl:
     def configure_unit(self, unit: UnitSystem) -> None:
         self.current_unit = unit
         if not self.is_length:
-            self.min_unit = self.spec.min_value
-            self.max_unit = self.spec.max_value
-            self.step_unit = self.spec.step if self.spec.step > 0 else 1.0
+            self.min_unit, self.max_unit = _finite_range(
+                self.spec.min_value,
+                self.spec.max_value,
+                0.0,
+                1.0,
+            )
+            self.step_unit, total_steps = _bounded_step(
+                self.min_unit,
+                self.max_unit,
+                self.spec.step,
+            )
             decimals = 0 if self.spec.is_integer else 2
             suffix = f" {self.spec.unit}" if self.spec.unit else ""
 
@@ -143,8 +200,6 @@ class _DimensionControl:
                 self.spinbox.setRange(self.min_unit, self.max_unit)
                 self.spinbox.setSingleStep(self.step_unit)
 
-            total_steps = int(round((self.max_unit - self.min_unit) / self.step_unit))
-            total_steps = max(total_steps, 1)
             with blocked_signals(self.slider):
                 self.slider.setMinimum(0)
                 self.slider.setMaximum(total_steps)
@@ -152,12 +207,16 @@ class _DimensionControl:
             return
 
         self.current_unit = unit
-        self.min_unit = _mm_to_unit(self.spec.min_value, unit)
-        self.max_unit = _mm_to_unit(self.spec.max_value, unit)
-        raw_step = self.spec.step if self.spec.step > 0 else 1.0
-        self.step_unit = _mm_to_unit(raw_step, unit)
-        if self.step_unit <= 0:
-            self.step_unit = 0.1
+        min_mm, max_mm = _finite_range(self.spec.min_value, self.spec.max_value, 0.0, 1.0)
+        self.min_unit = _mm_to_unit(min_mm, unit)
+        self.max_unit = _mm_to_unit(max_mm, unit)
+        raw_step = _positive_finite_float(self.spec.step, 1.0)
+        step_unit = _mm_to_unit(raw_step, unit)
+        self.step_unit, total_steps = _bounded_step(
+            self.min_unit,
+            self.max_unit,
+            step_unit,
+        )
 
         decimals = 0 if self.spec.is_integer else (2 if unit == UnitSystem.MILLIMETER else 3)
         suffix = f" {unit.value}"
@@ -168,16 +227,15 @@ class _DimensionControl:
             self.spinbox.setRange(self.min_unit, self.max_unit)
             self.spinbox.setSingleStep(self.step_unit)
 
-        total_steps = int(round((self.max_unit - self.min_unit) / self.step_unit))
-        total_steps = max(total_steps, 1)
-
         with blocked_signals(self.slider):
             self.slider.setMinimum(0)
             self.slider.setMaximum(total_steps)
         self.set_value_mm(self.value_mm, emit=False)
 
     def set_value_mm(self, value_mm: float, emit: bool = False) -> None:
-        clamped = max(self.spec.min_value, min(self.spec.max_value, value_mm))
+        min_mm, max_mm = _finite_range(self.spec.min_value, self.spec.max_value, 0.0, 1.0)
+        value_mm = _finite_float(value_mm, self.value_mm)
+        clamped = max(min_mm, min(max_mm, value_mm))
         self.value_mm = clamped
 
         if self.is_length:
@@ -185,10 +243,11 @@ class _DimensionControl:
         else:
             unit_value = clamped
 
-        if self.step_unit == 0:
+        if self.step_unit <= 0 or not math.isfinite(self.step_unit):
             slider_value = 0
         else:
             slider_value = int(round((unit_value - self.min_unit) / self.step_unit))
+        slider_value = max(self.slider.minimum(), min(self.slider.maximum(), slider_value))
 
         unit_value = self.min_unit + slider_value * self.step_unit
         if self.is_length:
@@ -207,6 +266,8 @@ class _DimensionControl:
             self.on_value_changed(self.spec.key, self.value_mm)
 
     def handle_slider_change(self, slider_value: int) -> None:
+        slider_value = _slider_index(slider_value, self.slider.value())
+        slider_value = max(self.slider.minimum(), min(self.slider.maximum(), slider_value))
         unit_value = self.min_unit + slider_value * self.step_unit
         if self.is_length:
             value_mm = _unit_to_mm(unit_value, self.current_unit)
@@ -215,6 +276,7 @@ class _DimensionControl:
         self.set_value_mm(value_mm, emit=True)
 
     def handle_spinbox_change(self, unit_value: float) -> None:
+        unit_value = _finite_float(unit_value, self.min_unit)
         if self.is_length:
             value_mm = _unit_to_mm(unit_value, self.current_unit)
         else:
@@ -441,7 +503,12 @@ class MechanismParameterPanel(QWidget):
         clear_layout(self._dimensions_placeholder_layout)
 
         for spec in specs:
-            initial_value = values.get(spec.key, spec.default_value)
+            min_value, max_value = _finite_range(spec.min_value, spec.max_value, 0.0, 1.0)
+            default_value = max(min_value, min(max_value, _finite_float(spec.default_value, min_value)))
+            initial_value = max(
+                min_value,
+                min(max_value, _finite_float(values.get(spec.key, default_value), default_value)),
+            )
             widget = QWidget()
             widget_layout = QVBoxLayout(widget)
             widget_layout.setContentsMargins(0, 0, 0, 0)
@@ -498,8 +565,14 @@ class MechanismParameterPanel(QWidget):
         self._driver_group.deleteLater()
         self._driver_group = QButtonGroup(self)
         self._driver_group.setExclusive(True)
-        for idx, label in enumerate(options):
-            radio = QRadioButton(label)
+        for label in options:
+            if label is None:
+                continue
+            label_text = str(label).strip()
+            if not label_text:
+                continue
+            idx = len(self._driver_buttons)
+            radio = QRadioButton(label_text)
             radio.setCursor(Qt.CursorShape.PointingHandCursor)
             self._driver_group.addButton(radio, idx)
             self._driver_container.addWidget(radio)
@@ -519,7 +592,11 @@ class MechanismParameterPanel(QWidget):
         with blocked_signals(self._coupler_combo):
             self._coupler_combo.clear()
             for option in options:
-                self._coupler_combo.addItem(option)
+                if option is None:
+                    continue
+                option_text = str(option).strip()
+                if option_text:
+                    self._coupler_combo.addItem(option_text)
             if current:
                 index = self._coupler_combo.findText(current)
                 if index >= 0:
@@ -531,7 +608,11 @@ class MechanismParameterPanel(QWidget):
         with blocked_signals(self._follower_combo):
             self._follower_combo.clear()
             for option in options:
-                self._follower_combo.addItem(option)
+                if option is None:
+                    continue
+                option_text = str(option).strip()
+                if option_text:
+                    self._follower_combo.addItem(option_text)
             if current:
                 index = self._follower_combo.findText(current)
                 if index >= 0:
@@ -544,14 +625,14 @@ class MechanismParameterPanel(QWidget):
         if not limited:
             self._hints_browser.setHtml("<p style='color:#6b7280;'>Hints appear here based on selected mechanism.</p>")
             return
-        bullets = "".join(f"<li>{hint}</li>" for hint in limited)
-        html = f"""
+        bullets = "".join(f"<li>{html.escape(str(hint))}</li>" for hint in limited)
+        html_content = f"""
         <ul style="margin:0; padding-left:16px; color:#1f2937;">
             {bullets}
         </ul>
         <p style="margin-top:8px; color:#2563eb; font-size:11px;">Open the info panel for full context →</p>
         """
-        self._hints_browser.setHtml(html)
+        self._hints_browser.setHtml(html_content)
 
     def apply_content(self, content: MechanismContent | None) -> None:
         if content is None:

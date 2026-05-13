@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -36,28 +37,55 @@ class ScenarioLayoutItem:
 class ScenarioOptimizer:
     """Deterministic optimizer returning a small mechanism + part layout."""
 
+    @staticmethod
+    def _positive_dimension(value: object, default: float) -> float:
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+        return number if math.isfinite(number) and number > 0.0 else default
+
+    @staticmethod
+    def _safe_text(value: object, default: str) -> str:
+        if value is None:
+            return default
+        text = str(value).strip()
+        return text or default
+
+    @staticmethod
+    def _format_param(key: object, value: object) -> str:
+        key_text = ScenarioOptimizer._safe_text(key, "param")
+        if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(float(value)):
+            value_text = f"{float(value):g}"
+        else:
+            value_text = ScenarioOptimizer._safe_text(value, "n/a")
+        return f"{key_text}={value_text}"
+
     def optimize_blueprint_layout(
         self,
         part_items: Iterable[dict[str, Any]],
         mechanism_layers: dict[str, Any],
         unit_system: str,
-    ):
+    ) -> tuple[list[ScenarioLayoutItem], float, float]:
         layout_items: list[ScenarioLayoutItem] = []
         x_offset = 0.0
 
         for index, part in enumerate(part_items):
-            width = float(part.get("width_mm", 160.0))
-            height = float(part.get("height_mm", 90.0))
+            if not isinstance(part, dict):
+                continue
+            width = self._positive_dimension(part.get("width_mm"), 160.0)
+            height = self._positive_dimension(part.get("height_mm"), 90.0)
+            name = self._safe_text(part.get("name"), f"Part {index + 1}")
             bounds = ScaledBounds(x_offset, 0.0, width, height)
             svg = _svg_panel(
                 width,
                 height,
-                title=part.get("name", f"Part {index + 1}"),
+                title=name,
                 body=f"Area: {width * height:.0f} mm²",
             )
             layout_items.append(
                 ScenarioLayoutItem(
-                    name=part.get("name", f"Part {index + 1}"),
+                    name=name,
                     bounds=bounds,
                     svg_content=svg,
                     item_type="part",
@@ -67,21 +95,25 @@ class ScenarioOptimizer:
             x_offset += width + 40.0
 
         mech_y = 160.0
+        mechanism_layers = mechanism_layers if isinstance(mechanism_layers, dict) else {}
         for mech_id, mech_data in mechanism_layers.items():
+            if not isinstance(mech_data, dict):
+                mech_data = {}
             bounds = ScaledBounds(0.0, mech_y, 260.0, 180.0)
-            params_summary = ", ".join(
-                f"{key}={value:g}" for key, value in list(mech_data.get("params", {}).items())[:4]
-            )
+            params = mech_data.get("params", {})
+            params_items = list(params.items())[:4] if isinstance(params, dict) else []
+            params_summary = ", ".join(self._format_param(key, value) for key, value in params_items)
+            mech_name = self._safe_text(mech_data.get("display_name"), str(mech_id))
             svg = _svg_panel(
                 bounds.width,
                 bounds.height,
-                title=mech_data.get("display_name", mech_id),
-                body=f"Type: {mech_data.get('type', 'unknown')}\n{params_summary}",
+                title=mech_name,
+                body=f"Type: {self._safe_text(mech_data.get('type'), 'unknown')}\n{params_summary}",
                 fill="#f9fbff",
             )
             layout_items.append(
                 ScenarioLayoutItem(
-                    name=mech_id,
+                    name=self._safe_text(mech_id, "mechanism"),
                     bounds=bounds,
                     svg_content=svg,
                     item_type="mechanism",
@@ -89,6 +121,9 @@ class ScenarioOptimizer:
                 )
             )
             mech_y += bounds.height + 40.0
+
+        if not layout_items:
+            return [], 400.0, 300.0
 
         total_width = max(item.bounds.x + item.bounds.width for item in layout_items) + 60.0
         total_height = max(item.bounds.y + item.bounds.height for item in layout_items) + 80.0
@@ -129,7 +164,7 @@ def run_blueprint_export_scenario(output_dir: Path, unit_system: str = "metric")
     composer = BlueprintComposer(optimizer=ScenarioOptimizer(), svg_generator=generate_single_large_blueprint)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
     logger = logging.getLogger("automataii.scenario.blueprint")
     start_time = time.perf_counter()
@@ -224,12 +259,17 @@ def _pick_mechanism(items: Iterable[MechanismItem], preferred_type: str) -> Mech
 
 
 def _svg_panel(width: float, height: float, *, title: str, body: str, fill: str = "#ffffff") -> str:
+    width = ScenarioOptimizer._positive_dimension(width, 160.0)
+    height = ScenarioOptimizer._positive_dimension(height, 90.0)
+    title = _escape_svg_text(str(title))
+    body = _escape_svg_text(str(body))
+    fill = _escape_svg_text(str(fill))
     return (
         f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">'
         f'<rect x="0" y="0" width="{width}" height="{height}" rx="8" '
         f'ry="8" fill="{fill}" stroke="#2a2a2a" stroke-width="2"/>'
         f'<text x="16" y="32" font-size="18" font-family="Arial" font-weight="bold">{title}</text>'
-        f'<text x="16" y="56" font-size="12" font-family="Arial">{_escape_svg_text(body)}</text>'
+        f'<text x="16" y="56" font-size="12" font-family="Arial">{body}</text>'
         "</svg>"
     )
 

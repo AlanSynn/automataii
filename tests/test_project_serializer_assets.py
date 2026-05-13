@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
 
 from automataii.application.project import (
+    AutoSaveManager,
     MechanismData,
     PartData,
     ProjectSerializer,
@@ -184,3 +186,134 @@ def test_serializer_deduplicates_shared_sources_within_single_save(tmp_path):
 
     asset_files = sorted((tmp_path / "shared_assets_assets" / "parts").glob("*.png"))
     assert len(asset_files) == 1
+
+
+def test_serializer_sanitizes_part_names_before_bundling_assets(tmp_path):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    texture_path = source_dir / "texture.png"
+    texture_path.write_bytes(b"texture")
+
+    part = PartData(
+        name="../../escape",
+        texture_path=str(texture_path),
+        mask_path="",
+        anchor_joint="neck",
+        transform=Transform(x=0.0, y=0.0, rotation=0.0, scale=1.0),
+    )
+    state = ProjectState.empty().with_project_dir(source_dir).with_parts({"../../escape": part})
+
+    serializer = ProjectSerializer()
+    save_result = serializer.save(state, tmp_path / "unsafe_name.automataii")
+
+    assert save_result.success is True
+    assert not (tmp_path / "escape.png").exists()
+    bundled_assets = sorted((tmp_path / "unsafe_name_assets" / "parts").glob("*.png"))
+    assert len(bundled_assets) == 1
+    assert bundled_assets[0].parent == tmp_path / "unsafe_name_assets" / "parts"
+
+
+def test_serializer_sanitizes_collision_candidate_names_before_bundling_assets(tmp_path):
+    """Collision suffixes must use the sanitized stem, not the raw part name."""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    texture_path = source_dir / "texture.png"
+    texture_path.write_bytes(b"new-texture")
+
+    bundle_parts = tmp_path / "collision_assets" / "parts"
+    bundle_parts.mkdir(parents=True, exist_ok=True)
+    # Force the collision path so the serializer exercises the suffixed candidate branch.
+    (bundle_parts / "escape_texture.png").write_bytes(b"different-texture")
+
+    part = PartData(
+        name="../../escape",
+        texture_path=str(texture_path),
+        mask_path="",
+        anchor_joint="neck",
+        transform=Transform(x=0.0, y=0.0, rotation=0.0, scale=1.0),
+    )
+    state = ProjectState.empty().with_project_dir(source_dir).with_parts({"../../escape": part})
+
+    serializer = ProjectSerializer()
+    save_result = serializer.save(state, tmp_path / "collision.automataii")
+
+    assert save_result.success is True
+    assert not (tmp_path / "escape_texture_1.png").exists()
+    assert (bundle_parts / "escape_texture_1.png").exists()
+
+
+def test_v1_to_v2_migration_updates_existing_metadata_version():
+    serializer = ProjectSerializer()
+    migrated = serializer._migrate_if_needed(
+        {
+            "metadata": {
+                "version": "1.0",
+                "name": "Legacy Project",
+            },
+            "layers": {},
+        }
+    )
+
+    assert migrated["metadata"]["version"] == serializer.CURRENT_VERSION
+    assert "parts" in migrated
+    assert "paths" in migrated
+    assert "mechanisms" in migrated
+
+
+def test_serializer_validate_file_rejects_non_object_root(tmp_path):
+    project_file = tmp_path / "bad.automataii"
+    project_file.write_text("[]", encoding="utf-8")
+
+    valid, error = ProjectSerializer().validate_file(project_file)
+
+    assert valid is False
+    assert error == "Project root must be a JSON object"
+
+
+def test_serializer_validate_file_rejects_malformed_sections(tmp_path):
+    project_file = tmp_path / "bad_sections.automataii"
+    project_file.write_text(
+        json.dumps({"metadata": [], "parts": []}),
+        encoding="utf-8",
+    )
+
+    valid, error = ProjectSerializer().validate_file(project_file)
+
+    assert valid is False
+    assert error == "metadata section must be an object"
+
+
+def test_serializer_get_project_info_handles_malformed_counts(tmp_path):
+    project_file = tmp_path / "info.automataii"
+    project_file.write_text(
+        json.dumps({"metadata": {"name": "Info"}, "parts": [], "mechanisms": []}),
+        encoding="utf-8",
+    )
+
+    info = ProjectSerializer().get_project_info(project_file)
+
+    assert info is not None
+    assert info["name"] == "Info"
+    assert info["parts_count"] == 0
+    assert info["mechanisms_count"] == 0
+
+
+def test_serializer_creates_unique_backups_instead_of_overwriting(tmp_path):
+    serializer = ProjectSerializer()
+    project_file = tmp_path / "backup.automataii"
+    project_file.write_text("v1", encoding="utf-8")
+    (tmp_path / "backup.backup.automataii").write_text("existing-backup", encoding="utf-8")
+
+    serializer._create_backup(project_file)
+
+    assert (tmp_path / "backup.backup.automataii").read_text(encoding="utf-8") == "existing-backup"
+    assert (tmp_path / "backup.backup1.automataii").read_text(encoding="utf-8") == "v1"
+
+
+def test_autosave_manager_normalizes_invalid_intervals():
+    serializer = ProjectSerializer()
+
+    assert AutoSaveManager(serializer, interval_seconds=True)._interval == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
+    assert AutoSaveManager(serializer, interval_seconds="bad")._interval == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
+    assert AutoSaveManager(serializer, interval_seconds=0)._interval == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
+    assert AutoSaveManager(serializer, interval_seconds=5)._interval == 5

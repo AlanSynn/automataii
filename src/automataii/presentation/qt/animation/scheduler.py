@@ -10,6 +10,7 @@ Pattern: Observer + Singleton
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import IntEnum, auto
@@ -42,6 +43,8 @@ class AnimationSubscription:
     enabled: bool = True
     frame_skip: int = 1  # Process every N frames (1 = every frame)
     _frame_counter: int = 0
+    _consecutive_errors: int = 0
+    _disabled_after_errors: bool = False
 
 
 class CentralAnimationScheduler(QObject):
@@ -80,6 +83,8 @@ class CentralAnimationScheduler(QObject):
     # Default settings
     DEFAULT_FPS = 30
     DEFAULT_FRAME_TIME_MS = 33  # 1000 / 30
+    MAX_DELTA_TIME_SECONDS = 0.25
+    CALLBACK_ERROR_DISABLE_THRESHOLD = 3
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
@@ -133,10 +138,44 @@ class CentralAnimationScheduler(QObject):
 
     @target_fps.setter
     def target_fps(self, fps: int) -> None:
-        self._target_fps = max(1, min(120, fps))
+        self._target_fps = self._positive_int_in_range(
+            fps,
+            default=self.DEFAULT_FPS,
+            minimum=1,
+            maximum=120,
+            label="target_fps",
+        )
         self._frame_time_ms = 1000 // self._target_fps
         if self._running and not self._paused:
             self._timer.setInterval(self._frame_time_ms)
+
+    @staticmethod
+    def _positive_int_in_range(
+        value: object,
+        *,
+        default: int,
+        minimum: int,
+        maximum: int | None = None,
+        label: str,
+    ) -> int:
+        """Normalize integer scheduler configuration without bool-as-int surprises."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            logger.warning("Invalid %s %r, using default %s", label, value, default)
+            value = default
+        normalized = max(minimum, int(value))
+        if maximum is not None:
+            normalized = min(maximum, normalized)
+        return int(normalized)
+
+    def _target_delta_time(self) -> float:
+        return self._frame_time_ms / 1000.0
+
+    def _normalized_delta_time(self, delta_time: float) -> float:
+        if not math.isfinite(delta_time) or delta_time < 0.0:
+            return self._target_delta_time()
+        if delta_time > self.MAX_DELTA_TIME_SECONDS:
+            return self.MAX_DELTA_TIME_SECONDS
+        return delta_time
 
     # =========================================================================
     # SUBSCRIPTION MANAGEMENT
@@ -161,6 +200,13 @@ class CentralAnimationScheduler(QObject):
         Returns:
             Subscription ID (same as owner_id)
         """
+        if not callable(callback):
+            raise ValueError("Animation subscription callback must be callable")
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise ValueError("Animation subscription owner_id must be a non-empty string")
+
+        owner_id = owner_id.strip()
+
         if owner_id in self._subscriptions:
             logger.warning(f"Replacing existing subscription: {owner_id}")
 
@@ -169,7 +215,13 @@ class CentralAnimationScheduler(QObject):
             priority=priority,
             owner_id=owner_id,
             enabled=True,
-            frame_skip=max(1, frame_skip),
+            frame_skip=self._positive_int_in_range(
+                frame_skip,
+                default=1,
+                minimum=1,
+                maximum=None,
+                label="frame_skip",
+            ),
         )
         self._subscriptions_dirty = True
 
@@ -188,12 +240,25 @@ class CentralAnimationScheduler(QObject):
     def enable_subscription(self, owner_id: str, enabled: bool = True) -> None:
         """Enable or disable a subscription without removing it."""
         if owner_id in self._subscriptions:
-            self._subscriptions[owner_id].enabled = enabled
+            sub = self._subscriptions[owner_id]
+            sub.enabled = enabled
+            sub._frame_counter = 0
+            if enabled:
+                sub._consecutive_errors = 0
+                sub._disabled_after_errors = False
 
     def set_frame_skip(self, owner_id: str, frame_skip: int) -> None:
         """Set frame skip for a subscription."""
         if owner_id in self._subscriptions:
-            self._subscriptions[owner_id].frame_skip = max(1, frame_skip)
+            sub = self._subscriptions[owner_id]
+            sub.frame_skip = self._positive_int_in_range(
+                frame_skip,
+                default=1,
+                minimum=1,
+                maximum=None,
+                label="frame_skip",
+            )
+            sub._frame_counter = 0
 
     # =========================================================================
     # LIFECYCLE CONTROL
@@ -208,6 +273,8 @@ class CentralAnimationScheduler(QObject):
         self._paused = False
         self._elapsed_timer.start()
         self._last_frame_time = 0.0
+        for sub in self._subscriptions.values():
+            sub._frame_counter = 0
         self._timer.start(self._frame_time_ms)
         logger.info(f"Animation scheduler started ({self._target_fps} FPS)")
 
@@ -246,6 +313,8 @@ class CentralAnimationScheduler(QObject):
         self._total_time = 0.0
         self._frame_count = 0
         self._last_frame_time = 0.0
+        for sub in self._subscriptions.values():
+            sub._frame_counter = 0
         if self._running:
             self._elapsed_timer.restart()
         logger.debug("Animation scheduler reset")
@@ -257,8 +326,12 @@ class CentralAnimationScheduler(QObject):
     def _on_frame(self) -> None:
         """Process a single animation frame."""
         # Calculate delta time
-        current_time = self._elapsed_timer.elapsed() / 1000.0
+        if self._elapsed_timer.isValid():
+            current_time = self._elapsed_timer.elapsed() / 1000.0
+        else:
+            current_time = self._last_frame_time + self._target_delta_time()
         delta_time = current_time - self._last_frame_time
+        delta_time = self._normalized_delta_time(delta_time)
         self._last_frame_time = current_time
         self._total_time += delta_time
         self._frame_count += 1
@@ -301,8 +374,19 @@ class CentralAnimationScheduler(QObject):
             # Call the callback
             try:
                 sub.callback(delta_time)
+                sub._consecutive_errors = 0
             except Exception as e:
+                sub._consecutive_errors += 1
                 logger.exception("Animation callback error (%s): %s", sub.owner_id, e)
+                if sub._consecutive_errors >= self.CALLBACK_ERROR_DISABLE_THRESHOLD:
+                    sub.enabled = False
+                    sub._disabled_after_errors = True
+                    sub._frame_counter = 0
+                    logger.error(
+                        "Animation subscription disabled after %d consecutive errors: %s",
+                        sub._consecutive_errors,
+                        sub.owner_id,
+                    )
 
         # Calculate frame processing time
         frame_time = (self._elapsed_timer.elapsed() - frame_start) / 1000.0
@@ -350,6 +434,8 @@ class CentralAnimationScheduler(QObject):
                 "priority": s.priority.name,
                 "enabled": s.enabled,
                 "frame_skip": s.frame_skip,
+                "disabled_after_errors": s._disabled_after_errors,
+                "consecutive_errors": s._consecutive_errors,
             }
             for s in self._get_sorted_subscriptions()
         ]

@@ -28,6 +28,24 @@ class MotionPathGenerator:
 
     DEFAULT_RESOLUTION = 180  # Points per full rotation
 
+    @staticmethod
+    def _positive_int_or_default(value: Any, default: int, label: str) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            logging.warning("Invalid %s %r, using default %s", label, value, default)
+            return default
+        return int(value)
+
+    @staticmethod
+    def _finite_position_tuple(pos: Any) -> tuple[float, float] | None:
+        try:
+            x = float(pos.x())
+            y = float(pos.y())
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if not math.isfinite(x) or not math.isfinite(y):
+            return None
+        return x, y
+
     def __init__(self, resolution: int = DEFAULT_RESOLUTION) -> None:
         """
         Initialize generator.
@@ -38,10 +56,11 @@ class MotionPathGenerator:
         Raises:
             ValueError: If resolution is less than 1
         """
-        if resolution < 1:
-            logging.warning(f"Invalid resolution {resolution}, using default {self.DEFAULT_RESOLUTION}")
-            resolution = self.DEFAULT_RESOLUTION
-        self._resolution = resolution
+        self._resolution = self._positive_int_or_default(
+            resolution,
+            self.DEFAULT_RESOLUTION,
+            "resolution",
+        )
 
     def generate_joint_motion_path(
         self,
@@ -66,6 +85,10 @@ class MotionPathGenerator:
         motion_path = QPainterPath()
         mech_type = layer_data.get("type")
         params = layer_data.get("params", {})
+        if not isinstance(mech_type, str):
+            return None
+        if not isinstance(params, dict):
+            params = {}
 
         try:
             for i in range(self._resolution + 1):
@@ -75,7 +98,7 @@ class MotionPathGenerator:
                 # Calculate mechanism output position
                 joint_pos = calculate_output_fn(mech_type, params, angle, layer_data)
 
-                if joint_pos:
+                if joint_pos is not None and self._finite_position_tuple(joint_pos) is not None:
                     if i == 0:
                         motion_path.moveTo(joint_pos)
                     else:
@@ -106,17 +129,26 @@ class MotionPathGenerator:
         Returns:
             List of (x, y) tuples representing sampled positions
         """
-        samples = num_samples if num_samples and num_samples > 0 else self._resolution
+        samples = (
+            self._positive_int_or_default(num_samples, self._resolution, "num_samples")
+            if num_samples is not None
+            else self._resolution
+        )
         positions: list[tuple[float, float]] = []
         mech_type = layer_data.get("type")
         params = layer_data.get("params", {})
+        if not isinstance(mech_type, str):
+            return positions
+        if not isinstance(params, dict):
+            params = {}
 
         try:
             for i in range(samples):
                 angle = (i / samples) * 2 * math.pi
                 pos = calculate_output_fn(mech_type, params, angle, layer_data)
-                if pos:
-                    positions.append((pos.x(), pos.y()))
+                point = self._finite_position_tuple(pos) if pos is not None else None
+                if point is not None:
+                    positions.append(point)
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 

@@ -40,7 +40,9 @@ class MechanismTransferPackage:
     version: str = "1.0.0"
 
 
-SUPPORTED_EXPORT_TYPES: frozenset[str] = frozenset(["four_bar", "cam_follower"])
+SUPPORTED_EXPORT_TYPES: frozenset[str] = frozenset(
+    ["four_bar", "cam_follower", "gear_train", "slider_crank"]
+)
 
 
 def validate_export_type(mechanism_type: str) -> bool:

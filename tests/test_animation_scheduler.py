@@ -35,7 +35,7 @@ class TestCentralAnimationScheduler:
     @pytest.fixture
     def scheduler(self):
         """Create scheduler for testing."""
-        app = get_qapp()
+        get_qapp()
         # Parent to app to prevent premature deletion
         scheduler = CentralAnimationScheduler()
         yield scheduler
@@ -162,6 +162,73 @@ class TestCentralAnimationScheduler:
         # Should be called twice (frames 3 and 6)
         assert call_count == 2
 
+    @pytest.mark.parametrize("bad_fps", [True, "fast", None])
+    def test_target_fps_rejects_non_integer_values_without_crashing(self, scheduler, bad_fps):
+        """Malformed UI/settings payloads should not crash the FPS setter."""
+        scheduler.target_fps = bad_fps  # type: ignore[assignment]
+
+        assert scheduler.target_fps == scheduler.DEFAULT_FPS
+
+    @pytest.mark.parametrize("bad_frame_skip", [True, "slow", None])
+    def test_subscribe_normalizes_invalid_frame_skip_values(self, scheduler, bad_frame_skip):
+        callback = MagicMock()
+
+        scheduler.subscribe(
+            callback=callback,
+            priority=AnimationPriority.NORMAL,
+            owner_id="bad_skip",
+            frame_skip=bad_frame_skip,  # type: ignore[arg-type]
+        )
+        scheduler._on_frame()
+
+        assert scheduler.list_subscriptions()[0]["frame_skip"] == 1
+        callback.assert_called_once()
+
+    def test_set_frame_skip_resets_skip_phase(self, scheduler):
+        call_count = 0
+
+        def callback(dt):
+            nonlocal call_count
+            call_count += 1
+
+        scheduler.subscribe(callback, AnimationPriority.NORMAL, "phase", frame_skip=2)
+        scheduler._on_frame()
+        scheduler.set_frame_skip("phase", 3)
+
+        scheduler._on_frame()
+        scheduler._on_frame()
+        assert call_count == 0
+
+        scheduler._on_frame()
+        assert call_count == 1
+
+    def test_reenable_subscription_resets_skip_phase(self, scheduler):
+        callback = MagicMock()
+        scheduler.subscribe(callback, AnimationPriority.NORMAL, "reenable", frame_skip=3)
+
+        scheduler._on_frame()
+        scheduler.enable_subscription("reenable", False)
+        scheduler.enable_subscription("reenable", True)
+
+        scheduler._on_frame()
+        scheduler._on_frame()
+        callback.assert_not_called()
+
+        scheduler._on_frame()
+        callback.assert_called_once()
+
+    def test_repeated_callback_errors_disable_subscription(self, scheduler):
+        callback = MagicMock(side_effect=RuntimeError("boom"))
+        scheduler.subscribe(callback, AnimationPriority.NORMAL, "flaky")
+
+        for _ in range(scheduler.CALLBACK_ERROR_DISABLE_THRESHOLD + 1):
+            scheduler._on_frame()
+
+        sub = scheduler.list_subscriptions()[0]
+        assert callback.call_count == scheduler.CALLBACK_ERROR_DISABLE_THRESHOLD
+        assert sub["enabled"] is False
+        assert sub["disabled_after_errors"] is True
+
     def test_stats(self, scheduler):
         """Test statistics retrieval."""
         stats = scheduler.get_stats()
@@ -187,7 +254,7 @@ class TestViewportController:
     @pytest.fixture
     def controller(self, mock_view):
         """Create controller with mock view."""
-        app = get_qapp()
+        get_qapp()
         controller = ViewportController(mock_view)
         yield controller
 

@@ -9,12 +9,20 @@ Architecture: Hexagonal - Presentation Layer
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QPainterPath
 from PyQt6.QtWidgets import QDialog, QInputDialog, QMessageBox
+
+from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+    MECHANISM_TYPE_MAPPING as SERVICE_MECHANISM_TYPE_MAPPING,
+)
+from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+    UnsupportedMechanismTypeError,
+)
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QWidget
@@ -38,27 +46,8 @@ class RecommendationController(QObject):
     This controller manages the recommendation workflow separate from Tab.
     """
 
-    # Mapping from display names to internal mechanism types
-    MECHANISM_TYPE_MAPPING: dict[str, str] = {
-        # Four-bar linkage variants
-        "4-Bar Linkage": "4_bar_linkage",
-        "4-bar Coupler": "4_bar_linkage",
-        "Four-Bar Linkage": "4_bar_linkage",
-        "Four-Bar": "4_bar_linkage",
-        "3-bar Output": "4_bar_linkage",
-        # Cam mechanism variants
-        "Cam & Follower": "cam",
-        "Cam-Follower": "cam",
-        "Cam Profile": "cam",
-        "Cam": "cam",
-        # Gear mechanism variants
-        "Gears": "gear",  # Family name from recommendation dialog
-        "Gears (Simple Pair)": "gear",
-        "Gear Train": "gear",
-        "Gear Contact": "gear",
-        "Simple Gear": "gear",
-        "Planetary Gear": "planetary_gear",
-    }
+    # Keep preview mapping in sync with layer creation.
+    MECHANISM_TYPE_MAPPING: dict[str, str] = SERVICE_MECHANISM_TYPE_MAPPING
 
     def __init__(
         self,
@@ -234,7 +223,23 @@ class RecommendationController(QObject):
 
         # Create temporary visuals for the preview
         mechanism_type_value = mechanism_data.get('type', 'Unknown')
-        internal_type = self.MECHANISM_TYPE_MAPPING.get(mechanism_type_value, "4_bar_linkage")
+        original_json_type = mechanism_data.get("original_json_type")
+        try:
+            if self._instantiation_service:
+                internal_type = self._instantiation_service.map_mechanism_type(
+                    mechanism_type_value,
+                    original_json_type,
+                )
+            else:
+                lookup_type = original_json_type or mechanism_type_value
+                internal_type = self.MECHANISM_TYPE_MAPPING.get(lookup_type)
+                if internal_type is None:
+                    raise UnsupportedMechanismTypeError(
+                        f"Unsupported mechanism preview type: {lookup_type}"
+                    )
+        except ValueError as exc:
+            logging.warning("Skipping unsupported mechanism preview: %s", exc)
+            return
 
         if internal_type == "4_bar_linkage" and self._create_4bar_visuals_fn:
             visual_items = self._create_4bar_visuals_fn(mechanism_data)
@@ -276,11 +281,15 @@ class RecommendationController(QObject):
         fallback_position = self._get_character_position_fn() if self._get_character_position_fn else [300, 400]
 
         # Create layer and graphics data via service
-        layer_data, graphics_data = self._instantiation_service.create_layer_data_from_recommendation(
-            mechanism_data=mechanism_data,
-            target_path=target_path,
-            fallback_position=fallback_position,
-        )
+        try:
+            layer_data, graphics_data = self._instantiation_service.create_layer_data_from_recommendation(
+                mechanism_data=mechanism_data,
+                target_path=target_path,
+                fallback_position=fallback_position,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(parent_widget, "Unsupported Mechanism", str(exc))
+            return
 
         # Add mechanism layer and create visuals
         if self._add_mechanism_layer_fn:

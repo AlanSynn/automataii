@@ -49,3 +49,58 @@ def test_update_frame_forwards_trace_tick_to_path_trace_manager() -> None:
     assert isinstance(args[1], QPointF)
     assert args[2] == coordinator.trace_frame_tick
     assert args[3] is scene
+
+
+def test_update_frame_allows_origin_output_points() -> None:
+    coordinator = AnimationFrameCoordinator()
+    coordinator.configure_callbacks(
+        calculate_output=lambda _t, _p, _time, _layer: QPointF(0.0, 0.0),
+        get_target_joint=lambda _part, anchor: anchor,
+        get_standardized_joint=lambda joint_id: joint_id,
+        update_visuals=lambda _id, _time, _layer: None,
+        stop_timer=lambda: None,
+    )
+    path_trace_manager = MagicMock()
+    ik_manager = MagicMock()
+
+    coordinator.update_frame(
+        tab_active=True,
+        mechanism_layers={
+            "mech_1": {"part_name": "arm", "type": "4_bar_linkage", "params": {}}
+        },
+        part_enabled_state={"arm": True},
+        parts_data={"arm": SimpleNamespace(anchor_joint_id="elbow")},
+        ik_manager=ik_manager,
+        path_trace_manager=path_trace_manager,
+        scene=MagicMock(),
+        initial_skeleton_cache=None,
+    )
+
+    path_trace_manager.update_trace.assert_called_once()
+
+
+def test_mechanism_id_cache_refreshes_same_dict_same_length_key_replacement() -> None:
+    coordinator = AnimationFrameCoordinator()
+    mechanism_layers = {"old": {"type": "4_bar_linkage"}}
+
+    assert coordinator._get_mechanism_id_cache(mechanism_layers) == ("old",)
+
+    del mechanism_layers["old"]
+    mechanism_layers["new"] = {"type": "cam"}
+
+    assert coordinator._get_mechanism_id_cache(mechanism_layers) == ("new",)
+
+
+def test_joint_id_cache_invalidates_same_size_skeleton_content_changes() -> None:
+    coordinator = AnimationFrameCoordinator()
+    skeleton_cache = {
+        "joint_map": {"elbow": "joint_a"},
+        "joints": {"joint_a": {}},
+    }
+
+    assert coordinator._get_standardized_joint_id("elbow", skeleton_cache) == "joint_a"
+
+    skeleton_cache["joint_map"] = {"elbow": "joint_b"}
+    skeleton_cache["joints"] = {"joint_b": {}}
+
+    assert coordinator._get_standardized_joint_id("elbow", skeleton_cache) == "joint_b"

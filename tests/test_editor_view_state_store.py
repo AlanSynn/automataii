@@ -42,3 +42,34 @@ def test_animation_state_update():
     store.set_animation(True, time=0.5)
     assert store.state.animation_running is True
     assert store.state.animation_time == 0.5
+
+
+def test_editor_state_filters_nonfinite_path_and_view_values():
+    import math
+
+    store = EditorViewStateStore()
+    store.start_path([(0, 0), (math.nan, 2), (3, math.inf)])
+    assert store.state.path_points == ((0.0, 0.0),)
+
+    store.set_zoom(math.nan)
+    assert store.state.zoom_level == 1.0
+    store.set_pan_offset((math.inf, 4.0))
+    assert store.state.pan_offset == (0.0, 0.0)
+    store.set_animation(True, time=math.nan)
+    assert store.state.animation_time == 0.0
+
+    store.update_paths({"hand": [(0, 0), (math.nan, 1)]}, {"hand": [(math.inf, 2), (3, 4)]})
+    assert store.state.raw_paths["hand"] == ((0.0, 0.0),)
+    assert store.state.corrected_paths["hand"] == ((3.0, 4.0),)
+
+
+def test_append_path_point_rejects_nonfinite_point():
+    import math
+
+    store = EditorViewStateStore()
+    store.start_path([(0, 0)])
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        store.append_path_point((math.nan, 1.0))

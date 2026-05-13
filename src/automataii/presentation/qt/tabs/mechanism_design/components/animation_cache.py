@@ -16,8 +16,104 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from PyQt6.QtCore import QPointF
 
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float as _finite_float,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_param as _finite_param,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    positive_finite_float as _positive_finite_float,
+)
+
 if TYPE_CHECKING:
     pass
+
+
+def _position_array(raw: Any, fallback: tuple[float, float] = (0.0, 0.0)) -> np.ndarray:
+    try:
+        arr = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return np.asarray([fallback], dtype=float)
+
+    if arr.ndim != 2 or arr.shape[1] < 2 or arr.shape[0] == 0:
+        return np.asarray([fallback], dtype=float)
+    return arr[:, :2]
+
+
+def _point_array(raw: Any) -> np.ndarray | None:
+    try:
+        arr = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if arr.ndim != 1 or len(arr) < 2:
+        return None
+    point = arr[:2]
+    if not bool(np.isfinite(point).all()):
+        return None
+    return point
+
+
+def _first_position_point(raw: Any) -> np.ndarray | None:
+    try:
+        arr = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if arr.ndim == 1 and len(arr) >= 2:
+        point = arr[:2]
+    elif arr.ndim == 2 and arr.shape[0] > 0 and arr.shape[1] >= 2:
+        point = arr[0, :2]
+    else:
+        return None
+    if not bool(np.isfinite(point).all()):
+        return None
+    return point
+
+
+def _finite_1d_array(raw: Any) -> np.ndarray | None:
+    try:
+        arr = np.asarray(raw, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if arr.ndim != 1 or len(arr) == 0 or not bool(np.isfinite(arr).all()):
+        return None
+    return arr
+
+
+def _trim_to_common_length(*arrays: np.ndarray | None) -> tuple[np.ndarray | None, ...]:
+    valid_lengths = [len(arr) for arr in arrays if arr is not None and len(arr) > 0]
+    if not valid_lengths:
+        return arrays
+    common_length = min(valid_lengths)
+    return tuple(arr[:common_length] if arr is not None else None for arr in arrays)
+
+
+def _trim_four_position_arrays(
+    p1: np.ndarray,
+    p2: np.ndarray,
+    p3: np.ndarray,
+    p4: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Trim required linkage position arrays to a shared non-empty frame count."""
+    common_length = min(len(p1), len(p2), len(p3), len(p4))
+    return p1[:common_length], p2[:common_length], p3[:common_length], p4[:common_length]
+
+
+def _point_from_params(params: dict[str, Any], x_key: str, y_key: str) -> np.ndarray | None:
+    if x_key not in params or y_key not in params:
+        return None
+    x_value = _finite_float(params.get(x_key), math.nan)
+    y_value = _finite_float(params.get(y_key), math.nan)
+    if not math.isfinite(x_value) or not math.isfinite(y_value):
+        return None
+    return np.array([x_value, y_value], dtype=float)
+
+
+def _first_point(*points: np.ndarray | None) -> np.ndarray | None:
+    for point in points:
+        if point is not None:
+            return point
+    return None
 
 
 @dataclass(slots=True)
@@ -47,23 +143,33 @@ class LinkageCache:
 
         Time Complexity: O(n) where n = num_frames (one-time cost)
         """
-        p1 = np.array(joint_positions.get("p1_positions", [[0, 0]]))
-        p2 = np.array(joint_positions.get("p2_positions", [[0, 0]]))
-        p3 = np.array(joint_positions.get("p3_positions", [[0, 0]]))
-        p4 = np.array(joint_positions.get("p4_positions", [[0, 0]]))
+        p1 = _position_array(joint_positions.get("p1_positions", [[0, 0]]))
+        p2 = _position_array(joint_positions.get("p2_positions", [[0, 0]]))
+        p3 = _position_array(joint_positions.get("p3_positions", [[0, 0]]))
+        p4 = _position_array(joint_positions.get("p4_positions", [[0, 0]]))
 
         p5 = None
         p6 = None
         if "p5_positions" in joint_positions:
-            p5 = np.array(joint_positions["p5_positions"])
+            p5 = _position_array(joint_positions["p5_positions"])
         if "p6_positions" in joint_positions:
-            p6 = np.array(joint_positions["p6_positions"])
+            p6 = _position_array(joint_positions["p6_positions"])
+
+        p1, p2, p3, p4 = _trim_four_position_arrays(p1, p2, p3, p4)
+        if p5 is not None and len(p5) < len(p1):
+            p5 = None
+        elif p5 is not None:
+            p5 = p5[: len(p1)]
+        if p6 is not None and len(p6) < len(p1):
+            p6 = None
+        elif p6 is not None:
+            p6 = p6[: len(p1)]
 
         coupler_offset = np.array([0.0, 0.0])
         if params:
             coupler_offset = np.array([
-                params.get("coupler_point_x", 0.0),
-                params.get("coupler_point_y", 0.0),
+                _finite_param(params, "coupler_point_x", "p_x", default=0.0),
+                _finite_param(params, "coupler_point_y", "p_y", default=0.0),
             ])
 
         return cls(
@@ -156,11 +262,28 @@ class CamCache:
 
         Time Complexity: O(num_points) (one-time cost)
         """
-        base_radius = params.get("base_radius", params.get("cam_radius", 60.0)) * scale_factor
-        cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0)) * scale_factor
-        cam_lobes = int(params.get("cam_lobes", 1))
-        profile_harmonic = params.get("profile_harmonic", 0.3)
-        rod_length = params.get("follower_rod_length", params.get("follower_length", 100.0)) * rod_multiplier
+        if isinstance(num_points, bool) or not isinstance(num_points, int) or num_points <= 0:
+            raise ValueError(f"num_points must be a positive integer, got {num_points}")
+
+        safe_scale = _positive_finite_float(scale_factor, 1.0)
+        safe_rod_multiplier = _positive_finite_float(rod_multiplier, 1.0)
+        base_radius = (
+            _positive_finite_float(params.get("base_radius", params.get("cam_radius", 60.0)), 60.0)
+            * safe_scale
+        )
+        cam_offset = (
+            _finite_float(params.get("eccentricity", params.get("cam_offset", 20.0)), 20.0)
+            * safe_scale
+        )
+        cam_lobes = max(1, int(_positive_finite_float(params.get("cam_lobes", 1), 1.0)))
+        profile_harmonic = _finite_float(params.get("profile_harmonic", 0.3), 0.3)
+        rod_length = (
+            _positive_finite_float(
+                params.get("follower_rod_length", params.get("follower_length", 100.0)),
+                100.0,
+            )
+            * safe_rod_multiplier
+        )
 
         # Pre-compute base profile (unrotated)
         theta = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
@@ -232,31 +355,50 @@ class GearCache:
         cls,
         params: dict[str, Any],
         gear_data: dict[str, Any] | None = None,
+        key_points: dict[str, Any] | None = None,
     ) -> GearCache:
         """Create cache from gear parameters."""
-        r1 = float(params.get("r1", params.get("gear1_radius", 30)))
-        r2 = float(params.get("r2", params.get("gear2_radius", 50)))
-        if r1 <= 0:
-            r1 = 1.0
-        if r2 <= 0:
-            r2 = 1.0
+        r1 = _positive_finite_float(params.get("r1", params.get("gear1_radius", 30)), 1.0)
+        r2 = _positive_finite_float(params.get("r2", params.get("gear2_radius", 50)), 1.0)
         distance = r1 + r2
+        key_points = key_points or {}
+        gear_data = gear_data or {}
+        gear1_center = _first_point(
+            _point_array(key_points.get("gear1_center")),
+            _point_from_params(params, "gear1_x", "gear1_y"),
+            _first_position_point(gear_data.get("gear1_centers")),
+        )
+        if gear1_center is None:
+            gear1_center = np.array([0.0, 0.0], dtype=float)
+
+        gear2_center = _first_point(
+            _point_array(key_points.get("gear2_center")),
+            _point_from_params(params, "gear2_x", "gear2_y"),
+            _first_position_point(gear_data.get("gear2_centers")),
+        )
+        if gear2_center is None:
+            gear2_center = gear1_center + np.array([distance, 0.0], dtype=float)
 
         gear1_angles = None
         gear2_angles = None
         num_frames = 0
 
-        if gear_data:
-            if "gear1_angles" in gear_data:
-                gear1_angles = np.array(gear_data["gear1_angles"])
-                num_frames = len(gear1_angles)
-            if "gear2_angles" in gear_data:
-                gear2_angles = np.array(gear_data["gear2_angles"])
+        if "gear1_angles" in gear_data:
+            gear1_angles = _finite_1d_array(gear_data["gear1_angles"])
+        if "gear2_angles" in gear_data:
+            gear2_angles = _finite_1d_array(gear_data["gear2_angles"])
+        if gear1_angles is not None and gear2_angles is not None:
+            num_frames = min(len(gear1_angles), len(gear2_angles))
+            gear1_angles = gear1_angles[:num_frames]
+            gear2_angles = gear2_angles[:num_frames]
+        else:
+            gear1_angles = None
+            gear2_angles = None
 
         return cls(
-            gear1_center=np.array([0.0, 0.0]),
+            gear1_center=gear1_center,
             gear1_radius=r1,
-            gear2_center=np.array([distance, 0.0]),
+            gear2_center=gear2_center,
             gear2_radius=r2,
             gear_ratio=r1 / r2 if abs(r2) > 1e-9 else 1.0,
             gear1_angles=gear1_angles,
@@ -293,17 +435,53 @@ class PlanetaryGearCache:
     planet_centers: np.ndarray | None = None
     tracking_points: np.ndarray | None = None
     num_frames: int = 0
+    sun_center: np.ndarray = field(default_factory=lambda: np.array([0.0, 0.0]))
+    planet_angle_offset: float = 0.0
+    tracking_angle_offset: float = 0.0
 
     @classmethod
     def from_params(
         cls,
         params: dict[str, Any],
         gear_positions: dict[str, Any] | None = None,
+        key_points: dict[str, Any] | None = None,
     ) -> PlanetaryGearCache:
         """Create cache from planetary gear parameters."""
-        r_sun = params.get("r_sun", 20)
-        r_planet = params.get("r_planet", 30)
-        arm_length = params.get("arm_length", 15)
+        r_sun = _positive_finite_float(params.get("r_sun", 20), 20.0)
+        r_planet = _positive_finite_float(params.get("r_planet", 30), 30.0)
+        arm_length = _positive_finite_float(params.get("arm_length", 15), 15.0)
+        key_points = key_points or {}
+
+        sun_center = _first_point(
+            _point_array(key_points.get("sun_center")),
+            _point_from_params(params, "m_sun_x", "m_sun_y"),
+            _point_from_params(params, "sun_x", "sun_y"),
+            _point_from_params(params, "gear1_x", "gear1_y"),
+        )
+        if sun_center is None:
+            sun_center = np.array([0.0, 0.0], dtype=float)
+
+        planet_center = _first_point(
+            _point_array(key_points.get("planet_center")),
+            _point_from_params(params, "planet_x", "planet_y"),
+            _point_from_params(params, "gear2_x", "gear2_y"),
+        )
+        planet_angle_offset = 0.0
+        if planet_center is not None:
+            planet_vec = planet_center - sun_center
+            if float(np.linalg.norm(planet_vec)) > 1e-9:
+                planet_angle_offset = float(math.atan2(planet_vec[1], planet_vec[0]))
+
+        tracking_point = _point_array(key_points.get("tracking_point"))
+        tracking_angle_offset = 0.0
+        if tracking_point is not None:
+            base_planet = sun_center + (r_sun + r_planet) * np.array(
+                [math.cos(planet_angle_offset), math.sin(planet_angle_offset)],
+                dtype=float,
+            )
+            tracking_vec = tracking_point - base_planet
+            if float(np.linalg.norm(tracking_vec)) > 1e-9:
+                tracking_angle_offset = float(math.atan2(tracking_vec[1], tracking_vec[0]))
 
         sun_centers = None
         planet_centers = None
@@ -312,12 +490,24 @@ class PlanetaryGearCache:
 
         if gear_positions:
             if "sun_centers" in gear_positions:
-                sun_centers = np.array(gear_positions["sun_centers"])
-                num_frames = len(sun_centers)
+                sun_centers = _position_array(gear_positions["sun_centers"])
             if "planet_centers" in gear_positions:
-                planet_centers = np.array(gear_positions["planet_centers"])
+                planet_centers = _position_array(gear_positions["planet_centers"])
             if "tracking_points" in gear_positions:
-                tracking_points = np.array(gear_positions["tracking_points"])
+                tracking_points = _position_array(gear_positions["tracking_points"])
+            if (
+                sun_centers is not None
+                and planet_centers is not None
+                and tracking_points is not None
+            ):
+                num_frames = min(len(sun_centers), len(planet_centers), len(tracking_points))
+                sun_centers = sun_centers[:num_frames]
+                planet_centers = planet_centers[:num_frames]
+                tracking_points = tracking_points[:num_frames]
+            else:
+                sun_centers = None
+                planet_centers = None
+                tracking_points = None
 
         return cls(
             r_sun=r_sun,
@@ -327,6 +517,9 @@ class PlanetaryGearCache:
             planet_centers=planet_centers,
             tracking_points=tracking_points,
             num_frames=num_frames,
+            sun_center=sun_center,
+            planet_angle_offset=planet_angle_offset,
+            tracking_angle_offset=tracking_angle_offset,
         )
 
     def get_positions(
@@ -351,10 +544,10 @@ class PlanetaryGearCache:
             tracking = self.tracking_points[frame_index]
         else:
             # Fallback calculation
-            orbital_angle = time
-            rotation_angle = -time * (self.r_sun / self.r_planet)
+            orbital_angle = self.planet_angle_offset + time
+            rotation_angle = self.tracking_angle_offset - time * (self.r_sun / self.r_planet)
 
-            sun = np.array([0.0, 0.0])
+            sun = self.sun_center
             planet = sun + (self.r_sun + self.r_planet) * np.array([
                 np.cos(orbital_angle), np.sin(orbital_angle)
             ])
@@ -400,12 +593,16 @@ class AnimationCacheManager:
 
         elif mech_type == "gear":
             gear_data = full_sim.get("gear_data", {})
-            self._gear_caches[mechanism_id] = GearCache.from_params(params, gear_data)
+            key_points = layer_data.get("key_points", {})
+            self._gear_caches[mechanism_id] = GearCache.from_params(
+                params, gear_data, key_points
+            )
 
         elif mech_type == "planetary_gear":
             gear_positions = full_sim.get("gear_positions", {})
+            key_points = layer_data.get("key_points", {})
             self._planetary_caches[mechanism_id] = PlanetaryGearCache.from_params(
-                params, gear_positions
+                params, gear_positions, key_points
             )
 
     def get_linkage_cache(self, mechanism_id: str) -> LinkageCache | None:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QHideEvent, QMouseEvent, QPen, QShowEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsScene,
@@ -16,6 +16,21 @@ from PyQt6.QtWidgets import (
 
 if TYPE_CHECKING:
     from automataii.domain.mechanisms.core.protocols import Mechanism
+    from automataii.domain.mechanisms.core.state import MechanismState
+
+
+class _PreviewRenderer(Protocol):
+    def render(self, state: object, scene: QGraphicsScene, config: object) -> object: ...
+
+
+def _safe_label_text(value: object, default: str = "", max_chars: int = 240) -> str:
+    if value is None:
+        text = default
+    else:
+        text = str(value).strip() or default
+    if max_chars > 1 and len(text) > max_chars:
+        return f"{text[: max_chars - 1]}…"
+    return text
 
 
 class GalleryThumbnail(QFrame):
@@ -30,12 +45,22 @@ class GalleryThumbnail(QFrame):
         motion_summary: str = "",
     ):
         super().__init__(parent)
-        self.mechanism_type = mechanism_type
-        self.display_name = display_name
-        self.description = description
-        self.motion_summary = motion_summary
+        self.mechanism_type = _safe_label_text(mechanism_type, max_chars=80)
+        self.display_name = _safe_label_text(
+            display_name,
+            default="Untitled mechanism",
+            max_chars=80,
+        )
+        self.description = _safe_label_text(
+            description,
+            default="Preview description unavailable.",
+            max_chars=320,
+        )
+        self.motion_summary = _safe_label_text(motion_summary, max_chars=160)
         self.current_angle = 0.0
         self.mechanism: Mechanism | None = None
+        self.renderer: _PreviewRenderer | None = None
+        self.params: dict[str, float] = {}
 
         self._setup_ui()
         self._setup_animation()
@@ -66,6 +91,7 @@ class GalleryThumbnail(QFrame):
         layout.setContentsMargins(14, 14, 14, 12)
 
         title_label = QLabel(self.display_name)
+        title_label.setTextFormat(Qt.TextFormat.PlainText)
         title_label.setStyleSheet(
             """
             font-size: 16px;
@@ -76,6 +102,7 @@ class GalleryThumbnail(QFrame):
         layout.addWidget(title_label)
 
         motion_label = QLabel()
+        motion_label.setTextFormat(Qt.TextFormat.PlainText)
         if self.motion_summary:
             motion_label.setText(f"Motions: {self.motion_summary}")
         else:
@@ -95,6 +122,7 @@ class GalleryThumbnail(QFrame):
         layout.addWidget(motion_label)
 
         desc_label = QLabel(self.description)
+        desc_label.setTextFormat(Qt.TextFormat.PlainText)
         desc_label.setWordWrap(True)
         desc_label.setMaximumHeight(72)
         desc_label.setStyleSheet(
@@ -119,6 +147,7 @@ class GalleryThumbnail(QFrame):
         layout.addWidget(self.graphics_view)
 
         click_hint = QLabel("Click to explore →")
+        click_hint.setTextFormat(Qt.TextFormat.PlainText)
         click_hint.setStyleSheet(
             """
             font-size: 11px;
@@ -129,11 +158,12 @@ class GalleryThumbnail(QFrame):
         layout.addWidget(click_hint)
 
     def _setup_animation(self) -> None:
-        self.animation_timer = QTimer()
+        self.animation_timer = QTimer(self)
         self.animation_timer.timeout.connect(self._animate)
-        self.animation_timer.start(50)
-
         self._load_mechanism()
+        self._render_preview()
+        if self.mechanism and self.isVisible():
+            self.animation_timer.start(50)
 
     def _load_mechanism(self) -> None:
         if self.mechanism_type == "four_bar":
@@ -193,7 +223,7 @@ class GalleryThumbnail(QFrame):
         except Exception:
             self._draw_placeholder()
 
-    def _draw_cam_preview(self, state) -> None:
+    def _draw_cam_preview(self, state: MechanismState) -> None:
         positions = state.positions
         cam_center = positions.get("cam_center", (0, 0))
         contact_point = positions.get("contact_point", (0, 0))
@@ -247,17 +277,17 @@ class GalleryThumbnail(QFrame):
             text.setDefaultTextColor(QColor(150, 150, 150))
             text.setPos(-80, -10)
 
-    def mousePressEvent(self, a0) -> None:
+    def mousePressEvent(self, a0: QMouseEvent | None) -> None:
         self.clicked.emit(self.mechanism_type)
         super().mousePressEvent(a0)
 
-    def showEvent(self, event) -> None:
+    def showEvent(self, event: QShowEvent | None) -> None:
         """Start animation when widget becomes visible."""
         super().showEvent(event)
         if self.mechanism and not self.animation_timer.isActive():
             self.animation_timer.start(50)
 
-    def hideEvent(self, event) -> None:
+    def hideEvent(self, event: QHideEvent | None) -> None:
         """Stop animation when widget is hidden to save CPU."""
         super().hideEvent(event)
         self.animation_timer.stop()

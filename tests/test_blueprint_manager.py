@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
+from PyQt6.QtWidgets import QApplication
 
 from automataii.application.blueprint import BlueprintCompositionResult
 from automataii.application.managers import BlueprintExportManager
+
+_APP: QApplication | None = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def qapp() -> QApplication:
+    """Keep a QApplication alive for BlueprintExportManager's QObject signals."""
+    global _APP
+    _APP = QApplication.instance() or QApplication(sys.argv)
+    return _APP
 
 
 @pytest.fixture
@@ -13,6 +26,21 @@ def fresh_manager():
     manager = BlueprintExportManager.get_instance()
     yield manager
     BlueprintExportManager._instance = None  # type: ignore[attr-defined]
+
+
+def test_direct_construction_returns_initialized_singleton(qapp: QApplication) -> None:
+    """Direct construction should keep singleton semantics without caching a half-init QObject."""
+    BlueprintExportManager._instance = None  # type: ignore[attr-defined]
+    try:
+        first = BlueprintExportManager()
+        second = BlueprintExportManager()
+
+        assert first is second
+        assert first._initialized is True  # type: ignore[attr-defined]
+        assert hasattr(first, "gear_generator")
+        assert hasattr(first, "_composer")
+    finally:
+        BlueprintExportManager._instance = None  # type: ignore[attr-defined]
 
 
 def test_generate_single_page_delegates_to_composer(fresh_manager):

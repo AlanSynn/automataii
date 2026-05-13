@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QApplication, QToolBar
 @pytest.fixture(scope="module")
 def qapp():
     import sys
+
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
@@ -193,6 +194,35 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
     assert "positions" in snapshot
 
 
+def test_foundry_view_type_aliases_ignore_case_and_whitespace(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+
+    assert view._to_controller_mechanism_type(" Gear ") == "gear_train"
+    assert view._to_controller_mechanism_type(" Four_Bar_Linkage ") == "four_bar"
+
+    mapped = view._map_design_params_to_foundry(
+        " Gear ",
+        {"gear1_radius": 45.0, "gear2_radius": 75.0},
+    )
+
+    assert mapped["gear1_teeth"] == 15.0
+    assert mapped["gear2_teeth"] == 25.0
+
+
+def test_set_synced_mechanism_normalizes_case_and_whitespace(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+
+    view.set_synced_mechanism("sync_cam", " CAM ")
+
+    assert view.synced_mechanism_id == "sync_cam"
+    assert view.current_mechanism is not None
+    assert view.current_mechanism.mechanism_type == "cam_follower"
+
+
 def test_fourbar_preview_renders_coupler_triangle_and_point(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
@@ -245,6 +275,23 @@ def test_length_parameter_snaps_to_2_5cm_grid_when_enabled(qapp):
     assert view.current_parameters["input_link"] == 41.0
 
 
+def test_length_parameter_half_grid_stays_on_positive_grid_cell(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("cam_follower")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    _, label = view.parameter_sliders["cam_offset"]
+
+    view.set_grid_system(True, 2.5)
+    view._on_parameter_changed("cam_offset", 12.5, label, False)
+
+    assert view.current_parameters["cam_offset"] == 25.0
+
+
 def test_motion_modes_label_populates_for_four_bar(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
@@ -275,6 +322,52 @@ def test_map_design_params_to_foundry_gear_prefers_live_radii(qapp):
     assert mapped["gear2_teeth"] == 25.0
 
 
+def test_map_design_params_to_foundry_gear_keeps_radii_when_output_mode_present(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    mapped = view._map_design_params_to_foundry(
+        "gear_train",
+        {
+            "gear1_radius": 45.0,
+            "gear2_radius": 75.0,
+            "output_point_mode": "contact_point",
+        },
+    )
+
+    assert mapped["gear1_teeth"] == 15.0
+    assert mapped["gear2_teeth"] == 25.0
+    assert mapped["output_point_mode"] == "contact_point"
+
+
+def test_map_design_params_to_foundry_skips_invalid_preferred_values(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    gear = view._map_design_params_to_foundry(
+        "gear_train",
+        {
+            "gear1_radius": "bad-radius",
+            "gear1_teeth": 12.0,
+            "gear2_radius": 75.0,
+        },
+    )
+    cam = view._map_design_params_to_foundry(
+        "cam_follower",
+        {
+            "base_radius": "bad-radius",
+            "eccentricity": 20.0,
+            "follower_rod_length": 100.0,
+        },
+    )
+
+    assert gear["gear1_teeth"] == 12.0
+    assert gear["gear2_teeth"] == 25.0
+    assert "cam_radius" not in cam
+    assert cam["cam_offset"] == 20.0
+    assert cam["follower_length"] == 100.0
+
+
 def test_cam_motion_point_selector_uses_follower_base_and_contact_point(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
@@ -285,7 +378,9 @@ def test_cam_motion_point_selector_uses_follower_base_and_contact_point(qapp):
     view._on_mechanism_changed(idx)
 
     assert view.output_point_selector is not None
-    options = [view.output_point_selector.itemData(i) for i in range(view.output_point_selector.count())]
+    options = [
+        view.output_point_selector.itemData(i) for i in range(view.output_point_selector.count())
+    ]
     assert options == ["follower_base", "contact_point"]
     assert view.current_parameters["output_point_mode"] == "follower_base"
 
@@ -365,3 +460,207 @@ def test_map_design_params_to_foundry_normalizes_cam_follower_end_mode(qapp):
     )
 
     assert mapped["output_point_mode"] == "follower_base"
+
+
+def test_foundry_preview_mechanisms_sanitize_nonfinite_inputs(qapp):
+    import math
+
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import (
+        _GearTrainPreviewMechanism,
+        _SliderCrankPreviewMechanism,
+    )
+
+    gear_state = _GearTrainPreviewMechanism().compute_state(
+        {"gear1_teeth": math.nan, "gear2_teeth": math.inf},
+        math.nan,
+    )
+    slider_state = _SliderCrankPreviewMechanism().compute_state(
+        {"crank_length": math.nan, "rod_length": -1.0},
+        math.inf,
+    )
+
+    all_values = [
+        value
+        for state in (gear_state, slider_state)
+        for position in state.positions.values()
+        for value in position
+    ]
+    assert all(math.isfinite(value) for value in all_values)
+    assert gear_state.metadata["r1"] == 36.0
+    assert slider_state.metadata["rod_length"] > slider_state.metadata["crank_length"]
+
+
+def test_foundry_mapping_and_sync_skip_nonfinite_design_values(qapp):
+    import math
+
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    mapped = view._map_design_params_to_foundry(
+        "gear_train",
+        {
+            "gear1_radius": math.nan,
+            "gear1_teeth": 12.0,
+            "gear2_radius": math.inf,
+            "gear2_teeth": 18.0,
+            "input_angle": math.nan,
+        },
+    )
+
+    assert mapped == {"gear1_teeth": 12.0, "gear2_teeth": 18.0}
+
+    view.set_synced_mechanism("sync_gear", "gear_train")
+    previous_angle = view.current_angle
+    view.update_from_design_tab("sync_gear", {"input_angle": "bad-angle", "gear1_radius": math.nan})
+
+    assert view.current_angle == previous_angle
+    assert math.isfinite(view._grid_step_mm)
+
+
+def test_foundry_grid_snap_handles_bad_cell_and_value(qapp):
+    import math
+
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    _, label = view.parameter_sliders["input_link"]
+    view.set_grid_system(True, "bad-cell")
+    view._on_parameter_changed("input_link", math.nan, label, False)
+
+    assert view._grid_cell_cm == 0.1
+    assert math.isfinite(view.current_parameters["input_link"])
+
+
+def test_gallery_thumbnail_uses_plain_text_for_catalog_content(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QLabel
+
+    from automataii.presentation.qt.tabs.mechanism_foundry.gallery_thumbnail import (
+        GalleryThumbnail,
+    )
+
+    thumbnail = GalleryThumbnail(
+        "four_bar",
+        "<b>Four Bar</b>",
+        "<i>Long catalog description</i> " * 40,
+        motion_summary="<u>Oscillatory</u> " * 30,
+    )
+    try:
+        assert not thumbnail.animation_timer.isActive()
+        thumbnail.show()
+        qapp.processEvents()
+        assert thumbnail.animation_timer.isActive()
+        thumbnail.hide()
+        qapp.processEvents()
+        assert not thumbnail.animation_timer.isActive()
+        labels = thumbnail.findChildren(QLabel)
+        assert labels
+        assert all(label.textFormat() == Qt.TextFormat.PlainText for label in labels)
+        assert thumbnail.display_name == "<b>Four Bar</b>"
+        assert len(thumbnail.description) <= 320
+        assert len(thumbnail.motion_summary) <= 160
+    finally:
+        thumbnail.animation_timer.stop()
+        thumbnail.close()
+
+
+def test_foundry_sync_payload_filters_nonfinite_and_preserves_output_mode(qapp):
+    import math
+
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    view.current_parameters = {
+        "good": 12.0,
+        "bad_nan": math.nan,
+        "bad_inf": math.inf,
+        "bool_value": True,
+        "text_value": "not-a-number",
+        view.OUTPUT_POINT_MODE_KEY: "joint_b",
+    }
+    view.current_angle = math.inf
+    view._grid_cell_cm = math.inf
+
+    payload = view._build_sync_payload_parameters()
+
+    assert payload["good"] == 12.0
+    assert payload[view.OUTPUT_POINT_MODE_KEY] == "joint_b"
+    assert payload["input_angle"] == 0.0
+    assert payload["grid_cell_cm"] == 0.1
+    assert "bad_nan" not in payload
+    assert "bad_inf" not in payload
+    assert "bool_value" not in payload
+    assert "text_value" not in payload
+
+
+def test_export_snapshot_filters_nonfinite_geometry(qapp):
+    import math
+
+    from automataii.domain.mechanisms.core.state import (
+        MechanismState,
+        SafetyLevel,
+        SafetyStatus,
+    )
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    class FakeMechanism:
+        mechanism_type = "gear_train"
+
+        def compute_state(self, _params, _angle):
+            return MechanismState(
+                positions={
+                    "ok": (1.0, 2.0),
+                    "bad_nan": (math.nan, 1.0),
+                    "bad_inf": (1.0, math.inf),
+                    "bad_short": (1.0,),
+                    "": (3.0, 4.0),
+                },
+                safety_status=SafetyStatus(SafetyLevel.SAFE, "ok"),
+            )
+
+    view = MechanismFoundryView()
+    view.current_mechanism = FakeMechanism()
+    view.current_parameters = {}
+    view.current_angle = math.nan
+    view._last_rendered_state = None
+    view._last_rendered_mechanism = None
+    view._state_cache_valid = False
+
+    snapshot = view._capture_export_snapshot()
+
+    assert snapshot is not None
+    assert snapshot["positions"] == {"ok": [1.0, 2.0]}
+
+
+def test_motion_modes_label_is_plain_text_and_bounded(qapp):
+    from PyQt6.QtCore import Qt
+
+    from automataii.application.mechanism_foundry import MechanismContent
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    content = MechanismContent(
+        title="Unsafe rich title",
+        goal="",
+        parts=(),
+        advantages=(),
+        disadvantages=(),
+        materials=(),
+        cautions=(),
+        parameter_options={},
+        diagram_path=None,
+        tags=(),
+        motions=("<b>Oscillatory</b>",) * 20,
+    )
+
+    view._update_motion_modes(content)
+
+    assert view.motion_modes_label is not None
+    assert view.motion_modes_label.textFormat() == Qt.TextFormat.PlainText
+    assert "<b>Oscillatory</b>" in view.motion_modes_label.text()
+    assert len(view.motion_modes_label.text()) <= 240

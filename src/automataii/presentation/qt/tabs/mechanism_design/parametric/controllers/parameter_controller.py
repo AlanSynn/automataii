@@ -9,14 +9,43 @@ Architecture: Observer Pattern + Command Pattern for Undo/Redo
 """
 
 import logging
+import math
 import time
 from collections import deque
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 from PyQt6.QtCore import QObject, QTimer
 from PyQt6.QtCore import pyqtSignal as Signal
 
 from ..handles.base_handle import BaseHandle
+
+_FloatPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(_FloatPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _positive_int(value: object, default: int, minimum: int = 0, maximum: int = 10_000) -> int:
+    if isinstance(value, bool):
+        return default
+    raw = _finite_float(value, math.nan)
+    if not math.isfinite(raw):
+        return default
+    return min(maximum, max(minimum, int(raw)))
+
+
+def _bounded_float(value: object, default: float, minimum: float, maximum: float) -> float:
+    raw = _finite_float(value, default)
+    if raw < minimum:
+        return minimum
+    if raw > maximum:
+        return maximum
+    return raw
 
 
 class ParameterController(QObject):
@@ -57,7 +86,7 @@ class ParameterController(QObject):
         super().__init__(parent)
 
         self.mechanism_tab = mechanism_tab_ref
-        self.update_throttle_ms = update_throttle_ms
+        self.update_throttle_ms = _positive_int(update_throttle_ms, 50, minimum=0)
 
         # Handle management
         self.active_handles: dict[str, list[BaseHandle]] = {}  # mechanism_id -> [handles]
@@ -157,6 +186,13 @@ class ParameterController(QObject):
             param_name: Name of parameter that changed
             new_value: New parameter value
         """
+        if not isinstance(mechanism_id, str) or not mechanism_id:
+            return
+        if not isinstance(param_name, str) or not param_name:
+            return
+        if isinstance(new_value, float) and not math.isfinite(new_value):
+            return
+
         # Record change for undo/redo
         change_record = {
             'mechanism_id': mechanism_id,
@@ -209,7 +245,10 @@ class ParameterController(QObject):
 
         start_time = time.time()
 
-        for mechanism_id, param_changes in self.pending_updates.items():
+        pending_updates = list(self.pending_updates.items())
+        self.pending_updates.clear()
+
+        for mechanism_id, param_changes in pending_updates:
             try:
                 # Apply parameter changes to mechanism
                 self._apply_parameter_changes(mechanism_id, param_changes)
@@ -222,9 +261,6 @@ class ParameterController(QObject):
 
             except Exception as e:
                 logging.error(f"Failed to update mechanism {mechanism_id}: {e}")
-
-        # Clear pending updates
-        self.pending_updates.clear()
 
         # Performance tracking
         update_time = time.time() - start_time
@@ -253,13 +289,21 @@ class ParameterController(QObject):
                 return
 
             layer_data = mechanism_layers[mechanism_id]
+            if not isinstance(layer_data, dict):
+                return
 
             # Update parameters in mechanism data
-            if "params" not in layer_data:
+            if not isinstance(layer_data.get("params"), dict):
                 layer_data["params"] = {}
 
+            applied_any = False
             for param_name, new_value in param_changes.items():
+                if isinstance(new_value, float) and not math.isfinite(new_value):
+                    continue
                 layer_data["params"][param_name] = new_value
+                applied_any = True
+            if not applied_any:
+                return
 
             # Trigger mechanism recalculation
             self._recalculate_mechanism(mechanism_id, layer_data)
@@ -315,13 +359,15 @@ class ParameterController(QObject):
         """Recalculate cam mechanism with updated parameters and enforce gravity physics."""
         try:
             params = layer_data.get("params", {})
-            if not params:
+            if not isinstance(params, dict) or not params:
                 return
 
             # Extract CAM parameters with gravity physics validation
-            base_radius = max(10.0, min(80.0, params.get("base_radius", 25.0)))  # Constrain size
-            eccentricity = max(2.0, min(30.0, params.get("eccentricity", 10.0)))  # Constrain eccentricity
-            rod_length = max(15.0, min(150.0, params.get("follower_rod_length", 40.0)))  # Constrain rod
+            base_radius = _bounded_float(params.get("base_radius", 25.0), 25.0, 10.0, 80.0)
+            eccentricity = _bounded_float(params.get("eccentricity", 10.0), 10.0, 2.0, 30.0)
+            rod_length = _bounded_float(
+                params.get("follower_rod_length", 40.0), 40.0, 15.0, 150.0
+            )
 
             # Update parameters with constrained values (gravity physics enforcement)
             params["base_radius"] = base_radius

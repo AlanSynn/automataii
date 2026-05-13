@@ -78,9 +78,7 @@ class GearEditor(MechanismEditor):
         self._create_mesh_handle()
         self._sync_gear_handle_positions()
 
-    def _create_gear_handles(
-        self, gear_id: str, center: QPointF, radius: float, is_driver: bool
-    ):
+    def _create_gear_handles(self, gear_id: str, center: QPointF, radius: float, is_driver: bool):
         """Create handles for a single gear."""
         center_handle = ParametricHandle(
             center,
@@ -247,9 +245,7 @@ class GearEditor(MechanismEditor):
 
         if abs(current_distance - ideal_distance) > 0.1:
             direction = (
-                (center2 - center1) / current_distance
-                if current_distance > 0
-                else np.array([1, 0])
+                (center2 - center1) / current_distance if current_distance > 0 else np.array([1, 0])
             )
             new_center2 = center1 + direction * ideal_distance
 
@@ -374,7 +370,7 @@ class PlanetaryGearEditor(MechanismEditor):
             return QPointF(float(params.get("gear1_x", 0.0)), float(params.get("gear1_y", 0.0)))
 
         kp = key_points.get("sun_center")
-        if isinstance(kp, (list, tuple)) and len(kp) >= 2:
+        if isinstance(kp, list | tuple) and len(kp) >= 2:
             scene = self._to_scene((float(kp[0]), float(kp[1])))
             if scene is not None:
                 return scene
@@ -539,10 +535,14 @@ class PlanetaryGearEditor(MechanismEditor):
         if arm_center_mech is not None and new_mech is not None:
             arm_len = max(
                 0.0,
-                float(math.hypot(new_mech[0] - arm_center_mech[0], new_mech[1] - arm_center_mech[1])),
+                float(
+                    math.hypot(new_mech[0] - arm_center_mech[0], new_mech[1] - arm_center_mech[1])
+                ),
             )
         else:
-            arm_len = max(0.0, float(math.hypot(new_pos.x() - arm_center.x(), new_pos.y() - arm_center.y())))
+            arm_len = max(
+                0.0, float(math.hypot(new_pos.x() - arm_center.x(), new_pos.y() - arm_center.y()))
+            )
         self.mechanism_data["params"]["arm_length"] = float(arm_len)
         self._sync_planetary_key_points_and_aliases()
         self._sync_handle_positions()

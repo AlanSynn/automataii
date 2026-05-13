@@ -56,12 +56,8 @@ class EditorTab(QWidget):
     request_stop_simulation = pyqtSignal()
     request_reset_simulation = pyqtSignal()
     request_generate_blueprint = pyqtSignal()
-    parts_cleared = (
-        pyqtSignal()
-    )  # Emitted when parts are cleared from this tab's perspective
-    parts_loaded = pyqtSignal(
-        bool
-    )  # Emitted when parts are loaded/cleared (True if loaded)
+    parts_cleared = pyqtSignal()  # Emitted when parts are cleared from this tab's perspective
+    parts_loaded = pyqtSignal(bool)  # Emitted when parts are loaded/cleared (True if loaded)
     request_reset_all_animations = pyqtSignal()  # New signal
     motion_path_updated = pyqtSignal(str, QPainterPath)  # part_name, path
     path_data_changed = pyqtSignal(dict)  # Dict[str, QPainterPath] for cross-tab communication
@@ -129,17 +125,13 @@ class EditorTab(QWidget):
 
     def _connect_editor_view_signals(self):
         """Connect signals from this tab's EditorView instance."""
-        self.editor_view.freehandPathCompleted.connect(
-            self._handle_freehand_path_completed
-        )
+        self.editor_view.freehandPathCompleted.connect(self._handle_freehand_path_completed)
         self.editor_view.drawing_cancelled.connect(self._handle_drawing_cancelled)
         self.editor_view.joint_defined.connect(self.handle_joint_defined)
         self.editor_view.zoom_changed.connect(self._update_zoom_combo_from_view)
 
         # Connect to new EditorView signals for item interactions
-        self.editor_view.part_item_clicked.connect(
-            self._handle_part_item_clicked_from_view
-        )
+        self.editor_view.part_item_clicked.connect(self._handle_part_item_clicked_from_view)
         self.editor_view.part_item_double_clicked.connect(
             self._handle_part_item_double_clicked_from_view
         )
@@ -151,12 +143,8 @@ class EditorTab(QWidget):
         )
 
         # Connect vertex editing signals
-        self.editor_view.path_vertices_modified.connect(
-            self._handle_vertex_path_modified
-        )
-        self.editor_view.vertex_editing_finished.connect(
-            self._handle_vertex_editing_finished
-        )
+        self.editor_view.path_vertices_modified.connect(self._handle_vertex_path_modified)
+        self.editor_view.vertex_editing_finished.connect(self._handle_vertex_editing_finished)
 
     def _init_extracted_components(self):
         """Initialize extracted components from god class decomposition."""
@@ -182,15 +170,9 @@ class EditorTab(QWidget):
         )
 
         # Wire simulation controller signals to EditorTab signals
-        self._simulation_controller.request_play.connect(
-            self.request_play_simulation.emit
-        )
-        self._simulation_controller.request_stop.connect(
-            self.request_stop_simulation.emit
-        )
-        self._simulation_controller.request_reset.connect(
-            self.request_reset_simulation.emit
-        )
+        self._simulation_controller.request_play.connect(self.request_play_simulation.emit)
+        self._simulation_controller.request_stop.connect(self.request_stop_simulation.emit)
+        self._simulation_controller.request_reset.connect(self.request_reset_simulation.emit)
 
         # Motion Path Manager - path drawing, smoothing, and manipulation
         self._motion_path_manager = MotionPathManager(
@@ -200,12 +182,8 @@ class EditorTab(QWidget):
         )
 
         # Wire motion path manager signals to EditorTab signals
-        self._motion_path_manager.motion_path_updated.connect(
-            self.motion_path_updated.emit
-        )
-        self._motion_path_manager.path_data_changed.connect(
-            self.path_data_changed.emit
-        )
+        self._motion_path_manager.motion_path_updated.connect(self.motion_path_updated.emit)
+        self._motion_path_manager.path_data_changed.connect(self.path_data_changed.emit)
 
         # Parts Data Manager - parts list and data management
         self._parts_data_manager = PartsDataManager(
@@ -215,12 +193,8 @@ class EditorTab(QWidget):
         )
 
         # Wire parts data manager signals to EditorTab signals
-        self._parts_data_manager.parts_loaded.connect(
-            self.parts_loaded.emit
-        )
-        self._parts_data_manager.parts_cleared.connect(
-            self.parts_cleared.emit
-        )
+        self._parts_data_manager.parts_loaded.connect(self.parts_loaded.emit)
+        self._parts_data_manager.parts_cleared.connect(self.parts_cleared.emit)
 
         # Skeleton IK Handler - skeleton updates, IK results, joint management
         self._skeleton_ik_handler = SkeletonIKHandler(
@@ -230,13 +204,11 @@ class EditorTab(QWidget):
         )
 
         # Wire skeleton handler signals (skeleton_updated used internally)
-        self._skeleton_ik_handler.skeleton_updated.connect(
-            self._update_button_states
-        )
+        self._skeleton_ik_handler.skeleton_updated.connect(self._update_button_states)
 
     def _configure_simulation_controller(self):
         """Configure simulation controller after UI is built."""
-        if not hasattr(self, '_simulation_controller'):
+        if not hasattr(self, "_simulation_controller"):
             return
 
         self._simulation_controller.configure_ui(
@@ -251,7 +223,9 @@ class EditorTab(QWidget):
             has_editor_items=lambda: bool(self.current_editor_items),
             has_any_path=self._has_any_motion_path,
             get_path_count=self._get_path_count,
-            apply_corrections=lambda: self._motion_path_manager.apply_corrections_for_all_parts() if hasattr(self, '_motion_path_manager') else None,
+            apply_corrections=lambda: self._motion_path_manager.apply_corrections_for_all_parts()
+            if hasattr(self, "_motion_path_manager")
+            else None,
             position_parts_at_anchor=self._position_parts_at_anchor_joints,
             on_skeleton_updated=self.on_skeleton_updated,
             update_part_list_styles=self._update_part_list_styles,
@@ -260,7 +234,7 @@ class EditorTab(QWidget):
 
     def _configure_motion_path_manager(self):
         """Configure motion path manager after UI is built."""
-        if not hasattr(self, '_motion_path_manager'):
+        if not hasattr(self, "_motion_path_manager"):
             return
 
         self._motion_path_manager.configure_ui(
@@ -271,7 +245,7 @@ class EditorTab(QWidget):
             smoothness_slider=self.smoothness_slider,
             smoothness_label=self.smoothness_value_label,
             closed_path_radio=self.closed_path_radio,
-            edit_vertices_btn=getattr(self, 'edit_vertices_btn', None),
+            edit_vertices_btn=getattr(self, "edit_vertices_btn", None),
         )
 
         self._motion_path_manager.configure_callbacks(
@@ -286,7 +260,7 @@ class EditorTab(QWidget):
 
     def _configure_parts_data_manager(self):
         """Configure parts data manager after UI is built."""
-        if not hasattr(self, '_parts_data_manager'):
+        if not hasattr(self, "_parts_data_manager"):
             return
 
         self._parts_data_manager.configure_ui(parts_list=self.parts_list)
@@ -295,7 +269,7 @@ class EditorTab(QWidget):
             get_main_window=lambda: self.main_window,
             get_debug_mode=lambda: self.debug_mode,
             get_skeleton_cache=lambda: self._initial_skeleton_data_cache,
-            set_skeleton_cache=lambda x: setattr(self, '_initial_skeleton_data_cache', x),
+            set_skeleton_cache=lambda x: setattr(self, "_initial_skeleton_data_cache", x),
             update_button_states=self._update_button_states,
             update_part_list_styles=self._update_part_list_styles,
             update_active_part_visuals=self._update_active_part_visuals,
@@ -305,7 +279,7 @@ class EditorTab(QWidget):
 
     def _configure_skeleton_ik_handler(self):
         """Configure skeleton IK handler after UI is built."""
-        if not hasattr(self, '_skeleton_ik_handler'):
+        if not hasattr(self, "_skeleton_ik_handler"):
             return
 
         self._skeleton_ik_handler.configure_callbacks(
@@ -327,7 +301,7 @@ class EditorTab(QWidget):
         self.parts_list = refs.parts_list
         self.define_motion_path_btn = refs.define_motion_path_btn
         self.clear_motion_path_btn = refs.clear_motion_path_btn
-        self.edit_vertices_btn = getattr(refs, 'edit_vertices_btn', None)
+        self.edit_vertices_btn = getattr(refs, "edit_vertices_btn", None)
         self.motion_path_status_label = refs.motion_path_status_label
         self.motion_path_info_label = refs.motion_path_info_label
         self.smoothness_slider = refs.smoothness_slider
@@ -350,16 +324,10 @@ class EditorTab(QWidget):
     def _connect_ui_signals(self):
         """Connect UI widget signals to handlers."""
         self.parts_list.currentItemChanged.connect(self._handle_part_selection_change)
-        self.define_motion_path_btn.toggled.connect(
-            self._toggle_define_motion_path_mode
-        )
-        self.clear_motion_path_btn.clicked.connect(
-            self._clear_selected_item_motion_path
-        )
+        self.define_motion_path_btn.toggled.connect(self._toggle_define_motion_path_mode)
+        self.clear_motion_path_btn.clicked.connect(self._clear_selected_item_motion_path)
         if self.edit_vertices_btn:
-            self.edit_vertices_btn.toggled.connect(
-                self._toggle_vertex_edit_mode
-            )
+            self.edit_vertices_btn.toggled.connect(self._toggle_vertex_edit_mode)
         self.play_btn.clicked.connect(self._play_simulation_clicked)
         self.stop_btn.clicked.connect(self._stop_simulation_clicked)
         self.reset_sim_btn.clicked.connect(self._reset_simulation_clicked)
@@ -396,10 +364,14 @@ class EditorTab(QWidget):
                     item_to_select = self.current_editor_items[part_name]
                     self.editor_scene.clearSelection()  # Clear previous scene selection
                     item_to_select.setSelected(True)  # Select the item in the scene
-                    logging.info(f"EditorTab: Part '{part_name}' selected and highlighted in scene.")
+                    logging.info(
+                        f"EditorTab: Part '{part_name}' selected and highlighted in scene."
+                    )
                 else:
                     self.editor_scene.clearSelection()
-                    logging.debug(f"EditorTab: Part '{part_name}' selected but not yet loaded in scene.")
+                    logging.debug(
+                        f"EditorTab: Part '{part_name}' selected but not yet loaded in scene."
+                    )
             else:
                 self.selected_part_name = None
                 self.editor_scene.clearSelection()
@@ -421,13 +393,12 @@ class EditorTab(QWidget):
         self._update_part_list_styles()
 
         # Show vertex handles for selected part if it has a motion path
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.show_vertex_handles_for_selected_part()
-
 
     def _toggle_define_motion_path_mode(self, checked: bool):
         """Handle the 'Start/Stop Drawing' button toggle. Delegates to MotionPathManager."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.toggle_define_mode(checked)
         else:
             # Fallback for initialization order edge cases
@@ -435,24 +406,24 @@ class EditorTab(QWidget):
 
     def _clear_selected_item_motion_path(self):
         """Clear motion path for selected item. Delegates to MotionPathManager."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.clear_selected_motion_path()
         else:
             logging.warning("MotionPathManager not initialized, cannot clear motion path")
 
     def _toggle_vertex_edit_mode(self, checked: bool):
         """Handle vertex edit mode toggle. Delegates to MotionPathManager."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.toggle_vertex_edit_mode(checked)
 
     def _handle_vertex_path_modified(self, part_name: str, new_path: QPainterPath):
         """Handle real-time path modification from vertex dragging."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.on_vertex_path_modified(part_name, new_path)
 
     def _handle_vertex_editing_finished(self, part_name: str, final_path: QPainterPath):
         """Handle completion of vertex editing."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.on_vertex_editing_finished(part_name, final_path)
 
     def _play_simulation_clicked(self):
@@ -489,9 +460,7 @@ class EditorTab(QWidget):
         if self._initial_skeleton_data_cache:
             self._position_parts_at_anchor_joints()
             self.on_skeleton_updated(self._initial_skeleton_data_cache.copy())
-            logging.info(
-                "EditorTab: Skeleton and parts reset to cached initial state."
-            )
+            logging.info("EditorTab: Skeleton and parts reset to cached initial state.")
         else:
             logging.warning("EditorTab: No cached initial skeleton data for reset.")
 
@@ -517,8 +486,6 @@ class EditorTab(QWidget):
             self.editor_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             logging.info("EditorTab: Part movement UNLOCKED")
 
-
-
     def _update_zoom_combo_from_view(self, scale_factor: float):
         # This functionality is removed from the UI
         pass
@@ -527,9 +494,11 @@ class EditorTab(QWidget):
         """Populate the parts list widget with given names."""
         self.parts_list.clear()
         disabled_parts = {
-            'torso',
-            'left_arm_upper', 'right_arm_upper',
-            'left_leg_upper', 'right_leg_upper'
+            "torso",
+            "left_arm_upper",
+            "right_arm_upper",
+            "left_leg_upper",
+            "right_leg_upper",
         }
 
         for part_name in part_names:
@@ -539,11 +508,11 @@ class EditorTab(QWidget):
             # 🔧 upper 파츠들과 torso 비활성화
             if any(disabled_part in part_name.lower() for disabled_part in disabled_parts):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)  # 선택 불가
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)     # 비활성화
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)  # 비활성화
 
                 # 시각적으로 비활성화 표시
                 item.setForeground(QBrush(QColor(150, 150, 150)))  # 회색 텍스트
-                item.setBackground(QBrush(QColor(240, 240, 240)))   # 연한 회색 배경
+                item.setBackground(QBrush(QColor(240, 240, 240)))  # 연한 회색 배경
             else:
                 self.parts_list.addItem(item)
         self._update_button_states()
@@ -560,7 +529,9 @@ class EditorTab(QWidget):
         has_any_path = self._has_any_motion_path()
         selected_part_has_path = selected and self._has_motion_path(self.selected_part_name)
 
-        logging.debug(f"EditorTab: Updating button states - selected: {selected}, selected_part: {self.selected_part_name}, has_path: {selected_part_has_path}")
+        logging.debug(
+            f"EditorTab: Updating button states - selected: {selected}, selected_part: {self.selected_part_name}, has_path: {selected_part_has_path}"
+        )
 
         # Motion Path section
         self.define_motion_path_btn.setEnabled(selected)
@@ -570,13 +541,13 @@ class EditorTab(QWidget):
         if self.smoothness_slider:
             self.smoothness_slider.setEnabled(selected_part_has_path)
 
-        logging.debug(f"EditorTab: Start Drawing button enabled: {selected}, Clear button enabled: {selected_part_has_path}")
+        logging.debug(
+            f"EditorTab: Start Drawing button enabled: {selected}, Clear button enabled: {selected_part_has_path}"
+        )
 
         # Animation section
         self.play_btn.setEnabled(has_any_path)
-        self.stop_btn.setEnabled(
-            has_any_path and self.current_simulation_state == "playing"
-        )
+        self.stop_btn.setEnabled(has_any_path and self.current_simulation_state == "playing")
         self.reset_sim_btn.setEnabled(has_any_path)
 
         # Update animation status label
@@ -592,7 +563,11 @@ class EditorTab(QWidget):
     def _has_any_motion_path(self) -> bool:
         """Check if any part has a motion path defined."""
         for part_item in self.current_editor_items.values():
-            if hasattr(part_item, 'motion_path') and part_item.motion_path and not part_item.motion_path.isEmpty():
+            if (
+                hasattr(part_item, "motion_path")
+                and part_item.motion_path
+                and not part_item.motion_path.isEmpty()
+            ):
                 return True
         return False
 
@@ -602,7 +577,10 @@ class EditorTab(QWidget):
             return False
 
         # Check in EditorView's final paths map first (green paths)
-        if hasattr(self.editor_view, 'final_paths_map') and part_name in self.editor_view.final_paths_map:
+        if (
+            hasattr(self.editor_view, "final_paths_map")
+            and part_name in self.editor_view.final_paths_map
+        ):
             path_item = self.editor_view.final_paths_map[part_name]
             if path_item and path_item.scene():
                 return True
@@ -610,14 +588,18 @@ class EditorTab(QWidget):
         # Check in current_editor_items
         if part_name in self.current_editor_items:
             part_item = self.current_editor_items[part_name]
-            if hasattr(part_item, 'motion_path') and part_item.motion_path and not part_item.motion_path.isEmpty():
+            if (
+                hasattr(part_item, "motion_path")
+                and part_item.motion_path
+                and not part_item.motion_path.isEmpty()
+            ):
                 return True
 
         # Also check in current_parts_info (project data)
         if part_name in self.current_parts_info:
             part_info = self.current_parts_info[part_name]
-            if hasattr(part_info, 'motion_path') and part_info.motion_path:
-                if hasattr(part_info.motion_path, 'isEmpty'):
+            if hasattr(part_info, "motion_path") and part_info.motion_path:
+                if hasattr(part_info.motion_path, "isEmpty"):
                     return not part_info.motion_path.isEmpty()
                 elif isinstance(part_info.motion_path, list):
                     return len(part_info.motion_path) > 0
@@ -630,10 +612,13 @@ class EditorTab(QWidget):
         """Get the total number of motion paths defined."""
         count = 0
         for part_item in self.current_editor_items.values():
-            if hasattr(part_item, 'motion_path') and part_item.motion_path and not part_item.motion_path.isEmpty():
+            if (
+                hasattr(part_item, "motion_path")
+                and part_item.motion_path
+                and not part_item.motion_path.isEmpty()
+            ):
                 count += 1
         return count
-
 
     def _update_part_list_styles(self):
         """Update item backgrounds to show which parts have paths."""
@@ -780,7 +765,9 @@ class EditorTab(QWidget):
                     is_locked = joint_data.get("is_locked", False)
                     item.set_joint_locked(is_locked)
                     if is_locked:
-                        logging.info(f"EditorTab: Joint '{std_joint_id}' for part '{part_name}' is locked")
+                        logging.info(
+                            f"EditorTab: Joint '{std_joint_id}' for part '{part_name}' is locked"
+                        )
                 else:
                     # Log if we couldn't find the anchor joint
                     logging.warning(
@@ -929,17 +916,15 @@ class EditorTab(QWidget):
             is_playing = False
             can_play = bool(self.current_editor_items)
             can_stop = False
-            can_reset = False  # After reset, usually cannot reset again immediately unless new state allows
+            can_reset = (
+                False  # After reset, usually cannot reset again immediately unless new state allows
+            )
             # Let's assume reset means back to initial, can play, cannot reset further.
             # Or, if reset clears data, then can_reset would be false.
             # For now, if state is "reset", assume it's ready to play again if data exists.
-            can_reset = bool(
-                self.current_editor_items
-            )  # Can reset if there's something to reset
+            can_reset = bool(self.current_editor_items)  # Can reset if there's something to reset
         else:
-            logging.warning(
-                f"EditorTab: Unknown simulation state string: {state_string}"
-            )
+            logging.warning(f"EditorTab: Unknown simulation state string: {state_string}")
             # Default to a safe state (e.g., not playing, can play if items exist)
             is_playing = False
             can_play = bool(self.current_editor_items)
@@ -963,7 +948,7 @@ class EditorTab(QWidget):
     @pyqtSlot(dict)
     def on_skeleton_updated(self, skeleton_data: dict | None):
         """Called by MainWindow when skeleton is updated. Delegates to SkeletonIKHandler."""
-        if hasattr(self, '_skeleton_ik_handler'):
+        if hasattr(self, "_skeleton_ik_handler"):
             self._skeleton_ik_handler.on_skeleton_updated(skeleton_data)
         else:
             logging.warning("SkeletonIKHandler not initialized, cannot update skeleton")
@@ -976,14 +961,14 @@ class EditorTab(QWidget):
         else:
             self._initial_skeleton_data_cache = None
 
-        if hasattr(self, '_skeleton_ik_handler'):
+        if hasattr(self, "_skeleton_ik_handler"):
             self._skeleton_ik_handler.cache_initial_skeleton(skeleton_data_dict)
         else:
             logging.warning("SkeletonIKHandler not initialized, cannot cache skeleton")
 
     def _position_parts_at_anchor_joints(self):
         """Positions parts at anchor joints. Delegates to SkeletonIKHandler."""
-        if hasattr(self, '_skeleton_ik_handler'):
+        if hasattr(self, "_skeleton_ik_handler"):
             self._skeleton_ik_handler._position_parts_at_anchor_joints()
         else:
             logging.warning("SkeletonIKHandler not initialized, cannot position parts")
@@ -995,15 +980,13 @@ class EditorTab(QWidget):
         joints_dict: dict[str, Any],
     ) -> bool:
         """Validate part position before placement. Used by PartsDataManager."""
-        return self._validate_skeleton_length_preservation_reset(
-            part_item, position, joints_dict
-        )
+        return self._validate_skeleton_length_preservation_reset(part_item, position, joints_dict)
 
     def _validate_skeleton_length_preservation_reset(
         self,
-        part_item: 'CharacterPartItem',
+        part_item: "CharacterPartItem",
         new_anchor_pos: QPointF,
-        joint_data: dict[str, dict[str, Any]]
+        joint_data: dict[str, dict[str, Any]],
     ) -> bool:
         """
         Validate that positioning a part at new_anchor_pos would preserve skeleton length constraints.
@@ -1049,9 +1032,7 @@ class EditorTab(QWidget):
         return True
 
     def _get_connected_joints_for_part_reset(
-        self,
-        part_item: 'CharacterPartItem',
-        joint_data: dict[str, dict[str, Any]]
+        self, part_item: "CharacterPartItem", joint_data: dict[str, dict[str, Any]]
     ) -> list[tuple[str, str, float]]:
         """
         Get the bone connections for reset validation.
@@ -1069,7 +1050,10 @@ class EditorTab(QWidget):
             return connections
 
         # Use cached initial skeleton data to get expected bone lengths
-        if not hasattr(self, '_initial_skeleton_data_cache') or not self._initial_skeleton_data_cache:
+        if (
+            not hasattr(self, "_initial_skeleton_data_cache")
+            or not self._initial_skeleton_data_cache
+        ):
             logging.debug("No initial skeleton cache - skipping bone validation")
             return connections
 
@@ -1088,9 +1072,7 @@ class EditorTab(QWidget):
         parent_id = anchor_joint_data.get("parent_id")
         if parent_id and parent_id in cached_joints:
             parent_data = cached_joints[parent_id]
-            expected_length = self._calculate_bone_length_from_cache(
-                parent_data, anchor_joint_data
-            )
+            expected_length = self._calculate_bone_length_from_cache(parent_data, anchor_joint_data)
             if expected_length > 0:
                 connections.append((parent_id, part_anchor_joint, expected_length))
 
@@ -1109,9 +1091,7 @@ class EditorTab(QWidget):
         return connections
 
     def _calculate_bone_length_from_cache(
-        self,
-        parent_joint_data: dict[str, Any],
-        child_joint_data: dict[str, Any]
+        self, parent_joint_data: dict[str, Any], child_joint_data: dict[str, Any]
     ) -> float:
         """Calculate bone length between two joints from cached data.
 
@@ -1130,14 +1110,14 @@ class EditorTab(QWidget):
 
         try:
             # Handle both tuple/list and dict formats
-            if isinstance(parent_pos, (list, tuple)) and len(parent_pos) >= 2:
+            if isinstance(parent_pos, list | tuple) and len(parent_pos) >= 2:
                 px, py = float(parent_pos[0]), float(parent_pos[1])
             elif isinstance(parent_pos, dict):
                 px, py = float(parent_pos.get("x", 0)), float(parent_pos.get("y", 0))
             else:
                 return 0.0
 
-            if isinstance(child_pos, (list, tuple)) and len(child_pos) >= 2:
+            if isinstance(child_pos, list | tuple) and len(child_pos) >= 2:
                 cx, cy = float(child_pos[0]), float(child_pos[1])
             elif isinstance(child_pos, dict):
                 cx, cy = float(child_pos.get("x", 0)), float(child_pos.get("y", 0))
@@ -1168,7 +1148,7 @@ class EditorTab(QWidget):
             timed_points: List of TimedPoint with timestamps (for velocity-aware animation)
             duration: Total drawing duration in seconds
         """
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.handle_freehand_path_completed(
                 path_points, timed_points, duration
             )
@@ -1177,7 +1157,7 @@ class EditorTab(QWidget):
 
     def _handle_drawing_cancelled(self):
         """Handles drawing cancellation. Delegates to MotionPathManager."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.handle_drawing_cancelled()
         else:
             logging.warning("MotionPathManager not initialized, cannot handle drawing cancelled")
@@ -1223,14 +1203,14 @@ class EditorTab(QWidget):
         # Keep local joints list for backwards compatibility
         self.joints.append(joint_data)
 
-        if hasattr(self, '_skeleton_ik_handler'):
+        if hasattr(self, "_skeleton_ik_handler"):
             self._skeleton_ik_handler.handle_joint_defined(joint_data)
         else:
             logging.warning("SkeletonIKHandler not initialized, cannot handle joint defined")
 
     def handle_ik_update(self, ik_results: dict[str, dict[str, Any]]):
         """Receives IK results. Delegates to SkeletonIKHandler."""
-        if hasattr(self, '_skeleton_ik_handler'):
+        if hasattr(self, "_skeleton_ik_handler"):
             self._skeleton_ik_handler.handle_ik_update(ik_results)
         else:
             logging.warning("SkeletonIKHandler not initialized, cannot handle IK update")
@@ -1249,17 +1229,13 @@ class EditorTab(QWidget):
                 )
                 break
 
-    def _handle_part_item_double_clicked_from_view(
-        self, double_clicked_item: CharacterPartItem
-    ):
+    def _handle_part_item_double_clicked_from_view(self, double_clicked_item: CharacterPartItem):
         """Handles a CharacterPartItem being double-clicked in the EditorView."""
         part_name = double_clicked_item.name()
         logging.debug(f"EditorTab: Part '{part_name}' double-clicked in view.")
         QMessageBox.information(
             self, "Part Double-Clicked", f"Part '{part_name}' was double-clicked."
         )
-
-
 
     def _collect_path_data(self) -> dict[str, QPainterPath]:
         """Collect all motion paths from parts."""
@@ -1268,18 +1244,26 @@ class EditorTab(QWidget):
         # First check in current_parts_info (project data)
         if self.current_parts_info:
             for part_name, part_info in self.current_parts_info.items():
-                if hasattr(part_info, 'motion_path') and part_info.motion_path:
-                    if isinstance(part_info.motion_path, QPainterPath) and not part_info.motion_path.isEmpty():
+                if hasattr(part_info, "motion_path") and part_info.motion_path:
+                    if (
+                        isinstance(part_info.motion_path, QPainterPath)
+                        and not part_info.motion_path.isEmpty()
+                    ):
                         path_data[part_name] = part_info.motion_path
 
         # Also check in current_editor_items as backup
         for part_name, part_item in self.current_editor_items.items():
             if part_name not in path_data:  # Don't override if already found
-                if hasattr(part_item, 'motion_path') and part_item.motion_path:
-                    if isinstance(part_item.motion_path, QPainterPath) and not part_item.motion_path.isEmpty():
+                if hasattr(part_item, "motion_path") and part_item.motion_path:
+                    if (
+                        isinstance(part_item.motion_path, QPainterPath)
+                        and not part_item.motion_path.isEmpty()
+                    ):
                         path_data[part_name] = part_item.motion_path
 
-        logging.debug(f"EditorTab: Collected {len(path_data)} motion paths: {list(path_data.keys())}")
+        logging.debug(
+            f"EditorTab: Collected {len(path_data)} motion paths: {list(path_data.keys())}"
+        )
         return path_data
 
     def get_current_path_data(self) -> dict[str, QPainterPath]:
@@ -1301,12 +1285,12 @@ class EditorTab(QWidget):
 
     def _on_smoothness_changed_debounced(self):
         """Handle smoothness slider after debounce. Delegates to MotionPathManager."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.on_smoothness_changed(self._pending_smoothness_value)
 
     def _on_smoothness_changed(self, value: int):
         """Handle smoothness slider value change. Delegates to MotionPathManager."""
-        if hasattr(self, '_motion_path_manager'):
+        if hasattr(self, "_motion_path_manager"):
             self._motion_path_manager.on_smoothness_changed(value)
         else:
             # Fallback: just update the label
@@ -1322,13 +1306,13 @@ class EditorTab(QWidget):
         # Try to get from the part item first
         if part_name in self.current_editor_items:
             part_item = self.current_editor_items[part_name]
-            if hasattr(part_item, 'original_path_points') and part_item.original_path_points:
+            if hasattr(part_item, "original_path_points") and part_item.original_path_points:
                 return part_item.original_path_points
 
         # If not available, try to extract from the current path (approximation)
         if part_name in self.current_editor_items:
             part_item = self.current_editor_items[part_name]
-            if hasattr(part_item, 'motion_path') and part_item.motion_path:
+            if hasattr(part_item, "motion_path") and part_item.motion_path:
                 return self._extract_points_from_path(part_item.motion_path)
 
         return []
@@ -1345,14 +1329,15 @@ class EditorTab(QWidget):
         """Create a perfect ellipse optimized for the original points' distribution and orientation."""
         return create_perfect_ellipse_path(points)
 
-    def _create_interpolated_path(self, points: list[QPointF], smoothness_percentage: int) -> QPainterPath:
+    def _create_interpolated_path(
+        self, points: list[QPointF], smoothness_percentage: int
+    ) -> QPainterPath:
         """Create a path interpolated between raw points and perfect ellipse with optimal point correspondence."""
         # Use spline creator from editor_view if available
         spline_creator = None
-        if hasattr(self.editor_view, '_create_spline_path'):
+        if hasattr(self.editor_view, "_create_spline_path"):
             spline_creator = self.editor_view._create_spline_path
         return create_interpolated_path(points, smoothness_percentage, spline_creator)
-
 
     def _update_part_path(self, part_name: str, new_path: QPainterPath):
         """Update the motion path for a part in all relevant data structures."""
@@ -1362,13 +1347,19 @@ class EditorTab(QWidget):
             part_item.set_motion_path(new_path)
 
         # Update the project data
-        if hasattr(self.main_window, 'project_data_manager') and self.main_window.project_data_manager:
+        if (
+            hasattr(self.main_window, "project_data_manager")
+            and self.main_window.project_data_manager
+        ):
             current_parts = self.main_window.project_data_manager.get_current_parts_data()
             if current_parts and part_name in current_parts:
                 current_parts[part_name].motion_path = new_path
 
         # Update the visual path in EditorView if it exists
-        if hasattr(self.editor_view, 'final_paths_map') and part_name in self.editor_view.final_paths_map:
+        if (
+            hasattr(self.editor_view, "final_paths_map")
+            and part_name in self.editor_view.final_paths_map
+        ):
             path_item = self.editor_view.final_paths_map[part_name]
             if path_item:
                 path_item.setPath(new_path)
@@ -1387,33 +1378,43 @@ class EditorTab(QWidget):
 
         # Try to get the most up-to-date parts data
         parts_data_to_use = None
-        if hasattr(main_window, 'project_data_manager') and main_window.project_data_manager:
+        if hasattr(main_window, "project_data_manager") and main_window.project_data_manager:
             parts_data_to_use = main_window.project_data_manager.get_current_parts_data()
 
         # Fallback to local parts data if project data manager doesn't have it
-        if not parts_data_to_use and hasattr(self, 'current_parts_info') and self.current_parts_info:
+        if (
+            not parts_data_to_use
+            and hasattr(self, "current_parts_info")
+            and self.current_parts_info
+        ):
             parts_data_to_use = self.current_parts_info
 
         # Set the parts data in IKManager
-        if parts_data_to_use and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
-            if hasattr(main_window.ik_manager, 'set_project_parts_data'):
+        if parts_data_to_use and hasattr(main_window, "ik_manager") and main_window.ik_manager:
+            if hasattr(main_window.ik_manager, "set_project_parts_data"):
                 main_window.ik_manager.set_project_parts_data(parts_data_to_use)
-                logging.info(f"[EditorTab] Re-set project parts data in IKManager on tab activation ({len(parts_data_to_use)} parts)")
+                logging.info(
+                    f"[EditorTab] Re-set project parts data in IKManager on tab activation ({len(parts_data_to_use)} parts)"
+                )
 
         # CRITICAL: Re-send skeleton data to IKManager to ensure proper initialization
-        if hasattr(self, '_initial_skeleton_data_cache') and self._initial_skeleton_data_cache:
-            if hasattr(main_window, 'ik_manager') and main_window.ik_manager:
-                if hasattr(main_window.ik_manager, 'on_skeleton_data_updated_from_manager'):
-                    main_window.ik_manager.on_skeleton_data_updated_from_manager(self._initial_skeleton_data_cache)
+        if hasattr(self, "_initial_skeleton_data_cache") and self._initial_skeleton_data_cache:
+            if hasattr(main_window, "ik_manager") and main_window.ik_manager:
+                if hasattr(main_window.ik_manager, "on_skeleton_data_updated_from_manager"):
+                    main_window.ik_manager.on_skeleton_data_updated_from_manager(
+                        self._initial_skeleton_data_cache
+                    )
                     logging.info("[EditorTab] Re-sent skeleton data to IKManager on tab activation")
 
         # CRITICAL: Also send current motion paths to IKManager to ensure they're not lost
         current_paths = self._collect_path_data()
-        if current_paths and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
+        if current_paths and hasattr(main_window, "ik_manager") and main_window.ik_manager:
             for part_name, motion_path in current_paths.items():
-                if hasattr(main_window.ik_manager, 'update_part_motion_path'):
+                if hasattr(main_window.ik_manager, "update_part_motion_path"):
                     main_window.ik_manager.update_part_motion_path(part_name, motion_path)
-                    logging.info(f"[EditorTab] Re-sent motion path for {part_name} to IKManager on tab activation")
+                    logging.info(
+                        f"[EditorTab] Re-sent motion path for {part_name} to IKManager on tab activation"
+                    )
 
         # Re-enable animation controls based on current state
         if self._has_motion_paths():
@@ -1443,7 +1444,11 @@ class EditorTab(QWidget):
         """Check if any items have motion paths defined."""
         for item in self.editor_scene.items():
             if isinstance(item, CharacterPartItem):
-                if hasattr(item, 'motion_path') and item.motion_path and not item.motion_path.isEmpty():
+                if (
+                    hasattr(item, "motion_path")
+                    and item.motion_path
+                    and not item.motion_path.isEmpty()
+                ):
                     return True
         return False
 
@@ -1475,12 +1480,12 @@ class EditorTab(QWidget):
     def _handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float):
         """Handle joint bend direction change. Delegates to SkeletonIKHandler."""
         # Update local cache for backwards compatibility
-        if self._initial_skeleton_data_cache and 'joints' in self._initial_skeleton_data_cache:
-            joints = self._initial_skeleton_data_cache['joints']
+        if self._initial_skeleton_data_cache and "joints" in self._initial_skeleton_data_cache:
+            joints = self._initial_skeleton_data_cache["joints"]
             if joint_id in joints:
-                joints[joint_id]['bend_direction'] = new_direction
+                joints[joint_id]["bend_direction"] = new_direction
 
-        if hasattr(self, '_skeleton_ik_handler'):
+        if hasattr(self, "_skeleton_ik_handler"):
             self._skeleton_ik_handler.handle_joint_bend_direction_changed(joint_id, new_direction)
         else:
             logging.warning("SkeletonIKHandler not initialized, cannot handle bend direction")
@@ -1511,7 +1516,7 @@ class EditorTab(QWidget):
 
         # Disconnect simulation controller signals
         try:
-            if hasattr(self, '_simulation_controller') and self._simulation_controller:
+            if hasattr(self, "_simulation_controller") and self._simulation_controller:
                 self._simulation_controller.request_play.disconnect()
                 self._simulation_controller.request_stop.disconnect()
                 self._simulation_controller.request_reset.disconnect()

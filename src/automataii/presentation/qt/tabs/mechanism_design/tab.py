@@ -1,6 +1,7 @@
 """Mechanism Design Tab - MVP View for mechanism design and animation."""
 
 import logging
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,10 @@ from automataii.domain.kinematics.mechanism import MechanismCandidate
 from automataii.domain.kinematics.motion_path_generator import MotionPathGenerator
 from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    positive_finite_param,
+)
 from automataii.presentation.qt.models import PartInfo
 from automataii.presentation.qt.tabs.mechanism_design.components import (
     AnimationLifecycleController,
@@ -1777,14 +1782,21 @@ class MechanismDesignTab(QWidget):
 
     @staticmethod
     def _normalize_foundry_mechanism_type(mechanism_type: str) -> str:
+        if not isinstance(mechanism_type, str):
+            return ""
+        mechanism_type = mechanism_type.strip().lower()
         return {
             "fourbar": "four_bar",
+            "four_bar": "four_bar",
+            "four_bar_linkage": "four_bar",
             "4_bar_linkage": "four_bar",
             "slider_crank": "slider_crank",
             "slider-crank": "slider_crank",
             "slidercrank": "slider_crank",
             "cam": "cam_follower",
+            "cam_follower": "cam_follower",
             "gear": "gear_train",
+            "gear_train": "gear_train",
         }.get(mechanism_type, mechanism_type)
 
     @staticmethod
@@ -1832,7 +1844,15 @@ class MechanismDesignTab(QWidget):
             if key not in snapped:
                 continue
             try:
-                snapped[key] = round(float(snapped[key]) / step_mm) * step_mm
+                raw_value = float(snapped[key])
+                if raw_value > 0.0:
+                    # Python's round() uses bankers rounding, so half-grid values
+                    # such as 12.5mm at a 25mm grid can round to 0. Keep positive
+                    # mechanism lengths on at least one grid cell.
+                    snapped_units = max(1, int((raw_value / step_mm) + 0.5))
+                    snapped[key] = snapped_units * step_mm
+                else:
+                    snapped[key] = round(raw_value / step_mm) * step_mm
             except (TypeError, ValueError):
                 continue
 
@@ -1870,8 +1890,12 @@ class MechanismDesignTab(QWidget):
         if not has_setting:
             return None
 
+        raw_enabled = parameters.get("grid_system_enabled", getattr(self, "_grid_system_enabled", True))
         try:
-            enabled = bool(parameters.get("grid_system_enabled", getattr(self, "_grid_system_enabled", True)))
+            if isinstance(raw_enabled, str):
+                enabled = raw_enabled.strip().lower() not in {"0", "false", "no", "off", ""}
+            else:
+                enabled = bool(raw_enabled)
             cell_cm = max(0.1, float(parameters.get("grid_cell_cm", getattr(self, "_grid_cell_cm", 2.5))))
             return enabled, cell_cm
         except (TypeError, ValueError):
@@ -1986,14 +2010,18 @@ class MechanismDesignTab(QWidget):
         scene_position = self._resolve_foundry_import_scene_position(part_name)
 
         # Create layer data from Foundry export
-        layer_data = self._mechanism_instantiation.create_layer_data_from_foundry(
-            mechanism_type=mechanism_type,
-            parameters=import_params,
-            pivot_point=pivot_point,
-            part_name=part_name,
-            scene_position=scene_position,
-            foundry_snapshot=foundry_snapshot if isinstance(foundry_snapshot, dict) else None,
-        )
+        try:
+            layer_data = self._mechanism_instantiation.create_layer_data_from_foundry(
+                mechanism_type=mechanism_type,
+                parameters=import_params,
+                pivot_point=pivot_point,
+                part_name=part_name,
+                scene_position=scene_position,
+                foundry_snapshot=foundry_snapshot if isinstance(foundry_snapshot, dict) else None,
+            )
+        except ValueError as exc:
+            logging.warning("Failed to create layer data from Foundry export: %s", exc)
+            return False
 
         if not layer_data:
             logging.warning("Failed to create layer data from Foundry export")
@@ -2103,13 +2131,11 @@ class MechanismDesignTab(QWidget):
                 except (TypeError, ValueError):
                     pass
 
-            normalized_type = {
-                "fourbar": "four_bar",
-                "4_bar_linkage": "four_bar",
-                "slider_crank": "four_bar",
-                "slider-crank": "four_bar",
-                "slidercrank": "four_bar",
-            }.get(mechanism_type, mechanism_type)
+            normalized_type = MechanismDesignTab._normalize_foundry_mechanism_type(
+                mechanism_type
+            )
+            if normalized_type == "slider_crank":
+                normalized_type = "four_bar"
 
             # Keep 4-bar aliases synchronized so all editors/mappers see consistent values.
             if normalized_type == "four_bar":
@@ -2158,8 +2184,11 @@ class MechanismDesignTab(QWidget):
     def _regenerate_foundry_layer_simulation(
         self, mechanism_id: str, layer_data: dict[str, Any]
     ) -> None:
-        """Recompute simulation payload for Foundry-synced linkage/cam layers."""
+        """Recompute derived payload for Foundry-synced layers before cache rebuild."""
         mech_type = str(layer_data.get("type", ""))
+        if mech_type == "gear":
+            MechanismDesignTab._refresh_foundry_gear_geometry(layer_data)
+            return
         if mech_type not in ("4_bar_linkage", "cam"):
             return
 
@@ -2168,6 +2197,124 @@ class MechanismDesignTab(QWidget):
                 self.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
         except Exception:
             logging.debug("Suppressed exception while regenerating Foundry layer", exc_info=True)
+
+    @staticmethod
+    def _finite_point(value: object) -> tuple[float, float] | None:
+        try:
+            x_raw = value[0]  # type: ignore[index]
+            y_raw = value[1]  # type: ignore[index]
+        except (TypeError, IndexError, KeyError):
+            return None
+        x_coord = finite_float(x_raw, math.nan)
+        y_coord = finite_float(y_raw, math.nan)
+        if not math.isfinite(x_coord) or not math.isfinite(y_coord):
+            return None
+        return x_coord, y_coord
+
+    @staticmethod
+    def _gear_center_from_layer(
+        layer_data: dict[str, Any],
+        key_point_name: str,
+        x_param: str,
+        y_param: str,
+    ) -> tuple[float, float] | None:
+        key_points = layer_data.get("key_points")
+        if isinstance(key_points, dict):
+            point = MechanismDesignTab._finite_point(key_points.get(key_point_name))
+            if point is not None:
+                return point
+
+        params = layer_data.get("params")
+        if isinstance(params, dict) and x_param in params and y_param in params:
+            point = MechanismDesignTab._finite_point((params.get(x_param), params.get(y_param)))
+            if point is not None:
+                return point
+
+        return None
+
+    @staticmethod
+    def _refresh_foundry_gear_geometry(layer_data: dict[str, Any]) -> None:
+        """Keep Foundry-synced gear metadata aligned with the latest radii."""
+        params = layer_data.get("params")
+        if not isinstance(params, dict):
+            return
+
+        r1 = positive_finite_param(params, "gear1_radius", "r1", default=36.0)
+        r2 = positive_finite_param(params, "gear2_radius", "r2", default=54.0)
+        params["r1"] = r1
+        params["r2"] = r2
+        params["gear1_radius"] = r1
+        params["gear2_radius"] = r2
+
+        center_distance = max(10.0, r1 + r2 + 2.0)
+        gear1_center = MechanismDesignTab._gear_center_from_layer(
+            layer_data, "gear1_center", "gear1_x", "gear1_y"
+        )
+        gear2_center = MechanismDesignTab._gear_center_from_layer(
+            layer_data, "gear2_center", "gear2_x", "gear2_y"
+        )
+
+        if gear1_center is not None and gear2_center is not None:
+            dx = gear2_center[0] - gear1_center[0]
+            dy = gear2_center[1] - gear1_center[1]
+            old_distance = math.hypot(dx, dy)
+            if old_distance > 1e-9:
+                unit_x = dx / old_distance
+                unit_y = dy / old_distance
+            else:
+                unit_x, unit_y = 1.0, 0.0
+            midpoint = (
+                (gear1_center[0] + gear2_center[0]) / 2.0,
+                (gear1_center[1] + gear2_center[1]) / 2.0,
+            )
+            half_distance = center_distance / 2.0
+            gear1_center = (
+                midpoint[0] - unit_x * half_distance,
+                midpoint[1] - unit_y * half_distance,
+            )
+            gear2_center = (
+                midpoint[0] + unit_x * half_distance,
+                midpoint[1] + unit_y * half_distance,
+            )
+        elif gear1_center is not None:
+            gear2_center = (gear1_center[0] + center_distance, gear1_center[1])
+        elif gear2_center is not None:
+            gear1_center = (gear2_center[0] - center_distance, gear2_center[1])
+        else:
+            transform_params = layer_data.get("transform_params")
+            center = (
+                MechanismDesignTab._finite_point(transform_params.get("center"))
+                if isinstance(transform_params, dict)
+                else None
+            )
+            if center is None:
+                center = (0.0, 0.0)
+            half_distance = center_distance / 2.0
+            gear1_center = (center[0] - half_distance, center[1])
+            gear2_center = (center[0] + half_distance, center[1])
+
+        key_points = layer_data.get("key_points")
+        if not isinstance(key_points, dict):
+            key_points = {}
+            layer_data["key_points"] = key_points
+        key_points["gear1_center"] = [float(gear1_center[0]), float(gear1_center[1])]
+        key_points["gear2_center"] = [float(gear2_center[0]), float(gear2_center[1])]
+
+        params["gear1_x"] = float(gear1_center[0])
+        params["gear1_y"] = float(gear1_center[1])
+        params["gear2_x"] = float(gear2_center[0])
+        params["gear2_y"] = float(gear2_center[1])
+
+        full_simulation_data = layer_data.get("full_simulation_data")
+        if not isinstance(full_simulation_data, dict):
+            full_simulation_data = {}
+            layer_data["full_simulation_data"] = full_simulation_data
+        gear_data = full_simulation_data.get("gear_data")
+        if not isinstance(gear_data, dict):
+            gear_data = {}
+            full_simulation_data["gear_data"] = gear_data
+        gear_data["gear1_centers"] = [[float(gear1_center[0]), float(gear1_center[1])]]
+        gear_data["gear2_centers"] = [[float(gear2_center[0]), float(gear2_center[1])]]
 
     def _render_mechanism_layer(self, mechanism_id: str) -> None:
         """Render mechanism layer using Presenter payload schema."""

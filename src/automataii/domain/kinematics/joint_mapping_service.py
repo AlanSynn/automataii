@@ -166,7 +166,7 @@ class JointMappingService:
         # Track lowest Y (still need to scan all for ground truth if no specific foot joints found)
         # But if we have identified feet, we can skip full scan or just use feet
         if not foot_joints:
-            for joint_id, joint_data in joints.items():
+            for _joint_id, joint_data in joints.items():
                 pos = joint_data.get("position", [0, 0])
                 if pos[1] > lowest_y:
                     lowest_y = pos[1]

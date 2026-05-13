@@ -1264,7 +1264,10 @@ class AutomataDesigner(QMainWindow):
         self._suppress_project_data_cleared_ui_once = is_dummy_replacement_session
         self._character_swap_load_in_progress = is_dummy_replacement_session
         self._auto_scale_character_to_dummy_next_load = is_dummy_replacement_session
-        self._force_skeleton_parts_alignment_next_load = True
+        # Keep aggressive skeleton/parts bbox reconciliation off for plain Load Image.
+        # It is only needed for dummy replacement sessions where we intentionally
+        # preserve existing mechanism runtime state and rebind in-place.
+        self._force_skeleton_parts_alignment_next_load = is_dummy_replacement_session
         logging.info(
             "MainWindow: parts_generated context resolved (dummy_replacement=%s, preserve_ui=%s, scale_to_dummy=%s, force_skel_align=%s)",
             is_dummy_replacement_session,
@@ -1586,8 +1589,9 @@ class AutomataDesigner(QMainWindow):
                     self._normalize_character_scale_to_dummy(parts_info, current_skeleton_data_raw)
                 )
 
+            apply_alignment_reconcile = bool(apply_dummy_scale or force_skeleton_align)
             parts_upscaled_to_skeleton = False
-            if (
+            if apply_alignment_reconcile and (
                 isinstance(current_skeleton_data_raw, list)
                 and current_skeleton_data_raw
                 and _align_parts_bbox_to_skeleton_in_place(
@@ -1596,13 +1600,13 @@ class AutomataDesigner(QMainWindow):
             ):
                 parts_upscaled_to_skeleton = True
                 logging.info(
-                    "MainWindow: Upscaled/recentered parts to match skeleton bbox for load consistency."
+                    "MainWindow: Upscaled/recentered parts to match skeleton bbox for replacement flow."
                 )
 
-            # Safety reconcile for severe skeleton/parts mismatches on normal Load Image flow.
-            # If parts were already upscaled to skeleton, keep skeleton as-is and skip this branch.
+            # Reconcile skeleton/parts bbox only during replacement flows.
+            # Plain Load Image should keep extractor-produced coordinates untouched.
             parts_bbox = _calculate_visible_parts_bbox(parts_info) or _calculate_parts_bbox(parts_info)
-            if (
+            if apply_alignment_reconcile and (
                 (force_skeleton_align or not parts_upscaled_to_skeleton)
                 and parts_bbox
                 and isinstance(current_skeleton_data_raw, list)
@@ -2210,17 +2214,27 @@ class AutomataDesigner(QMainWindow):
         )
 
         imported = False
+        import_error: Exception | None = None
+
+        import_method = getattr(self.mechanism_design_tab, "import_mechanism_from_foundry", None)
 
         # Forward to Mechanism Design Tab's import method (with mechanism_id for sync)
-        if hasattr(self.mechanism_design_tab, "import_mechanism_from_foundry"):
-            imported = bool(
-                self.mechanism_design_tab.import_mechanism_from_foundry(
-                    mechanism_type=mechanism_type,
-                    parameters=parameters,
-                    pivot_point=pivot_point,
-                    mechanism_id=mechanism_id,
+        if callable(import_method):
+            try:
+                imported = bool(
+                    import_method(
+                        mechanism_type=mechanism_type,
+                        parameters=parameters,
+                        pivot_point=pivot_point,
+                        mechanism_id=mechanism_id,
+                    )
                 )
-            )
+            except Exception as exc:
+                import_error = exc
+                logging.exception(
+                    "Failed to import Foundry mechanism into Design Tab for id=%s",
+                    mechanism_id,
+                )
             if imported:
                 self.statusBar().showMessage(
                     f"Mechanism '{mechanism_type}' added to Mechanism Tab"
@@ -2233,20 +2247,33 @@ class AutomataDesigner(QMainWindow):
                         mechanism_id, mechanism_type
                     )
             else:
-                logging.warning(
-                    "MechanismDesignTab.import_mechanism_from_foundry returned False for id=%s",
-                    mechanism_id,
-                )
+                self._clear_foundry_sync_target()
+                if import_error is None:
+                    logging.warning(
+                        "MechanismDesignTab.import_mechanism_from_foundry returned False for id=%s",
+                        mechanism_id,
+                    )
                 self.statusBar().showMessage(
                     f"Failed to add mechanism '{mechanism_type}' to Mechanism Tab"
                 )
         else:
+            self._clear_foundry_sync_target()
             logging.warning(
                 "MechanismDesignTab.import_mechanism_from_foundry not available"
             )
 
         # Switch to Mechanism Design Tab
         self._switch_to_mechanism_design_tab()
+
+    def _clear_foundry_sync_target(self) -> None:
+        """Clear stale Foundry sync state when export-to-Design does not attach."""
+        clear_sync = getattr(self.mechanism_foundry_tab, "clear_synced_mechanism", None)
+        if not callable(clear_sync):
+            return
+        try:
+            clear_sync()
+        except Exception:
+            logging.debug("Suppressed exception while clearing Foundry sync target", exc_info=True)
 
     def _switch_to_mechanism_design_tab(self):
         """Switches the main tab widget to the Mechanism Design Tab."""

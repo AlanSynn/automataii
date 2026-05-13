@@ -6,6 +6,7 @@ Calculates anchor positions for parametric handles across all mechanism types.
 
 Design Pattern: Strategy (mechanism-specific position calculation)
 """
+
 from __future__ import annotations
 
 import logging
@@ -216,23 +217,29 @@ class AnchorPositionService:
                         tracking_scene = to_scene_coords(tracking_orig)
                 else:
                     sun_center_scene = QPointF(float(sun_center_orig[0]), float(sun_center_orig[1]))
-                    planet_center_scene = QPointF(float(planet_center_orig[0]), float(planet_center_orig[1]))
+                    planet_center_scene = QPointF(
+                        float(planet_center_orig[0]), float(planet_center_orig[1])
+                    )
                     if tracking_orig is not None:
                         tracking_scene = QPointF(float(tracking_orig[0]), float(tracking_orig[1]))
             elif "sun_center" in key_points:
                 sun_raw = np.array(key_points["sun_center"], dtype=float)
                 planet_raw = key_points.get("planet_center")
-                if isinstance(planet_raw, (list, tuple, np.ndarray)) and len(planet_raw) >= 2:
+                if isinstance(planet_raw, list | tuple | np.ndarray) and len(planet_raw) >= 2:
                     planet_raw_arr = np.array(planet_raw, dtype=float)
                 else:
-                    planet_raw_arr = sun_raw + (r_sun + r_planet) * np.array([1.0, 0.0], dtype=float)
+                    planet_raw_arr = sun_raw + (r_sun + r_planet) * np.array(
+                        [1.0, 0.0], dtype=float
+                    )
 
                 if to_scene_coords:
                     sun_center_scene = to_scene_coords(sun_raw)
                     planet_center_scene = to_scene_coords(planet_raw_arr)
                 else:
                     sun_center_scene = QPointF(float(sun_raw[0]), float(sun_raw[1]))
-                    planet_center_scene = QPointF(float(planet_raw_arr[0]), float(planet_raw_arr[1]))
+                    planet_center_scene = QPointF(
+                        float(planet_raw_arr[0]), float(planet_raw_arr[1])
+                    )
             else:
                 # Params are maintained in scene space by parametric editor flows.
                 if "sun_x" in params and "sun_y" in params:
@@ -241,11 +248,7 @@ class AnchorPositionService:
                 elif "gear1_x" in params and "gear1_y" in params:
                     sx = float(params.get("gear1_x", 0.0))
                     sy = float(params.get("gear1_y", 0.0))
-                elif (
-                    "m_sun_x" in params
-                    and "m_sun_y" in params
-                    and to_scene_coords is not None
-                ):
+                elif "m_sun_x" in params and "m_sun_y" in params and to_scene_coords is not None:
                     sun_scene = to_scene_coords(
                         np.array([float(params["m_sun_x"]), float(params["m_sun_y"])], dtype=float)
                     )
@@ -262,7 +265,9 @@ class AnchorPositionService:
         if sun_center_scene is None:
             sun_center_scene = QPointF(0.0, 0.0)
         if planet_center_scene is None:
-            planet_center_scene = QPointF(sun_center_scene.x() + r_sun + r_planet, sun_center_scene.y())
+            planet_center_scene = QPointF(
+                sun_center_scene.x() + r_sun + r_planet, sun_center_scene.y()
+            )
 
         anchor_positions["sun_center"] = sun_center_scene
         anchor_positions["planet_center"] = planet_center_scene
@@ -342,12 +347,20 @@ class AnchorPositionService:
         if len(anchor_positions) < 2:
             scene_center = QPointF(400, 300)
             if "ground_pivot_1" not in anchor_positions:
-                anchor_positions["ground_pivot_1"] = QPointF(scene_center.x() - 100, scene_center.y())
+                anchor_positions["ground_pivot_1"] = QPointF(
+                    scene_center.x() - 100, scene_center.y()
+                )
             if "ground_pivot_2" not in anchor_positions:
-                anchor_positions["ground_pivot_2"] = QPointF(scene_center.x() + 100, scene_center.y())
+                anchor_positions["ground_pivot_2"] = QPointF(
+                    scene_center.x() + 100, scene_center.y()
+                )
             if "crank_end" not in anchor_positions:
-                anchor_positions["crank_end"] = QPointF(scene_center.x() - 50, scene_center.y() - 80)
+                anchor_positions["crank_end"] = QPointF(
+                    scene_center.x() - 50, scene_center.y() - 80
+                )
             if "rocker_end" not in anchor_positions:
-                anchor_positions["rocker_end"] = QPointF(scene_center.x() + 50, scene_center.y() - 80)
+                anchor_positions["rocker_end"] = QPointF(
+                    scene_center.x() + 50, scene_center.y() - 80
+                )
 
         return anchor_positions

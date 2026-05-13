@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from automataii.application.mechanism_design.parametric_service import (
@@ -161,6 +163,275 @@ def test_parameter_mapper_4bar_uses_key_points_when_simulation_missing() -> None
     assert params["anchor2_y"] == 330.0
     assert params["crank_x"] == 560.0
     assert params["rocker_x"] == 620.0
+
+
+def test_parameter_mapper_replaces_malformed_params_container() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    layer_data = {
+        "params": ["not", "a", "dict"],
+        "key_points": None,
+        "cam_position": [float("nan"), 240.0],
+    }
+
+    mapper.ensure_mechanism_parameters(layer_data, "cam")
+
+    assert isinstance(layer_data["params"], dict)
+    assert layer_data["params"]["center_x"] == 400.0
+    assert layer_data["params"]["center_y"] == 300.0
+
+
+def test_parameter_mapper_4bar_ignores_malformed_simulation_payload() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    params = {"l1": "bad", "anchor1_x": float("nan")}
+    layer_data = {
+        "params": params,
+        "key_points": None,
+        "full_simulation_data": {
+            "joint_positions": {
+                "p1_positions": None,
+                "p2_positions": [[0.0, 0.0]],
+            }
+        },
+    }
+
+    mapper.ensure_mechanism_parameters(layer_data, "4_bar_linkage")
+
+    assert params["anchor1_x"] == 400.0
+    assert params["anchor2_x"] == 500.0
+    assert params["coupler_x"] == 450.0
+
+
+def test_parameter_mapper_sanitizes_gear_radius_aliases_and_positions() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    params = {
+        "r1": "bad",
+        "gear2_radius": float("nan"),
+        "gear1_x": "left",
+        "gear1_y": float("inf"),
+    }
+    layer_data = {"params": params, "full_simulation_data": {"gear_data": {"gear1_centers": []}}}
+
+    mapper.ensure_mechanism_parameters(layer_data, "gear")
+
+    assert params["gear1_radius"] == 40.0
+    assert params["gear2_radius"] == 60.0
+    assert params["gear1_x"] == 400.0
+    assert params["gear1_y"] == 300.0
+    assert params["gear2_x"] == 502.0
+
+
+def test_parameter_mapper_uses_valid_gear_radius_alias_when_primary_is_bad() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    params = {
+        "gear1_radius": float("nan"),
+        "r1": 12.0,
+        "gear2_radius": "bad",
+        "r2": 24.0,
+    }
+
+    mapper.ensure_mechanism_parameters({"params": params}, "gear")
+
+    assert params["gear1_radius"] == 12.0
+    assert params["gear2_radius"] == 24.0
+    assert params["gear2_x"] == 438.0
+
+
+def test_parameter_mapper_rejects_non_finite_radius_transform() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    params = {"r1": 10.0, "r2": 20.0}
+
+    def to_scene(arr: np.ndarray) -> DummyPoint:
+        if float(arr[0]) > 0:
+            return DummyPoint(float("inf"), 0.0)
+        return DummyPoint(0.0, 0.0)
+
+    mapper.ensure_mechanism_parameters(
+        {"params": params, "full_simulation_data": {}},
+        "gear",
+        to_scene=to_scene,
+    )
+
+    assert params["gear1_radius"] == 10.0
+    assert params["gear2_radius"] == 20.0
+    assert math.isfinite(params["gear2_x"])
+
+
+def test_parameter_mapper_ignores_malformed_gear_simulation_centers() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+
+    gear_params: dict[str, float] = {}
+    mapper.ensure_mechanism_parameters(
+        {
+            "params": gear_params,
+            "full_simulation_data": {
+                "gear_data": {
+                    "gear1_centers": object(),
+                    "gear2_centers": [[float("nan"), 0.0]],
+                }
+            },
+        },
+        "gear",
+        to_scene=lambda arr: DummyPoint(float(arr[0]), float(arr[1])),
+    )
+
+    assert gear_params["gear1_x"] == 400.0
+    assert gear_params["gear2_x"] == 502.0
+
+    planetary_params: dict[str, float] = {}
+    mapper.ensure_mechanism_parameters(
+        {
+            "params": planetary_params,
+            "full_simulation_data": {
+                "gear_positions": {
+                    "sun_centers": object(),
+                    "planet_centers": [[float("inf"), 0.0]],
+                }
+            },
+        },
+        "planetary_gear",
+        to_scene=lambda arr: DummyPoint(float(arr[0]), float(arr[1])),
+    )
+
+    assert planetary_params["sun_x"] == 400.0
+    assert planetary_params["planet_x"] == 450.0
+
+
+def test_parameter_mapper_accepts_numpy_simulation_center_arrays() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    gear_params: dict[str, float] = {}
+
+    mapper.ensure_mechanism_parameters(
+        {
+            "params": gear_params,
+            "full_simulation_data": {
+                "gear_data": {
+                    "gear1_centers": np.array([[10.0, 20.0]]),
+                    "gear2_centers": np.array([[30.0, 40.0]]),
+                }
+            },
+        },
+        "gear",
+        to_scene=lambda arr: DummyPoint(float(arr[0]), float(arr[1])),
+    )
+
+    assert gear_params["gear1_x"] == 10.0
+    assert gear_params["gear1_y"] == 20.0
+    assert gear_params["gear2_x"] == 30.0
+    assert gear_params["gear2_y"] == 40.0
+
+
+def test_parameter_mapper_sanitizes_planetary_aliases_and_positions() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    params = {
+        "r_sun": "bad",
+        "r_planet": float("nan"),
+        "arm_length": -5.0,
+        "sun_x": "bad",
+        "sun_y": float("inf"),
+        "planet_x": float("nan"),
+    }
+    layer_data = {"params": params, "full_simulation_data": {}, "key_points": None}
+
+    mapper.ensure_mechanism_parameters(layer_data, "planetary_gear")
+
+    assert params["r_sun"] == 20.0
+    assert params["r_planet"] == 30.0
+    assert params["arm_length"] == 15.0
+    assert params["sun_x"] == 400.0
+    assert params["sun_y"] == 300.0
+    assert params["planet_x"] == 450.0
+    assert params["gear2_x"] == 450.0
+
+
+def test_parameter_mapper_uses_valid_planetary_alias_when_primary_is_bad() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    params = {
+        "r_sun": float("nan"),
+        "gear1_radius": 22.0,
+        "r_planet": "bad",
+        "planet_radius": 33.0,
+        "arm_length": float("inf"),
+        "carrier_length": 17.0,
+        "sun_x": "bad",
+        "gear1_x": 410.0,
+        "planet_x": float("nan"),
+        "gear2_x": 470.0,
+    }
+
+    mapper.ensure_mechanism_parameters({"params": params}, "planetary_gear")
+
+    assert params["r_sun"] == 22.0
+    assert params["r_planet"] == 33.0
+    assert params["arm_length"] == 17.0
+    assert params["sun_x"] == 410.0
+    assert params["planet_x"] == 470.0
+
+
+def test_parameter_mapper_transform_config_rejects_non_finite_payloads() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+        TransformConfig,
+    )
+
+    mapper = ParameterMapper()
+    config = mapper.get_transform_config(
+        {
+            "transform_params": {
+                "scale": 0.0,
+                "offset_x": float("nan"),
+                "offset_y": "bad",
+            },
+            "generated_path": object(),
+        },
+        path_converter=lambda _path: [[0.0, 0.0], [float("inf"), 1.0]],
+    )
+
+    assert config.scale == 1.0
+    assert config.user_scale == 100.0
+    assert config.offset_x == 0.0
+    assert config.offset_y == 0.0
+    assert (
+        mapper.scene_to_mech_length(float("inf"), TransformConfig(scale=0.0, user_scale=0.0)) == 0.0
+    )
+    assert math.isfinite(
+        mapper.mech_to_scene_length(5.0, TransformConfig(scale=0.0, user_scale=0.0))
+    )
 
 
 def test_regenerate_planetary_uses_scene_center_over_stale_key_points() -> None:

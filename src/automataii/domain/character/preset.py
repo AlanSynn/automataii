@@ -10,8 +10,8 @@ Architecture: Domain Layer - Pure business logic, no external dependencies.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -146,8 +146,7 @@ class CharacterPreset:
     def from_dict(cls, data: dict) -> CharacterPreset:
         """Create from dictionary."""
         parts = {
-            name: PresetPartData.from_dict(pdata)
-            for name, pdata in data.get("parts", {}).items()
+            name: PresetPartData.from_dict(pdata) for name, pdata in data.get("parts", {}).items()
         }
         skeleton = {
             jid: SkeletonJoint(
@@ -176,68 +175,62 @@ class CharacterPreset:
         # Skeleton joint definitions
         skeleton = {
             "root": SkeletonJoint(
-                id="root", parent_id=None, position=(0, 0),
-                children=("spine", "left_hip", "right_hip")
+                id="root",
+                parent_id=None,
+                position=(0, 0),
+                children=("spine", "left_hip", "right_hip"),
             ),
             "spine": SkeletonJoint(
-                id="spine", parent_id="root", position=(0, -50),
-                children=("neck",)
+                id="spine", parent_id="root", position=(0, -50), children=("neck",)
             ),
             "neck": SkeletonJoint(
-                id="neck", parent_id="spine", position=(0, -40),
-                children=("head", "left_shoulder", "right_shoulder")
+                id="neck",
+                parent_id="spine",
+                position=(0, -40),
+                children=("head", "left_shoulder", "right_shoulder"),
             ),
-            "head": SkeletonJoint(
-                id="head", parent_id="neck", position=(0, -30),
-                children=()
-            ),
+            "head": SkeletonJoint(id="head", parent_id="neck", position=(0, -30), children=()),
             "left_shoulder": SkeletonJoint(
-                id="left_shoulder", parent_id="neck", position=(-25, 0),
-                children=("left_elbow",)
+                id="left_shoulder", parent_id="neck", position=(-25, 0), children=("left_elbow",)
             ),
             "left_elbow": SkeletonJoint(
-                id="left_elbow", parent_id="left_shoulder", position=(-30, 0),
-                children=("left_wrist",)
+                id="left_elbow",
+                parent_id="left_shoulder",
+                position=(-30, 0),
+                children=("left_wrist",),
             ),
             "left_wrist": SkeletonJoint(
-                id="left_wrist", parent_id="left_elbow", position=(-25, 0),
-                children=()
+                id="left_wrist", parent_id="left_elbow", position=(-25, 0), children=()
             ),
             "right_shoulder": SkeletonJoint(
-                id="right_shoulder", parent_id="neck", position=(25, 0),
-                children=("right_elbow",)
+                id="right_shoulder", parent_id="neck", position=(25, 0), children=("right_elbow",)
             ),
             "right_elbow": SkeletonJoint(
-                id="right_elbow", parent_id="right_shoulder", position=(30, 0),
-                children=("right_wrist",)
+                id="right_elbow",
+                parent_id="right_shoulder",
+                position=(30, 0),
+                children=("right_wrist",),
             ),
             "right_wrist": SkeletonJoint(
-                id="right_wrist", parent_id="right_elbow", position=(25, 0),
-                children=()
+                id="right_wrist", parent_id="right_elbow", position=(25, 0), children=()
             ),
             "left_hip": SkeletonJoint(
-                id="left_hip", parent_id="root", position=(-15, 10),
-                children=("left_knee",)
+                id="left_hip", parent_id="root", position=(-15, 10), children=("left_knee",)
             ),
             "left_knee": SkeletonJoint(
-                id="left_knee", parent_id="left_hip", position=(0, 40),
-                children=("left_ankle",)
+                id="left_knee", parent_id="left_hip", position=(0, 40), children=("left_ankle",)
             ),
             "left_ankle": SkeletonJoint(
-                id="left_ankle", parent_id="left_knee", position=(0, 40),
-                children=()
+                id="left_ankle", parent_id="left_knee", position=(0, 40), children=()
             ),
             "right_hip": SkeletonJoint(
-                id="right_hip", parent_id="root", position=(15, 10),
-                children=("right_knee",)
+                id="right_hip", parent_id="root", position=(15, 10), children=("right_knee",)
             ),
             "right_knee": SkeletonJoint(
-                id="right_knee", parent_id="right_hip", position=(0, 40),
-                children=("right_ankle",)
+                id="right_knee", parent_id="right_hip", position=(0, 40), children=("right_ankle",)
             ),
             "right_ankle": SkeletonJoint(
-                id="right_ankle", parent_id="right_knee", position=(0, 40),
-                children=()
+                id="right_ankle", parent_id="right_knee", position=(0, 40), children=()
             ),
         }
 

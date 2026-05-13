@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import SupportsFloat, SupportsIndex, cast
 
 Point = tuple[float, float]
 MotionPath = tuple[Point, ...]
 Listener = Callable[[Mapping[str, MotionPath]], None]
+_FloatPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object) -> float | None:
+    try:
+        result = float(cast(_FloatPayload, value))
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
 
 
 def _normalize_points(points: Iterable[Sequence[float]] | None) -> MotionPath:
@@ -12,9 +23,16 @@ def _normalize_points(points: Iterable[Sequence[float]] | None) -> MotionPath:
         return ()
     normalized: list[Point] = []
     for pair in points:
-        if len(pair) != 2:
+        try:
+            if isinstance(pair, str | bytes | bytearray) or len(pair) != 2:
+                continue
+            x = _finite_float(pair[0])
+            y = _finite_float(pair[1])
+        except (TypeError, IndexError):
             continue
-        normalized.append((float(pair[0]), float(pair[1])))
+        if x is None or y is None:
+            continue
+        normalized.append((x, y))
     return tuple(normalized)
 
 
@@ -43,6 +61,8 @@ class MotionPathRepository:
     def replace(self, mapping: Mapping[str, Iterable[Sequence[float]]]) -> None:
         normalized: dict[str, MotionPath] = {}
         for name, points in mapping.items():
+            if not isinstance(name, str) or not name:
+                continue
             tuples = _normalize_points(points)
             if tuples:
                 normalized[name] = tuples
@@ -52,6 +72,8 @@ class MotionPathRepository:
         self._notify()
 
     def upsert(self, part_name: str, points: Iterable[Sequence[float]] | None) -> None:
+        if not isinstance(part_name, str) or not part_name:
+            return
         tuples = _normalize_points(points)
         if not tuples:
             self.remove(part_name)

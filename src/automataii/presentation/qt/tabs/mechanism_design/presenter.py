@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
 from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainterPath
@@ -130,7 +131,7 @@ class MechanismDesignPresenter(QObject):
         self._trace_frame_tick: int = 0
 
         # View listener pattern (for observer callbacks)
-        self._view_listeners: list = []
+        self._view_listeners: list[Callable[[object], None]] = []
 
         # Animation and parametric mode state
         self._animation_running: bool = False
@@ -211,7 +212,7 @@ class MechanismDesignPresenter(QObject):
 
     # === VIEW LISTENER PATTERN ===
 
-    def add_view_listener(self, callback) -> None:
+    def add_view_listener(self, callback: Callable[[object], None]) -> None:
         """Register listener for view model updates.
 
         Args:
@@ -220,7 +221,7 @@ class MechanismDesignPresenter(QObject):
         if callback not in self._view_listeners:
             self._view_listeners.append(callback)
 
-    def remove_view_listener(self, callback) -> None:
+    def remove_view_listener(self, callback: Callable[[object], None]) -> None:
         """Unregister listener for view model updates.
 
         Args:
@@ -229,7 +230,7 @@ class MechanismDesignPresenter(QObject):
         if callback in self._view_listeners:
             self._view_listeners.remove(callback)
 
-    def _notify_listeners(self, view_model) -> None:
+    def _notify_listeners(self, view_model: object) -> None:
         """Notify all registered listeners of view model update.
 
         Args:
@@ -661,19 +662,37 @@ class MechanismDesignPresenter(QObject):
         """Handle view refresh request."""
         self._request_scene_update()
 
-    def _get_transform_function(self, layer_data: dict):
+    def _get_transform_function(
+        self,
+        layer_data: dict[str, Any],
+    ) -> Callable[[Any], QPointF] | None:
         """Get transform function for layer data."""
-        return self._transform_service.get_scene_transform(layer_data)
+        return cast(
+            Callable[[Any], QPointF] | None,
+            self._transform_service.get_scene_transform(layer_data),
+        )
 
     # === TRANSFORM DELEGATION ===
 
-    def get_scene_transform_function(self, layer_data: dict):
+    def get_scene_transform_function(
+        self,
+        layer_data: dict[str, Any],
+    ) -> Callable[[Any], QPointF] | None:
         """Get scene transform function."""
-        return self._transform_service.get_scene_transform(layer_data)
+        return cast(
+            Callable[[Any], QPointF] | None,
+            self._transform_service.get_scene_transform(layer_data),
+        )
 
-    def get_inverse_scene_transform_function(self, layer_data: dict):
+    def get_inverse_scene_transform_function(
+        self,
+        layer_data: dict[str, Any],
+    ) -> Callable[[QPointF], Any] | None:
         """Get inverse scene transform function."""
-        return self._transform_service.get_inverse_transform(layer_data)
+        return cast(
+            Callable[[QPointF], Any] | None,
+            self._transform_service.get_inverse_transform(layer_data),
+        )
 
     # === MECHANISM GENERATION (migrated from Tab) ===
 
@@ -787,8 +806,8 @@ class MechanismDesignPresenter(QObject):
     def _create_mechanism_visuals(
         self,
         mechanism_type: str,
-        data: dict,
-        transform_func,
+        data: dict[str, Any],
+        transform_func: Callable[[Any], QPointF] | None,
     ) -> list[QGraphicsItem]:
         """Create visuals via Tab's visuals factory."""
         factory = self._tab.visuals_factory
@@ -803,6 +822,8 @@ class MechanismDesignPresenter(QObject):
             items.extend(factory.create_gear_visuals(data, transform_func))
         elif mechanism_type == "planetary_gear":
             items.extend(factory.create_planetary_gear_visuals(data, transform_func))
+        else:
+            logging.warning("No visual factory registered for mechanism type: %s", mechanism_type)
 
         return items
 
@@ -866,10 +887,12 @@ class MechanismDesignPresenter(QObject):
             skeleton_cache=self._initial_skeleton_data_cache,
         )
 
-        return self._tab._lifecycle_coordinator.setup_ik_integration(
-            ik_manager=ik_manager,
-            context=context,
-            register_controller_fn=self._register_mechanism_controller,
+        return bool(
+            self._tab._lifecycle_coordinator.setup_ik_integration(
+                ik_manager=ik_manager,
+                context=context,
+                register_controller_fn=self._register_mechanism_controller,
+            )
         )
 
     def _register_mechanism_controller(
@@ -893,12 +916,13 @@ class MechanismDesignPresenter(QObject):
 
         # Register callback
         def mechanism_callback(time: float) -> QPointF | None:
-            return self._tab._calculate_mechanism_output(
+            result = self._tab._calculate_mechanism_output(
                 layer_data.get("type"),
                 layer_data.get("params", {}),
                 time,
                 layer_data,
             )
+            return result if isinstance(result, QPointF) or result is None else None
 
         if hasattr(ik_manager, 'register_mechanism_controller'):
             ik_manager.register_mechanism_controller(joint_id, mech_id, mechanism_callback)
@@ -930,7 +954,8 @@ class MechanismDesignPresenter(QObject):
 
         from automataii.domain.kinematics.joint_mapping_service import JointMappingService
         service = JointMappingService()
-        std_id = service.standardize_joint_id(abstract_joint_id)
+        raw_std_id = service.standardize_joint_id(abstract_joint_id)
+        std_id = raw_std_id if isinstance(raw_std_id, str) else None
 
         # Use presenter's cache first, then fallback to Tab's cache
         cache = self._initial_skeleton_data_cache
@@ -944,7 +969,8 @@ class MechanismDesignPresenter(QObject):
             joints_preview = list(cache.get('joints', {}).keys())[:5] if cache else []
             logging.debug(f"[JOINT-MAP] Sample joint keys: {joints_preview}")
 
-        joints = cache.get("joints", {}) if cache else {}
+        raw_joints = cache.get("joints", {}) if cache else {}
+        joints = raw_joints if isinstance(raw_joints, dict) else {}
 
         # 1. Exact match
         if std_id and std_id in joints:
@@ -954,17 +980,22 @@ class MechanismDesignPresenter(QObject):
 
         # 2. Check joint_map
         if cache:
-            joint_map = cache.get("joint_map", {})
+            raw_joint_map = cache.get("joint_map", {})
+            joint_map = raw_joint_map if isinstance(raw_joint_map, dict) else {}
             if abstract_joint_id in joint_map:
-                return joint_map[abstract_joint_id]
+                mapped = joint_map[abstract_joint_id]
+                return mapped if isinstance(mapped, str) else None
             if std_id and std_id in joint_map:
-                return joint_map[std_id]
+                mapped = joint_map[std_id]
+                return mapped if isinstance(mapped, str) else None
 
         # 3. Prefix matching for suffixed joint IDs (e.g., left_hand_9)
         # Skeleton from Animated Drawings uses suffixed IDs
         target_id = std_id or abstract_joint_id
         if joints and target_id:
             for joint_id in joints:
+                if not isinstance(joint_id, str):
+                    continue
                 # Check if joint_id starts with target (prefix match)
                 # e.g., "left_hand_9".startswith("left_hand")
                 if joint_id.startswith(target_id + "_") or joint_id == target_id:
