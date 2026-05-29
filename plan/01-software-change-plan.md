@@ -196,7 +196,7 @@ src/automataii/infrastructure/ms4n/
 권장: 별도 tab.
 
 ```text
-src/automataii/presentation/qt/tabs/ms4n_lab/
+src/automataii/presentation/qt/tabs/lab/
   tab.py
   presenter.py
   view_protocol.py
@@ -215,7 +215,7 @@ src/automataii/presentation/qt/tabs/ms4n_lab/
 
 ## 4. UI 변경 계획
 
-### 4.1 MS4N Lab tab 구성
+### 4.1 Lab tab 구성
 
 1. **Kit Catalog Panel**
    - `bar-board`, linkage, cam, crank-slider, gear, character, prompt, fabrication sheet 선택
@@ -333,7 +333,7 @@ ms4n_bundle/
 
 ### Phase 2 — UI prototype
 
-- `MS4N Lab` tab skeleton
+- `Lab` tab skeleton
 - Kit Catalog panel
 - One-Change Episode Builder
 - Explanation Prompt form
@@ -366,10 +366,10 @@ ms4n_bundle/
 | unit: `kit_manifest_loader` | missing file/schema error 검증 |
 | integration: episode service | before-change-after-consequence-explanation flow |
 | integration: bundle writer | SVG/trace/JSONL/coding sheet package 생성 |
-| GUI smoke: MS4N Lab tab | tab load, kit selection, explanation form |
+| GUI smoke: Lab tab | tab load, kit selection, explanation form |
 | golden export: JSONL/CSV | 연구 데이터 schema 안정성 |
 
 ## 9. 범위 조절 결정
 
-P0에서는 camera/fiducial을 하지 않는다. 대신 manual board mapping + photo/video reference를 지원한다.  
+P0에서는 camera/fiducial을 하지 않는다. 대신 manual board mapping + photo/video reference를 지원한다.
 P1에서 optional image capture, P2에서 fiducial detection을 검토한다.

@@ -34,7 +34,7 @@ Post-fix target verdict:
 
 - [ ] `MechanismChangeEpisode` schema 확정
 - [ ] kit manifest schema 확정
-- [ ] MS4N Lab tab vs existing tab integration decision 확정
+- [ ] Lab tab vs existing tab integration decision 확정
 - [ ] P0/P1/P2 feature scope 확정
 - [ ] test plan accepted
 
@@ -72,7 +72,7 @@ Post-fix target verdict:
 | fabrication failures가 세션을 망침 | Medium | High | jam/friction으로 task 중단 | Jam Detective로 failure를 data로 전환, backup examples | kit |
 | facilitator effect와 system effect 혼재 | Medium | High | facilitator가 정답을 대신 줌 | intervention log와 facilitator script | research |
 | privacy/IRB 문제 | High | Medium | minors/video/audio 사용 | consent 분리, anonymized export, ethics note | research |
-| 기존 Mechanism Design tab 복잡도 증가 | Medium | Medium | MS4N UI를 기존 tab에 계속 삽입 | 별도 MS4N Lab tab | engineering |
+| 기존 Mechanism Design tab 복잡도 증가 | Medium | Medium | MS4N UI를 기존 tab에 계속 삽입 | 별도 Lab tab | engineering |
 | worksheet studio가 gimmick화 | Medium | Medium | 예쁜 포스터만 생성 | evidence picker와 episode refs 필수 | design |
 | Gear Mood Dial이 감성 라벨 놀이로 흐름 | Medium | Medium | mood만 있고 ratio evidence 없음 | ratio/speed/direction 로그 필수 | design |
 | Storyboard가 mechanism variable을 흐림 | Medium | Medium | narrative만 있고 one-change 없음 | attachment point one-change rule | design |
@@ -94,7 +94,7 @@ Post-fix target verdict:
 
 ### 승인
 
-- `MS4N Lab` 별도 tab
+- `Lab` 별도 tab
 - `domain/application/infrastructure/ms4n` 신규 package
 - JSONL/CSV research export
 - kit manifest loader
@@ -143,7 +143,7 @@ Post-fix target verdict:
 2. `kit/ms4n-kit-manifest.json` 작성
 3. `domain/ms4n` dataclass + tests
 4. `application/ms4n` episode service + exporter
-5. MS4N Lab tab skeleton
+5. Lab tab skeleton
 6. trace comparison MVP
 7. fabrication bundle MVP
 8. pilot protocol and facilitator script

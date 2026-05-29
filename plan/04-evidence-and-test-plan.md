@@ -188,7 +188,7 @@ artifacts:
 
 ### GUI smoke tests
 
-- MS4N Lab tab loads
+- Lab tab loads
 - kit asset selected
 - one-change episode form completed
 - explanation saved
