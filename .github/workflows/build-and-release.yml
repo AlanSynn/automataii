@@ -17,7 +17,11 @@ on:
         type: boolean
 
 env:
-  PYTHON_VERSION: '3.13'
+  PYTHON_VERSION: '3.12'
+  MACOS_UNIVERSAL2_PYTHON_VERSION: '3.12.10'
+
+permissions:
+  contents: write
 
 jobs:
   build-macos:
@@ -29,55 +33,87 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
     
     - name: Install system dependencies
       run: |
         brew install create-dmg
+
+    - name: Install universal2 Python
+      run: |
+        curl -L -o python-universal2.pkg "https://www.python.org/ftp/python/${MACOS_UNIVERSAL2_PYTHON_VERSION}/python-${MACOS_UNIVERSAL2_PYTHON_VERSION}-macos11.pkg"
+        sudo installer -pkg python-universal2.pkg -target /
+        /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 - <<'PY'
+        from pathlib import Path
+        import subprocess
+        import sys
+
+        output = subprocess.check_output(["lipo", "-archs", sys.executable], text=True).strip()
+        if {"arm64", "x86_64"} - set(output.split()):
+            raise SystemExit(f"Python is not universal2-capable: {output}")
+        print(f"universal2 Python: {sys.executable} ({output})")
+        PY
     
     - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt || pip install -e .
-        pip install pyinstaller pyobjc-core pyobjc-framework-Cocoa requests
-    
-    - name: Create application icon
-      run: |
-        # Create a simple icon for the build (replace with actual icon)
-        mkdir -p build/icons
-        # You should replace this with your actual icon creation process
-        python -c "
-        from PIL import Image, ImageDraw
-        img = Image.new('RGBA', (512, 512), (70, 130, 180, 255))
-        draw = ImageDraw.Draw(img)
-        # Add your icon design here
-        img.save('build/icons/icon.png')
-        "
-    
-    - name: Build macOS application
-      run: |
-        cd build
-        python build_macos.py --no-dmg
+      run: uv sync --python /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+
+    - name: Import signing certificate
       env:
-        PYTHONPATH: ${{ github.workspace }}/src
-    
-    - name: Create DMG
+        MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+        MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       run: |
-        create-dmg \
-          --volname "Automataii" \
-          --volicon "build/icons/icon.png" \
-          --window-pos 200 120 \
-          --window-size 600 300 \
-          --app-drop-link 480 150 \
-          "dist/Automataii-${{ github.ref_name }}-macos.dmg" \
-          "dist/Automataii.app"
+        if [[ -z "${MACOS_CERT_P12:-}" || -z "${MACOS_CERT_PASSWORD:-}" || -z "${KEYCHAIN_PASSWORD:-}" ]]; then
+          echo "::error::MACOS_CERT_P12, MACOS_CERT_PASSWORD, and KEYCHAIN_PASSWORD are required for a signed macOS release."
+          exit 1
+        fi
+        echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+        security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+        security default-keychain -s build.keychain
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+        security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+    
+    - name: Build signed macOS DMG
+      env:
+        MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        APPLE_NOTARY_PROFILE: ${{ secrets.APPLE_NOTARY_PROFILE }}
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      run: |
+        if [[ -z "${MACOS_SIGN_IDENTITY:-}" ]]; then
+          echo "::error::MACOS_SIGN_IDENTITY is required for a signed macOS release."
+          exit 1
+        fi
+        if [[ -z "${APPLE_NOTARY_PROFILE:-}" ]]; then
+          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+            export APPLE_NOTARY_PROFILE="AutomataiiNotary"
+          else
+            echo "::error::Set APPLE_NOTARY_PROFILE, or provide APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so CI can create a temporary keychain profile."
+            exit 1
+          fi
+        fi
+        if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+          xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
+        fi
+        uv run python scripts/build_macos.py --arch universal2 --sign "$MACOS_SIGN_IDENTITY" --notarize --verify-release --strict-distribution
+
+    - name: Clean signing keychain
+      if: ${{ always() }}
+      run: |
+        rm -f cert.p12
+        security delete-keychain build.keychain || true
     
     - name: Upload macOS artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-build
         path: |
-          dist/Automataii-*.dmg
-          dist/Automataii.app
+          dist/Automataii-macos-*.dmg
+          dist/AutomataII.app
     
     - name: Generate macOS update info
       run: |
@@ -97,7 +133,7 @@ jobs:
         EOF
     
     - name: Upload update info
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-update-info
         path: dist/macos-update-info.json
@@ -133,7 +169,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt || pip install -e .
+        pip install -e .
         pip install pyinstaller requests pillow
     
     - name: Build Linux AppImage
@@ -151,7 +187,7 @@ jobs:
         fi
     
     - name: Upload Linux artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-build
         path: |
@@ -174,7 +210,7 @@ jobs:
         EOF
     
     - name: Upload update info
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-update-info
         path: dist/linux-update-info.json
@@ -193,7 +229,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller pywin32 requests
-        pip install -r requirements.txt || pip install -e .
+        pip install -e .
     
     - name: Install NSIS
       run: |
@@ -218,7 +254,7 @@ jobs:
         }
     
     - name: Upload Windows artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-build
         path: |
@@ -243,7 +279,7 @@ jobs:
         }
     
     - name: Upload update info
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-update-info
         path: dist/windows-update-info.json
@@ -256,7 +292,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
     
     - name: Generate Sparkle appcast
       run: |
@@ -297,7 +333,7 @@ jobs:
         EOF
     
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.ref_name }}
         name: Release ${{ github.ref_name }}
@@ -314,7 +350,7 @@ jobs:
           ### Downloads
           
           **macOS:**
-          - [Automataii-${{ github.ref_name }}-macos.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-${{ github.ref_name }}-macos.dmg)
+          - [Automataii-macos-universal2.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-macos-universal2.dmg)
           
           **Linux:**
           - [Automataii-${{ github.ref_name }}-linux-x86_64.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-${{ github.ref_name }}-linux-x86_64.AppImage)

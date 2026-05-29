@@ -12,9 +12,12 @@ on:
         default: 'v0.1.0'
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
+
+env:
+  MACOS_UNIVERSAL2_PYTHON_VERSION: '3.12.10'
 
 jobs:
   build-macos:
@@ -25,26 +28,79 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.13'
+          python-version: '3.12'
           
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install universal2 Python
+        run: |
+          curl -L -o python-universal2.pkg "https://www.python.org/ftp/python/${MACOS_UNIVERSAL2_PYTHON_VERSION}/python-${MACOS_UNIVERSAL2_PYTHON_VERSION}-macos11.pkg"
+          sudo installer -pkg python-universal2.pkg -target /
+          /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          output = subprocess.check_output(["lipo", "-archs", sys.executable], text=True).strip()
+          if {"arm64", "x86_64"} - set(output.split()):
+              raise SystemExit(f"Python is not universal2-capable: {output}")
+          print(f"universal2 Python: {sys.executable} ({output})")
+          PY
           
       - name: Install dependencies
         run: |
-          uv sync
+          uv sync --python /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
           
-      - name: Build macOS app
+      - name: Import signing certificate
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          source .venv/bin/activate
-          python scripts/build_macos.py
-          
-      - name: Create DMG
+          if [[ -z "${MACOS_CERT_P12:-}" || -z "${MACOS_CERT_PASSWORD:-}" || -z "${KEYCHAIN_PASSWORD:-}" ]]; then
+            echo "::error::MACOS_CERT_P12, MACOS_CERT_PASSWORD, and KEYCHAIN_PASSWORD are required for a signed macOS release."
+            exit 1
+          fi
+          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Build signed macOS DMG
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_NOTARY_PROFILE: ${{ secrets.APPLE_NOTARY_PROFILE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          # Create a temporary DMG
-          hdiutil create -volname "Automataii" -srcfolder dist/ -ov -format UDZO dist/Automataii.dmg
+          if [[ -z "${MACOS_SIGN_IDENTITY:-}" ]]; then
+            echo "::error::MACOS_SIGN_IDENTITY is required for a signed macOS release."
+            exit 1
+          fi
+          if [[ -z "${APPLE_NOTARY_PROFILE:-}" ]]; then
+            if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+              export APPLE_NOTARY_PROFILE="AutomataiiNotary"
+            else
+              echo "::error::Set APPLE_NOTARY_PROFILE, or provide APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so CI can create a temporary keychain profile."
+              exit 1
+            fi
+          fi
+          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+            xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          fi
+          uv run python scripts/build_macos.py --arch universal2 --sign "$MACOS_SIGN_IDENTITY" --notarize --verify-release --strict-distribution
+
+      - name: Clean signing keychain
+        if: ${{ always() }}
+        run: |
+          rm -f cert.p12
+          security delete-keychain build.keychain || true
           
       - name: Generate EdDSA key for Sparkle (if not exists)
         run: |
@@ -78,16 +134,16 @@ jobs:
           fi
           
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: releases/Automataii-*.dmg
+          path: dist/Automataii-macos-*.dmg
           
       - name: Upload Appcast artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: appcast
-          path: releases/appcast.xml
+          path: appcast/appcast.xml
 
   build-linux:
     runs-on: ubuntu-latest
@@ -97,7 +153,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.13'
+          python-version: '3.12'
           
       - name: Install system dependencies
         run: |
@@ -119,7 +175,7 @@ jobs:
           python scripts/build_linux.py
           
       - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
           path: dist/*.AppImage
@@ -132,7 +188,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.13'
+          python-version: '3.12'
           
       - name: Install uv
         run: |
@@ -149,7 +205,7 @@ jobs:
           python scripts/build_windows.py
           
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-exe
           path: dist/*.exe
@@ -160,10 +216,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             macos-dmg/*
@@ -175,13 +231,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Setup Pages
-        uses: actions/configure-pages@v3
+        uses: actions/configure-pages@v5
         
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v2
+        uses: actions/upload-pages-artifact@v3
         with:
           path: appcast
           
       - name: Deploy to Pages
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4
         id: deployment

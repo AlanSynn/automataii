@@ -20,8 +20,8 @@ try:
     from PyQt6.QtWidgets import QApplication
 except ImportError:
     try:
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QApplication
+        from PySide6.QtCore import Qt  # type: ignore[no-redef]
+        from PySide6.QtWidgets import QApplication  # type: ignore[no-redef]
     except ImportError:
         print(
             "This application requires PyQt6 or PySide6; please install one of these packages.",
@@ -34,16 +34,16 @@ from automataii.scenarios import run_blueprint_export_scenario
 from automataii.utils.auto_updater import setup_auto_updater
 from automataii.utils.config import AppConfig
 from automataii.utils.logging_config import setup_logging
-from automataii.utils.paths import get_base_path, get_project_root
+from automataii.utils.paths import get_app_data_dir, get_base_path, get_project_root
 from automataii.utils.styling import LIGHT_STYLE
 
 
-def main():
+def main() -> None:
     """Main function to initialize and run the Automataii application."""
     # Handle PyInstaller bundle environment
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         # We're running from a PyInstaller bundle
-        bundle_dir = Path(sys._MEIPASS)
+        bundle_dir = get_base_path()
         logging.info(f"Running from PyInstaller bundle: {bundle_dir}")
 
         # Force macOS to use light theme for title bar
@@ -52,19 +52,17 @@ def main():
             os.environ["QT_MAC_WANTS_LAYER"] = "1"
             os.environ["QT_QPA_PLATFORM"] = "cocoa"
 
-            # Change working directory to the bundle directory to ensure relative paths work
-            os.chdir(bundle_dir)
-            logging.info(f"Changed working directory to: {os.getcwd()}")
+            logging.info("Using bundled resource root without changing cwd: %s", bundle_dir)
     else:
         # We're running from source
         logging.info(f"Running from source: {get_project_root()}")
 
     parser = argparse.ArgumentParser(description="Automataii Application")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging and features.")
     parser.add_argument(
-        "--debug", action="store_true", help="Enable debug logging and features."
-    )
-    parser.add_argument(
-        "--experiment", action="store_true", help="Enable experimental mode (hides Mechanism Foundry and Options tabs)."
+        "--experiment",
+        action="store_true",
+        help="Enable experimental mode (hides Mechanism Foundry and Options tabs).",
     )
     parser.add_argument(
         "--editing", action="store_true", help="Enable interactive segmentation editing mode."
@@ -77,7 +75,7 @@ def main():
     parser.add_argument(
         "--scenario-output",
         type=Path,
-        help="Destination directory for scenario artifacts (defaults to ./artifacts/<scenario>).",
+        help="Destination directory for scenario artifacts (defaults to user app data/artifacts/<scenario>).",
     )
     args = parser.parse_args()
 
@@ -89,12 +87,14 @@ def main():
         return
 
     try:
-        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling)
-        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)
-        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-        logging.info(
-            "High DPI environment variables set (QT_AUTO_SCREEN_SCALE_FACTOR=1)."
+        QApplication.setAttribute(
+            Qt.ApplicationAttribute.AA_EnableHighDpiScaling  # type: ignore[attr-defined]
         )
+        QApplication.setAttribute(
+            Qt.ApplicationAttribute.AA_UseHighDpiPixmaps  # type: ignore[attr-defined]
+        )
+        os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+        logging.info("High DPI environment variables set (QT_AUTO_SCREEN_SCALE_FACTOR=1).")
     except AttributeError:
         logging.warning(
             "Could not set High DPI attributes (Qt version might be too old or attributes moved)."
@@ -111,6 +111,7 @@ def main():
     if platform.system() == "Darwin":
         try:
             import AppKit
+
             AppKit.NSApp.activateIgnoringOtherApps_(True)
         except ImportError:
             # Fall back to Qt method
@@ -134,13 +135,11 @@ def main():
 
     logging.info("Creating main window...")
     main_window = AutomataDesigner(
-        debug_mode=args.debug,
-        experiment_mode=args.experiment,
-        editing_mode=args.editing
+        debug_mode=args.debug, experiment_mode=args.experiment, editing_mode=args.editing
     )
 
     # Pass updater to main window if available
-    if updater and hasattr(main_window, 'set_updater'):
+    if updater and hasattr(main_window, "set_updater"):
         main_window.set_updater(updater)
 
     main_window.show()
@@ -155,9 +154,13 @@ def main():
     sys.exit(app.exec())
 
 
-def _run_scenario(args) -> None:
+def _run_scenario(args: argparse.Namespace) -> None:
     scenario_name = args.scenario
-    output_root = Path(args.scenario_output) if args.scenario_output else Path("artifacts") / scenario_name
+    output_root = (
+        Path(args.scenario_output)
+        if args.scenario_output
+        else get_app_data_dir() / "artifacts" / scenario_name
+    )
     output_root.mkdir(parents=True, exist_ok=True)
 
     if scenario_name == "blueprint-export":

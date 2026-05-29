@@ -1,4 +1,6 @@
 import logging
+import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -8,8 +10,68 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _frozen_base_candidates() -> list[Path]:
+    """Return plausible PyInstaller resource roots in preference order."""
+    candidates: list[Path] = []
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(str(meipass)).resolve())
+
+    executable = getattr(sys, "executable", None)
+    if executable:
+        executable_parent = Path(str(executable)).resolve().parent
+        candidates.append(executable_parent)
+
+        # PyInstaller macOS app bundles place datas under
+        # Contents/Resources, while sys._MEIPASS/sys.executable may point at
+        # Contents/MacOS. Prefer the self-contained bundle Resources directory
+        # over any source tree that happens to contain the bundle during local
+        # development.
+        for parent in (executable_parent, *executable_parent.parents):
+            if parent.name == "Contents":
+                candidates.append(parent / "Resources")
+                break
+            if parent.suffix == ".app":
+                candidates.append(parent / "Contents" / "Resources")
+                break
+
+    # Deduplicate while preserving order.
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            unique.append(candidate)
+            seen.add(candidate)
+    return unique
+
+
+def _has_packaged_resources(path: Path) -> bool:
+    return (path / "resources").exists() or (path / "models").exists()
+
+
+def _frozen_base_path() -> Path | None:
+    if not _is_frozen():
+        return None
+
+    candidates = _frozen_base_candidates()
+    for candidate in candidates:
+        if _has_packaged_resources(candidate):
+            return candidate
+
+    return candidates[0] if candidates else None
+
+
 def get_project_root() -> Path:
     """Get the project root directory"""
+    frozen_base = _frozen_base_path()
+    if frozen_base is not None:
+        return frozen_base
+
     # Start from this file and go up to find the project root
     current_path = Path(__file__).parent.resolve()
 
@@ -18,18 +80,6 @@ def get_project_root() -> Path:
         if (current_path / "src" / "automataii").exists():
             return current_path
         current_path = current_path.parent
-
-    # Check if we're running from a PyInstaller bundle
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # We're running from a PyInstaller bundle
-        # Try to find project root from the bundle's location
-        bundle_path = Path(sys.executable).parent
-        if bundle_path.name.endswith('.app'):
-            # macOS app bundle - go up to find the project root
-            return bundle_path.parent
-        else:
-            # Windows/Linux executable
-            return bundle_path
 
     # Fallback: return the automataii package directory
     return Path(__file__).parent.parent
@@ -48,9 +98,27 @@ def get_app_temp_dir() -> Path:
     return app_temp_dir
 
 
-def get_session_temp_dir(
-    session_id: str | None = None, clear_existing: bool = False
-) -> Path:
+def get_app_data_dir() -> Path:
+    """Return a user-writable application data directory.
+
+    Packaged macOS apps are signed read-only bundles, so runtime files such as
+    logs and default scenario output must not be written under bundled
+    resources.
+    """
+    system = platform.system()
+    if system == "Darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif system == "Windows":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    else:
+        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+
+    app_data_dir = base / "AutomataII"
+    app_data_dir.mkdir(parents=True, exist_ok=True)
+    return app_data_dir
+
+
+def get_session_temp_dir(session_id: str | None = None, clear_existing: bool = False) -> Path:
     """
     Returns a unique temporary directory for a specific processing session or project instance.
     If no session_id is provided, a new UUID will be generated.
@@ -72,9 +140,7 @@ def get_session_temp_dir(
         logger.debug(f"No session_id provided, generated new UUID: {session_id}")
 
     # Sanitize session_id to be a valid directory name (simple sanitization)
-    safe_session_id = "".join(
-        c for c in session_id if c.isalnum() or c in ("_", "-")
-    ).strip()
+    safe_session_id = "".join(c for c in session_id if c.isalnum() or c in ("_", "-")).strip()
     if not safe_session_id:  # If sanitization results in empty string, use a UUID
         safe_session_id = str(uuid.uuid4())
         logger.warning(
@@ -84,15 +150,11 @@ def get_session_temp_dir(
     project_temp_dir = base_temp_dir / safe_session_id
 
     if project_temp_dir.exists() and clear_existing:
-        logger.debug(
-            f"Clearing existing temporary session directory: {project_temp_dir}"
-        )
+        logger.debug(f"Clearing existing temporary session directory: {project_temp_dir}")
         try:
             shutil.rmtree(project_temp_dir)
         except OSError as e:
-            logger.error(
-                f"Error removing directory {project_temp_dir}: {e}", exc_info=True
-            )
+            logger.error(f"Error removing directory {project_temp_dir}: {e}", exc_info=True)
             # Proceed to try creating it, maybe it was partially deleted or permissions issue
 
     project_temp_dir.mkdir(parents=True, exist_ok=True)
@@ -113,10 +175,9 @@ def get_base_path() -> Path:
     Returns:
         Path: Base path for resource resolution
     """
-    # Check if we're running from a PyInstaller bundle
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # We're running from a PyInstaller bundle
-        return Path(sys._MEIPASS)
+    frozen_base = _frozen_base_path()
+    if frozen_base is not None:
+        return frozen_base
 
     # Otherwise, use project root
     return get_project_root()
@@ -144,12 +205,12 @@ def resolve_path(relative_path: str | Path) -> Path:
 
     parts = rel.parts
     # If path starts with 'src', also try without it
-    if parts and parts[0] == 'src':
-        without_src = Path(*parts[1:]) if len(parts) > 1 else Path('.')
+    if parts and parts[0] == "src":
+        without_src = Path(*parts[1:]) if len(parts) > 1 else Path(".")
         candidates.append(base_path / without_src)
     else:
         # Also try with a leading 'src' for dev environments
-        candidates.append(base_path / 'src' / rel)
+        candidates.append(base_path / "src" / rel)
 
     # Deduplicate while preserving order
     seen = set()

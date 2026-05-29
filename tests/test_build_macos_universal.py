@@ -1,0 +1,265 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from scripts import build_macos, macos_arch
+
+
+def test_build_executable_passes_universal2_to_pyinstaller(monkeypatch, tmp_path):
+    spec_file = tmp_path / "packaging" / "pyinstaller" / "automataii.spec"
+    spec_file.parent.mkdir(parents=True)
+    spec_file.write_text("# test spec\n")
+
+    builder = build_macos.MacOSBuilder(tmp_path)
+    commands: list[list[str]] = []
+    envs: list[dict[str, str]] = []
+
+    def fake_run(cmd, cwd=None, check=False, capture_output=False, env=None):
+        commands.append(list(cmd))
+        envs.append(dict(env or {}))
+        builder.app_bundle.mkdir(parents=True)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(build_macos.subprocess, "run", fake_run)
+
+    builder.build_executable(target_arch="universal2")
+
+    assert commands == [
+        [
+            build_macos.sys.executable,
+            "-m",
+            "PyInstaller",
+            "--clean",
+            "--noconfirm",
+            str(spec_file),
+        ]
+    ]
+    assert envs[0][macos_arch.PYINSTALLER_TARGET_ARCH_ENV] == "universal2"
+
+
+def test_build_executable_omits_target_arch_for_auto(monkeypatch, tmp_path):
+    spec_file = tmp_path / "packaging" / "pyinstaller" / "automataii.spec"
+    spec_file.parent.mkdir(parents=True)
+    spec_file.write_text("# test spec\n")
+
+    builder = build_macos.MacOSBuilder(tmp_path)
+    commands: list[list[str]] = []
+    envs: list[dict[str, str]] = []
+
+    def fake_run(cmd, cwd=None, check=False, capture_output=False, env=None):
+        commands.append(list(cmd))
+        envs.append(dict(env or {}))
+        builder.app_bundle.mkdir(parents=True)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setenv(macos_arch.PYINSTALLER_TARGET_ARCH_ENV, "stale")
+    monkeypatch.setattr(build_macos.subprocess, "run", fake_run)
+
+    builder.build_executable(target_arch=None)
+
+    assert "--target-arch" not in commands[0]
+    assert macos_arch.PYINSTALLER_TARGET_ARCH_ENV not in envs[0]
+
+
+def test_universal2_dmg_filename_is_arch_labeled():
+    assert macos_arch.dmg_filename("AutomataII", "universal2") == (
+        "Automataii-macos-universal2.dmg"
+    )
+
+
+def test_build_scripts_share_macos_arch_choices():
+    assert build_macos.MACOS_ARCH_CHOICES is macos_arch.MACOS_ARCH_CHOICES
+    assert "universal2" in build_macos.MACOS_ARCH_CHOICES
+
+
+def test_universal2_python_preflight_rejects_thin_python(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    monkeypatch.setattr(build_macos.sys, "platform", "darwin")
+    monkeypatch.setattr(build_macos, "is_universal2_capable", lambda: False)
+
+    assert builder.check_architecture_requirements("universal2") is False
+
+
+def test_universal2_python_preflight_allows_unknown_arch(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    monkeypatch.setattr(build_macos.sys, "platform", "darwin")
+    monkeypatch.setattr(build_macos, "is_universal2_capable", lambda: None)
+    monkeypatch.setattr(build_macos.sys, "version_info", (3, 12, 11, "final", 0))
+
+    assert builder.check_architecture_requirements("universal2") is False
+
+
+def test_universal2_python_preflight_rejects_non_312_python(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    monkeypatch.setattr(build_macos.sys, "platform", "darwin")
+    monkeypatch.setattr(build_macos.sys, "version_info", (3, 11, 9, "final", 0))
+    monkeypatch.setattr(
+        build_macos,
+        "is_universal2_capable",
+        lambda: (_ for _ in ()).throw(AssertionError("arch check should not run")),
+    )
+
+    assert builder.check_architecture_requirements("universal2") is False
+
+
+def test_universal2_python_preflight_accepts_312_universal(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    monkeypatch.setattr(build_macos.sys, "platform", "darwin")
+    monkeypatch.setattr(build_macos.sys, "version_info", (3, 12, 11, "final", 0))
+    monkeypatch.setattr(build_macos, "is_universal2_capable", lambda: True)
+
+    assert builder.check_architecture_requirements("universal2") is True
+
+
+def test_clean_preserves_unrelated_dist_artifacts(tmp_path):
+    dist_dir = tmp_path / "dist"
+    build_dir = tmp_path / "build"
+    dist_dir.mkdir()
+    build_dir.mkdir()
+    wheel = dist_dir / "automataii-0.1.0-py3-none-any.whl"
+    wheel.write_text("wheel")
+    app = dist_dir / "AutomataII.app"
+    app.mkdir()
+    collect_dir = dist_dir / "AutomataII"
+    collect_dir.mkdir()
+    exact_dmg = dist_dir / "Automataii-macos-x86_64.dmg"
+    exact_dmg.write_text("dmg")
+    unrelated_dmg = dist_dir / "Automataii-macos-universal2.dmg"
+    unrelated_dmg.write_text("dmg")
+
+    build_macos.MacOSBuilder(tmp_path).clean(arch_label="x86_64")
+
+    assert wheel.exists()
+    assert not app.exists()
+    assert not collect_dir.exists()
+    assert not exact_dmg.exists()
+    assert unrelated_dmg.exists()
+    assert not build_dir.exists()
+
+
+def test_sign_dmg_uses_developer_id_identity(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    dmg = tmp_path / "dist" / "Automataii-macos-universal2.dmg"
+    dmg.parent.mkdir(parents=True)
+    dmg.write_text("dmg", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    def fake_run(cmd, check=False, **kwargs):
+        commands.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(build_macos.subprocess, "run", fake_run)
+
+    builder.sign_dmg("Developer ID Application: Example (TEAMID)", dmg)
+
+    assert commands == [
+        [
+            "codesign",
+            "--force",
+            "--sign",
+            "Developer ID Application: Example (TEAMID)",
+            "--timestamp",
+            str(dmg),
+        ],
+        ["codesign", "--verify", "--verbose=2", str(dmg)],
+    ]
+
+
+def test_build_fails_when_requested_notarization_fails(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+
+    monkeypatch.setattr(builder, "check_architecture_requirements", lambda arch: True)
+    monkeypatch.setattr(builder, "check_dependencies", lambda: True)
+    monkeypatch.setattr(builder, "clean", lambda arch_label=None: None)
+    monkeypatch.setattr(builder, "build_executable", lambda target_arch=None: None)
+    monkeypatch.setattr(builder, "sign_app", lambda sign_identity: None)
+
+    def fake_create_dmg(arch_label=None):
+        builder.dist_dir.mkdir(parents=True, exist_ok=True)
+        dmg = builder.dist_dir / macos_arch.dmg_filename(builder.app_name, "x86_64")
+        dmg.write_text("dmg")
+        return dmg
+
+    monkeypatch.setattr(builder, "create_dmg", fake_create_dmg)
+    monkeypatch.setattr(builder, "notarize_app_bundle", lambda: True)
+    monkeypatch.setattr(builder, "notarize", lambda target_path: False)
+    monkeypatch.setattr(build_macos, "host_arch", lambda: "x86_64")
+
+    assert builder.build(arch="x86_64", notarize=True) is False
+
+
+def test_create_dmg_fails_when_no_tool_is_available(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    builder.app_bundle.mkdir(parents=True)
+    monkeypatch.setattr(build_macos.shutil, "which", lambda name: None)
+
+    try:
+        builder.create_dmg("universal2")
+    except RuntimeError as exc:
+        assert "DMG creation tools" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_create_dmg_prefers_branded_dmgbuild_path(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    builder.app_bundle.mkdir(parents=True)
+    builder.dmg_settings_file.parent.mkdir(parents=True)
+    builder.dmg_settings_file.write_text("# settings\n", encoding="utf-8")
+    builder.volume_icon_file.parent.mkdir(parents=True)
+    builder.volume_icon_file.write_text("icon", encoding="utf-8")
+    background = tmp_path / "build" / "dmg-assets" / "dmg-background.png"
+    background.parent.mkdir(parents=True)
+    background.write_text("background", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(builder, "_can_use_dmgbuild", lambda: True)
+    monkeypatch.setattr(builder, "_create_dmg_background_assets", lambda: background)
+
+    def fake_run(cmd, check=False, cwd=None, **kwargs):
+        commands.append(list(cmd))
+        dmg_path = Path(cmd[-1])
+        dmg_path.parent.mkdir(parents=True, exist_ok=True)
+        dmg_path.write_text("dmg", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(build_macos.subprocess, "run", fake_run)
+
+    dmg = builder.create_dmg("universal2")
+
+    assert dmg == tmp_path / "dist" / "Automataii-macos-universal2.dmg"
+    assert commands == [
+        [
+            build_macos.sys.executable,
+            "-m",
+            "dmgbuild",
+            "-s",
+            str(builder.dmg_settings_file),
+            "-D",
+            f"app_bundle={builder.app_bundle}",
+            "-D",
+            f"background_image={background}",
+            "-D",
+            f"volume_icon={builder.volume_icon_file}",
+            builder.app_name,
+            str(dmg),
+        ]
+    ]
+
+
+def test_dmg_background_assets_include_logo_and_retina_variant(tmp_path):
+    from PIL import Image
+
+    builder = build_macos.MacOSBuilder(tmp_path)
+    builder.app_icon_file.parent.mkdir(parents=True)
+    icon = Image.new("RGBA", (128, 128), (180, 80, 40, 255))
+    icon.save(builder.app_icon_file)
+
+    background = builder._create_dmg_background_assets()
+    retina = background.with_name("dmg-background@2x.png")
+
+    assert background.exists()
+    assert retina.exists()
+    assert Image.open(background).size == (520, 340)
+    assert Image.open(retina).size == (1040, 680)

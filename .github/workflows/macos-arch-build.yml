@@ -21,31 +21,52 @@ jobs:
         run: uv sync
 
       - name: Import signing certificate
-        if: ${{ secrets.MACOS_CERT_P12 && secrets.MACOS_CERT_PASSWORD && secrets.KEYCHAIN_PASSWORD && secrets.MACOS_SIGN_IDENTITY }}
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          if [[ -z "${MACOS_CERT_P12:-}" || -z "${MACOS_CERT_PASSWORD:-}" || -z "${KEYCHAIN_PASSWORD:-}" ]]; then
+            echo "::error::MACOS_CERT_P12, MACOS_CERT_PASSWORD, and KEYCHAIN_PASSWORD are required for signed macOS artifacts."
+            exit 1
+          fi
           echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -A
+          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
       - name: Build x86_64 DMG (signed + notarized if secrets present)
         env:
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_NOTARY_PROFILE: ${{ secrets.APPLE_NOTARY_PROFILE }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          SIGN_ARG=""
-          NOTARIZE_ARG=""
-          if [[ -n "$MACOS_SIGN_IDENTITY" ]]; then SIGN_ARG="--sign \"$MACOS_SIGN_IDENTITY\""; fi
-          if [[ -n "$APPLE_ID" && -n "$APPLE_TEAM_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then NOTARIZE_ARG="--notarize"; fi
-          eval uv run python scripts/build_macos.py --arch x86_64 $SIGN_ARG $NOTARIZE_ARG
+          if [[ -z "${MACOS_SIGN_IDENTITY:-}" ]]; then
+            echo "::error::MACOS_SIGN_IDENTITY is required for signed macOS artifacts."
+            exit 1
+          fi
+          if [[ -z "${APPLE_NOTARY_PROFILE:-}" ]]; then
+            if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+              export APPLE_NOTARY_PROFILE="AutomataiiNotary"
+            else
+              echo "::error::Set APPLE_NOTARY_PROFILE, or provide APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so CI can create a temporary keychain profile."
+              exit 1
+            fi
+          fi
+          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+            xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          fi
+          uv run python scripts/build_macos.py --arch x86_64 --sign "$MACOS_SIGN_IDENTITY" --notarize --verify-release --strict-distribution
+
+      - name: Clean signing keychain
+        if: ${{ always() }}
+        run: |
+          rm -f cert.p12
+          security delete-keychain build.keychain || true
 
       - name: Upload artifact (x86_64 DMG)
         uses: actions/upload-artifact@v4
@@ -68,31 +89,52 @@ jobs:
         run: uv sync
 
       - name: Import signing certificate
-        if: ${{ secrets.MACOS_CERT_P12 && secrets.MACOS_CERT_PASSWORD && secrets.KEYCHAIN_PASSWORD && secrets.MACOS_SIGN_IDENTITY }}
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          if [[ -z "${MACOS_CERT_P12:-}" || -z "${MACOS_CERT_PASSWORD:-}" || -z "${KEYCHAIN_PASSWORD:-}" ]]; then
+            echo "::error::MACOS_CERT_P12, MACOS_CERT_PASSWORD, and KEYCHAIN_PASSWORD are required for signed macOS artifacts."
+            exit 1
+          fi
           echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -A
+          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
       - name: Build arm64 DMG (signed + notarized if secrets present)
         env:
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_NOTARY_PROFILE: ${{ secrets.APPLE_NOTARY_PROFILE }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
-          SIGN_ARG=""
-          NOTARIZE_ARG=""
-          if [[ -n "$MACOS_SIGN_IDENTITY" ]]; then SIGN_ARG="--sign \"$MACOS_SIGN_IDENTITY\""; fi
-          if [[ -n "$APPLE_ID" && -n "$APPLE_TEAM_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then NOTARIZE_ARG="--notarize"; fi
-          eval uv run python scripts/build_macos.py --arch arm64 $SIGN_ARG $NOTARIZE_ARG
+          if [[ -z "${MACOS_SIGN_IDENTITY:-}" ]]; then
+            echo "::error::MACOS_SIGN_IDENTITY is required for signed macOS artifacts."
+            exit 1
+          fi
+          if [[ -z "${APPLE_NOTARY_PROFILE:-}" ]]; then
+            if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+              export APPLE_NOTARY_PROFILE="AutomataiiNotary"
+            else
+              echo "::error::Set APPLE_NOTARY_PROFILE, or provide APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so CI can create a temporary keychain profile."
+              exit 1
+            fi
+          fi
+          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+            xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          fi
+          uv run python scripts/build_macos.py --arch arm64 --sign "$MACOS_SIGN_IDENTITY" --notarize --verify-release --strict-distribution
+
+      - name: Clean signing keychain
+        if: ${{ always() }}
+        run: |
+          rm -f cert.p12
+          security delete-keychain build.keychain || true
 
       - name: Upload artifact (arm64 DMG)
         uses: actions/upload-artifact@v4

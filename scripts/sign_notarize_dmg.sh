@@ -12,12 +12,13 @@ set -euo pipefail
 #     [--only-notarize-dmg] [--skip-dmg-notarize]
 #
 # Required for notarization (environment variables):
-#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
+#   APPLE_NOTARY_PROFILE is required. Store it with
+#   xcrun notarytool store-credentials before running this script.
 #
 # Notes:
 # - If you only want to notarize the DMG (and not re-sign/repack the app), use --only-notarize-dmg.
 # - For full pipeline (sign app -> notarize app -> staple -> rebuild DMG -> notarize DMG -> staple),
-#   provide --sign and ensure APPLE_* env vars are set.
+#   provide --sign and ensure APPLE_NOTARY_PROFILE is available.
 
 DMG=""
 APP_NAME=""
@@ -28,6 +29,8 @@ SKIP_DMG_NOTARIZE=0
 
 error() { echo "[ERROR] $*" >&2; exit 1; }
 info() { echo "[INFO]  $*"; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -52,20 +55,21 @@ ensure_tools() {
 }
 
 ensure_notary_creds() {
-  if [[ -z "${APPLE_ID:-}" || -z "${APPLE_TEAM_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
-    error "Notarization requires APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD env vars"
-  fi
+  [[ -n "${APPLE_NOTARY_PROFILE:-}" ]] || error "APPLE_NOTARY_PROFILE is required for notarization"
+}
+
+submit_for_notarization() {
+  local target_path=$1
+  ensure_notary_creds
+  info "Submitting for notarization with APPLE_NOTARY_PROFILE..."
+  xcrun notarytool submit "$target_path" \
+    --keychain-profile "$APPLE_NOTARY_PROFILE" \
+    --wait
 }
 
 notarize_and_staple_dmg() {
   local dmg_path=$1
-  ensure_notary_creds
-  info "Submitting DMG for notarization..."
-  xcrun notarytool submit "$dmg_path" \
-    --apple-id "$APPLE_ID" \
-    --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-    --wait
+  submit_for_notarization "$dmg_path"
   info "Stapling DMG..."
   xcrun stapler staple "$dmg_path"
 }
@@ -112,9 +116,12 @@ rsync -a "$APP_PATH" "$WORK_DIR/"
 APP_LOCAL="$WORK_DIR/$APP_BASENAME.app"
 
 info "Signing app..."
-set -x
-codesign --deep --force --options runtime --sign "$SIGN_ID" --timestamp "$APP_LOCAL"
-set +x
+ENTITLEMENTS="$PROJECT_ROOT/packaging/macos/entitlements.plist"
+if [[ -f "$ENTITLEMENTS" ]]; then
+  codesign --deep --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_ID" --timestamp "$APP_LOCAL"
+else
+  codesign --deep --force --options runtime --sign "$SIGN_ID" --timestamp "$APP_LOCAL"
+fi
 
 info "Verifying signature..."
 codesign --verify --deep --strict --verbose=2 "$APP_LOCAL"
@@ -124,18 +131,17 @@ APP_ZIP="$WORK_DIR/$APP_BASENAME.zip"
 ditto -c -k --keepParent "$APP_LOCAL" "$APP_ZIP"
 
 info "Submitting app zip for notarization..."
-ensure_notary_creds
-xcrun notarytool submit "$APP_ZIP" \
-  --apple-id "$APPLE_ID" \
-  --team-id "$APPLE_TEAM_ID" \
-  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-  --wait
+submit_for_notarization "$APP_ZIP"
 
 info "Stapling app..."
 xcrun stapler staple "$APP_LOCAL"
 
 info "Creating new DMG: $OUT_DMG"
 hdiutil create -volname "$APP_BASENAME" -srcfolder "$APP_LOCAL" -ov -format UDZO "$OUT_DMG" >/dev/null
+
+info "Signing DMG..."
+codesign --force --sign "$SIGN_ID" --timestamp "$OUT_DMG"
+codesign --verify --verbose=2 "$OUT_DMG"
 
 if [[ $SKIP_DMG_NOTARIZE -eq 0 ]]; then
   notarize_and_staple_dmg "$OUT_DMG"

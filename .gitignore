@@ -434,6 +434,7 @@ torchserve/logs/
 # Do not ignore JSONs that are required at runtime
 *.json
 !resources/**/*.json
+!tests/fixtures/**/*.json
 *.pth
 *.pt
 *.pth.tar

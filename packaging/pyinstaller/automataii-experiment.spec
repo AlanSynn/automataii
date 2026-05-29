@@ -1,10 +1,32 @@
-# -*- mode: python ; coding: utf-8 -*-
+# ruff: noqa: F821
 
+import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files
+from pathlib import Path
 
 # Increase recursion limit for complex projects
 sys.setrecursionlimit(5000)
+
+PROJECT_ROOT = Path(SPECPATH).parents[1]
+
+
+def project_path(*parts):
+    return str(PROJECT_ROOT.joinpath(*parts))
+
+
+def macos_extra_binaries():
+    if sys.platform != "darwin":
+        return []
+
+    candidates = [
+        Path(sys.prefix) / "lib" / "libncurses.6.dylib",
+        Path(sys.base_prefix) / "lib" / "libncurses.6.dylib",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return [(str(candidate), ".")]
+    return []
+
 
 # Create entry script for experiment mode
 entry_script = """
@@ -15,30 +37,33 @@ if __name__ == "__main__":
     main()
 """
 
-with open('automataii_experiment_entry.py', 'w') as f:
+with open("automataii_experiment_entry.py", "w") as f:
     f.write(entry_script)
 
 a = Analysis(
-    ['automataii_experiment_entry.py'],
-    pathex=['src'],
-    binaries=[],
+    [project_path("automataii_experiment_entry.py")],
+    pathex=[project_path("src")],
+    binaries=macos_extra_binaries(),
     datas=[
-        ('models/onnx', 'models/onnx'),
-        ('src/automataii/presentation/qt/fonts', 'automataii/presentation/qt/fonts'),
-        ('config', 'config'),
-        ('src/automataii/modules', 'automataii/modules'),
+        (project_path("models", "onnx"), "models/onnx"),
+        (
+            project_path("src", "automataii", "presentation", "qt", "fonts"),
+            "automataii/presentation/qt/fonts",
+        ),
+        (project_path("config"), "config"),
+        (project_path("src", "automataii", "modules"), "automataii/modules"),
         # Only include root-level images from examples directory
-        ('src/examples/*.png', 'examples/'),
-        ('resources/', 'resources/'),  # Includes resources/data/*.json
+        (project_path("src", "examples", "*.png"), "examples/"),
+        (project_path("resources"), "resources/"),  # Includes resources/data/*.json
     ],
     hiddenimports=[
-        'PyQt6.sip',
-        'PyQt6.QtGui',
-        'PyQt6.QtCore',
-        'PyQt6.QtWidgets',
-        'sklearn.utils._cython_blas',
-        'scipy.special._cdflib',
-        'onnxruntime.capi.onnxruntime_pybind11_state',
+        "PyQt6.sip",
+        "PyQt6.QtGui",
+        "PyQt6.QtCore",
+        "PyQt6.QtWidgets",
+        "sklearn.utils._cython_blas",
+        "scipy.special._cdflib",
+        "onnxruntime.capi.onnxruntime_pybind11_state",
     ],
     hookspath=[],
     hooksconfig={},
@@ -54,11 +79,9 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
-    name='AutomataII-Experiment',
+    exclude_binaries=True,
+    name="AutomataII-Experiment",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -67,29 +90,40 @@ exe = EXE(
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
-    target_arch=None,
+    target_arch=os.environ.get("PYINSTALLER_TARGET_ARCH") or None,
     codesign_identity=None,
     entitlements_file=None,
 )
 
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="AutomataII-Experiment",
+)
+
 # macOS app bundle configuration
 app = BUNDLE(
-    exe,
-    name='AutomataII-Experiment.app',
-    icon='resources/icons/AppIcon.icns',
-    bundle_identifier='dev.automataii.automataii.experiment',
+    coll,
+    name="AutomataII-Experiment.app",
+    icon=project_path("resources", "icons", "AppIcon.icns"),
+    bundle_identifier="dev.automataii.automataii.experiment",
     info_plist={
-        'NSPrincipalClass': 'NSApplication',
-        'NSAppleScriptEnabled': False,
-        'CFBundleDocumentTypes': [],
-        'NSHighResolutionCapable': 'True',
-        'LSMinimumSystemVersion': '10.13.0',
-        'NSHumanReadableCopyright': 'Copyright © 2024 Automataii Contributors. All rights reserved.',
-        'CFBundleShortVersionString': '1.0.0',
-        'CFBundleVersion': '1.0.0',
-        'CFBundleDisplayName': 'AutomataII Experiment',
-        'LSApplicationCategoryType': 'public.app-category.graphics-design',
+        "NSPrincipalClass": "NSApplication",
+        "NSAppleScriptEnabled": False,
+        "CFBundleDocumentTypes": [],
+        "NSHighResolutionCapable": "True",
+        "LSMinimumSystemVersion": "10.13.0",
+        "NSHumanReadableCopyright": "Copyright © 2024 Automataii Contributors. All rights reserved.",
+        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleVersion": "1.0.0",
+        "CFBundleDisplayName": "AutomataII Experiment",
+        "LSApplicationCategoryType": "public.app-category.graphics-design",
         # Experiment-specific identifier
-        'CFBundleIdentifier': 'dev.automataii.automataii.experiment',
-    }
+        "CFBundleIdentifier": "dev.automataii.automataii.experiment",
+    },
 )

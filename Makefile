@@ -1,7 +1,7 @@
 # Automataii Makefile
 # Uses uv for dependency management and development workflow
 
-.PHONY: help install dev clean test lint format type-check build run sync update deps build-macos build-windows build-linux build-experiment
+.PHONY: help install dev clean test lint format type-check build run sync update deps build-macos build-windows build-linux build-experiment release-macos
 
 # Default target
 help:
@@ -22,7 +22,12 @@ help:
 	@echo ""
 	@echo "  build         - Build for current platform"
 	@echo "  build-experiment - Build experiment version (hides Options tab)"
-	@echo "  build-macos   - Build macOS app bundle"
+	@echo "  build-macos   - Build universal macOS app bundle/DMG (Intel + Apple Silicon)"
+	@echo "  build-macos-native - Build macOS app bundle/DMG for current host architecture"
+	@echo "  build-macos-signed - Build signed universal macOS app bundle/DMG"
+	@echo "  build-macos-release - Build signed + notarized universal macOS release"
+	@echo "  release-macos - Alias for build-macos-release"
+	@echo "  store-notary-profile - Store notarytool credentials in the macOS keychain"
 	@echo "  build-windows - Build Windows executable"
 	@echo "  build-linux   - Build Linux executable"
 	@echo ""
@@ -111,11 +116,66 @@ build-experiment-x86_64:
 	$(PYTHON) scripts/build_experiment.py --arch x86_64 $(OPTS)
 
 build-macos:
-	@echo "Building macOS app bundle..."
+	@echo "Building universal macOS app bundle..."
+	$(UV) sync
+	$(PYTHON) scripts/build_macos.py --arch universal2
+
+.PHONY: build-macos-native build-macos-universal build-macos-signed build-macos-signed-native build-macos-release build-macos-release-native release-macos verify-macos-release store-notary-profile build-macos-arm64 build-macos-x86_64
+
+build-macos-native:
+	@echo "Building macOS app bundle for current host architecture..."
 	$(UV) sync
 	$(PYTHON) scripts/build_macos.py
 
-.PHONY: build-macos-arm64 build-macos-x86_64
+build-macos-universal:
+	@echo "Building universal macOS app bundle..."
+	$(UV) sync
+	$(PYTHON) scripts/build_macos.py --arch universal2
+
+build-macos-signed:
+	@test -n "$(SIGN_ID)" || (echo "SIGN_ID is required, e.g. make build-macos-signed SIGN_ID='Developer ID Application: ...'" && exit 1)
+	@echo "Building signed universal macOS app bundle..."
+	$(UV) sync
+	$(PYTHON) scripts/build_macos.py --arch universal2 --sign "$(SIGN_ID)" --verify-release --no-gatekeeper
+
+build-macos-signed-native:
+	@test -n "$(SIGN_ID)" || (echo "SIGN_ID is required, e.g. make build-macos-signed-native SIGN_ID='Developer ID Application: ...'" && exit 1)
+	@echo "Building signed native macOS app bundle..."
+	$(UV) sync
+	$(PYTHON) scripts/build_macos.py --sign "$(SIGN_ID)" --verify-release --no-gatekeeper
+
+build-macos-release:
+	@echo "Building signed and notarized universal macOS release..."
+	@if [ -n "$(SIGN_ID)" ]; then \
+		$(PYTHON) scripts/release_macos.py --sign "$(SIGN_ID)" $(OPTS); \
+	else \
+		$(PYTHON) scripts/release_macos.py $(OPTS); \
+	fi
+
+release-macos: build-macos-release
+
+build-macos-release-native:
+	@echo "Building signed and notarized native macOS release..."
+	@if [ -n "$(SIGN_ID)" ]; then \
+		$(PYTHON) scripts/release_macos.py --arch auto --sign "$(SIGN_ID)" $(OPTS); \
+	else \
+		$(PYTHON) scripts/release_macos.py --arch auto $(OPTS); \
+	fi
+
+store-notary-profile:
+	@test -n "$(PROFILE)" || (echo "PROFILE is required, e.g. make store-notary-profile PROFILE=AutomataiiNotary APPLE_ID=... APPLE_TEAM_ID=..." && exit 1)
+	@test -n "$(APPLE_ID)" || (echo "APPLE_ID is required" && exit 1)
+	@test -n "$(APPLE_TEAM_ID)" || (echo "APPLE_TEAM_ID is required" && exit 1)
+	@if [ -n "$$APPLE_APP_SPECIFIC_PASSWORD" ]; then \
+		xcrun notarytool store-credentials "$$PROFILE" --apple-id "$$APPLE_ID" --team-id "$$APPLE_TEAM_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD"; \
+	else \
+		xcrun notarytool store-credentials "$$PROFILE" --apple-id "$$APPLE_ID" --team-id "$$APPLE_TEAM_ID"; \
+	fi
+	@echo "Stored notarytool profile. Use APPLE_NOTARY_PROFILE=$(PROFILE) with build-macos-release."
+
+verify-macos-release:
+	@test -n "$(ARTIFACT)" || (echo "ARTIFACT is required, e.g. make verify-macos-release ARTIFACT=dist/AutomataII.app" && exit 1)
+	$(PYTHON) scripts/verify_macos_release.py "$(ARTIFACT)" $(OPTS)
 
 build-macos-arm64:
 	@echo "Building macOS app bundle for arm64..."

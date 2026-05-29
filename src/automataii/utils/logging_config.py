@@ -1,7 +1,7 @@
 import logging
 
 
-def setup_logging(console_log_level: int = logging.INFO):
+def setup_logging(console_log_level: int = logging.INFO) -> None:
     """
     Configure logging for the AutomataII application.
     Sets up both file and console logging with appropriate formatting.
@@ -11,9 +11,9 @@ def setup_logging(console_log_level: int = logging.INFO):
                                  Defaults to logging.INFO.
     """
     # Create logs directory if it doesn't exist
-    from .paths import get_project_root
-    project_root = get_project_root()
-    log_dir = project_root / "logs"
+    from .paths import get_app_data_dir
+
+    log_dir = get_app_data_dir() / "logs"
     log_dir.mkdir(exist_ok=True, parents=True)
 
     # Configure file handler (always DEBUG)

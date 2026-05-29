@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from automataii.domain.character import CharacterPreset, PresetPartData, SkeletonJoint
+from automataii.utils.paths import resolve_path
 
 
 class CharacterPresetService:
@@ -49,10 +50,10 @@ class CharacterPresetService:
         if candidate.exists():
             return candidate
 
-        # Try current working directory
-        cwd_candidate = Path.cwd() / "resources" / "presets" / "characters"
-        if cwd_candidate.exists():
-            return cwd_candidate
+        # Try configured resource resolution for dev and packaged builds.
+        resolved_candidate = resolve_path(self.DEFAULT_PRESETS_PATH)
+        if resolved_candidate.exists():
+            return resolved_candidate
 
         # Return default (may not exist)
         return self.DEFAULT_PRESETS_PATH
