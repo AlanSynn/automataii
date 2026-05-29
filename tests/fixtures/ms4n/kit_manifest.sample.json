@@ -1,0 +1,15 @@
+{
+  "schema_version": "ms4n.kit_manifest.v1",
+  "kit_name": "Lab P0 Sample Kit",
+  "assets": [
+    {
+      "asset_id": "bar-board",
+      "label": "Bar Board Base",
+      "path": "kit/bar-board.svg",
+      "asset_type": "svg",
+      "mechanism_family": "linkage",
+      "pilot_priority": "P0",
+      "facilitation_prompt": "Predict which hole changes the swing."
+    }
+  ]
+}

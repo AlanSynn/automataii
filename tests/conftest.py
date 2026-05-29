@@ -10,6 +10,8 @@ import pytest
 # Add src to path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
+tests_path = Path(__file__).parent
+sys.path.insert(0, str(tests_path))
 
 # Default Qt tests to headless mode to prevent platform plugin crashes
 # in environments without a window server (e.g., CI/sandbox runs).

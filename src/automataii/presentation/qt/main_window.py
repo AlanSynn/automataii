@@ -62,6 +62,7 @@ from automataii.presentation.qt.kinematics.ik_manager import IKManager
 from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in models_pydantic
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
+from automataii.presentation.qt.tabs.lab import LabTab
 
 # Import new tab modules
 from automataii.presentation.qt.tabs.landing_tab import LandingTab
@@ -80,6 +81,7 @@ from automataii.presentation.qt.windows.components import (
     WorkflowStateMachine,
     WorkspaceLayoutManager,
 )
+from automataii.utils.paths import resolve_path
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 
 # from qframelesswindow import FramelessMainWindow
@@ -743,7 +745,13 @@ class AutomataDesigner(QMainWindow):
         foundry_title = "5. Mechanism Foundry" if self.experiment_mode else "Mechanism Foundry"
         self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
 
-        # --- Tab 5: Options ---
+        # --- Tab 5: Lab ---
+        self.lab_tab = LabTab(self)
+        self.lab_tab.setObjectName("tab_lab")
+        lab_title = "6. Lab" if self.experiment_mode else "Lab"
+        self.tab_widget.addTab(self.lab_tab, lab_title)
+
+        # --- Tab 6: Options ---
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         self.options_tab.setObjectName("tab_options")
         if not self.experiment_mode:
@@ -1443,7 +1451,7 @@ class AutomataDesigner(QMainWindow):
         if self._dummy_reference_height_px is not None:
             return self._dummy_reference_height_px
 
-        candidates: list[Path] = [Path.cwd() / "resources" / "presets" / "characters" / "dummy"]
+        candidates: list[Path] = [resolve_path("resources/presets/characters/dummy")]
         module_path = Path(__file__).resolve()
         for parent_idx in (4, 3):
             try:

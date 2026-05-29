@@ -1,0 +1,96 @@
+{
+  "schema_version": "ms4n.kit.v1",
+  "title": "Lab P0 Mechanism Kit",
+  "assets": [
+    {
+      "id": "bar-board",
+      "label": "Bar Board Base",
+      "filename": "kit/bar-board.svg",
+      "asset_type": "laser_cut_svg",
+      "mechanism_types": ["4_bar_linkage", "crank_slider"],
+      "pilot_priority": "P0",
+      "evidence_outputs": ["before_snapshot", "after_snapshot", "breakdown_repair_episode"],
+      "description": "Existing peg-board style base plate for spacing, pivot placement, and linkage alignment experiments."
+    },
+    {
+      "id": "ms4n-00-bar-board-guide",
+      "label": "Bar Board Guide Overlay",
+      "filename": "kit/ms4n-00-bar-board-guide.svg",
+      "asset_type": "printable_svg",
+      "mechanism_types": ["4_bar_linkage", "crank_slider"],
+      "pilot_priority": "P0",
+      "evidence_outputs": ["fabrication_check", "facilitator_prompt"],
+      "description": "Facilitator-facing guide that makes board spacing and allowed pivot positions explicit."
+    },
+    {
+      "id": "ms4n-01-linkage-bars",
+      "label": "Inspectable Linkage Bars",
+      "filename": "kit/ms4n-01-linkage-bars.svg",
+      "asset_type": "laser_cut_svg",
+      "mechanism_types": ["4_bar_linkage"],
+      "pilot_priority": "P0",
+      "evidence_outputs": ["mechanical_change", "motion_consequence"],
+      "description": "Linkage bars with selectable holes for one-change/one-motion repair episodes."
+    },
+    {
+      "id": "ms4n-02-cam-follower-kit",
+      "label": "Cam and Follower Set",
+      "filename": "kit/ms4n-02-cam-follower-kit.svg",
+      "asset_type": "laser_cut_svg",
+      "mechanism_types": ["cam"],
+      "pilot_priority": "P1",
+      "evidence_outputs": ["mechanical_change", "motion_consequence"],
+      "description": "Cam profile variants for rise/fall explanation episodes after the linkage P0 pilot."
+    },
+    {
+      "id": "ms4n-03-crank-slider-kit",
+      "label": "Crank Slider Set",
+      "filename": "kit/ms4n-03-crank-slider-kit.svg",
+      "asset_type": "laser_cut_svg",
+      "mechanism_types": ["crank_slider"],
+      "pilot_priority": "P1",
+      "evidence_outputs": ["breakdown_repair_episode"],
+      "description": "Linear motion set for future push/pull character actions."
+    },
+    {
+      "id": "ms4n-04-gears-pulleys-kit",
+      "label": "Gears and Pulleys Set",
+      "filename": "kit/ms4n-04-gears-pulleys-kit.svg",
+      "asset_type": "laser_cut_svg",
+      "mechanism_types": ["gear", "planetary_gear"],
+      "pilot_priority": "P1",
+      "evidence_outputs": ["coordination_relation"],
+      "description": "Repeatable coordination parts for future comparative mechanism families."
+    },
+    {
+      "id": "ms4n-05-character-connectors",
+      "label": "Character Connectors",
+      "filename": "kit/ms4n-05-character-connectors.svg",
+      "asset_type": "laser_cut_svg",
+      "mechanism_types": ["4_bar_linkage", "cam", "crank_slider", "gear"],
+      "pilot_priority": "P0",
+      "evidence_outputs": ["character_action_mapping"],
+      "description": "Connectors that make the motion-to-character-action link visible and reversible."
+    },
+    {
+      "id": "ms4n-06-trace-prompt-cards",
+      "label": "Trace Prompt Cards",
+      "filename": "kit/ms4n-06-trace-prompt-cards.svg",
+      "asset_type": "printable_svg",
+      "mechanism_types": ["4_bar_linkage", "cam", "crank_slider", "gear"],
+      "pilot_priority": "P0",
+      "evidence_outputs": ["prediction", "explanation", "facilitator_move"],
+      "description": "Prompt cards for predict-observe-explain and trace-duel conversations."
+    },
+    {
+      "id": "ms4n-07-fabrication-checks",
+      "label": "Fabrication Check Cards",
+      "filename": "kit/ms4n-07-fabrication-checks.svg",
+      "asset_type": "printable_svg",
+      "mechanism_types": ["4_bar_linkage", "cam", "crank_slider", "gear"],
+      "pilot_priority": "P0",
+      "evidence_outputs": ["breakdown", "repair", "facilitator_move"],
+      "description": "Cards for identifying jams from looseness, collisions, friction, spacing, and material behavior."
+    }
+  ]
+}

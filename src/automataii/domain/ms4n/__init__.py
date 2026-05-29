@@ -1,0 +1,55 @@
+"""MS4N research-domain models for the user-facing Lab workflow."""
+
+from automataii.domain.ms4n.episodes import (
+    EPISODE_SCHEMA_VERSION,
+    ArtifactRef,
+    BreakdownEvent,
+    BreakdownRepairEpisode,
+    EpisodeValidationError,
+    FacilitatorMove,
+    LearnerExplanation,
+    MechanicalChange,
+    MechanismStateSnapshot,
+    RepairAction,
+    ValidationResult,
+    ensure_json_safe,
+    json_safe_copy,
+)
+from automataii.domain.ms4n.kit_assets import KitAsset, KitManifest, KitManifestError
+from automataii.domain.ms4n.trace import (
+    DOWNSAMPLE_RULE,
+    NormalizedTrace,
+    TraceSummary,
+    TraceValidationError,
+    compare_trace_summaries,
+    normalize_trace_points,
+    summarize_trace,
+    validate_trace_points,
+)
+
+__all__ = [
+    "EPISODE_SCHEMA_VERSION",
+    "DOWNSAMPLE_RULE",
+    "ArtifactRef",
+    "BreakdownEvent",
+    "BreakdownRepairEpisode",
+    "EpisodeValidationError",
+    "FacilitatorMove",
+    "KitAsset",
+    "KitManifest",
+    "KitManifestError",
+    "LearnerExplanation",
+    "MechanicalChange",
+    "MechanismStateSnapshot",
+    "NormalizedTrace",
+    "RepairAction",
+    "TraceSummary",
+    "TraceValidationError",
+    "ValidationResult",
+    "compare_trace_summaries",
+    "ensure_json_safe",
+    "json_safe_copy",
+    "normalize_trace_points",
+    "summarize_trace",
+    "validate_trace_points",
+]

@@ -6,12 +6,14 @@ Handles save/load of project state to/from JSON files.
 Architecture: Application Layer (Hexagonal)
 Pattern: Repository + Strategy (for format versioning)
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import math
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from filecmp import cmp
@@ -27,9 +29,11 @@ logger = logging.getLogger(__name__)
 # RESULT TYPES (Railway-Oriented)
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class SaveResult:
     """Result of save operation."""
+
     success: bool
     path: Path | None = None
     error: str | None = None
@@ -46,6 +50,7 @@ class SaveResult:
 @dataclass(frozen=True)
 class LoadResult:
     """Result of load operation."""
+
     success: bool
     state: ProjectState | None = None
     error: str | None = None
@@ -62,6 +67,7 @@ class LoadResult:
 # =============================================================================
 # VERSION MIGRATION PROTOCOL
 # =============================================================================
+
 
 @runtime_checkable
 class VersionMigrator(Protocol):
@@ -124,6 +130,7 @@ class V1ToV2Migrator:
 # PROJECT SERIALIZER
 # =============================================================================
 
+
 class ProjectSerializer:
     """
     Serializes and deserializes project state.
@@ -169,6 +176,8 @@ class ProjectSerializer:
             if path.suffix != self.FILE_EXTENSION:
                 path = path.with_suffix(self.FILE_EXTENSION)
 
+            self._validate_ms4n_layer_data(state)
+
             # Backup existing file
             if path.exists():
                 self._create_backup(path)
@@ -205,6 +214,28 @@ class ProjectSerializer:
             logger.exception(error)
             return SaveResult.fail(error)
 
+    def _validate_ms4n_layer_data(self, state: ProjectState) -> None:
+        """Reject invalid MS4N payloads before permissive layer serialization."""
+        from automataii.application.ms4n.layer_data_bridge import (
+            MS4N_LAYER_KEY,
+            validate_ms4n_payload,
+        )
+
+        for mechanism_id, mechanism in state.mechanisms.items():
+            ms4n_payload = mechanism.layer_data.get(MS4N_LAYER_KEY)
+            if ms4n_payload is None:
+                continue
+            if not isinstance(ms4n_payload, Mapping):
+                raise ValueError(
+                    f"MS4N layer data for mechanism {mechanism_id!r} must be an object"
+                )
+            try:
+                validate_ms4n_payload(ms4n_payload)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid MS4N layer data for mechanism {mechanism_id!r}: {exc}"
+                ) from exc
+
     def _prepare_state_for_save(self, state: ProjectState, path: Path) -> ProjectState:
         """
         Create a portable project snapshot by bundling referenced assets.
@@ -219,8 +250,7 @@ class ProjectSerializer:
 
         def _safe_stem_hint(stem_hint: str) -> str:
             safe = "".join(
-                char if char.isalnum() or char in {"_", "-"} else "_"
-                for char in stem_hint
+                char if char.isalnum() or char in {"_", "-"} else "_" for char in stem_hint
             ).strip("._-")
             return safe or "asset"
 
@@ -314,8 +344,12 @@ class ProjectSerializer:
                 part,
                 texture_path=texture_rel or part.texture_path,
                 mask_path=mask_rel or part.mask_path,
-                original_svg_path=original_svg_rel if original_svg_rel is not None else part.original_svg_path,
-                enhanced_svg_path=enhanced_svg_rel if enhanced_svg_rel is not None else part.enhanced_svg_path,
+                original_svg_path=original_svg_rel
+                if original_svg_rel is not None
+                else part.original_svg_path,
+                enhanced_svg_path=enhanced_svg_rel
+                if enhanced_svg_rel is not None
+                else part.enhanced_svg_path,
             )
 
         if updated_parts:
@@ -485,6 +519,7 @@ class ProjectSerializer:
 # =============================================================================
 # AUTO-SAVE MANAGER
 # =============================================================================
+
 
 class AutoSaveManager:
     """
