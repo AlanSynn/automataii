@@ -272,7 +272,10 @@ class CamCache:
             * safe_scale
         )
         cam_offset = (
-            _finite_float(params.get("eccentricity", params.get("cam_offset", 20.0)), 20.0)
+            max(
+                0.0,
+                _finite_float(params.get("eccentricity", params.get("cam_offset", 20.0)), 20.0),
+            )
             * safe_scale
         )
         cam_lobes = max(1, int(_positive_finite_float(params.get("cam_lobes", 1), 1.0)))
@@ -290,6 +293,7 @@ class CamCache:
         primary_var = cam_offset * np.cos(cam_lobes * theta)
         secondary_var = (cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * theta)
         r = base_radius + primary_var + secondary_var
+        r = np.maximum(r, max(1e-6, base_radius * 0.05))
 
         # Convert to Cartesian (base profile, no rotation)
         base_profile = np.column_stack([r * np.cos(theta), r * np.sin(theta)])
@@ -326,9 +330,12 @@ class CamCache:
         follower_theta = -np.pi / 2 - cam_angle
 
         primary = self.cam_offset * np.cos(self.cam_lobes * follower_theta)
-        secondary = (self.cam_offset * self.profile_harmonic) * np.cos(2 * self.cam_lobes * follower_theta)
+        secondary = (self.cam_offset * self.profile_harmonic) * np.cos(
+            2 * self.cam_lobes * follower_theta
+        )
 
-        return float(self.base_radius + primary + secondary)
+        radius = float(self.base_radius + primary + secondary)
+        return max(max(1e-6, self.base_radius * 0.05), radius)
 
 
 @dataclass(slots=True)

@@ -14,6 +14,11 @@ from typing import Any
 
 import numpy as np
 
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    positive_finite_float,
+)
+
 
 class SimulationRegenerator:
     """
@@ -55,10 +60,10 @@ class SimulationRegenerator:
             B = np.array(params.get("B", [70, -50]), dtype=float)
 
             # Calculate link lengths
-            L1 = np.linalg.norm(A - O0)  # Crank
-            L2 = np.linalg.norm(B - A)  # Coupler
-            L3 = np.linalg.norm(B - O1)  # Rocker
-            L4 = np.linalg.norm(O1 - O0)  # Ground
+            L1 = float(np.linalg.norm(A - O0))  # Crank
+            L2 = float(np.linalg.norm(B - A))  # Coupler
+            L3 = float(np.linalg.norm(B - O1))  # Rocker
+            L4 = float(np.linalg.norm(O1 - O0))  # Ground
 
             # Validate mechanism can be simulated
             if L1 <= 0 or L2 <= 0 or L3 <= 0 or L4 <= 0:
@@ -124,10 +129,10 @@ class SimulationRegenerator:
             B = np.array(params.get("B", [70, -50]), dtype=float)
             C = np.array(params.get("C", [50, -80]), dtype=float)
 
-            L1 = np.linalg.norm(A - O0)
-            L2 = np.linalg.norm(B - A)
-            L3 = np.linalg.norm(C - B)
-            L4 = np.linalg.norm(C - O1)
+            L1 = float(np.linalg.norm(A - O0))
+            L2 = float(np.linalg.norm(B - A))
+            L3 = float(np.linalg.norm(C - B))
+            L4 = float(np.linalg.norm(C - O1))
 
             frames = []
             num_steps = params.get("simulation_steps", self.DEFAULT_STEPS)
@@ -138,7 +143,8 @@ class SimulationRegenerator:
                 A_new = O0 + L1 * np.array([math.cos(theta), math.sin(theta)])
 
                 # Simplified: keep B relative to A, solve for C
-                direction = (B - A) / np.linalg.norm(B - A) if np.linalg.norm(B - A) > 0 else np.array([1, 0])
+                ba_norm = float(np.linalg.norm(B - A))
+                direction = (B - A) / ba_norm if ba_norm > 0 else np.array([1, 0])
                 B_new = A_new + L2 * direction
 
                 C_new = self._solve_circle_intersection(B_new, L3, O1, L4)
@@ -313,12 +319,19 @@ class SimulationRegenerator:
     ) -> dict[str, Any] | None:
         """Regenerate cam-follower simulation."""
         try:
-            base_r = params.get("base_radius", 30.0)
-            lift = params.get("lift", 15.0)
-            center = np.array(params.get("center", [0, 0]), dtype=float)
+            base_r = positive_finite_float(params.get("base_radius"), 30.0)
+            lift = max(0.0, finite_float(params.get("lift"), 15.0))
+            center = np.array(params.get("center", [0.0, 0.0]), dtype=float)
+            if center.ndim != 1 or center.size < 2 or not bool(np.isfinite(center[:2]).all()):
+                center = np.array([0.0, 0.0], dtype=float)
+            else:
+                center = center[:2]
 
             frames = []
-            num_steps = params.get("simulation_steps", self.DEFAULT_STEPS)
+            num_steps = max(
+                1,
+                int(positive_finite_float(params.get("simulation_steps"), self.DEFAULT_STEPS)),
+            )
 
             for i in range(num_steps):
                 angle = 2 * math.pi * i / num_steps
@@ -404,6 +417,5 @@ class SimulationRegenerator:
 
         # Return preferred point
         if prefer_lower:
-            return p1 if p1[1] > p2[1] else p2
-        else:
-            return p1 if p1[1] < p2[1] else p2
+            return np.asarray(p1 if p1[1] > p2[1] else p2, dtype=float)
+        return np.asarray(p1 if p1[1] < p2[1] else p2, dtype=float)

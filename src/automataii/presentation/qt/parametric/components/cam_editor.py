@@ -16,6 +16,16 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
 
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    positive_finite_float,
+)
+from automataii.presentation.qt.tabs.cam_geometry import (
+    cam_contact_y_from_params,
+    cam_follower_base_scene,
+    cam_scene_unit_scale,
+)
+
 from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
 
 
@@ -29,9 +39,15 @@ class CamEditor(MechanismEditor):
 
         if "cam_position" in mechanism_data:
             cam_position = mechanism_data["cam_position"]
-            center = QPointF(cam_position[0], cam_position[1])
+            center = QPointF(
+                finite_float(cam_position[0], 0.0),
+                finite_float(cam_position[1], 0.0),
+            )
         else:
-            center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
+            center = QPointF(
+                finite_float(params.get("center_x"), 0.0),
+                finite_float(params.get("center_y"), 0.0),
+            )
 
         params["center_x"] = center.x()
         params["center_y"] = center.y()
@@ -49,8 +65,8 @@ class CamEditor(MechanismEditor):
         self.handles["center"] = center_handle
 
         # Default parameters
-        base_radius = float(params.get("base_radius", 25.0))
-        eccentricity = float(params.get("eccentricity", 10.0))
+        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
+        eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
         params["base_radius"] = base_radius
         params["eccentricity"] = eccentricity
         params.setdefault("rise_deg", 90.0)
@@ -75,12 +91,15 @@ class CamEditor(MechanismEditor):
         on the right side (+X direction). Dragging it horizontally adjusts the
         cam size while maintaining the base_radius/eccentricity ratio.
         """
-        center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
-        base_radius = float(params.get("base_radius", 25.0))
-        eccentricity = float(params.get("eccentricity", 10.0))
+        center = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
+        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
+        eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
 
         # Apply scale factor if available
-        cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)
+        cam_scale_factor = positive_finite_float(self.mechanism_data.get("cam_scale_factor"), 1.0)
         scaled_total_radius = (base_radius + eccentricity) * cam_scale_factor
 
         # Position handle at the right edge of the cam
@@ -107,6 +126,29 @@ class CamEditor(MechanismEditor):
         self.scene.addItem(handle)
         self.handles["size"] = handle
 
+    @staticmethod
+    def _contact_y(center_y: float, params: dict[str, Any], *, scale: float = 1.0) -> float:
+        """Return cam contact Y in the same local convention used by cam visuals."""
+        return float(center_y + cam_contact_y_from_params(params, scale=scale))
+
+    @staticmethod
+    def _follower_y_bounds(
+        contact_y: float,
+        *,
+        unit_scale: float = 1.0,
+        rod_length_multiplier: float = 1.0,
+    ) -> tuple[float, float]:
+        """Return scene-space Y bounds for the follower handle.
+
+        Bounds are expressed in visual rod length, while the stored
+        ``follower_rod_length`` remains the unscaled physical parameter.
+        """
+        multiplier = rod_length_multiplier if rod_length_multiplier > 0.0 else 1.0
+        return (
+            float(contact_y - 300.0 * multiplier * unit_scale),
+            float(contact_y - 20.0 * multiplier * unit_scale),
+        )
+
     def _on_size_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle cam size adjustment.
 
@@ -114,10 +156,13 @@ class CamEditor(MechanismEditor):
         handle's distance from the cam center.
         """
         params = self.mechanism_data.get("params", {})
-        center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
+        center = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
 
         # Calculate new total radius from handle position
-        cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)
+        cam_scale_factor = positive_finite_float(self.mechanism_data.get("cam_scale_factor"), 1.0)
         new_scaled_total_radius = abs(new_pos.x() - center.x())
 
         # Unscale to get the base values
@@ -127,8 +172,8 @@ class CamEditor(MechanismEditor):
             new_total_radius = new_scaled_total_radius
 
         # Maintain the ratio between base_radius and eccentricity
-        old_base_radius = float(params.get("base_radius", 25.0))
-        old_eccentricity = float(params.get("eccentricity", 10.0))
+        old_base_radius = positive_finite_float(params.get("base_radius"), 25.0)
+        old_eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
         old_total = old_base_radius + old_eccentricity
 
         if old_total > 0:
@@ -154,30 +199,40 @@ class CamEditor(MechanismEditor):
 
         self._trigger_cam_update()
 
-    def _create_follower_handle(self, params: dict):
+    def _create_follower_handle(self, params: dict[str, Any]) -> None:
         """Create handle for follower rod adjustment."""
-        center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
-        base_radius = params.get("base_radius", 25.0)
-        rod_length = params.get("follower_rod_length", 40.0)
-        eccentricity = params.get("eccentricity", 10.0)
+        center = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
+        rod_length = positive_finite_float(params.get("follower_rod_length"), 40.0)
+        rod_length_multiplier = positive_finite_float(
+            self.mechanism_data.get("rod_length_multiplier"), 1.0
+        )
+        cam_scale_factor = positive_finite_float(self.mechanism_data.get("cam_scale_factor"), 1.0)
 
         # Calculate follower position using transforms if available
         if self.to_scene_coords is not None and self.to_mech_coords is not None:
             # Get center in mechanism space
             center_mech = self._to_mech(center)
             if center_mech is not None:
-                # Follower at max height: cam center + base_radius + eccentricity + rod_length
-                # (negative Y because follower is above cam in screen coordinates)
-                mech_follower_y = center_mech[1] - (base_radius + eccentricity + rod_length)
-                mech_follower_x = center_mech[0]
-
+                # Visuals place the follower rod from the cam's max-radius contact
+                # point to the follower head, with scene/mechanism Y increasing downward.
+                contact_y = self._contact_y(center_mech[1], params, scale=cam_scale_factor)
                 # Convert to scene
-                follower_scene = self._to_scene((mech_follower_x, mech_follower_y))
-                if follower_scene is not None:
-                    follower_pos = follower_scene
+                contact_scene = self._to_scene((float(center_mech[0]), float(contact_y)))
+                if contact_scene is not None:
+                    unit_scale = cam_scene_unit_scale(self._to_scene)
+                    scaled_rod_length = rod_length * rod_length_multiplier
+                    follower_pos = cam_follower_base_scene(
+                        contact_scene, scaled_rod_length, unit_scale
+                    )
                     # Calculate min/max constraints in scene space
-                    min_mech = self._to_scene((center_mech[0], center_mech[1] - 300))
-                    max_mech = self._to_scene((center_mech[0], center_mech[1] - base_radius - 20))
+                    min_y, max_y = self._follower_y_bounds(
+                        contact_scene.y(),
+                        unit_scale=unit_scale,
+                        rod_length_multiplier=rod_length_multiplier,
+                    )
 
                     handle = ParametricHandle(
                         follower_pos,
@@ -188,8 +243,8 @@ class CamEditor(MechanismEditor):
                     )
                     handle.setToolTip("Follower Rod - Drag vertically to adjust length")
                     handle.constraints = {
-                        "min_y": min_mech.y() if min_mech else center.y() - 300,
-                        "max_y": max_mech.y() if max_mech else center.y() + 100,
+                        "min_y": min_y,
+                        "max_y": max_y,
                         "fixed_x": follower_pos.x(),
                     }
                     self.scene.addItem(handle)
@@ -197,15 +252,18 @@ class CamEditor(MechanismEditor):
                     return
 
         # Fallback: use scale factors
-        cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)
-        rod_length_multiplier = self.mechanism_data.get("rod_length_multiplier", 1.0)
+        cam_scale_factor = positive_finite_float(self.mechanism_data.get("cam_scale_factor"), 1.0)
+        rod_length_multiplier = positive_finite_float(
+            self.mechanism_data.get("rod_length_multiplier"), 1.0
+        )
 
-        scaled_base_radius = base_radius * cam_scale_factor
         scaled_rod_length = rod_length * rod_length_multiplier
-        scaled_eccentricity = eccentricity * cam_scale_factor
+        scaled_contact_y = center.y() + cam_contact_y_from_params(
+            params, scale=cam_scale_factor
+        )
 
         follower_pos = QPointF(
-            center.x(), center.y() - (scaled_base_radius + scaled_eccentricity + scaled_rod_length)
+            center.x(), scaled_contact_y - scaled_rod_length
         )
 
         handle = ParametricHandle(
@@ -216,28 +274,32 @@ class CamEditor(MechanismEditor):
             style=HandleStyle(size=12, color=QColor(100, 100, 255)),
         )
         handle.setToolTip("Follower Rod - Drag vertically to adjust length")
+        min_y, max_y = self._follower_y_bounds(
+            scaled_contact_y,
+            rod_length_multiplier=rod_length_multiplier,
+        )
         handle.constraints = {
-            "min_y": center.y() - 300,
-            "max_y": center.y() - (scaled_base_radius + 20),
+            "min_y": min_y,
+            "max_y": max_y,
             "fixed_x": center.x(),
         }
 
         self.scene.addItem(handle)
         self.handles["follower"] = handle
 
-    def _get_cam_radius_at_angle(self, angle: float, params: dict) -> float:
+    def _get_cam_radius_at_angle(self, angle: float, params: dict[str, Any]) -> float:
         """Get cam radius at specific angle."""
-        base_radius = params.get("base_radius", 40)
-        lift = params.get("lift", 20)
+        base_radius = positive_finite_float(params.get("base_radius"), 40.0)
+        lift = max(0.0, finite_float(params.get("lift"), 20.0))
         profile_angle = math.radians(angle)
         radius = base_radius + lift * (1 + math.cos(profile_angle)) / 2
-        return radius
+        return float(radius)
 
-    def _on_center_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_center_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle cam center movement."""
         old_center = QPointF(
-            self.mechanism_data["params"].get("center_x", 0),
-            self.mechanism_data["params"].get("center_y", 0),
+            finite_float(self.mechanism_data["params"].get("center_x"), 0.0),
+            finite_float(self.mechanism_data["params"].get("center_y"), 0.0),
         )
 
         self.mechanism_data["params"]["center_x"] = new_pos.x()
@@ -267,7 +329,9 @@ class CamEditor(MechanismEditor):
             new_size_pos = current_size_pos + offset
             size_handle.setPos(new_size_pos)
             # Update constraints to track new center
-            cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)
+            cam_scale_factor = positive_finite_float(
+                self.mechanism_data.get("cam_scale_factor"), 1.0
+            )
             min_radius = 15.0 * cam_scale_factor
             max_radius = 150.0 * cam_scale_factor
             size_handle.constraints["min_x"] = new_pos.x() + min_radius
@@ -276,29 +340,35 @@ class CamEditor(MechanismEditor):
 
         if "follower" in self.handles:
             follower_handle = self.handles["follower"]
-            cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)
-            scaled_base_radius = (
-                float(self.mechanism_data["params"].get("base_radius", 25.0)) * cam_scale_factor
+            params = self.mechanism_data["params"]
+            cam_scale_factor = positive_finite_float(
+                self.mechanism_data.get("cam_scale_factor"), 1.0
             )
-            min_y = new_pos.y() - 300
-            max_y = new_pos.y() - (scaled_base_radius + 20)
+            rod_length_multiplier = positive_finite_float(
+                self.mechanism_data.get("rod_length_multiplier"), 1.0
+            )
+            contact_y = new_pos.y() + cam_contact_y_from_params(
+                params, scale=cam_scale_factor
+            )
+            min_y, max_y = self._follower_y_bounds(
+                contact_y,
+                rod_length_multiplier=rod_length_multiplier,
+            )
 
             # Keep follower constraints consistent with mechanism-space transforms.
             center_mech = self._to_mech(new_pos)
             if center_mech is not None:
-                min_scene = self._to_scene((center_mech[0], center_mech[1] - 300))
-                max_scene = self._to_scene(
-                    (
-                        center_mech[0],
-                        center_mech[1]
-                        - float(self.mechanism_data["params"].get("base_radius", 25.0))
-                        - 20,
-                    )
+                mech_contact_y = self._contact_y(
+                    center_mech[1], params, scale=cam_scale_factor
                 )
-                if min_scene is not None:
-                    min_y = min_scene.y()
-                if max_scene is not None:
-                    max_y = max_scene.y()
+                contact_scene = self._to_scene((float(center_mech[0]), mech_contact_y))
+                if contact_scene is not None:
+                    unit_scale = cam_scene_unit_scale(self._to_scene)
+                    min_y, max_y = self._follower_y_bounds(
+                        contact_scene.y(),
+                        unit_scale=unit_scale,
+                        rod_length_multiplier=rod_length_multiplier,
+                    )
 
             follower_handle.constraints["min_y"] = min_y
             follower_handle.constraints["max_y"] = max_y
@@ -317,37 +387,48 @@ class CamEditor(MechanismEditor):
 
         self._trigger_cam_update()
 
-    def _on_follower_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_follower_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle follower movement."""
         center = QPointF(
-            self.mechanism_data["params"]["center_x"],
-            self.mechanism_data["params"]["center_y"],
+            finite_float(self.mechanism_data["params"].get("center_x"), 0.0),
+            finite_float(self.mechanism_data["params"].get("center_y"), 0.0),
         )
 
         # Prefer mechanism-space update when transforms are available.
         center_mech = self._to_mech(center)
         follower_mech = self._to_mech(new_pos)
         if center_mech is not None and follower_mech is not None:
-            base_radius_mech = float(self.mechanism_data["params"].get("base_radius", 25.0))
-            distance_mech = abs(center_mech[1] - follower_mech[1])
-            self.mechanism_data["params"]["follower_rod_length"] = max(
-                20.0, distance_mech - base_radius_mech
+            cam_scale_factor = positive_finite_float(
+                self.mechanism_data.get("cam_scale_factor"), 1.0
             )
-            self._trigger_cam_update()
-            return
+            contact_y = self._contact_y(
+                center_mech[1], self.mechanism_data["params"], scale=cam_scale_factor
+            )
+            contact_scene = self._to_scene((float(center_mech[0]), contact_y))
+            if contact_scene is not None:
+                unit_scale = cam_scene_unit_scale(self._to_scene)
+                rod_length_multiplier = positive_finite_float(
+                    self.mechanism_data.get("rod_length_multiplier"), 1.0
+                )
+                denominator = max(1e-9, unit_scale * rod_length_multiplier)
+                self.mechanism_data["params"]["follower_rod_length"] = max(
+                    20.0, (contact_scene.y() - new_pos.y()) / denominator
+                )
+                self._trigger_cam_update()
+                return
 
-        base_radius = self.mechanism_data["params"].get("base_radius", 25.0)
-        cam_scale_factor = self.mechanism_data.get("cam_scale_factor", 1.0)
-        scaled_base_radius = base_radius * cam_scale_factor
+        cam_scale_factor = positive_finite_float(self.mechanism_data.get("cam_scale_factor"), 1.0)
 
-        distance_from_center = abs(center.y() - new_pos.y())
-        new_rod_length = max(20, distance_from_center - scaled_base_radius)
+        params = self.mechanism_data["params"]
+        contact_y = center.y() + cam_contact_y_from_params(params, scale=cam_scale_factor)
+        new_rod_length = max(20, contact_y - new_pos.y())
 
-        rod_length_multiplier = self.mechanism_data.get("rod_length_multiplier", 1.0)
-        if rod_length_multiplier > 0:
-            self.mechanism_data["params"]["follower_rod_length"] = new_rod_length / rod_length_multiplier
-        else:
-            self.mechanism_data["params"]["follower_rod_length"] = new_rod_length
+        rod_length_multiplier = positive_finite_float(
+            self.mechanism_data.get("rod_length_multiplier"), 1.0
+        )
+        self.mechanism_data["params"]["follower_rod_length"] = (
+            new_rod_length / rod_length_multiplier
+        )
 
         self._trigger_cam_update()
 
@@ -357,12 +438,15 @@ class CamEditor(MechanismEditor):
 
         def pos_for_angle(deg: float) -> QPointF:
             a = math.radians(deg)
-            return QPointF(center.x() + ui_radius * math.cos(a), center.y() + ui_radius * math.sin(a))
+            return QPointF(
+                center.x() + ui_radius * math.cos(a),
+                center.y() + ui_radius * math.sin(a),
+            )
 
-        align_max = float(params.get("align_max_deg", 90.0))
-        rise_deg = float(params.get("rise_deg", 90.0))
-        high_dwell_deg = float(params.get("high_dwell_deg", 60.0))
-        return_deg = float(params.get("return_deg", 30.0))
+        align_max = finite_float(params.get("align_max_deg"), 90.0)
+        rise_deg = finite_float(params.get("rise_deg"), 90.0)
+        high_dwell_deg = finite_float(params.get("high_dwell_deg"), 60.0)
+        return_deg = finite_float(params.get("return_deg"), 30.0)
 
         angles_abs = {
             "align_max": align_max,
@@ -410,17 +494,23 @@ class CamEditor(MechanismEditor):
     def _refresh_angle_handles(self) -> None:
         """Refresh positions of angle handles."""
         params = self.mechanism_data.get("params", {})
-        center = QPointF(params.get("center_x", 0), params.get("center_y", 0))
+        center = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
         ui_radius = 50.0
 
         def pos_for_angle(deg: float) -> QPointF:
             a = math.radians(deg)
-            return QPointF(center.x() + ui_radius * math.cos(a), center.y() + ui_radius * math.sin(a))
+            return QPointF(
+                center.x() + ui_radius * math.cos(a),
+                center.y() + ui_radius * math.sin(a),
+            )
 
-        align = float(params.get("align_max_deg", 90.0))
-        rise = float(params.get("rise_deg", 90.0))
-        dwell = float(params.get("high_dwell_deg", 60.0))
-        ret = float(params.get("return_deg", 30.0))
+        align = finite_float(params.get("align_max_deg"), 90.0)
+        rise = finite_float(params.get("rise_deg"), 90.0)
+        dwell = finite_float(params.get("high_dwell_deg"), 60.0)
+        ret = finite_float(params.get("return_deg"), 30.0)
 
         targets = {
             "align_max": align,
@@ -436,56 +526,75 @@ class CamEditor(MechanismEditor):
                 except Exception:
                     logging.debug("Suppressed exception", exc_info=True)
 
-    def _on_align_max_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_align_max_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle align max angle movement."""
         params = self.mechanism_data.get("params", {})
-        c = QPointF(params.get("center_x", 0), params.get("center_y", 0))
+        c = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
         params["align_max_deg"] = float(self._angle_from(c, new_pos))
         self._refresh_angle_handles()
         self._trigger_cam_update()
 
-    def _on_rise_end_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_rise_end_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle rise end angle movement."""
         params = self.mechanism_data.get("params", {})
-        c = QPointF(params.get("center_x", 0), params.get("center_y", 0))
-        align = float(params.get("align_max_deg", 90.0))
+        c = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
+        align = finite_float(params.get("align_max_deg"), 90.0)
         end = float(self._angle_from(c, new_pos))
         params["rise_deg"] = float(self._pos_angle_diff(align, end))
         self._refresh_angle_handles()
         self._trigger_cam_update()
 
-    def _on_dwell_high_end_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_dwell_high_end_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle dwell high end angle movement."""
         params = self.mechanism_data.get("params", {})
-        c = QPointF(params.get("center_x", 0), params.get("center_y", 0))
-        align = float(params.get("align_max_deg", 90.0))
-        rise = float(params.get("rise_deg", 90.0))
+        c = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
+        align = finite_float(params.get("align_max_deg"), 90.0)
+        rise = finite_float(params.get("rise_deg"), 90.0)
         end = float(self._angle_from(c, new_pos))
         params["high_dwell_deg"] = float(self._pos_angle_diff(align + rise, end))
         self._refresh_angle_handles()
         self._trigger_cam_update()
 
-    def _on_return_end_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_return_end_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle return end angle movement."""
         params = self.mechanism_data.get("params", {})
-        c = QPointF(params.get("center_x", 0), params.get("center_y", 0))
-        align = float(params.get("align_max_deg", 90.0))
-        rise = float(params.get("rise_deg", 90.0))
-        dwell = float(params.get("high_dwell_deg", 60.0))
+        c = QPointF(
+            finite_float(params.get("center_x"), 0.0),
+            finite_float(params.get("center_y"), 0.0),
+        )
+        align = finite_float(params.get("align_max_deg"), 90.0)
+        rise = finite_float(params.get("rise_deg"), 90.0)
+        dwell = finite_float(params.get("high_dwell_deg"), 60.0)
         end = float(self._angle_from(c, new_pos))
         params["return_deg"] = float(self._pos_angle_diff(align + rise + dwell, end))
         self._refresh_angle_handles()
         self._trigger_cam_update()
 
-    def _trigger_cam_update(self):
+    def _trigger_cam_update(self) -> None:
         """Trigger cam mechanism update."""
         logging.debug("[CAM-EDITOR] Triggered update for cam mechanism")
 
     def _simulate_cam_follower_physics(self) -> dict[str, Any]:
         """Simulate cam-follower interaction with physics."""
         params = self.mechanism_data["params"]
-        center = np.array([params["center_x"], params["center_y"]])
-        rod_length = params["follower_rod_length"]
+        center = np.array(
+            [
+                finite_float(params.get("center_x"), 0.0),
+                finite_float(params.get("center_y"), 0.0),
+            ],
+            dtype=float,
+        )
+        rod_length = positive_finite_float(params.get("follower_rod_length"), 40.0)
+        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
 
         angles = np.linspace(0, 360, 100)
         follower_positions = []
@@ -505,7 +614,7 @@ class CamEditor(MechanismEditor):
             cam_profiles.append(cam_point.tolist())
 
             follower_y = center[1] - radius - rod_length
-            spring_force = 0.1 * (follower_y - (center[1] - params["base_radius"] - rod_length))
+            spring_force = 0.1 * (follower_y - (center[1] - base_radius - rod_length))
             follower_y += spring_force
 
             follower_positions.append([center[0], follower_y])

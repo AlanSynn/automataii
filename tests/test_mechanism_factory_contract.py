@@ -35,6 +35,8 @@ EXPECTED_FOUNDRY_TO_DESIGN_TYPES = {
     "slider_crank": "4_bar_linkage",
 }
 
+VISIBLE_FOUNDRY_TYPES = {"four_bar", "cam_follower"}
+
 RENDERABLE_DESIGN_TYPES = {"4_bar_linkage", "cam", "gear", "planetary_gear"}
 
 
@@ -85,7 +87,8 @@ def test_foundry_factory_creates_renderable_design_layer(foundry_type: str, desi
 def test_controller_exposed_types_have_factory_contract_coverage() -> None:
     """Adding a Foundry type must force an explicit factory contract decision."""
     exposed_types = set(_controller_items_by_type())
-    assert exposed_types == set(EXPECTED_FOUNDRY_TO_DESIGN_TYPES)
+    assert exposed_types == VISIBLE_FOUNDRY_TYPES
+    assert exposed_types.issubset(EXPECTED_FOUNDRY_TO_DESIGN_TYPES)
 
 
 @pytest.mark.parametrize(
@@ -157,7 +160,7 @@ def test_recommendation_factory_rejects_unknown_display_types(display_type: str)
         service.map_mechanism_type(display_type)
 
 
-@pytest.mark.parametrize("foundry_type", sorted(EXPECTED_FOUNDRY_TO_DESIGN_TYPES))
+@pytest.mark.parametrize("foundry_type", sorted(VISIBLE_FOUNDRY_TYPES))
 def test_controller_export_supports_every_exposed_foundry_type(foundry_type: str) -> None:
     """The public controller export route should not reject a visible Foundry type."""
     controller = MechanismFoundryController()

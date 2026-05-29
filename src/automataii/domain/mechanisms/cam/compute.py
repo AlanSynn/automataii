@@ -68,6 +68,22 @@ def _positive_int(value: object, default: int = 1) -> int:
     return int(max(1, result))
 
 
+def _minimum_cam_radius(cam_radius: float) -> float:
+    """Small positive radial floor for extreme harmonic profiles.
+
+    Foundry exposes radius/offset/harmonic ranges that can mathematically make
+    the harmonic profile cross or invert through the cam center.  The domain
+    solver still needs a finite, outward support radius for stable follower
+    positions and force metadata.
+    """
+    return max(1e-6, abs(cam_radius) * 0.05)
+
+
+def _clip_cam_radius(radius: float, cam_radius: float) -> float:
+    floor = _minimum_cam_radius(cam_radius)
+    return radius if math.isfinite(radius) and radius >= floor else floor
+
+
 class CamFollowerMechanism(Mechanism):
     def __init__(self, parameters: dict[str, float] | None = None):
         self._parameters = self._parse_parameters(parameters or {})
@@ -115,10 +131,15 @@ class CamFollowerMechanism(Mechanism):
         if "cam_lobes" in parameters:
             lobes = parameters["cam_lobes"]
             try:
-                lobes_int = int(lobes)
+                lobes_float = float(lobes)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"cam_lobes must be a positive integer, got {lobes}") from exc
-            if isinstance(lobes, bool) or lobes_int < 1:
+            if (
+                isinstance(lobes, bool)
+                or not math.isfinite(lobes_float)
+                or not lobes_float.is_integer()
+                or int(lobes_float) < 1
+            ):
                 raise ValueError(f"cam_lobes must be a positive integer, got {lobes}")
         if "profile_harmonic" in parameters:
             try:
@@ -241,6 +262,7 @@ class CamFollowerMechanism(Mechanism):
                 2 * params.cam_lobes * thetas
             )
             radii = cam_radius + primary_variation + secondary_variation
+            radii = np.maximum(radii, _minimum_cam_radius(cam_radius))
 
             # Base profile (no rotation)
             base_xs = radii * np.cos(thetas)
@@ -272,6 +294,7 @@ class CamFollowerMechanism(Mechanism):
             + (cam_offset * params.profile_harmonic)
             * math.cos(2 * params.cam_lobes * theta_normalized)
         )
+        contact_radius = _clip_cam_radius(contact_radius, cam_radius)
 
         return contact_radius, profile_points
 

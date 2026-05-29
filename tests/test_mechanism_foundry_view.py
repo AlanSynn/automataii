@@ -1,6 +1,6 @@
 import pytest
 from PyQt6.QtCore import QPointF
-from PyQt6.QtWidgets import QApplication, QToolBar
+from PyQt6.QtWidgets import QApplication, QLabel, QToolBar
 
 
 @pytest.fixture(scope="module")
@@ -21,6 +21,101 @@ def test_view_instantiation(qapp):
     assert view.current_mechanism is not None
     assert view.mechanism_selector is not None
     assert view.mechanism_selector.count() > 0
+
+
+def _foundry_label_text(view, object_name: str) -> str:
+    label = view.info_panel.findChild(QLabel, object_name)
+    assert label is not None
+    return label.text()
+
+
+def test_foundry_uses_sensemaking_panel_with_legacy_text(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+    from automataii.presentation.qt.tabs.mechanism_foundry.sensemaking_panel import (
+        MechanismSensemakingPanel,
+    )
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    assert isinstance(view.info_panel, MechanismSensemakingPanel)
+    assert view.info_text is not None
+    assert "Four" in _foundry_label_text(view, "sensemakingTitleLabel")
+    assert "Pick one slider" in _foundry_label_text(view, "changeValueLabel")
+
+
+def test_foundry_sensemaking_updates_immediately_on_parameter_change(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view.set_grid_system(False, 2.5)
+
+    _, label = view.parameter_sliders["input_link"]
+    view._on_parameter_changed("input_link", 65.0, label, False)
+
+    assert "Input Link" in label.text() or label.text() == "65.0"
+    assert "Input link:" in _foundry_label_text(view, "changeValueLabel")
+    assert "65 mm" in _foundry_label_text(view, "changeValueLabel")
+    assert "hole" in _foundry_label_text(view, "buildHintLabel").lower()
+    assert view._last_sensemaking_context is not None
+    assert view._last_sensemaking_context.change is not None
+    assert view._last_sensemaking_context.evidence_pending is True
+    assert "updating" in _foundry_label_text(view, "evidenceLabel")
+
+    view._apply_pending_parameter()
+
+    assert view._last_sensemaking_context is not None
+    assert view._last_sensemaking_context.evidence_pending is False
+    assert "updating" not in _foundry_label_text(view, "evidenceLabel")
+
+
+def test_foundry_sensemaking_clears_stale_change_on_mechanism_switch(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    four_bar_idx = view.mechanism_selector.findData("four_bar")
+    assert four_bar_idx >= 0
+    view.mechanism_selector.setCurrentIndex(four_bar_idx)
+    view._on_mechanism_changed(four_bar_idx)
+    view.set_grid_system(False, 2.5)
+    _, label = view.parameter_sliders["input_link"]
+    view._on_parameter_changed("input_link", 65.0, label, False)
+    assert "Input link:" in _foundry_label_text(view, "changeValueLabel")
+
+    idx = view.mechanism_selector.findData("cam_follower")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    assert "Input link:" not in _foundry_label_text(view, "changeValueLabel")
+    assert "Pick one slider" in _foundry_label_text(view, "changeValueLabel")
+    assert "cam" in _foundry_label_text(view, "sensemakingChainLabel").lower()
+
+
+def test_foundry_sensemaking_resets_motion_point_when_selector_hidden(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    four_bar_idx = view.mechanism_selector.findData("four_bar")
+    assert four_bar_idx >= 0
+    view.mechanism_selector.setCurrentIndex(four_bar_idx)
+    view._on_mechanism_changed(four_bar_idx)
+    assert "Joint B" in _foundry_label_text(view, "evidenceLabel")
+
+    gear_idx = view.mechanism_selector.findData("gear_train")
+    assert gear_idx < 0
+    view._load_mechanism("gear_train")
+
+    evidence = _foundry_label_text(view, "evidenceLabel")
+    assert "Ratio" in evidence
+    assert "Joint B" not in evidence
 
 
 def test_view_initial_four_bar_loaded(qapp):
@@ -59,6 +154,32 @@ def test_foundry_toolbar_does_not_expose_assign_character_action(qapp):
     toolbars = view.findChildren(QToolBar)
     action_texts = [action.text().lower() for toolbar in toolbars for action in toolbar.actions()]
     assert all("assign character" not in text for text in action_texts)
+
+
+def test_foundry_right_sensemaking_pane_is_collapsed_by_default_and_toggleable(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+
+    assert view.info_panel_container is not None
+    assert view.info_panel_action is not None
+    assert view.info_panel_collapsed is True
+    assert view.info_panel_container.isHidden()
+    assert not view.info_panel_action.isChecked()
+    assert "Show Sensemaking" in view.info_panel_action.text()
+
+    view._set_info_panel_collapsed(False)
+
+    assert view.info_panel_collapsed is False
+    assert not view.info_panel_container.isHidden()
+    assert view.info_panel_action.isChecked()
+    assert "Hide Sensemaking" in view.info_panel_action.text()
+
+    view._set_info_panel_collapsed(True)
+
+    assert view.info_panel_collapsed is True
+    assert view.info_panel_container.isHidden()
+    assert not view.info_panel_action.isChecked()
 
 
 def test_view_animation_tick(qapp):
@@ -138,6 +259,28 @@ def test_path_preview_toggle_off_on_applies_immediately(qapp):
     assert view.path_preview_overlay._items
 
 
+def test_path_preview_refreshes_on_parameter_rerender(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view._render_mechanism()
+
+    assert "A" in view.path_preview_overlay._items
+    first_items = list(view.path_preview_overlay._items["A"])
+
+    view.current_parameters["input_link"] += 10.0
+    view._state_cache_valid = False
+    view._render_mechanism()
+
+    second_items = list(view.path_preview_overlay._items["A"])
+    assert second_items != first_items
+    assert all(item.scene() is None for item in first_items)
+
+
 def test_hover_hit_test_reuses_cached_state(qapp, monkeypatch):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
@@ -180,12 +323,12 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
         lambda _mid, mtype, params, _pivot: captured.append((mtype, params))
     )
 
-    view._on_gallery_mechanism_selected("slider_crank")
-    assert view.mechanism_selector.currentData() == "slider_crank"
+    view._on_gallery_mechanism_selected("cam_follower")
+    assert view.mechanism_selector.currentData() == "cam_follower"
 
     view._on_export_to_design()
     assert captured
-    assert captured[0][0] == "slider_crank"
+    assert captured[0][0] == "cam_follower"
     assert captured[0][1]["grid_system_enabled"] is True
     assert captured[0][1]["grid_cell_cm"] == 2.5
     assert "__foundry_snapshot__" in captured[0][1]
@@ -194,21 +337,39 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
     assert "positions" in snapshot
 
 
+def test_foundry_selector_hides_deferred_mechanisms(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    visible_types = {
+        view.mechanism_selector.itemData(i) for i in range(view.mechanism_selector.count())
+    }
+
+    assert visible_types == {"four_bar", "cam_follower"}
+    assert view.mechanism_selector.findData("gear_train") < 0
+    assert view.mechanism_selector.findData("planetary_gear") < 0
+    assert view.mechanism_selector.findData("slider_crank") < 0
+
+
 def test_foundry_view_type_aliases_ignore_case_and_whitespace(qapp):
+    from automataii.application.mechanism_foundry import canonical_mechanism_type
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
     view = MechanismFoundryView()
 
+    assert canonical_mechanism_type(" Four_Bar_Linkage ") == "four_bar"
     assert view._to_controller_mechanism_type(" Gear ") == "gear_train"
     assert view._to_controller_mechanism_type(" Four_Bar_Linkage ") == "four_bar"
 
     mapped = view._map_design_params_to_foundry(
-        " Gear ",
-        {"gear1_radius": 45.0, "gear2_radius": 75.0},
+        " Four_Bar_Linkage ",
+        {"L1": 150.0, "L2": 45.0, "L3": 120.0, "L4": 130.0},
     )
 
-    assert mapped["gear1_teeth"] == 15.0
-    assert mapped["gear2_teeth"] == 25.0
+    assert mapped["ground_link"] == 150.0
+    assert mapped["input_link"] == 45.0
+    assert mapped["coupler_link"] == 120.0
+    assert mapped["output_link"] == 130.0
 
 
 def test_set_synced_mechanism_normalizes_case_and_whitespace(qapp):
@@ -221,6 +382,12 @@ def test_set_synced_mechanism_normalizes_case_and_whitespace(qapp):
     assert view.synced_mechanism_id == "sync_cam"
     assert view.current_mechanism is not None
     assert view.current_mechanism.mechanism_type == "cam_follower"
+
+    view.set_synced_mechanism("sync_gear", " Planetary_Gear ")
+
+    assert view.synced_mechanism_id == "sync_gear"
+    assert view.current_mechanism is not None
+    assert view.current_mechanism.mechanism_type == "gear_train"
 
 
 def test_fourbar_preview_renders_coupler_triangle_and_point(qapp):

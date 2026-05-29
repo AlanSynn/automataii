@@ -35,7 +35,9 @@ def test_configuration_defaults_present():
         assert spec.key in defaults
 
 
-def test_slider_crank_fallback_included():
+def test_experimental_mechanisms_hidden_from_foundry_gallery():
     controller = MechanismFoundryController()
     mechanism_types = {item.mechanism_type for item in controller.list_mechanisms()}
-    assert "slider_crank" in mechanism_types
+    assert mechanism_types == {"four_bar", "cam_follower"}
+    assert "gear_train" not in mechanism_types
+    assert "slider_crank" not in mechanism_types

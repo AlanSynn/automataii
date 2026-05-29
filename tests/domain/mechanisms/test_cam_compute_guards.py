@@ -41,6 +41,27 @@ def test_cam_profile_cache_uses_sanitized_parameter_tuple_not_hash_only() -> Non
     assert mechanism._cached_profile_params != first_cache_key
 
 
+def test_cam_compute_state_clips_foundry_visible_extreme_profile_to_positive_radii() -> None:
+    mechanism = CamFollowerMechanism()
+
+    state = mechanism.compute_state(
+        {
+            "cam_radius": 20.0,
+            "cam_offset": 60.0,
+            "follower_length": 30.0,
+            "cam_lobes": 4,
+            "profile_harmonic": 0.8,
+        },
+        input_angle=0.0,
+    )
+
+    radii = [math.hypot(x, y) for x, y in state.metadata["cam_profile"]]
+    assert min(radii) > 0.0
+    assert state.metadata["contact_radius"] > 0.0
+    for point in state.positions.values():
+        assert all(math.isfinite(coord) for coord in point)
+
+
 @pytest.mark.parametrize(
     "params,match",
     [
@@ -48,8 +69,32 @@ def test_cam_profile_cache_uses_sanitized_parameter_tuple_not_hash_only() -> Non
         ({"cam_radius": float("nan"), "cam_offset": 1.0, "follower_length": 1.0}, "finite"),
         ({"cam_radius": 1.0, "cam_offset": -1.0, "follower_length": 1.0}, "non-negative"),
         ({"cam_radius": 1.0, "cam_offset": 1.0, "follower_length": 0.0}, "positive"),
-        ({"cam_radius": 1.0, "cam_offset": 1.0, "follower_length": 1.0, "cam_lobes": 0}, "positive integer"),
-        ({"cam_radius": 1.0, "cam_offset": 1.0, "follower_length": 1.0, "profile_harmonic": float("inf")}, "finite"),
+        (
+            {"cam_radius": 1.0, "cam_offset": 1.0, "follower_length": 1.0, "cam_lobes": 0},
+            "positive integer",
+        ),
+        (
+            {"cam_radius": 1.0, "cam_offset": 1.0, "follower_length": 1.0, "cam_lobes": 1.5},
+            "positive integer",
+        ),
+        (
+            {
+                "cam_radius": 1.0,
+                "cam_offset": 1.0,
+                "follower_length": 1.0,
+                "cam_lobes": True,
+            },
+            "positive integer",
+        ),
+        (
+            {
+                "cam_radius": 1.0,
+                "cam_offset": 1.0,
+                "follower_length": 1.0,
+                "profile_harmonic": float("inf"),
+            },
+            "finite",
+        ),
     ],
 )
 def test_cam_validate_parameters_rejects_malformed_numeric_values(

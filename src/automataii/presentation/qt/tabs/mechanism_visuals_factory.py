@@ -31,6 +31,13 @@ from automataii.presentation.qt.mechanism_parameter_utils import (
     finite_param,
     positive_finite_float,
 )
+from automataii.presentation.qt.tabs.cam_geometry import (
+    build_pear_cam_profile,
+    cam_contact_local_from_profile,
+    cam_follower_base_scene,
+    cam_scene_unit_scale,
+    normalized_cam_timing,
+)
 
 
 def _cosmetic_pen(
@@ -134,11 +141,29 @@ class MechanismVisualsFactory:
         if not all([l1 is not None, l2 is not None, l3 is not None, l4 is not None]):
             return []
 
-        # Use initial positions from simulation data if available
+        # Use initial positions from simulation data if available.
+        # If a Foundry/Design layer is already scene-aligned and only has
+        # key_points, those key_points are the authoritative geometry.  Falling
+        # back directly to [0, l1] would render a second, detached linkage in
+        # the corner while handles/blueprint still point to the imported layer.
         full_sim_data = mechanism_data.get("full_simulation_data", {})
         if "joint_positions" in full_sim_data:
             joint_positions = full_sim_data["joint_positions"]
-            if "p1_positions" in joint_positions and len(joint_positions["p1_positions"]) > 0:
+            has_initial_frame = (
+                isinstance(joint_positions, dict)
+                and all(
+                    name in joint_positions
+                    and hasattr(joint_positions[name], "__len__")
+                    and len(joint_positions[name]) > 0
+                    for name in (
+                        "p1_positions",
+                        "p2_positions",
+                        "p3_positions",
+                        "p4_positions",
+                    )
+                )
+            )
+            if has_initial_frame:
                 # Use first frame from simulation
                 p1 = np.array(joint_positions["p1_positions"][0])
                 p2 = np.array(joint_positions["p2_positions"][0])
@@ -163,39 +188,77 @@ class MechanismVisualsFactory:
                 else:
                     p_coupler = p3
             else:
-                return []
+                key_points = mechanism_data.get("key_points", {})
+                p1 = _finite_point_array(key_points.get("ground_pivot_1"))
+                p2 = _finite_point_array(key_points.get("ground_pivot_2"))
+                p3 = _finite_point_array(key_points.get("crank_end"))
+                p4 = _finite_point_array(key_points.get("rocker_end"))
+                p_coupler = _finite_point_array(key_points.get("coupler_point"))
+                if p1 is None or p2 is None or p3 is None or p4 is None:
+                    return []
+                if p_coupler is None:
+                    default_coupler_x = finite_float(l3, 0.0) / 2.0
+                    coupler_point_x = finite_param(
+                        params, "coupler_point_x", "p_x", default=default_coupler_x
+                    )
+                    coupler_point_y = finite_param(
+                        params, "coupler_point_y", "p_y", default=0.0
+                    )
+                    coupler_vec = p4 - p3
+                    coupler_length = np.linalg.norm(coupler_vec)
+                    if coupler_length > 0:
+                        coupler_unit = coupler_vec / coupler_length
+                        coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
+                        p_coupler = (
+                            p3
+                            + coupler_point_x * coupler_unit
+                            + coupler_point_y * coupler_normal
+                        )
+                    else:
+                        p_coupler = p3
         else:
-            # Fallback - use default ground pivot positions based on l1
-            p1 = np.array([0, 0])
-            p2 = np.array([l1, 0])
-            p3 = p1 + np.array([l2 * math.cos(0), l2 * math.sin(0)])
-            d = np.linalg.norm(p2 - p3)
-            if not (abs(l3 - l4) <= d <= l3 + l4):
-                return []
+            key_points = mechanism_data.get("key_points", {})
+            p1 = _finite_point_array(key_points.get("ground_pivot_1"))
+            p2 = _finite_point_array(key_points.get("ground_pivot_2"))
+            p3 = _finite_point_array(key_points.get("crank_end"))
+            p4 = _finite_point_array(key_points.get("rocker_end"))
+            p_coupler = _finite_point_array(key_points.get("coupler_point"))
 
-            a = (l3**2 - l4**2 + d**2) / (2 * d)
-            h = math.sqrt(max(0, l3**2 - a**2))
-            p3_p2_unit = (p2 - p3) / d
-            midpoint = p3 + a * p3_p2_unit
-            p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
+            if p1 is None or p2 is None or p3 is None or p4 is None:
+                # Fallback - use default ground pivot positions based on l1
+                p1 = np.array([0, 0])
+                p2 = np.array([l1, 0])
+                p3 = p1 + np.array([l2 * math.cos(0), l2 * math.sin(0)])
+                d = np.linalg.norm(p2 - p3)
+                if not (abs(l3 - l4) <= d <= l3 + l4):
+                    return []
 
-            # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-            default_coupler_x = finite_float(l3, 0.0) / 2.0
-            coupler_point_x = finite_param(
-                params, "coupler_point_x", "p_x", default=default_coupler_x
-            )
-            coupler_point_y = finite_param(
-                params, "coupler_point_y", "p_y", default=0.0
-            )
+                a = (l3**2 - l4**2 + d**2) / (2 * d)
+                h = math.sqrt(max(0, l3**2 - a**2))
+                p3_p2_unit = (p2 - p3) / d
+                midpoint = p3 + a * p3_p2_unit
+                p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
 
-            coupler_vec = p4 - p3
-            coupler_length = np.linalg.norm(coupler_vec)
-            if coupler_length > 0:
-                coupler_unit = coupler_vec / coupler_length
-                coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
-                p_coupler = p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
-            else:
-                p_coupler = p3
+            if p_coupler is None:
+                # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
+                default_coupler_x = finite_float(l3, 0.0) / 2.0
+                coupler_point_x = finite_param(
+                    params, "coupler_point_x", "p_x", default=default_coupler_x
+                )
+                coupler_point_y = finite_param(
+                    params, "coupler_point_y", "p_y", default=0.0
+                )
+
+                coupler_vec = p4 - p3
+                coupler_length = np.linalg.norm(coupler_vec)
+                if coupler_length > 0:
+                    coupler_unit = coupler_vec / coupler_length
+                    coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
+                    p_coupler = (
+                        p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
+                    )
+                else:
+                    p_coupler = p3
 
         # Transform all points to scene coordinates
         p1_t = to_scene_coords(p1)
@@ -556,54 +619,62 @@ class MechanismVisualsFactory:
 
         # Adjusted parameters for more realistic CAM size
         # CAM should be smaller, rod should be longer for realistic appearance
-        base_radius = params.get("base_radius", 25.0)
-        eccentricity = params.get("eccentricity", 10.0)
-        follower_rod_length = params.get("follower_rod_length", 40.0)
+        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
+        eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
+        follower_rod_length = positive_finite_float(params.get("follower_rod_length"), 40.0)
 
         # Scale CAM appropriately for character interaction
         # Use stored scaling factors if available, otherwise use defaults
-        cam_scale_factor = mechanism_data.get('cam_scale_factor', 1.0)  # Normal CAM size
-        rod_length_multiplier = mechanism_data.get('rod_length_multiplier', 1.0)  # Direct rod length control
+        cam_scale_factor = positive_finite_float(
+            mechanism_data.get('cam_scale_factor', 1.0), 1.0
+        )  # Normal CAM size
+        rod_length_multiplier = positive_finite_float(
+            mechanism_data.get('rod_length_multiplier', 1.0), 1.0
+        )  # Direct rod length control
 
         # Apply scaling
         scaled_base_radius = base_radius * cam_scale_factor
         scaled_eccentricity = eccentricity * cam_scale_factor
         scaled_rod_length = follower_rod_length * rod_length_multiplier
 
-        # Build analytic pear-cam profile from parameters (fallback to sensible defaults)
-        rise_deg = float(params.get("rise_deg", 90.0))
-        high_dwell_deg = float(params.get("high_dwell_deg", 60.0))
-        # Accept either explicit low_dwell or return; compute the missing one to satisfy 360°
-        if "low_dwell_deg" in params:
-            low_dwell_deg = float(params.get("low_dwell_deg", 180.0))
-            # Clamp to valid range
-            low_dwell_deg = max(0.0, min(360.0, low_dwell_deg))
-        else:
-            # If return provided, derive low_dwell; else use default 180°
-            return_deg = float(params.get("return_deg", 30.0))
-            low_dwell_deg = max(0.0, 360.0 - (rise_deg + high_dwell_deg + return_deg))
-
-        align_max_deg = float(params.get("align_max_deg", 90.0))
-
-        # Guard against invalid sums
-        total = rise_deg + high_dwell_deg + low_dwell_deg
-        if total > 360.0:
-            # Scale dwells proportionally to fit
-            scale = 360.0 / max(1e-6, total)
-            rise_deg *= scale
-            high_dwell_deg *= scale
-            low_dwell_deg *= scale
+        # Build analytic pear-cam profile from parameters (fallback to sensible defaults).
+        rise_deg, high_dwell_deg, return_deg, low_dwell_deg = normalized_cam_timing(params)
+        align_max_deg = finite_float(params.get("align_max_deg", 90.0), 90.0)
 
         cam_points_local = self._build_pear_cam_profile(
             base_radius=scaled_base_radius,
             eccentricity=scaled_eccentricity,
             rise_deg=rise_deg,
             high_dwell_deg=high_dwell_deg,
+            return_deg=return_deg,
             dwell_low_deg=low_dwell_deg,
             align_max_to_deg=align_max_deg,
             num_samples=360,
         )
         mechanism_data['cam_points_local'] = cam_points_local
+
+        key_points = mechanism_data.get("key_points", {})
+        if not isinstance(key_points, dict):
+            key_points = {}
+        is_foundry_scene_cam = (
+            str(mechanism_data.get("source", "")).lower() == "foundry"
+            and str(mechanism_data.get("coordinate_space", "")).lower() == "scene"
+        )
+
+        def scene_key_point(name: str) -> QPointF | None:
+            if not is_foundry_scene_cam:
+                return None
+            point = _finite_point_array(key_points.get(name))
+            if point is None:
+                return None
+            return QPointF(float(point[0]), float(point[1]))
+
+        snapshot_contact_scene = scene_key_point("contact_point")
+        snapshot_follower_base_scene = (
+            scene_key_point("follower_base")
+            or scene_key_point("follower_end")
+            or scene_key_point("follower_position")
+        )
 
         # Placement priority:
         # 1) Explicit edited center in mechanism-space (m_center_*)
@@ -615,18 +686,25 @@ class MechanismVisualsFactory:
 
         try:
             if "m_center_x" in params and "m_center_y" in params:
-                explicit_center_mech = np.array(
-                    [float(params["m_center_x"]), float(params["m_center_y"])], dtype=float
+                candidate_center = np.array(
+                    [
+                        finite_float(params.get("m_center_x"), math.nan),
+                        finite_float(params.get("m_center_y"), math.nan),
+                    ],
+                    dtype=float,
                 )
+                if bool(np.isfinite(candidate_center).all()):
+                    explicit_center_mech = candidate_center
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
             explicit_center_mech = None
 
         try:
             if "center_x" in params and "center_y" in params:
-                explicit_center_scene = QPointF(
-                    float(params["center_x"]), float(params["center_y"])
-                )
+                center_x = finite_float(params.get("center_x"), math.nan)
+                center_y = finite_float(params.get("center_y"), math.nan)
+                if math.isfinite(center_x) and math.isfinite(center_y):
+                    explicit_center_scene = QPointF(center_x, center_y)
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
             explicit_center_scene = None
@@ -639,11 +717,10 @@ class MechanismVisualsFactory:
                     brect = gen_path.boundingRect()
                     path_x_center = float(brect.center().x())
                     path_y_bottom = float(brect.bottom())
-                    local_y_max = float(np.max(cam_points_local[:, 1]))
-                    follower_local_y = local_y_max + scaled_rod_length
+                    contact_local = cam_contact_local_from_profile(cam_points_local)
                     mechanism_data["cam_position"] = [
                         path_x_center,
-                        path_y_bottom - follower_local_y,
+                        path_y_bottom - float(contact_local[1]),
                     ]
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
@@ -654,13 +731,12 @@ class MechanismVisualsFactory:
 
         try:
             if explicit_center_mech is not None and base_map is not None:
-                def cam_to_scene_coords(p):
-                    if p is None or len(p) != 2:
+                def cam_to_scene_coords(p: object) -> QPointF:
+                    point = _finite_point_array(p)
+                    if point is None:
                         mapped = base_map(explicit_center_mech)
                     else:
-                        mapped = base_map(
-                            np.array([float(p[0]), float(p[1])], dtype=float) + explicit_center_mech
-                        )
+                        mapped = base_map(point + explicit_center_mech)
                     return QPointF(mapped.x(), mapped.y())
 
                 mechanism_data["cam_transform_function"] = cam_to_scene_coords
@@ -668,10 +744,11 @@ class MechanismVisualsFactory:
             elif explicit_center_scene is not None:
                 center_scene = QPointF(explicit_center_scene.x(), explicit_center_scene.y())
 
-                def cam_to_scene_coords(p):
-                    if p is None or len(p) != 2:
+                def cam_to_scene_coords(p: object) -> QPointF:
+                    point = _finite_point_array(p)
+                    if point is None:
                         return QPointF(center_scene.x(), center_scene.y())
-                    return QPointF(center_scene.x() + float(p[0]), center_scene.y() + float(p[1]))
+                    return QPointF(center_scene.x() + float(point[0]), center_scene.y() + float(point[1]))
 
                 mechanism_data["cam_transform_function"] = cam_to_scene_coords
 
@@ -679,38 +756,43 @@ class MechanismVisualsFactory:
                 brect = gen_path.boundingRect()
                 path_x_center = float(brect.center().x())
                 path_y_bottom = float(brect.bottom())
-                local_y_max = float(np.max(cam_points_local[:, 1]))
-                follower_local = np.array([0.0, local_y_max], dtype=float)
+                follower_local = cam_contact_local_from_profile(cam_points_local)
                 follower_scene_raw = base_map(follower_local)
                 dx = path_x_center - follower_scene_raw.x()
                 dy = path_y_bottom - follower_scene_raw.y()
 
-                def cam_to_scene_coords(p):
-                    if p is None or len(p) != 2:
+                def cam_to_scene_coords(p: object) -> QPointF:
+                    point = _finite_point_array(p)
+                    if point is None:
                         return QPointF(follower_scene_raw.x() + dx, follower_scene_raw.y() + dy)
-                    mapped = base_map(p)
+                    mapped = base_map(point)
                     return QPointF(mapped.x() + dx, mapped.y() + dy)
 
                 mechanism_data["cam_transform_function"] = cam_to_scene_coords
+                center_scene_raw = base_map(np.array([0.0, 0.0], dtype=float))
+                mechanism_data["cam_position"] = [
+                    float(center_scene_raw.x() + dx),
+                    float(center_scene_raw.y() + dy),
+                ]
             else:
                 mechanism_data["cam_transform_function"] = base_map
         except Exception:
             if explicit_center_scene is not None:
                 center_scene = QPointF(explicit_center_scene.x(), explicit_center_scene.y())
 
-                def cam_to_scene_coords(p):
-                    if p is None or len(p) != 2:
+                def cam_to_scene_coords(p: object) -> QPointF:
+                    point = _finite_point_array(p)
+                    if point is None:
                         return QPointF(center_scene.x(), center_scene.y())
-                    return QPointF(center_scene.x() + float(p[0]), center_scene.y() + float(p[1]))
+                    return QPointF(center_scene.x() + float(point[0]), center_scene.y() + float(point[1]))
 
                 mechanism_data["cam_transform_function"] = cam_to_scene_coords
             else:
                 mechanism_data["cam_transform_function"] = base_map
         # Bind local mapper for convenience
         cam_to_scene_coords = mechanism_data['cam_transform_function']
-        # Initial follower position at topmost y of unrotated cam (ignore rod length for default placement)
-        y_max = float(np.max(cam_points_local[:, 1]))
-        follower_pos_orig = np.array([0.0, y_max], dtype=float)
+        # Initial follower contact at local +Y max using the shared scene-vertical convention.
+        follower_pos_orig = cam_contact_local_from_profile(cam_points_local)
         cam_center_orig = np.array([0.0, 0.0], dtype=float)
 
         # Store scaling factors for consistency in animation and parametric editing
@@ -720,22 +802,20 @@ class MechanismVisualsFactory:
         # Transform key points to scene coordinates
         cam_center_scene = cam_to_scene_coords(cam_center_orig)
         follower_scene = cam_to_scene_coords(follower_pos_orig)
+        if snapshot_contact_scene is not None:
+            follower_scene = snapshot_contact_scene
 
-        try:
-            u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
-            u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
-            unit_scale = math.hypot(u1.x() - u0.x(), u1.y() - u0.y())
-        except Exception:
-            unit_scale = 1.0
-
-        follower_base_scene = QPointF(
-            float(follower_scene.x()),
-            float(follower_scene.y() - (scaled_rod_length * unit_scale)),
-        )
+        unit_scale = cam_scene_unit_scale(cam_to_scene_coords)
+        if snapshot_follower_base_scene is not None:
+            follower_base_scene = snapshot_follower_base_scene
+        else:
+            follower_base_scene = cam_follower_base_scene(
+                follower_scene, scaled_rod_length, unit_scale
+            )
 
         # Build cam polygon
-        cam_polygon_points = []
-        pts = mechanism_data.get('cam_points_local')
+        cam_polygon_points: list[QPointF] = []
+        pts = cam_points_local
         for p in pts:
             scene_point = cam_to_scene_coords(p)
             cam_polygon_points.append(scene_point)
@@ -743,7 +823,7 @@ class MechanismVisualsFactory:
         # Create QPolygonF from points
         cam_polygon = QPolygonF(cam_polygon_points)
 
-        visual_items = []
+        visual_items: list[QGraphicsItem] = []
 
         # Create cam body
         # Fill with blue like gear visuals (not green outline)
@@ -773,9 +853,7 @@ class MechanismVisualsFactory:
 
         # Create follower rod line from cam top (contact point) to follower.
         rod_pen = _cosmetic_pen("#9e9e9e", 3, Qt.PenStyle.DashLine)
-        pts = mechanism_data.get('cam_points_local')
-        y_max = float(np.max(pts[:, 1]))
-        cam_top_scene = cam_to_scene_coords(np.array([0.0, y_max]))
+        cam_top_scene = follower_scene
         follower_rod = QGraphicsLineItem(
             cam_top_scene.x(), cam_top_scene.y(),
             follower_base_scene.x(), follower_base_scene.y()
@@ -971,6 +1049,7 @@ class MechanismVisualsFactory:
         eccentricity: float,
         rise_deg: float = 90.0,
         high_dwell_deg: float = 60.0,
+        return_deg: float | None = None,
         dwell_low_deg: float = 180.0,
         align_max_to_deg: float = 90.0,
         num_samples: int = 360,
@@ -982,36 +1061,16 @@ class MechanismVisualsFactory:
         - align_max_to_deg: angle where radius is maximum (default 90° => +Y)
         - r(θ) = base_radius + eccentricity * s(θ)
         """
-        rise = np.deg2rad(rise_deg)
-        dwell_high = np.deg2rad(high_dwell_deg)
-        dwell_low = np.deg2rad(dwell_low_deg)
-        total = 2 * np.pi
-        fall = max(0.0, total - (rise + dwell_high + dwell_low))
-
-        # Phase reference: ensure max radius at align_max_to_deg
-        theta0 = np.deg2rad(align_max_to_deg)
-        seg1_end = theta0 + rise
-        seg2_end = seg1_end + dwell_high
-        seg3_end = seg2_end + fall
-
-        thetas = np.linspace(0, 2 * np.pi, num_samples, endpoint=False)
-        s = np.zeros_like(thetas)
-        for i, t in enumerate(thetas):
-            rel = (t - theta0) % (2 * np.pi) + theta0
-            if rel < seg1_end:  # rise 0->1
-                u = (rel - theta0) / rise if rise > 0 else 1.0
-                s[i] = 0.5 * (1 - np.cos(np.pi * u))
-            elif rel < seg2_end:  # high dwell at 1
-                s[i] = 1.0
-            elif rel < seg3_end:  # fall 1->0
-                u = (rel - seg2_end) / fall if fall > 0 else 1.0
-                s[i] = 0.5 * (1 + np.cos(np.pi * u))
-            else:  # low dwell at 0
-                s[i] = 0.0
-
-        r = base_radius + eccentricity * s
-        pts = np.stack([r * np.cos(thetas), r * np.sin(thetas)], axis=1)
-        return pts.astype(float)
+        return build_pear_cam_profile(
+            base_radius=base_radius,
+            eccentricity=eccentricity,
+            rise_deg=rise_deg,
+            high_dwell_deg=high_dwell_deg,
+            return_deg=return_deg,
+            dwell_low_deg=dwell_low_deg,
+            align_max_to_deg=align_max_to_deg,
+            num_samples=num_samples,
+        )
 
     def create_gear_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
         """Create visual representation of gear train mechanism."""

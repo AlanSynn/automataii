@@ -24,6 +24,18 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem,
 )
 
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    positive_finite_float,
+)
+from automataii.presentation.qt.tabs.cam_geometry import (
+    build_pear_cam_profile,
+    cam_contact_local_from_profile,
+    cam_follower_base_scene,
+    cam_scene_unit_scale,
+    normalized_cam_timing,
+)
+
 from .protocol import BaseMechanismVisualizer
 
 
@@ -61,14 +73,17 @@ class CamVisualizer(BaseMechanismVisualizer):
         if not params:
             return []
 
-        # Extract cam parameters with defaults
-        base_radius = params.get("base_radius", 25.0)
-        eccentricity = params.get("eccentricity", 10.0)
-        follower_rod_length = params.get("follower_rod_length", 40.0)
+        # Extract cam parameters with finite defaults. Foundry/user inputs can
+        # arrive as text or stale NaN/Inf values through imported project data.
+        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
+        eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
+        follower_rod_length = positive_finite_float(params.get("follower_rod_length"), 40.0)
 
         # Scale factors for CAM size adjustment
-        cam_scale_factor = mechanism_data.get("cam_scale_factor", 1.0)
-        rod_length_multiplier = mechanism_data.get("rod_length_multiplier", 1.0)
+        cam_scale_factor = positive_finite_float(mechanism_data.get("cam_scale_factor"), 1.0)
+        rod_length_multiplier = positive_finite_float(
+            mechanism_data.get("rod_length_multiplier"), 1.0
+        )
 
         # Apply scaling
         scaled_base_radius = base_radius * cam_scale_factor
@@ -82,6 +97,7 @@ class CamVisualizer(BaseMechanismVisualizer):
             eccentricity=scaled_eccentricity,
             rise_deg=profile_params["rise_deg"],
             high_dwell_deg=profile_params["high_dwell_deg"],
+            return_deg=profile_params["return_deg"],
             dwell_low_deg=profile_params["low_dwell_deg"],
             align_max_to_deg=profile_params["align_max_deg"],
             num_samples=360,
@@ -101,6 +117,7 @@ class CamVisualizer(BaseMechanismVisualizer):
         # Store scaling factors for animation consistency
         mechanism_data["cam_scale_factor"] = cam_scale_factor
         mechanism_data["rod_length_multiplier"] = rod_length_multiplier
+        mechanism_data["cam_scaled_rod_length"] = scaled_rod_length
 
         # Create visual items
         visual_items: list[QGraphicsItem] = []
@@ -146,8 +163,8 @@ class CamVisualizer(BaseMechanismVisualizer):
         Returns:
             Dictionary containing simulation results
         """
-        base_radius = params.get("base_radius", 25.0)
-        eccentricity = params.get("eccentricity", 10.0)
+        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
+        eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
 
         profile_params = self._extract_profile_params(params)
         cam_points = self._build_pear_cam_profile(
@@ -155,6 +172,7 @@ class CamVisualizer(BaseMechanismVisualizer):
             eccentricity=eccentricity,
             rise_deg=profile_params["rise_deg"],
             high_dwell_deg=profile_params["high_dwell_deg"],
+            return_deg=profile_params["return_deg"],
             dwell_low_deg=profile_params["low_dwell_deg"],
             align_max_to_deg=profile_params["align_max_deg"],
             num_samples=360,
@@ -175,30 +193,13 @@ class CamVisualizer(BaseMechanismVisualizer):
         Returns:
             Validated profile parameters
         """
-        rise_deg = float(params.get("rise_deg", 90.0))
-        high_dwell_deg = float(params.get("high_dwell_deg", 60.0))
-
-        # Calculate low dwell from explicit value or derive from return
-        if "low_dwell_deg" in params:
-            low_dwell_deg = float(params.get("low_dwell_deg", 180.0))
-            low_dwell_deg = max(0.0, min(360.0, low_dwell_deg))
-        else:
-            return_deg = float(params.get("return_deg", 30.0))
-            low_dwell_deg = max(0.0, 360.0 - (rise_deg + high_dwell_deg + return_deg))
-
-        align_max_deg = float(params.get("align_max_deg", 90.0))
-
-        # Guard against invalid sums - scale proportionally to fit 360°
-        total = rise_deg + high_dwell_deg + low_dwell_deg
-        if total > 360.0:
-            scale = 360.0 / max(1e-6, total)
-            rise_deg *= scale
-            high_dwell_deg *= scale
-            low_dwell_deg *= scale
+        rise_deg, high_dwell_deg, return_deg, low_dwell_deg = normalized_cam_timing(params)
+        align_max_deg = finite_float(params.get("align_max_deg"), 90.0)
 
         return {
             "rise_deg": rise_deg,
             "high_dwell_deg": high_dwell_deg,
+            "return_deg": return_deg,
             "low_dwell_deg": low_dwell_deg,
             "align_max_deg": align_max_deg,
         }
@@ -235,11 +236,10 @@ class CamVisualizer(BaseMechanismVisualizer):
             brect = gen_path.boundingRect()
             path_x_center = float(brect.center().x())
             path_y_bottom = float(brect.bottom())
-            local_y_max = float(np.max(cam_points_local[:, 1]))
+            contact_local = cam_contact_local_from_profile(cam_points_local)
 
-            # Place cam such that its top touches path bottom
-            follower_local = np.array([0.0, local_y_max])
-            follower_scene_raw = base_transform(follower_local)
+            # Place cam such that the shared scene-vertical contact touches path bottom.
+            follower_scene_raw = base_transform(contact_local)
             dx = path_x_center - follower_scene_raw.x()
             dy = path_y_bottom - follower_scene_raw.y()
 
@@ -250,7 +250,11 @@ class CamVisualizer(BaseMechanismVisualizer):
                 return QPointF(mapped.x() + dx, mapped.y() + dy)
 
             mechanism_data["cam_transform_function"] = cam_to_scene_coords
-            mechanism_data["cam_position"] = [path_x_center, path_y_bottom - local_y_max - scaled_rod_length]
+            center_scene_raw = base_transform(np.array([0.0, 0.0], dtype=float))
+            mechanism_data["cam_position"] = [
+                float(center_scene_raw.x() + dx),
+                float(center_scene_raw.y() + dy),
+            ]
             return cam_to_scene_coords
 
         except Exception:
@@ -306,9 +310,10 @@ class CamVisualizer(BaseMechanismVisualizer):
         if cam_points is None:
             return
 
-        y_max = float(np.max(cam_points[:, 1]))
-        follower_pos = np.array([0.0, y_max], dtype=float)
-        follower_scene = cam_to_scene(follower_pos)
+        contact_scene = cam_to_scene(cam_contact_local_from_profile(cam_points))
+        scaled_rod_length = float(mechanism_data.get("cam_scaled_rod_length", 40.0))
+        unit_scale = cam_scene_unit_scale(cam_to_scene)
+        follower_scene = cam_follower_base_scene(contact_scene, scaled_rod_length, unit_scale)
 
         # Store follower's fixed X position for vertical motion constraint
         try:
@@ -377,12 +382,10 @@ class CamVisualizer(BaseMechanismVisualizer):
         if cam_points is None:
             return
 
-        y_max = float(np.max(cam_points[:, 1]))
-        cam_top = np.array([0.0, y_max])
-        cam_top_scene = cam_to_scene(cam_top)
-
-        follower_pos = np.array([0.0, y_max], dtype=float)
-        follower_scene = cam_to_scene(follower_pos)
+        cam_top_scene = cam_to_scene(cam_contact_local_from_profile(cam_points))
+        scaled_rod_length = float(mechanism_data.get("cam_scaled_rod_length", 40.0))
+        unit_scale = cam_scene_unit_scale(cam_to_scene)
+        follower_scene = cam_follower_base_scene(cam_top_scene, scaled_rod_length, unit_scale)
 
         rod_pen = QPen(QColor("#9e9e9e"), 3, Qt.PenStyle.DashLine)
         follower_rod = QGraphicsLineItem(
@@ -462,6 +465,7 @@ class CamVisualizer(BaseMechanismVisualizer):
         eccentricity: float,
         rise_deg: float = 90.0,
         high_dwell_deg: float = 60.0,
+        return_deg: float | None = None,
         dwell_low_deg: float = 180.0,
         align_max_to_deg: float = 90.0,
         num_samples: int = 360,
@@ -487,37 +491,19 @@ class CamVisualizer(BaseMechanismVisualizer):
 
         Time Complexity: O(num_samples)
         """
-        rise = np.deg2rad(rise_deg)
-        dwell_high = np.deg2rad(high_dwell_deg)
-        dwell_low = np.deg2rad(dwell_low_deg)
-        total = 2 * np.pi
-        fall = max(0.0, total - (rise + dwell_high + dwell_low))
-
-        # Phase reference: ensure max radius at align_max_to_deg
-        theta0 = np.deg2rad(align_max_to_deg)
-        seg1_end = theta0 + rise
-        seg2_end = seg1_end + dwell_high
-        seg3_end = seg2_end + fall
-
-        thetas = np.linspace(0, 2 * np.pi, num_samples, endpoint=False)
-        s = np.zeros_like(thetas)
-
-        for i, t in enumerate(thetas):
-            rel = (t - theta0) % (2 * np.pi) + theta0
-            if rel < seg1_end:  # rise 0->1
-                u = (rel - theta0) / rise if rise > 0 else 1.0
-                s[i] = 0.5 * (1 - np.cos(np.pi * u))
-            elif rel < seg2_end:  # high dwell at 1
-                s[i] = 1.0
-            elif rel < seg3_end:  # fall 1->0
-                u = (rel - seg2_end) / fall if fall > 0 else 1.0
-                s[i] = 0.5 * (1 + np.cos(np.pi * u))
-            else:  # low dwell at 0
-                s[i] = 0.0
-
-        r = base_radius + eccentricity * s
-        pts = np.stack([r * np.cos(thetas), r * np.sin(thetas)], axis=1)
-        return pts.astype(float)
+        return np.asarray(
+            build_pear_cam_profile(
+                base_radius=base_radius,
+                eccentricity=eccentricity,
+                rise_deg=rise_deg,
+                high_dwell_deg=high_dwell_deg,
+                return_deg=return_deg,
+                dwell_low_deg=dwell_low_deg,
+                align_max_to_deg=align_max_to_deg,
+                num_samples=num_samples,
+            ),
+            dtype=float,
+        )
 
     def _load_cam_profile_svg(self, svg_path: str) -> tuple[np.ndarray, np.ndarray]:
         """Parse a simple SVG cam profile and return (axis, polygon_points).
@@ -613,11 +599,13 @@ class CamVisualizer(BaseMechanismVisualizer):
         """
         if template_points is None or len(template_points) < 3:
             # Fallback to circular cam
-            pts = []
+            fallback_points: list[list[float]] = []
             for i in range(num_samples + 1):
                 theta = 2 * np.pi * i / num_samples
-                pts.append([base_radius * np.cos(theta), base_radius * np.sin(theta)])
-            return np.array(pts, dtype=float)
+                fallback_points.append(
+                    [base_radius * np.cos(theta), base_radius * np.sin(theta)]
+                )
+            return np.array(fallback_points, dtype=float)
 
         thetas = np.linspace(0, 2 * np.pi, num_samples + 1)
         u = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)  # (N,2)
@@ -631,5 +619,5 @@ class CamVisualizer(BaseMechanismVisualizer):
         denom = max(1e-9, r_max - r_min)
         s = (r_templ - r_min) / denom
         r_new = base_radius + eccentricity * s
-        pts = np.stack([r_new * np.cos(thetas), r_new * np.sin(thetas)], axis=1)
-        return pts.astype(float)
+        template_profile = np.stack([r_new * np.cos(thetas), r_new * np.sin(thetas)], axis=1)
+        return template_profile.astype(float)

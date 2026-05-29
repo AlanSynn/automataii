@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -9,6 +10,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
 from automataii.presentation.qt.parametric.components.fourbar_editor import FourBarEditor
+from automataii.presentation.qt.tabs.parametric_editing_manager import ParametricEditingManager
 
 
 @pytest.fixture(scope="module")
@@ -66,6 +68,7 @@ def test_fourbar_crank_move_updates_mechanism_length_under_transform(qapp):
 
     params = editor.mechanism_data["params"]
     assert params["l2"] == pytest.approx(60.0, rel=1e-6)
+    assert params["L2"] == pytest.approx(60.0, rel=1e-6)
     assert params["crank_angle"] == pytest.approx(0.0, rel=1e-6)
     assert editor.handles["crank"].constraints["fixed_distance"]["distance"] == pytest.approx(
         120.0, rel=1e-6
@@ -82,3 +85,83 @@ def test_fourbar_anchor_move_refreshes_constraint_anchor(qapp):
     constraint_anchor = editor.handles["crank"].constraints["fixed_distance"]["anchor"]
     assert constraint_anchor.x() == pytest.approx(new_anchor.x(), rel=1e-6)
     assert constraint_anchor.y() == pytest.approx(new_anchor.y(), rel=1e-6)
+
+
+def _create_manager_with_scaled_transform() -> ParametricEditingManager:
+    parent_tab = SimpleNamespace(
+        _get_inverse_scene_transform_function=lambda _layer: (
+            lambda point: np.array([float(point.x()) / 2.0, float(point.y()) / 2.0])
+        ),
+        _get_scene_transform_function=lambda _layer: (
+            lambda point: QPointF(float(point[0]) * 2.0, float(point[1]) * 2.0)
+        ),
+    )
+    return ParametricEditingManager(parent_tab)
+
+
+def test_fourbar_regeneration_starts_at_dragged_crank_position(qapp):
+    manager = _create_manager_with_scaled_transform()
+    dragged_crank = np.array([60.0, 30.0])
+    params = {
+        "anchor1_x": 0.0,
+        "anchor1_y": 0.0,
+        "anchor2_x": 200.0,
+        "anchor2_y": 0.0,
+        "m_crank_x": dragged_crank[0],
+        "m_crank_y": dragged_crank[1],
+        "L2": float(np.linalg.norm(dragged_crank)),
+        "L3": 80.0,
+        "L4": 70.0,
+        "l2": float(np.linalg.norm(dragged_crank)),
+        "l3": 80.0,
+        "l4": 70.0,
+        "crank_angle": 0.0,
+    }
+    layer_data = {
+        "type": "4_bar_linkage",
+        "params": params,
+        "transform_params": {"scale": 2.0},
+    }
+
+    manager._regenerate_4bar_simulation(layer_data, params)
+
+    first_p3 = np.array(
+        layer_data["full_simulation_data"]["joint_positions"]["p3_positions"][0]
+    )
+    assert first_p3 == pytest.approx(dragged_crank, rel=1e-6)
+    assert params["crank_angle"] == pytest.approx(math.degrees(math.atan2(30.0, 60.0)))
+    assert params["crank_x"] == pytest.approx(120.0, rel=1e-6)
+    assert params["crank_y"] == pytest.approx(60.0, rel=1e-6)
+
+
+def test_fourbar_regeneration_prefers_dragged_rocker_branch(qapp):
+    manager = _create_manager_with_scaled_transform()
+    params = {
+        "anchor1_x": 0.0,
+        "anchor1_y": 0.0,
+        "anchor2_x": 200.0,
+        "anchor2_y": 0.0,
+        "m_rocker_x": 70.0,
+        "m_rocker_y": -40.0,
+        "L2": 40.0,
+        "L3": 50.0,
+        "L4": 50.0,
+        "l2": 40.0,
+        "l3": 50.0,
+        "l4": 50.0,
+        "crank_angle": 0.0,
+    }
+    layer_data = {
+        "type": "4_bar_linkage",
+        "params": params,
+        "transform_params": {"scale": 2.0},
+    }
+
+    manager._regenerate_4bar_simulation(layer_data, params)
+
+    first_p4 = np.array(
+        layer_data["full_simulation_data"]["joint_positions"]["p4_positions"][0]
+    )
+    assert first_p4 == pytest.approx(np.array([70.0, -40.0]), rel=1e-6)
+    assert params["rocker_x"] == pytest.approx(140.0, rel=1e-6)
+    assert params["rocker_y"] == pytest.approx(-80.0, rel=1e-6)

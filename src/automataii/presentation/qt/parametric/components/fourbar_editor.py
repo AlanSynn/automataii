@@ -295,6 +295,7 @@ class FourBarEditor(MechanismEditor):
 
         self.mechanism_data["params"]["crank_angle"] = angle
         self.mechanism_data["params"]["l2"] = length
+        self.mechanism_data["params"]["L2"] = length
         self.mechanism_data["params"]["crank_x"] = new_pos.x()
         self.mechanism_data["params"]["crank_y"] = new_pos.y()
 
@@ -326,6 +327,7 @@ class FourBarEditor(MechanismEditor):
 
         self.mechanism_data["params"]["rocker_angle"] = angle
         self.mechanism_data["params"]["l4"] = length
+        self.mechanism_data["params"]["L4"] = length
         self.mechanism_data["params"]["rocker_x"] = new_pos.x()
         self.mechanism_data["params"]["rocker_y"] = new_pos.y()
 
@@ -411,7 +413,10 @@ class FourBarEditor(MechanismEditor):
                 )
             else:
                 self.mechanism_data["params"]["l2"] = float(new_length)
+                self.mechanism_data["params"]["L2"] = float(new_length)
                 self.mechanism_data["params"]["crank_angle"] = float(angle)
+
+            self.mechanism_data["params"]["L2"] = float(self.mechanism_data["params"]["l2"])
 
             self._sync_length_constraints()
             self._trigger_mechanism_update()

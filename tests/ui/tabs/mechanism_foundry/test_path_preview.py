@@ -96,6 +96,50 @@ class TestPathPreviewOverlay:
 
         assert second_count > first_count
 
+    def test_show_path_keeps_existing_items_when_parameters_are_unchanged(
+        self, overlay, mock_cache, qapp
+    ):
+        mock_mechanism = Mock()
+        mock_mechanism.mechanism_type = "fourbar"
+
+        cached_path = CachedPath(
+            points=((0.0, 0.0), (10.0, 10.0)), angles=(0.0, 180.0), timestamp=time.time()
+        )
+        mock_cache.compute_and_cache.return_value = cached_path
+
+        overlay.show_path(mock_mechanism, {"a": 1.0}, "coupler")
+        first_items = list(overlay._items["coupler"])
+
+        overlay.show_path(mock_mechanism, {"a": 1.0}, "coupler")
+
+        assert mock_cache.compute_and_cache.call_count == 1
+        assert overlay._items["coupler"] == first_items
+
+    def test_show_path_refreshes_existing_point_when_parameters_change(
+        self, overlay, mock_cache, scene, qapp
+    ):
+        mock_mechanism = Mock()
+        mock_mechanism.mechanism_type = "fourbar"
+
+        first_path = CachedPath(
+            points=((0.0, 0.0), (10.0, 10.0)), angles=(0.0, 180.0), timestamp=time.time()
+        )
+        second_path = CachedPath(
+            points=((0.0, 0.0), (20.0, 0.0)), angles=(0.0, 180.0), timestamp=time.time()
+        )
+        mock_cache.compute_and_cache.side_effect = [first_path, second_path]
+
+        overlay.show_path(mock_mechanism, {"a": 1.0}, "coupler")
+        first_items = list(overlay._items["coupler"])
+
+        overlay.show_path(mock_mechanism, {"a": 2.0}, "coupler")
+        second_items = list(overlay._items["coupler"])
+
+        assert mock_cache.compute_and_cache.call_count == 2
+        assert second_items != first_items
+        assert all(item.scene() is None for item in first_items)
+        assert all(item.scene() is scene for item in second_items)
+
     def test_hide_path_removes_all_items(self, overlay, mock_cache, qapp):
         mock_mechanism = Mock()
         mock_mechanism.mechanism_type = "fourbar"

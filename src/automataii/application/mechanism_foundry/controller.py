@@ -10,6 +10,7 @@ from automataii.application.mechanism_transfer import (
 )
 
 from .catalog import MechanismEntry, MechanismParameter
+from .mechanism_types import canonical_mechanism_type, is_visible_foundry_mechanism_type
 from .service import MechanismCatalogService
 
 
@@ -123,20 +124,6 @@ MECHANISM_CONFIGS: dict[str, MechanismConfiguration] = {
     ),
 }
 
-CATALOG_TYPE_TO_MECHANISM_TYPE: dict[str, str] = {
-    "four_bar": "four_bar",
-    "four_bar_linkage": "four_bar",
-    "4_bar_linkage": "four_bar",
-    "cam": "cam_follower",
-    "cam_follower": "cam_follower",
-    "gear": "gear_train",
-    "gear_train": "gear_train",
-    "slider_crank": "slider_crank",
-    "slider-crank": "slider_crank",
-    "slidercrank": "slider_crank",
-}
-
-
 def _build_entry_from_config(
     key: str,
     display_name: str,
@@ -243,7 +230,11 @@ class MechanismFoundryController:
         return self._service
 
     def list_mechanisms(self) -> Iterable[MechanismItem]:
-        return list(self._mechanisms)
+        return [
+            item
+            for item in self._mechanisms
+            if is_visible_foundry_mechanism_type(item.mechanism_type)
+        ]
 
     def select_mechanism(self, category_key: str, mechanism_key: str) -> MechanismEntry | None:
         for item in self._mechanisms:
@@ -289,6 +280,8 @@ class MechanismFoundryController:
                 mechanism_type = self._map_catalog_type(entry.mech_type)
                 if mechanism_type not in MECHANISM_CONFIGS:
                     continue
+                if not is_visible_foundry_mechanism_type(mechanism_type):
+                    continue
                 self._mechanisms.append(
                     MechanismItem(
                         category_key=category.key,
@@ -302,6 +295,8 @@ class MechanismFoundryController:
     def _ensure_fallback_items(self) -> None:
         existing_types = {item.mechanism_type for item in self._mechanisms}
         for fallback in _FALLBACK_ITEMS:
+            if not is_visible_foundry_mechanism_type(fallback.mechanism_type):
+                continue
             if fallback.mechanism_type not in existing_types:
                 self._mechanisms.append(fallback)
 
@@ -309,8 +304,7 @@ class MechanismFoundryController:
     def _map_catalog_type(mech_type: str | None) -> str | None:
         if mech_type is None:
             return None
-        normalized = mech_type.strip().lower()
-        return CATALOG_TYPE_TO_MECHANISM_TYPE.get(normalized)
+        return canonical_mechanism_type(mech_type)
 
     def export_mechanism_to_design(
         self,

@@ -18,6 +18,19 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QBrush, QColor, QPen
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsScene
 
+_HANDLE_TO_KEY_POINT_ALIASES: dict[str, tuple[str, ...]] = {
+    "anchor1": ("ground_pivot_1",),
+    "anchor2": ("ground_pivot_2",),
+    "crank": ("crank_end",),
+    "rocker": ("rocker_end",),
+    "coupler": ("coupler_point",),
+    "center": ("cam_center",),
+    "follower": ("follower_base", "follower_end"),
+    "rod_length": ("follower_base", "follower_end"),
+    "cam_rod_length": ("follower_base", "follower_end"),
+    "cam_center": ("cam_center",),
+}
+
 
 class HandlePositionCoordinator:
     """
@@ -40,6 +53,106 @@ class HandlePositionCoordinator:
     def set_rotation_handle_class(self, cls: type) -> None:
         """Set the RotationHandle class for creating rotation handles."""
         self._rotation_handle_class = cls
+
+    @staticmethod
+    def _handle_anchor_name(handle: QGraphicsItem, mechanism_id: str) -> str:
+        """Return the stable logical handle name used by key_points aliases."""
+        for attr_name in ("anchor_name", "param_name"):
+            raw = getattr(handle, attr_name, "")
+            if isinstance(raw, str) and raw:
+                return raw
+
+        handle_id = getattr(handle, "handle_id", "")
+        if not isinstance(handle_id, str) or not handle_id:
+            return ""
+        prefix = f"{mechanism_id}_"
+        if handle_id.startswith(prefix):
+            return handle_id[len(prefix):]
+        return handle_id.rsplit("_", 1)[-1]
+
+    @staticmethod
+    def _point_from_key_points(
+        anchor_name: str,
+        key_points: dict[str, Any],
+        layer_data: dict[str, Any],
+    ) -> list[float] | tuple[float, float] | np.ndarray | None:
+        """Resolve editor handle names such as `crank` to layer key_points."""
+        if anchor_name in key_points:
+            return key_points[anchor_name]
+
+        for alias in _HANDLE_TO_KEY_POINT_ALIASES.get(anchor_name, ()):
+            if alias in key_points:
+                return key_points[alias]
+
+        if anchor_name == "crank_length":
+            p1 = HandlePositionCoordinator._finite_point_array(
+                key_points.get("ground_pivot_1")
+            )
+            crank = HandlePositionCoordinator._finite_point_array(
+                key_points.get("crank_end")
+            )
+            if p1 is not None and crank is not None:
+                midpoint = (p1 + crank) / 2.0
+                return midpoint
+
+        if anchor_name == "coupler":
+            return HandlePositionCoordinator._calculate_coupler_point(
+                key_points,
+                layer_data.get("params") if isinstance(layer_data, dict) else {},
+            )
+
+        return None
+
+    @staticmethod
+    def _finite_point_array(value: object) -> np.ndarray | None:
+        try:
+            point = np.asarray(value, dtype=float)
+        except (TypeError, ValueError):
+            return None
+        if point.ndim != 1 or len(point) < 2:
+            return None
+        point = point[:2]
+        if not bool(np.isfinite(point).all()):
+            return None
+        return point
+
+    @staticmethod
+    def _finite_float(value: object, default: float) -> float:
+        if isinstance(value, bool):
+            return default
+        try:
+            result = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+        return result if math.isfinite(result) else default
+
+    @staticmethod
+    def _calculate_coupler_point(
+        key_points: dict[str, Any],
+        params: object,
+    ) -> np.ndarray | None:
+        if not isinstance(params, dict):
+            params = {}
+        crank = HandlePositionCoordinator._finite_point_array(key_points.get("crank_end"))
+        rocker = HandlePositionCoordinator._finite_point_array(key_points.get("rocker_end"))
+        if crank is None or rocker is None:
+            return None
+
+        coupler_vec = rocker - crank
+        coupler_length = float(np.linalg.norm(coupler_vec))
+        if coupler_length <= 1e-9 or not math.isfinite(coupler_length):
+            return crank
+        coupler_unit = coupler_vec / coupler_length
+        coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]], dtype=float)
+        coupler_x = HandlePositionCoordinator._finite_float(
+            params.get("coupler_point_x", params.get("p_x", coupler_length * 0.5)),
+            coupler_length * 0.5,
+        )
+        coupler_y = HandlePositionCoordinator._finite_float(
+            params.get("coupler_point_y", params.get("p_y", 0.0)),
+            0.0,
+        )
+        return crank + coupler_x * coupler_unit + coupler_y * coupler_normal
 
     @property
     def is_updating_programmatically(self) -> bool:
@@ -158,17 +271,13 @@ class HandlePositionCoordinator:
                     if getattr(handle, 'handle_type', '') == 'rotation':
                         continue
 
-                    anchor_name = getattr(handle, 'anchor_name', '')
-                    if not anchor_name:
-                        handle_id = getattr(handle, 'handle_id', '')
-                        parts = handle_id.split('_', 1)
-                        anchor_name = parts[1] if len(parts) > 1 else ''
-
+                    anchor_name = self._handle_anchor_name(handle, mechanism_id)
                     if not anchor_name or anchor_name == moved_handle:
                         continue
 
-                    if anchor_name in key_points:
-                        new_scene_pos = _scene_pos_from_mech(key_points[anchor_name])
+                    point = self._point_from_key_points(anchor_name, key_points, layer_data)
+                    if point is not None:
+                        new_scene_pos = _scene_pos_from_mech(point)
 
                         # Temporarily disable callback if present
                         original_cb = getattr(handle, 'update_callback', None)
@@ -216,18 +325,10 @@ class HandlePositionCoordinator:
 
             updated_count = 0
             for handle in handles:
-                handle_id = getattr(handle, 'handle_id', '')
-                anchor_name = getattr(handle, 'anchor_name', '')
+                anchor_name = self._handle_anchor_name(handle, mechanism_id)
+                mech_pos = self._point_from_key_points(anchor_name, key_points, layer_data)
 
-                # Extract anchor name from handle_id if anchor_name not available
-                if not anchor_name and handle_id:
-                    parts = handle_id.split('_', 1)
-                    if len(parts) > 1:
-                        anchor_name = parts[1]
-
-                if anchor_name in key_points:
-                    mech_pos = key_points[anchor_name]
-
+                if mech_pos is not None:
                     if to_scene:
                         scene_pos = to_scene(np.array(mech_pos))
                     else:

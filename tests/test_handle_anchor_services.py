@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF
+from PyQt6.QtWidgets import QGraphicsEllipseItem
 
 from automataii.presentation.qt.tabs.mechanism_design.services.anchor_position_service import (
     AnchorPositionService,
@@ -48,6 +49,35 @@ def test_cam_anchor_positions_include_center_and_follower_keys() -> None:
     assert "follower" in anchors
     assert "cam_size" in anchors
     assert "cam_rod_length" in anchors
+    assert anchors["cam_follower"].y() == 270.0
+
+
+def test_cam_anchor_positions_apply_cam_scale_factor_to_contact_and_size() -> None:
+    service = AnchorPositionService(TransformService())
+    layer_data = {
+        "type": "cam",
+        "cam_scale_factor": 2.0,
+        "rod_length_multiplier": 2.0,
+        "params": {
+            "base_radius": 25.0,
+            "eccentricity": 10.0,
+            "follower_rod_length": 40.0,
+        },
+        "full_simulation_data": {},
+        "transform_params": {},
+        "generated_path": None,
+        "visual_items": [],
+    }
+
+    anchors = service.get_anchor_positions(layer_data)
+
+    # Fallback transform is x/y * 2 + (400, 300). Scaled contact y=50 -> scene y=400,
+    # scaled rod=80 and scene unit scale=2 -> follower head y=240.
+    assert anchors["cam_follower"].x() == 400.0
+    assert anchors["cam_follower"].y() == 240.0
+    # Size handle uses the scaled max radius: (25 + 10) * 2, then fallback x * 2 + 400.
+    assert anchors["cam_size"].x() == 540.0
+    assert anchors["cam_size"].y() == 300.0
 
 
 def test_gear_anchor_positions_include_radius_handles() -> None:
@@ -69,6 +99,42 @@ def test_gear_anchor_positions_include_radius_handles() -> None:
     assert "gear2_radius" in anchors
     assert anchors["gear1_radius"].x() > anchors["gear1_center"].x()
     assert anchors["gear2_radius"].x() > anchors["gear2_center"].x()
+
+
+def _ellipse_at(x: float, y: float, size: float, tooltip: str = "") -> QGraphicsEllipseItem:
+    item = QGraphicsEllipseItem(x - size / 2.0, y - size / 2.0, size, size)
+    if tooltip:
+        item.setToolTip(tooltip)
+    return item
+
+
+def test_fourbar_anchor_positions_use_named_outer_pivots_not_inner_highlights() -> None:
+    service = AnchorPositionService(TransformService())
+    visual_items = []
+    for x, y, tooltip in [
+        (10.0, 20.0, "Ground Pivot 1"),
+        (110.0, 20.0, "Ground Pivot 2"),
+        (40.0, -10.0, "Moving Joint 1"),
+        (80.0, -15.0, "Moving Joint 2"),
+    ]:
+        visual_items.append(_ellipse_at(x, y, 16.0, tooltip))
+        visual_items.append(_ellipse_at(x, y, 8.0))
+
+    anchors = service.get_anchor_positions(
+        {
+            "type": "4_bar_linkage",
+            "params": {},
+            "visual_items": visual_items,
+            "full_simulation_data": {},
+            "transform_params": {},
+            "generated_path": None,
+        }
+    )
+
+    assert anchors["ground_pivot_1"] == QPointF(10.0, 20.0)
+    assert anchors["ground_pivot_2"] == QPointF(110.0, 20.0)
+    assert anchors["crank_end"] == QPointF(40.0, -10.0)
+    assert anchors["rocker_end"] == QPointF(80.0, -15.0)
 
 
 def test_handle_position_coordinator_updates_cam_size_handles() -> None:
@@ -176,3 +242,45 @@ def test_transform_service_uses_foundry_heuristic_for_legacy_layers() -> None:
     point = to_scene([500.0, 310.0])
     assert point.x() == 500.0
     assert point.y() == 310.0
+
+
+def test_handle_position_coordinator_aliases_foundry_key_points_without_anchor_attrs() -> None:
+    coordinator = HandlePositionCoordinator()
+    handles = [
+        _DummyHandle("m1_anchor1"),
+        _DummyHandle("m1_anchor2"),
+        _DummyHandle("m1_crank"),
+        _DummyHandle("m1_rocker"),
+        _DummyHandle("m1_coupler"),
+        _DummyHandle("m1_crank_length"),
+    ]
+    layer_data = {
+        "type": "4_bar_linkage",
+        "key_points": {
+            "ground_pivot_1": [325.0, 300.0],
+            "ground_pivot_2": [475.0, 300.0],
+            "crank_end": [360.0, 320.0],
+            "rocker_end": [460.0, 345.0],
+            "coupler_point": [410.0, 360.0],
+        },
+        "params": {"coupler_point_x": 60.0, "coupler_point_y": 30.0},
+    }
+
+    updated = coordinator.update_handles_from_key_points(
+        "m1",
+        handles,  # type: ignore[arg-type]
+        layer_data,
+        lambda _layer: lambda point: QPointF(float(point[0]), float(point[1])),
+    )
+
+    assert updated == len(handles)
+    expected = {
+        "m1_anchor1": (325.0, 300.0),
+        "m1_anchor2": (475.0, 300.0),
+        "m1_crank": (360.0, 320.0),
+        "m1_rocker": (460.0, 345.0),
+        "m1_coupler": (410.0, 360.0),
+        "m1_crank_length": (342.5, 310.0),
+    }
+    for handle in handles:
+        assert (handle.pos.x(), handle.pos.y()) == expected[handle.handle_id]

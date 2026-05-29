@@ -17,6 +17,16 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsEllipseItem
 
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    positive_finite_float,
+)
+from automataii.presentation.qt.tabs.cam_geometry import (
+    cam_contact_y_from_params,
+    cam_follower_base_scene,
+    cam_scene_unit_scale,
+)
+
 from .transform_service import TransformService
 
 
@@ -80,9 +90,13 @@ class AnchorPositionService:
         """Calculate anchor positions for CAM mechanism."""
         anchor_positions: dict[str, QPointF] = {}
         params = layer_data.get("params", {})
-        base_radius = params.get("base_radius", 25.0)
-        eccentricity = params.get("eccentricity", 10.0)
-        rod_length = params.get("follower_rod_length", 40.0)
+        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
+        eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
+        rod_length = positive_finite_float(params.get("follower_rod_length"), 40.0)
+        cam_scale_factor = positive_finite_float(layer_data.get("cam_scale_factor"), 1.0)
+        rod_length_multiplier = positive_finite_float(
+            layer_data.get("rod_length_multiplier"), 1.0
+        )
 
         # Use stored transform function if available
         if "cam_transform_function" in layer_data:
@@ -94,19 +108,26 @@ class AnchorPositionService:
             def cam_to_scene_coords(p_orig: np.ndarray) -> QPointF:
                 return QPointF(float(p_orig[0] * 2 + 300), float(p_orig[1] * 2 + 300))
 
-        # Calculate handle positions
-        rod_handle_orig = np.array([0.0, -(base_radius + rod_length)])
-        size_handle_orig = np.array([base_radius + eccentricity, 0.0])
+        # Calculate handle positions using the same local contact point as
+        # MechanismVisualsFactory.create_cam_visuals.
+        contact_y = cam_contact_y_from_params(params, scale=cam_scale_factor)
+        contact_orig = np.array([0.0, contact_y])
+        size_handle_orig = np.array([(base_radius + eccentricity) * cam_scale_factor, 0.0])
         center_orig = np.array([0.0, 0.0])
 
         # Transform to scene coordinates
         cam_center = cam_to_scene_coords(center_orig)
-        cam_follower = cam_to_scene_coords(rod_handle_orig)
+        cam_contact = cam_to_scene_coords(contact_orig)
+        cam_follower = cam_follower_base_scene(
+            cam_contact,
+            rod_length * rod_length_multiplier,
+            cam_scene_unit_scale(cam_to_scene_coords),
+        )
         anchor_positions["cam_center"] = cam_center
         anchor_positions["center"] = cam_center
         anchor_positions["cam_follower"] = cam_follower
         anchor_positions["follower"] = cam_follower
-        anchor_positions["cam_rod_length"] = cam_to_scene_coords(rod_handle_orig)
+        anchor_positions["cam_rod_length"] = cam_follower
         anchor_positions["cam_size"] = cam_to_scene_coords(size_handle_orig)
 
         return anchor_positions
@@ -307,19 +328,42 @@ class AnchorPositionService:
         if visual_items:
             pivot_items = [item for item in visual_items if isinstance(item, QGraphicsEllipseItem)]
 
+            def center_of(item: QGraphicsEllipseItem) -> QPointF:
+                return item.scenePos() + item.rect().center()
+
+            named_pivots: dict[str, QPointF] = {}
+            for item in pivot_items:
+                tooltip = item.toolTip() if hasattr(item, "toolTip") else ""
+                if tooltip:
+                    named_pivots[tooltip] = center_of(item)
+
+            tooltip_to_anchor = {
+                "Ground Pivot 1": "ground_pivot_1",
+                "Ground Pivot 2": "ground_pivot_2",
+                "Moving Joint 1": "crank_end",
+                "Moving Joint 2": "rocker_end",
+            }
+            if all(name in named_pivots for name in tooltip_to_anchor):
+                for tooltip, anchor_name in tooltip_to_anchor.items():
+                    anchor_positions[anchor_name] = named_pivots[tooltip]
+                return anchor_positions
+
+            # Visual factory creates outer/inner ellipse pairs for each pivot.
+            # Older code used the first four ellipses and accidentally selected
+            # inner highlights as linkage joints, making handles drift.
+            if len(pivot_items) >= 7:
+                outer_pivots = [pivot_items[index] for index in (0, 2, 4, 6)]
+                anchor_positions["ground_pivot_1"] = center_of(outer_pivots[0])
+                anchor_positions["ground_pivot_2"] = center_of(outer_pivots[1])
+                anchor_positions["crank_end"] = center_of(outer_pivots[2])
+                anchor_positions["rocker_end"] = center_of(outer_pivots[3])
+                return anchor_positions
+
             if len(pivot_items) >= 4:
-                anchor_positions["ground_pivot_1"] = (
-                    pivot_items[0].scenePos() + pivot_items[0].rect().center()
-                )
-                anchor_positions["ground_pivot_2"] = (
-                    pivot_items[1].scenePos() + pivot_items[1].rect().center()
-                )
-                anchor_positions["crank_end"] = (
-                    pivot_items[2].scenePos() + pivot_items[2].rect().center()
-                )
-                anchor_positions["rocker_end"] = (
-                    pivot_items[3].scenePos() + pivot_items[3].rect().center()
-                )
+                anchor_positions["ground_pivot_1"] = center_of(pivot_items[0])
+                anchor_positions["ground_pivot_2"] = center_of(pivot_items[1])
+                anchor_positions["crank_end"] = center_of(pivot_items[2])
+                anchor_positions["rocker_end"] = center_of(pivot_items[3])
                 return anchor_positions
 
         # Fallback to using transform and simulation data

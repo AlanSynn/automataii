@@ -110,7 +110,11 @@ from automataii.presentation.qt.tabs.mechanism_design.services import (
     ViewUtilitiesService,
     VisualItemManager,
 )
+from automataii.presentation.qt.tabs.mechanism_design.services.foundry_scene_contract import (
+    rebuild_fourbar_scene_geometry_from_params,
+)
 from automataii.presentation.qt.tabs.mechanism_visuals_factory import MechanismVisualsFactory
+from automataii.utils.paths import resolve_path
 
 
 class MechanismDesignTab(QWidget):
@@ -628,9 +632,7 @@ class MechanismDesignTab(QWidget):
     def prepare_character_rebind(self) -> None:
         """Preserve mechanisms during next character load and request rebind."""
         current_cache = getattr(self, "_initial_skeleton_data_cache", None)
-        has_cached_skeleton = bool(
-            isinstance(current_cache, dict) and current_cache.get("joints")
-        )
+        has_cached_skeleton = bool(isinstance(current_cache, dict) and current_cache.get("joints"))
         if has_cached_skeleton:
             # Wait for the next skeleton cache refresh to avoid rebinding against stale (e.g. dummy) joints.
             self._required_rebind_skeleton_generation = self._skeleton_cache_generation + 1
@@ -669,7 +671,10 @@ class MechanismDesignTab(QWidget):
         skeleton_cache = getattr(self, "_initial_skeleton_data_cache", None)
         joints = skeleton_cache.get("joints") if isinstance(skeleton_cache, dict) else None
         has_skeleton_data = isinstance(joints, dict) and bool(joints)
-        if required_generation is not None and self._skeleton_cache_generation >= required_generation:
+        if (
+            required_generation is not None
+            and self._skeleton_cache_generation >= required_generation
+        ):
             self._pending_character_rebind = False
             self._required_rebind_skeleton_generation = None
         elif has_skeleton_data:
@@ -824,7 +829,7 @@ class MechanismDesignTab(QWidget):
         dummy_dir = self._resolve_dummy_character_dir()
         success = self.load_character_from_directory(dummy_dir) if dummy_dir is not None else False
         if success:
-            if hasattr(self.main_window, 'statusBar'):
+            if hasattr(self.main_window, "statusBar"):
                 self.main_window.statusBar().showMessage("Dummy character assigned.", 3000)
             self.center_on_character()
         else:
@@ -844,7 +849,7 @@ class MechanismDesignTab(QWidget):
         except (IndexError, RuntimeError):
             pass
 
-        candidates.append(Path.cwd() / "resources" / "presets" / "characters" / "dummy")
+        candidates.append(resolve_path("resources/presets/characters/dummy"))
         try:
             candidates.append(
                 Path(__file__).resolve().parents[5]
@@ -868,7 +873,11 @@ class MechanismDesignTab(QWidget):
 
         logging.info("No character parts found. Auto-loading dummy character.")
         dummy_dir = self._resolve_dummy_character_dir()
-        if dummy_dir is not None and self.load_character_from_directory(dummy_dir) and self.parts_data:
+        if (
+            dummy_dir is not None
+            and self.load_character_from_directory(dummy_dir)
+            and self.parts_data
+        ):
             return True
 
         logging.warning(
@@ -901,7 +910,9 @@ class MechanismDesignTab(QWidget):
                 try:
                     self._mvp_presenter.select_part(part_name)
                 except Exception:
-                    logging.debug("Suppressed exception while selecting part in presenter", exc_info=True)
+                    logging.debug(
+                        "Suppressed exception while selecting part in presenter", exc_info=True
+                    )
             if hasattr(self, "_select_part_in_list"):
                 self._select_part_in_list(part_name)
             logging.info("Selected target part for Foundry import: %s", part_name)
@@ -966,18 +977,17 @@ class MechanismDesignTab(QWidget):
                         if joint_id.startswith(anchor_joint_id + "_"):
                             joint_data = candidate
                             break
-                        if joint_id.startswith(anchor_joint_id) and len(joint_id) > len(anchor_joint_id):
-                            suffix = joint_id[len(anchor_joint_id):]
+                        if joint_id.startswith(anchor_joint_id) and len(joint_id) > len(
+                            anchor_joint_id
+                        ):
+                            suffix = joint_id[len(anchor_joint_id) :]
                             if suffix and suffix[0].isdigit():
                                 joint_data = candidate
                                 break
 
                 if isinstance(joint_data, dict):
                     raw_position = joint_data.get("position") or joint_data.get("scene_position")
-                    if (
-                        isinstance(raw_position, list | tuple)
-                        and len(raw_position) >= 2
-                    ):
+                    if isinstance(raw_position, list | tuple) and len(raw_position) >= 2:
                         try:
                             return (float(raw_position[0]), float(raw_position[1]))
                         except (TypeError, ValueError):
@@ -1173,7 +1183,7 @@ class MechanismDesignTab(QWidget):
             self.set_parts_data(parts_data, clear_mechanisms=False)
 
             # 8. Ensure skeleton visualization is displayed
-            if hasattr(self, '_skeleton_handler') and self._skeleton_handler:
+            if hasattr(self, "_skeleton_handler") and self._skeleton_handler:
                 self._skeleton_handler.ensure_skeleton_visualization(skeleton_dict)
 
             # 9. Map orphan mechanisms (created without character) to the new parts
@@ -1883,20 +1893,21 @@ class MechanismDesignTab(QWidget):
         self,
         parameters: dict[str, Any],
     ) -> tuple[bool, float] | None:
-        has_setting = (
-            "grid_system_enabled" in parameters
-            or "grid_cell_cm" in parameters
-        )
+        has_setting = "grid_system_enabled" in parameters or "grid_cell_cm" in parameters
         if not has_setting:
             return None
 
-        raw_enabled = parameters.get("grid_system_enabled", getattr(self, "_grid_system_enabled", True))
+        raw_enabled = parameters.get(
+            "grid_system_enabled", getattr(self, "_grid_system_enabled", True)
+        )
         try:
             if isinstance(raw_enabled, str):
                 enabled = raw_enabled.strip().lower() not in {"0", "false", "no", "off", ""}
             else:
                 enabled = bool(raw_enabled)
-            cell_cm = max(0.1, float(parameters.get("grid_cell_cm", getattr(self, "_grid_cell_cm", 2.5))))
+            cell_cm = max(
+                0.1, float(parameters.get("grid_cell_cm", getattr(self, "_grid_cell_cm", 2.5)))
+            )
             return enabled, cell_cm
         except (TypeError, ValueError):
             return bool(getattr(self, "_grid_system_enabled", True)), float(
@@ -2131,9 +2142,7 @@ class MechanismDesignTab(QWidget):
                 except (TypeError, ValueError):
                     pass
 
-            normalized_type = MechanismDesignTab._normalize_foundry_mechanism_type(
-                mechanism_type
-            )
+            normalized_type = MechanismDesignTab._normalize_foundry_mechanism_type(mechanism_type)
             if normalized_type == "slider_crank":
                 normalized_type = "four_bar"
 
@@ -2161,6 +2170,8 @@ class MechanismDesignTab(QWidget):
                         merged_params["crank_angle"] = float(merged_params["input_angle"])
                     except (TypeError, ValueError):
                         pass
+
+                rebuild_fourbar_scene_geometry_from_params(layer_data, merged_params)
 
             layer_data["params"] = merged_params
 
@@ -2346,6 +2357,70 @@ class MechanismDesignTab(QWidget):
 
         params = layer_data.get("params", {})
         self.mechanism_parameters_changed.emit(mechanism_id, params)
+
+    def get_ms4n_snapshot_source(self, mechanism_id: str | None = None) -> dict[str, Any]:
+        """
+        Return a read-only presentation snapshot source for the Lab/MS4N adapter.
+
+        This is intentionally a narrow public seam: Lab consumes this mapping through
+        `ms4n_snapshot_adapter.py`, which converts Qt trace points before they cross
+        into application/domain code.
+        """
+        selected_id = mechanism_id or self.selected_mechanism_id
+        if not selected_id and self.mechanism_layers:
+            selected_id = next(iter(self.mechanism_layers))
+
+        layer_data: dict[str, Any] = {}
+        if selected_id:
+            raw_layer_data = self.mechanism_layers.get(selected_id, {})
+            if isinstance(raw_layer_data, dict):
+                layer_data = dict(raw_layer_data)
+
+        params = layer_data.get("params")
+        if not isinstance(params, dict):
+            params = dict(self.mechanism_params)
+
+        def plain_point(point: object) -> tuple[float, float]:
+            if isinstance(point, QPointF):
+                x = point.x()
+                y = point.y()
+            elif isinstance(point, list | tuple) and len(point) >= 2:
+                x = float(point[0])
+                y = float(point[1])
+            else:
+                x_attr = getattr(point, "x", None)
+                y_attr = getattr(point, "y", None)
+                if callable(x_attr) and callable(y_attr):
+                    x = float(x_attr())
+                    y = float(y_attr())
+                else:
+                    raise ValueError(f"Unsupported MS4N snapshot point: {type(point).__name__}")
+            if not math.isfinite(x) or not math.isfinite(y):
+                raise ValueError("MS4N snapshot points must be finite")
+            return (x, y)
+
+        raw_key_points = layer_data.get("key_points", {})
+        key_points: dict[str, tuple[float, float]] = {}
+        if isinstance(raw_key_points, dict):
+            key_points = {str(name): plain_point(point) for name, point in raw_key_points.items()}
+
+        raw_trace_points: list[QPointF] = []
+        trace_points: list[tuple[float, float]] = []
+        if not isinstance(key_points, dict):
+            key_points = {}
+        if selected_id and hasattr(self, "_path_trace_manager") and self._path_trace_manager:
+            raw_trace_points = self._path_trace_manager.get_trace_points(selected_id)
+            trace_points = [plain_point(point) for point in raw_trace_points]
+
+        return {
+            "mechanism_id": selected_id or "",
+            "mechanism_type": layer_data.get("type") or self.current_mechanism_type or "",
+            "part_name": layer_data.get("part_name") or self.selected_part_name or "",
+            "parameters": params,
+            "key_points": key_points,
+            "trace_points": trace_points,
+            "coordinate_space": "scene",
+        }
 
     def center_on_character(self):
         if not self.mechanism_view:

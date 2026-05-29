@@ -29,12 +29,56 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from automataii.presentation.qt.mechanism_parameter_utils import finite_param
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_param,
+    positive_finite_float,
+    positive_finite_param,
+)
+from automataii.presentation.qt.tabs.cam_geometry import (
+    cam_contact_local_from_rotated_profile,
+    cam_follower_base_scene,
+    cam_scene_unit_scale,
+)
 
 from .animation_cache import AnimationCacheManager, GearCache, PlanetaryGearCache
 
 if TYPE_CHECKING:
     pass
+
+
+def _is_foundry_scene_layer(layer_data: dict) -> bool:
+    return (
+        str(layer_data.get("source", "")).lower() == "foundry"
+        and str(layer_data.get("coordinate_space", "")).lower() == "scene"
+    )
+
+
+def _is_initial_phase(time: float) -> bool:
+    period = 2.0 * math.pi
+    phase = math.fmod(time, period)
+    if phase < 0:
+        phase += period
+    return math.isclose(phase, 0.0, abs_tol=1e-9) or math.isclose(
+        phase,
+        period,
+        abs_tol=1e-9,
+    )
+
+
+def _scene_key_point(layer_data: dict, key: str) -> QPointF | None:
+    key_points = layer_data.get("key_points", {})
+    if not isinstance(key_points, dict):
+        return None
+    try:
+        point = np.asarray(key_points.get(key), dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if point.ndim != 1 or len(point) < 2:
+        return None
+    point = point[:2]
+    if not bool(np.isfinite(point).all()):
+        return None
+    return QPointF(float(point[0]), float(point[1]))
 
 
 class MechanismVisualAnimator:
@@ -483,8 +527,15 @@ class MechanismVisualAnimator:
 
         # Get params for rod length calculation
         params = layer_data.get("params", {})
-        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 40.0))
-        rod_length_multiplier = layer_data.get("rod_length_multiplier", 1.0)
+        follower_rod_length = positive_finite_param(
+            params,
+            "follower_rod_length",
+            "follower_length",
+            default=40.0,
+        )
+        rod_length_multiplier = positive_finite_float(
+            layer_data.get("rod_length_multiplier"), 1.0
+        )
         scaled_rod_length = follower_rod_length * rod_length_multiplier
 
         # Prepare batch transform if available
@@ -518,19 +569,7 @@ class MechanismVisualAnimator:
                 cam_polygon_points = batch_transform(rotated_profile)
             else:
                 cam_polygon_points = [cam_to_scene_coords(pt) for pt in rotated_profile]
-
-            # Calculate contact radius
-            follower_angle_in_profile = -np.pi / 2 - cam_angle
-            follower_angle_norm = follower_angle_in_profile % (2 * np.pi)
-            num_pts = len(cam_points_local)
-            profile_idx = int((follower_angle_norm / (2 * np.pi)) * num_pts) % num_pts
-
-            # Safe indexing
-            if isinstance(cam_points_local, list):
-                contact_pt = cam_points_local[profile_idx]
-            else:
-                contact_pt = cam_points_local[profile_idx]
-            contact_radius = float(np.sqrt(contact_pt[0] ** 2 + contact_pt[1] ** 2))
+            contact_local = cam_contact_local_from_rotated_profile(rotated_profile)
 
         else:
             # Fallback: Try to use cache (harmonic formula)
@@ -539,7 +578,7 @@ class MechanismVisualAnimator:
             if cache:
                 # Use cached base profile with vectorized rotation
                 rotated_profile = cache.get_rotated_profile(cam_angle)
-                contact_radius = cache.get_contact_radius(cam_angle)
+                contact_local = cam_contact_local_from_rotated_profile(rotated_profile)
                 scaled_rod_length = cache.rod_length
 
                 # Transform all points at once (Batch Optimized)
@@ -550,12 +589,20 @@ class MechanismVisualAnimator:
             else:
                 # Last fallback: compute harmonic formula directly
                 # (Keep legacy loop for robustness in edge cases)
-                base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
-                cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
-                cam_lobes = int(params.get("cam_lobes", 1))
-                profile_harmonic = params.get("profile_harmonic", 0.3)
+                base_radius = positive_finite_param(
+                    params,
+                    "base_radius",
+                    "cam_radius",
+                    default=60.0,
+                )
+                cam_offset = max(
+                    0.0,
+                    finite_param(params, "eccentricity", "cam_offset", default=20.0),
+                )
+                cam_lobes = max(1, int(positive_finite_param(params, "cam_lobes", default=1.0)))
+                profile_harmonic = finite_param(params, "profile_harmonic", default=0.3)
 
-                cam_scale_factor = layer_data.get("cam_scale_factor", 1.0)
+                cam_scale_factor = positive_finite_float(layer_data.get("cam_scale_factor"), 1.0)
 
                 scaled_base_radius = base_radius * cam_scale_factor
                 scaled_cam_offset = cam_offset * cam_scale_factor
@@ -568,6 +615,7 @@ class MechanismVisualAnimator:
                     2 * cam_lobes * thetas
                 )
                 radii = scaled_base_radius + primary_var + secondary_var
+                radii = np.maximum(radii, max(1e-6, scaled_base_radius * 0.05))
 
                 rotated_thetas = thetas + cam_angle
                 xs = radii * np.cos(rotated_thetas)
@@ -579,14 +627,7 @@ class MechanismVisualAnimator:
                     cam_polygon_points = batch_transform(raw_points)
                 else:
                     cam_polygon_points = [cam_to_scene_coords(pt) for pt in raw_points]
-
-                # Calculate contact radius for fallback
-                follower_theta = -np.pi / 2 - cam_angle
-                primary = scaled_cam_offset * np.cos(cam_lobes * follower_theta)
-                secondary = (scaled_cam_offset * profile_harmonic) * np.cos(
-                    2 * cam_lobes * follower_theta
-                )
-                contact_radius = scaled_base_radius + primary + secondary
+                contact_local = cam_contact_local_from_rotated_profile(raw_points)
 
         # Cam center in mechanism coordinates
         cam_center_local = np.array([0.0, 0.0])
@@ -597,26 +638,36 @@ class MechanismVisualAnimator:
             cam_polygon = QPolygonF(cam_polygon_points)
             visual_items[0].setPolygon(cam_polygon)
 
-        # Contact point position (contact_radius already calculated above)
-        contact_local = np.array([0.0, -contact_radius])
         contact_scene = cam_to_scene_coords(contact_local)
+        use_foundry_snapshot = _is_foundry_scene_layer(layer_data) and _is_initial_phase(time)
+        if use_foundry_snapshot:
+            snapshot_contact = _scene_key_point(layer_data, "contact_point")
+            if snapshot_contact is not None:
+                contact_scene = snapshot_contact
 
         # Calculate scene scale for rod length conversion
-        try:
-            u0 = cam_to_scene_coords(np.array([0.0, 0.0]))
-            u1 = cam_to_scene_coords(np.array([0.0, 1.0]))
-            unit_scale = ((u1.x() - u0.x()) ** 2 + (u1.y() - u0.y()) ** 2) ** 0.5
-        except Exception:
-            unit_scale = 1.0
-
-        rod_scene = scaled_rod_length * unit_scale
+        unit_scale = cam_scene_unit_scale(cam_to_scene_coords)
 
         # Follower X is fixed at cam center X
         follower_x = layer_data.get("follower_fixed_x_scene", cam_center_scene.x())
+        try:
+            follower_x = float(follower_x)
+        except (TypeError, ValueError):
+            follower_x = float(cam_center_scene.x())
 
-        # Follower base Y (at end of rod above contact due to gravity)
-        # In scene coords, Y+ is down, so subtract rod_scene to move upward
-        follower_base_y = contact_scene.y() - rod_scene
+        if use_foundry_snapshot:
+            follower_base = (
+                _scene_key_point(layer_data, "follower_base")
+                or _scene_key_point(layer_data, "follower_end")
+                or _scene_key_point(layer_data, "follower_position")
+            )
+        else:
+            follower_base = None
+        if follower_base is None:
+            # Follower base/head is scene-vertical above the contact point.
+            follower_base = cam_follower_base_scene(
+                contact_scene, scaled_rod_length, unit_scale, fixed_x=follower_x
+            )
 
         # Update contact point (item 1)
         if len(visual_items) > 1 and isinstance(visual_items[1], QGraphicsEllipseItem):
@@ -624,15 +675,15 @@ class MechanismVisualAnimator:
 
         # Update follower rod (item 2)
         if len(visual_items) > 2 and isinstance(visual_items[2], QGraphicsLineItem):
-            visual_items[2].setLine(QLineF(contact_scene, QPointF(follower_x, follower_base_y)))
+            visual_items[2].setLine(QLineF(contact_scene, follower_base))
 
         # Update follower head (item 3)
         if len(visual_items) > 3 and isinstance(visual_items[3], QGraphicsRectItem):
-            visual_items[3].setRect(follower_x - 15, follower_base_y - 8, 30, 15)
+            visual_items[3].setRect(follower_base.x() - 15, follower_base.y() - 8, 30, 15)
 
         # Update follower anchor (item 4) - fixed position
         if len(visual_items) > 4 and isinstance(visual_items[4], QGraphicsRectItem):
-            visual_items[4].setRect(follower_x - 30, follower_base_y - 45, 60, 30)
+            visual_items[4].setRect(follower_base.x() - 30, follower_base.y() - 45, 60, 30)
 
         # Update cam center pivot (item 5)
         if len(visual_items) > 5 and isinstance(visual_items[5], QGraphicsEllipseItem):

@@ -23,7 +23,23 @@ from .mechanism_lifecycle_coordinator import (
     MechanismLifecycleContext,
     MechanismLifecycleCoordinator,
 )
+from .mechanism_types import (
+    canonical_mechanism_type,
+    is_visible_foundry_mechanism_type,
+    normalize_mechanism_type_key,
+)
 from .path_cache import CachedPath, PathCache, PathCacheKey
+from .sensemaking import (
+    CauseEffectRule,
+    FoundrySensemakingEvent,
+    MechanismStory,
+    SensemakingContext,
+    SensemakingMotionPoint,
+    SensemakingParameterChange,
+    SensemakingPointSnapshot,
+    SensemakingPreviewSnapshot,
+    SensemakingService,
+)
 from .service import MechanismCatalogService
 
 __all__ = [
@@ -48,4 +64,16 @@ __all__ = [
     "MechanismGenerationService",
     "MechanismGenerationContext",
     "MechanismGenerationResult",
+    "canonical_mechanism_type",
+    "is_visible_foundry_mechanism_type",
+    "normalize_mechanism_type_key",
+    "SensemakingService",
+    "SensemakingPointSnapshot",
+    "SensemakingParameterChange",
+    "SensemakingMotionPoint",
+    "SensemakingContext",
+    "SensemakingPreviewSnapshot",
+    "MechanismStory",
+    "FoundrySensemakingEvent",
+    "CauseEffectRule",
 ]

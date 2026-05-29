@@ -15,13 +15,19 @@ these specialized components.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+import math
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSlot
 
-from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_utils import (
-    qpainterpath_to_numpy_array as utils_qpainterpath_to_numpy_array,
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    positive_finite_float,
+)
+from automataii.presentation.qt.tabs.cam_geometry import (
+    build_pear_cam_profile_from_params,
+    cam_contact_local_from_profile,
 )
 from automataii.presentation.qt.tabs.parametric.components import (
     AnimationCoordinator,
@@ -52,7 +58,7 @@ class ParametricEditingManager:
     - cleanup(): Clean up resources
     """
 
-    def __init__(self, parent_tab) -> None:
+    def __init__(self, parent_tab: Any) -> None:
         """
         Initialize the parametric editing manager.
 
@@ -467,19 +473,12 @@ class ParametricEditingManager:
         p2 = np.array([float(p2[0]), float(p2[1])])
         L1 = float(np.linalg.norm(p2 - p1))
 
-        transform_config = self._parameter_mapper.get_transform_config(
-            layer_data, utils_qpainterpath_to_numpy_array
-        )
-
-        def scene_to_mech_len(val: float) -> float:
-            return self._parameter_mapper.scene_to_mech_length(val, transform_config)
-
-        def mech_to_scene_len(val: float) -> float:
-            return self._parameter_mapper.mech_to_scene_length(val, transform_config)
-
-        L2 = scene_to_mech_len(params.get("l2", 40.0))
-        L3 = scene_to_mech_len(params.get("l3", 60.0))
-        L4 = scene_to_mech_len(params.get("l4", 50.0))
+        # Linkage lengths are mechanism-space values throughout the 4-bar visual
+        # factory/editor path.  Do not convert lowercase aliases as scene lengths:
+        # parametric drag already stores both ``l*`` and ``L*`` in mechanism space.
+        L2 = float(params.get("L2", params.get("l2", 40.0)))
+        L3 = float(params.get("L3", params.get("l3", 60.0)))
+        L4 = float(params.get("L4", params.get("l4", 50.0)))
 
         items = [("L1", L1), ("L2", L2), ("L3", L3), ("L4", L4)]
         items_sorted = sorted(items, key=lambda x: x[1])
@@ -505,9 +504,12 @@ class ParametricEditingManager:
         else:
             L3 += delta
 
-        params["l2"] = mech_to_scene_len(L2)
-        params["l3"] = mech_to_scene_len(L3)
-        params["l4"] = mech_to_scene_len(L4)
+        params["L2"] = L2
+        params["L3"] = L3
+        params["L4"] = L4
+        params["l2"] = L2
+        params["l3"] = L3
+        params["l4"] = L4
 
         if self.physics_snap_mode == "high":
             self._logger.warning(
@@ -576,12 +578,12 @@ class ParametricEditingManager:
         changed = False
 
         if self.physics_snap_mode == "high":
-            rod_len = float(params.get("follower_rod_length", 40.0))
+            rod_len = positive_finite_float(params.get("follower_rod_length"), 40.0)
             if rod_len < 20.0:
                 self._logger.warning(
                     "[PHYSICS-SNAP] CAM rod length too short (%.2f) — alert-only", rod_len
                 )
-            base_r = float(params.get("base_radius", 25.0))
+            base_r = finite_float(params.get("base_radius"), 25.0)
             if base_r < 0.0:
                 self._logger.warning(
                     "[PHYSICS-SNAP] CAM base radius negative (%.2f) — alert-only", base_r
@@ -589,7 +591,7 @@ class ParametricEditingManager:
             return False
 
         try:
-            rod_len = float(params.get("follower_rod_length", 40.0))
+            rod_len = finite_float(params.get("follower_rod_length"), 40.0)
             min_len = 20.0 if self.physics_snap_mode == "fast" else 15.0
             if rod_len < min_len:
                 params["follower_rod_length"] = float(min_len)
@@ -601,7 +603,7 @@ class ParametricEditingManager:
             logging.debug("Suppressed exception", exc_info=True)
 
         try:
-            base_r = float(params.get("base_radius", 25.0))
+            base_r = finite_float(params.get("base_radius"), 25.0)
             if base_r < 1.0:
                 params["base_radius"] = 1.0
                 self._logger.warning("[PHYSICS-SNAP] CAM: clamped base_radius to 1.0")
@@ -628,23 +630,17 @@ class ParametricEditingManager:
     ) -> None:
         """Generate new simulation data for 4-bar linkage."""
         num_frames = 100
-        joint_positions = {
+        joint_positions: dict[str, list[Any]] = {
             "p1_positions": [],
             "p2_positions": [],
             "p3_positions": [],
             "p4_positions": [],
         }
 
-        to_mech = self.parent_tab._get_inverse_scene_transform_function(layer_data)
-        transform_config = self._parameter_mapper.get_transform_config(
-            layer_data, utils_qpainterpath_to_numpy_array
-        )
-        use_length_transform = to_mech is not None
-
-        def scene_len_to_mech(val: float) -> float:
-            if not use_length_transform:
-                return float(val)
-            return self._parameter_mapper.scene_to_mech_length(val, transform_config)
+        inverse_getter = getattr(self.parent_tab, "_get_inverse_scene_transform_function", None)
+        scene_getter = getattr(self.parent_tab, "_get_scene_transform_function", None)
+        to_mech = inverse_getter(layer_data) if callable(inverse_getter) else None
+        to_scene = scene_getter(layer_data) if callable(scene_getter) else None
 
         if to_mech and ("anchor1_x" in params and "anchor1_y" in params):
             p1 = to_mech(QPointF(params["anchor1_x"], params["anchor1_y"]))
@@ -658,36 +654,91 @@ class ParametricEditingManager:
         p1 = np.array([float(p1[0]), float(p1[1])])
         p2 = np.array([float(p2[0]), float(p2[1])])
 
+        preferred_p3 = self._scene_or_mech_point_to_mech(
+            params,
+            scene_keys=("crank_x", "crank_y"),
+            mech_keys=("m_crank_x", "m_crank_y"),
+            to_mech=to_mech,
+        )
+        preferred_p4 = self._scene_or_mech_point_to_mech(
+            params,
+            scene_keys=("rocker_x", "rocker_y"),
+            mech_keys=("m_rocker_x", "m_rocker_y"),
+            to_mech=to_mech,
+        )
+
         L2 = params.get("L2")
         L3 = params.get("L3")
         L4 = params.get("L4")
         if L2 is None:
-            L2 = scene_len_to_mech(params.get("l2", 40))
+            if preferred_p3 is not None:
+                L2 = float(np.linalg.norm(preferred_p3 - p1))
+            else:
+                L2 = float(params.get("l2", 40.0))
         if L3 is None:
-            L3 = scene_len_to_mech(params.get("l3", 60))
+            if preferred_p3 is not None and preferred_p4 is not None:
+                L3 = float(np.linalg.norm(preferred_p4 - preferred_p3))
+            else:
+                L3 = float(params.get("l3", 60.0))
         if L4 is None:
-            L4 = scene_len_to_mech(params.get("l4", 50))
+            if preferred_p4 is not None:
+                L4 = float(np.linalg.norm(preferred_p4 - p2))
+            else:
+                L4 = float(params.get("l4", 50.0))
         L2, L3, L4 = float(L2), float(L3), float(L4)
 
+        crank_angle = math.radians(float(params.get("crank_angle", 0.0)))
+        if preferred_p3 is not None:
+            p3_delta = preferred_p3 - p1
+            if np.linalg.norm(p3_delta) > 1e-9:
+                crank_angle = math.atan2(float(p3_delta[1]), float(p3_delta[0]))
+                params["crank_angle"] = math.degrees(crank_angle)
+
         for i in range(num_frames):
-            theta = (i / num_frames) * 2 * np.pi
+            theta = crank_angle + (i / num_frames) * 2 * np.pi
             p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
-            p4 = self._solve_circle_intersection(p3, L3, p2, L4)
+            p4 = self._solve_circle_intersection_near(p3, L3, p2, L4, preferred_p4)
 
             if p4 is not None:
                 joint_positions["p1_positions"].append(p1.tolist())
                 joint_positions["p2_positions"].append(p2.tolist())
                 joint_positions["p3_positions"].append(p3.tolist())
                 joint_positions["p4_positions"].append(p4.tolist())
+                preferred_p4 = p4
 
         layer_data["full_simulation_data"] = {"joint_positions": joint_positions}
+        params["L2"] = L2
+        params["L3"] = L3
+        params["L4"] = L4
+        params["l2"] = L2
+        params["l3"] = L3
+        params["l4"] = L4
+
+        if joint_positions["p3_positions"] and joint_positions["p4_positions"]:
+            first_p1 = np.array(joint_positions["p1_positions"][0], dtype=float)
+            first_p2 = np.array(joint_positions["p2_positions"][0], dtype=float)
+            first_p3 = np.array(joint_positions["p3_positions"][0], dtype=float)
+            first_p4 = np.array(joint_positions["p4_positions"][0], dtype=float)
+            key_points = layer_data.setdefault("key_points", {})
+            key_points["ground_pivot_1"] = first_p1.tolist()
+            key_points["ground_pivot_2"] = first_p2.tolist()
+            key_points["crank_end"] = first_p3.tolist()
+            key_points["rocker_end"] = first_p4.tolist()
+
+            if to_scene is not None:
+                p3_scene = to_scene(first_p3)
+                p4_scene = to_scene(first_p4)
+                params["crank_x"] = float(p3_scene.x())
+                params["crank_y"] = float(p3_scene.y())
+                params["rocker_x"] = float(p4_scene.x())
+                params["rocker_y"] = float(p4_scene.y())
 
     def _regenerate_5bar_simulation(
         self, layer_data: dict[str, Any], params: dict[str, Any]
     ) -> None:
         """Generate new simulation data for 5-bar linkage."""
         num_frames = 100
-        joint_positions = {
+        joint_positions: dict[str, list[Any]] = {
             "p1_positions": [],
             "p2_positions": [],
             "p3_positions": [],
@@ -696,45 +747,45 @@ class ParametricEditingManager:
         }
 
         key_points = layer_data.get("key_points", {})
-        p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
-        p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
+        p1 = np.array(key_points.get("ground_pivot_1", [0, 0]), dtype=float)
+        p2 = np.array(key_points.get("ground_pivot_2", [100, 0]), dtype=float)
 
         if (
             "joint_3" in key_points
             and "joint_4" in key_points
             and "joint_5" in key_points
         ):
-            p3 = np.array(key_points["joint_3"])
-            p4 = np.array(key_points["joint_4"])
-            p5 = np.array(key_points["joint_5"])
+            p3 = np.array(key_points["joint_3"], dtype=float)
+            p4 = np.array(key_points["joint_4"], dtype=float)
+            p5 = np.array(key_points["joint_5"], dtype=float)
 
-            L2 = np.linalg.norm(p3 - p1)
-            L3 = np.linalg.norm(p4 - p3)
-            L4 = np.linalg.norm(p5 - p4)
-            L5 = np.linalg.norm(p5 - p2)
+            L2 = float(np.linalg.norm(p3 - p1))
+            L3 = float(np.linalg.norm(p4 - p3))
+            L4 = float(np.linalg.norm(p5 - p4))
+            L5 = float(np.linalg.norm(p5 - p2))
 
             params["L2"] = float(L2)
             params["L3"] = float(L3)
             params["L4"] = float(L4)
             params["L5"] = float(L5)
         else:
-            L2 = params.get("L2", 40)
-            L3 = params.get("L3", 50)
-            L4 = params.get("L4", 45)
-            L5 = params.get("L5", 55)
+            L2 = float(params.get("L2", 40))
+            L3 = float(params.get("L3", 50))
+            L4 = float(params.get("L4", 45))
+            L5 = float(params.get("L5", 55))
 
         for i in range(num_frames):
             theta = (i / num_frames) * 2 * np.pi
             p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
             p4 = p3 + L3 * np.array([np.cos(theta + 0.5), np.sin(theta + 0.5)])
-            p5 = self._solve_circle_intersection(p4, L4, p2, L5)
+            p5_candidate = self._solve_circle_intersection(p4, L4, p2, L5)
 
-            if p5 is not None:
+            if p5_candidate is not None:
                 joint_positions["p1_positions"].append(p1.tolist())
                 joint_positions["p2_positions"].append(p2.tolist())
                 joint_positions["p3_positions"].append(p3.tolist())
                 joint_positions["p4_positions"].append(p4.tolist())
-                joint_positions["p5_positions"].append(p5.tolist())
+                joint_positions["p5_positions"].append(p5_candidate.tolist())
 
         layer_data["full_simulation_data"] = {"joint_positions": joint_positions}
 
@@ -743,7 +794,7 @@ class ParametricEditingManager:
     ) -> None:
         """Generate new simulation data for 6-bar linkage."""
         num_frames = 100
-        joint_positions = {
+        joint_positions: dict[str, list[Any]] = {
             "p1_positions": [],
             "p2_positions": [],
             "p3_positions": [],
@@ -753,20 +804,20 @@ class ParametricEditingManager:
         }
 
         key_points = layer_data.get("key_points", {})
-        p1 = np.array(key_points.get("ground_pivot_1", [0, 0]))
-        p2 = np.array(key_points.get("ground_pivot_2", [100, 0]))
-        p6 = np.array(key_points.get("ground_pivot_3", [50, -30]))
+        p1 = np.array(key_points.get("ground_pivot_1", [0, 0]), dtype=float)
+        p2 = np.array(key_points.get("ground_pivot_2", [100, 0]), dtype=float)
+        p6 = np.array(key_points.get("ground_pivot_3", [50, -30]), dtype=float)
 
         if all(k in key_points for k in ["joint_3", "joint_4", "joint_5"]):
-            p3 = np.array(key_points["joint_3"])
-            p4 = np.array(key_points["joint_4"])
-            p5 = np.array(key_points["joint_5"])
+            p3 = np.array(key_points["joint_3"], dtype=float)
+            p4 = np.array(key_points["joint_4"], dtype=float)
+            p5 = np.array(key_points["joint_5"], dtype=float)
 
-            L2 = np.linalg.norm(p3 - p1)
-            L3 = np.linalg.norm(p4 - p3)
-            L4 = np.linalg.norm(p4 - p2)
-            L5 = np.linalg.norm(p5 - p4)
-            L6 = np.linalg.norm(p5 - p6)
+            L2 = float(np.linalg.norm(p3 - p1))
+            L3 = float(np.linalg.norm(p4 - p3))
+            L4 = float(np.linalg.norm(p4 - p2))
+            L5 = float(np.linalg.norm(p5 - p4))
+            L6 = float(np.linalg.norm(p5 - p6))
 
             params.update(
                 {
@@ -778,25 +829,25 @@ class ParametricEditingManager:
                 }
             )
         else:
-            L2 = params.get("L2", 40)
-            L3 = params.get("L3", 60)
-            L4 = params.get("L4", 50)
-            L5 = params.get("L5", 45)
-            L6 = params.get("L6", 55)
+            L2 = float(params.get("L2", 40))
+            L3 = float(params.get("L3", 60))
+            L4 = float(params.get("L4", 50))
+            L5 = float(params.get("L5", 45))
+            L6 = float(params.get("L6", 55))
 
         for i in range(num_frames):
             theta = (i / num_frames) * 2 * np.pi
             p3 = p1 + L2 * np.array([np.cos(theta), np.sin(theta)])
-            p4 = self._solve_circle_intersection(p3, L3, p2, L4)
+            p4_candidate = self._solve_circle_intersection(p3, L3, p2, L4)
 
-            if p4 is not None:
-                p5 = self._solve_circle_intersection(p4, L5, p6, L6)
-                if p5 is not None:
+            if p4_candidate is not None:
+                p5_candidate = self._solve_circle_intersection(p4_candidate, L5, p6, L6)
+                if p5_candidate is not None:
                     joint_positions["p1_positions"].append(p1.tolist())
                     joint_positions["p2_positions"].append(p2.tolist())
                     joint_positions["p3_positions"].append(p3.tolist())
-                    joint_positions["p4_positions"].append(p4.tolist())
-                    joint_positions["p5_positions"].append(p5.tolist())
+                    joint_positions["p4_positions"].append(p4_candidate.tolist())
+                    joint_positions["p5_positions"].append(p5_candidate.tolist())
                     joint_positions["p6_positions"].append(p6.tolist())
 
         layer_data["full_simulation_data"] = {"joint_positions": joint_positions}
@@ -806,29 +857,178 @@ class ParametricEditingManager:
     ) -> None:
         """Generate cam mechanism data with correct physics."""
         num_frames = 100
-        base_radius = params.get("base_radius", 25.0)
-        eccentricity = params.get("eccentricity", 10.0)
-        rod_length = params.get("follower_rod_length", 40.0)
+        cam_scale_factor = self._positive_float(layer_data.get("cam_scale_factor"), 1.0)
+        rod_length_multiplier = self._positive_float(
+            layer_data.get("rod_length_multiplier"), 1.0
+        )
+        rod_length = self._positive_float(params.get("follower_rod_length"), 40.0)
+        scaled_rod_length = rod_length * rod_length_multiplier
 
-        key_points = layer_data.get("key_points", {})
-        if "cam_center" in key_points:
-            cam_center_base = np.array(key_points["cam_center"])
-        else:
-            cam_center_base = np.array([0, 0])
+        key_points = layer_data.setdefault("key_points", {})
+        inverse_getter = getattr(self.parent_tab, "_get_inverse_scene_transform_function", None)
+        scene_getter = getattr(self.parent_tab, "_get_scene_transform_function", None)
+        to_mech = inverse_getter(layer_data) if callable(inverse_getter) else None
+        to_scene = scene_getter(layer_data) if callable(scene_getter) else None
 
-        cam_data = {"cam_centers": [], "follower_y_positions": []}
+        cam_center_base = self._resolve_cam_scene_center(
+            layer_data,
+            params,
+            key_points,
+            to_scene,
+        )
+        layer_data["cam_position"] = [
+            float(cam_center_base[0]),
+            float(cam_center_base[1]),
+        ]
+        params["center_x"] = float(cam_center_base[0])
+        params["center_y"] = float(cam_center_base[1])
+        params["cam_center"] = list(layer_data["cam_position"])
+        stored_cam_center = self._cam_key_point_center_for_storage(
+            cam_center_base,
+            to_mech,
+            key_points.get("cam_center"),
+        )
+        if stored_cam_center is not None:
+            key_points["cam_center"] = stored_cam_center
+
+        cam_data: dict[str, list[Any]] = {"cam_centers": [], "follower_y_positions": []}
+        cam_profile = build_pear_cam_profile_from_params(params, scale=cam_scale_factor)
 
         for i in range(num_frames):
             angle = (i / num_frames) * 2 * np.pi
-            lift = eccentricity * (1 + np.cos(angle + np.pi / 2)) / 2
-            cam_radius_at_angle = base_radius + lift
             current_cam_center = cam_center_base
-            follower_y = current_cam_center[1] - cam_radius_at_angle - rod_length
+            contact_local = cam_contact_local_from_profile(cam_profile, float(angle))
+            contact_scene = current_cam_center + contact_local
+            follower_y = current_cam_center[1] + contact_local[1] - scaled_rod_length
 
             cam_data["cam_centers"].append(current_cam_center.tolist())
-            cam_data["follower_y_positions"].append(follower_y)
+            cam_data["follower_y_positions"].append(float(follower_y))
+            if i == 0:
+                key_points["contact_point"] = [
+                    float(contact_scene[0]),
+                    float(contact_scene[1]),
+                ]
+                key_points["follower_base"] = [
+                    float(contact_scene[0]),
+                    float(follower_y),
+                ]
 
         layer_data["full_simulation_data"] = {"cam_data": cam_data}
+
+    @classmethod
+    def _resolve_cam_scene_center(
+        cls,
+        layer_data: dict[str, Any],
+        params: dict[str, Any],
+        key_points: dict[str, Any],
+        to_scene: Any,
+    ) -> np.ndarray:
+        """Resolve the cam center with scene-space aliases as the source of truth.
+
+        `cam_position` and `params.center_x/y` are scene-space throughout the
+        Design tab. `key_points["cam_center"]` can be mechanism-space when a
+        transform exists, so it is only a fallback and is mapped through
+        `to_scene` before being used.
+        """
+        params_center = cls._finite_point(
+            [params.get("center_x"), params.get("center_y")]
+            if "center_x" in params and "center_y" in params
+            else None
+        )
+        if params_center is not None:
+            return params_center
+
+        cam_position = cls._finite_point(layer_data.get("cam_position"))
+        if cam_position is not None:
+            return cam_position
+
+        params_cam_center = cls._finite_point(params.get("cam_center"))
+        if params_cam_center is not None:
+            return params_cam_center
+
+        key_center = cls._finite_point(key_points.get("cam_center"))
+        if key_center is not None:
+            if to_scene is None:
+                return key_center
+            scene_center = cls._point_to_scene_array(key_center, to_scene)
+            if scene_center is not None:
+                return scene_center
+            logging.warning(
+                "Unable to map key_points.cam_center into scene space during cam regeneration"
+            )
+
+        return np.array([0.0, 0.0], dtype=float)
+
+    @classmethod
+    def _cam_key_point_center_for_storage(
+        cls,
+        scene_center: np.ndarray,
+        to_mech: Any,
+        existing_center: object,
+    ) -> list[float] | None:
+        """Store cam key-point center in the editor-compatible coordinate space."""
+        if to_mech is None:
+            return [float(scene_center[0]), float(scene_center[1])]
+
+        mech_center = cls._scene_point_to_mech_array(scene_center, to_mech)
+        if mech_center is not None:
+            return [float(mech_center[0]), float(mech_center[1])]
+
+        existing = cls._finite_point(existing_center)
+        if existing is not None:
+            logging.warning(
+                "Unable to map cam center into mechanism space; preserving existing "
+                "key_points.cam_center"
+            )
+            return [float(existing[0]), float(existing[1])]
+
+        logging.warning("Unable to map cam center into mechanism space; skipping key-point sync")
+        return None
+
+    @staticmethod
+    def _finite_point(value: object) -> np.ndarray | None:
+        try:
+            point = np.asarray(value, dtype=float)
+        except (TypeError, ValueError):
+            return None
+        if point.ndim != 1 or len(point) < 2:
+            return None
+        point = point[:2]
+        return point if bool(np.isfinite(point).all()) else None
+
+    @classmethod
+    def _point_to_scene_array(cls, point: np.ndarray, to_scene: Any) -> np.ndarray | None:
+        if to_scene is None:
+            return None
+        try:
+            mapped = to_scene(point)
+            if hasattr(mapped, "x"):
+                return cls._finite_point([mapped.x(), mapped.y()])
+            return cls._finite_point(mapped)
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+            return None
+
+    @classmethod
+    def _scene_point_to_mech_array(cls, point: np.ndarray, to_mech: Any) -> np.ndarray | None:
+        if to_mech is None:
+            return None
+        try:
+            mapped = to_mech(QPointF(float(point[0]), float(point[1])))
+            if hasattr(mapped, "x"):
+                return cls._finite_point([mapped.x(), mapped.y()])
+            return cls._finite_point(mapped)
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+            return None
+
+    @staticmethod
+    def _positive_float(value: object, default: float) -> float:
+        try:
+            result = float(cast(Any, value))
+        except (TypeError, ValueError):
+            return default
+        return result if math.isfinite(result) and result > 0.0 else default
 
     def _regenerate_gear_simulation(
         self, layer_data: dict[str, Any], params: dict[str, Any]
@@ -856,9 +1056,9 @@ class ParametricEditingManager:
             and "gear1_center" in key_points
             and "gear2_center" in key_points
         ):
-            g1 = np.array(key_points["gear1_center"])
-            g2 = np.array(key_points["gear2_center"])
-            distance = np.linalg.norm(g2 - g1)
+            g1 = np.array(key_points["gear1_center"], dtype=float)
+            g2 = np.array(key_points["gear2_center"], dtype=float)
+            distance = float(np.linalg.norm(g2 - g1))
 
             ratio = r2 / r1
             r1 = distance / (1 + ratio)
@@ -868,7 +1068,7 @@ class ParametricEditingManager:
             params["gear1_radius"] = float(r1)
             params["gear2_radius"] = float(r2)
 
-        gear_data = {"gear1_angles": [], "gear2_angles": []}
+        gear_data: dict[str, list[float]] = {"gear1_angles": [], "gear2_angles": []}
 
         for i in range(num_frames):
             theta1 = (i / num_frames) * 2 * np.pi
@@ -957,7 +1157,7 @@ class ParametricEditingManager:
         params["gear1_x"] = float(sun_scene.x())
         params["gear1_y"] = float(sun_scene.y())
 
-        gear_positions = {
+        gear_positions: dict[str, list[Any]] = {
             "sun_centers": [],
             "planet_centers": [],
             "tracking_points": [],
@@ -1002,6 +1202,66 @@ class ParametricEditingManager:
 
         layer_data["full_simulation_data"] = {"gear_positions": gear_positions}
 
+    @staticmethod
+    def _scene_or_mech_point_to_mech(
+        params: dict[str, Any],
+        *,
+        scene_keys: tuple[str, str],
+        mech_keys: tuple[str, str],
+        to_mech: Any,
+    ) -> np.ndarray | None:
+        """Return an edited point in mechanism coordinates when available."""
+        try:
+            if mech_keys[0] in params and mech_keys[1] in params:
+                point = np.array(
+                    [float(params[mech_keys[0]]), float(params[mech_keys[1]])],
+                    dtype=float,
+                )
+                return point if bool(np.isfinite(point).all()) else None
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+
+        if to_mech is None or scene_keys[0] not in params or scene_keys[1] not in params:
+            return None
+
+        try:
+            scene_point = QPointF(float(params[scene_keys[0]]), float(params[scene_keys[1]]))
+            mapped = to_mech(scene_point)
+            point = np.array([float(mapped[0]), float(mapped[1])], dtype=float)
+            return point if bool(np.isfinite(point).all()) else None
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
+            return None
+
+    def _solve_circle_intersection_near(
+        self,
+        center1: np.ndarray,
+        radius1: float,
+        center2: np.ndarray,
+        radius2: float,
+        preferred: np.ndarray | None,
+    ) -> np.ndarray | None:
+        """Find a circle intersection, preferring the branch nearest an edited point."""
+        try:
+            d = float(np.linalg.norm(center2 - center1))
+            if d > radius1 + radius2 or d < abs(radius1 - radius2) or d == 0:
+                return self._solve_circle_intersection(center1, radius1, center2, radius2)
+
+            a = (radius1**2 - radius2**2 + d**2) / (2 * d)
+            h = math.sqrt(max(0.0, float(radius1**2 - a**2)))
+            p = center1 + a * (center2 - center1) / d
+            offset = h * np.array([-(center2[1] - center1[1]), center2[0] - center1[0]]) / d
+
+            candidates: tuple[np.ndarray, np.ndarray] = (p + offset, p - offset)
+            if preferred is not None and bool(np.isfinite(preferred).all()):
+                return min(
+                    candidates,
+                    key=lambda candidate: float(np.linalg.norm(candidate - preferred)),
+                )
+            return candidates[0] if float(candidates[0][1]) >= float(candidates[1][1]) else candidates[1]
+        except Exception:
+            return self._solve_circle_intersection(center1, radius1, center2, radius2)
+
     def _solve_circle_intersection(
         self,
         center1: np.ndarray,
@@ -1030,12 +1290,12 @@ class ParametricEditingManager:
             intersection2 = p - offset
 
             if intersection1[1] >= intersection2[1]:
-                return intersection1
+                return np.asarray(intersection1, dtype=float)
             else:
-                return intersection2
+                return np.asarray(intersection2, dtype=float)
 
         except Exception:
-            return center1 + np.array([radius1, 0])
+            return np.asarray(center1 + np.array([radius1, 0], dtype=float), dtype=float)
 
     def _try_visualization_adapter_update(
         self, mechanism_id: str, mechanism_data: dict[str, Any]
@@ -1208,8 +1468,8 @@ class ParametricEditingManager:
                 return []
 
             if extra_args_getter:
-                return method(layer_data, transform_func, extra_args_getter())
-            return method(layer_data, transform_func)
+                return cast(list[Any], method(layer_data, transform_func, extra_args_getter()))
+            return cast(list[Any], method(layer_data, transform_func))
         except Exception as e:
             self._logger.error("Error creating visuals for %s: %s", mechanism_type, e)
             return []

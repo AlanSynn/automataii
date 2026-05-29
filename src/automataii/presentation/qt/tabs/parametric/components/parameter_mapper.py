@@ -159,22 +159,33 @@ class ParameterMapper:
                 params["center_y"] = center_y
                 return
 
-        # Try to get cam center from key_points (mechanism space)
+        cam_position_point = _finite_point_array(cam_position)
+        if cam_position_point is not None:
+            # cam_position is stored in scene space by instantiation/editor flows.
+            params["center_x"] = float(cam_position_point[0])
+            params["center_y"] = float(cam_position_point[1])
+            return
+
+        params_cam_center = _finite_point_array(params.get("cam_center"))
+        if params_cam_center is not None:
+            params["center_x"] = float(params_cam_center[0])
+            params["center_y"] = float(params_cam_center[1])
+            return
+
+        # Try key_points last. It is mechanism-space when transform functions exist.
         cam_center = _finite_point_array(key_points.get("cam_center"))
         if cam_center is not None and to_scene:
             center_scene = self._to_scene_point(cam_center, to_scene)
             if center_scene is not None:
                 params["center_x"], params["center_y"] = center_scene
                 return
+        if cam_center is not None and to_scene is None:
+            params["center_x"] = float(cam_center[0])
+            params["center_y"] = float(cam_center[1])
+            return
 
-        cam_position_point = _finite_point_array(cam_position)
-        if cam_position_point is not None:
-            # cam_position is stored in scene space by instantiation/editor flows.
-            params["center_x"] = float(cam_position_point[0])
-            params["center_y"] = float(cam_position_point[1])
-        else:
-            params["center_x"] = _finite_float(params.get("center_x"), 400.0)
-            params["center_y"] = _finite_float(params.get("center_y"), 300.0)
+        params["center_x"] = _finite_float(params.get("center_x"), 400.0)
+        params["center_y"] = _finite_float(params.get("center_y"), 300.0)
 
     def _setup_4bar_parameters(
         self,

@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from automataii.presentation.qt.mechanism_parameter_utils import positive_finite_float
+
 
 @dataclass
 class SnapResult:
@@ -86,10 +88,10 @@ class PhysicsSnapper:
             B = np.array(params.get("B", [70, -50]), dtype=float)
 
             # Calculate link lengths
-            L1 = np.linalg.norm(A - O0)  # Crank
-            L2 = np.linalg.norm(B - A)  # Coupler
-            L3 = np.linalg.norm(B - O1)  # Rocker
-            L4 = np.linalg.norm(O1 - O0)  # Ground
+            L1 = float(np.linalg.norm(A - O0))  # Crank
+            L2 = float(np.linalg.norm(B - A))  # Coupler
+            L3 = float(np.linalg.norm(B - O1))  # Rocker
+            L4 = float(np.linalg.norm(O1 - O0))  # Ground
 
             lengths = sorted([L1, L2, L3, L4])
             shortest = lengths[0]
@@ -122,8 +124,8 @@ class PhysicsSnapper:
             correction_factor = max(0.5, min(2.0, correction_factor))
 
             # Identify which link is shortest and correct it
-            link_lengths = {"L1": L1, "L2": L2, "L3": L3, "L4": L4}
-            shortest_link = min(link_lengths, key=link_lengths.get)
+            link_lengths: dict[str, float] = {"L1": L1, "L2": L2, "L3": L3, "L4": L4}
+            shortest_link = min(link_lengths, key=lambda key: link_lengths[key])
 
             corrected_params = dict(params)
 
@@ -233,10 +235,14 @@ class PhysicsSnapper:
         params = layer_data.get("parameters", {})
 
         try:
-            base_r = params.get("base_radius", 30.0)
+            base_r = positive_finite_float(params.get("base_radius"), 30.0)
             params.get("lift", 15.0)
-            follower_r = params.get("follower_radius", 8.0)
-            center = np.array(params.get("center", [0, 0]), dtype=float)
+            follower_r = positive_finite_float(params.get("follower_radius"), 8.0)
+            center = np.array(params.get("center", [0.0, 0.0]), dtype=float)
+            if center.ndim != 1 or center.size < 2 or not bool(np.isfinite(center[:2]).all()):
+                center = np.array([0.0, 0.0], dtype=float)
+            else:
+                center = center[:2]
             follower_pos = params.get("follower_position")
 
             if not follower_pos:
@@ -252,6 +258,10 @@ class PhysicsSnapper:
                 )
 
             follower = np.array(follower_pos, dtype=float)
+            if follower.ndim != 1 or follower.size < 2 or not bool(np.isfinite(follower[:2]).all()):
+                follower = np.array([center[0], center[1] - base_r - follower_r], dtype=float)
+            else:
+                follower = follower[:2]
 
             # Check follower is on the cam centerline (x alignment)
             x_error = abs(follower[0] - center[0])

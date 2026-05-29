@@ -16,12 +16,15 @@ if TYPE_CHECKING:
 else:
     from automataii.application.mechanism_foundry.path_cache import CachedPath, PathCache
 
+_PreviewKey = tuple[str, tuple[tuple[str, str], ...], str]
+
 
 class PathPreviewOverlay:
     def __init__(self, scene: QGraphicsScene, cache: PathCache):
         self._scene = scene
         self._cache = cache
         self._items: dict[str, list[QGraphicsItem]] = {}
+        self._preview_keys: dict[str, _PreviewKey] = {}
         self._enabled = True
         self._fade_timer = QTimer()
         self._fade_timer.timeout.connect(self._auto_hide)
@@ -46,25 +49,28 @@ class PathPreviewOverlay:
         if not self._enabled:
             return
 
+        preview_key = self._make_preview_key(mechanism, parameters, point_name)
         if point_name in self._items:
-            return
+            if self._preview_keys.get(point_name) == preview_key:
+                if auto_fade:
+                    self._fade_timer.start(2000)
+                return
+            self._remove_path_items(point_name)
 
         cached_path = self._cache.compute_and_cache(mechanism, parameters, point_name)
         self._draw_path(cached_path, point_name)
+        if point_name in self._items:
+            self._preview_keys[point_name] = preview_key
 
         if auto_fade:
             self._fade_timer.start(2000)
 
     def hide_path(self, point_name: str | None = None) -> None:
         if point_name is None:
-            for items in self._items.values():
-                for item in items:
-                    self._scene.removeItem(item)
-            self._items.clear()
-        elif point_name in self._items:
-            for item in self._items[point_name]:
-                self._scene.removeItem(item)
-            del self._items[point_name]
+            for item_name in list(self._items):
+                self._remove_path_items(item_name)
+        else:
+            self._remove_path_items(point_name)
         self._fade_timer.stop()
 
     def toggle_visibility(self) -> None:
@@ -157,6 +163,23 @@ class PathPreviewOverlay:
             items.append(arrow_item)
 
         self._items[point_name] = items
+
+    def _remove_path_items(self, point_name: str) -> None:
+        for item in self._items.pop(point_name, []):
+            self._scene.removeItem(item)
+        self._preview_keys.pop(point_name, None)
+
+    @staticmethod
+    def _make_preview_key(
+        mechanism: Mechanism,
+        parameters: dict[str, float],
+        point_name: str,
+    ) -> _PreviewKey:
+        mechanism_type = str(getattr(mechanism, "mechanism_type", ""))
+        parameter_items = tuple(
+            sorted((str(key), repr(value)) for key, value in parameters.items())
+        )
+        return (mechanism_type, parameter_items, point_name)
 
     def _auto_hide(self) -> None:
         self.hide_path()

@@ -15,11 +15,25 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem,
 )
 
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    finite_float,
+    positive_finite_float,
+)
+from automataii.presentation.qt.tabs.cam_geometry import (
+    cam_contact_local_from_profile,
+    cam_follower_base_scene,
+    cam_scene_unit_scale,
+)
+
 from ..base import MechanismVisualizer
 
 
 class CamVisualizer(MechanismVisualizer):
-    """Visualizer for CAM and follower mechanisms (Foundry-compatible)."""
+    """Visualizer for CAM and follower mechanisms.
+
+    The profile remains Foundry-compatible, while contact/follower placement uses
+    the shared Mechanism Design Tab scene-vertical convention.
+    """
 
     # Colors matching Mechanism Foundry
     CAM_COLOR = QColor(70, 130, 180)  # Steel Blue (Foundry)
@@ -30,25 +44,36 @@ class CamVisualizer(MechanismVisualizer):
     FOLLOWER_BASE_COLOR = QColor(100, 100, 100)  # Gray
 
     def create_visuals(self, mechanism_data: dict[str, Any]) -> list[QGraphicsItem]:
-        """Create visual representation of CAM mechanism (Foundry-compatible)."""
-        visual_items = []
+        """Create visual representation of CAM mechanism."""
+        visual_items: list[QGraphicsItem] = []
         params = self.extract_params(mechanism_data)
 
         if not params:
             return visual_items
 
-        # Extract CAM parameters (matching Foundry defaults)
-        base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
-        cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
-        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 100.0))
+        # Extract CAM parameters (matching Foundry defaults) with finite guards.
+        base_radius = positive_finite_float(
+            params.get("base_radius", params.get("cam_radius")),
+            60.0,
+        )
+        cam_offset = max(
+            0.0,
+            finite_float(params.get("eccentricity", params.get("cam_offset")), 20.0),
+        )
+        follower_rod_length = positive_finite_float(
+            params.get("follower_rod_length", params.get("follower_length")),
+            100.0,
+        )
 
         # Harmonic parameters (Foundry-compatible)
-        cam_lobes = int(params.get("cam_lobes", 1))
-        profile_harmonic = params.get("profile_harmonic", 0.3)
+        cam_lobes = max(1, int(positive_finite_float(params.get("cam_lobes"), 1.0)))
+        profile_harmonic = finite_float(params.get("profile_harmonic"), 0.3)
 
         # Apply scaling factors if available
-        cam_scale_factor = mechanism_data.get('cam_scale_factor', 1.0)
-        rod_length_multiplier = mechanism_data.get('rod_length_multiplier', 1.0)
+        cam_scale_factor = positive_finite_float(mechanism_data.get("cam_scale_factor"), 1.0)
+        rod_length_multiplier = positive_finite_float(
+            mechanism_data.get("rod_length_multiplier"), 1.0
+        )
 
         # Apply scaling
         scaled_base_radius = base_radius * cam_scale_factor
@@ -57,9 +82,21 @@ class CamVisualizer(MechanismVisualizer):
 
         # Get CAM position - prioritize params over cam_position
         if "center_x" in params and "center_y" in params:
-            cam_center = np.array([params["center_x"], params["center_y"]])
-        elif 'cam_position' in mechanism_data and len(mechanism_data['cam_position']) >= 2:
-            cam_center = np.array([mechanism_data['cam_position'][0], mechanism_data['cam_position'][1]])
+            cam_center = np.array(
+                [
+                    finite_float(params.get("center_x"), 0.0),
+                    finite_float(params.get("center_y"), 0.0),
+                ],
+                dtype=float,
+            )
+        elif "cam_position" in mechanism_data and len(mechanism_data["cam_position"]) >= 2:
+            cam_center = np.array(
+                [
+                    finite_float(mechanism_data["cam_position"][0], 0.0),
+                    finite_float(mechanism_data["cam_position"][1], 0.0),
+                ],
+                dtype=float,
+            )
         else:
             cam_center = np.array([0.0, 0.0])  # Default at origin (like Foundry)
 
@@ -67,6 +104,7 @@ class CamVisualizer(MechanismVisualizer):
         cam_profile = self._create_cam_profile(
             scaled_base_radius, scaled_cam_offset, cam_lobes, profile_harmonic
         )
+        cam_profile_array = np.asarray(cam_profile, dtype=float)
 
         # Transform to scene coordinates if transform function provided
         if self.config.transform_function:
@@ -92,15 +130,10 @@ class CamVisualizer(MechanismVisualizer):
         cam_item.setZValue(self.config.z_index_base)
         visual_items.append(cam_item)
 
-        # Calculate contact radius at follower position (theta = -π/2, bottom of cam)
-        # This matches Foundry's compute_state logic
-        follower_contact_theta = -np.pi / 2
-        primary_var = scaled_cam_offset * np.cos(cam_lobes * follower_contact_theta)
-        secondary_var = (scaled_cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * follower_contact_theta)
-        contact_radius = scaled_base_radius + primary_var + secondary_var
-
-        # Contact point (at bottom of cam profile)
-        contact_pos = np.array([cam_center[0], cam_center[1] - contact_radius])
+        # Contact point follows the shared Mechanism Design Tab convention:
+        # local +Y support height with a scene-vertical follower rod.
+        contact_local = cam_contact_local_from_profile(cam_profile_array)
+        contact_pos = cam_center + contact_local
         if self.config.transform_function:
             contact_scene = self.config.transform_function(contact_pos)
         else:
@@ -118,15 +151,17 @@ class CamVisualizer(MechanismVisualizer):
         # Follower end position (at contact point)
         follower_end = contact_pos.copy()
 
-        # Follower base position (at end of rod)
-        follower_base = np.array([cam_center[0], cam_center[1] - contact_radius - scaled_rod_length])
-
         if self.config.transform_function:
             follower_end_scene = self.config.transform_function(follower_end)
-            follower_base_scene = self.config.transform_function(follower_base)
+            unit_scale = cam_scene_unit_scale(self.config.transform_function)
         else:
             follower_end_scene = QPointF(follower_end[0], follower_end[1])
-            follower_base_scene = QPointF(follower_base[0], follower_base[1])
+            unit_scale = 1.0
+        follower_base_scene = cam_follower_base_scene(
+            follower_end_scene,
+            scaled_rod_length,
+            unit_scale,
+        )
 
         # Follower rod (item 2) - from contact to base
         rod = QGraphicsLineItem(QLineF(follower_end_scene, follower_base_scene))
@@ -162,12 +197,12 @@ class CamVisualizer(MechanismVisualizer):
         visual_items.append(pivot)
 
         # Store cam parameters for animation updates
-        mechanism_data['_cam_profile_params'] = {
-            'base_radius': scaled_base_radius,
-            'cam_offset': scaled_cam_offset,
-            'cam_lobes': cam_lobes,
-            'profile_harmonic': profile_harmonic,
-            'rod_length': scaled_rod_length,
+        mechanism_data["_cam_profile_params"] = {
+            "base_radius": scaled_base_radius,
+            "cam_offset": scaled_cam_offset,
+            "cam_lobes": cam_lobes,
+            "profile_harmonic": profile_harmonic,
+            "rod_length": scaled_rod_length,
         }
 
         return visual_items
@@ -193,15 +228,26 @@ class CamVisualizer(MechanismVisualizer):
             return
 
         # Extract CAM parameters (Foundry-compatible)
-        base_radius = params.get("base_radius", params.get("cam_radius", 60.0))
-        cam_offset = params.get("eccentricity", params.get("cam_offset", 20.0))
-        follower_rod_length = params.get("follower_rod_length", params.get("follower_length", 100.0))
-        cam_lobes = int(params.get("cam_lobes", 1))
-        profile_harmonic = params.get("profile_harmonic", 0.3)
+        base_radius = positive_finite_float(
+            params.get("base_radius", params.get("cam_radius")),
+            60.0,
+        )
+        cam_offset = max(
+            0.0,
+            finite_float(params.get("eccentricity", params.get("cam_offset")), 20.0),
+        )
+        follower_rod_length = positive_finite_float(
+            params.get("follower_rod_length", params.get("follower_length")),
+            100.0,
+        )
+        cam_lobes = max(1, int(positive_finite_float(params.get("cam_lobes"), 1.0)))
+        profile_harmonic = finite_float(params.get("profile_harmonic"), 0.3)
 
         # Apply scaling factors
-        cam_scale_factor = mechanism_data.get('cam_scale_factor', 1.0)
-        rod_length_multiplier = mechanism_data.get('rod_length_multiplier', 1.0)
+        cam_scale_factor = positive_finite_float(mechanism_data.get("cam_scale_factor"), 1.0)
+        rod_length_multiplier = positive_finite_float(
+            mechanism_data.get("rod_length_multiplier"), 1.0
+        )
 
         scaled_base_radius = base_radius * cam_scale_factor
         scaled_cam_offset = cam_offset * cam_scale_factor
@@ -209,9 +255,21 @@ class CamVisualizer(MechanismVisualizer):
 
         # Get CAM position
         if "center_x" in params and "center_y" in params:
-            cam_center = np.array([params["center_x"], params["center_y"]])
-        elif 'cam_position' in mechanism_data and len(mechanism_data['cam_position']) >= 2:
-            cam_center = np.array([mechanism_data['cam_position'][0], mechanism_data['cam_position'][1]])
+            cam_center = np.array(
+                [
+                    finite_float(params.get("center_x"), 0.0),
+                    finite_float(params.get("center_y"), 0.0),
+                ],
+                dtype=float,
+            )
+        elif "cam_position" in mechanism_data and len(mechanism_data["cam_position"]) >= 2:
+            cam_center = np.array(
+                [
+                    finite_float(mechanism_data["cam_position"][0], 0.0),
+                    finite_float(mechanism_data["cam_position"][1], 0.0),
+                ],
+                dtype=float,
+            )
         else:
             cam_center = np.array([0.0, 0.0])
 
@@ -235,26 +293,28 @@ class CamVisualizer(MechanismVisualizer):
                     scene_point = QPointF(point_offset[0], point_offset[1])
                 cam_polygon_points.append(scene_point)
             visual_items[0].setPolygon(QPolygonF(cam_polygon_points))
+        else:
+            cam_profile = self._create_cam_profile(
+                scaled_base_radius, scaled_cam_offset, cam_lobes, profile_harmonic
+            )
 
-        # Calculate contact radius at follower position (theta = -π/2)
-        follower_contact_theta = -np.pi / 2
-        primary_var = scaled_cam_offset * np.cos(cam_lobes * follower_contact_theta)
-        secondary_var = (scaled_cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * follower_contact_theta)
-        contact_radius = scaled_base_radius + primary_var + secondary_var
-
-        # Contact point position
-        contact_pos = np.array([cam_center[0], cam_center[1] - contact_radius])
+        contact_local = cam_contact_local_from_profile(np.asarray(cam_profile, dtype=float))
+        contact_pos = cam_center + contact_local
         if self.config.transform_function:
             contact_scene = self.config.transform_function(contact_pos)
         else:
             contact_scene = QPointF(contact_pos[0], contact_pos[1])
 
         # Follower base position
-        follower_base = np.array([cam_center[0], cam_center[1] - contact_radius - scaled_rod_length])
         if self.config.transform_function:
-            follower_base_scene = self.config.transform_function(follower_base)
+            unit_scale = cam_scene_unit_scale(self.config.transform_function)
         else:
-            follower_base_scene = QPointF(follower_base[0], follower_base[1])
+            unit_scale = 1.0
+        follower_base_scene = cam_follower_base_scene(
+            contact_scene,
+            scaled_rod_length,
+            unit_scale,
+        )
 
         # Update contact point (item 1)
         if len(visual_items) > 1 and isinstance(visual_items[1], QGraphicsEllipseItem):
@@ -266,20 +326,33 @@ class CamVisualizer(MechanismVisualizer):
 
         # Update follower head (item 3)
         if len(visual_items) > 3 and isinstance(visual_items[3], QGraphicsRectItem):
-            visual_items[3].setRect(follower_base_scene.x() - 15, follower_base_scene.y() - 8, 30, 15)
+            visual_items[3].setRect(
+                follower_base_scene.x() - 15,
+                follower_base_scene.y() - 8,
+                30,
+                15,
+            )
 
         # Update follower anchor (item 4)
         if len(visual_items) > 4 and isinstance(visual_items[4], QGraphicsRectItem):
-            visual_items[4].setRect(follower_base_scene.x() - 30, follower_base_scene.y() - 45, 60, 30)
+            visual_items[4].setRect(
+                follower_base_scene.x() - 30,
+                follower_base_scene.y() - 45,
+                60,
+                30,
+            )
 
         # Update cam center pivot (item 5)
         if len(visual_items) > 5 and isinstance(visual_items[5], QGraphicsEllipseItem):
             visual_items[5].setRect(cam_center_scene.x() - 8, cam_center_scene.y() - 8, 16, 16)
 
-    def _create_cam_profile(self, base_radius: float,
-                            cam_offset: float,
-                            cam_lobes: int = 1,
-                            profile_harmonic: float = 0.3) -> list[list[float]]:
+    def _create_cam_profile(
+        self,
+        base_radius: float,
+        cam_offset: float,
+        cam_lobes: int = 1,
+        profile_harmonic: float = 0.3,
+    ) -> list[list[float]]:
         """
         Create cam profile using harmonic formula (matches Mechanism Foundry).
 
@@ -295,6 +368,12 @@ class CamVisualizer(MechanismVisualizer):
         Returns:
             List of [x, y] points forming cam profile
         """
+        base_radius = positive_finite_float(base_radius, 60.0)
+        cam_offset = max(0.0, finite_float(cam_offset, 20.0))
+        cam_lobes = max(1, int(positive_finite_float(cam_lobes, 1.0)))
+        profile_harmonic = finite_float(profile_harmonic, 0.3)
+        min_radius = max(1e-6, base_radius * 0.05)
+
         points = []
         num_points = 72  # Match Foundry's resolution
 
@@ -303,8 +382,10 @@ class CamVisualizer(MechanismVisualizer):
 
             # Harmonic profile formula (same as Foundry)
             primary_variation = cam_offset * np.cos(cam_lobes * theta)
-            secondary_variation = (cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * theta)
-            r = base_radius + primary_variation + secondary_variation
+            secondary_variation = (cam_offset * profile_harmonic) * np.cos(
+                2 * cam_lobes * theta
+            )
+            r = max(min_radius, base_radius + primary_variation + secondary_variation)
 
             # Convert to Cartesian
             x = r * np.cos(theta)
@@ -314,8 +395,16 @@ class CamVisualizer(MechanismVisualizer):
 
         return points
 
-    def _create_egg_shape_profile(self, base_radius: float,
-                                 eccentricity: float) -> list[list[float]]:
+    def _create_egg_shape_profile(
+        self,
+        base_radius: float,
+        eccentricity: float,
+    ) -> list[list[float]]:
         """Legacy egg-shape profile. Use _create_cam_profile for Foundry compatibility."""
         # Delegate to harmonic formula with 1 lobe, 0 secondary harmonic
-        return self._create_cam_profile(base_radius, eccentricity, cam_lobes=1, profile_harmonic=0.0)
+        return self._create_cam_profile(
+            base_radius,
+            eccentricity,
+            cam_lobes=1,
+            profile_harmonic=0.0,
+        )

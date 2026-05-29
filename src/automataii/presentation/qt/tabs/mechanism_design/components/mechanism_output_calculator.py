@@ -28,6 +28,12 @@ from automataii.presentation.qt.mechanism_parameter_utils import (
 from automataii.presentation.qt.mechanism_parameter_utils import (
     positive_finite_param as _positive_finite_param,
 )
+from automataii.presentation.qt.tabs.cam_geometry import (
+    cam_contact_local_from_profile,
+    cam_contact_local_from_rotated_profile,
+    cam_follower_base_scene,
+    cam_scene_unit_scale,
+)
 
 if TYPE_CHECKING:
     pass
@@ -76,6 +82,35 @@ def _bounded_frame_index(time: float, num_frames: int, reverse_direction: bool =
 
 def _finite_qpoint(point: QPointF) -> bool:
     return math.isfinite(point.x()) and math.isfinite(point.y())
+
+
+def _is_foundry_scene_layer(layer_data: dict) -> bool:
+    return (
+        str(layer_data.get("source", "")).lower() == "foundry"
+        and str(layer_data.get("coordinate_space", "")).lower() == "scene"
+    )
+
+
+def _is_initial_phase(time: float) -> bool:
+    period = 2.0 * math.pi
+    phase = math.fmod(time, period)
+    if phase < 0:
+        phase += period
+    return math.isclose(phase, 0.0, abs_tol=1e-9) or math.isclose(
+        phase,
+        period,
+        abs_tol=1e-9,
+    )
+
+
+def _scene_key_point(layer_data: dict, key: str) -> QPointF | None:
+    key_points = layer_data.get("key_points", {})
+    if not isinstance(key_points, dict):
+        return None
+    point = _point_array(key_points.get(key))
+    if point is None:
+        return None
+    return QPointF(float(point[0]), float(point[1]))
 
 
 class MechanismOutputCalculator:
@@ -379,6 +414,24 @@ class MechanismOutputCalculator:
 
         Returns selected cam output point.
         """
+        output_mode = self._normalize_output_mode(
+            "cam",
+            params.get("output_point_mode"),
+        )
+        if _is_foundry_scene_layer(layer_data) and _is_initial_phase(time):
+            if output_mode == "contact_point":
+                contact_point = _scene_key_point(layer_data, "contact_point")
+                if contact_point is not None:
+                    return contact_point
+            else:
+                follower_base = (
+                    _scene_key_point(layer_data, "follower_base")
+                    or _scene_key_point(layer_data, "follower_end")
+                    or _scene_key_point(layer_data, "follower_position")
+                )
+                if follower_base is not None:
+                    return follower_base
+
         # Get rod length params
         follower_rod_length = _positive_finite_param(
             params,
@@ -400,20 +453,14 @@ class MechanismOutputCalculator:
         cam_profile = _position_rows(cam_points_local) if cam_points_local is not None else None
 
         if cam_profile is not None:
-            # Calculate contact radius from actual profile
-            # Find the point at -π/2 - cam_angle in local frame (before rotation)
-            follower_angle_in_profile = -math.pi / 2 - cam_angle
-            # Normalize to 0..2π range
-            follower_angle_norm = follower_angle_in_profile % (2 * math.pi)
-            # Find closest point in the profile
-            num_pts = len(cam_profile)
-            profile_idx = int((follower_angle_norm / (2 * math.pi)) * num_pts) % num_pts
-            contact_pt = cam_profile[profile_idx]
-            contact_radius = float(np.sqrt(contact_pt[0]**2 + contact_pt[1]**2))
+            contact_local = cam_contact_local_from_profile(cam_profile, cam_angle)
         else:
             # Fallback: Use harmonic formula
             base_radius = _positive_finite_param(params, "base_radius", "cam_radius", default=60.0)
-            cam_offset = _finite_param(params, "eccentricity", "cam_offset", default=20.0)
+            cam_offset = max(
+                0.0,
+                _finite_param(params, "eccentricity", "cam_offset", default=20.0),
+            )
             cam_lobes = max(1, int(_positive_finite_param(params, "cam_lobes", default=1.0)))
             profile_harmonic = _finite_param(params, "profile_harmonic", default=0.3)
 
@@ -422,30 +469,24 @@ class MechanismOutputCalculator:
             scaled_base_radius = base_radius * cam_scale_factor
             scaled_cam_offset = cam_offset * cam_scale_factor
 
-            # Calculate contact radius using harmonic formula
-            follower_contact_theta = -math.pi / 2 - cam_angle
-            primary_var = scaled_cam_offset * math.cos(cam_lobes * follower_contact_theta)
-            secondary_var = (scaled_cam_offset * profile_harmonic) * math.cos(2 * cam_lobes * follower_contact_theta)
-            contact_radius = scaled_base_radius + primary_var + secondary_var
+            thetas = np.linspace(0, 2 * math.pi, 72, endpoint=False)
+            primary_var = scaled_cam_offset * np.cos(cam_lobes * thetas)
+            secondary_var = (scaled_cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * thetas)
+            radii = scaled_base_radius + primary_var + secondary_var
+            radii = np.maximum(radii, max(1e-6, scaled_base_radius * 0.05))
+            rotated_thetas = thetas + cam_angle
+            raw_points = np.column_stack(
+                [radii * np.cos(rotated_thetas), radii * np.sin(rotated_thetas)]
+            )
+            contact_local = cam_contact_local_from_rotated_profile(raw_points)
 
-        if not math.isfinite(contact_radius):
+        if not bool(np.isfinite(contact_local).all()):
             return None
 
-        # Contact point in mechanism coordinates (always at bottom)
-        contact_local = np.array([0.0, -contact_radius])
         contact_scene = cam_to_scene(contact_local)
 
         # Calculate scene scale for rod length conversion
-        try:
-            u0 = cam_to_scene(np.array([0.0, 0.0]))
-            u1 = cam_to_scene(np.array([0.0, 1.0]))
-            unit_scale = ((u1.x() - u0.x()) ** 2 + (u1.y() - u0.y()) ** 2) ** 0.5
-        except Exception:
-            unit_scale = 1.0
-        if not math.isfinite(unit_scale) or unit_scale <= 0.0:
-            unit_scale = 1.0
-
-        rod_scene = scaled_rod_length * unit_scale
+        unit_scale = cam_scene_unit_scale(cam_to_scene)
 
         # Follower X is fixed at cam center X
         follower_x = _finite_float(layer_data.get('follower_fixed_x_scene'), math.nan)
@@ -453,19 +494,13 @@ class MechanismOutputCalculator:
             center_scene = cam_to_scene(np.array([0.0, 0.0]))
             follower_x = center_scene.x()
 
-        # Follower base Y (at end of rod above contact point due to gravity)
-        # In scene coords, Y+ is down, so subtract rod_scene to move upward
-        # Gravity physics: follower is above cam, rod extends upward
-        follower_base_y = contact_scene.y() - rod_scene
-
-        output_mode = self._normalize_output_mode(
-            "cam",
-            params.get("output_point_mode"),
-        )
         if output_mode == "contact_point":
             return QPointF(float(contact_scene.x()), float(contact_scene.y()))
 
-        return QPointF(float(follower_x), float(follower_base_y))
+        follower_base = cam_follower_base_scene(
+            contact_scene, scaled_rod_length, unit_scale, fixed_x=follower_x
+        )
+        return QPointF(float(follower_base.x()), float(follower_base.y()))
 
     def _calculate_gear_output(
         self,

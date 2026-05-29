@@ -17,6 +17,13 @@ from typing import Any
 import numpy as np
 from PyQt6.QtGui import QPainterPath
 
+from automataii.presentation.qt.tabs.cam_geometry import cam_contact_y_from_params
+from automataii.presentation.qt.tabs.mechanism_design.services.foundry_scene_contract import (
+    FOURBAR_ANCHOR_COUPLER_POINT,
+    FOURBAR_ANCHOR_GROUND_MIDPOINT,
+    mark_scene_space,
+    sync_fourbar_scene_params_from_key_points,
+)
 from automataii.utils.paths import resolve_path
 
 # Mapping from display names to internal mechanism types
@@ -194,15 +201,21 @@ class MechanismInstantiationService:
         self,
         path: QPainterPath | None,
         fallback_position: list[float] | None = None,
+        params: dict[str, Any] | None = None,
+        cam_scale_factor: float = 1.0,
     ) -> tuple[list[float], dict[str, float]]:
         """
         Calculate CAM center position from path bounds.
 
-        Places CAM directly below the path's lowest point.
+        Places the CAM so its follower/contact point uses the same scene-vertical
+        contact convention as the visual factory.  When no CAM params are
+        supplied, falls back to the legacy "below the path" placement.
 
         Args:
             path: QPainterPath to analyze
             fallback_position: Position to use if path analysis fails
+            params: Optional CAM params for shared contact-height alignment
+            cam_scale_factor: Scale factor applied to the CAM profile
 
         Returns:
             Tuple of (cam_position, params_update) where params_update
@@ -218,17 +231,57 @@ class MechanismInstantiationService:
             if self._qpainterpath_to_numpy:
                 path_np = _finite_path_rows(self._qpainterpath_to_numpy(path))
                 if path_np is not None:
-                    # Get X center and lowest Y point
-                    path_x_center = float(np.mean(path_np[:, 0]))
+                    # Match QPainterPath.boundingRect() semantics used by
+                    # MechanismVisualsFactory: center X of bounds + bottom Y.
+                    path_x_center = float((np.min(path_np[:, 0]) + np.max(path_np[:, 0])) * 0.5)
                     path_y_max = float(np.max(path_np[:, 1]))
 
-                    # Place CAM below path
-                    cam_pos = [path_x_center, path_y_max + 80]
+                    contact_y: float | None = None
+                    if isinstance(params, dict):
+                        try:
+                            scale = _positive_finite_float(cam_scale_factor, 1.0)
+                            contact_y = cam_contact_y_from_params(params, scale=scale)
+                            if not math.isfinite(contact_y):
+                                contact_y = None
+                        except Exception:
+                            logging.debug("Suppressed exception", exc_info=True)
+                            contact_y = None
+
+                    if contact_y is None:
+                        # Legacy fallback when we do not have enough CAM
+                        # geometry to align the follower contact.
+                        cam_y = path_y_max + 80.0
+                    else:
+                        cam_y = path_y_max - contact_y
+
+                    cam_pos = [path_x_center, float(cam_y)]
                     return cam_pos, {"center_x": cam_pos[0], "center_y": cam_pos[1]}
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
         return default_pos, {"center_x": default_pos[0], "center_y": default_pos[1]}
+
+    @staticmethod
+    def _sync_cam_center_aliases(
+        layer_data: dict[str, Any],
+        center: list[float] | tuple[float, float],
+    ) -> None:
+        """Keep all cam center aliases on the same scene-space point."""
+        point = _finite_point(center, (400.0, 300.0))
+        if point is None:
+            point = (400.0, 300.0)
+        center_list = [float(point[0]), float(point[1])]
+        if not isinstance(layer_data.get("params"), dict):
+            layer_data["params"] = {}
+        if not isinstance(layer_data.get("key_points"), dict):
+            layer_data["key_points"] = {}
+        params = layer_data["params"]
+        key_points = layer_data["key_points"]
+        layer_data["cam_position"] = center_list
+        params["center_x"] = center_list[0]
+        params["center_y"] = center_list[1]
+        params["cam_center"] = list(center_list)
+        key_points["cam_center"] = list(center_list)
 
     def calculate_cam_eccentricity_from_path(
         self,
@@ -587,7 +640,7 @@ class MechanismInstantiationService:
             layer_data["params"]["follower_rod_length"] = auto_params["follower_rod_length"]
             layer_data["params"]["center_x"] = auto_params["center_x"]
             layer_data["params"]["center_y"] = auto_params["center_y"]
-            layer_data["cam_position"] = auto_params["cam_position"]
+            self._sync_cam_center_aliases(layer_data, auto_params["cam_position"])
             layer_data["cam_scale_factor"] = 1.0  # No scaling needed for auto-generated
             layer_data["rod_length_multiplier"] = auto_params["rod_length_multiplier"]
             layer_data["is_auto_generated_cam"] = True
@@ -602,9 +655,14 @@ class MechanismInstantiationService:
             layer_data["cam_scale_factor"] = cam_scale_factor
             layer_data["rod_length_multiplier"] = cam_scale_factor  # Scale rod proportionally
 
-            cam_pos, params_update = self.calculate_cam_position_from_path(path, fallback_position)
-            layer_data["cam_position"] = cam_pos
+            cam_pos, params_update = self.calculate_cam_position_from_path(
+                path,
+                fallback_position,
+                params=layer_data["params"],
+                cam_scale_factor=cam_scale_factor,
+            )
             layer_data["params"].update(params_update)
+            self._sync_cam_center_aliases(layer_data, cam_pos)
 
         if not graphics_data.get("transform_params"):
             graphics_data["transform_params"] = {
@@ -633,17 +691,13 @@ class MechanismInstantiationService:
             layer_data["params"]["follower_rod_length"] = auto_params["follower_rod_length"]
             layer_data["params"]["center_x"] = auto_params["center_x"]
             layer_data["params"]["center_y"] = auto_params["center_y"]
-            layer_data["cam_position"] = auto_params["cam_position"]
+            self._sync_cam_center_aliases(layer_data, auto_params["cam_position"])
             layer_data["cam_scale_factor"] = 1.0
             layer_data["rod_length_multiplier"] = auto_params["rod_length_multiplier"]
             layer_data["is_auto_generated_cam"] = True
         else:
-            # Standard cam configuration
-            cam_pos, params_update = self.calculate_cam_position_from_path(path, [400, 300])
-            layer_data["cam_position"] = cam_pos
-            layer_data["params"].update(params_update)
-
-            # Calculate eccentricity from path
+            # Standard cam configuration.  First derive lift/scale, then use
+            # the same contact-height rule as visual rendering for placement.
             ecc_params = self.calculate_cam_eccentricity_from_path(path)
             if ecc_params:
                 layer_data["params"]["eccentricity"] = ecc_params.get("eccentricity", layer_data["params"].get("eccentricity", 10))
@@ -659,6 +713,14 @@ class MechanismInstantiationService:
             cam_scale_factor = self.calculate_cam_scale_factor(path, base_radius, eccentricity)
             layer_data["cam_scale_factor"] = cam_scale_factor
             layer_data["rod_length_multiplier"] = cam_scale_factor  # Scale rod proportionally
+            cam_pos, params_update = self.calculate_cam_position_from_path(
+                path,
+                [400, 300],
+                params=layer_data["params"],
+                cam_scale_factor=cam_scale_factor,
+            )
+            layer_data["params"].update(params_update)
+            self._sync_cam_center_aliases(layer_data, cam_pos)
 
         # Set template path
         template_path = self.get_cam_template_path()
@@ -741,8 +803,8 @@ class MechanismInstantiationService:
             "reverse_direction": False,
             "source": "foundry",
             "source_type": canonical_foundry_type,
-            "coordinate_space": "scene",
         }
+        mark_scene_space(layer_data, pos)
         if canonical_foundry_type == "slider_crank":
             layer_data["approximated_as"] = internal_type
 
@@ -804,9 +866,22 @@ class MechanismInstantiationService:
             params["l4"] = params["L4"] = float(l4)
             params["ground_pivot_1"] = [gp1_arr[0], gp1_arr[1]]
             params["ground_pivot_2"] = [gp2_arr[0], gp2_arr[1]]
+            params["anchor1_x"] = float(gp1_arr[0])
+            params["anchor1_y"] = float(gp1_arr[1])
+            params["anchor2_x"] = float(gp2_arr[0])
+            params["anchor2_y"] = float(gp2_arr[1])
+            params["crank_x"] = float(crank_arr[0])
+            params["crank_y"] = float(crank_arr[1])
+            params["rocker_x"] = float(rocker_arr[0])
+            params["rocker_y"] = float(rocker_arr[1])
 
             if coupler_point is not None and crank is not None and rocker is not None:
+                layer_data["scene_anchor_key"] = FOURBAR_ANCHOR_COUPLER_POINT
                 coupler_world = (coupler_point[0] + dx, coupler_point[1] + dy)
+                layer_data["key_points"]["coupler_point"] = [
+                    float(coupler_world[0]),
+                    float(coupler_world[1]),
+                ]
                 coupler_vec = (
                     rocker_arr[0] - crank_arr[0],
                     rocker_arr[1] - crank_arr[1],
@@ -834,6 +909,35 @@ class MechanismInstantiationService:
                     params["coupler_point_y"] = float(point_y)
                     params["p_x"] = float(point_x)
                     params["p_y"] = float(point_y)
+                    params["coupler_x"] = float(coupler_world[0])
+                    params["coupler_y"] = float(coupler_world[1])
+            else:
+                layer_data["scene_anchor_key"] = FOURBAR_ANCHOR_GROUND_MIDPOINT
+                coupler_x = _finite_float(params.get("coupler_point_x", params.get("p_x", l3 * 0.5)), l3 * 0.5)
+                coupler_y = _finite_float(params.get("coupler_point_y", params.get("p_y", 0.0)), 0.0)
+                coupler_vec = (
+                    rocker_arr[0] - crank_arr[0],
+                    rocker_arr[1] - crank_arr[1],
+                )
+                coupler_len = math.hypot(coupler_vec[0], coupler_vec[1])
+                if coupler_len > 1e-9:
+                    coupler_unit = (
+                        coupler_vec[0] / coupler_len,
+                        coupler_vec[1] / coupler_len,
+                    )
+                    coupler_normal = (-coupler_unit[1], coupler_unit[0])
+                    coupler_world = (
+                        crank_arr[0] + coupler_x * coupler_unit[0] + coupler_y * coupler_normal[0],
+                        crank_arr[1] + coupler_x * coupler_unit[1] + coupler_y * coupler_normal[1],
+                    )
+                    layer_data["key_points"]["coupler_point"] = [
+                        float(coupler_world[0]),
+                        float(coupler_world[1]),
+                    ]
+                    params["coupler_x"] = float(coupler_world[0])
+                    params["coupler_y"] = float(coupler_world[1])
+
+            sync_fourbar_scene_params_from_key_points(layer_data, params)
 
         elif internal_type == "cam":
             cam_center = self._snapshot_point(snapshot_positions, "cam_center")
@@ -855,6 +959,11 @@ class MechanismInstantiationService:
             layer_data["rod_length_multiplier"] = 1.0
             params["center_x"] = layer_data["cam_position"][0]
             params["center_y"] = layer_data["cam_position"][1]
+            params["cam_center"] = list(layer_data["cam_position"])
+            layer_data.setdefault("key_points", {})
+            if "cam_center" not in layer_data["key_points"]:
+                layer_data["key_points"]["cam_center"] = list(layer_data["cam_position"])
+            self._sync_cam_center_aliases(layer_data, layer_data["cam_position"])
             # Ensure harmonic parameters are present
             params.setdefault("cam_lobes", 1)
             params.setdefault("profile_harmonic", 0.3)

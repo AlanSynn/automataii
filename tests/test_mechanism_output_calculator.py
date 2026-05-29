@@ -81,7 +81,7 @@ def test_cam_output_mode_contact_point_returns_cam_contact_position() -> None:
 
     assert point is not None
     assert point.x() == pytest.approx(100.0)
-    assert point.y() == pytest.approx(180.0)
+    assert point.y() == pytest.approx(220.0)
 
 
 def test_cam_output_mode_follower_end_alias_returns_follower_base_position() -> None:
@@ -103,7 +103,53 @@ def test_cam_output_mode_follower_end_alias_returns_follower_base_position() -> 
 
     assert point is not None
     assert point.x() == pytest.approx(0.0)
-    assert point.y() == pytest.approx(-50.0)
+    assert point.y() == pytest.approx(-10.0)
+
+
+def test_foundry_scene_cam_initial_output_uses_snapshot_key_points() -> None:
+    calculator = MechanismOutputCalculator(
+        get_scene_transform=lambda _layer: (lambda point: QPointF(float(point[0]), float(point[1])))
+    )
+    layer_data = {
+        "type": "cam",
+        "source": "foundry",
+        "coordinate_space": "scene",
+        "key_points": {
+            "cam_center": [520.0, 360.0],
+            "contact_point": [520.0, 300.0],
+            "follower_base": [520.0, 220.0],
+        },
+    }
+
+    contact = calculator.calculate_output(
+        mech_type="cam",
+        params={
+            "base_radius": 60.0,
+            "eccentricity": 20.0,
+            "follower_rod_length": 100.0,
+            "output_point_mode": "contact_point",
+        },
+        time=0.0,
+        layer_data=layer_data,
+    )
+    follower = calculator.calculate_output(
+        mech_type="cam",
+        params={
+            "base_radius": 60.0,
+            "eccentricity": 20.0,
+            "follower_rod_length": 100.0,
+            "output_point_mode": "follower_end",
+        },
+        time=2 * math.pi,
+        layer_data=layer_data,
+    )
+
+    assert contact is not None
+    assert follower is not None
+    assert contact.x() == pytest.approx(520.0)
+    assert contact.y() == pytest.approx(300.0)
+    assert follower.x() == pytest.approx(520.0)
+    assert follower.y() == pytest.approx(220.0)
 
 
 def test_calculate_output_rejects_non_finite_time() -> None:

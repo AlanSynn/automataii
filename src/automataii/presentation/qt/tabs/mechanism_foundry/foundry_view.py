@@ -32,12 +32,20 @@ from automataii.application.mechanism_foundry import (
     MechanismContent,
     MechanismFoundryController,
     ParameterSpec,
+    SensemakingContext,
+    SensemakingParameterChange,
+    SensemakingPreviewSnapshot,
+    SensemakingService,
+)
+from automataii.application.mechanism_foundry.mechanism_types import (
+    canonical_mechanism_type,
+    normalize_mechanism_type_key,
 )
 from automataii.presentation.qt.shared import blocked_signals, clear_layout
-from automataii.presentation.qt.tabs.mechanism_foundry.educational_info_panel import (
-    EducationalInfoPanel,
-)
 from automataii.presentation.qt.tabs.mechanism_foundry.gallery_view import GalleryView
+from automataii.presentation.qt.tabs.mechanism_foundry.sensemaking_panel import (
+    MechanismSensemakingPanel,
+)
 
 if TYPE_CHECKING:
     from automataii.application.mechanism_foundry.path_cache import PathCache
@@ -181,9 +189,9 @@ class MechanismFoundryView(QWidget):
     SIDE_PANEL_MIN_WIDTH = 220
     SIDE_PANEL_PREFERRED_WIDTH = 300
     SIDE_PANEL_MAX_WIDTH = 460
-    INFO_PANEL_MIN_WIDTH = 180
-    INFO_PANEL_PREFERRED_WIDTH = 260
-    INFO_PANEL_MAX_WIDTH = 420
+    INFO_PANEL_MIN_WIDTH = 240
+    INFO_PANEL_PREFERRED_WIDTH = 340
+    INFO_PANEL_MAX_WIDTH = 520
     OUTPUT_POINT_MODE_KEY = "output_point_mode"
 
     def __init__(self, parent: QWidget | None = None):
@@ -234,6 +242,10 @@ class MechanismFoundryView(QWidget):
         self.path_cache = PathCache()
         self.path_preview_overlay = PathPreviewOverlay(self.scene, self.path_cache)
         self.content_loader = ContentLoader()
+        self.sensemaking_service: SensemakingService = SensemakingService()
+        self._last_sensemaking_context: SensemakingContext | None = None
+        self._last_sensemaking_change: SensemakingParameterChange | None = None
+        self._last_sensemaking_previous_positions: dict[str, object] | None = None
 
         # Cache for reusable visual items (performance optimization)
         # Dictionary mapping key -> QGraphicsItem
@@ -248,8 +260,13 @@ class MechanismFoundryView(QWidget):
 
         self.gallery_view: GalleryView | None = None
         self.editor_widget: QWidget | None = None
+        self.editor_splitter: QSplitter | None = None
         self.stacked_widget: QStackedWidget | None = None
+        self.info_panel_container: QWidget | None = None
+        self.info_panel: MechanismSensemakingPanel | None = None
         self.info_text = None  # Back-compat for tests expecting info_text attribute
+        self.info_panel_action: QAction | None = None
+        self.info_panel_collapsed: bool = True
         self.motion_modes_label: QLabel | None = None
         self.output_point_selector: QComboBox | None = None
 
@@ -258,25 +275,12 @@ class MechanismFoundryView(QWidget):
     @staticmethod
     def _normalize_mechanism_type_key(mechanism_type: str) -> str:
         """Normalize type strings received from catalog, Design tab, or tests."""
-        if not isinstance(mechanism_type, str):
-            return ""
-        return mechanism_type.strip().lower()
+        return str(normalize_mechanism_type_key(mechanism_type))
 
     @classmethod
     def _to_controller_mechanism_type(cls, mechanism_type: str) -> str:
         """Normalize mechanism type aliases to controller configuration keys."""
-        mechanism_type = cls._normalize_mechanism_type_key(mechanism_type)
-        return {
-            "fourbar": "four_bar",
-            "four_bar": "four_bar",
-            "four_bar_linkage": "four_bar",
-            "4_bar_linkage": "four_bar",
-            "cam": "cam_follower",
-            "gear": "gear_train",
-            "planetary_gear": "gear_train",
-            "slidercrank": "slider_crank",
-            "slider-crank": "slider_crank",
-        }.get(mechanism_type, mechanism_type)
+        return str(canonical_mechanism_type(mechanism_type))
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -304,6 +308,7 @@ class MechanismFoundryView(QWidget):
         layout.addWidget(toolbar)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.editor_splitter = splitter
         splitter.setHandleWidth(8)
         splitter.setChildrenCollapsible(True)
 
@@ -317,6 +322,7 @@ class MechanismFoundryView(QWidget):
         splitter.addWidget(viz_container)
 
         info_panel = self._create_info_panel()
+        self.info_panel_container = info_panel
         splitter.addWidget(info_panel)
 
         splitter.setStretchFactor(0, 1)
@@ -326,6 +332,7 @@ class MechanismFoundryView(QWidget):
         splitter.setCollapsible(1, False)
         splitter.setCollapsible(2, True)
         splitter.setSizes([self.SIDE_PANEL_PREFERRED_WIDTH, 700, self.INFO_PANEL_PREFERRED_WIDTH])
+        self._set_info_panel_collapsed(True)
 
         layout.addWidget(splitter)
 
@@ -396,6 +403,17 @@ class MechanismFoundryView(QWidget):
 
         toolbar.addSeparator()
 
+        self.info_panel_action = QAction("🧠 Show Sensemaking", self)
+        self.info_panel_action.setCheckable(True)
+        self.info_panel_action.setChecked(False)
+        self.info_panel_action.setToolTip(
+            "Show or hide the explanation/sensemaking panel on the right"
+        )
+        self.info_panel_action.triggered.connect(self._toggle_info_panel)
+        toolbar.addAction(self.info_panel_action)
+
+        toolbar.addSeparator()
+
         reset_action = QAction("🔄 Reset", self)
         reset_action.triggered.connect(self._reset_animation)
         toolbar.addAction(reset_action)
@@ -419,9 +437,9 @@ class MechanismFoundryView(QWidget):
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.info_panel = EducationalInfoPanel()
+        self.info_panel = MechanismSensemakingPanel(self.sensemaking_service)
         # Back-compat: expose underlying text widget for tests
-        self.info_text = getattr(self.info_panel, "_text_display", None)
+        self.info_text = self.info_panel.legacy_text_display
         layout.addWidget(self.info_panel)
 
         return panel
@@ -449,6 +467,37 @@ class MechanismFoundryView(QWidget):
         if enabled:
             # Redraw immediately so toggle-on has visible feedback without extra user action.
             self._render_mechanism()
+
+    def _toggle_info_panel(self, checked: bool = False) -> None:
+        """Toggle the right sensemaking pane without destroying panel state."""
+        self._set_info_panel_collapsed(not checked)
+
+    def _set_info_panel_collapsed(self, collapsed: bool) -> None:
+        """Collapse/expand the right pane while preserving its content model."""
+        self.info_panel_collapsed = bool(collapsed)
+
+        if self.info_panel_action is not None:
+            old_blocked = self.info_panel_action.blockSignals(True)
+            self.info_panel_action.setChecked(not self.info_panel_collapsed)
+            self.info_panel_action.setText(
+                "🧠 Show Sensemaking" if self.info_panel_collapsed else "🧠 Hide Sensemaking"
+            )
+            self.info_panel_action.blockSignals(old_blocked)
+
+        if self.info_panel_container is not None:
+            self.info_panel_container.setVisible(not self.info_panel_collapsed)
+
+        if self.editor_splitter is None:
+            return
+
+        sizes = self.editor_splitter.sizes()
+        left = sizes[0] if len(sizes) > 0 and sizes[0] > 0 else self.SIDE_PANEL_PREFERRED_WIDTH
+        middle = sizes[1] if len(sizes) > 1 and sizes[1] > 0 else 700
+        right = sizes[2] if len(sizes) > 2 and sizes[2] > 0 else self.INFO_PANEL_PREFERRED_WIDTH
+        if self.info_panel_collapsed:
+            self.editor_splitter.setSizes([left, middle + right, 0])
+        else:
+            self.editor_splitter.setSizes([left, max(400, middle), self.INFO_PANEL_PREFERRED_WIDTH])
 
     def _build_sync_payload_parameters(self) -> dict[str, object]:
         params: dict[str, object] = {}
@@ -699,26 +748,20 @@ class MechanismFoundryView(QWidget):
             return
 
         self.current_parameters = config.initial_parameters()
+        self._last_sensemaking_context = None
+        self._last_sensemaking_change = None
+        self._last_sensemaking_previous_positions = None
         self._refresh_motion_point_selector(canonical_type)
         self._rebuild_parameter_sliders(config.parameter_specs)
-        self._update_info_panel(canonical_type, config)
+        self._update_info_panel(canonical_type, config, reset_change=True)
         self._render_mechanism()
 
     @staticmethod
     def _motion_point_options_for_mechanism(
         mechanism_type: str,
     ) -> list[tuple[str, str]]:
-        if mechanism_type == "four_bar":
-            return [
-                ("Joint A (Input)", "joint_a"),
-                ("Joint B (Output)", "joint_b"),
-            ]
-        if mechanism_type == "cam_follower":
-            return [
-                ("Follower Base", "follower_base"),
-                ("Contact Point", "contact_point"),
-            ]
-        return []
+        options = SensemakingService.motion_point_options_for(mechanism_type)
+        return [(option.label, option.value) for option in options]
 
     def _refresh_motion_point_selector(self, mechanism_type: str) -> None:
         if self.output_point_selector is None:
@@ -732,15 +775,15 @@ class MechanismFoundryView(QWidget):
             selector.setEnabled(False)
             selector.setVisible(False)
             self.current_parameters.pop(self.OUTPUT_POINT_MODE_KEY, None)
+            if self.info_panel is not None:
+                self.info_panel.set_motion_point("preview trace")
             return
 
         selector.setEnabled(True)
         selector.setVisible(True)
 
-        default_value = {
-            "four_bar": "joint_b",
-            "cam_follower": "follower_base",
-        }.get(mechanism_type, options[0][1])
+        default_point = self.sensemaking_service.default_motion_point_for(mechanism_type)
+        default_value = default_point.value if default_point else options[0][1]
         current_value = str(self.current_parameters.get(self.OUTPUT_POINT_MODE_KEY, default_value))
         if mechanism_type == "cam_follower" and current_value == "follower_end":
             current_value = "follower_base"
@@ -757,6 +800,8 @@ class MechanismFoundryView(QWidget):
         selected_value = selector.currentData()
         if isinstance(selected_value, str) and selected_value:
             self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = selected_value  # type: ignore[assignment]
+            if self.info_panel is not None:
+                self.info_panel.set_motion_point(selector.currentText())
 
     def _on_motion_point_mode_changed(self, index: int) -> None:
         if self.output_point_selector is None or index < 0:
@@ -767,6 +812,8 @@ class MechanismFoundryView(QWidget):
             return
 
         self.current_parameters[self.OUTPUT_POINT_MODE_KEY] = value  # type: ignore[assignment]
+        if self.info_panel is not None:
+            self.info_panel.set_motion_point(self.output_point_selector.currentText())
         self._state_cache_valid = False
         self._render_mechanism()
 
@@ -778,9 +825,12 @@ class MechanismFoundryView(QWidget):
                 params,
             )
 
-    def _update_info_panel(self, mechanism_type: str, config: object) -> None:
+    def _update_info_panel(
+        self, mechanism_type: str, config: object, reset_change: bool = False
+    ) -> None:
         content = self.content_loader.load_content(mechanism_type)
-        self.info_panel.set_content(content)
+        if self.info_panel is not None:
+            self.info_panel.set_content(content, mechanism_type, reset_change=reset_change)
         self._update_motion_modes(content)
 
     def _update_motion_modes(self, content: MechanismContent) -> None:
@@ -804,6 +854,116 @@ class MechanismFoundryView(QWidget):
         if len(text) > 240:
             text = f"{text[:239]}…"
         self.motion_modes_label.setText(text)
+
+    def _current_controller_mechanism_type(self) -> str:
+        if self.current_mechanism is not None:
+            return self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
+        if self.mechanism_selector is not None:
+            selected = self.mechanism_selector.currentData()
+            if isinstance(selected, str):
+                return self._to_controller_mechanism_type(selected)
+        return "unknown"
+
+    def _selected_motion_point_label(self) -> str:
+        if self.output_point_selector is not None and self.output_point_selector.isVisible():
+            text = self.output_point_selector.currentText().strip()
+            if text:
+                return text
+        return "preview trace"
+
+    def _selected_motion_point_key(self) -> str | None:
+        if self.output_point_selector is None or not self.output_point_selector.isVisible():
+            return None
+        value = self.output_point_selector.currentData()
+        return value if isinstance(value, str) and value else None
+
+    def _display_parameter_label(self, spec: ParameterSpec | None, param_key: str) -> str:
+        if spec is None:
+            return param_key.replace("_", " ").title()
+        label = spec.label.strip() or param_key.replace("_", " ").title()
+        if spec.unit:
+            suffix = f" ({spec.unit})"
+            if label.endswith(suffix):
+                label = label[: -len(suffix)]
+        if label:
+            label = label[0].upper() + label[1:].lower()
+        return label
+
+    def _format_parameter_value(self, param_key: str, value: object) -> str:
+        spec = self._parameter_specs_by_key.get(param_key)
+        unit = spec.unit if spec else None
+        return str(SensemakingService.format_value(value, unit))
+
+    def _update_sensemaking_parameter_change(
+        self,
+        param_key: str,
+        before_value: object,
+        after_value: object,
+        previous_positions: dict[str, object] | None,
+    ) -> None:
+        if self.info_panel is None:
+            return
+
+        mechanism_type = self._current_controller_mechanism_type()
+        spec = self._parameter_specs_by_key.get(param_key)
+        change = SensemakingParameterChange(
+            parameter_key=param_key,
+            parameter_label=self._display_parameter_label(spec, param_key),
+            before_value=self._format_parameter_value(param_key, before_value),
+            after_value=self._format_parameter_value(param_key, after_value),
+        )
+        self._last_sensemaking_change = change
+        self._last_sensemaking_previous_positions = previous_positions
+        context = self._build_sensemaking_context(
+            mechanism_type,
+            change,
+            previous_positions,
+            geometry_pending=True,
+        )
+        self._last_sensemaking_context = context
+        self.info_panel.set_context(context)
+
+    def _refresh_sensemaking_context(self, mechanism_type: str | None = None) -> None:
+        if self.info_panel is None:
+            return
+
+        current_type = mechanism_type or self._current_controller_mechanism_type()
+        context = self._build_sensemaking_context(
+            current_type,
+            self._last_sensemaking_change,
+            self._last_sensemaking_previous_positions,
+            geometry_pending=False,
+        )
+        self._last_sensemaking_context = context
+        self.info_panel.set_context(context)
+
+    def _build_sensemaking_context(
+        self,
+        mechanism_type: str,
+        change: SensemakingParameterChange | None,
+        previous_positions: dict[str, object] | None,
+        *,
+        geometry_pending: bool = False,
+    ) -> SensemakingContext:
+        preview_snapshot = SensemakingPreviewSnapshot(
+            current_parameters=self.current_parameters,
+            current_positions=self._current_sensemaking_positions(),
+            previous_positions=previous_positions,
+            geometry_pending=geometry_pending,
+        )
+        return self.sensemaking_service.build_context(
+            mechanism_type,
+            selected_motion_point_key=self._selected_motion_point_key(),
+            selected_motion_point_label=self._selected_motion_point_label(),
+            parameter_change=change,
+            preview_snapshot=preview_snapshot,
+        )
+
+    def _current_sensemaking_positions(self) -> dict[str, object] | None:
+        state = self._last_rendered_state
+        if state is None:
+            return None
+        return {str(key): value for key, value in state.positions.items()}
 
     def _rebuild_parameter_sliders(self, specs: tuple[ParameterSpec, ...]) -> None:
         for slider, label in self.parameter_sliders.values():
@@ -865,6 +1025,8 @@ class MechanismFoundryView(QWidget):
                 with blocked_signals(slider):
                     slider.setValue(slider_value)
 
+        previous_value = self.current_parameters.get(param_key)
+        previous_positions = self._current_sensemaking_positions()
         self.current_parameters[param_key] = adjusted_value
         self._state_cache_valid = False
         if is_integer:
@@ -872,6 +1034,12 @@ class MechanismFoundryView(QWidget):
         else:
             label.setText(f"{adjusted_value:.1f}")
         self._pending_param = (param_key, adjusted_value, label, is_integer)
+        self._update_sensemaking_parameter_change(
+            param_key,
+            previous_value,
+            adjusted_value,
+            previous_positions,
+        )
         self._param_debounce_timer.start()
 
     @property
@@ -964,6 +1132,7 @@ class MechanismFoundryView(QWidget):
             config = self.controller.get_configuration(config_type)
             if config:
                 self._update_info_panel(config_type, config)
+            self._refresh_sensemaking_context(config_type)
 
             # Emit sync signal if we have a synced mechanism (bidirectional sync)
             if self.synced_mechanism_id and not self._suppress_sync_signal:
@@ -1035,6 +1204,7 @@ class MechanismFoundryView(QWidget):
             self._state_cache_valid = True
             self._draw_mechanism_state(state)
             self._update_safety_display(state)
+            self._refresh_sensemaking_context()
         except Exception as e:
             self._last_rendered_state = None
             self._last_rendered_mechanism = None
@@ -1487,6 +1657,8 @@ class MechanismFoundryView(QWidget):
             return
         self._last_safety_html = safety_html
         self.safety_label.setText(safety_html)
+        if self.info_panel is not None:
+            self.info_panel.set_safety_status(f"{prefix} {safety.message}", level.name.lower())
 
     def _draw_grid(self) -> None:
         for item in self._grid_items:
@@ -1638,23 +1810,9 @@ class MechanismFoundryView(QWidget):
                     return value
             return None
 
-        mechanism_type = self._normalize_mechanism_type_key(mechanism_type)
-        mechanism_type = {
-            "4_bar_linkage": "fourbar",
-            "four_bar_linkage": "fourbar",
-            "four_bar": "fourbar",
-            "fourbar": "fourbar",
-            "cam": "cam_follower",
-            "cam_follower": "cam_follower",
-            "gear": "gear_train",
-            "gear_train": "gear_train",
-            "planetary_gear": "gear_train",
-            "slider_crank": "slider_crank",
-            "slider-crank": "slider_crank",
-            "slidercrank": "slider_crank",
-        }.get(mechanism_type, mechanism_type)
+        mechanism_type = canonical_mechanism_type(mechanism_type)
 
-        if mechanism_type == "fourbar":
+        if mechanism_type == "four_bar":
             ground_link = _pick_float("l1", "L1")
             if ground_link is not None:
                 mapped["ground_link"] = ground_link
@@ -1851,28 +2009,11 @@ class MechanismFoundryView(QWidget):
         """
         self.synced_mechanism_id = mechanism_id
 
-        type_mapping = {
-            "fourbar": "four_bar",
-            "4_bar_linkage": "four_bar",
-            "four_bar": "four_bar",
-            "cam_follower": "cam_follower",
-            "cam": "cam_follower",
-            "gear": "gear_train",
-            "gear_train": "gear_train",
-            "planetary_gear": "gear_train",
-            "slider_crank": "slider_crank",
-            "slider-crank": "slider_crank",
-            "slidercrank": "slider_crank",
-        }
-        mechanism_type_key = self._normalize_mechanism_type_key(mechanism_type)
-        selector_type = type_mapping.get(mechanism_type_key, mechanism_type_key)
+        selector_type = canonical_mechanism_type(mechanism_type)
 
         current_selector_type = ""
         if self.current_mechanism:
-            current_type_key = self._normalize_mechanism_type_key(
-                self.current_mechanism.mechanism_type
-            )
-            current_selector_type = type_mapping.get(current_type_key, current_type_key)
+            current_selector_type = canonical_mechanism_type(self.current_mechanism.mechanism_type)
 
         if current_selector_type != selector_type:
             self._load_mechanism(selector_type)
