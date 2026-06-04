@@ -8,7 +8,7 @@ NO Qt dependencies allowed in this module.
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 @dataclass
@@ -166,10 +166,14 @@ class SkeletonJointModel(BaseModel):
 class CharacterDataModel(BaseModel):
     """Pydantic model for character data in project files."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     parts: dict[str, PartInfoModel] = Field(default_factory=dict)
     skeleton_joints: list[SkeletonJointModel] = Field(
-        default_factory=list, alias="skeleton"
+        default_factory=list,
+        alias="skeleton",
+        validation_alias=AliasChoices("skeleton", "skeleton_joints"),
     )
 
 

@@ -4,6 +4,7 @@ import platform
 import shutil
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -116,6 +117,64 @@ def get_app_data_dir() -> Path:
     app_data_dir = base / "AutomataII"
     app_data_dir.mkdir(parents=True, exist_ok=True)
     return app_data_dir
+
+
+def cleanup_old_app_temp_dirs(
+    max_age_seconds: int = 7 * 24 * 60 * 60,
+    *,
+    now: float | None = None,
+    base_temp_dir: Path | None = None,
+    marker_file: str | None = None,
+) -> int:
+    """
+    Remove stale marked first-level Automataii temp session directories.
+
+    This cleanup is deliberately conservative: it only removes normal
+    directories directly below the Automataii temp root, skips files/symlinks,
+    and requires an explicit marker file so unrelated app temp directories are
+    not deleted just because they are old.
+
+    Args:
+        max_age_seconds: Minimum age before a temp session directory is removed.
+        now: Optional clock override for tests.
+        base_temp_dir: Optional temp root override for tests.
+        marker_file: Marker file name that must exist directly inside a
+            candidate directory before it can be removed.
+
+    Returns:
+        Number of session directories removed.
+    """
+    if max_age_seconds < 0:
+        raise ValueError("max_age_seconds must be non-negative")
+    if not marker_file:
+        logger.warning("Skipping app temp cleanup because no marker_file was provided.")
+        return 0
+
+    temp_root = base_temp_dir if base_temp_dir is not None else get_app_temp_dir()
+    cutoff = (time.time() if now is None else now) - max_age_seconds
+    removed = 0
+
+    try:
+        candidates = list(temp_root.iterdir())
+    except OSError as exc:
+        logger.warning("Could not inspect Automataii temp root %s: %s", temp_root, exc)
+        return removed
+
+    for candidate in candidates:
+        try:
+            if not candidate.is_dir() or candidate.is_symlink():
+                continue
+            marker_path = candidate / marker_file
+            if not marker_path.is_file() or marker_path.is_symlink():
+                continue
+            if candidate.stat().st_mtime > cutoff:
+                continue
+            shutil.rmtree(candidate)
+            removed += 1
+        except OSError as exc:
+            logger.warning("Could not remove stale temp session directory %s: %s", candidate, exc)
+
+    return removed
 
 
 def get_session_temp_dir(session_id: str | None = None, clear_existing: bool = False) -> Path:

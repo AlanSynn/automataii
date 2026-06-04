@@ -87,7 +87,7 @@ class ProjectDataManager(QObject):
             True if successful, False otherwise.
         """
         logging.info(f"ProjectDataManager: Attempting to load project from: {filepath}")
-        self.clear_project_data()
+        self.clear_project_data(emit_signal=False)
 
         try:
             if not self._validate_and_load_json(filepath):
@@ -428,14 +428,15 @@ class ProjectDataManager(QObject):
             f"Successfully loaded {len(pydantic_joints)} joints from {char_cfg_path}."
         )
 
-    def clear_project_data(self):
+    def clear_project_data(self, *, emit_signal: bool = True):
         logging.info("ProjectDataManager: Clearing project data.")
         self._project_dir = None
         self._validated_project_data = None
         self._parts.clear()
         self._raw_skeleton_data = None  # Explicitly clear this
         self._effective_bounding_box_offset = QPointF(0, 0)
-        self.project_data_cleared.emit()
+        if emit_signal:
+            self.project_data_cleared.emit()
 
 
     def get_all_parts(self) -> dict[str, PartInfo]:

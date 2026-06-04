@@ -1,13 +1,17 @@
-# ruff: noqa: F821
+# ruff: noqa: F821,E402
 
 import os
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(SPECPATH).parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from scripts.pyinstaller_datas import existing_datas
+
 # Increase recursion limit for complex projects
 sys.setrecursionlimit(5000)
-
-PROJECT_ROOT = Path(SPECPATH).parents[1]
 
 
 def project_path(*parts):
@@ -50,11 +54,15 @@ a = Analysis(
             project_path("src", "automataii", "presentation", "qt", "fonts"),
             "automataii/presentation/qt/fonts",
         ),
-        (project_path("config"), "config"),
-        (project_path("src", "automataii", "modules"), "automataii/modules"),
-        # Only include root-level images from examples directory
-        (project_path("src", "examples", "*.png"), "examples/"),
         (project_path("resources"), "resources/"),  # Includes resources/data/*.json
+        *existing_datas(
+            [
+                (project_path("config"), "config"),
+                (project_path("src", "automataii", "modules"), "automataii/modules"),
+                # Only include root-level images from examples directory
+                (project_path("src", "examples", "*.png"), "examples/"),
+            ]
+        ),
     ],
     hiddenimports=[
         "PyQt6.sip",

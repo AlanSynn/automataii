@@ -98,7 +98,6 @@ class TestLoggingSystem:
 
         # Get root logger before setup
         root = logging.getLogger()
-        original_handlers = len(root.handlers)
 
         # Setup logging
         setup_logging(console_log_level=logging.INFO)
@@ -242,10 +241,10 @@ class TestProjectSaveToTmp:
 
         state_manager = ProjectStateManager()
         serializer = ProjectSerializer()
-        controller = ProjectController(state_manager, serializer)
+        ProjectController(state_manager, serializer)
 
         # Get the default directory
-        default_dir = get_default_project_dir()
+        get_default_project_dir()
 
         # The state has no project_dir, so save should use tmp
         state = state_manager.state
@@ -416,7 +415,7 @@ class TestMechanismUndoRedo:
         assert current.params["base_radius"] == 45  # 25 + 4*5
 
         # Undo all 5 updates
-        for i in range(5):
+        for _i in range(5):
             manager.undo()
 
         # Back to original
@@ -424,7 +423,7 @@ class TestMechanismUndoRedo:
         assert current.params["base_radius"] == 25
 
         # Redo all 5 updates
-        for i in range(5):
+        for _i in range(5):
             manager.redo()
 
         # Back to final state
@@ -471,16 +470,16 @@ class TestLoggingIntegration:
     def test_logging_file_creation(self):
         """Test that log files are created."""
         from automataii.utils.logging_config import setup_logging
-        from automataii.utils.paths import get_project_root
+        from automataii.utils.paths import get_app_data_dir
 
         setup_logging()
 
-        log_dir = get_project_root() / "logs"
+        log_dir = get_app_data_dir() / "logs"
         assert log_dir.exists()
 
         # Main log file should exist or be creatable
         log_file = log_dir / "automataii.log"
-        # File may not exist if no logging has occurred yet, but directory should
+        assert log_file.exists()
 
 
 if __name__ == "__main__":

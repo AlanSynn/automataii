@@ -72,6 +72,7 @@ from automataii.presentation.qt.tabs.options_tab import OptionsTab
 
 # Local imports (adjust paths as needed)
 from automataii.presentation.qt.views.editor_view import EditorView  # ADD THIS IMPORT
+from automataii.presentation.qt.widgets.scrollable_tab_bar import ScrollableTabBar
 
 # Import extracted components for tab lifecycle management
 from automataii.presentation.qt.windows.components import (
@@ -709,7 +710,8 @@ class AutomataDesigner(QMainWindow):
 
         self.tab_widget = QTabWidget()
         self.tab_widget.setObjectName("mainTabWidget")
-        self.tab_widget.setUsesScrollButtons(True)
+        self.tab_widget.setTabBar(ScrollableTabBar(self.tab_widget))
+        self.tab_widget.setUsesScrollButtons(False)
         self.tab_widget.setElideMode(Qt.TextElideMode.ElideNone)
         main_layout.addWidget(self.tab_widget)
 
@@ -740,15 +742,16 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.addTab(self.mechanism_design_tab, mechanism_title)
 
         # --- Tab 4: Mechanism Foundry ---
-        self.mechanism_foundry_tab = MechanismFoundryView(self)
-        self.mechanism_foundry_tab.setObjectName("tab_mechanism_foundry")
-        foundry_title = "5. Mechanism Foundry" if self.experiment_mode else "Mechanism Foundry"
-        self.tab_widget.addTab(self.mechanism_foundry_tab, foundry_title)
+        self.mechanism_foundry_tab = None
+        if not self.experiment_mode:
+            self.mechanism_foundry_tab = MechanismFoundryView(self)
+            self.mechanism_foundry_tab.setObjectName("tab_mechanism_foundry")
+            self.tab_widget.addTab(self.mechanism_foundry_tab, "Mechanism Foundry")
 
         # --- Tab 5: Lab ---
         self.lab_tab = LabTab(self)
         self.lab_tab.setObjectName("tab_lab")
-        lab_title = "6. Lab" if self.experiment_mode else "Lab"
+        lab_title = "5. Lab" if self.experiment_mode else "Lab"
         self.tab_widget.addTab(self.lab_tab, lab_title)
 
         # --- Tab 6: Options ---
@@ -785,20 +788,21 @@ class AutomataDesigner(QMainWindow):
         )
         self.mechanism_design_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
 
-        # --- Connect Signals from MechanismFoundryTab ---
-        self.mechanism_foundry_tab.export_to_design_requested.connect(
-            self._handle_foundry_export_to_mechanism_tab
-        )
+        if self.mechanism_foundry_tab is not None:
+            # --- Connect Signals from MechanismFoundryTab ---
+            self.mechanism_foundry_tab.export_to_design_requested.connect(
+                self._handle_foundry_export_to_mechanism_tab
+            )
 
-        # --- Bidirectional Sync: Foundry ↔ Design Tab ---
-        # Foundry → Design Tab: Parameter changes
-        self.mechanism_foundry_tab.mechanism_parameters_changed.connect(
-            self.mechanism_design_tab.update_from_foundry
-        )
-        # Design Tab → Foundry: Parameter changes
-        self.mechanism_design_tab.mechanism_parameters_changed.connect(
-            self.mechanism_foundry_tab.update_from_design_tab
-        )
+            # --- Bidirectional Sync: Foundry ↔ Design Tab ---
+            # Foundry → Design Tab: Parameter changes
+            self.mechanism_foundry_tab.mechanism_parameters_changed.connect(
+                self.mechanism_design_tab.update_from_foundry
+            )
+            # Design Tab → Foundry: Parameter changes
+            self.mechanism_design_tab.mechanism_parameters_changed.connect(
+                self.mechanism_foundry_tab.update_from_design_tab
+            )
 
         # --- Connect Signals from OptionsTab ---
         self.options_tab.animationDurationChanged.connect(self.ik_manager.set_animation_duration)
@@ -897,22 +901,6 @@ class AutomataDesigner(QMainWindow):
         self.action_manager.connect_action("save_workspace_layout", self.save_workspace_layout)
         self.action_manager.connect_action("restore_workspace_layout", self.restore_workspace_layout)
         self.action_manager.connect_action("reset_workspace_layout", self.reset_workspace_layout)
-        self.action_manager.connect_action(
-            "toggle_workflow_navigator",
-            lambda checked=False: self.toggle_workflow_navigator(bool(checked)),
-        )
-        self.action_manager.connect_action(
-            "workflow_mode_flexible",
-            lambda checked=False: self.set_workflow_mode("flexible") if checked else None,
-        )
-        self.action_manager.connect_action(
-            "workflow_mode_guided",
-            lambda checked=False: self.set_workflow_mode("guided") if checked else None,
-        )
-        self.action_manager.connect_action(
-            "capture_workflow_sequence", self.capture_workflow_from_tab_order
-        )
-        self.action_manager.connect_action("reset_workflow_sequence", self.reset_workflow_sequence)
 
         # Test Anchors Button Connection (This button is now in EditorTab, EditorTab should handle its toggled signal)
         # self.toggle_anchors_btn.toggled.connect(self._toggle_test_anchors_visibility)
@@ -984,13 +972,6 @@ class AutomataDesigner(QMainWindow):
             self._on_workflow_sequence_changed
         )
 
-        workflow_dock = self._workspace_layout_manager.navigator_dock
-        toggle_action = self.action_manager.get_action("toggle_workflow_navigator")
-        if workflow_dock and toggle_action:
-            workflow_dock.visibilityChanged.connect(toggle_action.setChecked)
-            toggle_action.setChecked(workflow_dock.isVisible())
-
-        self._sync_workflow_mode_actions()
         self._mark_workflow_tab_visited(self.tab_widget.currentWidget())
         self._announce_workflow_status()
 
@@ -1063,23 +1044,11 @@ class AutomataDesigner(QMainWindow):
 
     @pyqtSlot(str)
     def _on_workflow_mode_changed(self, _mode: str) -> None:
-        self._sync_workflow_mode_actions()
         self._announce_workflow_status()
 
     @pyqtSlot(list)
     def _on_workflow_sequence_changed(self, _sequence: list) -> None:
         self._announce_workflow_status()
-
-    def _sync_workflow_mode_actions(self) -> None:
-        if not self._workflow_state_machine:
-            return
-        flexible_action = self.action_manager.get_action("workflow_mode_flexible")
-        guided_action = self.action_manager.get_action("workflow_mode_guided")
-        is_flexible = self._workflow_state_machine.mode.value == "flexible"
-        if flexible_action:
-            flexible_action.setChecked(is_flexible)
-        if guided_action:
-            guided_action.setChecked(not is_flexible)
 
     @pyqtSlot()
     def save_workspace_layout(self) -> None:
@@ -1091,7 +1060,6 @@ class AutomataDesigner(QMainWindow):
     def restore_workspace_layout(self) -> None:
         if self._workspace_layout_manager:
             self._workspace_layout_manager.restore_workspace_layout()
-            self._workspace_layout_manager.refresh_navigator_items()
             self.statusBar().showMessage("Workspace layout restored.", 3000)
 
     @pyqtSlot()
@@ -1100,19 +1068,10 @@ class AutomataDesigner(QMainWindow):
             self._workspace_layout_manager.reset_workspace_layout()
             self.statusBar().showMessage("Workspace layout reset to defaults.", 3000)
 
-    @pyqtSlot(bool)
-    def toggle_workflow_navigator(self, visible: bool) -> None:
-        if (
-            self._workspace_layout_manager
-            and self._workspace_layout_manager.navigator_dock is not None
-        ):
-            self._workspace_layout_manager.navigator_dock.setVisible(visible)
-
     def set_workflow_mode(self, mode: str) -> None:
         if not self._workflow_state_machine:
             return
         self._workflow_state_machine.set_mode(mode)
-        self._sync_workflow_mode_actions()
 
     @pyqtSlot()
     def capture_workflow_from_tab_order(self) -> None:

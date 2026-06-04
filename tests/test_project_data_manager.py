@@ -63,3 +63,50 @@ def test_load_project_from_file_reads_standardized_supplemental_char_cfg(tmp_pat
     assert len(raw) == 2
     ids = {joint["id"] for joint in raw}
     assert ids == {"root", "torso"}
+
+
+def test_load_project_from_file_reads_primary_skeleton_joints_without_clear_signal(
+    tmp_path: Path,
+) -> None:
+    project_file = tmp_path / "parts_info.json"
+    project_file.write_text(
+        json.dumps(
+            {
+                "character": {
+                    "name": "generated",
+                    "parts": {},
+                    "skeleton_joints": [
+                        {
+                            "id": "root",
+                            "name": "root",
+                            "position": [10.0, 20.0],
+                            "parent": None,
+                        },
+                        {
+                            "id": "torso",
+                            "name": "torso",
+                            "position": [15.0, 35.0],
+                            "parent": "root",
+                        },
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manager = ProjectDataManager()
+    clear_count = 0
+
+    def _on_cleared() -> None:
+        nonlocal clear_count
+        clear_count += 1
+
+    manager.project_data_cleared.connect(_on_cleared)
+
+    assert manager.load_project_from_file(str(project_file)) is True
+
+    raw = manager.raw_skeleton_data
+    assert raw is not None
+    assert [joint["id"] for joint in raw] == ["root", "torso"]
+    assert clear_count == 0

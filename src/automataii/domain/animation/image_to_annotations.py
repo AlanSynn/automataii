@@ -7,6 +7,8 @@ Based on our successful test_onnx_inference.py implementation
 import logging
 import math
 import sys
+import uuid
+from hashlib import sha256
 from pathlib import Path
 from typing import TypedDict
 
@@ -21,8 +23,10 @@ except ImportError:
     ort = None
     logging.warning("ONNXRuntime not available. Install with: pip install onnxruntime")
 
-from automataii.utils.model_downloader import ModelDownloader
-from automataii.utils.paths import get_session_temp_dir, resolve_path
+from automataii.utils.paths import cleanup_old_app_temp_dirs, get_session_temp_dir, resolve_path
+
+IMAGE_TEMP_SESSION_MARKER = ".automataii-image-session"
+IMAGE_TEMP_STEM_MAX_CHARS = 80
 
 
 class AnnotationResults(TypedDict):
@@ -62,12 +66,9 @@ class ONNXImageProcessor:
         self._load_models()
 
     def _load_models(self):
-        """Load ONNX models, downloading if necessary"""
+        """Load ONNX models used by this pipeline."""
         if not ort:
             raise ImportError("ONNXRuntime required. Install with: pip install onnxruntime")
-
-        # Initialize model downloader for large model files
-        downloader = ModelDownloader()
 
         # Load detector
         if self.detector_path.exists():
@@ -92,24 +93,6 @@ class ONNXImageProcessor:
             logging.warning(f"Pose model not found: {self.pose_path}")
             # Note: ONNX models are included in the build, so this shouldn't happen
 
-        # Check if we need any PyTorch models (which are excluded from build)
-        weights_dir = self.detector_path.parent.parent / "weights"
-        if weights_dir.exists():
-            # Check for PyTorch models and download if needed
-            pytorch_models = ["detector_latest.pth", "pose_best_AP_epoch_72.pth"]
-            for model_name in pytorch_models:
-                model_path = weights_dir / model_name
-                if not model_path.exists():
-                    logging.info(f"PyTorch model {model_name} not found locally")
-                    try:
-                        # Try to download large PyTorch models on-demand
-                        downloaded_path = downloader.download_model(model_name)
-                        if downloaded_path:
-                            logging.info(f"Downloaded {model_name} to {downloaded_path}")
-                        else:
-                            logging.warning(f"Could not download {model_name}")
-                    except Exception as e:
-                        logging.warning(f"Failed to download {model_name}: {e}")
 
     def preprocess_for_detection(self, image):
         """Preprocess image for detection - Exact MMDetection pipeline"""
@@ -243,6 +226,35 @@ class ONNXImageProcessor:
             keypoints.append([x_orig, y_orig, confidence])
 
         return np.array(keypoints)
+
+
+def _build_image_temp_session_id(img_fn: str) -> str | None:
+    """
+    Build a collision-resistant temp session id for one image-processing run.
+
+    The visible prefix preserves the image stem for debuggability, while the
+    source-path hash prevents same-stem images from different folders sharing a
+    temp directory.  The final random suffix prevents concurrent/repeated runs
+    for the same source file from clearing or overwriting each other.
+    """
+    image_path = Path(img_fn)
+    stem = image_path.stem
+    if not stem:
+        return None
+
+    safe_stem = "".join(c for c in stem if c.isalnum() or c in ("_", "-")).strip("_-")
+    if not safe_stem:
+        safe_stem = "image"
+    safe_stem = safe_stem[:IMAGE_TEMP_STEM_MAX_CHARS].rstrip("_-") or "image"
+
+    try:
+        resolved_source = image_path.expanduser().resolve(strict=False)
+    except OSError:
+        resolved_source = image_path.expanduser().absolute()
+
+    source_digest = sha256(str(resolved_source).encode("utf-8")).hexdigest()[:12]
+    run_suffix = uuid.uuid4().hex[:8]
+    return f"{safe_stem}_{source_digest}_{run_suffix}"
 
 
 def segment(img: np.ndarray) -> np.ndarray:
@@ -538,14 +550,18 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
     logger = logging.getLogger(__name__)
 
     try:
-        # Determine session ID from image filename stem
-        session_id = Path(img_fn).stem
+        # Build a unique session ID so same-stem images never share temp artifacts.
+        session_id = _build_image_temp_session_id(img_fn)
         if not session_id:
             logger.error("Could not determine a valid session ID from img_fn.")
             return None
 
+        # Keep the shared temp root bounded as per-run directories are intentionally unique.
+        cleanup_old_app_temp_dirs(marker_file=IMAGE_TEMP_SESSION_MARKER)
+
         # Get output directory
-        outdir = get_session_temp_dir(session_id=session_id, clear_existing=True)
+        outdir = get_session_temp_dir(session_id=session_id, clear_existing=False)
+        (outdir / IMAGE_TEMP_SESSION_MARKER).touch(exist_ok=True)
         logger.info(f"Processing {img_fn}, outputting to: {outdir}")
 
         # Read image

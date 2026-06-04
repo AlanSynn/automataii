@@ -1,11 +1,17 @@
+import shutil
+from pathlib import Path
+
 import cv2
 import numpy as np
 
 from automataii.domain.animation.image_to_annotations import (
+    IMAGE_TEMP_STEM_MAX_CHARS,
+    _build_image_temp_session_id,
     _compute_skeleton_bbox,
     _reconcile_skeleton_to_mask,
     segment,
 )
+from automataii.utils.paths import get_session_temp_dir
 
 
 def test_segment_alpha_keeps_disconnected_components() -> None:
@@ -114,3 +120,49 @@ def test_reconcile_skeleton_to_mask_handles_extreme_oversize_pose() -> None:
     assert y1 >= 20
     assert x2 <= 175
     assert y2 <= 220
+
+
+def test_same_stem_images_get_distinct_temp_session_dirs(tmp_path: Path) -> None:
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first_image = first_dir / "character.png"
+    second_image = second_dir / "character.png"
+    first_image.write_bytes(b"first")
+    second_image.write_bytes(b"second")
+
+    first_session = _build_image_temp_session_id(str(first_image))
+    second_session = _build_image_temp_session_id(str(second_image))
+
+    assert first_session is not None
+    assert second_session is not None
+    assert first_session != second_session
+    assert first_session.startswith("character_")
+    assert second_session.startswith("character_")
+
+    first_output = get_session_temp_dir(first_session, clear_existing=False)
+    second_output: Path | None = None
+    try:
+        marker = first_output / "marker.txt"
+        marker.write_text("keep", encoding="utf-8")
+        second_output = get_session_temp_dir(second_session, clear_existing=False)
+
+        assert first_output != second_output
+        assert marker.exists()
+    finally:
+        shutil.rmtree(first_output, ignore_errors=True)
+        if second_output is not None:
+            shutil.rmtree(second_output, ignore_errors=True)
+
+
+def test_image_temp_session_id_truncates_long_stems(tmp_path: Path) -> None:
+    long_stem = "a" * 300
+    session_id = _build_image_temp_session_id(str(tmp_path / f"{long_stem}.png"))
+
+    assert session_id is not None
+    visible_stem, source_digest, run_suffix = session_id.rsplit("_", 2)
+    assert visible_stem == "a" * IMAGE_TEMP_STEM_MAX_CHARS
+    assert len(source_digest) == 12
+    assert len(run_suffix) == 8
+    assert len(session_id) < 120

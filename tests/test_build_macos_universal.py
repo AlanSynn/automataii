@@ -3,7 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from scripts import build_macos, macos_arch
+from scripts import build_experiment, build_macos, macos_arch
+from scripts.pyinstaller_datas import existing_datas, source_exists
 
 
 def test_build_executable_passes_universal2_to_pyinstaller(monkeypatch, tmp_path):
@@ -263,3 +264,53 @@ def test_dmg_background_assets_include_logo_and_retina_variant(tmp_path):
     assert retina.exists()
     assert Image.open(background).size == (520, 340)
     assert Image.open(retina).size == (1040, 680)
+
+
+def test_existing_datas_skips_missing_sources(tmp_path):
+    present_dir = tmp_path / "present"
+    present_dir.mkdir()
+    missing_dir = tmp_path / "missing"
+
+    assert existing_datas(
+        [
+            (str(present_dir), "present"),
+            (str(missing_dir), "missing"),
+        ]
+    ) == [(str(present_dir), "present")]
+
+
+def test_source_exists_supports_globs(tmp_path):
+    image = tmp_path / "example.png"
+    image.write_text("png", encoding="utf-8")
+
+    assert source_exists(str(tmp_path / "*.png")) is True
+    assert source_exists(str(tmp_path / "*.jpg")) is False
+
+
+def test_pyinstaller_specs_add_project_root_before_helper_import():
+    for spec_name in ("automataii.spec", "automataii-experiment.spec"):
+        spec_text = (Path("packaging") / "pyinstaller" / spec_name).read_text(encoding="utf-8")
+
+        assert spec_text.index("sys.path.insert(0, str(PROJECT_ROOT))") < spec_text.index(
+            "from scripts.pyinstaller_datas import existing_datas"
+        )
+
+
+def test_experiment_fast_pyinstaller_command_omits_spec_invalid_noupx(tmp_path):
+    spec_file = tmp_path / "automataii-experiment.spec"
+    spec_file.write_text("# spec", encoding="utf-8")
+
+    command = build_experiment._pyinstaller_command(spec_file, fast=True)
+
+    assert str(spec_file) in command
+    assert "--clean" not in command
+    assert "--noupx" not in command
+
+
+def test_experiment_full_pyinstaller_command_keeps_clean(tmp_path):
+    spec_file = tmp_path / "automataii-experiment.spec"
+    spec_file.write_text("# spec", encoding="utf-8")
+
+    command = build_experiment._pyinstaller_command(spec_file, fast=False)
+
+    assert command[-1] == "--clean"

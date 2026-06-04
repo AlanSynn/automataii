@@ -34,6 +34,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def _pyinstaller_command(spec_file: Path, *, fast: bool) -> list[str]:
+    """Build the PyInstaller command for the experiment spec file."""
+    cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", str(spec_file)]
+    if not fast:
+        cmd.append("--clean")
+    return cmd
+
+
 def _sign_app(app_bundle: Path, identity: str) -> None:
     logger.info(f"Signing app with identity: {identity}")
     entitlements_file = Path(__file__).parent.parent / "packaging" / "macos" / "entitlements.plist"
@@ -163,9 +171,7 @@ def main() -> bool:
     import argparse
 
     parser = argparse.ArgumentParser(description="Build Automataii (experiment mode)")
-    parser.add_argument(
-        "--fast", action="store_true", help="Faster build: skip --clean and disable UPX"
-    )
+    parser.add_argument("--fast", action="store_true", help="Faster build: skip --clean")
     parser.add_argument(
         "--skip-clean", action="store_true", help="Do not remove dist/ before build"
     )
@@ -242,22 +248,15 @@ if __name__ == "__main__":
     try:
         # Build using the experiment spec file
         spec_file = project_root / "packaging" / "pyinstaller" / "automataii-experiment.spec"
-        cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm"]
+        cmd = _pyinstaller_command(spec_file, fast=args.fast)
         env = os.environ.copy()
         env.pop(PYINSTALLER_TARGET_ARCH_ENV, None)
         if target_arch:
             env[PYINSTALLER_TARGET_ARCH_ENV] = target_arch
-        cmd.append(str(spec_file))
-        if args.fast:
-            # Faster: keep caches and skip binary compression
-            cmd.append("--noupx")
-        else:
-            # Thorough rebuild each time
-            cmd.append("--clean")
 
         logger.info(f"Running: {' '.join(cmd)}")
         # Stream PyInstaller output directly for better progress visibility and less overhead
-        result = subprocess.run(cmd, check=True, env=env)
+        result = subprocess.run(cmd, check=True, env=env, cwd=project_root)
 
         if result.returncode == 0:
             logger.info("✓ Build completed successfully!")
