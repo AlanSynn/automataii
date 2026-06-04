@@ -4,12 +4,16 @@ Build script for Automataii experiment mode
 Creates a build with --experiment flag automatically enabled
 """
 
+import hashlib
+import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
@@ -19,7 +23,12 @@ try:
         THIN_MACOS_ARCHES,
         host_arch,
     )
-    from .macos_notary import notarization_credentials_help, notarytool_submit_plan
+    from .macos_notary import (
+        APPLE_NOTARY_PROFILE_ENV,
+        notarization_credentials_help,
+        notarytool_submit_plan,
+    )
+    from .verify_macos_release import ReleaseVerification, verify_release
 except ImportError:  # pragma: no cover - used when executed as scripts/build_experiment.py
     from macos_arch import (
         MACOS_ARCH_CHOICES,
@@ -27,7 +36,15 @@ except ImportError:  # pragma: no cover - used when executed as scripts/build_ex
         THIN_MACOS_ARCHES,
         host_arch,
     )
-    from macos_notary import notarization_credentials_help, notarytool_submit_plan
+    from macos_notary import (
+        APPLE_NOTARY_PROFILE_ENV,
+        notarization_credentials_help,
+        notarytool_submit_plan,
+    )
+    from verify_macos_release import ReleaseVerification, verify_release
+
+
+SIGN_IDENTITY_ENV = "MACOS_SIGN_IDENTITY"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -73,6 +90,19 @@ def _create_dmg(app_bundle: Path, dist_dir: Path, volname: str, arch_label: str 
     if dmg_path.exists():
         dmg_path.unlink()
 
+    staging_dir_handle = tempfile.TemporaryDirectory(prefix="automataii-experiment-dmg-")
+    staging_dir = Path(staging_dir_handle.name)
+    try:
+        staged_app = staging_dir / app_bundle.name
+        shutil.copytree(app_bundle, staged_app, symlinks=True)
+        (staging_dir / "Applications").symlink_to("/Applications")
+
+        return _create_dmg_from_staging(staging_dir, dmg_path, volname)
+    finally:
+        staging_dir_handle.cleanup()
+
+
+def _create_dmg_from_staging(staging_dir: Path, dmg_path: Path, volname: str) -> Path:
     if shutil.which("hdiutil") is not None:
         cmd = [
             "hdiutil",
@@ -80,7 +110,7 @@ def _create_dmg(app_bundle: Path, dist_dir: Path, volname: str, arch_label: str 
             "-volname",
             volname,
             "-srcfolder",
-            str(app_bundle),
+            str(staging_dir),
             "-ov",
             "-format",
             "UDZO",
@@ -94,7 +124,7 @@ def _create_dmg(app_bundle: Path, dist_dir: Path, volname: str, arch_label: str 
         return dmg_path
 
     if shutil.which("create-dmg") is not None:
-        cmd = ["create-dmg", "--overwrite", "--volname", volname, str(dmg_path), str(app_bundle)]
+        cmd = ["create-dmg", "--overwrite", "--volname", volname, str(dmg_path), str(staging_dir)]
         logger.info(f"Creating DMG with create-dmg: {' '.join(cmd)}")
         subprocess.run(cmd, check=True)
         if not dmg_path.exists():
@@ -166,6 +196,57 @@ def _notarize_app_bundle(app_bundle: Path) -> bool:
     return True
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _verify_distribution_artifact(
+    dmg_path: Path, expected_arch: str
+) -> ReleaseVerification | None:
+    verification = verify_release(
+        dmg_path,
+        expected_arch=expected_arch,
+        require_notarization=True,
+        require_gatekeeper=True,
+    )
+    for check in verification.checks:
+        status = "PASS" if check.passed else "FAIL"
+        logger.info("[%s] %s: %s", status, check.name, check.message)
+    logger.info("Distribution ready for other Macs: %s", verification.distribution_ready)
+    if not verification.distribution_ready:
+        logger.error("Experiment DMG failed strict distribution verification.")
+        return None
+    return verification
+
+
+def _write_distribution_manifest(
+    dmg_path: Path,
+    dist_dir: Path,
+    arch_label: str,
+    sign_identity: str,
+    verification: ReleaseVerification,
+) -> Path:
+    manifest_path = dist_dir / f"Automataii-Experiment-macos-{arch_label}-release-manifest.json"
+    manifest = {
+        "created_at": datetime.now(UTC).isoformat(),
+        "artifact": str(dmg_path),
+        "sha256": _sha256_file(dmg_path),
+        "size_bytes": dmg_path.stat().st_size,
+        "arch": arch_label,
+        "sign_identity": sign_identity,
+        "notary_profile": os.environ.get(APPLE_NOTARY_PROFILE_ENV),
+        "strict_distribution": True,
+        "verification": asdict(verification),
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    logger.info("✓ Experiment release manifest written: %s", manifest_path)
+    return manifest_path
+
+
 def main() -> bool:
     """Build experiment version of Automataii"""
     import argparse
@@ -181,24 +262,38 @@ def main() -> bool:
         default="auto",
         help="Target architecture. universal2 builds for Intel and Apple Silicon when dependencies support both slices.",
     )
-    parser.add_argument("--sign", type=str, help="Code signing identity (Developer ID)")
-    parser.add_argument("--no-dmg", action="store_true", help="Skip DMG creation")
     parser.add_argument(
-        "--notarize",
-        action="store_true",
-        help="Notarize the DMG (requires APPLE_NOTARY_PROFILE keychain profile)",
+        "--sign",
+        type=str,
+        help=f"Code signing identity (Developer ID). Defaults to {SIGN_IDENTITY_ENV}.",
     )
+    parser.add_argument("--no-dmg", action="store_true", help="Skip DMG creation (non-macOS only)")
     args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent
     os.chdir(project_root)
 
-    if args.notarize and args.no_dmg:
-        logger.error("Notarization requires a DMG. Remove --no-dmg or disable --notarize.")
-        return False
+    sign_identity = (args.sign or os.environ.get(SIGN_IDENTITY_ENV) or "").strip() or None
 
     target_arch = None
     if sys.platform == "darwin":
+        if args.no_dmg:
+            logger.error("macOS experiment builds are distribution builds; DMG creation is required.")
+            return False
+        if not sign_identity:
+            logger.error(
+                "macOS experiment builds require Developer ID signing. "
+                "Pass --sign or set %s.",
+                SIGN_IDENTITY_ENV,
+            )
+            return False
+        if not os.environ.get(APPLE_NOTARY_PROFILE_ENV):
+            logger.error(
+                "macOS experiment builds require notarization. %s",
+                notarization_credentials_help(),
+            )
+            return False
+
         host = host_arch()
         target_arch = host if args.arch == "auto" else args.arch
         if target_arch in THIN_MACOS_ARCHES and target_arch != host:
@@ -270,22 +365,29 @@ if __name__ == "__main__":
             # macOS extras: sign, DMG, notarize
             if sys.platform == "darwin":
                 app_bundle = dist_dir / "AutomataII-Experiment.app"
-                if args.sign:
-                    _sign_app(app_bundle, args.sign)
-                if args.notarize and not _notarize_app_bundle(app_bundle):
+                _sign_app(app_bundle, sign_identity)
+                if not _notarize_app_bundle(app_bundle):
                     return False
                 dmg_path = None
-                if not args.no_dmg:
-                    dmg_path = _create_dmg(
-                        app_bundle, dist_dir, "Automataii-Experiment", target_arch
-                    )
-                    _sign_dmg(dmg_path, args.sign)
-                if args.notarize:
-                    if dmg_path is None or not dmg_path.exists():
-                        logger.error("Notarization requested but DMG was not created.")
-                        return False
-                    if not _notarize_target(dmg_path):
-                        return False
+                dmg_path = _create_dmg(
+                    app_bundle, dist_dir, "Automataii-Experiment", target_arch
+                )
+                _sign_dmg(dmg_path, sign_identity)
+                if dmg_path is None or not dmg_path.exists():
+                    logger.error("Notarization requested but DMG was not created.")
+                    return False
+                if not _notarize_target(dmg_path):
+                    return False
+                verification = _verify_distribution_artifact(dmg_path, target_arch)
+                if verification is None:
+                    return False
+                _write_distribution_manifest(
+                    dmg_path,
+                    dist_dir,
+                    target_arch,
+                    sign_identity,
+                    verification,
+                )
 
             return True
         else:

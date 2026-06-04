@@ -20,11 +20,11 @@ help:
 	@echo "  format        - Format code with ruff"
 	@echo "  type-check    - Run mypy type checking"
 	@echo ""
-	@echo "  build         - Build for current platform"
-	@echo "  build-experiment - Build experiment version (hides Options tab)"
-	@echo "  build-macos   - Build universal macOS app bundle/DMG (Intel + Apple Silicon)"
-	@echo "  build-macos-native - Build macOS app bundle/DMG for current host architecture"
-	@echo "  build-macos-signed - Build signed universal macOS app bundle/DMG"
+	@echo "  build         - Build distribution artifact for current platform (macOS: universal signed + notarized release)"
+	@echo "  build-experiment - Build experiment version (macOS requires signed + notarized release)"
+	@echo "  build-macos   - Build signed + notarized universal macOS release"
+	@echo "  build-macos-native - Build signed + notarized macOS release for current host architecture"
+	@echo "  build-macos-signed - Alias for signed + notarized universal macOS release"
 	@echo "  build-macos-release - Build signed + notarized universal macOS release"
 	@echo "  release-macos - Alias for build-macos-release"
 	@echo "  store-notary-profile - Store notarytool credentials in the macOS keychain"
@@ -38,6 +38,7 @@ help:
 PYTHON := uv run python
 UV := uv
 PROJECT_NAME := automataii
+MACOS_SIGN_ARG := $(if $(SIGN_ID),--sign "$(SIGN_ID)")
 
 # Install base dependencies
 install:
@@ -98,69 +99,58 @@ quality: lint format-check type-check
 
 # Building
 build:
-	@echo "Building for current platform..."
-	$(PYTHON) scripts/build.py
+	@echo "Building distribution artifact for current platform..."
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		$(PYTHON) scripts/release_macos.py $(MACOS_SIGN_ARG) $(OPTS); \
+	else \
+		$(PYTHON) scripts/build.py $(OPTS); \
+	fi
 
 build-experiment:
 	@echo "Building experiment version for current platform..."
-	$(PYTHON) scripts/build_experiment.py $(OPTS)
+	$(PYTHON) scripts/build_experiment.py $(MACOS_SIGN_ARG) $(OPTS)
 
 .PHONY: build-experiment-arm64 build-experiment-x86_64
 
 build-experiment-arm64:
 	@echo "Building experiment version for macOS arm64..."
-	$(PYTHON) scripts/build_experiment.py --arch arm64 $(OPTS)
+	$(PYTHON) scripts/build_experiment.py --arch arm64 $(MACOS_SIGN_ARG) $(OPTS)
 
 build-experiment-x86_64:
 	@echo "Building experiment version for macOS x86_64..."
-	$(PYTHON) scripts/build_experiment.py --arch x86_64 $(OPTS)
+	$(PYTHON) scripts/build_experiment.py --arch x86_64 $(MACOS_SIGN_ARG) $(OPTS)
 
 build-macos:
-	@echo "Building universal macOS app bundle..."
-	$(UV) sync
-	$(PYTHON) scripts/build_macos.py --arch universal2
+	@echo "Building signed + notarized universal macOS release..."
+	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
 
 .PHONY: build-macos-native build-macos-universal build-macos-signed build-macos-signed-native build-macos-release build-macos-release-native release-macos verify-macos-release store-notary-profile build-macos-arm64 build-macos-x86_64
 
 build-macos-native:
-	@echo "Building macOS app bundle for current host architecture..."
-	$(UV) sync
-	$(PYTHON) scripts/build_macos.py
+	@echo "Building signed + notarized macOS release for current host architecture..."
+	$(PYTHON) scripts/release_macos.py --arch auto $(MACOS_SIGN_ARG) $(OPTS)
 
 build-macos-universal:
-	@echo "Building universal macOS app bundle..."
-	$(UV) sync
-	$(PYTHON) scripts/build_macos.py --arch universal2
+	@echo "Building signed + notarized universal macOS release..."
+	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
 
 build-macos-signed:
-	@test -n "$(SIGN_ID)" || (echo "SIGN_ID is required, e.g. make build-macos-signed SIGN_ID='Developer ID Application: ...'" && exit 1)
-	@echo "Building signed universal macOS app bundle..."
-	$(UV) sync
-	$(PYTHON) scripts/build_macos.py --arch universal2 --sign "$(SIGN_ID)" --verify-release --no-gatekeeper
+	@echo "Building signed + notarized universal macOS release..."
+	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
 
 build-macos-signed-native:
-	@test -n "$(SIGN_ID)" || (echo "SIGN_ID is required, e.g. make build-macos-signed-native SIGN_ID='Developer ID Application: ...'" && exit 1)
-	@echo "Building signed native macOS app bundle..."
-	$(UV) sync
-	$(PYTHON) scripts/build_macos.py --sign "$(SIGN_ID)" --verify-release --no-gatekeeper
+	@echo "Building signed + notarized macOS release for current host architecture..."
+	$(PYTHON) scripts/release_macos.py --arch auto $(MACOS_SIGN_ARG) $(OPTS)
 
 build-macos-release:
 	@echo "Building signed and notarized universal macOS release..."
-	@if [ -n "$(SIGN_ID)" ]; then \
-		$(PYTHON) scripts/release_macos.py --sign "$(SIGN_ID)" $(OPTS); \
-	else \
-		$(PYTHON) scripts/release_macos.py $(OPTS); \
-	fi
+	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
 
 release-macos: build-macos-release
 
 build-macos-release-native:
 	@echo "Building signed and notarized native macOS release..."
-	@if [ -n "$(SIGN_ID)" ]; then \
-		$(PYTHON) scripts/release_macos.py --arch auto --sign "$(SIGN_ID)" $(OPTS); \
-	else \
-		$(PYTHON) scripts/release_macos.py --arch auto $(OPTS); \
-	fi
+	$(PYTHON) scripts/release_macos.py --arch auto $(MACOS_SIGN_ARG) $(OPTS)
 
 store-notary-profile:
 	@test -n "$(PROFILE)" || (echo "PROFILE is required, e.g. make store-notary-profile PROFILE=AutomataiiNotary APPLE_ID=... APPLE_TEAM_ID=..." && exit 1)
@@ -178,14 +168,12 @@ verify-macos-release:
 	$(PYTHON) scripts/verify_macos_release.py "$(ARTIFACT)" $(OPTS)
 
 build-macos-arm64:
-	@echo "Building macOS app bundle for arm64..."
-	$(UV) sync
-	$(PYTHON) scripts/build_macos.py --arch arm64
+	@echo "Building signed + notarized macOS release for arm64..."
+	$(PYTHON) scripts/release_macos.py --arch arm64 $(MACOS_SIGN_ARG) $(OPTS)
 
 build-macos-x86_64:
-	@echo "Building macOS app bundle for x86_64..."
-	$(UV) sync
-	$(PYTHON) scripts/build_macos.py --arch x86_64
+	@echo "Building signed + notarized macOS release for x86_64..."
+	$(PYTHON) scripts/release_macos.py --arch x86_64 $(MACOS_SIGN_ARG) $(OPTS)
 
 build-windows:
 	@echo "Building Windows executable..."

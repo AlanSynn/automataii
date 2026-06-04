@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from pathlib import Path
 
 from scripts import build_experiment, build_macos, macos_notary
+from scripts.verify_macos_release import CheckResult, ReleaseVerification
 
 
 def test_notarytool_submit_plan_prefers_keychain_profile(tmp_path):
@@ -184,6 +186,111 @@ def test_experiment_notarize_app_bundle_zips_submits_and_staples(monkeypatch, tm
     assert commands[1][:4] == ["xcrun", "notarytool", "submit", commands[0][-1]]
     assert commands[1][-3:] == ["--keychain-profile", "AutomataiiNotary", "--wait"]
     assert commands[2] == ["xcrun", "stapler", "staple", str(app_bundle)]
+
+
+def test_experiment_create_dmg_stages_app_bundle(monkeypatch, tmp_path):
+    app_bundle = tmp_path / "AutomataII-Experiment.app"
+    (app_bundle / "Contents").mkdir(parents=True)
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    commands: list[list[str]] = []
+
+    def fake_which(name: str) -> str | None:
+        return "/usr/bin/hdiutil" if name == "hdiutil" else None
+
+    def fake_run(cmd, check=False, **kwargs):
+        commands.append(list(cmd))
+        source = Path(cmd[cmd.index("-srcfolder") + 1])
+        assert source != app_bundle
+        assert (source / app_bundle.name).is_dir()
+        assert (source / "Applications").is_symlink()
+        Path(cmd[-1]).write_bytes(b"dmg")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(build_experiment.shutil, "which", fake_which)
+    monkeypatch.setattr(build_experiment.subprocess, "run", fake_run)
+
+    dmg_path = build_experiment._create_dmg(app_bundle, dist_dir, "Automataii-Experiment", "arm64")
+
+    assert dmg_path == dist_dir / "Automataii-Experiment-macos-arm64.dmg"
+    assert commands[0][0] == "hdiutil"
+
+
+def test_experiment_macos_build_requires_sign_identity(monkeypatch):
+    monkeypatch.setattr(build_experiment.sys, "platform", "darwin")
+    monkeypatch.setattr(build_experiment.sys, "argv", ["build_experiment.py", "--arch", "arm64"])
+    monkeypatch.delenv(build_experiment.SIGN_IDENTITY_ENV, raising=False)
+    monkeypatch.setenv(macos_notary.APPLE_NOTARY_PROFILE_ENV, "AutomataiiNotary")
+
+    assert build_experiment.main() is False
+
+
+def test_experiment_macos_build_requires_notary_profile(monkeypatch):
+    monkeypatch.setattr(build_experiment.sys, "platform", "darwin")
+    monkeypatch.setattr(build_experiment.sys, "argv", ["build_experiment.py", "--arch", "arm64"])
+    monkeypatch.setenv(
+        build_experiment.SIGN_IDENTITY_ENV,
+        "Developer ID Application: Example (TEAMID)",
+    )
+    monkeypatch.delenv(macos_notary.APPLE_NOTARY_PROFILE_ENV, raising=False)
+
+    assert build_experiment.main() is False
+
+
+def test_experiment_macos_build_rejects_no_dmg(monkeypatch):
+    monkeypatch.setattr(build_experiment.sys, "platform", "darwin")
+    monkeypatch.setattr(build_experiment.sys, "argv", ["build_experiment.py", "--no-dmg"])
+    monkeypatch.setenv(
+        build_experiment.SIGN_IDENTITY_ENV,
+        "Developer ID Application: Example (TEAMID)",
+    )
+    monkeypatch.setenv(macos_notary.APPLE_NOTARY_PROFILE_ENV, "AutomataiiNotary")
+
+    assert build_experiment.main() is False
+
+
+def test_experiment_distribution_verification_requires_ready_artifact(monkeypatch, tmp_path):
+    dmg_path = tmp_path / "Automataii-Experiment-macos-arm64.dmg"
+    failing_verification = ReleaseVerification(
+        artifact=str(dmg_path),
+        app_path=None,
+        checks=[CheckResult("codesign_verify", False, True, "Signature failed.")],
+        distribution_ready=False,
+    )
+    monkeypatch.setattr(
+        build_experiment,
+        "verify_release",
+        lambda *args, **kwargs: failing_verification,
+    )
+
+    assert build_experiment._verify_distribution_artifact(dmg_path, "arm64") is None
+
+
+def test_experiment_distribution_manifest_records_strict_release_gate(monkeypatch, tmp_path):
+    dmg_path = tmp_path / "Automataii-Experiment-macos-arm64.dmg"
+    dmg_path.write_bytes(b"release artifact")
+    verification = ReleaseVerification(
+        artifact=str(dmg_path),
+        app_path="Automataii-Experiment.app",
+        checks=[CheckResult("notarization_staple", True, True, "Stapled.")],
+        distribution_ready=True,
+    )
+    monkeypatch.setenv(macos_notary.APPLE_NOTARY_PROFILE_ENV, "AutomataiiNotary")
+
+    manifest_path = build_experiment._write_distribution_manifest(
+        dmg_path,
+        tmp_path,
+        "arm64",
+        "Developer ID Application: Example (TEAMID)",
+        verification,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["artifact"] == str(dmg_path)
+    assert manifest["arch"] == "arm64"
+    assert manifest["notary_profile"] == "AutomataiiNotary"
+    assert manifest["strict_distribution"] is True
+    assert manifest["verification"]["distribution_ready"] is True
 
 
 def test_build_rejects_notarize_without_dmg_before_dependency_checks(monkeypatch, tmp_path):

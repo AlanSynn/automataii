@@ -62,7 +62,12 @@ and `APPLE_APP_SPECIFIC_PASSWORD`, then run the release command with
 
 ## Release Gate
 
-The repeatable release entrypoint is:
+macOS build targets are distribution targets. Local development should use
+`uv run automataii`; if you invoke a `make build-macos*` target, it is expected
+to produce a Developer ID signed, notarized, stapled, strictly verified release
+artifact.
+
+The repeatable universal release entrypoint is:
 
 ```bash
 make release-macos
@@ -73,6 +78,30 @@ make release-macos
 `notarytool` keychain profile, builds a universal2 DMG, signs it with Developer
 ID, notarizes/staples both the app and DMG, runs strict release verification,
 mounts the DMG, copies the app out, and runs a packaged smoke scenario.
+
+The convenience build targets route through the same notarized release
+automation:
+
+- `make build`
+- `make build-macos`
+- `make build-macos-universal`
+- `make build-macos-native`
+- `make build-macos-arm64`
+- `make build-macos-x86_64`
+- `make build-macos-signed`
+- `make build-macos-signed-native`
+
+They do not produce unsigned distributable DMGs. For local development, run the
+app directly instead:
+
+```bash
+uv run automataii
+```
+
+`make build` follows the same rule on macOS and defaults to the universal2
+signed + notarized release. Test-only dry runs can print the command sequence,
+but release builds do not expose notarization, strict-verification, profile
+preflight, or mounted-smoke bypass flags.
 
 The generated DMG is a branded Finder window, not a bare app folder. It includes:
 

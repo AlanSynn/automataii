@@ -4,6 +4,7 @@ import json
 import shlex
 from pathlib import Path
 
+import pytest
 from scripts import release_macos
 
 
@@ -150,6 +151,56 @@ MACOS_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)"
     assert "notarytool history --keychain-profile AutomataiiNotary" in log_text
 
 
+def _makefile_target_recipe(makefile: str, target: str) -> str:
+    marker = f"\n{target}:\n"
+    start = makefile.index(marker) + len(marker)
+    lines: list[str] = []
+    for line in makefile[start:].splitlines():
+        if line and not line.startswith(("\t", " ")):
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def test_release_parser_rejects_distribution_bypass_options():
+    for option in ("--no-notarize", "--no-strict-distribution", "--no-smoke", "--skip-profile-check"):
+        with pytest.raises(SystemExit):
+            release_macos.parse_args([option])
+
+
+def test_makefile_macos_build_targets_route_through_notarized_release_script():
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    distribution_targets = {
+        "build-macos": "--arch universal2",
+        "build-macos-universal": "--arch universal2",
+        "build-macos-release": "--arch universal2",
+        "build-macos-signed": "--arch universal2",
+        "build-macos-native": "--arch auto",
+        "build-macos-release-native": "--arch auto",
+        "build-macos-signed-native": "--arch auto",
+        "build-macos-arm64": "--arch arm64",
+        "build-macos-x86_64": "--arch x86_64",
+    }
+
+    for target, arch_flag in distribution_targets.items():
+        recipe = _makefile_target_recipe(makefile, target)
+
+        assert "scripts/release_macos.py" in recipe
+        assert "scripts/build_macos.py" not in recipe
+        assert "$(MACOS_SIGN_ARG)" in recipe
+        assert arch_flag in recipe
+
+
+def test_makefile_build_uses_release_flow_on_macos():
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    recipe = _makefile_target_recipe(makefile, "build")
+
+    assert "uname -s" in recipe
+    assert "Darwin" in recipe
+    assert "scripts/release_macos.py" in recipe
+    assert "scripts/build.py" in recipe
+
+
 def test_makefile_and_docs_route_releases_through_automation_script():
     makefile = Path("Makefile").read_text(encoding="utf-8")
     docs = Path("docs/macos-distribution.md").read_text(encoding="utf-8")
@@ -157,6 +208,9 @@ def test_makefile_and_docs_route_releases_through_automation_script():
     assert "scripts/release_macos.py" in makefile
     assert "release-macos" in makefile
     assert "make release-macos" in docs
+    assert "make build-macos-arm64" in docs
+    assert "uv run automataii" in docs
+    assert "mounted-smoke bypass flags" in docs
     assert "MACOS_SIGN_IDENTITY" in docs
     assert "Automataii-macos-universal2-release-manifest.json" in docs
     assert "Applications" in docs

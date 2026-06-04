@@ -33,9 +33,9 @@ uv run ruff format src/          # format
 uv run mypy src/automataii       # type check
 make quality                     # lint + format-check + type-check combined
 
-# Build (PyInstaller)
-make build                       # current platform
-make build-macos                 # macOS app bundle
+# Build (PyInstaller / release)
+make build                       # distribution artifact; macOS uses signed + notarized release flow
+make build-macos                 # signed + notarized macOS release
 ```
 
 ## Architecture

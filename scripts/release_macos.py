@@ -582,25 +582,6 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--timestamp", help="UTC timestamp override for reproducible test paths.")
     parser.add_argument("--skip-sync", dest="sync", action="store_false", help="Skip uv sync.")
-    parser.add_argument(
-        "--no-notarize",
-        dest="notarize",
-        action="store_false",
-        help="Build without notarization; not suitable for direct distribution.",
-    )
-    parser.add_argument(
-        "--no-strict-distribution",
-        dest="strict_distribution",
-        action="store_false",
-        help="Do not fail the release on full distribution-readiness checks.",
-    )
-    parser.add_argument("--no-smoke", dest="smoke", action="store_false", help="Skip mounted-DMG smoke.")
-    parser.add_argument(
-        "--skip-profile-check",
-        dest="profile_check",
-        action="store_false",
-        help="Skip preflight notarytool history check.",
-    )
     parser.add_argument("--dry-run", action="store_true", help="Print commands and write dry-run manifest.")
     parser.set_defaults(sync=True, notarize=True, strict_distribution=True, smoke=True, profile_check=True)
     return parser.parse_args(argv)
