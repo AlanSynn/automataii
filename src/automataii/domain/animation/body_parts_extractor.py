@@ -16,6 +16,13 @@ from scipy.ndimage import gaussian_filter
 from scipy.spatial.distance import cdist
 
 from automataii.domain.animation.part_definitions import BODY_PARTS
+from automataii.domain.animation.skeleton_payload import (
+    joint_name_from_payload,
+    joint_pixel_position_from_payload,
+    joint_position_from_payload,
+    normalized_joint_names_by_id,
+    normalized_parent_name,
+)
 from automataii.domain.animation.templates import HTML_VIEWER_TEMPLATE, PART_CARD_TEMPLATE
 
 logger = logging.getLogger(__name__)
@@ -248,7 +255,9 @@ class BodyPartsExtractor:
         output_dir: str | None = None,
     ):
         self.char_dir = Path(char_dir)
-        self.output_dir = Path(output_dir)
+        self.output_dir = (
+            Path(output_dir) if output_dir is not None else self.char_dir / "bpe_output"
+        )
 
         self.char_cfg: dict[str, Any] | None = None
         self.texture: np.ndarray | None = None
@@ -258,6 +267,36 @@ class BodyPartsExtractor:
         self.results: dict[str, Any] | None = None
         self.image_height: int | None = None
         self.image_width: int | None = None
+
+    @staticmethod
+    def _joint_name_from_payload(joint_id: object, joint_data: dict[str, Any]) -> str:
+        return joint_name_from_payload(joint_id, joint_data)
+
+    @staticmethod
+    def _joint_position_from_payload(joint_data: dict[str, Any]) -> tuple[int, int] | None:
+        return joint_pixel_position_from_payload(joint_data)
+
+    @staticmethod
+    def _generated_output_filenames() -> set[str]:
+        return {
+            "parts_info.json",
+            "segmentation_vis.png",
+            "viewer.html",
+            *(f"{part_name}.png" for part_name in BODY_PARTS),
+        }
+
+    def _cleanup_generated_outputs(self) -> None:
+        """Remove only files that this extractor is known to generate."""
+        if not self.output_dir.exists():
+            return
+
+        for filename in self._generated_output_filenames():
+            output_file = self.output_dir / filename
+            try:
+                if output_file.is_file() or output_file.is_symlink():
+                    output_file.unlink()
+            except FileNotFoundError:
+                continue
 
     def _read_char_config(self, config_path: str) -> dict[str, Any] | None:
         try:
@@ -277,14 +316,13 @@ class BodyPartsExtractor:
                 if isinstance(joints, dict):
                     # joints is a dict of joint_id -> joint_data
                     for joint_id, joint_data in joints.items():
-                        if isinstance(joint_data, dict) and "position" in joint_data:
-                            pos = joint_data["position"]
-                            if len(pos) >= 2:
-                                # Extract joint name from id
-                                joint_name = "_".join(joint_id.split("_")[:-1])
-                                if not joint_name:
-                                    joint_name = joint_id.split("_")[0]
-                                joint_map[joint_name] = (int(pos[0]), int(pos[1]))
+                        if not isinstance(joint_data, dict):
+                            continue
+                        pos = self._joint_position_from_payload(joint_data)
+                        if pos is None:
+                            continue
+                        joint_name = self._joint_name_from_payload(joint_id, joint_data)
+                        joint_map[joint_name] = pos
                 elif isinstance(joints, list):
                     # joints is a list
                     for joint in joints:
@@ -322,7 +360,14 @@ class BodyPartsExtractor:
         texture_path = os.path.join(self.char_dir, "texture.png")
         mask_path = os.path.join(self.char_dir, "mask.png")
 
-        if not all(os.path.exists(p) for p in [char_cfg_path, texture_path, mask_path]):
+        missing_paths = [
+            p for p in [char_cfg_path, texture_path, mask_path] if not os.path.exists(p)
+        ]
+        if missing_paths:
+            logger.error(
+                "BodyPartsExtractor input is incomplete. Missing required files: %s",
+                ", ".join(missing_paths),
+            )
             return False
 
         self.char_cfg = self._read_char_config(char_cfg_path)
@@ -330,6 +375,12 @@ class BodyPartsExtractor:
         self.mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
 
         if self.char_cfg is None or self.texture is None or self.mask is None:
+            logger.error(
+                "BodyPartsExtractor could not load required input data: char_cfg=%s texture=%s mask=%s",
+                self.char_cfg is not None,
+                self.texture is not None,
+                self.mask is not None,
+            )
             return False
 
         # Ensure texture has alpha channel
@@ -617,17 +668,8 @@ class BodyPartsExtractor:
 
         self._prepare_joint_map()
 
-        # Clean up existing output directory to avoid mixing old and new files
-        if self.output_dir.exists():
-            # Remove all existing PNG files to avoid confusion
-            for old_file in self.output_dir.glob("*.png"):
-                old_file.unlink()
-            for old_file in self.output_dir.glob("*.json"):
-                old_file.unlink()
-            for old_file in self.output_dir.glob("*.html"):
-                old_file.unlink()
-            for old_file in self.output_dir.glob("*.gif"):
-                old_file.unlink()
+        # Clean up generated files from previous runs without deleting user files
+        self._cleanup_generated_outputs()
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -745,20 +787,25 @@ class BodyPartsExtractor:
             # Try to construct from joints data
             joints_data = self.char_cfg["joints"]
             if isinstance(joints_data, dict):
+                normalized_names = normalized_joint_names_by_id(joints_data)
+                valid_joint_names = set(normalized_names.values())
+
                 for joint_id, joint_info in joints_data.items():
                     if isinstance(joint_info, dict):
-                        # Extract joint name from id
-                        joint_name = "_".join(joint_id.split("_")[:-1])
-                        if not joint_name:
-                            joint_name = joint_id.split("_")[0]
-
-                        pos = joint_info.get("position", [0.0, 0.0])
-                        if isinstance(pos, list | tuple) and len(pos) >= 2:
-                            pos = [float(pos[0]), float(pos[1])]
-                        else:
-                            pos = [0.0, 0.0]
-
-                        parent = joint_info.get("parent")
+                        joint_name = normalized_names.get(
+                            str(joint_id),
+                            self._joint_name_from_payload(joint_id, joint_info),
+                        )
+                        raw_pos = joint_position_from_payload(joint_info)
+                        pos = [float(raw_pos[0]), float(raw_pos[1])] if raw_pos else [0.0, 0.0]
+                        parent_ref = joint_info.get("parent")
+                        if parent_ref is None:
+                            parent_ref = joint_info.get("parent_id")
+                        parent = normalized_parent_name(
+                            parent_ref,
+                            normalized_names,
+                            valid_joint_names,
+                        )
 
                         pydantic_skeleton_joints.append(
                             {

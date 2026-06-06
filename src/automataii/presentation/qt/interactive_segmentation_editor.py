@@ -28,6 +28,10 @@ from PyQt6.QtWidgets import (
 )
 
 from automataii.domain.animation.part_definitions import BODY_PARTS
+from automataii.domain.animation.skeleton_payload import (
+    joint_name_from_payload,
+    joint_position_from_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ class ClickableGraphicsView(QGraphicsView):
         """Find joint near the clicked position"""
         for joint_name, joint_item in self.joint_items.items():
             joint_pos = joint_item.rect().center()
-            distance = ((pos.x() - joint_pos.x())**2 + (pos.y() - joint_pos.y())**2)**0.5
+            distance = ((pos.x() - joint_pos.x()) ** 2 + (pos.y() - joint_pos.y()) ** 2) ** 0.5
             if distance <= threshold:
                 return joint_name
         return None
@@ -145,7 +149,6 @@ class ClickableGraphicsView(QGraphicsView):
             self.boundary_polygon_item.setPen(QPen(QColor(255, 255, 0), 2))
             self.scene().addItem(self.boundary_polygon_item)
 
-
     def set_boundary_points(self, points: list[tuple[float, float]]):
         """Set boundary points from list of tuples"""
         self.clear_boundary_points()
@@ -176,7 +179,10 @@ class InteractiveSegmentationEditor(QDialog):
         try:
             self.original_image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
             if self.original_image is not None:
-                logger.debug("Successfully loaded image with IMREAD_UNCHANGED: shape %s", self.original_image.shape)
+                logger.debug(
+                    "Successfully loaded image with IMREAD_UNCHANGED: shape %s",
+                    self.original_image.shape,
+                )
         except Exception as e:
             logger.debug("IMREAD_UNCHANGED failed: %s", e)
 
@@ -185,7 +191,10 @@ class InteractiveSegmentationEditor(QDialog):
             try:
                 self.original_image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
                 if self.original_image is not None:
-                    logger.debug("Successfully loaded image with IMREAD_COLOR: shape %s", self.original_image.shape)
+                    logger.debug(
+                        "Successfully loaded image with IMREAD_COLOR: shape %s",
+                        self.original_image.shape,
+                    )
             except Exception as e:
                 logger.debug("IMREAD_COLOR failed: %s", e)
 
@@ -199,19 +208,22 @@ class InteractiveSegmentationEditor(QDialog):
                 logger.debug("PIL loaded image: mode=%s, size=%s", pil_image.mode, pil_image.size)
 
                 # Convert PIL to OpenCV format
-                if pil_image.mode == 'RGBA':
+                if pil_image.mode == "RGBA":
                     self.original_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGBA2BGRA)
-                elif pil_image.mode == 'RGB':
+                elif pil_image.mode == "RGB":
                     self.original_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-                elif pil_image.mode == 'L':
+                elif pil_image.mode == "L":
                     self.original_image = np.array(pil_image)
                 else:
                     # Convert to RGB first
-                    rgb_image = pil_image.convert('RGB')
+                    rgb_image = pil_image.convert("RGB")
                     self.original_image = cv2.cvtColor(np.array(rgb_image), cv2.COLOR_RGB2BGR)
 
                 if self.original_image is not None:
-                    logger.debug("Successfully loaded image with PIL fallback: shape %s", self.original_image.shape)
+                    logger.debug(
+                        "Successfully loaded image with PIL fallback: shape %s",
+                        self.original_image.shape,
+                    )
 
             except Exception as e:
                 logger.debug("PIL fallback failed: %s", e)
@@ -219,8 +231,8 @@ class InteractiveSegmentationEditor(QDialog):
         if self.original_image is None:
             raise ValueError(f"Could not load image from any method: {image_path}")
 
-        self.height, self.width = self.original_image.shape[:2]
-        logger.debug("Final image dimensions: %sx%s", self.width, self.height)
+        self.image_height, self.image_width = self.original_image.shape[:2]
+        logger.debug("Final image dimensions: %sx%s", self.image_width, self.image_height)
 
         # Initialize boundary points for all parts
         for part_name in BODY_PARTS.keys():
@@ -245,27 +257,27 @@ class InteractiveSegmentationEditor(QDialog):
 
     def _extract_joint_positions(self):
         """Extract joint positions from skeleton data"""
-        if 'joints' in self.skeleton_data:
-            joints = self.skeleton_data['joints']
+        if "joints" in self.skeleton_data:
+            joints = self.skeleton_data["joints"]
             if isinstance(joints, dict):
                 for joint_id, joint_data in joints.items():
-                    if isinstance(joint_data, dict) and 'position' in joint_data:
-                        pos = joint_data['position']
-                        if len(pos) >= 2:
-                            joint_name = '_'.join(joint_id.split('_')[:-1])
-                            if not joint_name:
-                                joint_name = joint_id.split('_')[0]
-                            self.joint_positions[joint_name] = (float(pos[0]), float(pos[1]))
+                    if not isinstance(joint_data, dict):
+                        continue
+                    pos = joint_position_from_payload(joint_data)
+                    if pos is None:
+                        continue
+                    joint_name = self._joint_name_from_payload(joint_id, joint_data)
+                    self.joint_positions[joint_name] = pos
 
-        elif 'skeleton' in self.skeleton_data:
-            skeleton = self.skeleton_data['skeleton']
+        elif "skeleton" in self.skeleton_data:
+            skeleton = self.skeleton_data["skeleton"]
             if isinstance(skeleton, list):
                 for joint_data in skeleton:
                     if isinstance(joint_data, dict):
-                        name = joint_data.get('name', '')
-                        loc = joint_data.get('loc', [0, 0])
-                        if name and len(loc) >= 2:
-                            self.joint_positions[name] = (float(loc[0]), float(loc[1]))
+                        name = joint_data.get("name", "")
+                        pos = joint_position_from_payload(joint_data)
+                        if name and pos is not None:
+                            self.joint_positions[name] = pos
 
         # If no skeleton data, create default positions based on image size
         if not self.joint_positions:
@@ -274,23 +286,27 @@ class InteractiveSegmentationEditor(QDialog):
     def _create_default_joint_positions(self) -> dict[str, tuple[float, float]]:
         """Create default joint positions based on image dimensions"""
         return {
-            'head_top': (self.width // 2, int(self.height * 0.05)),
-            'neck': (self.width // 2, int(self.height * 0.12)),
-            'torso': (self.width // 2, int(self.height * 0.25)),
-            'pelvis': (self.width // 2, int(self.height * 0.45)),
-            'left_shoulder': (int(self.width * 0.35), int(self.height * 0.18)),
-            'right_shoulder': (int(self.width * 0.65), int(self.height * 0.18)),
-            'left_elbow': (int(self.width * 0.20), int(self.height * 0.30)),
-            'right_elbow': (int(self.width * 0.80), int(self.height * 0.30)),
-            'left_wrist': (int(self.width * 0.15), int(self.height * 0.42)),
-            'right_wrist': (int(self.width * 0.85), int(self.height * 0.42)),
-            'left_hip': (int(self.width * 0.42), int(self.height * 0.45)),
-            'right_hip': (int(self.width * 0.58), int(self.height * 0.45)),
-            'left_knee': (int(self.width * 0.40), int(self.height * 0.65)),
-            'right_knee': (int(self.width * 0.60), int(self.height * 0.65)),
-            'left_ankle': (int(self.width * 0.38), int(self.height * 0.85)),
-            'right_ankle': (int(self.width * 0.62), int(self.height * 0.85)),
+            "head_top": (self.image_width // 2, int(self.image_height * 0.05)),
+            "neck": (self.image_width // 2, int(self.image_height * 0.12)),
+            "torso": (self.image_width // 2, int(self.image_height * 0.25)),
+            "pelvis": (self.image_width // 2, int(self.image_height * 0.45)),
+            "left_shoulder": (int(self.image_width * 0.35), int(self.image_height * 0.18)),
+            "right_shoulder": (int(self.image_width * 0.65), int(self.image_height * 0.18)),
+            "left_elbow": (int(self.image_width * 0.20), int(self.image_height * 0.30)),
+            "right_elbow": (int(self.image_width * 0.80), int(self.image_height * 0.30)),
+            "left_wrist": (int(self.image_width * 0.15), int(self.image_height * 0.42)),
+            "right_wrist": (int(self.image_width * 0.85), int(self.image_height * 0.42)),
+            "left_hip": (int(self.image_width * 0.42), int(self.image_height * 0.45)),
+            "right_hip": (int(self.image_width * 0.58), int(self.image_height * 0.45)),
+            "left_knee": (int(self.image_width * 0.40), int(self.image_height * 0.65)),
+            "right_knee": (int(self.image_width * 0.60), int(self.image_height * 0.65)),
+            "left_ankle": (int(self.image_width * 0.38), int(self.image_height * 0.85)),
+            "right_ankle": (int(self.image_width * 0.62), int(self.image_height * 0.85)),
         }
+
+    @staticmethod
+    def _joint_name_from_payload(joint_id: object, joint_data: dict[str, Any]) -> str:
+        return joint_name_from_payload(joint_id, joint_data)
 
     def _init_ui(self):
         """Initialize the user interface"""
@@ -319,7 +335,7 @@ class InteractiveSegmentationEditor(QDialog):
 
         self.part_buttons = QButtonGroup()
         for i, part_name in enumerate(BODY_PARTS.keys()):
-            radio_btn = QRadioButton(part_name.replace('_', ' ').title())
+            radio_btn = QRadioButton(part_name.replace("_", " ").title())
             radio_btn.setObjectName(part_name)
             if i == 0:  # Select first part by default
                 radio_btn.setChecked(True)
@@ -432,18 +448,28 @@ class InteractiveSegmentationEditor(QDialog):
                 rgb_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGRA2RGBA)
                 height, width, channel = rgb_image.shape
                 bytes_per_line = 4 * width
-                q_image = QImage(rgb_image.data, width, height, bytes_per_line, QImage.Format.Format_RGBA8888)
+                q_image = QImage(
+                    rgb_image.data, width, height, bytes_per_line, QImage.Format.Format_RGBA8888
+                )
             else:  # BGR
                 # Convert BGR to RGB
                 rgb_image = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2RGB)
                 height, width, channel = rgb_image.shape
                 bytes_per_line = 3 * width
-                q_image = QImage(rgb_image.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+                q_image = QImage(
+                    rgb_image.data, width, height, bytes_per_line, QImage.Format.Format_RGB888
+                )
         else:
             # Grayscale image
             height, width = self.original_image.shape
             bytes_per_line = width
-            q_image = QImage(self.original_image.data, width, height, bytes_per_line, QImage.Format.Format_Grayscale8)
+            q_image = QImage(
+                self.original_image.data,
+                width,
+                height,
+                bytes_per_line,
+                QImage.Format.Format_Grayscale8,
+            )
 
         pixmap = QPixmap.fromImage(q_image)
         logger.debug("Pixmap created: %sx%s", pixmap.width(), pixmap.height())
@@ -511,7 +537,6 @@ class InteractiveSegmentationEditor(QDialog):
 
         self.status_label.setText(f"Cleared {self.current_part}")
 
-
     def _preview_segmentation(self):
         """Generate and show segmentation preview"""
         self.progress_bar.setVisible(True)
@@ -524,8 +549,12 @@ class InteractiveSegmentationEditor(QDialog):
 
             if preview_results:
                 # Show preview (simplified - in full implementation you'd show in a separate dialog)
-                parts_with_data = [name for name, data in preview_results.items() if data is not None]
-                self.status_label.setText(f"Preview generated: {len(parts_with_data)} parts defined")
+                parts_with_data = [
+                    name for name, data in preview_results.items() if data is not None
+                ]
+                self.status_label.setText(
+                    f"Preview generated: {len(parts_with_data)} parts defined"
+                )
             else:
                 self.status_label.setText("No boundary points defined yet")
 
@@ -545,7 +574,7 @@ class InteractiveSegmentationEditor(QDialog):
 
             if len(boundary_points) >= 3:
                 # Create mask from polygon
-                mask = np.zeros((self.height, self.width), dtype=np.uint8)
+                mask = np.zeros((self.image_height, self.image_width), dtype=np.uint8)
                 points = np.array(boundary_points, dtype=np.int32)
                 cv2.fillPoly(mask, [points], 255)
                 results[part_name] = mask
@@ -559,14 +588,14 @@ class InteractiveSegmentationEditor(QDialog):
         save_path = self.image_path.parent / "manual_segmentation_boundaries.json"
 
         save_data = {
-            'image_path': str(self.image_path),
-            'boundary_points': self.boundary_points,
-            'joint_positions': self.joint_positions,
-            'selected_joints': list(self.selected_joints)
+            "image_path": str(self.image_path),
+            "boundary_points": self.boundary_points,
+            "joint_positions": self.joint_positions,
+            "selected_joints": list(self.selected_joints),
         }
 
         try:
-            with open(save_path, 'w') as f:
+            with open(save_path, "w") as f:
                 json.dump(save_data, f, indent=4)
             self.status_label.setText(f"Boundaries saved to {save_path.name}")
         except Exception as e:
@@ -584,9 +613,9 @@ class InteractiveSegmentationEditor(QDialog):
             with open(load_path) as f:
                 load_data = json.load(f)
 
-            self.boundary_points = load_data.get('boundary_points', {})
-            if 'selected_joints' in load_data:
-                self.selected_joints = set(load_data['selected_joints'])
+            self.boundary_points = load_data.get("boundary_points", {})
+            if "selected_joints" in load_data:
+                self.selected_joints = set(load_data["selected_joints"])
 
             # Update current view
             if self.current_part in self.boundary_points:
@@ -607,18 +636,18 @@ class InteractiveSegmentationEditor(QDialog):
         try:
             auto_save_path = self.image_path.parent / "auto_save_boundaries.json"
             save_data = {
-                'timestamp': str(QTimer().remainingTime()),
-                'boundary_points': self.boundary_points,
-                'selected_joints': list(self.selected_joints)
+                "timestamp": str(QTimer().remainingTime()),
+                "boundary_points": self.boundary_points,
+                "selected_joints": list(self.selected_joints),
             }
-            with open(auto_save_path, 'w') as f:
+            with open(auto_save_path, "w") as f:
                 json.dump(save_data, f, indent=4)
         except (OSError, TypeError, ValueError):
             pass  # Ignore auto-save errors (file access, JSON serialization)
 
     def get_segmentation_results(self) -> dict[str, np.ndarray]:
         """Get final segmentation results"""
-        if not hasattr(self, '_final_results'):
+        if not hasattr(self, "_final_results"):
             self._final_results = self._generate_segmentation_preview()
         return self._final_results
 
@@ -631,13 +660,16 @@ class InteractiveSegmentationEditor(QDialog):
 
             self._final_results = self._generate_segmentation_preview()
 
-            parts_with_data = [name for name, data in self._final_results.items() if data is not None]
+            parts_with_data = [
+                name for name, data in self._final_results.items() if data is not None
+            ]
             if not parts_with_data:
                 reply = QMessageBox.question(
-                    self, "No Boundaries",
+                    self,
+                    "No Boundaries",
                     "No boundary points have been defined. Do you want to continue anyway?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No
+                    QMessageBox.StandardButton.No,
                 )
                 if reply != QMessageBox.StandardButton.Yes:
                     return
@@ -652,7 +684,7 @@ class InteractiveSegmentationEditor(QDialog):
     def closeEvent(self, event):
         """Handle dialog close"""
         # Stop auto-save timer
-        if hasattr(self, 'auto_save_timer'):
+        if hasattr(self, "auto_save_timer"):
             self.auto_save_timer.stop()
 
         # Check if there are unsaved changes
@@ -660,10 +692,13 @@ class InteractiveSegmentationEditor(QDialog):
 
         if has_changes:
             reply = QMessageBox.question(
-                self, "Unsaved Changes",
+                self,
+                "Unsaved Changes",
                 "You have unsaved boundary definitions. Do you want to save them before closing?",
-                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
             )
 
             if reply == QMessageBox.StandardButton.Save:
@@ -690,7 +725,9 @@ if __name__ == "__main__":
 
     if result == QDialog.DialogCode.Accepted:
         results = dialog.get_segmentation_results()
-        print(f"Segmentation completed with {len([r for r in results.values() if r is not None])} parts")
+        print(
+            f"Segmentation completed with {len([r for r in results.values() if r is not None])} parts"
+        )
     else:
         print("Segmentation cancelled")
 
