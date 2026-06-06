@@ -297,7 +297,7 @@ class MechanismParameterPanel(QWidget):
         self.setMinimumWidth(320)
         self.setMaximumWidth(360)
 
-        self._settings = QSettings("AutomataII", "MechanismFoundry")
+        self._settings = QSettings("MotionSmith", "MechanismFoundry")
 
         self._unit_system = UnitSystem.MILLIMETER
         self._dimension_controls: dict[str, _DimensionControl] = {}

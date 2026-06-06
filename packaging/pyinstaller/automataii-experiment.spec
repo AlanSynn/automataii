@@ -41,11 +41,11 @@ if __name__ == "__main__":
     main()
 """
 
-with open("automataii_experiment_entry.py", "w") as f:
+with open("motionsmith_experiment_entry.py", "w") as f:
     f.write(entry_script)
 
 a = Analysis(
-    [project_path("automataii_experiment_entry.py")],
+    [project_path("motionsmith_experiment_entry.py")],
     pathex=[project_path("src")],
     binaries=macos_extra_binaries(),
     datas=[
@@ -89,7 +89,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="AutomataII-Experiment",
+    name="MotionSmith-Experiment",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -111,27 +111,27 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="AutomataII-Experiment",
+    name="MotionSmith-Experiment",
 )
 
 # macOS app bundle configuration
 app = BUNDLE(
     coll,
-    name="AutomataII-Experiment.app",
+    name="MotionSmith-Experiment.app",
     icon=project_path("resources", "icons", "AppIcon.icns"),
-    bundle_identifier="dev.automataii.automataii.experiment",
+    bundle_identifier="app.motionsmith.motionsmith.experiment",
     info_plist={
         "NSPrincipalClass": "NSApplication",
         "NSAppleScriptEnabled": False,
         "CFBundleDocumentTypes": [],
         "NSHighResolutionCapable": "True",
         "LSMinimumSystemVersion": "10.13.0",
-        "NSHumanReadableCopyright": "Copyright © 2024 Automataii Contributors. All rights reserved.",
+        "NSHumanReadableCopyright": "Copyright © 2024 MotionSmith Contributors. All rights reserved.",
         "CFBundleShortVersionString": "1.0.0",
         "CFBundleVersion": "1.0.0",
-        "CFBundleDisplayName": "AutomataII Experiment",
+        "CFBundleDisplayName": "MotionSmith Experiment",
         "LSApplicationCategoryType": "public.app-category.graphics-design",
         # Experiment-specific identifier
-        "CFBundleIdentifier": "dev.automataii.automataii.experiment",
+        "CFBundleIdentifier": "app.motionsmith.motionsmith.experiment",
     },
 )

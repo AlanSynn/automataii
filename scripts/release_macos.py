@@ -39,9 +39,9 @@ except ImportError:  # pragma: no cover - used when executed as scripts/release_
 
 
 SIGN_IDENTITY_ENV = "MACOS_SIGN_IDENTITY"
-DEFAULT_NOTARY_PROFILE = "AutomataiiNotary"
+DEFAULT_NOTARY_PROFILE = "MotionSmith"
 DEFAULT_UNIVERSAL2_UV_ENV = ".venv-universal2"
-APP_NAME = "AutomataII"
+APP_NAME = "MotionSmith"
 
 
 @dataclass(frozen=True)
@@ -81,7 +81,7 @@ class ReleaseConfig:
         return (
             self.project_root
             / "dist"
-            / f"Automataii-macos-{self.resolved_arch_label}-release-manifest.json"
+            / f"{APP_NAME}-macos-{self.resolved_arch_label}-release-manifest.json"
         )
 
 

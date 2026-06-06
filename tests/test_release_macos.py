@@ -13,7 +13,7 @@ def test_parse_env_file_supports_quoted_release_values(tmp_path):
     env_file.write_text(
         """
 # local release defaults
-export APPLE_NOTARY_PROFILE="AutomataiiNotary"
+export APPLE_NOTARY_PROFILE="MotionSmith"
 APPLE_TEAM_ID=DE4Q8RKZ4M
 MACOS_SIGN_IDENTITY="Developer ID Application: Doang-Joo Synn (DE4Q8RKZ4M)"
 """,
@@ -22,7 +22,7 @@ MACOS_SIGN_IDENTITY="Developer ID Application: Doang-Joo Synn (DE4Q8RKZ4M)"
 
     parsed = release_macos.parse_env_file(env_file)
 
-    assert parsed["APPLE_NOTARY_PROFILE"] == "AutomataiiNotary"
+    assert parsed["APPLE_NOTARY_PROFILE"] == "MotionSmith"
     assert parsed["APPLE_TEAM_ID"] == "DE4Q8RKZ4M"
     assert parsed["MACOS_SIGN_IDENTITY"] == (
         "Developer ID Application: Doang-Joo Synn (DE4Q8RKZ4M)"
@@ -32,7 +32,7 @@ MACOS_SIGN_IDENTITY="Developer ID Application: Doang-Joo Synn (DE4Q8RKZ4M)"
 def test_build_config_loads_dotenv_and_defaults_to_universal2_uv_env(tmp_path):
     (tmp_path / ".env").write_text(
         """
-APPLE_NOTARY_PROFILE="AutomataiiNotary"
+APPLE_NOTARY_PROFILE="MotionSmith"
 MACOS_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)"
 """,
         encoding="utf-8",
@@ -51,9 +51,9 @@ MACOS_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)"
 
     assert config.arch == "universal2"
     assert config.sign_identity == "Developer ID Application: Example (TEAMID)"
-    assert config.notary_profile == "AutomataiiNotary"
+    assert config.notary_profile == "MotionSmith"
     assert config.uv_project_environment == ".venv-universal2"
-    assert config.artifact_path == tmp_path / "dist" / "Automataii-macos-universal2.dmg"
+    assert config.artifact_path == tmp_path / "dist" / "MotionSmith-macos-universal2.dmg"
 
 
 def test_release_env_keeps_process_overrides_over_dotenv(tmp_path):
@@ -87,7 +87,7 @@ def test_build_and_verify_commands_are_distribution_strict(tmp_path):
         env_file=tmp_path / ".env",
         arch="universal2",
         sign_identity="Developer ID Application: Example (TEAMID)",
-        notary_profile="AutomataiiNotary",
+        notary_profile="MotionSmith",
         uv_project_environment=".venv-universal2",
         sync=True,
         notarize=True,
@@ -124,7 +124,7 @@ def test_build_and_verify_commands_are_distribution_strict(tmp_path):
 def test_dry_run_writes_manifest_without_running_release_tools(tmp_path):
     (tmp_path / ".env").write_text(
         """
-APPLE_NOTARY_PROFILE="AutomataiiNotary"
+APPLE_NOTARY_PROFILE="MotionSmith"
 MACOS_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)"
 """,
         encoding="utf-8",
@@ -144,11 +144,11 @@ MACOS_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     log_text = config.log_path.read_text(encoding="utf-8")
 
-    assert manifest["artifact"] == str(tmp_path / "dist" / "Automataii-macos-universal2.dmg")
+    assert manifest["artifact"] == str(tmp_path / "dist" / "MotionSmith-macos-universal2.dmg")
     assert manifest["sha256"] == "dry-run"
     assert manifest["smoke"]["passed"] is True
     assert "scripts/build_macos.py --arch universal2" in log_text
-    assert "notarytool history --keychain-profile AutomataiiNotary" in log_text
+    assert "notarytool history --keychain-profile MotionSmith" in log_text
 
 
 def _makefile_target_recipe(makefile: str, target: str) -> str:
@@ -212,5 +212,5 @@ def test_makefile_and_docs_route_releases_through_automation_script():
     assert "uv run automataii" in docs
     assert "mounted-smoke bypass flags" in docs
     assert "MACOS_SIGN_IDENTITY" in docs
-    assert "Automataii-macos-universal2-release-manifest.json" in docs
+    assert "MotionSmith-macos-universal2-release-manifest.json" in docs
     assert "Applications" in docs

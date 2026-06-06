@@ -13,7 +13,7 @@ def existing_datas(entries: Iterable[DataEntry]) -> list[DataEntry]:
     """Return only PyInstaller data entries whose source exists.
 
     PyInstaller fails the build when a spec's ``datas`` list contains a
-    missing directory or an unmatched glob. Some AutomataII data directories
+    missing directory or an unmatched glob. Some MotionSmith data directories
     are optional or have been removed during refactors, so release specs should
     include them only when they are present in the checkout.
     """

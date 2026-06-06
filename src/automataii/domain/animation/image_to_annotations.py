@@ -25,7 +25,8 @@ except ImportError:
 
 from automataii.utils.paths import cleanup_old_app_temp_dirs, get_session_temp_dir, resolve_path
 
-IMAGE_TEMP_SESSION_MARKER = ".automataii-image-session"
+IMAGE_TEMP_SESSION_MARKER = ".motionsmith-image-session"
+LEGACY_IMAGE_TEMP_SESSION_MARKER = ".automataii-image-session"
 IMAGE_TEMP_STEM_MAX_CHARS = 80
 
 
@@ -558,6 +559,7 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
 
         # Keep the shared temp root bounded as per-run directories are intentionally unique.
         cleanup_old_app_temp_dirs(marker_file=IMAGE_TEMP_SESSION_MARKER)
+        cleanup_old_app_temp_dirs(marker_file=LEGACY_IMAGE_TEMP_SESSION_MARKER)
 
         # Get output directory
         outdir = get_session_temp_dir(session_id=session_id, clear_existing=False)

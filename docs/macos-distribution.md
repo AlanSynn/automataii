@@ -1,6 +1,6 @@
 # macOS Direct Distribution
 
-Automataii can be distributed outside the Mac App Store with Developer ID signing,
+MotionSmith can be distributed outside the Mac App Store with Developer ID signing,
 Apple notarization, ticket stapling, and strict release verification.
 
 ## Prerequisites
@@ -16,7 +16,7 @@ Preferred local flow:
 
 ```bash
 make store-notary-profile \
-  PROFILE=AutomataiiNotary \
+  PROFILE=MotionSmith \
   APPLE_ID=developer@example.com \
   APPLE_TEAM_ID=TEAMID
 ```
@@ -25,7 +25,7 @@ make store-notary-profile \
 `APPLE_APP_SPECIFIC_PASSWORD` is omitted. After storing the profile, run release builds with:
 
 ```bash
-APPLE_NOTARY_PROFILE=AutomataiiNotary \
+APPLE_NOTARY_PROFILE=MotionSmith \
 make build-macos-release \
   SIGN_ID="Developer ID Application: Example (TEAMID)"
 ```
@@ -34,7 +34,7 @@ For repeatable local releases, keep only non-secret defaults in the project
 `.env`:
 
 ```bash
-APPLE_NOTARY_PROFILE="AutomataiiNotary"
+APPLE_NOTARY_PROFILE="MotionSmith"
 APPLE_TEAM_ID="TEAMID"
 APPLE_ID="developer@example.com"
 MACOS_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)"
@@ -47,7 +47,7 @@ To verify that the local keychain profile is available before starting a long
 release build:
 
 ```bash
-xcrun notarytool history --keychain-profile "AutomataiiNotary"
+xcrun notarytool history --keychain-profile "MotionSmith"
 ```
 
 If this reports `No Keychain password item found for profile`, create the
@@ -105,7 +105,7 @@ preflight, or mounted-smoke bypass flags.
 
 The generated DMG is a branded Finder window, not a bare app folder. It includes:
 
-- `AutomataII.app`
+- `MotionSmith.app`
 - an `Applications` symlink for drag-and-drop install
 - a generated HiDPI background using `resources/icons/AppIcon.png`
 - the app icon as the DMG volume icon when `resources/icons/AppIcon.icns` exists
@@ -124,7 +124,7 @@ make release-macos SIGN_ID="Developer ID Application: Example (TEAMID)"
 
 # Re-run strict verification on an existing artifact.
 make verify-macos-release \
-  ARTIFACT=dist/Automataii-macos-universal2.dmg \
+  ARTIFACT=dist/MotionSmith-macos-universal2.dmg \
   OPTS="--expected-arch universal2 --require-notarization --strict-distribution"
 ```
 
@@ -132,7 +132,7 @@ make verify-macos-release \
 Mach-O checks, dependency-closure checks, app signing, DMG container signing,
 Gatekeeper assessment, and stapled app/DMG ticket validation pass. The release
 script also writes a checksum manifest at
-`dist/Automataii-macos-universal2-release-manifest.json` and evidence under
+`dist/MotionSmith-macos-universal2-release-manifest.json` and evidence under
 `.omx/evidence/macos-release-*`. A signed-but-unstapled DMG is not considered
 ready for another Mac.
 

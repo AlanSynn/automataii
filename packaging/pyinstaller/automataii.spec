@@ -76,7 +76,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="AutomataII",
+    name="MotionSmith",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -100,18 +100,20 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="AutomataII",
+    name="MotionSmith",
 )
 
 app = BUNDLE(
     coll,
-    name="AutomataII.app",
+    name="MotionSmith.app",
     icon=project_path("resources", "icons", "AppIcon.icns"),
-    bundle_identifier="dev.automataii.automataii",
+    bundle_identifier="app.motionsmith.motionsmith",
     info_plist={
         "NSPrincipalClass": "NSApplication",
         "NSAppleScriptEnabled": False,
         "NSRequiresAquaSystemAppearance": "YES",  # Forces light mode for the app
         "CFBundlePackageType": "APPL",
+        "CFBundleDisplayName": "MotionSmith",
+        "CFBundleIdentifier": "app.motionsmith.motionsmith",
     },
 )

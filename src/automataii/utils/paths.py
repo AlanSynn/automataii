@@ -88,13 +88,13 @@ def get_project_root() -> Path:
 
 def get_app_temp_dir() -> Path:
     """
-    Returns the base temporary directory for the Automataii application.
+    Returns the base temporary directory for the MotionSmith application.
     Ensures that the directory exists.
 
     Returns:
         Path: The path to the application's temporary directory.
     """
-    app_temp_dir = Path(tempfile.gettempdir()) / "automataii"
+    app_temp_dir = Path(tempfile.gettempdir()) / "motionsmith"
     app_temp_dir.mkdir(parents=True, exist_ok=True)
     return app_temp_dir
 
@@ -114,7 +114,7 @@ def get_app_data_dir() -> Path:
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
 
-    app_data_dir = base / "AutomataII"
+    app_data_dir = base / "MotionSmith"
     app_data_dir.mkdir(parents=True, exist_ok=True)
     return app_data_dir
 
@@ -127,10 +127,10 @@ def cleanup_old_app_temp_dirs(
     marker_file: str | None = None,
 ) -> int:
     """
-    Remove stale marked first-level Automataii temp session directories.
+    Remove stale marked first-level MotionSmith temp session directories.
 
     This cleanup is deliberately conservative: it only removes normal
-    directories directly below the Automataii temp root, skips files/symlinks,
+    directories directly below the MotionSmith temp root, skips files/symlinks,
     and requires an explicit marker file so unrelated app temp directories are
     not deleted just because they are old.
 
@@ -157,7 +157,7 @@ def cleanup_old_app_temp_dirs(
     try:
         candidates = list(temp_root.iterdir())
     except OSError as exc:
-        logger.warning("Could not inspect Automataii temp root %s: %s", temp_root, exc)
+        logger.warning("Could not inspect MotionSmith temp root %s: %s", temp_root, exc)
         return removed
 
     for candidate in candidates:

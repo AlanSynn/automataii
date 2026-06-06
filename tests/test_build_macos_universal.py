@@ -64,8 +64,8 @@ def test_build_executable_omits_target_arch_for_auto(monkeypatch, tmp_path):
 
 
 def test_universal2_dmg_filename_is_arch_labeled():
-    assert macos_arch.dmg_filename("AutomataII", "universal2") == (
-        "Automataii-macos-universal2.dmg"
+    assert macos_arch.dmg_filename("MotionSmith", "universal2") == (
+        "MotionSmith-macos-universal2.dmg"
     )
 
 
@@ -120,13 +120,13 @@ def test_clean_preserves_unrelated_dist_artifacts(tmp_path):
     build_dir.mkdir()
     wheel = dist_dir / "automataii-0.1.0-py3-none-any.whl"
     wheel.write_text("wheel")
-    app = dist_dir / "AutomataII.app"
+    app = dist_dir / "MotionSmith.app"
     app.mkdir()
-    collect_dir = dist_dir / "AutomataII"
+    collect_dir = dist_dir / "MotionSmith"
     collect_dir.mkdir()
-    exact_dmg = dist_dir / "Automataii-macos-x86_64.dmg"
+    exact_dmg = dist_dir / "MotionSmith-macos-x86_64.dmg"
     exact_dmg.write_text("dmg")
-    unrelated_dmg = dist_dir / "Automataii-macos-universal2.dmg"
+    unrelated_dmg = dist_dir / "MotionSmith-macos-universal2.dmg"
     unrelated_dmg.write_text("dmg")
 
     build_macos.MacOSBuilder(tmp_path).clean(arch_label="x86_64")
@@ -141,7 +141,7 @@ def test_clean_preserves_unrelated_dist_artifacts(tmp_path):
 
 def test_sign_dmg_uses_developer_id_identity(monkeypatch, tmp_path):
     builder = build_macos.MacOSBuilder(tmp_path)
-    dmg = tmp_path / "dist" / "Automataii-macos-universal2.dmg"
+    dmg = tmp_path / "dist" / "MotionSmith-macos-universal2.dmg"
     dmg.parent.mkdir(parents=True)
     dmg.write_text("dmg", encoding="utf-8")
     commands: list[list[str]] = []
@@ -229,7 +229,7 @@ def test_create_dmg_prefers_branded_dmgbuild_path(monkeypatch, tmp_path):
 
     dmg = builder.create_dmg("universal2")
 
-    assert dmg == tmp_path / "dist" / "Automataii-macos-universal2.dmg"
+    assert dmg == tmp_path / "dist" / "MotionSmith-macos-universal2.dmg"
     assert commands == [
         [
             build_macos.sys.executable,
@@ -243,6 +243,8 @@ def test_create_dmg_prefers_branded_dmgbuild_path(monkeypatch, tmp_path):
             f"background_image={background}",
             "-D",
             f"volume_icon={builder.volume_icon_file}",
+            "-D",
+            f"app_name={builder.app_name}",
             builder.app_name,
             str(dmg),
         ]

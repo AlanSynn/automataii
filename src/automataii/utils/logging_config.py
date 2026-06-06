@@ -3,7 +3,7 @@ import logging
 
 def setup_logging(console_log_level: int = logging.INFO) -> None:
     """
-    Configure logging for the AutomataII application.
+    Configure logging for the MotionSmith application.
     Sets up both file and console logging with appropriate formatting.
 
     Args:

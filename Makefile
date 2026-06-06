@@ -153,7 +153,7 @@ build-macos-release-native:
 	$(PYTHON) scripts/release_macos.py --arch auto $(MACOS_SIGN_ARG) $(OPTS)
 
 store-notary-profile:
-	@test -n "$(PROFILE)" || (echo "PROFILE is required, e.g. make store-notary-profile PROFILE=AutomataiiNotary APPLE_ID=... APPLE_TEAM_ID=..." && exit 1)
+	@test -n "$(PROFILE)" || (echo "PROFILE is required, e.g. make store-notary-profile PROFILE=MotionSmith APPLE_ID=... APPLE_TEAM_ID=..." && exit 1)
 	@test -n "$(APPLE_ID)" || (echo "APPLE_ID is required" && exit 1)
 	@test -n "$(APPLE_TEAM_ID)" || (echo "APPLE_TEAM_ID is required" && exit 1)
 	@if [ -n "$$APPLE_APP_SPECIFIC_PASSWORD" ]; then \
@@ -164,7 +164,7 @@ store-notary-profile:
 	@echo "Stored notarytool profile. Use APPLE_NOTARY_PROFILE=$(PROFILE) with build-macos-release."
 
 verify-macos-release:
-	@test -n "$(ARTIFACT)" || (echo "ARTIFACT is required, e.g. make verify-macos-release ARTIFACT=dist/AutomataII.app" && exit 1)
+	@test -n "$(ARTIFACT)" || (echo "ARTIFACT is required, e.g. make verify-macos-release ARTIFACT=dist/MotionSmith.app" && exit 1)
 	$(PYTHON) scripts/verify_macos_release.py "$(ARTIFACT)" $(OPTS)
 
 build-macos-arm64:

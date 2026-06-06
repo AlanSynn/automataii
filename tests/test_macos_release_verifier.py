@@ -21,7 +21,7 @@ def _empty_otool_response(command: list[str]):
 
 
 def _write_minimal_app(app: Path) -> Path:
-    executable = app / "Contents" / "MacOS" / "AutomataII"
+    executable = app / "Contents" / "MacOS" / "MotionSmith"
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\n")
     (app / "Contents" / "Info.plist").write_text(
@@ -29,7 +29,7 @@ def _write_minimal_app(app: Path) -> Path:
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>AutomataII</string>
+<key>CFBundleExecutable</key><string>MotionSmith</string>
 </dict></plist>
 """
     )
@@ -45,7 +45,7 @@ def test_missing_artifact_is_not_ready(tmp_path):
 
 
 def test_signed_notarized_app_is_distribution_ready(monkeypatch, tmp_path):
-    app = tmp_path / "AutomataII.app"
+    app = tmp_path / "MotionSmith.app"
     _write_minimal_app(app)
 
     def fake_tool_exists(name: str) -> bool:
@@ -82,7 +82,7 @@ def test_signed_notarized_app_is_distribution_ready(monkeypatch, tmp_path):
 
 
 def test_unstapled_app_is_not_distribution_ready_but_can_be_non_required(monkeypatch, tmp_path):
-    app = tmp_path / "AutomataII.app"
+    app = tmp_path / "MotionSmith.app"
     _write_minimal_app(app)
 
     def fake_tool_exists(name: str) -> bool:
@@ -118,7 +118,7 @@ def test_unstapled_app_is_not_distribution_ready_but_can_be_non_required(monkeyp
 
 
 def test_dmg_verification_requires_app_inside(monkeypatch, tmp_path):
-    dmg = tmp_path / "Automataii.dmg"
+    dmg = tmp_path / "MotionSmith.dmg"
     dmg.write_text("not really a dmg")
 
     monkeypatch.setattr(verify_macos_release, "_tool_exists", lambda name: name == "hdiutil")
@@ -138,7 +138,7 @@ def test_dmg_verification_requires_app_inside(monkeypatch, tmp_path):
 
 
 def test_dmg_app_is_copied_before_signature_checks(monkeypatch, tmp_path):
-    dmg = tmp_path / "Automataii.dmg"
+    dmg = tmp_path / "MotionSmith.dmg"
     dmg.write_text("not really a dmg")
 
     checked_apps: list[Path] = []
@@ -151,7 +151,7 @@ def test_dmg_app_is_copied_before_signature_checks(monkeypatch, tmp_path):
             return otool
         if command[1] == "attach":
             mountpoint = Path(command[command.index("-mountpoint") + 1])
-            _write_minimal_app(mountpoint / "AutomataII.app")
+            _write_minimal_app(mountpoint / "MotionSmith.app")
             return _completed(command)
         if command[1] == "detach":
             return _completed(command)
@@ -189,7 +189,7 @@ def test_dmg_app_is_copied_before_signature_checks(monkeypatch, tmp_path):
 
 
 def test_universal2_verification_fails_on_nested_thin_macho(monkeypatch, tmp_path):
-    app = tmp_path / "AutomataII.app"
+    app = tmp_path / "MotionSmith.app"
     executable = _write_minimal_app(app)
     nested = app / "Contents" / "Frameworks" / "thin.dylib"
     nested.parent.mkdir(parents=True)
@@ -237,7 +237,7 @@ def test_universal2_verification_fails_on_nested_thin_macho(monkeypatch, tmp_pat
 
 
 def test_dmg_container_signature_is_required(monkeypatch, tmp_path):
-    dmg = tmp_path / "Automataii.dmg"
+    dmg = tmp_path / "MotionSmith.dmg"
     dmg.write_text("not really a dmg")
 
     def fake_tool_exists(name: str) -> bool:
@@ -248,7 +248,7 @@ def test_dmg_container_signature_is_required(monkeypatch, tmp_path):
             return otool
         if command[1] == "attach":
             mountpoint = Path(command[command.index("-mountpoint") + 1])
-            _write_minimal_app(mountpoint / "AutomataII.app")
+            _write_minimal_app(mountpoint / "MotionSmith.app")
             return _completed(command)
         if command[1] == "detach":
             return _completed(command)
@@ -282,7 +282,7 @@ def test_dmg_container_signature_is_required(monkeypatch, tmp_path):
 
 
 def test_dependency_closure_fails_on_missing_loader_path_dependency(monkeypatch, tmp_path):
-    app = tmp_path / "AutomataII.app"
+    app = tmp_path / "MotionSmith.app"
     executable = _write_minimal_app(app)
     nested = app / "Contents" / "Frameworks" / "needs_missing.dylib"
     nested.parent.mkdir(parents=True)

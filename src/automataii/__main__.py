@@ -39,7 +39,7 @@ from automataii.utils.styling import LIGHT_STYLE
 
 
 def main() -> None:
-    """Main function to initialize and run the Automataii application."""
+    """Main function to initialize and run the MotionSmith application."""
     # Handle PyInstaller bundle environment
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         # We're running from a PyInstaller bundle
@@ -57,7 +57,7 @@ def main() -> None:
         # We're running from source
         logging.info(f"Running from source: {get_project_root()}")
 
-    parser = argparse.ArgumentParser(description="Automataii Application")
+    parser = argparse.ArgumentParser(description="MotionSmith Application")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging and features.")
     parser.add_argument(
         "--experiment",
@@ -103,9 +103,9 @@ def main() -> None:
     app = QApplication(sys.argv)
 
     # Set application metadata
-    app.setApplicationName("Automataii")
-    app.setOrganizationName("Automataii")
-    app.setOrganizationDomain("automataii.dev")
+    app.setApplicationName("MotionSmith")
+    app.setOrganizationName("MotionSmith")
+    app.setOrganizationDomain("motionsmith.app")
 
     # macOS specific: Ensure app comes to foreground
     if platform.system() == "Darwin":

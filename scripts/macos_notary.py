@@ -28,7 +28,7 @@ def notarization_credentials_help() -> str:
         "Set APPLE_NOTARY_PROFILE to a notarytool keychain profile. Store the "
         "profile first with: xcrun notarytool store-credentials <profile> "
         "--apple-id <apple-id> --team-id <team-id>. This repository also "
-        "provides: make store-notary-profile PROFILE=AutomataiiNotary "
+        "provides: make store-notary-profile PROFILE=MotionSmith "
         "APPLE_ID=<apple-id> APPLE_TEAM_ID=<team-id>. Verify it with: "
         "xcrun notarytool history --keychain-profile <profile>."
     )

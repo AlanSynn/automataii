@@ -5,10 +5,10 @@ set -euo pipefail
 #
 # Usage:
 #   scripts/sign_notarize_dmg.sh \\
-#     --dmg dist/Automataii-macos-x86_64.dmg \\
-#     [--app-name "AutomataII"] \\
+#     --dmg dist/MotionSmith-macos-x86_64.dmg \\
+#     [--app-name "MotionSmith"] \\
 #     [--sign "Developer ID Application: Your Name (TEAMID)"] \\
-#     [--out dist/Automataii-macos-x86_64-signed.dmg] \\
+#     [--out dist/MotionSmith-macos-x86_64-signed.dmg] \\
 #     [--only-notarize-dmg] [--skip-dmg-notarize]
 #
 # Required for notarization (environment variables):

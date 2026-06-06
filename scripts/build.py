@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Universal build script for Automataii
+Universal build script for MotionSmith
 Supports building for macOS, Linux, and Windows
 """
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build Automataii for current platform")
+    parser = argparse.ArgumentParser(description="Build MotionSmith for current platform")
     parser.add_argument(
         "--platform",
         choices=["macos", "linux", "windows", "auto"],

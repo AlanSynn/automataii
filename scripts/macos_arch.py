@@ -29,7 +29,7 @@ def pyinstaller_target_arch(arch: str) -> str | None:
 
 def dmg_filename(app_name: str, arch_label: str | None = None) -> str:
     if arch_label:
-        return f"Automataii-macos-{arch_label}.dmg"
+        return f"{app_name}-macos-{arch_label}.dmg"
     return f"{app_name}.dmg"
 
 

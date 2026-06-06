@@ -5,13 +5,13 @@ from automataii.utils import paths
 
 
 def _macos_bundle(tmp_path: Path) -> tuple[Path, Path]:
-    contents = tmp_path / "AutomataII.app" / "Contents"
+    contents = tmp_path / "MotionSmith.app" / "Contents"
     macos = contents / "MacOS"
     resources = contents / "Resources"
     (resources / "resources" / "data").mkdir(parents=True)
     (resources / "resources" / "data" / "mechanism_catalog.json").write_text("{}", encoding="utf-8")
     macos.mkdir(parents=True)
-    executable = macos / "AutomataII"
+    executable = macos / "MotionSmith"
     executable.write_text("", encoding="utf-8")
     return executable, resources
 
@@ -50,18 +50,18 @@ def test_app_data_dir_is_user_writable(monkeypatch, tmp_path) -> None:
 
     app_data_dir = paths.get_app_data_dir()
 
-    assert app_data_dir == tmp_path / "AutomataII"
+    assert app_data_dir == tmp_path / "MotionSmith"
     assert app_data_dir.exists()
 
 
 def test_cleanup_old_app_temp_dirs_only_removes_stale_marked_session_dirs(tmp_path: Path) -> None:
-    temp_root = tmp_path / "automataii"
+    temp_root = tmp_path / "motionsmith"
     temp_root.mkdir()
     stale_marked_session = temp_root / "stale-marked"
     stale_unmarked_session = temp_root / "stale-unmarked"
     fresh_session = temp_root / "fresh"
     loose_file = temp_root / "loose.txt"
-    marker_file = ".automataii-image-session"
+    marker_file = ".motionsmith-image-session"
     stale_marked_session.mkdir()
     stale_unmarked_session.mkdir()
     fresh_session.mkdir()
@@ -91,7 +91,7 @@ def test_cleanup_old_app_temp_dirs_only_removes_stale_marked_session_dirs(tmp_pa
 
 
 def test_cleanup_old_app_temp_dirs_requires_marker_file(tmp_path: Path) -> None:
-    temp_root = tmp_path / "automataii"
+    temp_root = tmp_path / "motionsmith"
     stale_session = temp_root / "stale"
     stale_session.mkdir(parents=True)
     now = 2_000_000.0

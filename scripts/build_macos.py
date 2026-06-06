@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-macOS build utilities for Automataii
+macOS build utilities for MotionSmith
 
 Provides a MacOSBuilder class consumed by scripts/build.py and
 retains a CLI entrypoint for direct use.
@@ -55,7 +55,7 @@ class MacOSBuilder:
         self.app_icon_file = self.project_root / "resources" / "icons" / "AppIcon.png"
         self.volume_icon_file = self.project_root / "resources" / "icons" / "AppIcon.icns"
         # Match app name in automataii.spec
-        self.app_name = "AutomataII"
+        self.app_name = "MotionSmith"
         self.app_bundle = self.dist_dir / f"{self.app_name}.app"
 
     def check_dependencies(self) -> bool:
@@ -100,11 +100,11 @@ class MacOSBuilder:
         logger.info("Cleaning previous build artifacts...")
         if self.build_dir.exists():
             shutil.rmtree(self.build_dir)
-        for app_name in (f"{self.app_name}.app", "Automataii.app"):
+        for app_name in (f"{self.app_name}.app", "AutomataII.app", "Automataii.app"):
             app_path = self.dist_dir / app_name
             if app_path.exists():
                 shutil.rmtree(app_path)
-        for collect_name in (self.app_name, "Automataii"):
+        for collect_name in (self.app_name, "AutomataII", "Automataii"):
             collect_path = self.dist_dir / collect_name
             if collect_path.is_dir():
                 shutil.rmtree(collect_path)
@@ -120,13 +120,14 @@ class MacOSBuilder:
         logger.info("Clean complete")
 
     def clean_all_release_dmgs(self) -> None:
-        """Explicitly remove all Automataii macOS DMGs.
+        """Explicitly remove all MotionSmith/legacy Automataii macOS DMGs.
 
         The normal build path intentionally deletes only the requested target
         DMG to avoid surprising local artifact loss.
         """
-        for dmg_path in self.dist_dir.glob("Automataii*.dmg"):
-            dmg_path.unlink()
+        for pattern in ("MotionSmith*.dmg", "Automataii*.dmg", "AutomataII*.dmg"):
+            for dmg_path in self.dist_dir.glob(pattern):
+                dmg_path.unlink()
 
     def build_executable(self, target_arch: str | None = None):
         """Run PyInstaller with the project spec file."""
@@ -144,7 +145,7 @@ class MacOSBuilder:
 
         if not self.app_bundle.exists():
             # Allow for case mismatch fallback
-            alt_app = self.dist_dir / "Automataii.app"
+            alt_app = self.dist_dir / "AutomataII.app"
             if alt_app.exists():
                 self.app_bundle = alt_app
             else:
@@ -227,7 +228,7 @@ class MacOSBuilder:
     def create_dmg(self, arch_label: str | None = None) -> Path:
         """Create a DMG for the built app using hdiutil (fallback if create-dmg not installed).
 
-        If arch_label is provided, name output as 'Automataii-macos-<arch>.dmg'.
+        If arch_label is provided, name output as 'MotionSmith-macos-<arch>.dmg'.
         """
         dmg_path = self.dist_dir / dmg_filename(self.app_name, arch_label)
         # Remove existing DMG
@@ -309,6 +310,8 @@ class MacOSBuilder:
             f"background_image={background_path}",
             "-D",
             f"volume_icon={volume_icon}",
+            "-D",
+            f"app_name={self.app_name}",
             self.app_name,
             str(dmg_path),
         ]
@@ -372,7 +375,7 @@ class MacOSBuilder:
             logo.thumbnail((icon_size, icon_size))
             image.paste(logo, (xy(68), xy(54)), logo)
 
-        draw.text((xy(140), xy(55)), "AutomataII", fill="#2b2520", font=title_font)
+        draw.text((xy(140), xy(55)), self.app_name, fill="#2b2520", font=title_font)
         draw.text(
             (xy(142), xy(92)),
             "Drag the app into Applications to install.",
@@ -390,7 +393,7 @@ class MacOSBuilder:
         )
         draw.text((xy(220), xy(235)), "copy to install", fill="#8d5a32", font=caption_font)
 
-        draw.text((xy(96), xy(286)), "AutomataII", fill="#4a4038", font=caption_font)
+        draw.text((xy(96), xy(286)), self.app_name, fill="#4a4038", font=caption_font)
         draw.text((xy(332), xy(286)), "Applications", fill="#4a4038", font=caption_font)
 
         image.save(output_path, "PNG", dpi=(72 * scale, 72 * scale))
@@ -587,7 +590,7 @@ class MacOSBuilder:
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build Automataii for macOS")
+    parser = argparse.ArgumentParser(description="Build MotionSmith for macOS")
     parser.add_argument("--sign", type=str, help="Code signing identity (Developer ID)")
     parser.add_argument("--no-dmg", action="store_true", help="Skip DMG creation")
     parser.add_argument(

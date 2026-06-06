@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build script for Automataii experiment mode
+Build script for MotionSmith experiment mode
 Creates a build with --experiment flag automatically enabled
 """
 
@@ -45,6 +45,8 @@ except ImportError:  # pragma: no cover - used when executed as scripts/build_ex
 
 
 SIGN_IDENTITY_ENV = "MACOS_SIGN_IDENTITY"
+APP_NAME = "MotionSmith"
+EXPERIMENT_APP_NAME = f"{APP_NAME}-Experiment"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -90,7 +92,7 @@ def _create_dmg(app_bundle: Path, dist_dir: Path, volname: str, arch_label: str 
     if dmg_path.exists():
         dmg_path.unlink()
 
-    staging_dir_handle = tempfile.TemporaryDirectory(prefix="automataii-experiment-dmg-")
+    staging_dir_handle = tempfile.TemporaryDirectory(prefix="motionsmith-experiment-dmg-")
     staging_dir = Path(staging_dir_handle.name)
     try:
         staged_app = staging_dir / app_bundle.name
@@ -181,7 +183,7 @@ def _notarize_app_bundle(app_bundle: Path) -> bool:
         logger.error("App bundle not found for notarization: %s", app_bundle)
         return False
 
-    with tempfile.TemporaryDirectory(prefix="automataii-experiment-app-notary-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="motionsmith-experiment-app-notary-") as temp_dir:
         zip_path = Path(temp_dir) / f"{app_bundle.name}.zip"
         subprocess.run(["ditto", "-c", "-k", "--keepParent", str(app_bundle), str(zip_path)], check=True)
         if not _submit_for_notarization(zip_path):
@@ -230,7 +232,7 @@ def _write_distribution_manifest(
     sign_identity: str,
     verification: ReleaseVerification,
 ) -> Path:
-    manifest_path = dist_dir / f"Automataii-Experiment-macos-{arch_label}-release-manifest.json"
+    manifest_path = dist_dir / f"{EXPERIMENT_APP_NAME}-macos-{arch_label}-release-manifest.json"
     manifest = {
         "created_at": datetime.now(UTC).isoformat(),
         "artifact": str(dmg_path),
@@ -248,10 +250,10 @@ def _write_distribution_manifest(
 
 
 def main() -> bool:
-    """Build experiment version of Automataii"""
+    """Build experiment version of MotionSmith."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build Automataii (experiment mode)")
+    parser = argparse.ArgumentParser(description="Build MotionSmith (experiment mode)")
     parser.add_argument("--fast", action="store_true", help="Faster build: skip --clean")
     parser.add_argument(
         "--skip-clean", action="store_true", help="Do not remove dist/ before build"
@@ -305,11 +307,11 @@ def main() -> bool:
             logger.info(
                 "Universal2 build requested; Python and binary dependencies must provide both arm64 and x86_64 slices."
             )
-        logger.info(f"Building Automataii in experiment mode for arch: {target_arch}...")
+        logger.info(f"Building MotionSmith in experiment mode for arch: {target_arch}...")
     else:
         if args.arch != "auto":
             logger.warning("--arch is only applied to macOS experiment builds; ignoring.")
-        logger.info("Building Automataii in experiment mode for current platform...")
+        logger.info("Building MotionSmith in experiment mode for current platform...")
 
     # Clean previous builds unless fast/skip-clean
     dist_dir = project_root / "dist"
@@ -336,7 +338,7 @@ if __name__ == "__main__":
     main()
 """
 
-    entry_script_path = project_root / "automataii_experiment_entry.py"
+    entry_script_path = project_root / "motionsmith_experiment_entry.py"
     with open(entry_script_path, "w") as f:
         f.write(entry_script_content)
 
@@ -364,13 +366,13 @@ if __name__ == "__main__":
 
             # macOS extras: sign, DMG, notarize
             if sys.platform == "darwin":
-                app_bundle = dist_dir / "AutomataII-Experiment.app"
+                app_bundle = dist_dir / f"{EXPERIMENT_APP_NAME}.app"
                 _sign_app(app_bundle, sign_identity)
                 if not _notarize_app_bundle(app_bundle):
                     return False
                 dmg_path = None
                 dmg_path = _create_dmg(
-                    app_bundle, dist_dir, "Automataii-Experiment", target_arch
+                    app_bundle, dist_dir, EXPERIMENT_APP_NAME, target_arch
                 )
                 _sign_dmg(dmg_path, sign_identity)
                 if dmg_path is None or not dmg_path.exists():

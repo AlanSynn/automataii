@@ -6,6 +6,8 @@
 app_bundle = defines["app_bundle"]  # noqa: F821
 background_image = defines["background_image"]  # noqa: F821
 volume_icon = defines.get("volume_icon")  # noqa: F821
+app_name = defines.get("app_name", "MotionSmith")  # noqa: F821
+app_bundle_name = f"{app_name}.app"
 
 format = "UDZO"
 filesystem = "HFS+"
@@ -33,12 +35,12 @@ icon_size = 96
 text_size = 14
 label_pos = "bottom"
 
-files = [(app_bundle, "AutomataII.app")]
+files = [(app_bundle, app_bundle_name)]
 symlinks = {"Applications": "/Applications"}
-hide_extensions = ["AutomataII.app"]
+hide_extensions = [app_bundle_name]
 hide = [".background.tiff"]
 
 icon_locations = {
-    "AutomataII.app": (145, 220),
+    app_bundle_name: (145, 220),
     "Applications": (375, 220),
 }

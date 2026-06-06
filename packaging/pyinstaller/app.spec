@@ -37,7 +37,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Automataii',
+    name='MotionSmith',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -56,11 +56,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Automataii',
+    name='MotionSmith',
 )
 app = BUNDLE(
     coll,
-    name='Automataii.app',
+    name='MotionSmith.app',
     icon='resources/icons/AppIcon.icns',
-    bundle_identifier='dev.automataii.automataii',
+    bundle_identifier='app.motionsmith.motionsmith',
 )
