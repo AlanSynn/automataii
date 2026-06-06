@@ -188,6 +188,64 @@ def test_dmg_app_is_copied_before_signature_checks(monkeypatch, tmp_path):
     assert any(check.name == "dmg_extract_app" and check.passed for check in result.checks)
 
 
+def test_dmg_embedded_app_strict_codesign_failure_blocks_distribution(
+    monkeypatch, tmp_path
+):
+    dmg = tmp_path / "MotionSmith.dmg"
+    dmg.write_text("not really a dmg")
+
+    def fake_tool_exists(name: str) -> bool:
+        return name in {"hdiutil", "codesign", "spctl", "xcrun", "otool"}
+
+    def fake_run(command: list[str]):
+        if otool := _empty_otool_response(command):
+            return otool
+        if command[1] == "attach":
+            mountpoint = Path(command[command.index("-mountpoint") + 1])
+            _write_minimal_app(mountpoint / "MotionSmith.app")
+            return _completed(command)
+        if command[1] == "detach":
+            return _completed(command)
+        if command[:4] == ["codesign", "--verify", "--strict", "--verbose=2"]:
+            return _completed(
+                command,
+                returncode=1,
+                stderr="resource fork, Finder information, or similar detritus not allowed",
+            )
+        if command[:3] == ["codesign", "--verify", "--verbose=2"]:
+            return _completed(command)
+        if command[:2] == ["codesign", "--verify"]:
+            return _completed(command)
+        if command[:2] == ["codesign", "-dv"]:
+            return _completed(
+                command,
+                stderr=(
+                    "CodeDirectory v=20500 flags=0x10000(runtime)\n"
+                    "Authority=Developer ID Application: Example (TEAMID)\n"
+                ),
+            )
+        if command[:2] == ["spctl", "--assess"]:
+            return _completed(command, stderr="accepted")
+        if command[:3] == ["xcrun", "stapler", "validate"]:
+            return _completed(command, stdout="The validate action worked!\n")
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.setattr(verify_macos_release, "_tool_exists", fake_tool_exists)
+    monkeypatch.setattr(verify_macos_release, "_run", fake_run)
+    monkeypatch.setattr(verify_macos_release, "executable_arches", lambda path: {"x86_64"})
+
+    result = verify_macos_release.verify_release(dmg, expected_arch="x86_64")
+
+    assert result.passed is False
+    assert result.distribution_ready is False
+    assert any(
+        check.name == "dmg_embedded_app_codesign_verify"
+        and not check.passed
+        and "Finder information" in check.message
+        for check in result.checks
+    )
+
+
 def test_universal2_verification_fails_on_nested_thin_macho(monkeypatch, tmp_path):
     app = tmp_path / "MotionSmith.app"
     executable = _write_minimal_app(app)

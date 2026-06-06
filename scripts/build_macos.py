@@ -225,7 +225,12 @@ class MacOSBuilder:
         )
         return result.returncode == 0 and bool(result.stdout.strip())
 
-    def create_dmg(self, arch_label: str | None = None) -> Path:
+    def create_dmg(
+        self,
+        arch_label: str | None = None,
+        *,
+        strict_distribution: bool = False,
+    ) -> Path:
         """Create a DMG for the built app using hdiutil (fallback if create-dmg not installed).
 
         If arch_label is provided, name output as 'MotionSmith-macos-<arch>.dmg'.
@@ -236,28 +241,22 @@ class MacOSBuilder:
             dmg_path.unlink()
 
         if self._can_use_dmgbuild():
-            return self._create_branded_dmg(dmg_path)
+            branded_dmg = self._create_branded_dmg(dmg_path)
+            if not strict_distribution:
+                return branded_dmg
+            if self._dmg_embedded_app_passes_strict_codesign(branded_dmg):
+                return branded_dmg
+
+            logger.warning(
+                "Branded DMG leaves Finder metadata on the embedded app, which breaks "
+                "strict codesign verification after copy. Falling back to hdiutil DMG."
+            )
+            branded_dmg.unlink(missing_ok=True)
+            return self._create_hdiutil_dmg(dmg_path)
 
         # Prefer hdiutil (standard on macOS)
         if shutil.which("hdiutil") is not None:
-            cmd = [
-                "hdiutil",
-                "create",
-                "-volname",
-                self.app_name,
-                "-srcfolder",
-                str(self.app_bundle),
-                "-ov",
-                "-format",
-                "UDZO",
-                str(dmg_path),
-            ]
-            logger.info(f"Creating DMG: {' '.join(cmd)}")
-            subprocess.run(cmd, check=True)
-            if not dmg_path.exists():
-                raise FileNotFoundError(f"Requested DMG was not created: {dmg_path}")
-            logger.info(f"✓ DMG created at {dmg_path}")
-            return dmg_path
+            return self._create_hdiutil_dmg(dmg_path)
 
         # Optional: use create-dmg if present
         if shutil.which("create-dmg") is not None:
@@ -277,6 +276,50 @@ class MacOSBuilder:
             return dmg_path
 
         raise RuntimeError("DMG creation tools not found (hdiutil/create-dmg).")
+
+    def _create_hdiutil_dmg(self, dmg_path: Path) -> Path:
+        """Create a distribution DMG without Finder metadata on the signed app bundle."""
+        if shutil.which("hdiutil") is None:
+            raise RuntimeError("hdiutil is required to create a distribution DMG.")
+        if shutil.which("ditto") is None:
+            raise RuntimeError("ditto is required to stage the app without extended attributes.")
+
+        with tempfile.TemporaryDirectory(prefix="motionsmith-dmg-root-") as temp_dir:
+            staging_root = Path(temp_dir) / "root"
+            staging_root.mkdir()
+            staged_app = staging_root / self.app_bundle.name
+            # Drop extended attributes/resource forks when staging the app. These
+            # are not part of the code signature and can make `codesign --strict`
+            # reject an app copied from the DMG even when Gatekeeper accepts it.
+            subprocess.run(
+                [
+                    "ditto",
+                    "--noextattr",
+                    "--norsrc",
+                    str(self.app_bundle),
+                    str(staged_app),
+                ],
+                check=True,
+            )
+            (staging_root / "Applications").symlink_to("/Applications")
+            cmd = [
+                "hdiutil",
+                "create",
+                "-volname",
+                self.app_name,
+                "-srcfolder",
+                str(staging_root),
+                "-ov",
+                "-format",
+                "UDZO",
+                str(dmg_path),
+            ]
+            logger.info("Creating DMG: %s", " ".join(cmd))
+            subprocess.run(cmd, check=True)
+        if not dmg_path.exists():
+            raise FileNotFoundError(f"Requested DMG was not created: {dmg_path}")
+        logger.info("✓ DMG created at %s", dmg_path)
+        return dmg_path
 
     def _can_use_dmgbuild(self) -> bool:
         """Return whether the branded DMG path can run in the current environment."""
@@ -321,6 +364,61 @@ class MacOSBuilder:
             raise FileNotFoundError(f"Requested DMG was not created: {dmg_path}")
         logger.info("✓ Branded DMG created at %s", dmg_path)
         return dmg_path
+
+    def _dmg_embedded_app_passes_strict_codesign(self, dmg_path: Path) -> bool:
+        """Return whether the app as stored inside the DMG passes strict codesign checks."""
+        if shutil.which("hdiutil") is None or shutil.which("codesign") is None:
+            return False
+
+        with tempfile.TemporaryDirectory(prefix="motionsmith-dmg-verify-") as mount_dir:
+            mount_path = Path(mount_dir)
+            attach = subprocess.run(
+                [
+                    "hdiutil",
+                    "attach",
+                    "-readonly",
+                    "-nobrowse",
+                    "-noverify",
+                    "-mountpoint",
+                    str(mount_path),
+                    str(dmg_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if attach.returncode != 0:
+                logger.warning(
+                    "Could not mount DMG for strict embedded-app check: %s",
+                    attach.stderr.strip(),
+                )
+                return False
+
+            try:
+                app_path = next(mount_path.glob("*.app"), None)
+                if app_path is None:
+                    logger.warning("Could not find app inside DMG for strict embedded-app check.")
+                    return False
+                verify = subprocess.run(
+                    ["codesign", "--verify", "--strict", "--verbose=2", str(app_path)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if verify.returncode == 0:
+                    return True
+                output = "\n".join(
+                    part.strip() for part in (verify.stdout, verify.stderr) if part.strip()
+                )
+                logger.warning("Embedded app strict codesign check failed: %s", output)
+                return False
+            finally:
+                subprocess.run(
+                    ["hdiutil", "detach", str(mount_path)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
 
     def _create_dmg_background_assets(self) -> Path:
         """Generate deterministic 1x/2x DMG background artwork from the app logo."""
@@ -539,6 +637,9 @@ class MacOSBuilder:
     ) -> bool:
         """Execute the macOS build pipeline."""
         logger.info("=== Starting macOS build ===")
+        if strict_distribution and not verify_release_checks:
+            logger.info("Strict distribution requested; enabling final release verification.")
+            verify_release_checks = True
         current_arch = host_arch()
         if arch == "auto":
             arch = current_arch
@@ -566,7 +667,10 @@ class MacOSBuilder:
                 return False
             release_target = self.app_bundle
             if create_dmg:
-                dmg_path = self.create_dmg(arch_label=arch)
+                dmg_path = self.create_dmg(
+                    arch_label=arch,
+                    strict_distribution=strict_distribution,
+                )
                 self.sign_dmg(sign_identity, dmg_path)
                 release_target = dmg_path
                 if notarize:
@@ -617,7 +721,7 @@ def main():
     parser.add_argument(
         "--strict-distribution",
         action="store_true",
-        help="Require full distribution readiness, including stapled notarization.",
+        help="Require full distribution readiness, including stapled notarization. Implies --verify-release.",
     )
     parser.add_argument(
         "--arch",

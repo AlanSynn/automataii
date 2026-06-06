@@ -143,7 +143,10 @@ MACOS_SIGN_IDENTITY="Developer ID Application: Example (TEAMID)"
     manifest_path = release_macos.run_release(config, {})
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     log_text = config.log_path.read_text(encoding="utf-8")
+    release_manifest_path = tmp_path / "dist" / "MotionSmith-macos-universal2-release-manifest.json"
 
+    assert manifest_path.name == "MotionSmith-macos-universal2-dry-run-release-manifest.json"
+    assert not release_manifest_path.exists()
     assert manifest["artifact"] == str(tmp_path / "dist" / "MotionSmith-macos-universal2.dmg")
     assert manifest["sha256"] == "dry-run"
     assert manifest["smoke"]["passed"] is True

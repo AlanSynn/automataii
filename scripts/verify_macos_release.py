@@ -51,6 +51,32 @@ def _tool_exists(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def _check_dmg_embedded_app_codesign(app_path: Path) -> CheckResult:
+    """Check the app exactly as stored in the mounted DMG.
+
+    Copying a .app out of a DMG can drop Finder metadata depending on the copy
+    tool. This check catches DMG layout metadata such as com.apple.FinderInfo
+    that can make strict codesign verification fail after drag/copy install.
+    """
+    if not _tool_exists("codesign"):
+        return CheckResult(
+            "dmg_embedded_app_codesign_verify",
+            False,
+            True,
+            "codesign is not available.",
+        )
+
+    verify = _run(["codesign", "--verify", "--strict", "--verbose=2", str(app_path)])
+    return CheckResult(
+        "dmg_embedded_app_codesign_verify",
+        verify.returncode == 0,
+        True,
+        "Embedded app signature verification passed."
+        if verify.returncode == 0
+        else _combined_output(verify),
+    )
+
+
 def _app_executable(app_path: Path) -> Path | None:
     info_plist = app_path / "Contents" / "Info.plist"
     if not info_plist.exists():
@@ -107,6 +133,7 @@ def _find_app_in_dmg(
                 checks.append(CheckResult("dmg_contains_app", False, True, "No .app found in DMG."))
                 return None, None, checks, None
             checks.append(CheckResult("dmg_contains_app", True, True, f"Found {app_path.name}."))
+            checks.append(_check_dmg_embedded_app_codesign(app_path))
             app_copy_dir = tempfile.TemporaryDirectory(prefix="automataii-dmg-app-")
             copied_app = Path(app_copy_dir.name) / app_path.name
             try:
@@ -494,6 +521,11 @@ def verify_release(
             _check_passed(checks, "app_notarization_staple") if artifact.suffix == ".dmg" else True
         )
         dmg_signed = _check_passed(checks, "dmg_codesign_verify") if artifact.suffix == ".dmg" else True
+        dmg_embedded_app_signed = (
+            _check_passed(checks, "dmg_embedded_app_codesign_verify")
+            if artifact.suffix == ".dmg"
+            else True
+        )
         nested_arches = (
             _check_passed(checks, "nested_architecture")
             if expected_arch not in (None, "auto")
@@ -508,6 +540,7 @@ def verify_release(
             and stapled
             and app_stapled
             and dmg_signed
+            and dmg_embedded_app_signed
             and nested_arches
             and dependencies
         )

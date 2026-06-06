@@ -318,7 +318,9 @@ def test_build_fails_when_notarization_requested_but_dmg_was_not_created(monkeyp
     monkeypatch.setattr(
         builder,
         "create_dmg",
-        lambda arch_label=None: (_ for _ in ()).throw(FileNotFoundError("missing dmg")),
+        lambda arch_label=None, *, strict_distribution=False: (_ for _ in ()).throw(
+            FileNotFoundError("missing dmg")
+        ),
     )
     monkeypatch.setattr(
         builder,

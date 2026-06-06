@@ -78,10 +78,15 @@ class ReleaseConfig:
 
     @property
     def manifest_path(self) -> Path:
+        manifest_suffix = (
+            "dry-run-release-manifest.json"
+            if self.dry_run
+            else "release-manifest.json"
+        )
         return (
             self.project_root
             / "dist"
-            / f"{APP_NAME}-macos-{self.resolved_arch_label}-release-manifest.json"
+            / f"{APP_NAME}-macos-{self.resolved_arch_label}-{manifest_suffix}"
         )
 
 

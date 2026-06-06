@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
 from scripts import build_experiment, build_macos, macos_arch
 from scripts.pyinstaller_datas import existing_datas, source_exists
 
@@ -176,7 +177,7 @@ def test_build_fails_when_requested_notarization_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(builder, "build_executable", lambda target_arch=None: None)
     monkeypatch.setattr(builder, "sign_app", lambda sign_identity: None)
 
-    def fake_create_dmg(arch_label=None):
+    def fake_create_dmg(arch_label=None, *, strict_distribution=False):
         builder.dist_dir.mkdir(parents=True, exist_ok=True)
         dmg = builder.dist_dir / macos_arch.dmg_filename(builder.app_name, "x86_64")
         dmg.write_text("dmg")
@@ -188,6 +189,47 @@ def test_build_fails_when_requested_notarization_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(build_macos, "host_arch", lambda: "x86_64")
 
     assert builder.build(arch="x86_64", notarize=True) is False
+
+
+def test_strict_distribution_implies_release_verification(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    verified_targets: list[Path] = []
+
+    monkeypatch.setattr(build_macos, "host_arch", lambda: "x86_64")
+    monkeypatch.setattr(builder, "check_architecture_requirements", lambda arch: True)
+    monkeypatch.setattr(builder, "check_dependencies", lambda: True)
+    monkeypatch.setattr(builder, "clean", lambda arch_label=None: None)
+    monkeypatch.setattr(builder, "build_executable", lambda target_arch=None: None)
+    monkeypatch.setattr(builder, "sign_app", lambda sign_identity: None)
+    monkeypatch.setattr(builder, "sign_dmg", lambda sign_identity, dmg_path: None)
+
+    def fake_create_dmg(arch_label=None, *, strict_distribution=False):
+        assert strict_distribution is True
+        builder.dist_dir.mkdir(parents=True, exist_ok=True)
+        dmg = builder.dist_dir / macos_arch.dmg_filename(builder.app_name, arch_label)
+        dmg.write_text("dmg", encoding="utf-8")
+        return dmg
+
+    def fake_verify_release_artifact(
+        target_path,
+        *,
+        expected_arch,
+        require_notarization,
+        require_gatekeeper,
+        strict_distribution,
+    ):
+        verified_targets.append(Path(target_path))
+        assert expected_arch == "x86_64"
+        assert require_notarization is True
+        assert require_gatekeeper is True
+        assert strict_distribution is True
+        return True
+
+    monkeypatch.setattr(builder, "create_dmg", fake_create_dmg)
+    monkeypatch.setattr(builder, "verify_release_artifact", fake_verify_release_artifact)
+
+    assert builder.build(arch="x86_64", strict_distribution=True) is True
+    assert verified_targets == [builder.dist_dir / "MotionSmith-macos-x86_64.dmg"]
 
 
 def test_create_dmg_fails_when_no_tool_is_available(monkeypatch, tmp_path):
@@ -249,6 +291,79 @@ def test_create_dmg_prefers_branded_dmgbuild_path(monkeypatch, tmp_path):
             str(dmg),
         ]
     ]
+
+
+def test_strict_create_dmg_falls_back_when_branded_dmg_has_app_detritus(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    builder.app_bundle.mkdir(parents=True)
+    builder.dmg_settings_file.parent.mkdir(parents=True)
+    builder.dmg_settings_file.write_text("# settings\n", encoding="utf-8")
+    background = tmp_path / "build" / "dmg-assets" / "dmg-background.png"
+    background.parent.mkdir(parents=True)
+    background.write_text("background", encoding="utf-8")
+    hdiutil_calls: list[Path] = []
+
+    monkeypatch.setattr(builder, "_can_use_dmgbuild", lambda: True)
+    monkeypatch.setattr(builder, "_create_dmg_background_assets", lambda: background)
+    monkeypatch.setattr(builder, "_dmg_embedded_app_passes_strict_codesign", lambda dmg: False)
+
+    def fake_run(cmd, check=False, cwd=None, **kwargs):
+        dmg_path = Path(cmd[-1])
+        dmg_path.parent.mkdir(parents=True, exist_ok=True)
+        dmg_path.write_text("branded dmg", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    def fake_hdiutil_dmg(dmg_path: Path) -> Path:
+        hdiutil_calls.append(dmg_path)
+        dmg_path.write_text("fallback dmg", encoding="utf-8")
+        return dmg_path
+
+    monkeypatch.setattr(build_macos.subprocess, "run", fake_run)
+    monkeypatch.setattr(builder, "_create_hdiutil_dmg", fake_hdiutil_dmg)
+
+    dmg = builder.create_dmg("arm64", strict_distribution=True)
+
+    assert dmg == tmp_path / "dist" / "MotionSmith-macos-arm64.dmg"
+    assert hdiutil_calls == [dmg]
+    assert dmg.read_text(encoding="utf-8") == "fallback dmg"
+
+
+def test_hdiutil_dmg_stages_app_without_extended_attributes(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    builder.app_bundle.mkdir(parents=True)
+    dmg = tmp_path / "dist" / "MotionSmith-macos-arm64.dmg"
+    commands: list[list[str]] = []
+
+    def fake_run(cmd, check=False, **kwargs):
+        commands.append(list(cmd))
+        if cmd[0] == "ditto":
+            staged_app = Path(cmd[-1])
+            staged_app.mkdir(parents=True)
+        elif cmd[0] == "hdiutil" and cmd[1] == "create":
+            Path(cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(cmd[-1]).write_text("dmg", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(build_macos.subprocess, "run", fake_run)
+
+    assert builder._create_hdiutil_dmg(dmg) == dmg
+    assert commands[0][:3] == ["ditto", "--noextattr", "--norsrc"]
+    assert commands[1][0:2] == ["hdiutil", "create"]
+    assert commands[1][commands[1].index("-srcfolder") + 1].endswith("/root")
+
+
+def test_hdiutil_dmg_requires_ditto(monkeypatch, tmp_path):
+    builder = build_macos.MacOSBuilder(tmp_path)
+    builder.app_bundle.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        build_macos.shutil,
+        "which",
+        lambda name: "/usr/bin/hdiutil" if name == "hdiutil" else None,
+    )
+
+    with pytest.raises(RuntimeError, match="ditto is required"):
+        builder._create_hdiutil_dmg(tmp_path / "dist" / "MotionSmith-macos-arm64.dmg")
 
 
 def test_dmg_background_assets_include_logo_and_retina_variant(tmp_path):
