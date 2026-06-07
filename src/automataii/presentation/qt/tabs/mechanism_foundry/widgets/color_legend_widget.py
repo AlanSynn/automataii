@@ -42,7 +42,7 @@ class ColorLegendWidget(QWidget):
         style = """
         <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            font-family: 'Helvetica Neue', Arial;
             font-size: 13px;
             line-height: 1.6;
             color: #2c3e50;

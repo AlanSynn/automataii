@@ -6,6 +6,7 @@ connections between managers, tabs, and the main window.
 
 Design Pattern: Coordinator (manages signal wiring)
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,7 +62,7 @@ class SignalConnector(QObject):
         """Initialize signal connector."""
         super().__init__(parent)
         self._logger = logging.getLogger(__name__)
-        self._connected_pairs: set[tuple[int, int]] = set()
+        self._connected_pairs: set[tuple[str, tuple[Any, ...]]] = set()
 
     def connect_project_data_manager(
         self,
@@ -261,9 +262,7 @@ class SignalConnector(QObject):
 
             # Initialize UI with current value
             if hasattr(options_tab, "set_animation_duration_input"):
-                options_tab.set_animation_duration_input(
-                    ik_manager.animation_duration / 1000.0
-                )
+                options_tab.set_animation_duration_input(ik_manager.animation_duration / 1000.0)
 
         if image_proc_tab and hasattr(options_tab, "advancedProcessingVisibilityChanged"):
             if hasattr(image_proc_tab, "_toggle_detailed_processing_visibility"):
@@ -275,9 +274,7 @@ class SignalConnector(QObject):
 
         if mechanism_design_tab and hasattr(options_tab, "physicsSnapModeChanged"):
             try:
-                parametric_manager = getattr(
-                    mechanism_design_tab, "parametric_manager", None
-                )
+                parametric_manager = getattr(mechanism_design_tab, "parametric_manager", None)
                 if parametric_manager:
                     setter = getattr(parametric_manager, "set_physics_snap_mode", None)
                     if callable(setter):
@@ -313,8 +310,11 @@ class SignalConnector(QObject):
         Returns:
             True if connected successfully
         """
-        # Create unique identifier for this connection
-        connection_id = (id(signal), id(slot))
+        # PyQt bound signal and bound method wrapper objects are ephemeral;
+        # using id(signal)/id(slot) can collide after temporary wrappers are
+        # released, causing unrelated connections to be skipped.  Build a
+        # stable key from the bound-signal repr and the underlying slot target.
+        connection_id = (repr(signal), self._slot_key(slot))
 
         if connection_id in self._connected_pairs:
             self._logger.debug(f"Skipping duplicate connection: {connection_name}")
@@ -324,7 +324,7 @@ class SignalConnector(QObject):
             # Try to disconnect first to prevent duplicates
             try:
                 signal.disconnect(slot)
-            except TypeError:
+            except (TypeError, RuntimeError):
                 pass  # Not connected, which is fine
 
             signal.connect(slot)
@@ -335,6 +335,19 @@ class SignalConnector(QObject):
         except Exception as e:
             self._logger.error(f"Failed to connect {connection_name}: {e}")
             return False
+
+    def _slot_key(self, slot: Any) -> tuple[Any, ...]:
+        """Return a stable key for Python bound methods and other callables."""
+        slot_self = getattr(slot, "__self__", None)
+        slot_func = getattr(slot, "__func__", None)
+        if slot_self is not None and slot_func is not None:
+            return (
+                "bound-method",
+                id(slot_self),
+                getattr(slot_func, "__module__", ""),
+                getattr(slot_func, "__qualname__", repr(slot_func)),
+            )
+        return ("callable", id(slot))
 
     def disconnect_all(self) -> None:
         """Clear all tracked connections."""

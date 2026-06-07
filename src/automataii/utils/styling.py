@@ -10,7 +10,7 @@ LIGHT_STYLE = """
         background-color: #fdfdfe; /* Near white */
     }
     QWidget {
-        font-family: "Helvetica Neue", Arial, sans-serif; /* Use loaded Segoe UI first */
+        font-family: "Helvetica Neue", Arial; /* macOS-safe app font stack */
         font-size: 13pt; /* Increased base font size AGAIN */
         color: #495057; /* Softer dark gray text */
         background-color: #fdfdfe;
@@ -206,7 +206,7 @@ DARK_STYLE = """
         background-color: #2b2b2b; /* Dark gray */
     }
     QWidget {
-        font-family: "Helvetica Neue", Arial, sans-serif;
+        font-family: "Helvetica Neue", Arial;
         font-size: 13pt;
         color: #e0e0e0; /* Light gray text */
         background-color: transparent;

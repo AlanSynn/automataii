@@ -17,10 +17,12 @@ if not os.environ.get("QT_QPA_PLATFORM"):
 
 try:
     from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFont
     from PyQt6.QtWidgets import QApplication
 except ImportError:
     try:
         from PySide6.QtCore import Qt  # type: ignore[no-redef]
+        from PySide6.QtGui import QFont  # type: ignore[no-redef]
         from PySide6.QtWidgets import QApplication  # type: ignore[no-redef]
     except ImportError:
         print(
@@ -101,6 +103,7 @@ def main() -> None:
         )
 
     app = QApplication(sys.argv)
+    app.setFont(QFont("Arial"))
 
     # Set application metadata
     app.setApplicationName(AppConfig.APP_NAME)

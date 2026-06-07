@@ -50,7 +50,8 @@ class ExampleImageWidget(QFrame):
         pixmap = QPixmap(self.image_path)
         if not pixmap.isNull():
             scaled_pixmap = pixmap.scaled(
-                160, 160,
+                160,
+                160,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -170,7 +171,12 @@ class LandingTab(QWidget):
         logo_path = resolve_path("resources/img/landing.png")
         if logo_path and logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            scaled_pixmap = pixmap.scaled(70, 70, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            scaled_pixmap = pixmap.scaled(
+                70,
+                70,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             logo_label.setPixmap(scaled_pixmap)
         else:
             logo_label.setText("🤖")
@@ -180,7 +186,7 @@ class LandingTab(QWidget):
         title_label = QLabel("MotionSmith")
         title_label.setStyleSheet(f"""
             color: {self.STEEL_BLUE};
-            font-family: 'Segoe UI', 'Arial', sans-serif;
+            font-family: 'Helvetica Neue', 'Arial';
             font-size: 40px;
             font-weight: bold;
         """)
@@ -191,7 +197,9 @@ class LandingTab(QWidget):
         main_layout.addWidget(hero_widget)
 
         # Subtitle and progression options
-        subtitle_label = QLabel("Get started by selecting an example character or continue with your own!")
+        subtitle_label = QLabel(
+            "Get started by selecting an example character or continue with your own!"
+        )
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle_label.setStyleSheet("""
             color: #6c757d;

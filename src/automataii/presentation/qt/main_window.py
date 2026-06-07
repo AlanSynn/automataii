@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import cv2
 import numpy as np
@@ -12,8 +12,9 @@ from PyQt6.QtCore import (
     Qt,
     pyqtSlot,
 )
-from PyQt6.QtGui import QCloseEvent, QPainterPath
+from PyQt6.QtGui import QCloseEvent, QFont, QPainterPath
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QGraphicsItem,
     QGraphicsPixmapItem,
@@ -110,6 +111,18 @@ _SKELETON_PART_HEIGHT_RATIO_MIN = 0.6
 _SKELETON_PART_HEIGHT_RATIO_MAX = 1.8
 _PART_TO_SKELETON_MIN_RATIO = 0.9
 _PART_TO_SKELETON_MAX_SCALE = 4.0
+
+
+class _QtSignalLike(Protocol):
+    """Small protocol for PyQt bound signals used by idempotent wiring helpers."""
+
+    def connect(self, slot: object) -> object:
+        """Connect a slot to the signal."""
+        ...
+
+    def disconnect(self, slot: object) -> object:
+        """Disconnect a slot from the signal."""
+        ...
 
 
 def _calculate_parts_bbox(parts_info: dict[str, Any]) -> tuple[float, float, float, float] | None:
@@ -500,6 +513,13 @@ def _align_skeleton_bbox_to_parts_in_place(
     return True
 
 
+def _configure_existing_qt_app_font() -> None:
+    """Use an installed family instead of Qt's generic font alias on macOS."""
+    app = QApplication.instance()
+    if isinstance(app, QApplication):
+        app.setFont(QFont("Arial"))
+
+
 class AutomataDesigner(QMainWindow):
     """Main application window for MotionSmith.
 
@@ -514,6 +534,7 @@ class AutomataDesigner(QMainWindow):
         experiment_mode: bool = False,
         editing_mode: bool = False,
     ):
+        _configure_existing_qt_app_font()
         super().__init__(parent)
         self.debug_mode = debug_mode
         self.experiment_mode = experiment_mode
@@ -2299,104 +2320,32 @@ class AutomataDesigner(QMainWindow):
     def _connect_global_signals(self):
         """Connects global signals like tab changes or theme changes."""
         # Tab switching is handled by TabOrchestrator (see _init_tab_orchestrator)
+        # Manager/IK signals are wired centrally by SignalConnector in
+        # _connect_manager_signals().
 
-        # Connect SkeletonManager signals
-        self.skeleton_manager.skeleton_updated.connect(self._on_skeleton_manager_updated)
+        # OptionsTab UI signals are wired once in _init_ui().  Reconnecting them
+        # here would make user actions (theme, duration, unit, snap mode, etc.)
+        # run twice in production.
 
-        # Connect IKManager signals
-        self.ik_manager.character_visuals_updated.connect(self._handle_ik_visuals_update)
-        if (
-            hasattr(self, "editor_tab")
-            and self.editor_tab
-            and hasattr(self.ik_manager, "animation_state_changed")
-        ):
-            self.ik_manager.animation_state_changed.connect(
-                self.editor_tab.on_simulation_state_changed
-            )
-
-        # OptionsTab signals
-        if hasattr(self, "options_tab") and self.options_tab:
-            self.options_tab.themeChanged.connect(self._apply_theme)
-            # Connect animation duration change from OptionsTab to IKManager
-            self.options_tab.animationDurationChanged.connect(
-                self.ik_manager.set_animation_duration
-            )
-            # Initialize OptionsTab with current animation duration from IKManager
-            self.options_tab.set_animation_duration_input(
-                self.ik_manager.animation_duration / 1000.0
-            )
-            # Connect advanced processing visibility toggle
-            if hasattr(self.options_tab, "advancedProcessingVisibilityChanged") and hasattr(
-                self.image_proc_tab, "_toggle_detailed_processing_visibility"
-            ):
-                self.options_tab.advancedProcessingVisibilityChanged.connect(
-                    self.image_proc_tab._toggle_detailed_processing_visibility
-                )
-            # Connect unit changed signal (assuming OptionsTab will have it)
-            if hasattr(self.options_tab, "unitChanged"):
-                self.options_tab.unitChanged.connect(self._handle_unit_changed)
-            else:
-                logging.warning(
-                    "MainWindow: OptionsTab does not have unitChanged signal. Unit selection may not work."
-                )
-
-            # Physics snap mode from OptionsTab → ParametricEditingManager (redundant safety connect)
-            if hasattr(self.options_tab, "physicsSnapModeChanged"):
-                try:
-                    setter = getattr(
-                        self.mechanism_design_tab.parametric_manager, "set_physics_snap_mode", None
-                    )
-                    if callable(setter):
-                        self.options_tab.physicsSnapModeChanged.connect(setter)
-                        # Initialize UI to manager's default
-                        if hasattr(self.options_tab, "set_physics_snap_mode_input"):
-                            self.options_tab.set_physics_snap_mode_input(
-                                self.mechanism_design_tab.parametric_manager.physics_snap_mode
-                            )
-                except Exception:
-                    logging.exception("Failed to connect physics snap mode option (global connect)")
-
-        # EditorTab signals
+        # EditorTab signals that are not already wired in _init_ui().
         if hasattr(self, "editor_tab") and self.editor_tab:
-            # More robust connections to IKManager, checking method existence
-            if hasattr(self.ik_manager, "start_animation"):
-                self.editor_tab.request_play_simulation.connect(self.ik_manager.start_animation)
-            if hasattr(self.ik_manager, "stop_animation"):
-                self.editor_tab.request_stop_simulation.connect(self.ik_manager.stop_animation)
-            if hasattr(
-                self.ik_manager, "reset_animation_state"
-            ):  # Ensure this method name is correct in IKManager
-                self.editor_tab.request_reset_simulation.connect(
-                    self.ik_manager.reset_animation_state
-                )
-
-            # If save_character_alignment_impl is the final destination for the signal from EditorTab
-            if hasattr(self, "save_character_alignment_impl"):
-                self.editor_tab.request_save_alignment.connect(self.save_character_alignment_impl)
-
-            # If generate_blueprint_impl is the final destination
-            if hasattr(self, "generate_blueprint_impl"):
-                self.editor_tab.request_generate_blueprint.connect(self.generate_blueprint_impl)
-
             # Connect the new request_reset_all_animations signal
             if hasattr(self.editor_tab, "request_reset_all_animations") and hasattr(
                 self, "_reset_all_animations_button_clicked"
             ):
-                self.editor_tab.request_reset_all_animations.connect(
-                    self._reset_all_animations_button_clicked
+                self._connect_signal_once(
+                    self.editor_tab.request_reset_all_animations,
+                    self._reset_all_animations_button_clicked,
                 )
 
             # Connect EditorTab.motion_path_updated to MainWindow handler
             if hasattr(self.editor_tab, "motion_path_updated") and hasattr(
                 self, "_handle_part_motion_path_update_from_editor_tab"
             ):
-                if not self._is_signal_connected(
+                self._connect_signal_once(
                     self.editor_tab.motion_path_updated,
                     self._handle_part_motion_path_update_from_editor_tab,
-                ):
-                    self.editor_tab.motion_path_updated.connect(
-                        self._handle_part_motion_path_update_from_editor_tab
-                    )
+                )
 
         # MechanismManager connections - temporarily disabled for debugging
         # if hasattr(self, "mechanism_manager") and hasattr(
@@ -2435,7 +2384,8 @@ class AutomataDesigner(QMainWindow):
 
         if self.skeleton_manager:
             self._signal_connector.connect_skeleton_manager(
-                self.skeleton_manager, self, self.ik_manager
+                self.skeleton_manager,
+                self,
             )
 
         if self.ik_manager:
@@ -2549,20 +2499,13 @@ class AutomataDesigner(QMainWindow):
         self._project_controller.set_status_bar(self.statusBar())
         self._project_controller.redo()
 
-    def _is_signal_connected(self, signal, slot) -> bool:
-        # Helper to check if a signal is connected to a specific slot
-        # This is a basic check and might not be foolproof for all cases (e.g., lambdas, functools.partial)
-        # For more robust checking, you might need to inspect receiver objects and names.
-        # Qt doesn't provide a straightforward public API to list all connections easily.
+    def _connect_signal_once(self, signal: _QtSignalLike, slot: object) -> None:
+        """Connect a PyQt signal to a slot without accumulating duplicate connections."""
         try:
-            # This is a simplified check, real check is more complex.
-            # For now, assume we need to ensure connections are made once.
-            # A common pattern is to disconnect all first, then connect, to avoid duplicates.
-            # However, for this refactoring, we focus on making the connections.
-            # In a real scenario, one might track connections or use a more robust check.
-            return False  # Placeholder, assume not connected to allow connection
-        except Exception:
-            return False
+            signal.disconnect(slot)
+        except (TypeError, RuntimeError):
+            pass
+        signal.connect(slot)
 
     @pyqtSlot(dict)
     def _on_skeleton_manager_updated(self, standardized_skeleton_data_dict: dict | None):

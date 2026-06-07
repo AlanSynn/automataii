@@ -231,6 +231,116 @@ class TestProductionBranding:
             window.close()
         assert app is not None
 
+    def test_main_window_wires_runtime_signals_once(self):
+        """Core actions must not be connected twice during MainWindow startup."""
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        app = QApplication.instance() or QApplication([])
+        window = AutomataDesigner(experiment_mode=False)
+        try:
+            assert app.font().family() == "Arial"
+            editor_signal_expectations = {
+                "play": window.editor_tab.request_play_simulation,
+                "stop": window.editor_tab.request_stop_simulation,
+                "reset": window.editor_tab.request_reset_simulation,
+                "editor_blueprint": window.editor_tab.request_generate_blueprint,
+                "save_alignment": window.editor_tab.request_save_alignment,
+            }
+            for label, signal in editor_signal_expectations.items():
+                assert window.editor_tab.receivers(signal) == 1, label
+
+            option_signal_expectations = {
+                "theme": window.options_tab.themeChanged,
+                "animation_duration": window.options_tab.animationDurationChanged,
+                "advanced_processing": window.options_tab.advancedProcessingVisibilityChanged,
+                "unit": window.options_tab.unitChanged,
+                "physics_snap": window.options_tab.physicsSnapModeChanged,
+            }
+            for label, signal in option_signal_expectations.items():
+                assert window.options_tab.receivers(signal) == 1, label
+
+            manager_signal_expectations = {
+                # Handler + MechanismDesign skeleton view + IKManager listener are required.
+                "skeleton_updated": (
+                    window.skeleton_manager,
+                    window.skeleton_manager.skeleton_updated,
+                    3,
+                ),
+                "project_data_loaded": (
+                    window.project_data_manager,
+                    window.project_data_manager.project_data_loaded,
+                    1,
+                ),
+                "project_data_cleared": (
+                    window.project_data_manager,
+                    window.project_data_manager.project_data_cleared,
+                    1,
+                ),
+                "ik_visuals": (window.ik_manager, window.ik_manager.character_visuals_updated, 1),
+                "ik_animation_state": (
+                    window.ik_manager,
+                    window.ik_manager.animation_state_changed,
+                    1,
+                ),
+            }
+            for label, (sender, signal, expected) in manager_signal_expectations.items():
+                assert sender.receivers(signal) == expected, label
+        finally:
+            window.close()
+        assert app is not None
+
+    def test_runtime_styles_avoid_missing_font_aliases(self):
+        """Packaged macOS startup should not ask Qt to resolve missing font aliases."""
+        from pathlib import Path
+
+        import automataii
+        from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
+
+        assert "Segoe UI" not in LIGHT_STYLE
+        assert "Segoe UI" not in DARK_STYLE
+        assert "sans-serif" not in LIGHT_STYLE
+        assert "sans-serif" not in DARK_STYLE
+
+        package_root = Path(automataii.__file__).parent
+        runtime_style_files = [
+            package_root / "presentation" / "qt" / "tabs" / "landing_tab.py",
+            *(package_root / "presentation" / "qt" / "tabs" / "mechanism_foundry").rglob("*.py"),
+        ]
+        offenders = [
+            path
+            for path in runtime_style_files
+            if path.is_file()
+            and any(
+                missing_alias in path.read_text(encoding="utf-8")
+                for missing_alias in ("Segoe UI", "sans-serif")
+            )
+        ]
+        assert offenders == []
+
+    def test_bundled_runtime_pngs_do_not_emit_libpng_profile_warnings(self):
+        """Landing/examples/icons should not carry invalid profile metadata."""
+        from pathlib import Path
+
+        from PIL import Image
+
+        checked_assets = [
+            Path("src/examples/girl.png"),
+            Path("src/examples/boy.png"),
+            Path("resources/examples/raw/10449089 (1).png"),
+            Path("resources/icons/AppIcon.png"),
+        ]
+
+        offenders = []
+        for asset in checked_assets:
+            with Image.open(asset) as image:
+                metadata_keys = set(image.info)
+            if {"icc_profile", "gamma", "chromaticity"} & metadata_keys:
+                offenders.append((asset, metadata_keys))
+
+        assert offenders == []
+
 
 class TestProjectSaveToTmp:
     """Test project save to tmp directory."""

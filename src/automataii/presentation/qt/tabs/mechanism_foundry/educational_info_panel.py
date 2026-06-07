@@ -54,7 +54,7 @@ class EducationalInfoPanel(QWidget):
         style = """
         <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            font-family: 'Helvetica Neue', Arial;
             font-size: 13px;
             line-height: 1.55;
             color: #243447;
