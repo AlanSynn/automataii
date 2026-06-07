@@ -3,6 +3,7 @@ Tests for Project State Adapters.
 
 Verifies data transformations and signal handling.
 """
+
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -193,9 +194,7 @@ class TestImageProcessingTabAdapter:
         call_args = state_manager.load_skeleton.call_args[0]
         assert isinstance(call_args[0], SkeletonData)
 
-    def test_parts_generated_defers_to_mainwindow_pipeline(
-        self, state_manager, mock_tab, tmp_path
-    ):
+    def test_parts_generated_defers_to_mainwindow_pipeline(self, state_manager, mock_tab, tmp_path):
         """Adapter should not double-load parts when MainWindow pipeline is active."""
         adapter = ImageProcessingTabAdapter(state_manager, prefer_main_window_pipeline=True)
         adapter.attach(mock_tab)
@@ -206,7 +205,9 @@ class TestImageProcessingTabAdapter:
             encoding="utf-8",
         )
 
-        adapter._on_parts_generated({"char_cfg_path": str(tmp_path / "char_cfg.yaml")}, str(tmp_path))
+        adapter._on_parts_generated(
+            {"char_cfg_path": str(tmp_path / "char_cfg.yaml")}, str(tmp_path)
+        )
 
         state_manager.load_parts.assert_not_called()
 
@@ -341,6 +342,41 @@ class TestProjectStateManagerIntegration:
             # Redo
             manager.redo()
             assert manager.state.has_parts()
+
+        except ImportError:
+            pytest.skip("PyQt6 not available for integration tests")
+
+    def test_replace_project_state_can_load_without_undo_history(self):
+        try:
+            import sys
+
+            from PyQt6.QtWidgets import QApplication
+
+            _ = QApplication.instance() or QApplication(sys.argv)
+
+            manager = ProjectStateManager()
+            loaded_state = manager.state.with_parts(
+                {
+                    "head": PartData(
+                        name="head",
+                        texture_path="head.png",
+                        mask_path="head_mask.png",
+                        anchor_joint="neck",
+                    )
+                }
+            )
+
+            manager.replace_project_state(
+                loaded_state,
+                operation="load_project",
+                clear_history=True,
+                mark_saved=True,
+            )
+
+            assert manager.state.has_parts()
+            assert not manager.is_dirty
+            assert not manager.can_undo
+            assert not manager.can_redo
 
         except ImportError:
             pytest.skip("PyQt6 not available for integration tests")

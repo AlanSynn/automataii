@@ -426,6 +426,125 @@ class TestProjectSaveToTmp:
         ]
         assert len(snapshots) == 3
 
+    def test_project_controller_load_project_does_not_pollute_undo_history(self, tmp_path):
+        from automataii.application.project import (
+            PartData,
+            ProjectSerializer,
+            ProjectState,
+            ProjectStateManager,
+        )
+        from automataii.presentation.qt.windows.components import ProjectController
+
+        serializer = ProjectSerializer()
+        save_path = tmp_path / "loaded.automataii"
+        state = ProjectState.empty().with_parts(
+            {
+                "head": PartData(
+                    name="head",
+                    texture_path="head.png",
+                    mask_path="head_mask.png",
+                    anchor_joint="neck",
+                )
+            }
+        )
+        assert serializer.save(state, save_path).success
+
+        state_manager = ProjectStateManager()
+        controller = ProjectController(state_manager, serializer)
+
+        assert controller.load_project(save_path)
+
+        assert state_manager.state.has_parts()
+        assert not state_manager.is_dirty
+        assert not state_manager.can_undo
+        assert not state_manager.can_redo
+
+    def test_main_window_autosave_writes_dirty_runtime_state_under_project_dir(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from automataii.application.project import (
+            AutoSaveManager,
+            PartData,
+            ProjectSerializer,
+            ProjectStateManager,
+        )
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        state_manager = ProjectStateManager()
+        dirty_state = state_manager.state.with_project_dir(tmp_path).with_parts(
+            {
+                "head": PartData(
+                    name="head",
+                    texture_path="head.png",
+                    mask_path="head_mask.png",
+                    anchor_joint="neck",
+                )
+            }
+        )
+        state_manager.replace_project_state(
+            dirty_state,
+            operation="test_dirty_state",
+            mark_saved=False,
+            clear_history=True,
+        )
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.project_state_manager = state_manager
+        window._project_serializer = ProjectSerializer()
+        window._autosave_manager = AutoSaveManager(window._project_serializer)
+        window._sync_runtime_state_to_ssot = MagicMock()
+
+        assert AutomataDesigner._perform_autosave(window) is True
+        window._sync_runtime_state_to_ssot.assert_called_once_with(mark_saved=False)
+        autosaves = list(
+            (tmp_path / AutoSaveManager.AUTOSAVE_DIR_NAME).glob("autosave_*.automataii")
+        )
+        assert autosaves
+
+    def test_main_window_close_autosave_bypasses_interval_throttle(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from automataii.application.project import (
+            AutoSaveManager,
+            PartData,
+            ProjectSerializer,
+            ProjectStateManager,
+        )
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        state_manager = ProjectStateManager()
+        dirty_state = state_manager.state.with_project_dir(tmp_path).with_parts(
+            {
+                "head": PartData(
+                    name="head",
+                    texture_path="head.png",
+                    mask_path="head_mask.png",
+                    anchor_joint="neck",
+                )
+            }
+        )
+        state_manager.replace_project_state(
+            dirty_state,
+            operation="test_dirty_state",
+            mark_saved=False,
+            clear_history=True,
+        )
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.project_state_manager = state_manager
+        window._project_serializer = ProjectSerializer()
+        window._autosave_manager = AutoSaveManager(window._project_serializer)
+        window._sync_runtime_state_to_ssot = MagicMock()
+
+        assert AutomataDesigner._perform_autosave(window) is True
+        assert AutomataDesigner._perform_autosave(window) is False
+        assert AutomataDesigner._perform_autosave(window, force=True) is True
+
+        autosaves = list(
+            (tmp_path / AutoSaveManager.AUTOSAVE_DIR_NAME).glob("autosave_*.automataii")
+        )
+        assert len(autosaves) == 2
+
 
 class TestIntegration:
     """Integration tests for the complete workflow."""

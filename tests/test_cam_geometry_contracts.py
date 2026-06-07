@@ -63,3 +63,22 @@ def test_pear_cam_profile_from_params_sanitizes_malformed_values() -> None:
     assert profile.shape == (360, 2)
     assert bool(np.isfinite(profile).all())
     assert np.min(np.linalg.norm(profile, axis=1)) > 0.0
+
+
+def test_cam_profile_from_params_preserves_foundry_lobes_and_harmonic() -> None:
+    common = {
+        "base_radius": 60.0,
+        "eccentricity": 20.0,
+        "follower_rod_length": 100.0,
+    }
+
+    single_lobe = build_pear_cam_profile_from_params(
+        {**common, "cam_lobes": 1, "profile_harmonic": 0.0}
+    )
+    multi_lobe = build_pear_cam_profile_from_params(
+        {**common, "cam_lobes": 4, "profile_harmonic": 0.8}
+    )
+
+    assert single_lobe.shape == multi_lobe.shape == (360, 2)
+    assert bool(np.isfinite(multi_lobe).all())
+    assert not np.allclose(single_lobe, multi_lobe)

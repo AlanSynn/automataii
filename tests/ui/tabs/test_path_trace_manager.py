@@ -683,3 +683,38 @@ def test_clear_trace_points_only_on_missing_mechanism(manager):
     """Test clear_trace_points_only handles missing mechanism gracefully."""
     # Should not raise exception
     manager.clear_trace_points_only("nonexistent")
+
+
+def test_update_trace_retains_finite_near_origin_points(manager, scene):
+    """Finite positions near the origin are valid mechanism outputs."""
+    mechanism_id = "near_origin"
+    manager.init_trace(mechanism_id, scene)
+
+    origin = QPointF(0.0, 0.0)
+    near_origin = QPointF(9.0, 9.0)
+
+    manager.update_trace(mechanism_id, origin, frame_tick=0)
+    manager.update_trace(mechanism_id, near_origin, frame_tick=1)
+
+    assert manager.get_trace_points(mechanism_id) == [origin, near_origin]
+
+
+def test_init_trace_retains_finite_near_origin_initial_position(manager, scene):
+    """Initial trace points should reject only non-finite coordinates."""
+    mechanism_id = "near_origin_init"
+    origin = QPointF(0.0, 0.0)
+
+    manager.init_trace(mechanism_id, scene, initial_position=origin)
+
+    assert manager.get_trace_points(mechanism_id) == [origin]
+
+
+def test_update_trace_rejects_nan_and_inf_positions(manager, scene):
+    mechanism_id = "non_finite"
+    manager.init_trace(mechanism_id, scene)
+
+    manager.update_trace(mechanism_id, QPointF(float("nan"), 1.0), frame_tick=0)
+    manager.update_trace(mechanism_id, QPointF(1.0, float("inf")), frame_tick=1)
+    manager.update_trace(mechanism_id, QPointF(2.0, 3.0), frame_tick=2)
+
+    assert manager.get_trace_points(mechanism_id) == [QPointF(2.0, 3.0)]

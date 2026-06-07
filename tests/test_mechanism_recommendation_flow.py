@@ -8,6 +8,8 @@ does not cause AttributeErrors related to uninitialized coordinators.
 from __future__ import annotations
 
 import logging
+import subprocess
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -200,6 +202,29 @@ class TestMechanismTypeHandling:
         controller._create_4bar_visuals_fn.assert_called_once()
         assert controller._preview_items == ["4bar-preview"]
 
+    @pytest.mark.parametrize("mechanism_type", ["Cam & Follower", "Simple Gear", "Planetary Gear"])
+    def test_preview_supported_non_4bar_families_do_not_silently_noop(
+        self, mechanism_type: str, caplog
+    ):
+        from automataii.presentation.qt.tabs.mechanism_design.controllers.recommendation_controller import (
+            RecommendationController,
+        )
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        controller = RecommendationController(parent=None)
+        controller._instantiation_service = MechanismInstantiationService()
+        controller._get_scene_fn = lambda: object()
+        controller._create_4bar_visuals_fn = MagicMock(return_value=["unexpected"])
+
+        with caplog.at_level(logging.INFO):
+            controller._show_preview({"type": mechanism_type})
+
+        controller._create_4bar_visuals_fn.assert_not_called()
+        assert controller._preview_items == []
+        assert "Design-scene preview is not available" in caplog.text
+
 
 class TestRecommendationControllerFlow:
     """Test the recommendation controller workflow."""
@@ -339,6 +364,85 @@ class TestRecommendationTemplateSearchContracts:
         )
 
         assert [row["name"] for row in loaded] == ["finite"]
+
+    def test_load_generated_paths_skips_malformed_rows_without_aborting_later_rows(self, tmp_path):
+        import json
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        generated_paths = [
+            None,
+            "not-a-row",
+            {
+                "type": "4-bar Coupler",
+                "name": "finite-after-malformed",
+                "path_coordinates": [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]],
+            },
+        ]
+        generated_path = tmp_path / "generated_paths.json"
+        generated_path.write_text(json.dumps(generated_paths), encoding="utf-8")
+
+        loaded = MechanismRecommendationDialog._load_generated_paths(object(), str(generated_path))
+
+        assert [row["name"] for row in loaded] == ["finite-after-malformed"]
+
+    def test_align_and_compare_paths_rejects_degenerate_zero_length_paths(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            align_and_compare_paths,
+        )
+
+        degenerate = np.array([[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]])
+        valid = np.array([[0.0, 0.0], [1.0, 2.0], [2.0, 0.0]])
+
+        distance, user_aligned, candidate_aligned, transform = align_and_compare_paths(
+            degenerate,
+            valid,
+        )
+
+        assert distance == float("inf")
+        assert user_aligned is None
+        assert candidate_aligned is None
+        assert transform is None
+
+    def test_cam_template_path_is_packaged_for_template_backed_recommendations(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        template_path = MechanismInstantiationService().get_cam_template_path()
+
+        assert template_path is not None
+        assert template_path.endswith("pear_cam_4.3in.svg")
+
+    def test_cam_template_svg_is_not_gitignored_or_untracked(self):
+        """Guard against clean-checkout/package loss of the template-backed CAM asset."""
+        repo_root = Path(__file__).resolve().parents[1]
+        if not (repo_root / ".git").exists():
+            pytest.skip("git metadata is required for source asset tracking check")
+
+        rel_path = "resources/blueprints/tom/pear_cam_4.3in.svg"
+        resource_path = repo_root / rel_path
+        assert resource_path.exists()
+
+        ignored = subprocess.run(
+            ["git", "check-ignore", "--quiet", rel_path],
+            cwd=repo_root,
+            check=False,
+        )
+        assert ignored.returncode != 0, f"{rel_path} must not be ignored"
+
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", rel_path],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert tracked.returncode == 0, f"{rel_path} must be tracked for clean checkout/package"
 
 
 class TestPresenterMechanismHandling:

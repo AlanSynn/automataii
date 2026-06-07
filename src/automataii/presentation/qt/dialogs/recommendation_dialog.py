@@ -50,7 +50,15 @@ def _finite_path_array(points: object, min_points: int = 2) -> np.ndarray | None
     if array.ndim != 2 or array.shape[0] < min_points or array.shape[1] < 2:
         return None
     array = array[:, :2]
-    return array if np.isfinite(array).all() else None
+    if not np.isfinite(array).all():
+        return None
+    if min_points >= 2:
+        deltas = np.diff(array, axis=0)
+        arc_length = float(np.sum(np.linalg.norm(deltas, axis=1)))
+        extent = float(np.max(np.ptp(array, axis=0)))
+        if arc_length <= 1e-9 or extent <= 1e-9:
+            return None
+    return array
 
 
 def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
@@ -1041,45 +1049,55 @@ class MechanismRecommendationDialog(QDialog):
             with open(filepath) as f:
                 raw_data = json.load(f)
 
-            for item in raw_data:
+            if not isinstance(raw_data, list):
+                logger.error("Generated paths file must contain a list: %s", filepath)
+                return loaded_paths
+
+            for index, item in enumerate(raw_data):
+                if not isinstance(item, dict):
+                    logger.warning("Skipping malformed generated path row %s: %r", index, item)
+                    continue
                 path_coords = None
-                mech_type = item.get("type")
+                try:
+                    mech_type = item.get("type")
 
-                if mech_type == "4-bar Coupler":
-                    full_sim_data = item.get("full_simulation_data", {})
-                    if "coupler_path" in full_sim_data:
-                        path_coords = full_sim_data["coupler_path"]
+                    if mech_type == "4-bar Coupler":
+                        full_sim_data = item.get("full_simulation_data", {})
+                        if "coupler_path" in full_sim_data:
+                            path_coords = full_sim_data["coupler_path"]
+                        else:
+                            path_coords = item.get("key_points", {}).get("coupler_point_path")
+
+                    elif mech_type == "Cam-Follower":
+                        full_sim_data = item.get("full_simulation_data", {})
+                        if "follower_path" in full_sim_data:
+                            path_coords = full_sim_data["follower_path"]
+
+                    elif mech_type == "Simple Gear":
+                        full_sim_data = item.get("full_simulation_data", {})
+                        if "tracking_path" in full_sim_data:
+                            path_coords = full_sim_data["tracking_path"]
+
+                    elif mech_type == "Planetary Gear":
+                        full_sim_data = item.get("full_simulation_data", {})
+                        if "tracking_path" in full_sim_data:
+                            path_coords = full_sim_data["tracking_path"]
+
+                    if path_coords is None:
+                        path_coords = item.get("path_coordinates")
+
+                    path_array = _finite_path_array(path_coords)
+                    if path_array is not None:
+                        loaded_item = dict(item)
+                        loaded_item["path_coordinates_np"] = path_array
+                        loaded_paths.append(loaded_item)
                     else:
-                        path_coords = item.get("key_points", {}).get("coupler_point_path")
-
-                elif mech_type == "Cam-Follower":
-                    full_sim_data = item.get("full_simulation_data", {})
-                    if "follower_path" in full_sim_data:
-                        path_coords = full_sim_data["follower_path"]
-
-                elif mech_type == "Simple Gear":
-                    full_sim_data = item.get("full_simulation_data", {})
-                    if "tracking_path" in full_sim_data:
-                        path_coords = full_sim_data["tracking_path"]
-
-                elif mech_type == "Planetary Gear":
-                    full_sim_data = item.get("full_simulation_data", {})
-                    if "tracking_path" in full_sim_data:
-                        path_coords = full_sim_data["tracking_path"]
-
-                if path_coords is None:
-                    path_coords = item.get("path_coordinates")
-
-                path_array = _finite_path_array(path_coords)
-                if path_array is not None:
-                    loaded_item = dict(item)
-                    loaded_item["path_coordinates_np"] = path_array
-                    loaded_paths.append(loaded_item)
-                else:
-                    logger.warning(
-                        "Missing, malformed, or non-finite path coordinates for item: %s",
-                        item.get("type", "N/A"),
-                    )
+                        logger.warning(
+                            "Missing, malformed, non-finite, or degenerate path coordinates for item: %s",
+                            item.get("type", "N/A"),
+                        )
+                except Exception as exc:
+                    logger.warning("Skipping malformed generated path row %s: %s", index, exc)
 
         except FileNotFoundError:
             logger.error("Generated paths file not found at %s", filepath)

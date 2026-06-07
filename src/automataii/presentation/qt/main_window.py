@@ -10,6 +10,7 @@ import yaml
 from PyQt6.QtCore import (
     QPointF,
     Qt,
+    QTimer,
     pyqtSlot,
 )
 from PyQt6.QtGui import QCloseEvent, QFont, QPainterPath
@@ -29,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from automataii.application.managers import MechanismManager, ProjectDataManager, SkeletonManager
 from automataii.application.project import (
+    AutoSaveManager,
     BoneData,
     JointData,
     MechanismData,
@@ -65,6 +67,7 @@ from automataii.presentation.qt.windows.components import (
     TabOrchestrator,
     WorkflowStateMachine,
     WorkspaceLayoutManager,
+    get_default_project_dir,
 )
 from automataii.utils.config import AppConfig
 from automataii.utils.paths import resolve_path
@@ -602,6 +605,12 @@ class AutomataDesigner(QMainWindow):
             self._project_serializer,
             parent=self,
         )
+
+        self._autosave_manager = AutoSaveManager(self._project_serializer)
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(AutoSaveManager.DEFAULT_INTERVAL_SECONDS * 1000)
+        self._autosave_timer.timeout.connect(self._perform_autosave)
+        self._autosave_timer.start()
 
         # Tracking active dialogs
         # self.active_camera_dialogs = [] # Moved to ImageProcessingTab
@@ -1794,24 +1803,22 @@ class AutomataDesigner(QMainWindow):
             elif self.project_state_manager.state.image_path is not None:
                 image_path = self.project_state_manager.state.image_path
 
-            self.project_state_manager.begin_batch()
-            try:
-                self.project_state_manager.load_parts(parts)
-                if skeleton is not None:
-                    self.project_state_manager.load_skeleton(skeleton)
-                else:
-                    self.project_state_manager.clear_skeleton()
-                self.project_state_manager.load_paths(paths)
-                self.project_state_manager.load_mechanisms(mechanisms)
-                self.project_state_manager.set_project_dir(
-                    Path(project_dir) if project_dir else None
-                )
-                self.project_state_manager.set_image_path(image_path)
-            finally:
-                self.project_state_manager.end_batch()
-
-            if mark_saved:
-                self.project_state_manager.mark_saved()
+            new_state = (
+                self.project_state_manager.state.with_parts(parts)
+                .with_skeleton(skeleton)
+                .with_paths(paths)
+                .with_mechanisms(mechanisms)
+                .with_project_dir(Path(project_dir) if project_dir else None)
+                .with_image_path(image_path)
+            )
+            self.project_state_manager.replace_project_state(
+                new_state,
+                operation="sync_runtime_state_to_ssot",
+                clear_history=False,
+                mark_saved=mark_saved,
+                emit_signals=True,
+                categories={"parts", "skeleton", "paths", "mechanisms"},
+            )
 
             has_project_content = bool(parts or skeleton or paths or mechanisms)
             self.action_manager.update_actions_for_project_state(has_project_content)
@@ -2458,6 +2465,29 @@ class AutomataDesigner(QMainWindow):
         self._project_controller.set_status_bar(self.statusBar())
         self._project_controller.redo()
 
+    def _perform_autosave(self, *, force: bool = False) -> bool:
+        """Autosave dirty runtime state into an isolated project autosave directory."""
+        try:
+            if not self.project_state_manager.is_dirty:
+                return False
+            self._sync_runtime_state_to_ssot(mark_saved=False)
+            state = self.project_state_manager.state
+            has_content = bool(state.parts or state.skeleton or state.paths or state.mechanisms)
+            if not has_content:
+                return False
+            project_dir = state.project_dir or get_default_project_dir()
+            self._autosave_manager.setup(project_dir)
+            if not force and not self._autosave_manager.should_save():
+                return False
+            result = self._autosave_manager.autosave(state.with_project_dir(project_dir))
+            if result.success:
+                logging.info("Autosaved project snapshot to %s", result.path)
+                return True
+            logging.warning("Autosave failed: %s", result.error)
+        except Exception:
+            logging.debug("Suppressed exception while autosaving project", exc_info=True)
+        return False
+
     def _connect_signal_once(self, signal: _QtSignalLike, slot: object) -> None:
         """Connect a PyQt signal to a slot without accumulating duplicate connections."""
         try:
@@ -2681,6 +2711,10 @@ class AutomataDesigner(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Persist workspace state before shutdown."""
+        try:
+            self._perform_autosave(force=True)
+        except Exception:
+            logging.debug("Suppressed exception while autosaving on close", exc_info=True)
         try:
             if self._workspace_layout_manager:
                 self._workspace_layout_manager.save_workspace_layout()

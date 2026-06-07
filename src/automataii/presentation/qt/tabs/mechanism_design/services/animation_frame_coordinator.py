@@ -6,6 +6,7 @@ Coordinates animation frame updates, mechanism output calculations, and IK targe
 
 Design Pattern: Coordinator (orchestrates animation frame operations)
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,6 +33,10 @@ class IKManagerProtocol(Protocol):
 
     def set_mechanism_position_target(self, joint_id: str, target_pos: QPointF) -> None:
         """Set position target for a joint."""
+        ...
+
+    def clear_mechanism_position_targets(self) -> None:
+        """Clear all mechanism position targets."""
         ...
 
 
@@ -84,6 +89,7 @@ class AnimationFrameCoordinator:
         self._last_target_pos_by_joint: dict[str, QPointF] = {}
         self._joint_id_cache: dict[str, str | None] = {}
         self._joint_id_cache_signature: JointCacheSignature | None = None
+        self._disabled_ik_clear_signature: tuple[tuple[str, ...], ...] | None = None
 
         # Callbacks (injected)
         self._calculate_output_fn: Callable[[str, dict, float, dict], QPointF | None] | None = None
@@ -150,6 +156,7 @@ class AnimationFrameCoordinator:
         self._last_target_pos_by_joint.clear()
         self._joint_id_cache.clear()
         self._joint_id_cache_signature = None
+        self._disabled_ik_clear_signature = None
         self._invalidate_mechanism_cache()
         self._ik_throttle_timer.invalidate()
 
@@ -197,6 +204,11 @@ class AnimationFrameCoordinator:
         self._trace_frame_tick = (self._trace_frame_tick + 1) % 1000000
 
         # Calculate mechanism outputs and collect IK targets
+        self._sync_disabled_control_ik_targets(
+            mechanism_layers=mechanism_layers,
+            part_enabled_state=part_enabled_state,
+            ik_manager=ik_manager,
+        )
         active_joint_updates = self._process_mechanism_batch(
             mechanism_layers=mechanism_layers,
             part_enabled_state=part_enabled_state,
@@ -246,8 +258,7 @@ class AnimationFrameCoordinator:
 
         # Calculate batch size for round-robin processing
         batch_count = max(
-            1,
-            int(math.ceil(total_mechs * max(0.05, min(1.0, self._mechanism_update_fraction))))
+            1, int(math.ceil(total_mechs * max(0.05, min(1.0, self._mechanism_update_fraction))))
         )
 
         start = self._mech_rr_cursor % total_mechs
@@ -328,6 +339,9 @@ class AnimationFrameCoordinator:
         if not layer_data or not layer_data.get("part_name"):
             return None
 
+        if layer_data.get("enabled") is False:
+            return None
+
         part_name = layer_data["part_name"]
 
         # Check if part is enabled
@@ -361,7 +375,7 @@ class AnimationFrameCoordinator:
 
             # Get target joint for IK
             part_info = parts_data.get(part_name)
-            if not part_info or not getattr(part_info, 'anchor_joint_id', None):
+            if not part_info or not getattr(part_info, "anchor_joint_id", None):
                 return None
 
             if not self._get_target_joint_fn or not self._get_standardized_joint_fn:
@@ -463,11 +477,12 @@ class AnimationFrameCoordinator:
             return
 
         # Initialize timer if needed
-        if not self._ik_throttle_timer.isValid():
+        timer_was_invalid = not self._ik_throttle_timer.isValid()
+        if timer_was_invalid:
             self._ik_throttle_timer.start()
 
         # Check if enough time has elapsed
-        if self._ik_throttle_timer.elapsed() < self._ik_min_interval_ms:
+        if not timer_was_invalid and self._ik_throttle_timer.elapsed() < self._ik_min_interval_ms:
             return
 
         eps = self._pos_epsilon_px
@@ -483,7 +498,55 @@ class AnimationFrameCoordinator:
             ik_manager.set_mechanism_position_target(joint_id, target_pos)
             self._last_target_pos_by_joint[joint_id] = target_pos
 
-        self._ik_throttle_timer.restart()
+        if timer_was_invalid:
+            self._ik_throttle_timer.start()
+        else:
+            self._ik_throttle_timer.restart()
+
+    def _clear_ik_throttle_cache(self) -> None:
+        self._last_target_pos_by_joint.clear()
+        self._ik_throttle_timer.invalidate()
+
+    def _sync_disabled_control_ik_targets(
+        self,
+        *,
+        mechanism_layers: dict[str, Any],
+        part_enabled_state: dict[str, bool],
+        ik_manager: IKManagerProtocol | None,
+    ) -> None:
+        disabled_mechanisms = tuple(
+            sorted(
+                mechanism_id
+                for mechanism_id, layer_data in mechanism_layers.items()
+                if isinstance(layer_data, dict) and layer_data.get("enabled") is False
+            )
+        )
+        disabled_parts = tuple(
+            sorted(
+                str(layer_data.get("part_name"))
+                for layer_data in mechanism_layers.values()
+                if isinstance(layer_data, dict)
+                and layer_data.get("part_name")
+                and not part_enabled_state.get(str(layer_data.get("part_name")), True)
+            )
+        )
+        signature = (disabled_mechanisms, disabled_parts)
+
+        if self._disabled_ik_clear_signature == signature:
+            return
+
+        previous_signature = self._disabled_ik_clear_signature
+        self._disabled_ik_clear_signature = signature
+
+        if disabled_mechanisms or disabled_parts:
+            if ik_manager and hasattr(ik_manager, "clear_mechanism_position_targets"):
+                try:
+                    ik_manager.clear_mechanism_position_targets()
+                except Exception:
+                    logging.debug("Suppressed exception", exc_info=True)
+            self._clear_ik_throttle_cache()
+        elif previous_signature is not None:
+            self._clear_ik_throttle_cache()
 
     def apply_performance_preset(self, preset: str) -> dict[str, Any]:
         """
@@ -558,7 +621,7 @@ class AnimationFrameCoordinator:
         """
         # Specific animation cache attributes to clear
         explicit_attrs = [
-            '_initial_cam_center_scene',
+            "_initial_cam_center_scene",
         ]
 
         for attr in explicit_attrs:
@@ -569,13 +632,12 @@ class AnimationFrameCoordinator:
                     pass
 
         # Clear prefixed caches (but preserve important _*_cache attributes)
-        prefixes = ('_animation_', '_cam_', '_gear_', '_fourbar_')
+        prefixes = ("_animation_", "_cam_", "_gear_", "_fourbar_")
         try:
-            all_attrs = [attr for attr in dir(target_object)
-                        if attr.startswith(prefixes)]
+            all_attrs = [attr for attr in dir(target_object) if attr.startswith(prefixes)]
 
             for attr in all_attrs:
-                if not attr.endswith('_cache') and hasattr(target_object, attr):
+                if not attr.endswith("_cache") and hasattr(target_object, attr):
                     try:
                         delattr(target_object, attr)
                     except AttributeError:

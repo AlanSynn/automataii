@@ -46,9 +46,7 @@ class ProjectDataManager(QObject):
         )
 
         self._parts: dict[str, PartInfo] = {}  # Runtime PartInfo objects
-        self._raw_skeleton_data: list[dict[str, Any]] | None = (
-            None  # For SkeletonManager
-        )
+        self._raw_skeleton_data: list[dict[str, Any]] | None = None  # For SkeletonManager
         self._effective_bounding_box_offset: QPointF = QPointF(0, 0)
 
         logging.info("ProjectDataManager initialized.")
@@ -145,13 +143,23 @@ class ProjectDataManager(QObject):
             and self._validated_project_data.character
             and self._validated_project_data.character.parts
         ):
-            for part_name, pydantic_part_model in self._validated_project_data.character.parts.items():
-                runtime_part = PartInfo.from_pydantic(pydantic_part_model, project_dir=self._project_dir)
+            for (
+                part_name,
+                pydantic_part_model,
+            ) in self._validated_project_data.character.parts.items():
+                runtime_part = PartInfo.from_pydantic(
+                    pydantic_part_model, project_dir=self._project_dir
+                )
                 parsed_parts[part_name] = runtime_part
 
                 if runtime_part.roi:
                     all_part_rects.append(
-                        QRectF(runtime_part.roi[0], runtime_part.roi[1], runtime_part.roi[2], runtime_part.roi[3])
+                        QRectF(
+                            runtime_part.roi[0],
+                            runtime_part.roi[1],
+                            runtime_part.roi[2],
+                            runtime_part.roi[3],
+                        )
                     )
 
         self._parts = parsed_parts
@@ -183,13 +191,17 @@ class ProjectDataManager(QObject):
             if skeleton_joints:
                 num_joints = len(skeleton_joints)
 
-        logging.info(f"ProjectDataManager: Successfully validated {num_parts} parts. Project dir: {self._project_dir}")
+        logging.info(
+            f"ProjectDataManager: Successfully validated {num_parts} parts. Project dir: {self._project_dir}"
+        )
         if num_joints > 0:
             logging.info(f"ProjectDataManager: Validated {num_joints} skeleton joints.")
 
     def _handle_validation_error(self, filepath: str, ve: ValidationError) -> None:
         """Handle Pydantic validation errors."""
-        logging.error(f"ProjectDataManager: Pydantic validation error in {filepath}. {ve}", exc_info=True)
+        logging.error(
+            f"ProjectDataManager: Pydantic validation error in {filepath}. {ve}", exc_info=True
+        )
         self.error_occurred.emit(f"Invalid project file format: {ve.errors()}")
 
     def _handle_json_error(self, filepath: str, je: json.JSONDecodeError) -> None:
@@ -199,7 +211,9 @@ class ProjectDataManager(QObject):
 
     def _handle_generic_error(self, filepath: str, e: Exception) -> None:
         """Handle generic errors during project load."""
-        logging.error(f"ProjectDataManager: Error loading project from {filepath}: {e}", exc_info=True)
+        logging.error(
+            f"ProjectDataManager: Error loading project from {filepath}: {e}", exc_info=True
+        )
         self.error_occurred.emit(f"Failed to load project: {e}")
 
     def _try_load_supplemental_skeleton_data(self) -> None:
@@ -228,7 +242,9 @@ class ProjectDataManager(QObject):
             True if supplemental load should proceed, False otherwise.
         """
         if not self._project_dir or not self._validated_project_data:
-            logging.debug("Project dir or validated data not available for supplemental skeleton load.")
+            logging.debug(
+                "Project dir or validated data not available for supplemental skeleton load."
+            )
             return False
 
         if not self._validated_project_data.character:
@@ -238,7 +254,9 @@ class ProjectDataManager(QObject):
         # Check if skeleton data is already populated
         existing_joints = self._validated_project_data.character.skeleton_joints
         if existing_joints and len(existing_joints) > 0:
-            logging.info("Skeleton data already present in main project file. Skipping supplemental load.")
+            logging.info(
+                "Skeleton data already present in main project file. Skipping supplemental load."
+            )
             return False
 
         return True
@@ -294,9 +312,7 @@ class ProjectDataManager(QObject):
         if isinstance(skeleton, dict):
             joints_payload = skeleton.get("joints", {})
             if not isinstance(joints_payload, dict):
-                logging.warning(
-                    f"Invalid 'skeleton.joints' (not a dict) in {char_cfg_path}."
-                )
+                logging.warning(f"Invalid 'skeleton.joints' (not a dict) in {char_cfg_path}.")
                 return None
 
             normalized: list[dict[str, Any]] = []
@@ -361,9 +377,7 @@ class ProjectDataManager(QObject):
 
         return pydantic_joints
 
-    def _parse_single_yaml_joint(
-        self, joint_data: Any
-    ) -> PydanticSkeletonJointModel | None:
+    def _parse_single_yaml_joint(self, joint_data: Any) -> PydanticSkeletonJointModel | None:
         """Parse a single joint entry from YAML.
 
         Args:
@@ -424,9 +438,7 @@ class ProjectDataManager(QObject):
             return
 
         self._validated_project_data.character.skeleton_joints = pydantic_joints
-        logging.info(
-            f"Successfully loaded {len(pydantic_joints)} joints from {char_cfg_path}."
-        )
+        logging.info(f"Successfully loaded {len(pydantic_joints)} joints from {char_cfg_path}.")
 
     def clear_project_data(self, *, emit_signal: bool = True):
         logging.info("ProjectDataManager: Clearing project data.")
@@ -438,32 +450,24 @@ class ProjectDataManager(QObject):
         if emit_signal:
             self.project_data_cleared.emit()
 
-
     def get_all_parts(self) -> dict[str, PartInfo]:
         return self.parts
 
     def clear_all_motion_paths(self) -> None:
         if not self._parts:
-            logging.info(
-                "ProjectDataManager: No parts loaded to clear motion paths from."
-            )
+            logging.info("ProjectDataManager: No parts loaded to clear motion paths from.")
             return
         cleared_count = 0
         for part_info in self._parts.values():  # Iterate through runtime PartInfo
             path_cleared = False
-            if (
-                hasattr(part_info, "motion_path_data")
-                and part_info.motion_path_data is not None
-            ):
+            if hasattr(part_info, "motion_path_data") and part_info.motion_path_data is not None:
                 part_info.motion_path_data = None  # Clear QPainterPath
                 path_cleared = True
             # If PartInfoModel was also stored and needed update, do it here. But primarily runtime PartInfo.
             if path_cleared:
                 cleared_count += 1
         if cleared_count > 0:
-            logging.info(
-                f"ProjectDataManager: Cleared motion paths for {cleared_count} parts."
-            )
+            logging.info(f"ProjectDataManager: Cleared motion paths for {cleared_count} parts.")
         else:
             logging.info("ProjectDataManager: No motion paths found to clear.")
 
@@ -475,69 +479,22 @@ class ProjectDataManager(QObject):
     # --- Methods for project saving (to be implemented using Pydantic models) ---
     def save_project_to_file(self, filepath: str) -> bool:
         logging.info(f"ProjectDataManager: Attempting to save project to: {filepath}")
-        if (
-            not self._validated_project_data
-            or not self._validated_project_data.character
-        ):
-            logging.warning("No project data to save.")
-            self.error_occurred.emit("No project data available to save.")
-            return False
-
-        try:
-            # Update Pydantic models from runtime PartInfo objects if they have changed
-            # This is crucial if runtime PartInfo (e.g., motion_path_data) can be modified
-            # and these changes need to be reflected back into the Pydantic model before saving.
-            for _name, _runtime_part in self._parts.items():
-                # This is a simplification. A full conversion from runtime PartInfo to PydanticPartInfoModel
-                # would be needed here, especially for complex types like motion_path_data.
-                # For now, assume self._validated_project_data.character.parts holds the latest structural data
-                # and we are just updating fields that might have changed if PartInfo was directly modified.
-                # This section needs careful implementation if bidirectional sync is complex.
-
-                # Simplistic: Re-create Pydantic model from runtime PartInfo
-                # This assumes PartInfo has all necessary fields or can be converted to a dict for Pydantic model creation.
-                # This is non-trivial if PartInfo contains Qt objects directly.
-                # A better approach: modify the existing self._validated_project_data.character.parts objects.
-
-                # For now, let's assume the Pydantic model that was loaded is mostly up-to-date
-                # or changes are managed by updating the Pydantic model instance itself elsewhere.
-                # The ideal way is to have a method PartInfo.to_pydantic_model() -> PydanticPartInfoModel.
-                pass  # Placeholder for update logic
-
-            # For demonstration, we serialize the stored _validated_project_data
-            # In a real app, ensure _validated_project_data reflects all runtime changes.
-            json_data_to_save = self._validated_project_data.model_dump(
-                mode="json", by_alias=True
-            )
-
-            # Ensure parent directory exists before saving
-            save_path = Path(filepath)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(json_data_to_save, f, indent=4)
-
-            logging.info(f"Project successfully saved to {filepath}")
-            self._project_dir = Path(filepath).parent  # Update project dir
-            # Optionally, emit a signal for project_saved
-            return True
-
-        except Exception as e:
-            logging.error(f"Error saving project to {filepath}: {e}", exc_info=True)
-            self.error_occurred.emit(
-                f"Error saving project to {Path(filepath).name}: {e}"
-            )
-            return False
+        message = (
+            "Legacy ProjectDataManager direct save is disabled because it cannot "
+            "guarantee a complete runtime snapshot. Use the MotionSmith .automataii "
+            "project save path instead."
+        )
+        logging.warning(message)
+        self.error_occurred.emit(message)
+        return False
 
     # Methods for MainWindow to call for dialogs
-        # self.project_newed_signal.emit() # Or reuse project_data_cleared
+    # self.project_newed_signal.emit() # Or reuse project_data_cleared
 
     def load_project_dialog(self):
         from PyQt6.QtWidgets import QFileDialog  # Local import
 
-        start_dir = (
-            str(self._project_dir) if self._project_dir else os.path.expanduser("~")
-        )
+        start_dir = str(self._project_dir) if self._project_dir else os.path.expanduser("~")
         filepath, _ = QFileDialog.getOpenFileName(
             None,  # Parent can be None for a static method or if no obvious parent
             "Load Project File",
@@ -548,7 +505,6 @@ class ProjectDataManager(QObject):
             self.load_project_from_file(filepath)
 
     def save_project_dialog(self):
-
         if not self._project_dir or not self._parts:
             logging.warning("No project data loaded to save. Use Save As.")
             # self.error_occurred.emit("No project loaded. Use Save As.") # Not an error, just guidance
@@ -579,9 +535,7 @@ class ProjectDataManager(QObject):
     def save_project_as_dialog(self):
         from PyQt6.QtWidgets import QFileDialog  # Local import
 
-        start_dir = (
-            str(self._project_dir) if self._project_dir else os.path.expanduser("~")
-        )
+        start_dir = str(self._project_dir) if self._project_dir else os.path.expanduser("~")
         default_save_name = "parts_info.json"
         if (
             self._project_dir
@@ -640,6 +594,7 @@ if __name__ == "__main__":
         }
     }
     from ..utils.paths import get_project_root
+
     project_root = get_project_root()
     dummy_filepath = project_root / "dummy_project_pydantic.json"
     with open(dummy_filepath, "w") as f:

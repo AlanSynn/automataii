@@ -10,9 +10,29 @@ Design Pattern: Generator (focused SVG generation)
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 from automataii.domain.generation.layout import ScaledBounds
+
+_NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(_NumericPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _positive_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result > 0.0 else default
+
+
+def _non_negative_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result >= 0.0 else default
 
 
 class CamSVGGenerator:
@@ -60,9 +80,12 @@ class CamSVGGenerator:
                 ["base_radius_mm", "lift_mm", "eccentricity_mm", "follower_radius_mm"],
             )
 
-        base_r = mm.get("base_radius_mm", 30.0)
-        lift = mm.get("lift_mm", mm.get("eccentricity_mm", 15.0))
-        follower_r = mm.get("follower_radius_mm", 8.0)
+        base_r = _positive_finite_float(mm.get("base_radius_mm"), 30.0)
+        lift = _non_negative_finite_float(
+            mm.get("lift_mm", mm.get("eccentricity_mm")),
+            15.0,
+        )
+        follower_r = _positive_finite_float(mm.get("follower_radius_mm"), 8.0)
 
         # Get center from key_points or default
         kp = mech_data.get("key_points", {})
@@ -70,7 +93,10 @@ class CamSVGGenerator:
 
         if "cam_center" in kp:
             cx, cy = kp["cam_center"]
-            center = (float(cx) * factor, float(cy) * factor)
+            center = (
+                _finite_float(cx, base_r + lift + 20) * factor,
+                _finite_float(cy, base_r + lift + 20) * factor,
+            )
         else:
             center = (base_r + lift + 20, base_r + lift + 20)
 
@@ -183,7 +209,7 @@ class CamSVGGenerator:
                 # Fall phase (harmonic)
                 displacement = (lift / 2) * (1 + math.cos(angle - math.pi))
 
-            r = base_radius + displacement
+            r = max(1e-6, base_radius + displacement)
             x = cx + r * math.cos(angle - math.pi / 2)  # Start from top
             y = cy + r * math.sin(angle - math.pi / 2)
             points.append((x, y))
@@ -268,5 +294,5 @@ class CamSVGGenerator:
         if rwp:
             for n in names:
                 if n in rwp:
-                    mm[n] = float(rwp[n])
+                    mm[n] = _finite_float(rwp[n], math.nan)
         return mm

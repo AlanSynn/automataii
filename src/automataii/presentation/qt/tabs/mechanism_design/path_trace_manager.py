@@ -15,6 +15,7 @@ Date: 2025-11-22
 """
 
 import logging
+import math
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QPointF, Qt
@@ -22,6 +23,11 @@ from PyQt6.QtGui import QColor, QPainterPath, QPen
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsScene
 
 logger = logging.getLogger(__name__)
+
+
+def _is_finite_position(position: QPointF) -> bool:
+    """Return True when a trace point has finite scene coordinates."""
+    return math.isfinite(position.x()) and math.isfinite(position.y())
 
 
 @dataclass
@@ -140,7 +146,7 @@ class PathTraceManager:
         # Add initial position if provided (t=0 coupler point)
         if initial_position is not None:
             # Validate position (same logic as update_trace)
-            if abs(initial_position.x()) >= 10 or abs(initial_position.y()) >= 10:
+            if _is_finite_position(initial_position):
                 self._trace_points[mechanism_id].append(initial_position)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -151,7 +157,7 @@ class PathTraceManager:
                     )
             else:
                 logger.debug(
-                    "Initialized trace for mechanism %s (initial position rejected as invalid)",
+                    "Initialized trace for mechanism %s (initial position rejected as non-finite)",
                     mechanism_id,
                 )
         else:
@@ -173,7 +179,7 @@ class PathTraceManager:
             scene: Optional scene for auto-initialization if trace doesn't exist.
 
         Behavior:
-            - Validates position (rejects (0,0) or very small values)
+            - Validates position (rejects NaN/inf coordinates)
             - Skips first N frames (warmup) to avoid initial glitches
             - Appends position to point buffer
             - Enforces max_points limit with **Chunked Trimming** (optimizes performance)
@@ -205,12 +211,12 @@ class PathTraceManager:
                 )
             return
 
-        # Validate position - reject positions at or near (0, 0) which indicate
-        # the transform function wasn't properly applied or mechanism not initialized
-        if abs(position.x()) < 10 and abs(position.y()) < 10:
+        # Validate position - reject non-finite values while preserving finite
+        # near-origin mechanism outputs such as (0, 0) and (9, 9).
+        if not _is_finite_position(position):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Rejecting invalid trace position for %s: (%.1f, %.1f)",
+                    "Rejecting non-finite trace position for %s: (%.1f, %.1f)",
                     mechanism_id,
                     position.x(),
                     position.y(),

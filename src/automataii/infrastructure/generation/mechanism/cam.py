@@ -1,11 +1,13 @@
 import logging
 import math
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath
 
 from automataii.infrastructure.generation.mechanism.base import BaseMechanism
+
+_NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
 
 
 class Cam(BaseMechanism):
@@ -75,7 +77,9 @@ class Cam(BaseMechanism):
 
                 # Lift profile: maximum lift when cam's high point is at bottom (theta=3π/2)
                 # This creates the physics where cam pushes follower UP when convex part is below
-                lift = lift_amount * (1 + math.cos(theta + math.pi/2)) / 2  # Shifted cosine for proper phase
+                lift = (
+                    lift_amount * (1 + math.cos(theta + math.pi / 2)) / 2
+                )  # Shifted cosine for proper phase
                 cam_radius = base_radius + lift
 
                 # Generate cam profile point
@@ -217,9 +221,13 @@ class Cam(BaseMechanism):
                 "lift_amount": preview_eccentric_radius,  # Added lift amount for physics
                 "angle_offset_rad": 0,  # Start with no offset for proper orientation
                 "min_radius": (
-                    min_dist_to_center if min_dist_to_center != float("inf") else preview_base_radius
+                    min_dist_to_center
+                    if min_dist_to_center != float("inf")
+                    else preview_base_radius
                 ),
-                "max_radius": max_dist_to_center if max_dist_to_center > 0 else preview_base_radius + preview_eccentric_radius,
+                "max_radius": max_dist_to_center
+                if max_dist_to_center > 0
+                else preview_base_radius + preview_eccentric_radius,
                 "description": (
                     "Generated cam with proper lift profile"
                     if base_radius_override is not None
@@ -228,8 +236,6 @@ class Cam(BaseMechanism):
             }
         else:
             return cam_profile_path
-
-
 
 
 if __name__ == "__main__":
@@ -315,8 +321,37 @@ if __name__ == "__main__":
 class CamGenerator:
     """Generator for cam mechanism SVG blueprints."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
+
+    @staticmethod
+    def _finite_float(value: object, default: float) -> float:
+        try:
+            result = float(cast(_NumericPayload, value))
+        except (TypeError, ValueError):
+            return default
+        return result if math.isfinite(result) else default
+
+    @classmethod
+    def _positive_finite_float(cls, value: object, default: float) -> float:
+        result = cls._finite_float(value, default)
+        return result if result > 0.0 else default
+
+    @classmethod
+    def _finite_point_list(
+        cls, points: object, fallback_center: list[float], fallback_radius: float
+    ) -> list[list[float]]:
+        if not isinstance(points, list | tuple):
+            return []
+        finite_points: list[list[float]] = []
+        for point in points:
+            if not isinstance(point, list | tuple) or len(point) < 2:
+                continue
+            x = cls._finite_float(point[0], math.nan)
+            y = cls._finite_float(point[1], math.nan)
+            if math.isfinite(x) and math.isfinite(y):
+                finite_points.append([x, y])
+        return finite_points if len(finite_points) >= 3 else []
 
     def generate_svg(self, cam_data: dict[str, Any]) -> str:
         """
@@ -330,13 +365,22 @@ class CamGenerator:
         """
         try:
             # Extract cam parameters with defaults
-            center = cam_data.get('center', [0, 0])
-            base_radius = cam_data.get('base_radius', 20.0)
-            max_radius = cam_data.get('max_radius', 30.0)
-            profile_points = cam_data.get('profile_points', [])
-            name = cam_data.get('name', 'Cam')
+            raw_center = cam_data.get("center", [0, 0])
+            if not isinstance(raw_center, list | tuple) or len(raw_center) < 2:
+                raw_center = [0.0, 0.0]
+            center = [
+                self._finite_float(raw_center[0], 0.0),
+                self._finite_float(raw_center[1], 0.0),
+            ]
+            base_radius = self._positive_finite_float(cam_data.get("base_radius"), 20.0)
+            max_radius = self._positive_finite_float(cam_data.get("max_radius"), base_radius)
+            if max_radius < base_radius:
+                max_radius = base_radius
+            profile_points = cam_data.get("profile_points", [])
+            name = cam_data.get("name", "Cam")
 
             # If no profile points, create a simple circular cam
+            profile_points = self._finite_point_list(profile_points, center, base_radius)
             if not profile_points:
                 profile_points = self._generate_circular_profile(center, base_radius, 36)
 
@@ -344,8 +388,8 @@ class CamGenerator:
             profile_path = self._generate_cam_profile_path(profile_points)
 
             # Calculate additional cam parameters
-            lift = max_radius - base_radius
-            bore_radius = base_radius * 0.15
+            lift = max(0.0, max_radius - base_radius)
+            bore_radius = max(1e-6, base_radius * 0.15)
             follower_diameter = 8.0  # Standard follower size
 
             # Create comprehensive technical drawing
@@ -400,7 +444,7 @@ class CamGenerator:
                     <rect x="-8" y="-15" width="16" height="30"
                           fill="none" stroke="black" stroke-width="1.5"/>
                     <!-- Follower rod -->
-                    <circle r="{follower_diameter/2}" fill="none" stroke="black" stroke-width="1"/>
+                    <circle r="{follower_diameter / 2}" fill="none" stroke="black" stroke-width="1"/>
                     <!-- Spring -->
                     <path d="M -6,8 Q -3,12 0,8 Q 3,4 6,8"
                           stroke="black" stroke-width="0.5" fill="none"/>
@@ -488,8 +532,15 @@ class CamGenerator:
             self.logger.error(f"Failed to generate cam SVG: {e}")
             return '<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate cam</text>'
 
-    def _generate_circular_profile(self, center: list[float], radius: float, num_points: int) -> list[list[float]]:
+    def _generate_circular_profile(
+        self, center: list[float], radius: float, num_points: int
+    ) -> list[list[float]]:
         """Generate points for a circular cam profile."""
+        center = [
+            self._finite_float(center[0] if len(center) > 0 else 0.0, 0.0),
+            self._finite_float(center[1] if len(center) > 1 else 0.0, 0.0),
+        ]
+        radius = self._positive_finite_float(radius, 20.0)
         # Guard against division by zero
         if num_points < 1:
             num_points = 36  # Default fallback
@@ -506,9 +557,13 @@ class CamGenerator:
         if not profile_points:
             return ""
 
-        path_data = f"M {profile_points[0][0]:.2f} {profile_points[0][1]:.2f} "
+        finite_points = self._finite_point_list(profile_points, [0.0, 0.0], 20.0)
+        if not finite_points:
+            return ""
 
-        for point in profile_points[1:]:
+        path_data = f"M {finite_points[0][0]:.2f} {finite_points[0][1]:.2f} "
+
+        for point in finite_points[1:]:
             path_data += f"L {point[0]:.2f} {point[1]:.2f} "
 
         path_data += "Z"  # Close the path

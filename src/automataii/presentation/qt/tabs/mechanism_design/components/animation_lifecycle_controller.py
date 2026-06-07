@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from automataii.presentation.qt.tabs.mechanism_design.path_trace_manager import PathTraceManager
 
 
+def _finite_qpoint(point: QPointF) -> bool:
+    return math.isfinite(point.x()) and math.isfinite(point.y())
+
+
 class AnimationLifecycleController(QObject):
     """
     Controls animation lifecycle for mechanism design.
@@ -82,6 +86,7 @@ class AnimationLifecycleController(QObject):
         self._use_scheduler = False  # Whether scheduler is actively being used
         self._started_scheduler = False
         self._mechanism_enabled_state: dict[str, bool] = {}
+        self._disabled_ik_clear_signature: tuple[tuple[str, ...], tuple[str, ...]] | None = None
 
         # IK throttling for performance
         self._ik_update_rate_hz: int = 30
@@ -286,6 +291,9 @@ class AnimationLifecycleController(QObject):
             initial_skeleton_data: Initial skeleton data for visualization
         """
         self._mechanism_enabled_state = mechanism_enabled_state
+        self.clear_throttle_cache()
+        self._disabled_ik_clear_signature = None
+        self._clear_all_ik_targets()
         if not any(self._mechanism_enabled_state.values()):
             self._tab_active = False
             logging.warning("AnimationLifecycleController: No mechanisms enabled for animation")
@@ -377,7 +385,8 @@ class AnimationLifecycleController(QObject):
                     main_window.ik_manager.stop_animation()
 
                 # Clear all mechanism position targets
-                main_window.ik_manager.clear_mechanism_position_targets()
+                self._clear_all_ik_targets()
+                self._disabled_ik_clear_signature = None
             except Exception as e:
                 logging.debug(f"AnimationLifecycleController: IK stop failed: {e}")
 
@@ -416,7 +425,8 @@ class AnimationLifecycleController(QObject):
                 if hasattr(main_window.ik_manager, "stop_animation"):
                     main_window.ik_manager.stop_animation()
 
-                main_window.ik_manager.clear_mechanism_position_targets()
+                self._clear_all_ik_targets()
+                self._disabled_ik_clear_signature = None
 
                 if hasattr(main_window.ik_manager, "reset_animation_state"):
                     main_window.ik_manager.reset_animation_state()
@@ -554,6 +564,11 @@ class AnimationLifecycleController(QObject):
 
         # Round-robin subset selection for batch processing
         mechanism_enabled_state = self._mechanism_enabled_state
+        self._sync_disabled_control_ik_targets(
+            mechanism_layers=mechanism_layers,
+            mechanism_enabled_state=mechanism_enabled_state,
+            part_enabled_state=part_enabled_state,
+        )
         mech_items = [
             (mechanism_id, layer_data)
             for mechanism_id, layer_data in mechanism_layers.items()
@@ -620,7 +635,7 @@ class AnimationLifecycleController(QObject):
                     "[ANIM-CALLBACK] Finished calling _update_mechanism_visuals_for_animation"
                 )
 
-                if output_pos:
+                if output_pos is not None and _finite_qpoint(output_pos):
                     # Get the correct end effector joint for this part
                     part_info = parts_data.get(part_name)
                     logging.debug(
@@ -689,12 +704,13 @@ class AnimationLifecycleController(QObject):
             return
 
         # Initialize throttle timer if needed
-        if not self._ik_throttle_timer.isValid():
+        timer_was_invalid = not self._ik_throttle_timer.isValid()
+        if timer_was_invalid:
             self._ik_throttle_timer.start()
 
         # Check if enough time has passed
         elapsed = self._ik_throttle_timer.elapsed()
-        if elapsed < self._ik_min_interval_ms:
+        if not timer_was_invalid and elapsed < self._ik_min_interval_ms:
             logging.debug(
                 f"[ANIM-IK-SEND] Throttled: elapsed={elapsed}ms < min_interval={self._ik_min_interval_ms}ms"
             )
@@ -721,7 +737,10 @@ class AnimationLifecycleController(QObject):
             else:
                 logging.debug(f"[ANIM-IK-SEND] Skipped {joint_id}: position change < epsilon")
 
-        self._ik_throttle_timer.restart()
+        if timer_was_invalid:
+            self._ik_throttle_timer.start()
+        else:
+            self._ik_throttle_timer.restart()
 
     # --- Animation Cache Management ---
 
@@ -729,3 +748,57 @@ class AnimationLifecycleController(QObject):
         """Clear the IK throttle cache."""
         self._last_target_pos_by_joint.clear()
         self._ik_throttle_timer.invalidate()
+
+    def _get_ik_manager(self) -> Any:
+        main_window = self._get_main_window()
+        if main_window and hasattr(main_window, "ik_manager"):
+            return main_window.ik_manager
+        return None
+
+    def _clear_all_ik_targets(self) -> None:
+        ik_manager = self._get_ik_manager()
+        if not ik_manager or not hasattr(ik_manager, "clear_mechanism_position_targets"):
+            return
+        try:
+            ik_manager.clear_mechanism_position_targets()
+        except Exception as e:
+            logging.debug(f"AnimationLifecycleController: IK clear failed: {e}")
+        finally:
+            self.clear_throttle_cache()
+
+    def _sync_disabled_control_ik_targets(
+        self,
+        *,
+        mechanism_layers: dict[str, Any],
+        mechanism_enabled_state: dict[str, bool],
+        part_enabled_state: dict[str, bool],
+    ) -> None:
+        disabled_mechanisms = tuple(
+            sorted(
+                mechanism_id
+                for mechanism_id in mechanism_layers
+                if not mechanism_enabled_state.get(mechanism_id, True)
+            )
+        )
+        disabled_parts = tuple(
+            sorted(
+                str(layer_data.get("part_name"))
+                for mechanism_id, layer_data in mechanism_layers.items()
+                if mechanism_enabled_state.get(mechanism_id, True)
+                and layer_data
+                and layer_data.get("part_name")
+                and not part_enabled_state.get(str(layer_data.get("part_name")), True)
+            )
+        )
+        signature = (disabled_mechanisms, disabled_parts)
+
+        if self._disabled_ik_clear_signature == signature:
+            return
+
+        previous_signature = self._disabled_ik_clear_signature
+        self._disabled_ik_clear_signature = signature
+
+        if disabled_mechanisms or disabled_parts:
+            self._clear_all_ik_targets()
+        elif previous_signature is not None:
+            self.clear_throttle_cache()

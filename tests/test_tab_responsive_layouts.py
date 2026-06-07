@@ -1,4 +1,5 @@
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -70,9 +71,7 @@ def test_editor_tab_control_panel_is_resizable() -> None:
     scroll_area = host.findChild(QScrollArea)
     assert scroll_area is not None
     assert scroll_area.minimumWidth() < scroll_area.maximumWidth()
-    assert (
-        scroll_area.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed
-    )
+    assert scroll_area.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed
 
 
 def test_mechanism_design_control_panel_is_resizable() -> None:
@@ -90,9 +89,7 @@ def test_mechanism_design_control_panel_is_resizable() -> None:
     scroll_area = host.findChild(QScrollArea)
     assert scroll_area is not None
     assert scroll_area.minimumWidth() < scroll_area.maximumWidth()
-    assert (
-        scroll_area.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed
-    )
+    assert scroll_area.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed
 
 
 def test_image_processing_uses_splitter_with_scrollable_controls() -> None:
@@ -237,7 +234,9 @@ def test_image_processing_load_image_auto_applies_pipeline(monkeypatch) -> None:
         staticmethod(lambda *args, **kwargs: ("/tmp/mock.png", "Image Files (*.png)")),
     )
     tab.image_proc_view.load_image = lambda _path: True
-    tab._auto_apply_loaded_image_to_editor = lambda: called.__setitem__("auto_apply", called["auto_apply"] + 1) or True
+    tab._auto_apply_loaded_image_to_editor = (
+        lambda: called.__setitem__("auto_apply", called["auto_apply"] + 1) or True
+    )
 
     tab.load_input_image()
 
@@ -252,6 +251,30 @@ def test_image_processing_processing_steps_hidden_by_default_after_input_ready()
     tab._on_input_ready("/tmp/mock.png", source="file", status_prefix="Loaded input image")
 
     assert not tab.processing_steps_group.isVisible()
+
+
+def test_camera_capture_temp_paths_are_session_isolated_and_collision_proof(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _ = _get_app()
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(
+        "automataii.presentation.qt.tabs.image_processing_tab.time.strftime",
+        lambda _fmt: "20260102_030405",
+    )
+
+    tab = ImageProcessingTab(_DummyMainWindow())
+    image = np.zeros((2, 2, 3), dtype=np.uint8)
+
+    first = Path(tab._write_camera_capture_temp(image))
+    second = Path(tab._write_camera_capture_temp(image))
+
+    assert first != second
+    assert first.exists()
+    assert second.exists()
+    assert first.parent != second.parent
+    assert first.parent.parent == tmp_path / "motionsmith"
+    assert (first.parent / ".motionsmith-image-session").exists()
 
 
 def test_image_processing_external_skeleton_loads_project_preview(tmp_path) -> None:
@@ -272,7 +295,9 @@ def test_image_processing_external_skeleton_loads_project_preview(tmp_path) -> N
     assert tab.input_image_path is None
 
 
-def test_image_processing_external_preview_prefers_composited_parts_over_segmentation(tmp_path) -> None:
+def test_image_processing_external_preview_prefers_composited_parts_over_segmentation(
+    tmp_path,
+) -> None:
     _ = _get_app()
 
     segmentation_path = tmp_path / "segmentation_vis.png"

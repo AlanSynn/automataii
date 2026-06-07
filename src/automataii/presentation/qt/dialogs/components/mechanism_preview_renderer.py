@@ -6,8 +6,10 @@ structures and path comparisons for recommendation dialogs.
 
 Design Pattern: Renderer (preview generation)
 """
+
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -126,10 +128,7 @@ class MechanismPreviewRenderer:
         r = self.JOINT_RADIUS
 
         for pos in [O0, O1, A, B]:
-            self._scene.addEllipse(
-                pos[0] - r, pos[1] - r, r * 2, r * 2,
-                joint_pen, joint_brush
-            )
+            self._scene.addEllipse(pos[0] - r, pos[1] - r, r * 2, r * 2, joint_pen, joint_brush)
 
     def render_cam_follower(
         self,
@@ -153,8 +152,15 @@ class MechanismPreviewRenderer:
             return
 
         if transform:
+            original_center = center
             center = transform(*center)
             follower_pos = transform(*follower_pos)
+            radius_basis = transform(original_center[0] + base_radius, original_center[1])
+            transformed_radius = math.hypot(
+                radius_basis[0] - center[0], radius_basis[1] - center[1]
+            )
+            if math.isfinite(transformed_radius) and transformed_radius > 0.0:
+                base_radius = transformed_radius
 
         # Draw cam base circle
         cam_pen = QPen(QColor(70, 130, 180), 2)
@@ -191,8 +197,10 @@ class MechanismPreviewRenderer:
 
         # Draw follower rod
         self._scene.addLine(
-            follower_pos[0], follower_pos[1] + follower_r,
-            follower_pos[0], follower_pos[1] + 50,
+            follower_pos[0],
+            follower_pos[1] + follower_r,
+            follower_pos[0],
+            follower_pos[1] + 50,
             QPen(QColor(80, 80, 80), 3),
         )
 
@@ -249,12 +257,10 @@ class MechanismPreviewRenderer:
         r = 3
 
         self._scene.addEllipse(
-            center1[0] - r, center1[1] - r, r * 2, r * 2,
-            center_pen, center_brush
+            center1[0] - r, center1[1] - r, r * 2, r * 2, center_pen, center_brush
         )
         self._scene.addEllipse(
-            center2[0] - r, center2[1] - r, r * 2, r * 2,
-            center_pen, center_brush
+            center2[0] - r, center2[1] - r, r * 2, r * 2, center_pen, center_brush
         )
 
     def _draw_path(

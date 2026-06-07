@@ -128,6 +128,8 @@ def build_pear_cam_profile_from_params(
 ) -> np.ndarray:
     """Build a scaled pear-cam profile from mechanism parameter aliases."""
     scale = _positive_finite_float(scale, 1.0)
+    if "cam_lobes" in params or "profile_harmonic" in params:
+        return build_harmonic_cam_profile_from_params(params, scale=scale, num_samples=num_samples)
     rise_deg, high_dwell_deg, return_deg, low_dwell_deg = normalized_cam_timing(params)
     return build_pear_cam_profile(
         base_radius=_positive_finite_float(params.get("base_radius"), 25.0) * scale,
@@ -139,6 +141,43 @@ def build_pear_cam_profile_from_params(
         align_max_to_deg=_finite_float(params.get("align_max_deg"), 90.0),
         num_samples=num_samples,
     )
+
+
+def build_harmonic_cam_profile_from_params(
+    params: dict[str, Any],
+    *,
+    scale: float = 1.0,
+    num_samples: int = 360,
+) -> np.ndarray:
+    """Build the Foundry/domain harmonic cam profile from Design aliases.
+
+    Foundry exposes ``cam_lobes`` and ``profile_harmonic``.  When those
+    parameters are present, Design must not overwrite the exported profile with
+    a generic pear cam; otherwise Foundry sliders visually disappear after
+    export/import.
+    """
+    scale = _positive_finite_float(scale, 1.0)
+    base_radius = (
+        _positive_finite_float(params.get("base_radius", params.get("cam_radius")), 60.0) * scale
+    )
+    eccentricity = (
+        _non_negative_finite_float(params.get("eccentricity", params.get("cam_offset")), 20.0)
+        * scale
+    )
+    lobes_raw = _finite_float(params.get("cam_lobes"), 1.0)
+    cam_lobes = int(lobes_raw) if lobes_raw >= 1.0 and float(lobes_raw).is_integer() else 1
+    profile_harmonic = _finite_float(params.get("profile_harmonic"), 0.3)
+    sample_count = max(3, int(_positive_finite_float(num_samples, 360.0)))
+
+    thetas = np.linspace(0, 2 * np.pi, sample_count, endpoint=False)
+    radii = (
+        base_radius
+        + eccentricity * np.cos(cam_lobes * thetas)
+        + (eccentricity * profile_harmonic) * np.cos(2 * cam_lobes * thetas)
+    )
+    min_radius = max(1e-6, abs(base_radius) * 0.05)
+    radii = np.maximum(radii, min_radius)
+    return np.stack([radii * np.cos(thetas), radii * np.sin(thetas)], axis=1).astype(float)
 
 
 def rotate_cam_profile(profile: np.ndarray, angle: float) -> np.ndarray:

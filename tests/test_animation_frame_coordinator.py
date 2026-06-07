@@ -65,9 +65,7 @@ def test_update_frame_allows_origin_output_points() -> None:
 
     coordinator.update_frame(
         tab_active=True,
-        mechanism_layers={
-            "mech_1": {"part_name": "arm", "type": "4_bar_linkage", "params": {}}
-        },
+        mechanism_layers={"mech_1": {"part_name": "arm", "type": "4_bar_linkage", "params": {}}},
         part_enabled_state={"arm": True},
         parts_data={"arm": SimpleNamespace(anchor_joint_id="elbow")},
         ik_manager=ik_manager,
@@ -104,3 +102,83 @@ def test_joint_id_cache_invalidates_same_size_skeleton_content_changes() -> None
     skeleton_cache["joints"] = {"joint_b": {}}
 
     assert coordinator._get_standardized_joint_id("elbow", skeleton_cache) == "joint_b"
+
+
+def _configured_coordinator() -> AnimationFrameCoordinator:
+    coordinator = AnimationFrameCoordinator(mechanism_update_fraction=1.0)
+    coordinator.configure_callbacks(
+        calculate_output=lambda _t, _p, _time, layer: layer["output"],
+        get_target_joint=lambda _part, anchor: anchor,
+        get_standardized_joint=lambda joint_id: joint_id,
+        update_visuals=lambda _id, _time, _layer: None,
+        stop_timer=lambda: None,
+    )
+    return coordinator
+
+
+def test_coordinator_first_ik_target_sends_immediately() -> None:
+    coordinator = AnimationFrameCoordinator()
+    ik_manager = MagicMock()
+
+    coordinator._apply_ik_targets(
+        active_joint_updates={"elbow": QPointF(1.0, 2.0)},
+        ik_manager=ik_manager,
+    )
+
+    ik_manager.set_mechanism_position_target.assert_called_once_with("elbow", QPointF(1.0, 2.0))
+
+
+def test_coordinator_disabled_part_clears_stale_targets_and_resends_active() -> None:
+    coordinator = _configured_coordinator()
+    ik_manager = MagicMock()
+    path_trace_manager = MagicMock()
+    scene = MagicMock()
+    part_enabled_state = {"arm": True, "leg": True}
+    mechanism_layers = {
+        "stale": {
+            "part_name": "arm",
+            "type": "4_bar_linkage",
+            "params": {},
+            "output": QPointF(1.0, 2.0),
+        },
+        "active": {
+            "part_name": "leg",
+            "type": "4_bar_linkage",
+            "params": {},
+            "output": QPointF(3.0, 4.0),
+        },
+    }
+    parts_data = {
+        "arm": SimpleNamespace(anchor_joint_id="elbow"),
+        "leg": SimpleNamespace(anchor_joint_id="knee"),
+    }
+
+    coordinator.update_frame(
+        tab_active=True,
+        mechanism_layers=mechanism_layers,
+        part_enabled_state=part_enabled_state,
+        parts_data=parts_data,
+        ik_manager=ik_manager,
+        path_trace_manager=path_trace_manager,
+        scene=scene,
+        initial_skeleton_cache=None,
+    )
+    assert ik_manager.set_mechanism_position_target.call_count == 2
+    ik_manager.clear_mechanism_position_targets.reset_mock()
+    ik_manager.set_mechanism_position_target.reset_mock()
+
+    part_enabled_state["arm"] = False
+    coordinator.update_frame(
+        tab_active=True,
+        mechanism_layers=mechanism_layers,
+        part_enabled_state=part_enabled_state,
+        parts_data=parts_data,
+        ik_manager=ik_manager,
+        path_trace_manager=path_trace_manager,
+        scene=scene,
+        initial_skeleton_cache=None,
+    )
+
+    ik_manager.clear_mechanism_position_targets.assert_called_once()
+    ik_manager.set_mechanism_position_target.assert_called_once()
+    assert ik_manager.set_mechanism_position_target.call_args.args[0] == "knee"

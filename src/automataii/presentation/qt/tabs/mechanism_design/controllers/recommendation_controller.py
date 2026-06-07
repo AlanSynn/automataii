@@ -7,6 +7,7 @@ dialog flow, preview, and selection operations.
 Design Pattern: Controller (handles recommendation workflow)
 Architecture: Hexagonal - Presentation Layer
 """
+
 from __future__ import annotations
 
 import logging
@@ -135,17 +136,25 @@ class RecommendationController(QObject):
             return
 
         path_data = self._get_path_data_fn() if self._get_path_data_fn else {}
-        part_enabled_state = self._get_part_enabled_state_fn() if self._get_part_enabled_state_fn else {}
+        part_enabled_state = (
+            self._get_part_enabled_state_fn() if self._get_part_enabled_state_fn else {}
+        )
 
         enabled_parts = self._tab_data_coordinator.get_enabled_parts_with_paths(
             path_data, part_enabled_state
         )
         if not enabled_parts:
-            QMessageBox.warning(parent_widget, "Warning", "No enabled parts with motion paths available.")
+            QMessageBox.warning(
+                parent_widget, "Warning", "No enabled parts with motion paths available."
+            )
             return
 
-        selected_part_name = self._get_selected_part_name_fn() if self._get_selected_part_name_fn else None
-        mechanism_layers_list = self._get_mechanism_layers_list_fn() if self._get_mechanism_layers_list_fn else None
+        selected_part_name = (
+            self._get_selected_part_name_fn() if self._get_selected_part_name_fn else None
+        )
+        mechanism_layers_list = (
+            self._get_mechanism_layers_list_fn() if self._get_mechanism_layers_list_fn else None
+        )
 
         target_part_name = self._tab_data_coordinator.resolve_target_part(
             enabled_parts, selected_part_name, mechanism_layers_list
@@ -154,8 +163,12 @@ class RecommendationController(QObject):
         # If multiple parts and no resolution, show selection dialog
         if not target_part_name and len(enabled_parts) > 1:
             selected_part, ok = QInputDialog.getItem(
-                parent_widget, "Select Part", "Select which enabled part to generate mechanism for:",
-                list(enabled_parts.keys()), 0, False
+                parent_widget,
+                "Select Part",
+                "Select which enabled part to generate mechanism for:",
+                list(enabled_parts.keys()),
+                0,
+                False,
             )
             if not ok:
                 return
@@ -178,7 +191,9 @@ class RecommendationController(QObject):
 
         generated_paths_file = resolve_path("resources/data/generated_mechanism_paths.json")
         if not generated_paths_file.exists():
-            QMessageBox.critical(parent_widget, "Error", "Generated mechanism paths file not found.")
+            QMessageBox.critical(
+                parent_widget, "Error", "Generated mechanism paths file not found."
+            )
             return
 
         dialog = MechanismRecommendationDialog(
@@ -214,7 +229,7 @@ class RecommendationController(QObject):
         # Clear any existing preview items safely
         for item in self._preview_items:
             try:
-                if item and hasattr(item, 'scene') and item.scene():
+                if item and hasattr(item, "scene") and item.scene():
                     scene.removeItem(item)
             except RuntimeError:
                 # Item was already deleted by Qt - ignore
@@ -222,7 +237,7 @@ class RecommendationController(QObject):
         self._preview_items = []
 
         # Create temporary visuals for the preview
-        mechanism_type_value = mechanism_data.get('type', 'Unknown')
+        mechanism_type_value = mechanism_data.get("type", "Unknown")
         original_json_type = mechanism_data.get("original_json_type")
         try:
             if self._instantiation_service:
@@ -244,6 +259,11 @@ class RecommendationController(QObject):
         if internal_type == "4_bar_linkage" and self._create_4bar_visuals_fn:
             visual_items = self._create_4bar_visuals_fn(mechanism_data)
             self._preview_items.extend(visual_items)
+        elif internal_type in {"cam", "gear", "planetary_gear"}:
+            logging.info(
+                "Design-scene preview is not available for %s recommendation; dialog preview remains available.",
+                internal_type,
+            )
 
     def handle_recommendation_selection(
         self,
@@ -262,7 +282,9 @@ class RecommendationController(QObject):
 
         # Get target path for this part
         path_data = self._get_path_data_fn() if self._get_path_data_fn else {}
-        selected_part_name = self._get_selected_part_name_fn() if self._get_selected_part_name_fn else None
+        selected_part_name = (
+            self._get_selected_part_name_fn() if self._get_selected_part_name_fn else None
+        )
         target_path: QPainterPath | None = None
 
         if selected_part_name:
@@ -278,14 +300,18 @@ class RecommendationController(QObject):
                     target_path.lineTo(coord[0], coord[1])
 
         # Get character position for fallback
-        fallback_position = self._get_character_position_fn() if self._get_character_position_fn else [300, 400]
+        fallback_position = (
+            self._get_character_position_fn() if self._get_character_position_fn else [300, 400]
+        )
 
         # Create layer and graphics data via service
         try:
-            layer_data, graphics_data = self._instantiation_service.create_layer_data_from_recommendation(
-                mechanism_data=mechanism_data,
-                target_path=target_path,
-                fallback_position=fallback_position,
+            layer_data, graphics_data = (
+                self._instantiation_service.create_layer_data_from_recommendation(
+                    mechanism_data=mechanism_data,
+                    target_path=target_path,
+                    fallback_position=fallback_position,
+                )
             )
         except ValueError as exc:
             QMessageBox.warning(parent_widget, "Unsupported Mechanism", str(exc))
@@ -306,7 +332,7 @@ class RecommendationController(QObject):
 
         for item in self._preview_items:
             try:
-                if item and hasattr(item, 'scene') and item.scene():
+                if item and hasattr(item, "scene") and item.scene():
                     scene.removeItem(item)
             except RuntimeError:
                 pass

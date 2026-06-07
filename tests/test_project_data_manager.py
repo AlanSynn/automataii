@@ -110,3 +110,20 @@ def test_load_project_from_file_reads_primary_skeleton_joints_without_clear_sign
     assert raw is not None
     assert [joint["id"] for joint in raw] == ["root", "torso"]
     assert clear_count == 0
+
+
+def test_legacy_direct_save_fails_explicitly_instead_of_writing_partial_project(
+    tmp_path: Path,
+) -> None:
+    project_file = tmp_path / "parts_info.json"
+    project_file.write_text(
+        json.dumps({"character": {"name": "generated", "parts": {}}}),
+        encoding="utf-8",
+    )
+    save_path = tmp_path / "legacy-output.json"
+
+    manager = ProjectDataManager()
+    assert manager.load_project_from_file(str(project_file)) is True
+
+    assert manager.save_project_to_file(str(save_path)) is False
+    assert not save_path.exists()

@@ -4,9 +4,29 @@ Creates detailed manufacturing drawings for cam mechanisms.
 """
 
 import math
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 from .generator import BlueprintGenerator
+
+_NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object, default: float) -> float:
+    try:
+        result = float(cast(_NumericPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _positive_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result > 0.0 else default
+
+
+def _non_negative_finite_float(value: object, default: float) -> float:
+    result = _finite_float(value, default)
+    return result if result >= 0.0 else default
 
 
 class CamBlueprintGenerator(BlueprintGenerator):
@@ -33,16 +53,16 @@ class CamBlueprintGenerator(BlueprintGenerator):
         # Cam parameters
         center_x = viewport.x + viewport.width / 2
         center_y = viewport.y + viewport.height / 2 + 20
-        base_radius = params.get("base_radius", 30)
-        eccentricity = params.get("eccentricity", 15)
+        base_radius = _positive_finite_float(params.get("base_radius"), 30.0)
+        eccentricity = _non_negative_finite_float(params.get("eccentricity"), 15.0)
         params.get("rotation_angle", 0)
 
         # Generate cam profile
         profile_points = self._generate_cam_profile(center_x, center_y, base_radius, eccentricity)
 
         # Follower parameters
-        rod_length = params.get("follower_rod_length", 60)
-        rod_diameter = params.get("rod_diameter", 10)
+        rod_length = _positive_finite_float(params.get("follower_rod_length"), 60.0)
+        rod_diameter = _positive_finite_float(params.get("rod_diameter"), 10.0)
         follower_type = params.get("follower_type", "flat")  # flat, roller, knife
 
         cam_svg = f'''
@@ -107,8 +127,8 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
             # Egg shape formula: varying radius
             # Maximum radius at bottom (270°), minimum at top (90°)
-            radius_variation = ecc * math.cos(angle)
-            radius = base_r + radius_variation
+            radius_variation = _non_negative_finite_float(ecc, 15.0) * math.cos(angle)
+            radius = max(1e-6, _positive_finite_float(base_r, 30.0) + radius_variation)
 
             x = cx + radius * math.cos(angle - math.pi / 2)  # Rotate 90° for proper orientation
             y = cy + radius * math.sin(angle - math.pi / 2)

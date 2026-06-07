@@ -33,10 +33,10 @@ from automataii.presentation.qt.mechanism_parameter_utils import (
 )
 from automataii.presentation.qt.tabs.cam_geometry import (
     build_pear_cam_profile,
+    build_pear_cam_profile_from_params,
     cam_contact_local_from_profile,
     cam_follower_base_scene,
     cam_scene_unit_scale,
-    normalized_cam_timing,
 )
 
 
@@ -125,7 +125,9 @@ class MechanismVisualsFactory:
         """
         self.scene = scene
 
-    def create_4bar_linkage_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
+    def create_4bar_linkage_visuals(
+        self, mechanism_data: dict, transform_function=None
+    ) -> list[QGraphicsItem]:
         """Create visual representation of 4-bar linkage with triangular coupler (like dataset generator)."""
         to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
         params = mechanism_data.get("params", {})
@@ -149,18 +151,15 @@ class MechanismVisualsFactory:
         full_sim_data = mechanism_data.get("full_simulation_data", {})
         if "joint_positions" in full_sim_data:
             joint_positions = full_sim_data["joint_positions"]
-            has_initial_frame = (
-                isinstance(joint_positions, dict)
-                and all(
-                    name in joint_positions
-                    and hasattr(joint_positions[name], "__len__")
-                    and len(joint_positions[name]) > 0
-                    for name in (
-                        "p1_positions",
-                        "p2_positions",
-                        "p3_positions",
-                        "p4_positions",
-                    )
+            has_initial_frame = isinstance(joint_positions, dict) and all(
+                name in joint_positions
+                and hasattr(joint_positions[name], "__len__")
+                and len(joint_positions[name]) > 0
+                for name in (
+                    "p1_positions",
+                    "p2_positions",
+                    "p3_positions",
+                    "p4_positions",
                 )
             )
             if has_initial_frame:
@@ -172,19 +171,17 @@ class MechanismVisualsFactory:
 
                 # Calculate initial coupler point position (same as dataset)
                 # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-                coupler_point_x = finite_param(
-                    params, "coupler_point_x", "p_x", default=0.0
-                )
-                coupler_point_y = finite_param(
-                    params, "coupler_point_y", "p_y", default=0.0
-                )
+                coupler_point_x = finite_param(params, "coupler_point_x", "p_x", default=0.0)
+                coupler_point_y = finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
                 coupler_vec = p4 - p3
                 coupler_length = np.linalg.norm(coupler_vec)
                 if coupler_length > 0:
                     coupler_unit = coupler_vec / coupler_length
                     coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
-                    p_coupler = p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
+                    p_coupler = (
+                        p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
+                    )
                 else:
                     p_coupler = p3
             else:
@@ -201,18 +198,14 @@ class MechanismVisualsFactory:
                     coupler_point_x = finite_param(
                         params, "coupler_point_x", "p_x", default=default_coupler_x
                     )
-                    coupler_point_y = finite_param(
-                        params, "coupler_point_y", "p_y", default=0.0
-                    )
+                    coupler_point_y = finite_param(params, "coupler_point_y", "p_y", default=0.0)
                     coupler_vec = p4 - p3
                     coupler_length = np.linalg.norm(coupler_vec)
                     if coupler_length > 0:
                         coupler_unit = coupler_vec / coupler_length
                         coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
                         p_coupler = (
-                            p3
-                            + coupler_point_x * coupler_unit
-                            + coupler_point_y * coupler_normal
+                            p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
                         )
                     else:
                         p_coupler = p3
@@ -245,9 +238,7 @@ class MechanismVisualsFactory:
                 coupler_point_x = finite_param(
                     params, "coupler_point_x", "p_x", default=default_coupler_x
                 )
-                coupler_point_y = finite_param(
-                    params, "coupler_point_y", "p_y", default=0.0
-                )
+                coupler_point_y = finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
                 coupler_vec = p4 - p3
                 coupler_length = np.linalg.norm(coupler_vec)
@@ -283,7 +274,14 @@ class MechanismVisualsFactory:
         visual_items.append(follower_link)
 
         # Check if coupler forms a triangle or is collinear (same as dataset generator)
-        area = abs(p3[0]*(p4[1]-p_coupler[1]) + p4[0]*(p_coupler[1]-p3[1]) + p_coupler[0]*(p3[1]-p4[1])) / 2
+        area = (
+            abs(
+                p3[0] * (p4[1] - p_coupler[1])
+                + p4[0] * (p_coupler[1] - p3[1])
+                + p_coupler[0] * (p3[1] - p4[1])
+            )
+            / 2
+        )
 
         if area < 1e-3:  # Collinear - show as line
             coupler_line = QGraphicsLineItem(QLineF(p3_t, p4_t))
@@ -314,16 +312,19 @@ class MechanismVisualsFactory:
         visual_items.append(ground_link)
 
         # Add pivot points with colorful style (like dataset generator)
-        pivot_colors = [QColor("#f39c12"), QColor("#f39c12"), QColor("#e74c3c"), QColor("#3498db")]  # Orange, Orange, Red, Blue
+        pivot_colors = [
+            QColor("#f39c12"),
+            QColor("#f39c12"),
+            QColor("#e74c3c"),
+            QColor("#3498db"),
+        ]  # Orange, Orange, Red, Blue
         pivot_positions = [p1_t, p2_t, p3_t, p4_t]
         pivot_names = ["Ground Pivot 1", "Ground Pivot 2", "Moving Joint 1", "Moving Joint 2"]
 
         for pos, color, name in zip(pivot_positions, pivot_colors, pivot_names, strict=False):
             # Outer circle
             outer_pivot = self.scene.addEllipse(
-                pos.x() - 8, pos.y() - 8, 16, 16,
-                _cosmetic_pen(color.darker(150), 2),
-                QBrush(color)
+                pos.x() - 8, pos.y() - 8, 16, 16, _cosmetic_pen(color.darker(150), 2), QBrush(color)
             )
             outer_pivot.setZValue(Z_MECHANISM_PIVOT)
             outer_pivot.setToolTip(name)  # Add tooltip for identification
@@ -331,18 +332,19 @@ class MechanismVisualsFactory:
 
             # Inner highlight
             inner_pivot = self.scene.addEllipse(
-                pos.x() - 4, pos.y() - 4, 8, 8,
-                QPen(Qt.PenStyle.NoPen),
-                QBrush(color.lighter(150))
+                pos.x() - 4, pos.y() - 4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(color.lighter(150))
             )
             inner_pivot.setZValue(Z_MECHANISM_PIVOT + 1)
             visual_items.append(inner_pivot)
 
         # Add coupler point marker (red dot)
         coupler_marker = self.scene.addEllipse(
-            p_coupler_t.x() - 4, p_coupler_t.y() - 4, 8, 8,
+            p_coupler_t.x() - 4,
+            p_coupler_t.y() - 4,
+            8,
+            8,
             _cosmetic_pen("#ff0000", 2),
-            QBrush(QColor("#ff0000"))
+            QBrush(QColor("#ff0000")),
         )
         coupler_marker.setZValue(Z_SELECTION_MARKER)
         coupler_marker.setToolTip("Coupler Point (follows path)")
@@ -350,7 +352,10 @@ class MechanismVisualsFactory:
         # --- Diagnostics overlay: Transmission angle (guardrail) ---
         try:
             jp = mechanism_data.get("full_simulation_data", {}).get("joint_positions", {})
-            if jp and all(k in jp and len(jp[k]) > 0 for k in ("p1_positions", "p2_positions", "p3_positions", "p4_positions")):
+            if jp and all(
+                k in jp and len(jp[k]) > 0
+                for k in ("p1_positions", "p2_positions", "p3_positions", "p4_positions")
+            ):
                 mu_min = 180.0
                 for i in range(min(len(jp["p3_positions"]), len(jp["p4_positions"]))):
                     p3_i = np.array(jp["p3_positions"][i], dtype=float)
@@ -378,7 +383,14 @@ class MechanismVisualsFactory:
                     status = "CAUTION"
                 halo_center = p2_t
                 radius = 24.0
-                halo = self.scene.addEllipse(halo_center.x() - radius, halo_center.y() - radius, radius*2, radius*2, _cosmetic_pen(color, 5), QBrush(Qt.BrushStyle.NoBrush))
+                halo = self.scene.addEllipse(
+                    halo_center.x() - radius,
+                    halo_center.y() - radius,
+                    radius * 2,
+                    radius * 2,
+                    _cosmetic_pen(color, 5),
+                    QBrush(Qt.BrushStyle.NoBrush),
+                )
                 halo.setZValue(30)
                 visual_items.append(halo)
                 label = self.scene.addText(f"μ_min={mu_min:.0f}° {status}")
@@ -389,16 +401,19 @@ class MechanismVisualsFactory:
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
-
         return visual_items
 
-    def create_5bar_linkage_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
+    def create_5bar_linkage_visuals(
+        self, mechanism_data: dict, transform_function=None
+    ) -> list[QGraphicsItem]:
         """Create visual representation for 5-bar linkage mechanism."""
         visual_items = []
 
         try:
             params = mechanism_data.get("params", {})
-            to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
+            to_scene_coords = transform_function or self._get_scene_transform_function(
+                mechanism_data
+            )
 
             if not to_scene_coords:
                 return visual_items
@@ -492,13 +507,17 @@ class MechanismVisualsFactory:
 
         return visual_items
 
-    def create_6bar_linkage_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
+    def create_6bar_linkage_visuals(
+        self, mechanism_data: dict, transform_function=None
+    ) -> list[QGraphicsItem]:
         """Create visual representation for 6-bar linkage mechanism (Stephenson Type I)."""
         visual_items = []
 
         try:
             params = mechanism_data.get("params", {})
-            to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
+            to_scene_coords = transform_function or self._get_scene_transform_function(
+                mechanism_data
+            )
 
             if not to_scene_coords:
                 return visual_items
@@ -605,7 +624,9 @@ class MechanismVisualsFactory:
 
         return visual_items
 
-    def create_cam_visuals(self, mechanism_data: dict, transform_function=None, character_position=None) -> list[QGraphicsItem]:
+    def create_cam_visuals(
+        self, mechanism_data: dict, transform_function=None, character_position=None
+    ) -> list[QGraphicsItem]:
         """Create visual representation of cam and follower mechanism using analytic pear-cam profile.
 
         - No dataset/template dependency: profile is built from base_radius and eccentricity (total lift).
@@ -619,39 +640,28 @@ class MechanismVisualsFactory:
 
         # Adjusted parameters for more realistic CAM size
         # CAM should be smaller, rod should be longer for realistic appearance
-        base_radius = positive_finite_float(params.get("base_radius"), 25.0)
-        eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
         follower_rod_length = positive_finite_float(params.get("follower_rod_length"), 40.0)
 
         # Scale CAM appropriately for character interaction
         # Use stored scaling factors if available, otherwise use defaults
         cam_scale_factor = positive_finite_float(
-            mechanism_data.get('cam_scale_factor', 1.0), 1.0
+            mechanism_data.get("cam_scale_factor", 1.0), 1.0
         )  # Normal CAM size
         rod_length_multiplier = positive_finite_float(
-            mechanism_data.get('rod_length_multiplier', 1.0), 1.0
+            mechanism_data.get("rod_length_multiplier", 1.0), 1.0
         )  # Direct rod length control
 
-        # Apply scaling
-        scaled_base_radius = base_radius * cam_scale_factor
-        scaled_eccentricity = eccentricity * cam_scale_factor
         scaled_rod_length = follower_rod_length * rod_length_multiplier
 
-        # Build analytic pear-cam profile from parameters (fallback to sensible defaults).
-        rise_deg, high_dwell_deg, return_deg, low_dwell_deg = normalized_cam_timing(params)
-        align_max_deg = finite_float(params.get("align_max_deg", 90.0), 90.0)
-
-        cam_points_local = self._build_pear_cam_profile(
-            base_radius=scaled_base_radius,
-            eccentricity=scaled_eccentricity,
-            rise_deg=rise_deg,
-            high_dwell_deg=high_dwell_deg,
-            return_deg=return_deg,
-            dwell_low_deg=low_dwell_deg,
-            align_max_to_deg=align_max_deg,
+        # Build profile from the same contract as domain/Foundry exports.
+        # When cam_lobes/profile_harmonic are present, this preserves the
+        # harmonic Foundry profile; otherwise it keeps the pear timing model.
+        cam_points_local = build_pear_cam_profile_from_params(
+            params,
+            scale=cam_scale_factor,
             num_samples=360,
         )
-        mechanism_data['cam_points_local'] = cam_points_local
+        mechanism_data["cam_points_local"] = cam_points_local
 
         key_points = mechanism_data.get("key_points", {})
         if not isinstance(key_points, dict):
@@ -731,6 +741,7 @@ class MechanismVisualsFactory:
 
         try:
             if explicit_center_mech is not None and base_map is not None:
+
                 def cam_to_scene_coords(p: object) -> QPointF:
                     point = _finite_point_array(p)
                     if point is None:
@@ -748,7 +759,9 @@ class MechanismVisualsFactory:
                     point = _finite_point_array(p)
                     if point is None:
                         return QPointF(center_scene.x(), center_scene.y())
-                    return QPointF(center_scene.x() + float(point[0]), center_scene.y() + float(point[1]))
+                    return QPointF(
+                        center_scene.x() + float(point[0]), center_scene.y() + float(point[1])
+                    )
 
                 mechanism_data["cam_transform_function"] = cam_to_scene_coords
 
@@ -784,20 +797,22 @@ class MechanismVisualsFactory:
                     point = _finite_point_array(p)
                     if point is None:
                         return QPointF(center_scene.x(), center_scene.y())
-                    return QPointF(center_scene.x() + float(point[0]), center_scene.y() + float(point[1]))
+                    return QPointF(
+                        center_scene.x() + float(point[0]), center_scene.y() + float(point[1])
+                    )
 
                 mechanism_data["cam_transform_function"] = cam_to_scene_coords
             else:
                 mechanism_data["cam_transform_function"] = base_map
         # Bind local mapper for convenience
-        cam_to_scene_coords = mechanism_data['cam_transform_function']
+        cam_to_scene_coords = mechanism_data["cam_transform_function"]
         # Initial follower contact at local +Y max using the shared scene-vertical convention.
         follower_pos_orig = cam_contact_local_from_profile(cam_points_local)
         cam_center_orig = np.array([0.0, 0.0], dtype=float)
 
         # Store scaling factors for consistency in animation and parametric editing
-        mechanism_data['cam_scale_factor'] = cam_scale_factor
-        mechanism_data['rod_length_multiplier'] = rod_length_multiplier
+        mechanism_data["cam_scale_factor"] = cam_scale_factor
+        mechanism_data["rod_length_multiplier"] = rod_length_multiplier
 
         # Transform key points to scene coordinates
         cam_center_scene = cam_to_scene_coords(cam_center_orig)
@@ -855,8 +870,7 @@ class MechanismVisualsFactory:
         rod_pen = _cosmetic_pen("#9e9e9e", 3, Qt.PenStyle.DashLine)
         cam_top_scene = follower_scene
         follower_rod = QGraphicsLineItem(
-            cam_top_scene.x(), cam_top_scene.y(),
-            follower_base_scene.x(), follower_base_scene.y()
+            cam_top_scene.x(), cam_top_scene.y(), follower_base_scene.x(), follower_base_scene.y()
         )
         follower_rod.setPen(rod_pen)
         follower_rod.setZValue(14)  # Below cam but above parts
@@ -907,7 +921,7 @@ class MechanismVisualsFactory:
 
         # Store follower's fixed X position in scene coordinates for vertical motion constraint
         try:
-            mechanism_data['follower_fixed_x_scene'] = float(follower_base_scene.x())
+            mechanism_data["follower_fixed_x_scene"] = float(follower_base_scene.x())
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
@@ -915,7 +929,7 @@ class MechanismVisualsFactory:
         # --- Diagnostics overlay: High-curvature highlight on cam profile ---
         try:
             pts = cam_points_local
-            if pts is not None and len(pts) >= 5 and 'cam_transform_function' in mechanism_data:
+            if pts is not None and len(pts) >= 5 and "cam_transform_function" in mechanism_data:
                 k_values = []
                 for i in range(1, len(pts) - 2):
                     x1, y1 = pts[i - 1]
@@ -929,10 +943,11 @@ class MechanismVisualsFactory:
                     k_values.append(k)
                 if k_values:
                     import numpy as _np
+
                     k_arr = _np.array(k_values)
                     thr = float(_np.percentile(k_arr, 90))
                     highlight = QPainterPath()
-                    tf = mechanism_data['cam_transform_function']
+                    tf = mechanism_data["cam_transform_function"]
                     for i, kval in enumerate(k_values, start=1):
                         if kval >= thr:
                             p = pts[i]
@@ -965,27 +980,27 @@ class MechanismVisualsFactory:
 
         # Namespaces handling (strip if present)
         def strip(tag: str) -> str:
-            return tag.split('}', 1)[-1]
+            return tag.split("}", 1)[-1]
 
         axis = None
         poly_pts: list[tuple[float, float]] = []
 
         for elem in root.iter():
             tag = strip(elem.tag)
-            if tag == 'circle' and axis is None:
-                cx = float(elem.attrib.get('cx', '0'))
-                cy = float(elem.attrib.get('cy', '0'))
+            if tag == "circle" and axis is None:
+                cx = float(elem.attrib.get("cx", "0"))
+                cy = float(elem.attrib.get("cy", "0"))
                 axis = np.array([cx, cy], dtype=float)
-            elif tag == 'path' and ('layer-cam' in (elem.get('id') or '') or True):
-                d = elem.attrib.get('d', '')
+            elif tag == "path" and ("layer-cam" in (elem.get("id") or "") or True):
+                d = elem.attrib.get("d", "")
                 if not d:
                     continue
                 # Very simple M/L tokenizer
-                tokens = d.replace(',', ' ').split()
+                tokens = d.replace(",", " ").split()
                 i = 0
                 while i < len(tokens):
                     cmd = tokens[i]
-                    if cmd in ('M', 'L') and i + 2 < len(tokens):
+                    if cmd in ("M", "L") and i + 2 < len(tokens):
                         try:
                             x = float(tokens[i + 1])
                             y = float(tokens[i + 2])
@@ -1012,7 +1027,13 @@ class MechanismVisualsFactory:
         arr = np.array(poly_pts, dtype=float)
         return axis, arr
 
-    def _build_cam_from_template(self, template_points: np.ndarray, base_radius: float, eccentricity: float, num_samples: int = 180) -> np.ndarray:
+    def _build_cam_from_template(
+        self,
+        template_points: np.ndarray,
+        base_radius: float,
+        eccentricity: float,
+        num_samples: int = 180,
+    ) -> np.ndarray:
         """Build a cam polygon from a template profile using normalized radial mapping.
 
         - Compute support function r_templ(θ) = max(dot(p, uθ)) over template points (convex envelope)
@@ -1072,7 +1093,9 @@ class MechanismVisualsFactory:
             num_samples=num_samples,
         )
 
-    def create_gear_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
+    def create_gear_visuals(
+        self, mechanism_data: dict, transform_function=None
+    ) -> list[QGraphicsItem]:
         """Create visual representation of gear train mechanism."""
         params = mechanism_data.get("params", {})
         if not params:
@@ -1138,10 +1161,12 @@ class MechanismVisualsFactory:
         gear1_color = QColor("#3498db")  # Blue
 
         gear1_body = self.scene.addEllipse(
-            gear1_center_scene.x() - r1_screen, gear1_center_scene.y() - r1_screen,
-            r1_screen * 2, r1_screen * 2,
+            gear1_center_scene.x() - r1_screen,
+            gear1_center_scene.y() - r1_screen,
+            r1_screen * 2,
+            r1_screen * 2,
             _cosmetic_pen(gear1_color, 4),
-            QBrush(gear1_color.lighter(170))
+            QBrush(gear1_color.lighter(170)),
         )
         gear1_body.setZValue(15)  # Above parts
         visual_items.append(gear1_body)
@@ -1150,10 +1175,12 @@ class MechanismVisualsFactory:
         gear2_color = QColor("#2ecc71")  # Green
 
         gear2_body = self.scene.addEllipse(
-            gear2_center_scene.x() - r2_screen, gear2_center_scene.y() - r2_screen,
-            r2_screen * 2, r2_screen * 2,
+            gear2_center_scene.x() - r2_screen,
+            gear2_center_scene.y() - r2_screen,
+            r2_screen * 2,
+            r2_screen * 2,
             _cosmetic_pen(gear2_color, 4),
-            QBrush(gear2_color.lighter(170))
+            QBrush(gear2_color.lighter(170)),
         )
         gear2_body.setZValue(15)  # Above parts
         visual_items.append(gear2_body)
@@ -1163,18 +1190,22 @@ class MechanismVisualsFactory:
 
         # Gear 1 indicator (initially horizontal) - use screen-space radius
         gear1_indicator = self.scene.addLine(
-            gear1_center_scene.x(), gear1_center_scene.y(),
-            gear1_center_scene.x() + r1_screen, gear1_center_scene.y(),
-            _cosmetic_pen(indicator_color, 3)
+            gear1_center_scene.x(),
+            gear1_center_scene.y(),
+            gear1_center_scene.x() + r1_screen,
+            gear1_center_scene.y(),
+            _cosmetic_pen(indicator_color, 3),
         )
         gear1_indicator.setZValue(15)
         visual_items.append(gear1_indicator)
 
         # Gear 2 indicator (initially horizontal) - use screen-space radius
         gear2_indicator = self.scene.addLine(
-            gear2_center_scene.x(), gear2_center_scene.y(),
-            gear2_center_scene.x() + r2_screen, gear2_center_scene.y(),
-            _cosmetic_pen(indicator_color, 3)
+            gear2_center_scene.x(),
+            gear2_center_scene.y(),
+            gear2_center_scene.x() + r2_screen,
+            gear2_center_scene.y(),
+            _cosmetic_pen(indicator_color, 3),
         )
         gear2_indicator.setZValue(15)
         visual_items.append(gear2_indicator)
@@ -1184,28 +1215,46 @@ class MechanismVisualsFactory:
 
         # Gear 1 center
         gear1_pivot = self.scene.addEllipse(
-            gear1_center_scene.x() - 8, gear1_center_scene.y() - 8, 16, 16,
+            gear1_center_scene.x() - 8,
+            gear1_center_scene.y() - 8,
+            16,
+            16,
             _cosmetic_pen(pivot_color.darker(150), 3),
-            QBrush(pivot_color)
+            QBrush(pivot_color),
         )
         gear1_pivot.setZValue(20)
         visual_items.append(gear1_pivot)
 
         # Gear 2 center
         gear2_pivot = self.scene.addEllipse(
-            gear2_center_scene.x() - 8, gear2_center_scene.y() - 8, 16, 16,
+            gear2_center_scene.x() - 8,
+            gear2_center_scene.y() - 8,
+            16,
+            16,
             _cosmetic_pen(pivot_color.darker(150), 3),
-            QBrush(pivot_color)
+            QBrush(pivot_color),
         )
         gear2_pivot.setZValue(20)
         visual_items.append(gear2_pivot)
         # --- Diagnostics overlay: pitch circles and center distance check ---
         try:
             dashed = _cosmetic_pen("#7f8c8d", 1, Qt.PenStyle.DashLine)
-            pc1 = self.scene.addEllipse(gear1_center_scene.x() - r1_screen, gear1_center_scene.y() - r1_screen, r1_screen*2, r1_screen*2, dashed)
+            pc1 = self.scene.addEllipse(
+                gear1_center_scene.x() - r1_screen,
+                gear1_center_scene.y() - r1_screen,
+                r1_screen * 2,
+                r1_screen * 2,
+                dashed,
+            )
             pc1.setZValue(12)
             visual_items.append(pc1)
-            pc2 = self.scene.addEllipse(gear2_center_scene.x() - r2_screen, gear2_center_scene.y() - r2_screen, r2_screen*2, r2_screen*2, dashed)
+            pc2 = self.scene.addEllipse(
+                gear2_center_scene.x() - r2_screen,
+                gear2_center_scene.y() - r2_screen,
+                r2_screen * 2,
+                r2_screen * 2,
+                dashed,
+            )
             pc2.setZValue(12)
             visual_items.append(pc2)
             if use_scene_geometry:
@@ -1218,16 +1267,20 @@ class MechanismVisualsFactory:
             if mismatch > 0.5:
                 warn = self.scene.addText(f"Center distance off by {mismatch:.1f}")
                 warn.setDefaultTextColor(QColor("#e74c3c"))
-                warn.setPos((gear1_center_scene.x()+gear2_center_scene.x())/2.0, gear1_center_scene.y()-20)
+                warn.setPos(
+                    (gear1_center_scene.x() + gear2_center_scene.x()) / 2.0,
+                    gear1_center_scene.y() - 20,
+                )
                 warn.setZValue(30)
                 visual_items.append(warn)
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
-
         return visual_items
 
-    def create_planetary_gear_visuals(self, mechanism_data: dict, transform_function=None) -> list[QGraphicsItem]:
+    def create_planetary_gear_visuals(
+        self, mechanism_data: dict, transform_function=None
+    ) -> list[QGraphicsItem]:
         """Create visual representation of planetary gear mechanism."""
         to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
         params = mechanism_data.get("params", {})
@@ -1312,10 +1365,12 @@ class MechanismVisualsFactory:
         # Create sun gear (stationary)
         sun_color = QColor("#7f8c8d")  # Gray
         sun_gear = self.scene.addEllipse(
-            sun_center_scene.x() - r_sun_screen, sun_center_scene.y() - r_sun_screen,
-            r_sun_screen * 2, r_sun_screen * 2,
+            sun_center_scene.x() - r_sun_screen,
+            sun_center_scene.y() - r_sun_screen,
+            r_sun_screen * 2,
+            r_sun_screen * 2,
             _cosmetic_pen(sun_color, 4),
-            QBrush(sun_color.lighter(150))
+            QBrush(sun_color.lighter(150)),
         )
         sun_gear.setZValue(14)  # Base level, above parts
         visual_items.append(sun_gear)
@@ -1323,10 +1378,12 @@ class MechanismVisualsFactory:
         # Create planet gear (orbiting)
         planet_color = QColor("#e67e22")  # Orange
         planet_gear = self.scene.addEllipse(
-            planet_center_scene.x() - r_planet_screen, planet_center_scene.y() - r_planet_screen,
-            r_planet_screen * 2, r_planet_screen * 2,
+            planet_center_scene.x() - r_planet_screen,
+            planet_center_scene.y() - r_planet_screen,
+            r_planet_screen * 2,
+            r_planet_screen * 2,
             _cosmetic_pen(planet_color, 4),
-            QBrush(planet_color.lighter(150))
+            QBrush(planet_color.lighter(150)),
         )
         planet_gear.setZValue(15)  # Above base level
         visual_items.append(planet_gear)
@@ -1334,8 +1391,7 @@ class MechanismVisualsFactory:
         # Create arm connecting planet center to tracking point
         arm_color = QColor("#f39c12")  # Golden
         arm_line = self.scene.addLine(
-            QLineF(planet_center_scene, tracking_point_scene),
-            _cosmetic_pen(arm_color, 3)
+            QLineF(planet_center_scene, tracking_point_scene), _cosmetic_pen(arm_color, 3)
         )
         arm_line.setZValue(15)
         visual_items.append(arm_line)
@@ -1343,9 +1399,12 @@ class MechanismVisualsFactory:
         # Create tracking point marker
         tracking_color = QColor("#e74c3c")  # Red
         tracking_marker = self.scene.addEllipse(
-            tracking_point_scene.x() - 8, tracking_point_scene.y() - 8, 16, 16,
+            tracking_point_scene.x() - 8,
+            tracking_point_scene.y() - 8,
+            16,
+            16,
             _cosmetic_pen(tracking_color, 2),
-            QBrush(tracking_color)
+            QBrush(tracking_color),
         )
         tracking_marker.setZValue(20)
         visual_items.append(tracking_marker)
@@ -1355,18 +1414,24 @@ class MechanismVisualsFactory:
 
         # Sun center marker
         sun_center_marker = self.scene.addEllipse(
-            sun_center_scene.x() - 6, sun_center_scene.y() - 6, 12, 12,
+            sun_center_scene.x() - 6,
+            sun_center_scene.y() - 6,
+            12,
+            12,
             _cosmetic_pen(center_color.darker(150), 2),
-            QBrush(center_color)
+            QBrush(center_color),
         )
         sun_center_marker.setZValue(25)
         visual_items.append(sun_center_marker)
 
         # Planet center marker
         planet_center_marker = self.scene.addEllipse(
-            planet_center_scene.x() - 4, planet_center_scene.y() - 4, 8, 8,
+            planet_center_scene.x() - 4,
+            planet_center_scene.y() - 4,
+            8,
+            8,
             _cosmetic_pen(center_color.darker(150), 1),
-            QBrush(center_color.lighter(130))
+            QBrush(center_color.lighter(130)),
         )
         planet_center_marker.setZValue(25)
         visual_items.append(planet_center_marker)

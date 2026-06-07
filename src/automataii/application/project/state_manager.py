@@ -13,6 +13,7 @@ Technical Debt Note:
 - Qt dependency is acceptable here as "infrastructure" for reactivity
 - Future refactor: Create EventBus in infrastructure/ and adapt with Qt signals
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,9 +43,11 @@ logger = logging.getLogger(__name__)
 # MUTATION LOG ENTRY
 # =============================================================================
 
+
 @dataclass
 class MutationEntry:
     """Record of a state mutation for debugging/undo."""
+
     operation: str
     timestamp: datetime
     details: dict[str, Any]
@@ -54,6 +57,7 @@ class MutationEntry:
 # =============================================================================
 # PROJECT STATE MANAGER
 # =============================================================================
+
 
 class ProjectStateManager(QObject):
     """
@@ -80,22 +84,22 @@ class ProjectStateManager(QObject):
     state_changed = pyqtSignal(object)  # ProjectState
 
     # Granular signals for performance
-    parts_changed = pyqtSignal(dict)      # dict[str, PartData]
+    parts_changed = pyqtSignal(dict)  # dict[str, PartData]
     skeleton_changed = pyqtSignal(object)  # SkeletonData | None
-    paths_changed = pyqtSignal(dict)       # dict[str, PathData]
+    paths_changed = pyqtSignal(dict)  # dict[str, PathData]
     mechanisms_changed = pyqtSignal(dict)  # dict[str, MechanismData]
 
     # Individual item signals
-    part_updated = pyqtSignal(str, object)       # (part_name, PartData)
-    path_updated = pyqtSignal(str, object)       # (part_name, PathData)
+    part_updated = pyqtSignal(str, object)  # (part_name, PartData)
+    path_updated = pyqtSignal(str, object)  # (part_name, PathData)
     mechanism_updated = pyqtSignal(str, object)  # (mechanism_id, MechanismData)
-    joint_updated = pyqtSignal(str, object)      # (joint_id, JointData)
+    joint_updated = pyqtSignal(str, object)  # (joint_id, JointData)
 
     # Project lifecycle
-    project_loaded = pyqtSignal(str)    # project_path
-    project_saved = pyqtSignal(str)     # project_path
+    project_loaded = pyqtSignal(str)  # project_path
+    project_saved = pyqtSignal(str)  # project_path
     project_cleared = pyqtSignal()
-    project_modified = pyqtSignal()     # Any change (for dirty state tracking)
+    project_modified = pyqtSignal()  # Any change (for dirty state tracking)
 
     # Undo/redo
     undo_available = pyqtSignal(bool)
@@ -211,6 +215,33 @@ class ProjectStateManager(QObject):
         elif self._batch_mode and categories:
             self._batch_changes.update(categories)
 
+    def replace_project_state(
+        self,
+        new_state: ProjectState,
+        *,
+        operation: str = "replace_project_state",
+        clear_history: bool = True,
+        mark_saved: bool = False,
+        emit_signals: bool = True,
+        categories: set[str] | None = None,
+    ) -> None:
+        """Replace state for internal load/save snapshots without undo pollution."""
+        old_state = self._state
+        self._state = new_state
+        self._is_dirty = not mark_saved
+        if clear_history:
+            self._undo_stack.clear()
+            self._redo_stack.clear()
+            self.undo_available.emit(False)
+            self.redo_available.emit(False)
+        self._log_mutation(operation, {"clear_history": clear_history}, old_state)
+        if emit_signals and not self._batch_mode:
+            self._emit_change_signals(old_state, new_state, categories)
+            if not mark_saved:
+                self.project_modified.emit()
+        elif self._batch_mode and categories:
+            self._batch_changes.update(categories)
+
     def _emit_change_signals(
         self,
         old: ProjectState,
@@ -266,10 +297,17 @@ class ProjectStateManager(QObject):
         new_state = self._state.without_part(part_name)
         # Also remove associated path and mechanisms
         new_state = new_state.without_path(part_name)
-        mechanisms_to_remove = [m.id for m in self._state.mechanisms.values() if m.part_name == part_name]
+        mechanisms_to_remove = [
+            m.id for m in self._state.mechanisms.values() if m.part_name == part_name
+        ]
         for mid in mechanisms_to_remove:
             new_state = new_state.without_mechanism(mid)
-        self._apply_state(new_state, "remove_part", {"name": part_name}, categories={"parts", "paths", "mechanisms"})
+        self._apply_state(
+            new_state,
+            "remove_part",
+            {"name": part_name},
+            categories={"parts", "paths", "mechanisms"},
+        )
 
     # =========================================================================
     # SKELETON MUTATIONS
@@ -278,7 +316,9 @@ class ProjectStateManager(QObject):
     def load_skeleton(self, skeleton: SkeletonData) -> None:
         """Load skeleton data."""
         new_state = self._state.with_skeleton(skeleton)
-        self._apply_state(new_state, "load_skeleton", {"joints": len(skeleton.joints)}, categories={"skeleton"})
+        self._apply_state(
+            new_state, "load_skeleton", {"joints": len(skeleton.joints)}, categories={"skeleton"}
+        )
         logger.info(f"Loaded skeleton with {len(skeleton.joints)} joints")
 
     def clear_skeleton(self) -> None:
@@ -319,7 +359,12 @@ class ProjectStateManager(QObject):
     def set_path(self, path: PathData) -> None:
         """Set motion path for a part."""
         new_state = self._state.with_path(path)
-        self._apply_state(new_state, "set_path", {"part": path.part_name, "points": len(path.points)}, categories={"paths"})
+        self._apply_state(
+            new_state,
+            "set_path",
+            {"part": path.part_name, "points": len(path.points)},
+            categories={"paths"},
+        )
         self.path_updated.emit(path.part_name, path)
         logger.info(f"Set path for '{path.part_name}' with {len(path.points)} points")
 
@@ -346,20 +391,29 @@ class ProjectStateManager(QObject):
     def add_mechanism(self, mechanism: MechanismData) -> None:
         """Add a new mechanism."""
         new_state = self._state.with_mechanism(mechanism)
-        self._apply_state(new_state, "add_mechanism", {"id": mechanism.id, "type": mechanism.type}, categories={"mechanisms"})
+        self._apply_state(
+            new_state,
+            "add_mechanism",
+            {"id": mechanism.id, "type": mechanism.type},
+            categories={"mechanisms"},
+        )
         self.mechanism_updated.emit(mechanism.id, mechanism)
         logger.info(f"Added mechanism '{mechanism.id}' of type '{mechanism.type}'")
 
     def update_mechanism(self, mechanism: MechanismData) -> None:
         """Update an existing mechanism."""
         new_state = self._state.with_mechanism(mechanism)
-        self._apply_state(new_state, "update_mechanism", {"id": mechanism.id}, categories={"mechanisms"})
+        self._apply_state(
+            new_state, "update_mechanism", {"id": mechanism.id}, categories={"mechanisms"}
+        )
         self.mechanism_updated.emit(mechanism.id, mechanism)
 
     def remove_mechanism(self, mechanism_id: str) -> None:
         """Remove a mechanism."""
         new_state = self._state.without_mechanism(mechanism_id)
-        self._apply_state(new_state, "remove_mechanism", {"id": mechanism_id}, categories={"mechanisms"})
+        self._apply_state(
+            new_state, "remove_mechanism", {"id": mechanism_id}, categories={"mechanisms"}
+        )
 
     def enable_mechanism(self, mechanism_id: str, enabled: bool) -> None:
         """Enable or disable a mechanism."""
@@ -370,7 +424,9 @@ class ProjectStateManager(QObject):
     def load_mechanisms(self, mechanisms: dict[str, MechanismData]) -> None:
         """Load all mechanisms (typically from project file)."""
         new_state = self._state.with_mechanisms(mechanisms)
-        self._apply_state(new_state, "load_mechanisms", {"count": len(mechanisms)}, categories={"mechanisms"})
+        self._apply_state(
+            new_state, "load_mechanisms", {"count": len(mechanisms)}, categories={"mechanisms"}
+        )
 
     # =========================================================================
     # PROJECT CONTEXT MUTATIONS
@@ -432,7 +488,13 @@ class ProjectStateManager(QObject):
             return
         self._redo_stack.append(self._state)
         prev_state = self._undo_stack.pop()
-        self._apply_state(prev_state, "undo", {}, emit_signals=True, categories={"parts", "skeleton", "paths", "mechanisms"})
+        self._apply_state(
+            prev_state,
+            "undo",
+            {},
+            emit_signals=True,
+            categories={"parts", "skeleton", "paths", "mechanisms"},
+        )
         self.undo_available.emit(len(self._undo_stack) > 0)
         self.redo_available.emit(True)
         logger.debug("Undo performed")
@@ -443,7 +505,13 @@ class ProjectStateManager(QObject):
             return
         self._undo_stack.append(self._state)
         next_state = self._redo_stack.pop()
-        self._apply_state(next_state, "redo", {}, emit_signals=True, categories={"parts", "skeleton", "paths", "mechanisms"})
+        self._apply_state(
+            next_state,
+            "redo",
+            {},
+            emit_signals=True,
+            categories={"parts", "skeleton", "paths", "mechanisms"},
+        )
         self.undo_available.emit(True)
         self.redo_available.emit(len(self._redo_stack) > 0)
         logger.debug("Redo performed")

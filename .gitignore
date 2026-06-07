@@ -471,6 +471,9 @@ src/automataii/examples/
 *.yaml
 *.html
 
+# MotionSmith recommendation templates are source assets despite global SVG ignores.
+!resources/blueprints/**/*.svg
+
 # MS4N physical kit files are source assets despite global SVG/OBJ ignores.
 !kit/
 !kit/**/*.svg

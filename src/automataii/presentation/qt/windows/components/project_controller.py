@@ -157,8 +157,16 @@ class ProjectController(QObject):
 
         if result.success:
             if result.path:
-                self._state_manager.set_project_dir(result.path.parent)
-            self._state_manager.mark_saved()
+                self._state_manager.replace_project_state(
+                    self._state_manager.state.with_project_dir(result.path.parent),
+                    operation="save_project",
+                    clear_history=False,
+                    mark_saved=True,
+                    emit_signals=True,
+                    categories=set(),
+                )
+            else:
+                self._state_manager.mark_saved()
             self._show_status(f"Project saved to {result.path}", 3000)
             self._logger.info(f"Project saved via SSOT to {result.path}")
             self.project_saved.emit(str(result.path))
@@ -220,23 +228,15 @@ class ProjectController(QObject):
         result = self._serializer.load(filepath)
 
         if result.success and result.state:
-            # Batch load state components
-            state = result.state
-
-            self._state_manager.begin_batch()
-            # Always overwrite all state categories to avoid stale carry-over.
-            self._state_manager.load_parts(dict(state.parts))
-            if state.skeleton:
-                self._state_manager.load_skeleton(state.skeleton)
-            else:
-                self._state_manager.clear_skeleton()
-            self._state_manager.load_paths(dict(state.paths))
-            self._state_manager.load_mechanisms(dict(state.mechanisms))
-            self._state_manager.set_project_dir(state.project_dir)
-            self._state_manager.set_image_path(state.image_path)
-
-            self._state_manager.end_batch()
-            self._state_manager.mark_saved()
+            state = result.state.with_project_dir(Path(filepath).parent)
+            self._state_manager.replace_project_state(
+                state,
+                operation="load_project",
+                clear_history=True,
+                mark_saved=True,
+                emit_signals=True,
+                categories={"parts", "skeleton", "paths", "mechanisms"},
+            )
 
             self._show_status(f"Project loaded from {filepath}", 3000)
             self._logger.info(f"Project loaded via SSOT from {filepath}")
