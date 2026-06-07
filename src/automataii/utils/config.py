@@ -1,11 +1,11 @@
-
-
 class AppConfig:
     """
     Configuration File
     """
 
-    APP_NAME: str = "Automata Designer"
+    APP_NAME: str = "MotionSmith"
+    ORGANIZATION_NAME: str = "MotionSmith"
+    ORGANIZATION_DOMAIN: str = "motionsmith.app"
 
     @classmethod
     def initialize(cls) -> None:
@@ -13,5 +13,3 @@ class AppConfig:
         Perform any necessary initializations here, e.g.:
         - Loading settings from a file
         """
-
-

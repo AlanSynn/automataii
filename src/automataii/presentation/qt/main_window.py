@@ -82,6 +82,7 @@ from automataii.presentation.qt.windows.components import (
     WorkflowStateMachine,
     WorkspaceLayoutManager,
 )
+from automataii.utils.config import AppConfig
 from automataii.utils.paths import resolve_path
 from automataii.utils.styling import DARK_STYLE, LIGHT_STYLE
 
@@ -143,7 +144,9 @@ def _calculate_parts_bbox(parts_info: dict[str, Any]) -> tuple[float, float, flo
     return (min_x, min_y, max_x, max_y)
 
 
-def _calculate_visible_parts_bbox(parts_info: dict[str, Any]) -> tuple[float, float, float, float] | None:
+def _calculate_visible_parts_bbox(
+    parts_info: dict[str, Any],
+) -> tuple[float, float, float, float] | None:
     """
     Calculate bbox from actually visible part pixels (alpha/content), not ROI rectangles.
 
@@ -498,7 +501,7 @@ def _align_skeleton_bbox_to_parts_in_place(
 
 
 class AutomataDesigner(QMainWindow):
-    """Main application window for the Automata Designer.
+    """Main application window for MotionSmith.
 
     Integrates image processing, skeleton editing, part assembly, motion definition,
     simulation, and blueprint generation.
@@ -518,6 +521,7 @@ class AutomataDesigner(QMainWindow):
         logging.info(
             f"Initializing AutomataDesigner... Debug mode: {self.debug_mode}, Editing mode: {self.editing_mode}"
         )
+        self.setWindowTitle(AppConfig.APP_NAME)
         self.resize(1200, 680)
         self.setMinimumSize(800, 600)
         logging.info("Initializing AutomataDesigner...")
@@ -899,7 +903,9 @@ class AutomataDesigner(QMainWindow):
         self.action_manager.connect_action("redo", self.redo_ssot)
         self.action_manager.connect_action("about", self.show_about_dialog)
         self.action_manager.connect_action("save_workspace_layout", self.save_workspace_layout)
-        self.action_manager.connect_action("restore_workspace_layout", self.restore_workspace_layout)
+        self.action_manager.connect_action(
+            "restore_workspace_layout", self.restore_workspace_layout
+        )
         self.action_manager.connect_action("reset_workspace_layout", self.reset_workspace_layout)
 
         # Test Anchors Button Connection (This button is now in EditorTab, EditorTab should handle its toggled signal)
@@ -954,9 +960,7 @@ class AutomataDesigner(QMainWindow):
         """
         Initialize workspace customization (dock/tab layout) and workflow state guidance.
         """
-        self._workspace_layout_manager = WorkspaceLayoutManager(
-            self, self.tab_widget, parent=self
-        )
+        self._workspace_layout_manager = WorkspaceLayoutManager(self, self.tab_widget, parent=self)
         self._workspace_layout_manager.initialize()
 
         default_sequence = self._workspace_layout_manager.get_current_tab_order()
@@ -968,9 +972,7 @@ class AutomataDesigner(QMainWindow):
             self._on_workflow_recommendation_changed
         )
         self._workflow_state_machine.mode_changed.connect(self._on_workflow_mode_changed)
-        self._workflow_state_machine.sequence_changed.connect(
-            self._on_workflow_sequence_changed
-        )
+        self._workflow_state_machine.sequence_changed.connect(self._on_workflow_sequence_changed)
 
         self._mark_workflow_tab_visited(self.tab_widget.currentWidget())
         self._announce_workflow_status()
@@ -1088,7 +1090,6 @@ class AutomataDesigner(QMainWindow):
         self._workflow_state_machine.reset_sequence()
         self.statusBar().showMessage("Workflow sequence reset to defaults.", 3000)
 
-
     # --- Menu Creation ---
     def _create_menus(self):
         """Creates the main application menus using the ActionManager."""
@@ -1146,9 +1147,7 @@ class AutomataDesigner(QMainWindow):
                         f"Copied {source_char_cfg_path} to {dest_char_cfg_path} for ProjectDataManager."
                     )
                 else:
-                    logging.info(
-                        "Source char_cfg.yaml already in target directory, skipping copy."
-                    )
+                    logging.info("Source char_cfg.yaml already in target directory, skipping copy.")
 
                 # texture.png is no longer copied as it's not used as an atlas.
                 # Individual part PNGs/SVGs are expected in final_bpe_char_dir_str.
@@ -1162,7 +1161,9 @@ class AutomataDesigner(QMainWindow):
                             shutil.copy2(source_mask_path, dest_mask_path)
                             logging.info(f"Copied {source_mask_path} to {dest_mask_path}.")
                         else:
-                            logging.info("Source mask.png already in target directory, skipping copy.")
+                            logging.info(
+                                "Source mask.png already in target directory, skipping copy."
+                            )
                     else:
                         logging.warning(
                             f"Source mask.png not found at {source_mask_path}, cannot copy."
@@ -1201,9 +1202,8 @@ class AutomataDesigner(QMainWindow):
         # mechanism session. Plain "Load Image" should not preserve/rebind/scale-to-dummy.
         is_dummy_replacement_session = False
         image_proc_tab = getattr(self, "image_proc_tab", None)
-        if (
-            image_proc_tab is not None
-            and hasattr(image_proc_tab, "_is_dummy_mechanism_design_session")
+        if image_proc_tab is not None and hasattr(
+            image_proc_tab, "_is_dummy_mechanism_design_session"
         ):
             try:
                 is_dummy_replacement_session = bool(
@@ -1391,7 +1391,7 @@ class AutomataDesigner(QMainWindow):
             self,
             "Load Project",
             start_dir,
-            "Automataii Projects (*.automataii);;JSON files (*.json);;All files (*)",
+            "MotionSmith Projects (*.automataii);;JSON files (*.json);;All files (*)",
         )
         if not filepath:
             return
@@ -1561,9 +1561,7 @@ class AutomataDesigner(QMainWindow):
             if apply_alignment_reconcile and (
                 isinstance(current_skeleton_data_raw, list)
                 and current_skeleton_data_raw
-                and _align_parts_bbox_to_skeleton_in_place(
-                    parts_info, current_skeleton_data_raw
-                )
+                and _align_parts_bbox_to_skeleton_in_place(parts_info, current_skeleton_data_raw)
             ):
                 parts_upscaled_to_skeleton = True
                 logging.info(
@@ -1572,7 +1570,9 @@ class AutomataDesigner(QMainWindow):
 
             # Reconcile skeleton/parts bbox only during replacement flows.
             # Plain Load Image should keep extractor-produced coordinates untouched.
-            parts_bbox = _calculate_visible_parts_bbox(parts_info) or _calculate_parts_bbox(parts_info)
+            parts_bbox = _calculate_visible_parts_bbox(parts_info) or _calculate_parts_bbox(
+                parts_info
+            )
             if apply_alignment_reconcile and (
                 (force_skeleton_align or not parts_upscaled_to_skeleton)
                 and parts_bbox
@@ -1799,7 +1799,9 @@ class AutomataDesigner(QMainWindow):
                     self.project_state_manager.clear_skeleton()
                 self.project_state_manager.load_paths(paths)
                 self.project_state_manager.load_mechanisms(mechanisms)
-                self.project_state_manager.set_project_dir(Path(project_dir) if project_dir else None)
+                self.project_state_manager.set_project_dir(
+                    Path(project_dir) if project_dir else None
+                )
                 self.project_state_manager.set_image_path(image_path)
             finally:
                 self.project_state_manager.end_batch()
@@ -1899,8 +1901,16 @@ class AutomataDesigner(QMainWindow):
                 continue
 
             raw_position = joint_payload.get("position", [0.0, 0.0])
-            x = float(raw_position[0]) if isinstance(raw_position, list | tuple) and len(raw_position) > 0 else 0.0
-            y = float(raw_position[1]) if isinstance(raw_position, list | tuple) and len(raw_position) > 1 else 0.0
+            x = (
+                float(raw_position[0])
+                if isinstance(raw_position, list | tuple) and len(raw_position) > 0
+                else 0.0
+            )
+            y = (
+                float(raw_position[1])
+                if isinstance(raw_position, list | tuple) and len(raw_position) > 1
+                else 0.0
+            )
             parent_id = joint_payload.get("parent_id") or joint_payload.get("parent")
 
             bend_direction_raw = joint_payload.get("bend_direction")
@@ -2203,16 +2213,12 @@ class AutomataDesigner(QMainWindow):
                     mechanism_id,
                 )
             if imported:
-                self.statusBar().showMessage(
-                    f"Mechanism '{mechanism_type}' added to Mechanism Tab"
-                )
+                self.statusBar().showMessage(f"Mechanism '{mechanism_type}' added to Mechanism Tab")
                 self._mark_workflow_stage_complete("tab_mechanism_foundry")
                 self._mark_workflow_stage_complete("tab_mechanism_design")
                 # Register sync target in Foundry so subsequent Design edits flow back.
                 if hasattr(self.mechanism_foundry_tab, "set_synced_mechanism"):
-                    self.mechanism_foundry_tab.set_synced_mechanism(
-                        mechanism_id, mechanism_type
-                    )
+                    self.mechanism_foundry_tab.set_synced_mechanism(mechanism_id, mechanism_type)
             else:
                 self._clear_foundry_sync_target()
                 if import_error is None:
@@ -2225,9 +2231,7 @@ class AutomataDesigner(QMainWindow):
                 )
         else:
             self._clear_foundry_sync_target()
-            logging.warning(
-                "MechanismDesignTab.import_mechanism_from_foundry not available"
-            )
+            logging.warning("MechanismDesignTab.import_mechanism_from_foundry not available")
 
         # Switch to Mechanism Design Tab
         self._switch_to_mechanism_design_tab()
@@ -2427,9 +2431,7 @@ class AutomataDesigner(QMainWindow):
 
         # Use SignalConnector for centralized signal management
         if self.project_data_manager:
-            self._signal_connector.connect_project_data_manager(
-                self.project_data_manager, self
-            )
+            self._signal_connector.connect_project_data_manager(self.project_data_manager, self)
 
         if self.skeleton_manager:
             self._signal_connector.connect_skeleton_manager(
@@ -2482,9 +2484,7 @@ class AutomataDesigner(QMainWindow):
 
         # Create and attach EditorTab adapter
         if hasattr(self, "editor_tab") and self.editor_tab:
-            self._editor_adapter = EditorTabAdapter(
-                self.project_state_manager, parent=self
-            )
+            self._editor_adapter = EditorTabAdapter(self.project_state_manager, parent=self)
             self._editor_adapter.attach(self.editor_tab)
             logging.debug("EditorTab adapter attached")
 
@@ -2684,11 +2684,11 @@ class AutomataDesigner(QMainWindow):
         """Displays the 'About' dialog."""
         QMessageBox.about(
             self,
-            "About Automata Designer",
-            "<p><b>Automata Designer</b></p>"
+            f"About {AppConfig.APP_NAME}",
+            f"<p><b>{AppConfig.APP_NAME}</b></p>"
             "<p>Version 0.1.0</p>"
-            "<p>Copyright &copy; 2024 Automataii Contributors</p>"
-            "<p>This application helps design and simulate automata mechanisms.</p>",
+            "<p>Copyright &copy; 2024 MotionSmith Contributors</p>"
+            "<p>This application helps design and simulate character mechanisms.</p>",
         )
 
     @pyqtSlot(str)
@@ -2783,7 +2783,9 @@ class AutomataDesigner(QMainWindow):
             if self._workspace_layout_manager:
                 self._workspace_layout_manager.save_workspace_layout()
         except Exception:
-            logging.debug("Suppressed exception while saving workspace layout on close", exc_info=True)
+            logging.debug(
+                "Suppressed exception while saving workspace layout on close", exc_info=True
+            )
         super().closeEvent(event)
 
 

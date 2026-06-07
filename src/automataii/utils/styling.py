@@ -1,10 +1,4 @@
-
-
-
-
-
-
-# Stylesheets for the Automata Designer application
+# Stylesheets for the MotionSmith application
 
 LIGHT_STYLE = """
     QApplication {

@@ -36,9 +36,15 @@ def _safe_snapshot_data_uri(snapshot_data_uri: object) -> str | None:
     return escape_xml(value, quote=True)
 
 
-def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
-                                   title="Manufacturing Blueprint", scale_info="",
-                                   snapshot_data_uri: str | None = None, unit_system: str = "metric"):
+def generate_single_large_blueprint(
+    layout_items,
+    page_width_mm,
+    page_height_mm,
+    title="Manufacturing Blueprint",
+    scale_info="",
+    snapshot_data_uri: str | None = None,
+    unit_system: str = "metric",
+):
     """
     Generate a single large-format blueprint with all content.
     Uses generous spacing to ensure all parts and mechanisms are clearly visible.
@@ -72,7 +78,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
             if inches < 1.0:
                 return f"{inches * 1000:.0f} mil"  # thousandths of inch
             elif inches < 12.0:
-                return f"{inches:.2f}\""
+                return f'{inches:.2f}"'
             else:
                 feet = inches / 12.0
                 return f"{feet:.2f}'"
@@ -88,15 +94,16 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
     # Collect all clip path definitions from parts
     clip_definitions = []
     for item in layout_items:
-        if hasattr(item, 'svg_content') and 'data-clip-def=' in item.svg_content:
+        if hasattr(item, "svg_content") and "data-clip-def=" in item.svg_content:
             import html
+
             # Extract clip definition from data attribute
             start = item.svg_content.find('data-clip-def="') + len('data-clip-def="')
             end = item.svg_content.find('"', start)
             if start > len('data-clip-def="') - 1 and end > start:
                 clip_def_encoded = item.svg_content[start:end]
                 clip_def = html.unescape(clip_def_encoded)
-                clip_definitions.append(f'    {clip_def}')
+                clip_definitions.append(f"    {clip_def}")
 
     # SVG header with large dimensions and consolidated defs
     svg_header = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -142,7 +149,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
       Generated: {get_timestamp()}
     </text>
     <text x="{page_width_mm - 40}" y="75" class="blueprint-text" font-size="12" text-anchor="end">
-      Automataii Platform v2.0
+      MotionSmith Platform v2.0
     </text>
   </g>
 '''
@@ -154,8 +161,10 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
     spacing = 40  # Very generous spacing between items
 
     # Separate parts and mechanisms
-    part_items = [item for item in layout_items if getattr(item, "item_type", None) == 'part']
-    mechanism_items = [item for item in layout_items if getattr(item, "item_type", None) == 'mechanism']
+    part_items = [item for item in layout_items if getattr(item, "item_type", None) == "part"]
+    mechanism_items = [
+        item for item in layout_items if getattr(item, "item_type", None) == "mechanism"
+    ]
 
     logger.info(f"Large blueprint: {len(part_items)} parts, {len(mechanism_items)} mechanisms")
 
@@ -167,8 +176,10 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
         snap_y = content_y
         svg_parts.append(f'<g id="snapshot" transform="translate({snap_x},{snap_y})">')
         svg_parts.append('<text x="0" y="-10" class="section-title">Scene Snapshot</text>')
-        svg_parts.append(f'<image href="{snapshot_data_uri}" x="0" y="0" width="{snapshot_w}" height="{snapshot_h}" />')
-        svg_parts.append('</g>')
+        svg_parts.append(
+            f'<image href="{snapshot_data_uri}" x="0" y="0" width="{snapshot_w}" height="{snapshot_h}" />'
+        )
+        svg_parts.append("</g>")
         # Advance content below snapshot
         content_y += snapshot_h + 40
 
@@ -178,7 +189,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
         svg_parts.append('<text x="0" y="0" class="section-title">Character Parts</text>')
         material_info = "Cut on RED lines | Material: 3mm Plywood/Acrylic"
         if unit_system == "imperial":
-            material_info = "Cut on RED lines | Material: 1/8\" Plywood/Acrylic"
+            material_info = 'Cut on RED lines | Material: 1/8" Plywood/Acrylic'
         svg_parts.append(f'<text x="0" y="25" class="manufacturing-note">{material_info}</text>')
 
         # Arrange parts in a grid with generous spacing
@@ -200,7 +211,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
             # Add part with its original SVG content (cleaned of data attributes)
             clean_svg_content = str(getattr(item, "svg_content", "") or "")
             # Remove the data-clip-def attribute since we've moved the definitions to the main defs section
-            if 'data-clip-def=' in clean_svg_content:
+            if "data-clip-def=" in clean_svg_content:
                 start = clean_svg_content.find(' data-clip-def="')
                 if start >= 0:
                     end = clean_svg_content.find('"', start + len(' data-clip-def="')) + 1
@@ -208,20 +219,24 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
 
             svg_parts.append(f'<g transform="translate({parts_x},{parts_y})">')
             svg_parts.append(clean_svg_content)
-            svg_parts.append('</g>')
+            svg_parts.append("</g>")
 
             # Update position for next item
             parts_x += item_width + spacing
             max_row_height = max(max_row_height, item_height)
 
         content_y += parts_y + max_row_height + 80
-        svg_parts.append('</g>')
+        svg_parts.append("</g>")
 
     # Add mechanisms section with extra space
     if mechanism_items:
-        svg_parts.append(f'<g id="mechanisms-section" transform="translate({margin_x},{content_y})">')
+        svg_parts.append(
+            f'<g id="mechanisms-section" transform="translate({margin_x},{content_y})">'
+        )
         svg_parts.append('<text x="0" y="0" class="section-title">Mechanisms</text>')
-        svg_parts.append('<text x="0" y="25" class="manufacturing-note">Technical drawings with manufacturing specifications</text>')
+        svg_parts.append(
+            '<text x="0" y="25" class="manufacturing-note">Technical drawings with manufacturing specifications</text>'
+        )
 
         # Arrange mechanisms in a grid with extra generous spacing
         mech_y = 50
@@ -243,7 +258,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
             # Add mechanism with its SVG content
             svg_parts.append(f'<g transform="translate({mech_x},{mech_y})">')
             svg_parts.append(str(getattr(item, "svg_content", "") or ""))
-            svg_parts.append('</g>')
+            svg_parts.append("</g>")
 
             logger.debug(
                 "Added mechanism at (%s,%s): %s",
@@ -256,7 +271,7 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
             mech_x += item_width + mech_spacing
             max_row_height = max(max_row_height, item_height)
 
-        svg_parts.append('</g>')
+        svg_parts.append("</g>")
 
     # Add footer with unit information
     footer_y = page_height_mm - 60
@@ -268,17 +283,26 @@ def generate_single_large_blueprint(layout_items, page_width_mm, page_height_mm,
       Manufacturing Blueprint ({get_unit_label()} Units) | All content on single page | {len(layout_items)} items total
     </text>
     <text x="{page_width_mm - 40}" y="{footer_y + 20}" class="manufacturing-note" text-anchor="end">
-      Automataii Manufacturing System
+      MotionSmith Manufacturing System
     </text>
   </g>
 </svg>''')
 
-    return ''.join(svg_parts)
+    return "".join(svg_parts)
 
 
-
-
-def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_height_mm, margin_mm, title, scale_info, snapshot_data_uri, unit_system="metric"):
+def _generate_single_part_page(
+    item,
+    page_num,
+    total_pages,
+    page_width_mm,
+    page_height_mm,
+    margin_mm,
+    title,
+    scale_info,
+    snapshot_data_uri,
+    unit_system="metric",
+):
     """Generate a single page for one character part"""
 
     content_width = page_width_mm - (2 * margin_mm)
@@ -291,7 +315,7 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
             if inches < 1.0:
                 return f"{inches * 1000:.0f} mil"
             elif inches < 12.0:
-                return f"{inches:.2f}\""
+                return f'{inches:.2f}"'
             else:
                 feet = inches / 12.0
                 return f"{feet:.2f}'"
@@ -318,14 +342,15 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
     # Extract clip definitions from the item's SVG content
     clip_definitions = []
     clean_svg_content = item.svg_content
-    if 'data-clip-def=' in item.svg_content:
+    if "data-clip-def=" in item.svg_content:
         import html
+
         start = item.svg_content.find('data-clip-def="') + len('data-clip-def="')
         end = item.svg_content.find('"', start)
         if start > len('data-clip-def="') - 1 and end > start:
             clip_def_encoded = item.svg_content[start:end]
             clip_def = html.unescape(clip_def_encoded)
-            clip_definitions.append(f'    {clip_def}')
+            clip_definitions.append(f"    {clip_def}")
 
             # Remove the data attribute from content
             attr_start = item.svg_content.find(' data-clip-def="')
@@ -335,7 +360,7 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
     # Material specifications based on unit system
     material_info = "Material: 3mm Plywood/Acrylic | Cut on RED dashed lines"
     if unit_system == "imperial":
-        material_info = "Material: 1/8\" Plywood/Acrylic | Cut on RED dashed lines"
+        material_info = 'Material: 1/8" Plywood/Acrylic | Cut on RED dashed lines'
 
     # Generate page SVG
     page_svg = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -358,7 +383,7 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
   </defs>
 
   <!-- Page Border -->
-  <rect x="{margin_mm/2}" y="{margin_mm/2}" width="{page_width_mm - margin_mm}" height="{page_height_mm - margin_mm}"
+  <rect x="{margin_mm / 2}" y="{margin_mm / 2}" width="{page_width_mm - margin_mm}" height="{page_height_mm - margin_mm}"
         fill="none" stroke="black" stroke-width="1"/>
 
   <!-- Header -->
@@ -375,7 +400,7 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
   </g>
 
   <!-- Part Title -->
-  <text x="{page_width_mm/2}" y="{margin_mm + 70}" class="part-title" text-anchor="middle">{item.name}</text>
+  <text x="{page_width_mm / 2}" y="{margin_mm + 70}" class="part-title" text-anchor="middle">{item.name}</text>
 
   <!-- Part Content (scaled and centered) -->
   <g transform="translate({part_x:.1f},{part_y:.1f}) scale({page_scale:.3f})">
@@ -388,7 +413,7 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
       Actual Size: {format_dimension(item.bounds.width)} × {format_dimension(item.bounds.height)}
     </text>
     <text x="{margin_mm}" y="{page_height_mm - 60}" class="manufacturing-note">
-      Page Scale: {page_scale:.1%} (1:{1/page_scale:.1f})
+      Page Scale: {page_scale:.1%} (1:{1 / page_scale:.1f})
     </text>
     <text x="{margin_mm}" y="{page_height_mm - 45}" class="manufacturing-note">
       {material_info}
@@ -401,15 +426,26 @@ def _generate_single_part_page(item, page_num, total_pages, page_width_mm, page_
   <!-- Footer -->
   <line x1="{margin_mm}" y1="{page_height_mm - 15}" x2="{page_width_mm - margin_mm}" y2="{page_height_mm - 15}"
         stroke="black" stroke-width="0.5"/>
-  <text x="{page_width_mm/2}" y="{page_height_mm - 5}" class="blueprint-text" font-size="8" text-anchor="middle">
-    Automataii Manufacturing System - Part Blueprint
+  <text x="{page_width_mm / 2}" y="{page_height_mm - 5}" class="blueprint-text" font-size="8" text-anchor="middle">
+    MotionSmith Manufacturing System - Part Blueprint
   </text>
 </svg>'''
 
     return page_svg
 
 
-def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, page_height_mm, margin_mm, title, scale_info, snapshot_data_uri, unit_system="metric"):
+def _generate_single_mechanism_page(
+    item,
+    page_num,
+    total_pages,
+    page_width_mm,
+    page_height_mm,
+    margin_mm,
+    title,
+    scale_info,
+    snapshot_data_uri,
+    unit_system="metric",
+):
     """Generate a single page for one mechanism with enhanced details"""
 
     content_width = page_width_mm - (2 * margin_mm)
@@ -422,7 +458,7 @@ def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, 
             if inches < 1.0:
                 return f"{inches * 1000:.0f} mil"
             elif inches < 12.0:
-                return f"{inches:.2f}\""
+                return f'{inches:.2f}"'
             else:
                 feet = inches / 12.0
                 return f"{feet:.2f}'"
@@ -471,7 +507,7 @@ def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, 
   </defs>
 
   <!-- Page Border -->
-  <rect x="{margin_mm/2}" y="{margin_mm/2}" width="{page_width_mm - margin_mm}" height="{page_height_mm - margin_mm}"
+  <rect x="{margin_mm / 2}" y="{margin_mm / 2}" width="{page_width_mm - margin_mm}" height="{page_height_mm - margin_mm}"
         fill="none" stroke="black" stroke-width="1"/>
 
   <!-- Header -->
@@ -488,7 +524,7 @@ def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, 
   </g>
 
   <!-- Mechanism Title -->
-  <text x="{page_width_mm/2}" y="{margin_mm + 70}" class="mechanism-title" text-anchor="middle">{item.name}</text>
+  <text x="{page_width_mm / 2}" y="{margin_mm + 70}" class="mechanism-title" text-anchor="middle">{item.name}</text>
 
   <!-- Mechanism Content (scaled and centered) -->
   <g transform="translate({mech_x:.1f},{mech_y:.1f}) scale({page_scale:.3f})">
@@ -501,7 +537,7 @@ def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, 
       Mechanism Dimensions: {format_dimension(item.bounds.width)} × {format_dimension(item.bounds.height)}
     </text>
     <text x="{margin_mm}" y="{page_height_mm - 75}" class="manufacturing-note">
-      Page Scale: {page_scale:.1%} (1:{1/page_scale:.1f})
+      Page Scale: {page_scale:.1%} (1:{1 / page_scale:.1f})
     </text>
     <text x="{margin_mm}" y="{page_height_mm - 60}" class="manufacturing-note">
       {material_info}
@@ -517,8 +553,8 @@ def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, 
   <!-- Footer -->
   <line x1="{margin_mm}" y1="{page_height_mm - 15}" x2="{page_width_mm - margin_mm}" y2="{page_height_mm - 15}"
         stroke="black" stroke-width="0.5"/>
-  <text x="{page_width_mm/2}" y="{page_height_mm - 5}" class="blueprint-text" font-size="8" text-anchor="middle">
-    Automataii Manufacturing System - Mechanism Blueprint
+  <text x="{page_width_mm / 2}" y="{page_height_mm - 5}" class="blueprint-text" font-size="8" text-anchor="middle">
+    MotionSmith Manufacturing System - Mechanism Blueprint
   </text>
 </svg>'''
 
@@ -528,6 +564,7 @@ def _generate_single_mechanism_page(item, page_num, total_pages, page_width_mm, 
 def get_timestamp():
     """Get current timestamp for blueprint."""
     from datetime import datetime
+
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
@@ -565,18 +602,15 @@ def generate_detailed_part_content(part_items: list, padding: float = 20.0) -> s
 
             # Get part name
             part_name = "Unknown Part"
-            if hasattr(item, 'part_info') and item.part_info:
-                part_name = getattr(item.part_info, 'name', 'Unknown Part')
+            if hasattr(item, "part_info") and item.part_info:
+                part_name = getattr(item.part_info, "name", "Unknown Part")
 
             # Get contour dimensions
             cx, cy, width, height = manufacturing_contour.bounding_rect
 
             # Create manufacturing-precision SVG
             part_svg = _create_manufacturing_part_svg(
-                manufacturing_contour,
-                current_x,
-                current_y,
-                part_name
+                manufacturing_contour, current_x, current_y, part_name
             )
 
             if part_svg:
@@ -601,18 +635,12 @@ def generate_detailed_part_content(part_items: list, padding: float = 20.0) -> s
         return '<text x="20" y="20" font-family="Arial" font-size="12">No parts could be processed from PNG files</text>'
 
     # Return just the content (no SVG wrapper)
-    return '\n'.join(svg_parts)
+    return "\n".join(svg_parts)
 
 
-
-
-
-
-
-
-
-def _create_manufacturing_part_svg(manufacturing_contour, x_offset: float, y_offset: float,
-                                  part_name: str) -> str:
+def _create_manufacturing_part_svg(
+    manufacturing_contour, x_offset: float, y_offset: float, part_name: str
+) -> str:
     """Create manufacturing-precision SVG using extracted PNG contours"""
 
     # Get contour dimensions
@@ -621,9 +649,7 @@ def _create_manufacturing_part_svg(manufacturing_contour, x_offset: float, y_off
     # Apply offset to SVG path
     extractor = AdvancedContourExtractor()
     offset_path = extractor._apply_offset_to_path(
-        manufacturing_contour.svg_path,
-        x_offset - cx,
-        y_offset - cy
+        manufacturing_contour.svg_path, x_offset - cx, y_offset - cy
     )
 
     # Create detailed manufacturing part SVG
@@ -636,7 +662,7 @@ def _create_manufacturing_part_svg(manufacturing_contour, x_offset: float, y_off
         <path d="{offset_path}" class="cut-line"/>
 
         <!-- Part label -->
-        <text x="{x_offset + width/2:.2f}" y="{y_offset - 5:.2f}"
+        <text x="{x_offset + width / 2:.2f}" y="{y_offset - 5:.2f}"
               class="part-label" text-anchor="middle">{part_name}</text>
 
         <!-- Dimensions -->
@@ -645,16 +671,16 @@ def _create_manufacturing_part_svg(manufacturing_contour, x_offset: float, y_off
             <line x1="{x_offset:.2f}" y1="{y_offset + height + 10:.2f}"
                   x2="{x_offset + width:.2f}" y2="{y_offset + height + 10:.2f}"
                   class="dimension-line"/>
-            <text x="{x_offset + width/2:.2f}" y="{y_offset + height + 20:.2f}"
+            <text x="{x_offset + width / 2:.2f}" y="{y_offset + height + 20:.2f}"
                   class="dimension-text" text-anchor="middle">{width:.1f}mm</text>
 
             <!-- Height dimension -->
             <line x1="{x_offset - 10:.2f}" y1="{y_offset:.2f}"
                   x2="{x_offset - 10:.2f}" y2="{y_offset + height:.2f}"
                   class="dimension-line"/>
-            <text x="{x_offset - 15:.2f}" y="{y_offset + height/2:.2f}"
+            <text x="{x_offset - 15:.2f}" y="{y_offset + height / 2:.2f}"
                   class="dimension-text" text-anchor="middle"
-                  transform="rotate(-90, {x_offset - 15:.2f}, {y_offset + height/2:.2f})">
+                  transform="rotate(-90, {x_offset - 15:.2f}, {y_offset + height / 2:.2f})">
                   {height:.1f}mm</text>
         </g>
 
@@ -665,7 +691,7 @@ def _create_manufacturing_part_svg(manufacturing_contour, x_offset: float, y_off
         </text>
 
         <!-- Assembly anchor point -->
-        <circle cx="{x_offset + width/2:.2f}" cy="{y_offset + height/2:.2f}"
+        <circle cx="{x_offset + width / 2:.2f}" cy="{y_offset + height / 2:.2f}"
                 r="2" fill="blue" opacity="0.7"/>
     </g>
     '''
@@ -679,8 +705,8 @@ def _create_fallback_part_svg(item, x_offset: float, y_offset: float, padding: f
     try:
         # Get part name
         part_name = "Unknown Part"
-        if hasattr(item, 'part_info') and item.part_info:
-            part_name = getattr(item.part_info, 'name', 'Unknown Part')
+        if hasattr(item, "part_info") and item.part_info:
+            part_name = getattr(item.part_info, "name", "Unknown Part")
 
         # Create simple placeholder rectangle
         width = 80
@@ -693,11 +719,11 @@ def _create_fallback_part_svg(item, x_offset: float, y_offset: float, padding: f
               class="part-outline" fill="none"/>
 
         <!-- Part label -->
-        <text x="{x_offset + width/2:.2f}" y="{y_offset - 5:.2f}"
+        <text x="{x_offset + width / 2:.2f}" y="{y_offset - 5:.2f}"
               class="part-label" text-anchor="middle">{part_name}</text>
 
         <!-- Warning text -->
-        <text x="{x_offset + width/2:.2f}" y="{y_offset + height/2:.2f}"
+        <text x="{x_offset + width / 2:.2f}" y="{y_offset + height / 2:.2f}"
               class="dimension-text" text-anchor="middle" font-size="8px" fill="red">
               PNG Not Found</text>
     </g>

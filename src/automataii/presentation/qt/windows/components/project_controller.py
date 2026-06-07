@@ -6,6 +6,7 @@ save, load, new, undo, and redo operations using SSOT architecture.
 
 Design Pattern: Controller (handles project lifecycle operations)
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,7 +31,7 @@ def get_default_project_dir() -> Path:
     Returns:
         Path to default project directory (created if not exists)
     """
-    tmp_base = Path(tempfile.gettempdir()) / "automataii_projects"
+    tmp_base = Path(tempfile.gettempdir()) / "motionsmith_projects"
     tmp_base.mkdir(parents=True, exist_ok=True)
     return tmp_base
 
@@ -141,7 +142,7 @@ class ProjectController(QObject):
                 self._parent_widget,
                 "Save Project (SSOT)",
                 str(default_path),
-                "Automataii Project (*.automataii);;All files (*)",
+                "MotionSmith Project (*.automataii);;All files (*)",
             )
 
             if not filepath_str:
@@ -205,7 +206,7 @@ class ProjectController(QObject):
                 self._parent_widget,
                 "Load Project (SSOT)",
                 start_dir,
-                "Automataii Project (*.automataii);;All files (*)",
+                "MotionSmith Project (*.automataii);;All files (*)",
             )
 
             if not filepath_str:
@@ -265,6 +266,7 @@ class ProjectController(QObject):
 
         # Generate unique filename with timestamp
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{project_name}_{timestamp}.automataii"
         filepath = get_default_project_dir() / filename
@@ -308,17 +310,17 @@ class ProjectController(QObject):
     @property
     def can_undo(self) -> bool:
         """Check if undo is available."""
-        return self._state_manager.can_undo
+        return bool(self._state_manager.can_undo)
 
     @property
     def can_redo(self) -> bool:
         """Check if redo is available."""
-        return self._state_manager.can_redo
+        return bool(self._state_manager.can_redo)
 
     @property
     def is_dirty(self) -> bool:
         """Check if project has unsaved changes."""
-        return self._state_manager.is_dirty
+        return bool(self._state_manager.is_dirty)
 
     def _show_status(self, message: str, timeout: int = 0) -> None:
         """Show status message if status bar is available."""

@@ -33,7 +33,7 @@ class WorkflowStateMachine(QObject):
         parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
-        self._settings = settings or QSettings("Automataii", "WorkflowState")
+        self._settings = settings or QSettings("MotionSmith", "WorkflowState")
         self._default_sequence = self._dedupe_sequence(default_sequence)
         self._sequence = list(self._default_sequence)
         self._mode: WorkflowMode = WorkflowMode.FLEXIBLE
@@ -51,7 +51,9 @@ class WorkflowStateMachine(QObject):
         return list(self._sequence)
 
     def set_mode(self, mode: str | WorkflowMode) -> None:
-        normalized = WorkflowMode.GUIDED if str(mode) == WorkflowMode.GUIDED.value else WorkflowMode.FLEXIBLE
+        normalized = (
+            WorkflowMode.GUIDED if str(mode) == WorkflowMode.GUIDED.value else WorkflowMode.FLEXIBLE
+        )
         if normalized == self._mode:
             return
         self._mode = normalized
@@ -127,9 +129,8 @@ class WorkflowStateMachine(QObject):
         suggested = self.recommended_next_tab()
         suggested_label = self._lookup_label(suggested, label_lookup)
         mode_label = "Flexible" if self._mode == WorkflowMode.FLEXIBLE else "Guided"
-        return (
-            f"{mode_label} workflow: {len(self._completed)}/{len(self._sequence)} complete"
-            + (f" | Suggested: {suggested_label}" if suggested_label else "")
+        return f"{mode_label} workflow: {len(self._completed)}/{len(self._sequence)} complete" + (
+            f" | Suggested: {suggested_label}" if suggested_label else ""
         )
 
     def _emit_recommendation(self) -> None:
@@ -155,14 +156,20 @@ class WorkflowStateMachine(QObject):
 
     def _load_state(self) -> None:
         mode_value = self._settings.value("workflow/mode", WorkflowMode.FLEXIBLE.value)
-        self._mode = WorkflowMode.GUIDED if str(mode_value) == WorkflowMode.GUIDED.value else WorkflowMode.FLEXIBLE
+        self._mode = (
+            WorkflowMode.GUIDED
+            if str(mode_value) == WorkflowMode.GUIDED.value
+            else WorkflowMode.FLEXIBLE
+        )
 
         stored_sequence = self._coerce_string_list(self._settings.value("workflow/sequence", []))
         if stored_sequence:
             self._sequence = self._dedupe_sequence(stored_sequence)
 
         self._visited = set(self._coerce_string_list(self._settings.value("workflow/visited", [])))
-        self._completed = set(self._coerce_string_list(self._settings.value("workflow/completed", [])))
+        self._completed = set(
+            self._coerce_string_list(self._settings.value("workflow/completed", []))
+        )
 
         current_tab_id = self._settings.value("workflow/current_tab_id")
         if isinstance(current_tab_id, str) and current_tab_id:

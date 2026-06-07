@@ -208,6 +208,30 @@ class TestMenuActions:
         assert redo_action.shortcut() == QKeySequence("Ctrl+Y")
 
 
+class TestProductionBranding:
+    """Production-facing app identity should be MotionSmith, not legacy placeholders."""
+
+    def test_app_config_uses_motionsmith_identity(self):
+        from automataii.utils.config import AppConfig
+
+        assert AppConfig.APP_NAME == "MotionSmith"
+        assert AppConfig.ORGANIZATION_NAME == "MotionSmith"
+        assert AppConfig.ORGANIZATION_DOMAIN == "motionsmith.app"
+
+    def test_main_window_title_is_motionsmith(self):
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        app = QApplication.instance() or QApplication([])
+        window = AutomataDesigner(experiment_mode=True)
+        try:
+            assert window.windowTitle() == "MotionSmith"
+        finally:
+            window.close()
+        assert app is not None
+
+
 class TestProjectSaveToTmp:
     """Test project save to tmp directory."""
 
@@ -219,7 +243,7 @@ class TestProjectSaveToTmp:
 
         # Should be in system temp directory
         assert tempfile.gettempdir() in str(default_dir)
-        assert "automataii_projects" in str(default_dir)
+        assert "motionsmith_projects" in str(default_dir)
 
     def test_get_default_project_dir_creates_directory(self):
         """Verify get_default_project_dir creates the directory if not exists."""

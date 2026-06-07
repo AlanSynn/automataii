@@ -32,7 +32,7 @@ class WorkspaceLayoutManager(QObject):
         super().__init__(parent)
         self._main_window = main_window
         self._tab_widget = tab_widget
-        self._settings = settings or QSettings("Automataii", "WorkspaceLayout")
+        self._settings = settings or QSettings("MotionSmith", "WorkspaceLayout")
         self._restoring_tabs = False
         self._default_tab_order: list[str] = []
 
@@ -75,9 +75,7 @@ class WorkspaceLayoutManager(QObject):
         self._save_tab_order()
         self._save_current_tab_id()
         self._settings.setValue("workspace/geometry", self._main_window.saveGeometry())
-        self._settings.setValue(
-            "workspace/state", self._main_window.saveState(self._STATE_VERSION)
-        )
+        self._settings.setValue("workspace/state", self._main_window.saveState(self._STATE_VERSION))
         self._settings.sync()
 
     def restore_workspace_layout(self) -> None:

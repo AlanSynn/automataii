@@ -16,6 +16,9 @@ def test_run_blueprint_export_scenario(tmp_path):
     assert data["mechanism"]["mechanism_type"] == "four_bar"
     assert "ground_link" in data["mechanism"]["parameter_keys"]
     assert data["generated_at"].endswith("Z")
+    svg_text = svg_path.read_text(encoding="utf-8")
+    assert "MotionSmith Platform" in svg_text
+    assert "Automataii Manufacturing System" not in svg_text
 
     metrics_path = tmp_path / "foundry_blueprint_metrics.json"
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))

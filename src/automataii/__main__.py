@@ -103,9 +103,9 @@ def main() -> None:
     app = QApplication(sys.argv)
 
     # Set application metadata
-    app.setApplicationName("MotionSmith")
-    app.setOrganizationName("MotionSmith")
-    app.setOrganizationDomain("motionsmith.app")
+    app.setApplicationName(AppConfig.APP_NAME)
+    app.setOrganizationName(AppConfig.ORGANIZATION_NAME)
+    app.setOrganizationDomain(AppConfig.ORGANIZATION_DOMAIN)
 
     # macOS specific: Ensure app comes to foreground
     if platform.system() == "Darwin":
