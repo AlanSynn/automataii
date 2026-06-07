@@ -399,6 +399,33 @@ class TestProjectSaveToTmp:
         assert hasattr(controller, "quick_save")
         assert callable(controller.quick_save)
 
+    def test_quick_save_creates_distinct_same_second_snapshots(self, tmp_path, monkeypatch):
+        """Repeated quick saves should not silently overwrite same-second snapshots."""
+        from automataii.application.project import ProjectSerializer, ProjectStateManager
+        from automataii.presentation.qt.windows.components import (
+            ProjectController,
+            project_controller,
+        )
+
+        monkeypatch.setattr(project_controller.tempfile, "gettempdir", lambda: str(tmp_path))
+
+        state_manager = ProjectStateManager()
+        state_manager.new_project("QuickSaveCollision")
+        serializer = ProjectSerializer()
+        controller = ProjectController(state_manager, serializer)
+
+        assert controller.quick_save()
+        assert controller.quick_save()
+        assert controller.quick_save()
+
+        project_dir = tmp_path / "motionsmith_projects"
+        snapshots = [
+            path
+            for path in project_dir.glob("QuickSaveCollision_*.automataii")
+            if ".backup" not in path.name
+        ]
+        assert len(snapshots) == 3
+
 
 class TestIntegration:
     """Integration tests for the complete workflow."""

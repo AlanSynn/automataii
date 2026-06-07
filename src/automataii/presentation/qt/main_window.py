@@ -27,12 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-# Import MechanismManager
-# Import ProjectDataManager
-# Import SkeletonManager
 from automataii.application.managers import MechanismManager, ProjectDataManager, SkeletonManager
-
-# Import ProjectStateManager, adapters, and serializer (SSOT architecture)
 from automataii.application.project import (
     BoneData,
     JointData,
@@ -50,32 +45,20 @@ from automataii.application.project.adapters import (
     ImageProcessingTabAdapter,
     MechanismDesignTabAdapter,
 )
-
-# Import ActionManager for centralized action management
 from automataii.presentation.qt.actions.action_manager import ActionManager
-
-# Import AcceleratedAnimationScheduler for unified real-time animation
 from automataii.presentation.qt.animation import AcceleratedAnimationScheduler
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
-
-# Import IKManager (Qt-coupled, in presentation layer)
 from automataii.presentation.qt.kinematics.ik_manager import IKManager
 from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in models_pydantic
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
 from automataii.presentation.qt.tabs.lab import LabTab
-
-# Import new tab modules
 from automataii.presentation.qt.tabs.landing_tab import LandingTab
 from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView
 from automataii.presentation.qt.tabs.options_tab import OptionsTab
-
-# Local imports (adjust paths as needed)
-from automataii.presentation.qt.views.editor_view import EditorView  # ADD THIS IMPORT
+from automataii.presentation.qt.views.editor_view import EditorView
 from automataii.presentation.qt.widgets.scrollable_tab_bar import ScrollableTabBar
-
-# Import extracted components for tab lifecycle management
 from automataii.presentation.qt.windows.components import (
     ProjectController,
     SignalConnector,
@@ -2346,30 +2329,6 @@ class AutomataDesigner(QMainWindow):
                     self.editor_tab.motion_path_updated,
                     self._handle_part_motion_path_update_from_editor_tab,
                 )
-
-        # MechanismManager connections - temporarily disabled for debugging
-        # if hasattr(self, "mechanism_manager") and hasattr(
-        #     self.mechanism_manager, "mechanism_visuals_ready"
-        # ):
-        #     # Connect to MechanismDesignTab instead of EditorTab
-        #     if hasattr(self, "mechanism_design_tab") and hasattr(
-        #         self.mechanism_design_tab, "handle_mechanism_visuals"
-        #     ):
-        #         if not self._is_signal_connected(
-        #             self.mechanism_manager.mechanism_visuals_ready,
-        #             self.mechanism_design_tab.handle_mechanism_visuals,
-        #         ):
-        #             self.mechanism_manager.mechanism_visuals_ready.connect(
-        #                 self.mechanism_design_tab.handle_mechanism_visuals
-        #             )
-        #     else:
-        #         logging.warning(
-        #             "MechanismDesignTab or handle_mechanism_visuals slot not found for MechanismManager signal."
-        #         )
-        # else:
-        #     logging.warning(
-        #         "MechanismManager or its mechanism_visuals_ready signal not found."
-        #     )
 
     def _connect_manager_signals(self):
         """Connect signals from various managers to MainWindow slots or other manager slots.

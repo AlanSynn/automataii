@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -264,12 +265,16 @@ class ProjectController(QObject):
         state = self._state_manager.state
         project_name = state.metadata.name if state.metadata else "Untitled"
 
-        # Generate unique filename with timestamp
-        from datetime import datetime
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{project_name}_{timestamp}.automataii"
-        filepath = get_default_project_dir() / filename
+        # Generate a collision-resistant filename; quick-save can be triggered
+        # repeatedly within the same second by shortcuts/autosave.
+        save_dir = get_default_project_dir()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename_stem = f"{project_name}_{timestamp}"
+        filepath = save_dir / f"{filename_stem}.automataii"
+        counter = 1
+        while filepath.exists():
+            filepath = save_dir / f"{filename_stem}_{counter}.automataii"
+            counter += 1
 
         result = self._serializer.save(state, filepath)
 
