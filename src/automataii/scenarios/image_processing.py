@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import time
+import uuid
 from pathlib import Path
 
 from automataii.domain.animation.body_parts_extractor import BodyPartsExtractor
@@ -18,6 +19,7 @@ DEFAULT_IMAGE_CANDIDATES = (
     "src/examples/girl.png",
     "src/examples/boy.png",
 )
+GENERATED_TREE_MARKER = ".motionsmith-scenario-generated"
 
 
 def run_image_processing_scenario(
@@ -58,8 +60,7 @@ def run_image_processing_scenario(
             raise RuntimeError("image_to_annotations returned no results")
 
         annotation_dir = Path(annotation["output_dir"]).resolve()
-        annotations_output = output_dir / "annotations"
-        _copy_tree(annotation_dir, annotations_output)
+        annotations_output = _copy_tree(annotation_dir, output_dir / "annotations")
 
         extractor = BodyPartsExtractor(
             char_dir=str(annotations_output),
@@ -107,7 +108,7 @@ def run_image_processing_scenario(
         part_count,
         output_dir,
     )
-    return extractor.output_dir
+    return Path(extractor.output_dir)
 
 
 def _resolve_image(image_path: Path | None) -> Path:
@@ -120,16 +121,44 @@ def _resolve_image(image_path: Path | None) -> Path:
     for candidate in DEFAULT_IMAGE_CANDIDATES:
         resolved = resolve_path(candidate)
         if resolved and resolved.exists():
-            return resolved
+            return Path(resolved)
     raise FileNotFoundError(
         f"No default image found. Checked: {', '.join(DEFAULT_IMAGE_CANDIDATES)}"
     )
 
 
-def _copy_tree(src: Path, dst: Path) -> None:
-    if dst.exists():
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst, dirs_exist_ok=True)
+def _copy_tree(src: Path, dst: Path) -> Path:
+    """Copy a generated artifact tree without deleting unrelated user folders."""
+    src = src.resolve()
+    dst = dst.resolve()
+
+    if src == dst:
+        return dst
+
+    target = dst
+    if target.exists():
+        marker_path = target / GENERATED_TREE_MARKER
+        if (
+            target.is_dir()
+            and not target.is_symlink()
+            and marker_path.is_file()
+            and not marker_path.is_symlink()
+        ):
+            shutil.rmtree(target)
+        else:
+            target = _unique_sibling_path(dst)
+
+    shutil.copytree(src, target, dirs_exist_ok=False)
+    (target / GENERATED_TREE_MARKER).write_text("", encoding="utf-8")
+    return target
+
+
+def _unique_sibling_path(path: Path) -> Path:
+    for _ in range(100):
+        candidate = path.with_name(f"{path.name}-{uuid.uuid4().hex[:8]}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"Could not allocate a unique output directory near {path}")
 
 
 def _write_manifest(
@@ -146,11 +175,25 @@ def _write_manifest(
         "image": str(image.resolve()),
         "annotation": {
             "dir": str(annotation_dir.resolve()),
-            "char_cfg": annotation_info.get("char_cfg_path"),
-            "texture": annotation_info.get("texture_path"),
-            "mask": annotation_info.get("mask_path"),
-            "joint_overlay": annotation_info.get("joint_overlay_path"),
-            "bounding_box": annotation_info.get("bounding_box_path"),
+            "char_cfg": _artifact_path(
+                annotation_dir, "char_cfg.yaml", annotation_info, "char_cfg_path"
+            ),
+            "texture": _artifact_path(
+                annotation_dir, "texture.png", annotation_info, "texture_path"
+            ),
+            "mask": _artifact_path(annotation_dir, "mask.png", annotation_info, "mask_path"),
+            "joint_overlay": _artifact_path(
+                annotation_dir,
+                "joint_overlay.png",
+                annotation_info,
+                "joint_overlay_path",
+            ),
+            "bounding_box": _artifact_path(
+                annotation_dir,
+                "bounding_box.yaml",
+                annotation_info,
+                "bounding_box_path",
+            ),
         },
         "parts": {
             "dir": str(parts_dir.resolve()),
@@ -161,6 +204,18 @@ def _write_manifest(
     manifest_path = output_dir / "image_processing_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest_path
+
+
+def _artifact_path(
+    annotation_dir: Path,
+    filename: str,
+    annotation_info: dict[str, str],
+    fallback_key: str,
+) -> str | None:
+    copied_path = annotation_dir / filename
+    if copied_path.exists():
+        return str(copied_path.resolve())
+    return annotation_info.get(fallback_key)
 
 
 def _write_metrics(

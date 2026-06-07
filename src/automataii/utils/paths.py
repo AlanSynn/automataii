@@ -306,7 +306,7 @@ if __name__ == "__main__":
     app_dir = get_app_temp_dir()
     print(f"Application temp dir: {app_dir}")
     assert app_dir.exists()
-    assert app_dir.name == "automataii"
+    assert app_dir.name == "motionsmith"
 
     # Test get_session_temp_dir with generated ID
     session_dir1 = get_session_temp_dir(clear_existing=True)
