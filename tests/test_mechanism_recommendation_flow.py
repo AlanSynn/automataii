@@ -4,6 +4,7 @@ Test mechanism recommendation dialog flow for all mechanism types.
 Verifies that selecting any mechanism type from the recommendation dialog
 does not cause AttributeErrors related to uninitialized coordinators.
 """
+
 from __future__ import annotations
 
 import logging
@@ -86,7 +87,7 @@ class TestAnimationFrameCoordinatorDefensiveChecks:
 
         # Simulate the defensive check pattern
         def clear_animation_cache():
-            if hasattr(tab, '_animation_frame_coordinator') and tab._animation_frame_coordinator:
+            if hasattr(tab, "_animation_frame_coordinator") and tab._animation_frame_coordinator:
                 tab._animation_frame_coordinator.clear_animation_cache(tab)
 
         # Should not raise
@@ -97,7 +98,7 @@ class TestAnimationFrameCoordinatorDefensiveChecks:
         tab = MagicMock(spec=[])
 
         def get_animation_time():
-            if hasattr(tab, '_animation_frame_coordinator') and tab._animation_frame_coordinator:
+            if hasattr(tab, "_animation_frame_coordinator") and tab._animation_frame_coordinator:
                 return tab._animation_frame_coordinator.animation_time
             return 0.0
 
@@ -109,7 +110,10 @@ class TestAnimationFrameCoordinatorDefensiveChecks:
         tab = MagicMock(spec=[])
 
         def update_animation():
-            if not hasattr(tab, '_animation_frame_coordinator') or not tab._animation_frame_coordinator:
+            if (
+                not hasattr(tab, "_animation_frame_coordinator")
+                or not tab._animation_frame_coordinator
+            ):
                 return
             tab._animation_frame_coordinator.update_frame()
 
@@ -121,7 +125,10 @@ class TestAnimationFrameCoordinatorDefensiveChecks:
         tab = MagicMock(spec=[])
 
         def apply_performance_preset(preset: str):
-            if not hasattr(tab, '_animation_frame_coordinator') or not tab._animation_frame_coordinator:
+            if (
+                not hasattr(tab, "_animation_frame_coordinator")
+                or not tab._animation_frame_coordinator
+            ):
                 return
             return tab._animation_frame_coordinator.apply_performance_preset(preset)
 
@@ -133,15 +140,18 @@ class TestAnimationFrameCoordinatorDefensiveChecks:
 class TestMechanismTypeHandling:
     """Test handling of different mechanism types in recommendation flow."""
 
-    @pytest.mark.parametrize("mechanism_type,internal_type", [
-        ("4-Bar Linkage", "4_bar_linkage"),
-        ("4-bar Coupler", "4_bar_linkage"),
-        ("Cam & Follower", "cam"),
-        ("Cam-Follower", "cam"),
-        ("Gears (Simple Pair)", "gear"),
-        ("Simple Gear", "gear"),
-        ("Planetary Gear", "planetary_gear"),
-    ])
+    @pytest.mark.parametrize(
+        "mechanism_type,internal_type",
+        [
+            ("4-Bar Linkage", "4_bar_linkage"),
+            ("4-bar Coupler", "4_bar_linkage"),
+            ("Cam & Follower", "cam"),
+            ("Cam-Follower", "cam"),
+            ("Gears (Simple Pair)", "gear"),
+            ("Simple Gear", "gear"),
+            ("Planetary Gear", "planetary_gear"),
+        ],
+    )
     def test_mechanism_type_mapping(self, mechanism_type: str, internal_type: str):
         """Verify mechanism type mapping from display names to internal types."""
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
@@ -236,11 +246,14 @@ class TestRecommendationControllerFlow:
         controller._add_mechanism_layer_fn.assert_called_once()
         controller._handle_mechanism_visuals_fn.assert_called_once()
 
-    @pytest.mark.parametrize("family", [
-        "Four-Bar Linkage",
-        "Cam & Follower",
-        "Gears",
-    ])
+    @pytest.mark.parametrize(
+        "family",
+        [
+            "Four-Bar Linkage",
+            "Cam & Follower",
+            "Gears",
+        ],
+    )
     def test_handle_all_mechanism_families(self, family: str):
         """Test that all mechanism families can be handled without error."""
         from automataii.presentation.qt.tabs.mechanism_design.controllers.recommendation_controller import (
@@ -273,6 +286,61 @@ class TestRecommendationControllerFlow:
         controller._handle_mechanism_visuals_fn.assert_called_once()
 
 
+class TestRecommendationTemplateSearchContracts:
+    """Regression tests for generated-path recommendation/template search."""
+
+    def test_align_and_compare_paths_rejects_non_finite_candidates(self):
+        """NaN/inf generated paths must not be scored as best matches."""
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            align_and_compare_paths,
+        )
+
+        user_path = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]])
+        candidate = np.array([[0.0, 0.0], [float("nan"), 1.0], [2.0, 0.0]])
+
+        distance, user_aligned, candidate_aligned, transform = align_and_compare_paths(
+            user_path,
+            candidate,
+        )
+
+        assert distance == float("inf")
+        assert user_aligned is None
+        assert candidate_aligned is None
+        assert transform is None
+
+    def test_load_generated_paths_skips_non_finite_candidates(self, tmp_path):
+        """Malformed template-search rows should not enter recommendation ranking."""
+        import json
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        generated_paths = [
+            {
+                "type": "4-bar Coupler",
+                "name": "poisoned",
+                "path_coordinates": [[0.0, 0.0], [float("nan"), 1.0], [2.0, 0.0]],
+            },
+            {
+                "type": "4-bar Coupler",
+                "name": "finite",
+                "path_coordinates": [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]],
+            },
+        ]
+        generated_path = tmp_path / "generated_paths.json"
+        generated_path.write_text(json.dumps(generated_paths), encoding="utf-8")
+
+        loaded = MechanismRecommendationDialog._load_generated_paths(
+            object(),
+            str(generated_path),
+        )
+
+        assert [row["name"] for row in loaded] == ["finite"]
+
+
 class TestPresenterMechanismHandling:
     """Test presenter's mechanism handling with defensive checks."""
 
@@ -286,7 +354,10 @@ class TestPresenterMechanismHandling:
 
         # The defensive pattern in _clear_animation_cache
         def clear_animation_cache():
-            if hasattr(mock_tab, '_animation_frame_coordinator') and mock_tab._animation_frame_coordinator:
+            if (
+                hasattr(mock_tab, "_animation_frame_coordinator")
+                and mock_tab._animation_frame_coordinator
+            ):
                 mock_tab._animation_frame_coordinator.clear_animation_cache(mock_tab)
 
         # Should not raise AttributeError
@@ -298,7 +369,10 @@ class TestPresenterMechanismHandling:
         mock_tab._animation_frame_coordinator = None
 
         def clear_animation_cache():
-            if hasattr(mock_tab, '_animation_frame_coordinator') and mock_tab._animation_frame_coordinator:
+            if (
+                hasattr(mock_tab, "_animation_frame_coordinator")
+                and mock_tab._animation_frame_coordinator
+            ):
                 mock_tab._animation_frame_coordinator.clear_animation_cache(mock_tab)
 
         # Should not raise AttributeError

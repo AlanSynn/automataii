@@ -27,30 +27,28 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
     def _generate_front_view(self, mechanism_data: dict[str, Any]):
         """Generate front view showing cam profile and follower."""
-        params = mechanism_data.get('params', {})
+        params = mechanism_data.get("params", {})
         viewport = self.views[0]
 
         # Cam parameters
-        center_x = viewport.x + viewport.width/2
-        center_y = viewport.y + viewport.height/2 + 20
-        base_radius = params.get('base_radius', 30)
-        eccentricity = params.get('eccentricity', 15)
-        params.get('rotation_angle', 0)
+        center_x = viewport.x + viewport.width / 2
+        center_y = viewport.y + viewport.height / 2 + 20
+        base_radius = params.get("base_radius", 30)
+        eccentricity = params.get("eccentricity", 15)
+        params.get("rotation_angle", 0)
 
         # Generate cam profile
-        profile_points = self._generate_cam_profile(
-            center_x, center_y, base_radius, eccentricity
-        )
+        profile_points = self._generate_cam_profile(center_x, center_y, base_radius, eccentricity)
 
         # Follower parameters
-        rod_length = params.get('follower_rod_length', 60)
-        rod_diameter = params.get('rod_diameter', 10)
-        follower_type = params.get('follower_type', 'flat')  # flat, roller, knife
+        rod_length = params.get("follower_rod_length", 60)
+        rod_diameter = params.get("rod_diameter", 10)
+        follower_type = params.get("follower_type", "flat")  # flat, roller, knife
 
         cam_svg = f'''
         <g id="front-view-cam">
             <!-- Cam Profile -->
-            {self._draw_cam_profile(profile_points, center_x, center_y)}
+            {self._draw_cam_profile(profile_points, center_x, center_y, base_radius)}
 
             <!-- Cam Shaft -->
             <circle cx="{center_x}" cy="{center_y}" r="5"
@@ -64,10 +62,15 @@ class CamBlueprintGenerator(BlueprintGenerator):
                   stroke="black" stroke-width="0.5" fill="white"/>
 
             <!-- Follower Assembly -->
-            {self._draw_follower_assembly(
-                center_x, center_y - base_radius - eccentricity,
-                rod_length, rod_diameter, follower_type
-            )}
+            {
+            self._draw_follower_assembly(
+                center_x,
+                center_y - base_radius - eccentricity,
+                rod_length,
+                rod_diameter,
+                follower_type,
+            )
+        }
 
             <!-- Motion Path (dashed) -->
             <line x1="{center_x}" y1="{center_y - base_radius + eccentricity}"
@@ -92,8 +95,9 @@ class CamBlueprintGenerator(BlueprintGenerator):
         # Add dimensions
         self._add_cam_dimensions(center_x, center_y, base_radius, eccentricity, rod_length)
 
-    def _generate_cam_profile(self, cx: float, cy: float,
-                             base_r: float, ecc: float) -> list[tuple[float, float]]:
+    def _generate_cam_profile(
+        self, cx: float, cy: float, base_r: float, ecc: float
+    ) -> list[tuple[float, float]]:
         """Generate egg-shaped cam profile points."""
         points = []
         num_points = 360  # One point per degree for precision
@@ -106,15 +110,16 @@ class CamBlueprintGenerator(BlueprintGenerator):
             radius_variation = ecc * math.cos(angle)
             radius = base_r + radius_variation
 
-            x = cx + radius * math.cos(angle - math.pi/2)  # Rotate 90° for proper orientation
-            y = cy + radius * math.sin(angle - math.pi/2)
+            x = cx + radius * math.cos(angle - math.pi / 2)  # Rotate 90° for proper orientation
+            y = cy + radius * math.sin(angle - math.pi / 2)
 
             points.append((x, y))
 
         return points
 
-    def _draw_cam_profile(self, points: list[tuple[float, float]],
-                         cx: float, cy: float) -> str:
+    def _draw_cam_profile(
+        self, points: list[tuple[float, float]], cx: float, cy: float, base_radius: float
+    ) -> str:
         """Draw cam profile with smooth curve."""
         # Create path from points
         path_data = f"M {points[0][0]:.2f},{points[0][1]:.2f}"
@@ -130,18 +135,19 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
         path_data += " Z"  # Close path
 
+        base_circle_radius = max(0.0, abs(float(base_radius)))
         return f'''
             <path d="{path_data}"
                   stroke="black" stroke-width="0.7" fill="none"/>
 
             <!-- Base circle reference (dashed) -->
-            <circle cx="{cx}" cy="{cy}" r="{points[0][1] - cy}"
+            <circle cx="{cx}" cy="{cy}" r="{base_circle_radius}"
                     stroke="green" stroke-width="0.25" stroke-dasharray="2,2" fill="none"/>
         '''
 
-    def _draw_follower_assembly(self, x: float, y: float,
-                               rod_length: float, rod_diameter: float,
-                               follower_type: str) -> str:
+    def _draw_follower_assembly(
+        self, x: float, y: float, rod_length: float, rod_diameter: float, follower_type: str
+    ) -> str:
         """Draw follower with rod and guide."""
         follower_svg = f'''
         <g id="follower-assembly">
@@ -151,12 +157,12 @@ class CamBlueprintGenerator(BlueprintGenerator):
                   stroke="black" stroke-width="0.5" fill="none"/>
 
             <!-- Guide Bore -->
-            <rect x="{x - rod_diameter/2 - 1}" y="{y - rod_length - 25}"
+            <rect x="{x - rod_diameter / 2 - 1}" y="{y - rod_length - 25}"
                   width="{rod_diameter + 2}" height="{rod_length + 15}"
                   stroke="black" stroke-width="0.5" fill="white"/>
 
             <!-- Follower Rod -->
-            <rect x="{x - rod_diameter/2}" y="{y - rod_length}"
+            <rect x="{x - rod_diameter / 2}" y="{y - rod_length}"
                   width="{rod_diameter}" height="{rod_length}"
                   stroke="black" stroke-width="0.7" fill="none"/>
 
@@ -167,61 +173,61 @@ class CamBlueprintGenerator(BlueprintGenerator):
         # Add cross-hatching pattern
         for i in range(5, int(rod_length), 5):
             follower_svg += f'''
-                <line x1="{x - rod_diameter/2}" y1="{y - i}"
-                      x2="{x + rod_diameter/2}" y2="{y - i - 3}"/>
+                <line x1="{x - rod_diameter / 2}" y1="{y - i}"
+                      x2="{x + rod_diameter / 2}" y2="{y - i - 3}"/>
             '''
 
         # Add follower tip based on type
-        if follower_type == 'flat':
+        if follower_type == "flat":
             follower_svg += f'''
             </g>
             <!-- Flat Follower -->
-            <rect x="{x - rod_diameter/2 - 2}" y="{y - 3}"
+            <rect x="{x - rod_diameter / 2 - 2}" y="{y - 3}"
                   width="{rod_diameter + 4}" height="6"
                   stroke="black" stroke-width="0.7" fill="gray"/>
             '''
-        elif follower_type == 'roller':
+        elif follower_type == "roller":
             follower_svg += f'''
             </g>
             <!-- Roller Follower -->
-            <circle cx="{x}" cy="{y}" r="{rod_diameter/2 + 2}"
+            <circle cx="{x}" cy="{y}" r="{rod_diameter / 2 + 2}"
                     stroke="black" stroke-width="0.7" fill="white"/>
             <circle cx="{x}" cy="{y}" r="2"
                     stroke="black" stroke-width="0.5" fill="black"/>
             '''
         else:  # knife edge
-            follower_svg += f'''
+            follower_svg += f"""
             </g>
             <!-- Knife Edge Follower -->
-            <path d="M {x - rod_diameter/2},{y} L {x},{y + 5} L {x + rod_diameter/2},{y} Z"
+            <path d="M {x - rod_diameter / 2},{y} L {x},{y + 5} L {x + rod_diameter / 2},{y} Z"
                   stroke="black" stroke-width="0.7" fill="gray"/>
-            '''
+            """
 
         # Spring representation
-        follower_svg += '''
+        follower_svg += """
             <!-- Return Spring -->
             <g stroke="black" stroke-width="0.5" fill="none">
-        '''
+        """
 
         spring_top = y - rod_length - 20
         for i in range(8):
             y_pos = spring_top + i * 3
             if i % 2 == 0:
-                follower_svg += f'''
+                follower_svg += f"""
                 <path d="M {x - 8},{y_pos} Q {x},{y_pos + 1.5} {x + 8},{y_pos + 3}"/>
-                '''
+                """
 
-        follower_svg += '''
+        follower_svg += """
             </g>
         </g>
-        '''
+        """
 
         return follower_svg
 
     def _add_profile_points(self, points: list[tuple[float, float]]) -> str:
         """Add manufacturing reference points on profile."""
         # Show key points every 30 degrees
-        point_markers = ''
+        point_markers = ""
         for i in range(0, 360, 30):
             if i < len(points):
                 x, y = points[i]
@@ -236,12 +242,12 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
     def _generate_side_view(self, mechanism_data: dict[str, Any]):
         """Generate side view showing cam thickness."""
-        params = mechanism_data.get('params', {})
+        params = mechanism_data.get("params", {})
         viewport = self.views[2]
 
-        cam_thickness = params.get('thickness', 15)
-        shaft_diameter = params.get('shaft_diameter', 10)
-        hub_diameter = params.get('hub_diameter', 20)
+        cam_thickness = params.get("thickness", 15)
+        shaft_diameter = params.get("shaft_diameter", 10)
+        hub_diameter = params.get("hub_diameter", 20)
 
         side_view_svg = f'''
         <g id="side-view-cam">
@@ -311,7 +317,7 @@ class CamBlueprintGenerator(BlueprintGenerator):
                 <line x1="{viewport.x + 20}" y1="{y}" x2="{viewport.x + 180}" y2="{y}"/>
             '''
 
-        displacement_svg += '''
+        displacement_svg += """
             </g>
 
             <!-- Displacement curve -->
@@ -330,38 +336,36 @@ class CamBlueprintGenerator(BlueprintGenerator):
             <text x="205" y="50" font-size="6" font-family="Arial"
                   transform="rotate(-90 205 50)">LIFT</text>
         </g>
-        '''
+        """
 
         self.svg_elements.append(displacement_svg)
 
-    def _add_cam_dimensions(self, cx: float, cy: float,
-                           base_r: float, ecc: float, rod_length: float):
+    def _add_cam_dimensions(
+        self, cx: float, cy: float, base_r: float, ecc: float, rod_length: float
+    ):
         """Add cam-specific dimensions."""
         # Base radius
-        self.dimensions.append(
-            self.create_radius_dimension(cx, cy, base_r, 45)
-        )
+        self.dimensions.append(self.create_radius_dimension(cx, cy, base_r, 45))
 
         # Maximum radius
-        self.dimensions.append(
-            self.create_radius_dimension(cx, cy, base_r + ecc, 225)
-        )
+        self.dimensions.append(self.create_radius_dimension(cx, cy, base_r + ecc, 225))
 
         # Eccentricity
         self.dimensions.append(
             self.create_dimension_line(
-                cx + base_r + 5, cy,
-                cx + base_r + ecc + 5, cy,
-                f"e={ecc}±0.05", 8
+                cx + base_r + 5, cy, cx + base_r + ecc + 5, cy, f"e={ecc}±0.05", 8
             )
         )
 
         # Rod length
         self.dimensions.append(
             self.create_dimension_line(
-                cx + 20, cy - base_r - ecc,
-                cx + 20, cy - base_r - ecc - rod_length,
-                f"{rod_length}±0.1", 10
+                cx + 20,
+                cy - base_r - ecc,
+                cx + 20,
+                cy - base_r - ecc - rod_length,
+                f"{rod_length}±0.1",
+                10,
             )
         )
 
@@ -369,7 +373,7 @@ class CamBlueprintGenerator(BlueprintGenerator):
         """Add cam-specific tolerances."""
         super()._add_tolerances(mechanism_data)
 
-        cam_tolerances = '''
+        cam_tolerances = """
         <g id="cam-tolerances" font-size="6" font-family="Arial">
             <text x="140" y="260">CAM SPECIFICATIONS:</text>
             <text x="140" y="266">PROFILE TOLERANCE: ±0.02mm</text>
@@ -378,19 +382,19 @@ class CamBlueprintGenerator(BlueprintGenerator):
             <text x="240" y="266">HARDNESS: HRC 58-62</text>
             <text x="240" y="272">LUBRICATION: ISO VG 32</text>
         </g>
-        '''
+        """
 
         self.svg_elements.append(cam_tolerances)
 
     def _add_part_list(self, mechanism_data: dict[str, Any]):
         """Add cam-specific part list."""
         parts = [
-            {'name': 'CAM DISC', 'quantity': 1, 'material': 'TOOL STEEL'},
-            {'name': 'FOLLOWER ROD', 'quantity': 1, 'material': 'HARDENED STEEL'},
-            {'name': 'GUIDE BUSHING', 'quantity': 2, 'material': 'BRONZE'},
-            {'name': 'RETURN SPRING', 'quantity': 1, 'material': 'SPRING STEEL'},
-            {'name': 'SHAFT KEY', 'quantity': 1, 'material': 'STEEL'}
+            {"name": "CAM DISC", "quantity": 1, "material": "TOOL STEEL"},
+            {"name": "FOLLOWER ROD", "quantity": 1, "material": "HARDENED STEEL"},
+            {"name": "GUIDE BUSHING", "quantity": 2, "material": "BRONZE"},
+            {"name": "RETURN SPRING", "quantity": 1, "material": "SPRING STEEL"},
+            {"name": "SHAFT KEY", "quantity": 1, "material": "STEEL"},
         ]
 
-        mechanism_data['parts'] = parts
+        mechanism_data["parts"] = parts
         super()._add_part_list(mechanism_data)

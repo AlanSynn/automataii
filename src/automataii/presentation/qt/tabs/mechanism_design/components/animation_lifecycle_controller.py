@@ -11,6 +11,7 @@ Integration:
     animation timing across all tabs. If no scheduler is set, it falls back to
     using its own QTimer for backward compatibility.
 """
+
 from __future__ import annotations
 
 import logging
@@ -79,6 +80,8 @@ class AnimationLifecycleController(QObject):
         self._animation_speed = 1.0  # radians per second
         self._tab_active = False
         self._use_scheduler = False  # Whether scheduler is actively being used
+        self._started_scheduler = False
+        self._mechanism_enabled_state: dict[str, bool] = {}
 
         # IK throttling for performance
         self._ik_update_rate_hz: int = 30
@@ -100,8 +103,12 @@ class AnimationLifecycleController(QObject):
         self._get_parts_data: Callable[[], dict[str, Any]] = lambda: {}
         self._get_presenter: Callable[[], Any] = lambda: None
         self._get_ui_state_manager: Callable[[], Any] = lambda: None
-        self._calculate_mechanism_output: Callable[[str, dict, float, dict], QPointF | None] = lambda a, b, c, d: None
-        self._update_mechanism_visuals_for_animation: Callable[[str, float, dict], None] = lambda a, b, c: None
+        self._calculate_mechanism_output: Callable[[str, dict, float, dict], QPointF | None] = (
+            lambda a, b, c, d: None
+        )
+        self._update_mechanism_visuals_for_animation: Callable[[str, float, dict], None] = (
+            lambda a, b, c: None
+        )
         self._get_target_joint_for_mechanism_control: Callable[[str, str], str] = lambda a, b: b
         self._get_standardized_joint_id: Callable[[str], str | None] = lambda x: None
         self._ensure_skeleton_visualization: Callable[[dict], None] = lambda x: None
@@ -152,7 +159,7 @@ class AnimationLifecycleController(QObject):
         Returns:
             True if callbacks are configured, False otherwise
         """
-        return getattr(self, '_callbacks_configured', False)
+        return getattr(self, "_callbacks_configured", False)
 
     # --- Properties ---
 
@@ -210,6 +217,7 @@ class AnimationLifecycleController(QObject):
         if self._scheduler and self._use_scheduler:
             self._scheduler.unsubscribe(self._subscription_id)
             self._use_scheduler = False
+            self._stop_scheduler_if_owned_and_idle()
 
         self._scheduler = scheduler
 
@@ -220,7 +228,9 @@ class AnimationLifecycleController(QObject):
 
     def _subscribe_to_scheduler(self) -> None:
         """Subscribe to the central scheduler for animation updates."""
-        logging.debug(f"[ANIM-SUB] _subscribe_to_scheduler: scheduler={self._scheduler is not None}, use_scheduler={self._use_scheduler}")
+        logging.debug(
+            f"[ANIM-SUB] _subscribe_to_scheduler: scheduler={self._scheduler is not None}, use_scheduler={self._use_scheduler}"
+        )
         if self._scheduler and not self._use_scheduler:
             from automataii.presentation.qt.animation import AnimationPriority
 
@@ -230,13 +240,23 @@ class AnimationLifecycleController(QObject):
                 owner_id=self._subscription_id,
             )
             self._use_scheduler = True
-            logging.info(f"[ANIM-SUB] Subscribed to scheduler: id={self._subscription_id}, scheduler_running={self._scheduler.is_running}")
+            logging.info(
+                f"[ANIM-SUB] Subscribed to scheduler: id={self._subscription_id}, scheduler_running={self._scheduler.is_running}"
+            )
 
     def _unsubscribe_from_scheduler(self) -> None:
         """Unsubscribe from the central scheduler."""
         if self._scheduler and self._use_scheduler:
             self._scheduler.unsubscribe(self._subscription_id)
             self._use_scheduler = False
+
+    def _stop_scheduler_if_owned_and_idle(self) -> None:
+        """Stop a scheduler this controller started once its subscription is gone."""
+        if not self._scheduler or not self._started_scheduler:
+            return
+        if not self._scheduler.list_subscriptions():
+            self._scheduler.stop()
+        self._started_scheduler = False
 
     # --- Performance Settings ---
 
@@ -255,7 +275,9 @@ class AnimationLifecycleController(QObject):
 
     # --- Animation Control ---
 
-    def start_animation(self, mechanism_enabled_state: dict[str, bool], initial_skeleton_data: dict | None = None) -> None:
+    def start_animation(
+        self, mechanism_enabled_state: dict[str, bool], initial_skeleton_data: dict | None = None
+    ) -> None:
         """
         Start the animation timer and IK animation.
 
@@ -263,6 +285,12 @@ class AnimationLifecycleController(QObject):
             mechanism_enabled_state: Dict of mechanism_id -> enabled state
             initial_skeleton_data: Initial skeleton data for visualization
         """
+        self._mechanism_enabled_state = mechanism_enabled_state
+        if not any(self._mechanism_enabled_state.values()):
+            self._tab_active = False
+            logging.warning("AnimationLifecycleController: No mechanisms enabled for animation")
+            return
+
         # CRITICAL: Ensure tab_active is True when starting animation
         self._tab_active = True
         logging.debug("[ANIM] start_animation: Set tab_active=True")
@@ -277,11 +305,9 @@ class AnimationLifecycleController(QObject):
 
         # Check if callbacks are configured
         if not self.is_configured():
-            logging.warning("AnimationLifecycleController: Callbacks not configured! Animation may not work correctly.")
-
-        if not mechanism_enabled_state:
-            logging.warning("AnimationLifecycleController: No mechanisms enabled for animation")
-            return
+            logging.warning(
+                "AnimationLifecycleController: Callbacks not configured! Animation may not work correctly."
+            )
 
         # Ensure skeleton is properly initialized before starting animation
         if initial_skeleton_data:
@@ -293,8 +319,8 @@ class AnimationLifecycleController(QObject):
         if integration_success:
             try:
                 main_window = self._get_main_window()
-                if main_window and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
-                    if hasattr(main_window.ik_manager, 'start_animation'):
+                if main_window and hasattr(main_window, "ik_manager") and main_window.ik_manager:
+                    if hasattr(main_window.ik_manager, "start_animation"):
                         main_window.ik_manager.start_animation()
             except Exception as e:
                 logging.debug(f"AnimationLifecycleController: IK start failed: {e}")
@@ -302,13 +328,19 @@ class AnimationLifecycleController(QObject):
         # Start mechanism animation - use scheduler if available, otherwise local timer
         logging.info(f"[ANIM-START] Starting animation: scheduler={self._scheduler is not None}")
         if self._scheduler:
+            was_using_scheduler = self._use_scheduler
+            already_owned_scheduler = self._started_scheduler
             self._subscribe_to_scheduler()
             # Ensure scheduler is running
             if not self._scheduler.is_running:
                 logging.info("[ANIM-START] Starting scheduler (was not running)")
                 self._scheduler.start()
+                self._started_scheduler = True
             else:
-                logging.info(f"[ANIM-START] Scheduler already running, subscriptions={len(self._scheduler._subscriptions)}")
+                self._started_scheduler = already_owned_scheduler if was_using_scheduler else False
+                logging.info(
+                    f"[ANIM-START] Scheduler already running, subscriptions={len(self._scheduler._subscriptions)}"
+                )
         else:
             logging.info("[ANIM-START] Using fallback QTimer (no scheduler)")
             self._animation_timer.start(33)  # ~30 FPS fallback
@@ -318,7 +350,9 @@ class AnimationLifecycleController(QObject):
             presenter.set_animation_running(True)
 
         # Update UI state
-        self._update_animation_ui_state(can_play=False, can_stop=True, can_reset=True, is_running=True)
+        self._update_animation_ui_state(
+            can_play=False, can_stop=True, can_reset=True, is_running=True
+        )
 
         self.animation_started.emit()
 
@@ -327,6 +361,7 @@ class AnimationLifecycleController(QObject):
         # Stop animation - unsubscribe from scheduler or stop local timer
         if self._scheduler and self._use_scheduler:
             self._unsubscribe_from_scheduler()
+            self._stop_scheduler_if_owned_and_idle()
         else:
             self._animation_timer.stop()
 
@@ -336,9 +371,9 @@ class AnimationLifecycleController(QObject):
 
         # Stop IK animation
         main_window = self._get_main_window()
-        if main_window and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
+        if main_window and hasattr(main_window, "ik_manager") and main_window.ik_manager:
             try:
-                if hasattr(main_window.ik_manager, 'stop_animation'):
+                if hasattr(main_window.ik_manager, "stop_animation"):
                     main_window.ik_manager.stop_animation()
 
                 # Clear all mechanism position targets
@@ -347,7 +382,9 @@ class AnimationLifecycleController(QObject):
                 logging.debug(f"AnimationLifecycleController: IK stop failed: {e}")
 
         # Update UI state
-        self._update_animation_ui_state(can_play=True, can_stop=False, can_reset=True, is_running=False)
+        self._update_animation_ui_state(
+            can_play=True, can_stop=False, can_reset=True, is_running=False
+        )
 
         self.animation_stopped.emit()
 
@@ -356,6 +393,7 @@ class AnimationLifecycleController(QObject):
         # Stop animation - unsubscribe from scheduler or stop local timer
         if self._scheduler and self._use_scheduler:
             self._unsubscribe_from_scheduler()
+            self._stop_scheduler_if_owned_and_idle()
         else:
             self._animation_timer.stop()
         self._animation_time = 0
@@ -373,14 +411,14 @@ class AnimationLifecycleController(QObject):
 
         # Reset IK system
         main_window = self._get_main_window()
-        if main_window and hasattr(main_window, 'ik_manager') and main_window.ik_manager:
+        if main_window and hasattr(main_window, "ik_manager") and main_window.ik_manager:
             try:
-                if hasattr(main_window.ik_manager, 'stop_animation'):
+                if hasattr(main_window.ik_manager, "stop_animation"):
                     main_window.ik_manager.stop_animation()
 
                 main_window.ik_manager.clear_mechanism_position_targets()
 
-                if hasattr(main_window.ik_manager, 'reset_animation_state'):
+                if hasattr(main_window.ik_manager, "reset_animation_state"):
                     main_window.ik_manager.reset_animation_state()
             except Exception as e:
                 logging.debug(f"AnimationLifecycleController: IK reset failed: {e}")
@@ -403,10 +441,12 @@ class AnimationLifecycleController(QObject):
                     layer_data.get("type", ""),
                     layer_data.get("params", {}),
                     0.0,  # time=0
-                    layer_data
+                    layer_data,
                 )
             except Exception:
-                logging.debug("Suppressed exception calculating t=0 coupler position", exc_info=True)
+                logging.debug(
+                    "Suppressed exception calculating t=0 coupler position", exc_info=True
+                )
 
             # Initialize trace with t=0 coupler position (instead of just clearing)
             self._path_trace_manager.init_trace(
@@ -414,7 +454,9 @@ class AnimationLifecycleController(QObject):
             )
 
         # Update UI state
-        self._update_animation_ui_state(can_play=True, can_stop=False, can_reset=True, is_running=False)
+        self._update_animation_ui_state(
+            can_play=True, can_stop=False, can_reset=True, is_running=False
+        )
 
         self.animation_reset.emit()
 
@@ -432,11 +474,9 @@ class AnimationLifecycleController(QObject):
                 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_ui_state import (
                     AnimationState,
                 )
+
                 animation_state = AnimationState(
-                    can_play=can_play,
-                    can_stop=can_stop,
-                    can_reset=can_reset,
-                    is_running=is_running
+                    can_play=can_play, can_stop=can_stop, can_reset=can_reset, is_running=is_running
                 )
                 ui_state_manager.set_animation_state(animation_state)
             except ImportError:
@@ -464,13 +504,18 @@ class AnimationLifecycleController(QObject):
         Time Complexity: O(m) where m = number of active mechanisms
         """
         # Always log when called (for debugging)
-        logging.debug(f"[ANIM-ENTRY] _update_animation called, tab_active={self._tab_active}, dt={delta_time:.4f}")
+        logging.debug(
+            f"[ANIM-ENTRY] _update_animation called, tab_active={self._tab_active}, dt={delta_time:.4f}"
+        )
 
         # Prevent animation updates when tab is not active
         if not self._tab_active:
-            logging.debug(f"[ANIM] Tab not active, stopping animation (tab_active={self._tab_active})")
+            logging.debug(
+                f"[ANIM] Tab not active, stopping animation (tab_active={self._tab_active})"
+            )
             if self._scheduler and self._use_scheduler:
                 self._unsubscribe_from_scheduler()
+                self._stop_scheduler_if_owned_and_idle()
             elif self._animation_timer.isActive():
                 self._animation_timer.stop()
             return
@@ -492,17 +537,28 @@ class AnimationLifecycleController(QObject):
         parts_data = self._get_parts_data()
 
         if not mechanism_layers:
-            logging.debug(f"[ANIM] No mechanism_layers available (got: {type(mechanism_layers).__name__}, len={len(mechanism_layers) if mechanism_layers else 0})")
+            logging.debug(
+                f"[ANIM] No mechanism_layers available (got: {type(mechanism_layers).__name__}, len={len(mechanism_layers) if mechanism_layers else 0})"
+            )
             return
 
-        logging.debug(f"[ANIM] Got {len(mechanism_layers)} mechanism(s): {list(mechanism_layers.keys())}")
+        logging.debug(
+            f"[ANIM] Got {len(mechanism_layers)} mechanism(s): {list(mechanism_layers.keys())}"
+        )
 
         # Log first few frames for debugging
         if self._animation_time < 0.1:
-            logging.debug(f"[ANIM] Processing {len(mechanism_layers)} mechanisms at time={self._animation_time:.3f}")
+            logging.debug(
+                f"[ANIM] Processing {len(mechanism_layers)} mechanisms at time={self._animation_time:.3f}"
+            )
 
         # Round-robin subset selection for batch processing
-        mech_items = list(mechanism_layers.items())
+        mechanism_enabled_state = self._mechanism_enabled_state
+        mech_items = [
+            (mechanism_id, layer_data)
+            for mechanism_id, layer_data in mechanism_layers.items()
+            if mechanism_enabled_state.get(mechanism_id, True)
+        ]
         total_mechs = len(mech_items)
 
         if total_mechs > 0:
@@ -522,14 +578,20 @@ class AnimationLifecycleController(QObject):
         # Process selected mechanisms
         for mechanism_id, layer_data in selected:
             part_name_val = layer_data.get("part_name") if layer_data else None
-            logging.debug(f"[ANIM-MECH] Processing {mechanism_id}: part_name='{part_name_val}' (type={type(part_name_val).__name__})")
+            logging.debug(
+                f"[ANIM-MECH] Processing {mechanism_id}: part_name='{part_name_val}' (type={type(part_name_val).__name__})"
+            )
 
             if not layer_data or not layer_data.get("part_name"):
-                logging.debug(f"[ANIM-MECH] Skipping {mechanism_id}: layer_data={layer_data is not None}, part_name='{part_name_val}'")
+                logging.debug(
+                    f"[ANIM-MECH] Skipping {mechanism_id}: layer_data={layer_data is not None}, part_name='{part_name_val}'"
+                )
                 continue
 
             part_name = layer_data["part_name"]
-            logging.debug(f"[ANIM-MECH] {mechanism_id}: part_name={part_name}, enabled={part_enabled_state.get(part_name, True)}")
+            logging.debug(
+                f"[ANIM-MECH] {mechanism_id}: part_name={part_name}, enabled={part_enabled_state.get(part_name, True)}"
+            )
 
             # Check if this part is enabled
             if not part_enabled_state.get(part_name, True):
@@ -538,30 +600,39 @@ class AnimationLifecycleController(QObject):
 
             try:
                 output_pos = self._calculate_mechanism_output(
-                    layer_data["type"],
-                    layer_data["params"],
-                    self._animation_time,
-                    layer_data
+                    layer_data["type"], layer_data["params"], self._animation_time, layer_data
                 )
 
                 # Debug: Log output_pos calculation
                 if self._animation_time < 0.1:
-                    logging.debug(f"[ANIM] Mechanism {mechanism_id}: type={layer_data.get('type')}, output_pos={output_pos}")
+                    logging.debug(
+                        f"[ANIM] Mechanism {mechanism_id}: type={layer_data.get('type')}, output_pos={output_pos}"
+                    )
 
                 # ALWAYS update mechanism visuals - this is independent of IK output
-                logging.debug(f"[ANIM-CALLBACK] About to call _update_mechanism_visuals_for_animation, callback={self._update_mechanism_visuals_for_animation}")
+                logging.debug(
+                    f"[ANIM-CALLBACK] About to call _update_mechanism_visuals_for_animation, callback={self._update_mechanism_visuals_for_animation}"
+                )
                 self._update_mechanism_visuals_for_animation(
                     mechanism_id, self._animation_time, layer_data
                 )
-                logging.debug("[ANIM-CALLBACK] Finished calling _update_mechanism_visuals_for_animation")
+                logging.debug(
+                    "[ANIM-CALLBACK] Finished calling _update_mechanism_visuals_for_animation"
+                )
 
                 if output_pos:
                     # Get the correct end effector joint for this part
                     part_info = parts_data.get(part_name)
-                    logging.debug(f"[ANIM-IK] part_name={part_name}, part_info exists={part_info is not None}, "
-                                  f"has anchor_joint_id={hasattr(part_info, 'anchor_joint_id') if part_info else False}, "
-                                  f"anchor_joint_id={getattr(part_info, 'anchor_joint_id', None) if part_info else None}")
-                    if part_info and hasattr(part_info, 'anchor_joint_id') and part_info.anchor_joint_id:
+                    logging.debug(
+                        f"[ANIM-IK] part_name={part_name}, part_info exists={part_info is not None}, "
+                        f"has anchor_joint_id={hasattr(part_info, 'anchor_joint_id') if part_info else False}, "
+                        f"anchor_joint_id={getattr(part_info, 'anchor_joint_id', None) if part_info else None}"
+                    )
+                    if (
+                        part_info
+                        and hasattr(part_info, "anchor_joint_id")
+                        and part_info.anchor_joint_id
+                    ):
                         target_joint_id = self._get_target_joint_for_mechanism_control(
                             part_name, part_info.anchor_joint_id
                         )
@@ -572,9 +643,13 @@ class AnimationLifecycleController(QObject):
 
                         if std_joint_id:
                             active_joint_updates[std_joint_id] = output_pos
-                            logging.debug(f"[ANIM-IK] Added to active_joint_updates: {std_joint_id} -> {output_pos}")
+                            logging.debug(
+                                f"[ANIM-IK] Added to active_joint_updates: {std_joint_id} -> {output_pos}"
+                            )
                         else:
-                            logging.debug("[ANIM-IK] std_joint_id is None/empty, NOT adding to active_joint_updates")
+                            logging.debug(
+                                "[ANIM-IK] std_joint_id is None/empty, NOT adding to active_joint_updates"
+                            )
 
                     # Update path trace (only when we have a valid output position)
                     # Skip first 3 frames to let the mechanism settle and avoid "jump" artifacts
@@ -588,7 +663,9 @@ class AnimationLifecycleController(QObject):
                 logging.debug(f"AnimationLifecycleController: Mechanism update error: {e}")
 
         # Throttled IK target updates
-        logging.debug(f"[ANIM-IK] Calling _send_throttled_ik_updates with {len(active_joint_updates)} updates: {list(active_joint_updates.keys())}")
+        logging.debug(
+            f"[ANIM-IK] Calling _send_throttled_ik_updates with {len(active_joint_updates)} updates: {list(active_joint_updates.keys())}"
+        )
         self._send_throttled_ik_updates(active_joint_updates)
 
         self.frame_updated.emit(self._animation_time)
@@ -605,8 +682,10 @@ class AnimationLifecycleController(QObject):
             return
 
         main_window = self._get_main_window()
-        if not main_window or not hasattr(main_window, 'ik_manager') or not main_window.ik_manager:
-            logging.debug(f"[ANIM-IK-SEND] No ik_manager: main_window={main_window is not None}, has_attr={hasattr(main_window, 'ik_manager') if main_window else False}")
+        if not main_window or not hasattr(main_window, "ik_manager") or not main_window.ik_manager:
+            logging.debug(
+                f"[ANIM-IK-SEND] No ik_manager: main_window={main_window is not None}, has_attr={hasattr(main_window, 'ik_manager') if main_window else False}"
+            )
             return
 
         # Initialize throttle timer if needed
@@ -616,21 +695,27 @@ class AnimationLifecycleController(QObject):
         # Check if enough time has passed
         elapsed = self._ik_throttle_timer.elapsed()
         if elapsed < self._ik_min_interval_ms:
-            logging.debug(f"[ANIM-IK-SEND] Throttled: elapsed={elapsed}ms < min_interval={self._ik_min_interval_ms}ms")
+            logging.debug(
+                f"[ANIM-IK-SEND] Throttled: elapsed={elapsed}ms < min_interval={self._ik_min_interval_ms}ms"
+            )
             return
 
         ik_manager = main_window.ik_manager
-        logging.debug(f"[ANIM-IK-SEND] Processing {len(active_joint_updates)} updates, ik_manager={ik_manager}")
+        logging.debug(
+            f"[ANIM-IK-SEND] Processing {len(active_joint_updates)} updates, ik_manager={ik_manager}"
+        )
 
         for joint_id, target_pos in active_joint_updates.items():
             last = self._last_target_pos_by_joint.get(joint_id)
 
             # Check if position changed significantly
             if last is None or (
-                abs(target_pos.x() - last.x()) > self._pos_epsilon_px or
-                abs(target_pos.y() - last.y()) > self._pos_epsilon_px
+                abs(target_pos.x() - last.x()) > self._pos_epsilon_px
+                or abs(target_pos.y() - last.y()) > self._pos_epsilon_px
             ):
-                logging.debug(f"[ANIM-IK-SEND] Calling set_mechanism_position_target({joint_id}, {target_pos})")
+                logging.debug(
+                    f"[ANIM-IK-SEND] Calling set_mechanism_position_target({joint_id}, {target_pos})"
+                )
                 ik_manager.set_mechanism_position_target(joint_id, target_pos)
                 self._last_target_pos_by_joint[joint_id] = target_pos
             else:

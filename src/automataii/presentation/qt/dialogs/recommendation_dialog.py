@@ -1,10 +1,10 @@
-import json  # Add json import
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import numpy as np  # Add numpy import
+import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer
 from PyQt6.QtCore import pyqtSignal as Signal
 from PyQt6.QtGui import (
@@ -32,13 +32,27 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from scipy.spatial.distance import directed_hausdorff  # Add scipy import
+from scipy.spatial.distance import directed_hausdorff
 
+from automataii.presentation.qt.tabs.cam_geometry import build_pear_cam_profile
 from automataii.utils.paths import resolve_path
 
 logger = logging.getLogger(__name__)
 
+
 # --- Time-aware matching helpers ---
+def _finite_path_array(points: object, min_points: int = 2) -> np.ndarray | None:
+    """Return a finite ``(N, 2)`` path array, or ``None`` for invalid candidates."""
+    try:
+        array = np.asarray(points, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if array.ndim != 2 or array.shape[0] < min_points or array.shape[1] < 2:
+        return None
+    array = array[:, :2]
+    return array if np.isfinite(array).all() else None
+
+
 def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
     """Compute cumulative arc length for a 2D polyline.
 
@@ -52,8 +66,9 @@ def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
     return s
 
 
-def _resample_time_aligned(points: np.ndarray, num_points: int,
-                           times: np.ndarray | None = None) -> np.ndarray:
+def _resample_time_aligned(
+    points: np.ndarray, num_points: int, times: np.ndarray | None = None
+) -> np.ndarray:
     """Resample a polyline to `num_points` using time/arc-length parameterization.
 
     - If `times` provided (monotonic, same length as points), use it (normalized to [0,1]).
@@ -97,6 +112,7 @@ def _time_aware_distance(u: np.ndarray, v: np.ndarray) -> float:
     d = np.linalg.norm(du, axis=1)
     return float(np.max(d)) if len(d) else float("inf")
 
+
 # Color palette
 BITTERSWEET = QColor("#ff595e")
 SUNGLOW = QColor("#ffca3a")
@@ -109,11 +125,7 @@ MECHANISM_TYPE_USER_DISPLAY_4_BAR = "4-Bar Linkage"
 MECHANISM_TYPE_USER_DISPLAY_3_BAR = "3-Bar Linkage"
 MECHANISM_TYPE_USER_DISPLAY_CAM = "Cam & Follower"
 
-# from automataii.utils.qt_helpers import create_round_rect_path # Not used in this version
-
-DEFAULT_NUM_SAMPLES_FOR_PATH = (
-    100  # Default number of points to sample from QPainterPath
-)
+DEFAULT_NUM_SAMPLES_FOR_PATH = 100  # Default number of points to sample from QPainterPath
 
 
 def qpainterpath_to_numpy_array(
@@ -139,9 +151,7 @@ def qpainterpath_to_numpy_array(
     return np.array(points)
 
 
-def calculate_hausdorff_distance(
-    path1_points: np.ndarray, path2_points: np.ndarray
-) -> float:
+def calculate_hausdorff_distance(path1_points: np.ndarray, path2_points: np.ndarray) -> float:
     """Calculates the Hausdorff distance between two sets of points.
 
     Args:
@@ -151,37 +161,36 @@ def calculate_hausdorff_distance(
     Returns:
         The Hausdorff distance. Returns float('inf') if either path is empty or invalid.
     """
-    if (
-        path1_points is None
-        or path1_points.shape[0] == 0
-        or path2_points is None
-        or path2_points.shape[0] == 0
-    ):
+    path1_array = _finite_path_array(path1_points, min_points=1)
+    path2_array = _finite_path_array(path2_points, min_points=1)
+    if path1_array is None or path2_array is None:
         return float("inf")
 
     try:
         # Ensure both paths have 2D coordinates
-        if len(path1_points.shape) != 2 or path1_points.shape[1] != 2:
-            logger.warning("path1 has invalid shape %s", path1_points.shape)
+        if len(path1_array.shape) != 2 or path1_array.shape[1] != 2:
+            logger.warning("path1 has invalid shape %s", path1_array.shape)
             return float("inf")
-        if len(path2_points.shape) != 2 or path2_points.shape[1] != 2:
-            logger.warning("path2 has invalid shape %s", path2_points.shape)
+        if len(path2_array.shape) != 2 or path2_array.shape[1] != 2:
+            logger.warning("path2 has invalid shape %s", path2_array.shape)
             return float("inf")
 
         # Calculate bidirectional Hausdorff distance
-        dist_1_to_2 = directed_hausdorff(path1_points, path2_points)[0]
-        dist_2_to_1 = directed_hausdorff(path2_points, path1_points)[0]
+        dist_1_to_2 = directed_hausdorff(path1_array, path2_array)[0]
+        dist_2_to_1 = directed_hausdorff(path2_array, path1_array)[0]
         distance = max(dist_1_to_2, dist_2_to_1)
 
-        return distance
+        return float(distance)
     except Exception as e:
         logger.error("Error calculating Hausdorff distance: %s", e)
         return float("inf")
 
 
 def align_and_compare_paths(
-    path1_points: np.ndarray, path2_points: np.ndarray, rotation_steps: int = 72,
-    mechanism_type: str = ""
+    path1_points: np.ndarray,
+    path2_points: np.ndarray,
+    rotation_steps: int = 72,
+    mechanism_type: str = "",
 ) -> tuple[float, np.ndarray | None, np.ndarray | None, dict | None]:
     """
     Aligns two paths (translation, scale, rotation) and finds the best match.
@@ -193,45 +202,40 @@ def align_and_compare_paths(
         - The second path, transformed to best align with the first.
         - A dictionary with the transformation parameters ('center', 'scale', 'rotation').
     """
-    if (
-        path1_points is None
-        or path1_points.shape[0] < 2
-        or path2_points is None
-        or path2_points.shape[0] < 2
-    ):
+    path1_array = _finite_path_array(path1_points)
+    path2_array = _finite_path_array(path2_points)
+    if path1_array is None or path2_array is None:
         return float("inf"), None, None, None
 
     # 1. Center both paths to origin
-    center1 = np.mean(path1_points, axis=0)
-    path1_centered = path1_points - center1
-    center2 = np.mean(path2_points, axis=0)
-    path2_centered = path2_points - center2
+    center1 = np.mean(path1_array, axis=0)
+    path1_centered = path1_array - center1
+    center2 = np.mean(path2_array, axis=0)
+    path2_centered = path2_array - center2
 
     # 2. Normalize scale of both paths to fit in a [-1, 1] box
     max_val1 = np.max(np.abs(path1_centered))
-    path1_scaled = (
-        path1_centered / max_val1 if not np.isclose(max_val1, 0) else path1_centered
-    )
+    path1_scaled = path1_centered / max_val1 if not np.isclose(max_val1, 0) else path1_centered
 
     max_val2 = np.max(np.abs(path2_centered))
-    path2_scaled = (
-        path2_centered / max_val2 if not np.isclose(max_val2, 0) else path2_centered
-    )
+    path2_scaled = path2_centered / max_val2 if not np.isclose(max_val2, 0) else path2_centered
 
     # 3. Find the optimal rotation for path2 to match path1
     # Skip rotation search for cam-followers as they have directional constraints
     min_distance = float("inf")
     best_rotated_path2 = None
-    best_angle = 0
+    best_angle = 0.0
 
     # Cam-followers have gravity constraints - cam must be below, follower above
     if "cam" in mechanism_type.lower() or "follower" in mechanism_type.lower():
         # For cam-followers, test both upright and 180-degree rotated orientations
         # This ensures the cam is positioned at the bottom for better matching
-        test_angles = [0, np.pi]  # Test both 0° and 180° orientations
+        test_angles = [0.0, float(np.pi)]  # Test both 0° and 180° orientations
     else:
         # For other mechanisms (linkages, gears), test full rotation range
-        test_angles = np.linspace(0, 2 * np.pi, rotation_steps, endpoint=False)
+        test_angles = [
+            float(angle) for angle in np.linspace(0, 2 * np.pi, rotation_steps, endpoint=False)
+        ]
 
     for angle in test_angles:
         rotation_matrix = np.array(
@@ -257,9 +261,7 @@ def align_and_compare_paths(
 class MechanismPreviewWidget(QGraphicsView):
     """A widget to display a preview of a single mechanism."""
 
-    def __init__(
-        self, mechanism_data: dict[str, Any], parent: QWidget | None = None
-    ):
+    def __init__(self, mechanism_data: dict[str, Any], parent: QWidget | None = None):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
         self.setFixedSize(280, 220)  # Reduced size to prevent overlap in dialog
@@ -286,9 +288,7 @@ class MechanismPreviewWidget(QGraphicsView):
 
         if user_path_points is None or mech_path_points is None:
             logger.debug("Aligned paths not found for preview.")
-            text_item = self.scene.addText(
-                "Path data not available", QFont("Arial", 14)
-            )
+            text_item = self.scene.addText("Path data not available", QFont("Arial", 14))
             text_item.setDefaultTextColor(QColor("#666666"))
             text_item.setPos(bounds.center().x() - 80, bounds.center().y() - 20)
             return
@@ -378,7 +378,9 @@ class MechanismPreviewWidget(QGraphicsView):
 
         return to_screen_coords
 
-    def _draw_4_bar_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict) -> None:
+    def _draw_4_bar_from_sim(
+        self, transform: QTransform, full_sim_data: dict, params: dict
+    ) -> None:
         """Draws the 4-bar linkage structure using exact simulation positions."""
         joint_positions = full_sim_data["joint_positions"]
         frame_idx = 0
@@ -394,10 +396,16 @@ class MechanismPreviewWidget(QGraphicsView):
 
         def to_screen_coords(p):
             return to_screen_coords_func(p, transform)
+
         self._draw_4_bar_structure_from_sim(p1, p2, p3, p4, to_screen_coords)
 
     def _draw_4_bar_structure_from_sim(
-        self, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray, to_screen_coords: callable
+        self,
+        p1: np.ndarray,
+        p2: np.ndarray,
+        p3: np.ndarray,
+        p4: np.ndarray,
+        to_screen_coords: callable,
     ) -> None:
         """Draws the 4-bar linkage structure using exact simulation positions with triangular coupler."""
         params = self.mechanism_data.get("parameters", {})
@@ -414,17 +422,42 @@ class MechanismPreviewWidget(QGraphicsView):
 
         p1_t, p2_t, p3_t, p4_t, p_coupler_t = map(to_screen_coords, [p1, p2, p3, p4, p_coupler])
 
-        self.scene.addLine(QLineF(p1_t, p3_t), QPen(QColor("#e74c3c"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        self.scene.addLine(QLineF(p2_t, p4_t), QPen(QColor("#f39c12"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        self.scene.addLine(
+            QLineF(p1_t, p3_t),
+            QPen(QColor("#e74c3c"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap),
+        )
+        self.scene.addLine(
+            QLineF(p2_t, p4_t),
+            QPen(QColor("#f39c12"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap),
+        )
 
-        area = abs(p3[0]*(p4[1]-p_coupler[1]) + p4[0]*(p_coupler[1]-p3[1]) + p_coupler[0]*(p3[1]-p4[1])) / 2
+        area = (
+            abs(
+                p3[0] * (p4[1] - p_coupler[1])
+                + p4[0] * (p_coupler[1] - p3[1])
+                + p_coupler[0] * (p3[1] - p4[1])
+            )
+            / 2
+        )
         if area < 1e-3:
-            self.scene.addLine(QLineF(p3_t, p4_t), QPen(QColor("#2ecc71"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            self.scene.addLine(
+                QLineF(p3_t, p4_t),
+                QPen(QColor("#2ecc71"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap),
+            )
         else:
             triangle_polygon = QPolygonF([p3_t, p4_t, p_coupler_t])
-            self.scene.addPolygon(triangle_polygon, QPen(QColor("#2ecc71"), 2), QBrush(QColor("#2ecc71").lighter(160)))
+            self.scene.addPolygon(
+                triangle_polygon, QPen(QColor("#2ecc71"), 2), QBrush(QColor("#2ecc71").lighter(160))
+            )
 
-        self.scene.addEllipse(p_coupler_t.x() - 3, p_coupler_t.y() - 3, 6, 6, QPen(QColor("#ff0000")), QBrush(QColor("#ff0000")))
+        self.scene.addEllipse(
+            p_coupler_t.x() - 3,
+            p_coupler_t.y() - 3,
+            6,
+            6,
+            QPen(QColor("#ff0000")),
+            QBrush(QColor("#ff0000")),
+        )
 
     def _draw_cam_follower_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
         """Template-driven cam preview with rigid rotation animation."""
@@ -445,11 +478,16 @@ class MechanismPreviewWidget(QGraphicsView):
 
         cam_data = full_sim_data.get("cam_data", {}) if full_sim_data else {}
         if cam_data and "follower_y_positions" in cam_data:
-            follower_path = [[0.0, float(y)] for y in cam_data.get("follower_y_positions")]
+            follower_path = [[0.0, float(y)] for y in cam_data.get("follower_y_positions", [])]
         else:
-            follower_path = [[0.0, base_radius + (eccentricity * 0.5) * (1 + np.cos(2*np.pi*i/90))] for i in range(90)]
+            follower_path = [
+                [0.0, base_radius + (eccentricity * 0.5) * (1 + np.cos(2 * np.pi * i / 90))]
+                for i in range(90)
+            ]
 
-        to_screen_coords_func = self._get_transform_for_sim_data({"follower_path": follower_path}, "follower_path")
+        to_screen_coords_func = self._get_transform_for_sim_data(
+            {"follower_path": follower_path}, "follower_path"
+        )
         if not to_screen_coords_func:
             return
         self._cam_to_screen = lambda p: to_screen_coords_func(p, transform)
@@ -458,31 +496,42 @@ class MechanismPreviewWidget(QGraphicsView):
         default_template_path = resolve_path(Path("resources/blueprints/tom/pear_cam_4.3in.svg"))
         default_template = str(default_template_path)
         svg_path = (
-            self.mechanism_data.get('cam_template_svg_path')
-            or self.mechanism_data.get('parameters', {}).get('cam_template_svg_path')
+            self.mechanism_data.get("cam_template_svg_path")
+            or self.mechanism_data.get("parameters", {}).get("cam_template_svg_path")
             or default_template
         )
+        template_points = None
         try:
             axis, poly = self._load_cam_profile_svg(svg_path)
-            poly - axis
+            if axis is not None and poly.shape[0] >= 3:
+                template_points = poly - axis
         except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
+            logging.debug(
+                "Could not load cam template %s; using analytic fallback", svg_path, exc_info=True
+            )
 
         # If base radius is missing or out-of-range, tie it to eccentricity to control on-screen size
         if (base_radius <= 0) or (base_radius > 3 * eccentricity):
             base_radius = 0.3 * max(1e-6, eccentricity)
 
-        # Build analytic pear-cam profile using blueprint-like defaults
-        # Match script: rise=90°, high dwell=60°, low dwell=180°, fall inferred (30°)
-        self._cam_points_local = self._build_pear_cam_profile(
-            base_radius=base_radius,
-            eccentricity=eccentricity,
-            rise_deg=90.0,
-            high_dwell_deg=60.0,
-            dwell_low_deg=180.0,
-            align_max_to_deg=90.0,
-            num_samples=180,
-        )
+        if template_points is not None:
+            self._cam_points_local = self._build_cam_from_template(
+                template_points,
+                base_radius=base_radius,
+                eccentricity=eccentricity,
+                num_samples=180,
+            )
+        else:
+            self._cam_points_local = build_pear_cam_profile(
+                base_radius=base_radius,
+                eccentricity=eccentricity,
+                rise_deg=params.get("rise_deg", 90.0),
+                high_dwell_deg=params.get("high_dwell_deg", 60.0),
+                return_deg=params.get("return_deg"),
+                dwell_low_deg=params.get("low_dwell_deg", params.get("dwell_low_deg", 180.0)),
+                align_max_to_deg=params.get("align_max_deg", 90.0),
+                num_samples=180,
+            )
 
         # Create items
         cam_polygon = QPolygonF([self._cam_to_screen(p) for p in self._cam_points_local])
@@ -499,9 +548,7 @@ class MechanismPreviewWidget(QGraphicsView):
         follower_color = QColor("#ff7f50")
         follower_scene_center = self._cam_to_screen(follower_center)
         self._follower_item = QGraphicsRectItem(
-            follower_scene_center.x() - w/2,
-            follower_scene_center.y() - h/2,
-            w, h
+            follower_scene_center.x() - w / 2, follower_scene_center.y() - h / 2, w, h
         )
         self._follower_item.setPen(QPen(follower_color, 2))
         self._follower_item.setBrush(QBrush(follower_color.lighter(140)))
@@ -522,9 +569,15 @@ class MechanismPreviewWidget(QGraphicsView):
             self._cam_timer.start(60)  # ~16 FPS
 
     def _tick_cam_animation(self, rod_len: float):
-        if self._cam_points_local is None or self._cam_poly_item is None or self._cam_to_screen is None:
+        if (
+            self._cam_points_local is None
+            or self._cam_poly_item is None
+            or self._follower_item is None
+            or self._rod_item is None
+            or self._cam_to_screen is None
+        ):
             return
-        self._cam_angle = (self._cam_angle + 0.06) % (2*np.pi)
+        self._cam_angle = (self._cam_angle + 0.06) % (2 * np.pi)
         cos_r, sin_r = np.cos(self._cam_angle), np.sin(self._cam_angle)
         rot = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
         rotated = self._cam_points_local @ rot.T
@@ -536,44 +589,45 @@ class MechanismPreviewWidget(QGraphicsView):
         follower_scene_center = self._cam_to_screen(follower_center)
         w, h = 16.0, 10.0
         self._follower_item.setRect(
-            follower_scene_center.x() - w/2,
-            follower_scene_center.y() - h/2,
-            w, h
+            follower_scene_center.x() - w / 2, follower_scene_center.y() - h / 2, w, h
         )
         cam_top_scene = self._cam_to_screen(np.array([0.0, y_max]))
         rod_path = QPainterPath(cam_top_scene)
         rod_path.lineTo(follower_scene_center)
         self._rod_item.setPath(rod_path)
 
-    def _load_cam_profile_svg(self, svg_path: str) -> tuple[np.ndarray, np.ndarray]:
+    def _load_cam_profile_svg(self, svg_path: str) -> tuple[np.ndarray | None, np.ndarray]:
         import xml.etree.ElementTree as ET
+
         tree = ET.parse(svg_path)
         root = tree.getroot()
+
         def strip(tag: str) -> str:
-            return tag.split('}', 1)[-1]
+            return tag.split("}", 1)[-1]
+
         axis = None
         poly_pts = []
         for elem in root.iter():
             tag = strip(elem.tag)
-            if tag == 'circle' and axis is None:
+            if tag == "circle" and axis is None:
                 try:
-                    cx = float(elem.attrib.get('cx', '0'))
-                    cy = float(elem.attrib.get('cy', '0'))
+                    cx = float(elem.attrib.get("cx", "0"))
+                    cy = float(elem.attrib.get("cy", "0"))
                     axis = np.array([cx, cy], dtype=float)
                 except Exception:
                     logging.debug("Suppressed exception", exc_info=True)
-            elif tag == 'path':
-                d = elem.attrib.get('d', '')
+            elif tag == "path":
+                d = elem.attrib.get("d", "")
                 if not d:
                     continue
-                tokens = d.replace(',', ' ').split()
+                tokens = d.replace(",", " ").split()
                 i = 0
                 while i < len(tokens):
                     cmd = tokens[i]
-                    if cmd in ('M', 'L') and i+2 < len(tokens):
+                    if cmd in ("M", "L") and i + 2 < len(tokens):
                         try:
-                            x = float(tokens[i+1])
-                            y = float(tokens[i+2])
+                            x = float(tokens[i + 1])
+                            y = float(tokens[i + 2])
                             poly_pts.append((x, y))
                             i += 3
                         except Exception:
@@ -581,7 +635,7 @@ class MechanismPreviewWidget(QGraphicsView):
                     else:
                         try:
                             x = float(cmd)
-                            y = float(tokens[i+1])
+                            y = float(tokens[i + 1])
                             poly_pts.append((x, y))
                             i += 2
                         except Exception:
@@ -592,11 +646,17 @@ class MechanismPreviewWidget(QGraphicsView):
             axis = center
         return axis, np.array(poly_pts, dtype=float)
 
-    def _build_cam_from_template(self, template_points: np.ndarray, base_radius: float, eccentricity: float, num_samples: int = 180) -> np.ndarray:
+    def _build_cam_from_template(
+        self,
+        template_points: np.ndarray,
+        base_radius: float,
+        eccentricity: float,
+        num_samples: int = 180,
+    ) -> np.ndarray:
         if template_points is None or len(template_points) < 3:
-            thetas = np.linspace(0, 2*np.pi, num_samples)
-            return np.stack([base_radius*np.cos(thetas), base_radius*np.sin(thetas)], axis=1)
-        thetas = np.linspace(0, 2*np.pi, num_samples)
+            thetas = np.linspace(0, 2 * np.pi, num_samples)
+            return np.stack([base_radius * np.cos(thetas), base_radius * np.sin(thetas)], axis=1)
+        thetas = np.linspace(0, 2 * np.pi, num_samples)
         u = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
         dots = u @ template_points.T
         r_templ = np.max(dots, axis=1)
@@ -604,42 +664,6 @@ class MechanismPreviewWidget(QGraphicsView):
         r_max = float(np.max(r_templ))
         denom = max(1e-9, r_max - r_min)
         s = (r_templ - r_min) / denom
-        r = base_radius + eccentricity * s
-        return np.stack([r*np.cos(thetas), r*np.sin(thetas)], axis=1)
-
-    def _build_pear_cam_profile(
-        self,
-        base_radius: float,
-        eccentricity: float,
-        rise_deg: float = 90.0,
-        high_dwell_deg: float = 60.0,
-        dwell_low_deg: float = 180.0,
-        align_max_to_deg: float = 90.0,
-        num_samples: int = 360,
-    ) -> np.ndarray:
-        rise = np.deg2rad(rise_deg)
-        dwell_high = np.deg2rad(high_dwell_deg)
-        dwell_low = np.deg2rad(dwell_low_deg)
-        total = 2 * np.pi
-        fall = max(0.0, total - (rise + dwell_high + dwell_low))
-        theta0 = np.deg2rad(align_max_to_deg)
-        seg1_end = theta0 + rise
-        seg2_end = seg1_end + dwell_high
-        seg3_end = seg2_end + fall
-        thetas = np.linspace(0, 2 * np.pi, num_samples, endpoint=False)
-        s = np.zeros_like(thetas)
-        for i, t in enumerate(thetas):
-            rel = (t - theta0) % (2 * np.pi) + theta0
-            if rel < seg1_end:
-                u = (rel - theta0) / rise if rise > 0 else 1.0
-                s[i] = 0.5 * (1 - np.cos(np.pi * u))
-            elif rel < seg2_end:
-                s[i] = 1.0
-            elif rel < seg3_end:
-                u = (rel - seg2_end) / fall if fall > 0 else 1.0
-                s[i] = 0.5 * (1 + np.cos(np.pi * u))
-            else:
-                s[i] = 0.0
         r = base_radius + eccentricity * s
         return np.stack([r * np.cos(thetas), r * np.sin(thetas)], axis=1)
 
@@ -680,7 +704,9 @@ class MechanismPreviewWidget(QGraphicsView):
         draw_gear(g1_center, r1, theta1, QColor("#3498db"))
         draw_gear(g2_center, r2, theta2, QColor("#2ecc71"))
 
-    def _draw_planetary_gear_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
+    def _draw_planetary_gear_from_sim(
+        self, transform: QTransform, full_sim_data: dict, params: dict
+    ):
         """Draws a planetary gear system from simulation data."""
         gear_pos = full_sim_data["gear_positions"]
         frame_idx = 0
@@ -703,9 +729,12 @@ class MechanismPreviewWidget(QGraphicsView):
             radius_screen = QLineF(p1_screen, p2_screen).length()
 
             self.scene.addEllipse(
-                p1_screen.x() - radius_screen, p1_screen.y() - radius_screen,
-                radius_screen * 2, radius_screen * 2,
-                QPen(color, 4), QBrush(color.lighter(150))
+                p1_screen.x() - radius_screen,
+                p1_screen.y() - radius_screen,
+                radius_screen * 2,
+                radius_screen * 2,
+                QPen(color, 4),
+                QBrush(color.lighter(150)),
             )
 
         draw_gear(sun_center, r_sun, QColor("#7f8c8d"))
@@ -714,7 +743,9 @@ class MechanismPreviewWidget(QGraphicsView):
         p1 = to_screen_coords(planet_center)
         p2 = to_screen_coords(tracking_point)
         self.scene.addLine(QLineF(p1, p2), QPen(QColor("#f39c12"), 3))
-        self.scene.addEllipse(p2.x() - 5, p2.y() - 5, 10, 10, QPen(QColor("#e74c3c")), QBrush(QColor("#e74c3c")))
+        self.scene.addEllipse(
+            p2.x() - 5, p2.y() - 5, 10, 10, QPen(QColor("#e74c3c")), QBrush(QColor("#e74c3c"))
+        )
 
     def _render_preview(self) -> None:
         self.scene.clear()
@@ -727,16 +758,13 @@ class MechanismPreviewWidget(QGraphicsView):
         self._draw_path_comparison(view_rect_adjusted_f)
 
 
-
 class PreviewContainer(QWidget):
     """Container for a single preview and its title/select button."""
 
     selected = Signal(dict)
     clicked = Signal(dict)
 
-    def __init__(
-        self, mechanism_data: dict[str, Any], parent: QWidget | None = None
-    ):
+    def __init__(self, mechanism_data: dict[str, Any], parent: QWidget | None = None):
         super().__init__(parent)
         self.mechanism_data = mechanism_data
         self._is_selected = False
@@ -775,8 +803,6 @@ class PreviewContainer(QWidget):
         layout.addWidget(self.preview_widget, alignment=Qt.AlignmentFlag.AlignCenter)
 
         score = self.mechanism_data.get("overall_score", 0)
-        print(f"Debug PreviewContainer: overall_score = {score}")
-
         if score is not None and score >= 0:
             similarity_percentage = max(0, min(100, (1 / (1 + score)) * 100))
         else:
@@ -822,9 +848,7 @@ class PreviewContainer(QWidget):
         layout.addWidget(select_button, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.setLayout(layout)
-        self.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred
-        )
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -894,9 +918,7 @@ class MechanismRecommendationDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        instruction_label = QLabel(
-            "Choose the mechanism that best matches your desired motion"
-        )
+        instruction_label = QLabel("Choose the mechanism that best matches your desired motion")
         instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         instruction_label.setStyleSheet("""
             QLabel {
@@ -966,12 +988,12 @@ class MechanismRecommendationDialog(QDialog):
                     placeholder_label = QLabel("No mechanism found")
                     placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                     placeholder_label.setFixedSize(280, 220)  # Match reduced preview size
-                    placeholder_label.setStyleSheet("background-color: #f0f0f0; border: 1px solid #cccccc;")
+                    placeholder_label.setStyleSheet(
+                        "background-color: #f0f0f0; border: 1px solid #cccccc;"
+                    )
                     self.previews_layout.addWidget(placeholder_label, row, col)
         else:
-            no_recs_label = QLabel(
-                "No mechanism recommendations could be generated or found."
-            )
+            no_recs_label = QLabel("No mechanism recommendations could be generated or found.")
             no_recs_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.previews_layout.addWidget(no_recs_label, 0, 0, 1, 3)
 
@@ -1045,26 +1067,18 @@ class MechanismRecommendationDialog(QDialog):
                     if "tracking_path" in full_sim_data:
                         path_coords = full_sim_data["tracking_path"]
 
-                if not path_coords:
+                if path_coords is None:
                     path_coords = item.get("path_coordinates")
 
-                if (
-                    path_coords
-                    and isinstance(path_coords, list)
-                    and len(path_coords) > 0
-                ):
-                    try:
-                        item["path_coordinates_np"] = np.array(path_coords, dtype=float)
-                        loaded_paths.append(item)
-                    except ValueError as e:
-                        logger.warning(
-                            "Could not convert path_coordinates to numpy array for item: %s. Error: %s",
-                            item.get('type', 'N/A'), e
-                        )
+                path_array = _finite_path_array(path_coords)
+                if path_array is not None:
+                    loaded_item = dict(item)
+                    loaded_item["path_coordinates_np"] = path_array
+                    loaded_paths.append(loaded_item)
                 else:
                     logger.warning(
-                        "Missing or invalid 'path_coordinates' for item: %s",
-                        item.get('type', 'N/A')
+                        "Missing, malformed, or non-finite path coordinates for item: %s",
+                        item.get("type", "N/A"),
                     )
 
         except FileNotFoundError:
@@ -1121,8 +1135,9 @@ class MechanismRecommendationDialog(QDialog):
                 user_path_aligned,
                 gen_path_aligned,
                 transform_params,
-            ) = align_and_compare_paths(self.user_motion_path_np, gen_path_np,
-                                      mechanism_type=json_type_str)
+            ) = align_and_compare_paths(
+                self.user_motion_path_np, gen_path_np, mechanism_type=json_type_str
+            )
 
             if user_path_aligned is None or gen_path_aligned is None:
                 continue
@@ -1183,7 +1198,10 @@ class MechanismRecommendationDialog(QDialog):
                     }
 
             # Keep best (lowest score) per family
-            if family not in best_by_family or preview_data["overall_score"] < best_by_family[family]["overall_score"]:
+            if (
+                family not in best_by_family
+                or preview_data["overall_score"] < best_by_family[family]["overall_score"]
+            ):
                 best_by_family[family] = preview_data
 
         logger.debug("Made %s path comparisons", total_comparisons)
@@ -1199,11 +1217,14 @@ class MechanismRecommendationDialog(QDialog):
             if mech:
                 logger.debug(
                     "Recommendation %s: %s - %s (time_score: %.2f, shape_score: %.2f)",
-                    i+1, mech['type'], mech['name'],
-                    mech['scores']['time_aware'], mech['scores']['shape_only']
+                    i + 1,
+                    mech["type"],
+                    mech["name"],
+                    mech["scores"]["time_aware"],
+                    mech["scores"]["shape_only"],
                 )
             else:
-                logger.debug("Recommendation %s: None (no candidate in family)", i+1)
+                logger.debug("Recommendation %s: None (no candidate in family)", i + 1)
 
         return results
 
@@ -1241,9 +1262,7 @@ class MechanismRecommendationDialog(QDialog):
             return dialog.selected_mechanism_data
         return None
 
-    def _get_mechanism_points_orig(
-        self, mechanism_data: dict[str, Any]
-    ) -> np.ndarray | None:
+    def _get_mechanism_points_orig(self, mechanism_data: dict[str, Any]) -> np.ndarray | None:
         """Gathers all points of the mechanism (structure and path) in original coordinates."""
         params = mechanism_data.get("parameters")
         path_points = mechanism_data.get("path_coordinates_np")
@@ -1291,7 +1310,9 @@ class MechanismRecommendationDialog(QDialog):
 
                 # Proper cam profile: lift when convex part is at bottom (pushes follower up)
                 # Using sinusoidal lift profile shifted for correct physics
-                lift = eccentricity * (1 + np.cos(thetas + np.pi/2)) / 2  # Shifted for proper phase
+                lift = (
+                    eccentricity * (1 + np.cos(thetas + np.pi / 2)) / 2
+                )  # Shifted for proper phase
                 radii = base_radius + lift
 
                 # Convert to Cartesian coordinates
@@ -1315,9 +1336,7 @@ class MechanismRecommendationDialog(QDialog):
                 c2_orig = np.array(gear2_center)
                 thetas = np.linspace(0, 2 * np.pi, 20)
                 g1_points = c1_orig + r1 * np.array([np.cos(thetas), np.sin(thetas)]).T
-                g2_points = c2_orig + r2 * np.array(
-                    [np.cos(thetas), np.sin(thetas)]
-                ).T
+                g2_points = c2_orig + r2 * np.array([np.cos(thetas), np.sin(thetas)]).T
                 all_points.append(g1_points)
                 all_points.append(g2_points)
 
@@ -1379,9 +1398,7 @@ if __name__ == "__main__":
 
     def run_test(recs, title):
         print(f"\n--- Running Test: {title} ---")
-        selected_mechanism = MechanismRecommendationDialog.get_recommendation(
-            recs, None
-        )
+        selected_mechanism = MechanismRecommendationDialog.get_recommendation(recs, None)
         if selected_mechanism:
             print(f"Mechanism selected: {selected_mechanism.get('name')}")
         else:

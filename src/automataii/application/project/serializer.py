@@ -575,8 +575,12 @@ class AutoSaveManager:
         if not self._autosave_dir:
             return SaveResult.fail("Autosave not configured")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         path = self._autosave_dir / f"autosave_{timestamp}.automataii"
+        counter = 1
+        while path.exists():
+            path = self._autosave_dir / f"autosave_{timestamp}_{counter}.automataii"
+            counter += 1
 
         result = self._serializer.save(state, path)
         if result.success:
@@ -591,7 +595,7 @@ class AutoSaveManager:
             return
 
         autosaves = sorted(
-            self._autosave_dir.glob("autosave_*.automataii"),
+            self._autosave_files(self._autosave_dir),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -610,7 +614,16 @@ class AutoSaveManager:
             return []
 
         return sorted(
-            autosave_dir.glob("autosave_*.automataii"),
+            self._autosave_files(autosave_dir),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
+
+    @staticmethod
+    def _autosave_files(autosave_dir: Path) -> list[Path]:
+        """Return real autosave snapshots, excluding serializer backup artifacts."""
+        return [
+            path
+            for path in autosave_dir.glob("autosave_*.automataii")
+            if ".backup" not in path.name
+        ]

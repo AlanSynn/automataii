@@ -1,4 +1,5 @@
 import json
+from datetime import datetime as real_datetime
 from pathlib import Path
 
 from automataii.application.project import (
@@ -313,7 +314,54 @@ def test_serializer_creates_unique_backups_instead_of_overwriting(tmp_path):
 def test_autosave_manager_normalizes_invalid_intervals():
     serializer = ProjectSerializer()
 
-    assert AutoSaveManager(serializer, interval_seconds=True)._interval == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
-    assert AutoSaveManager(serializer, interval_seconds="bad")._interval == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
-    assert AutoSaveManager(serializer, interval_seconds=0)._interval == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
+    assert (
+        AutoSaveManager(serializer, interval_seconds=True)._interval
+        == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
+    )
+    assert (
+        AutoSaveManager(serializer, interval_seconds="bad")._interval
+        == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
+    )
+    assert (
+        AutoSaveManager(serializer, interval_seconds=0)._interval
+        == AutoSaveManager.DEFAULT_INTERVAL_SECONDS
+    )
     assert AutoSaveManager(serializer, interval_seconds=5)._interval == 5
+
+
+def test_autosave_manager_creates_distinct_same_second_snapshots(tmp_path, monkeypatch):
+    from automataii.application.project import serializer as project_serializer
+
+    class FrozenDateTime:
+        @classmethod
+        def now(cls):
+            return real_datetime(2026, 1, 2, 3, 4, 5, 123456)
+
+    monkeypatch.setattr(project_serializer, "datetime", FrozenDateTime)
+
+    serializer = ProjectSerializer()
+    manager = AutoSaveManager(serializer)
+    manager.setup(tmp_path)
+    state = ProjectState.empty().with_project_dir(tmp_path)
+
+    assert manager.autosave(state).success
+    assert manager.autosave(state).success
+
+    autosaves = [
+        path
+        for path in (tmp_path / AutoSaveManager.AUTOSAVE_DIR_NAME).glob("autosave_*.automataii")
+        if ".backup" not in path.name
+    ]
+    assert len(autosaves) == 2
+
+
+def test_autosave_recovery_files_exclude_serializer_backups(tmp_path):
+    manager = AutoSaveManager(ProjectSerializer())
+    autosave_dir = tmp_path / AutoSaveManager.AUTOSAVE_DIR_NAME
+    autosave_dir.mkdir()
+    real_autosave = autosave_dir / "autosave_20260102_030405_123456.automataii"
+    backup_autosave = autosave_dir / "autosave_20260102_030405_123456.backup.automataii"
+    real_autosave.write_text("{}", encoding="utf-8")
+    backup_autosave.write_text("backup", encoding="utf-8")
+
+    assert manager.get_recovery_files(tmp_path) == [real_autosave]

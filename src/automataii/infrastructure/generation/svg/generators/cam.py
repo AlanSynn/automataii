@@ -6,6 +6,7 @@ Handles manufacturing-ready SVG generation for cam mechanisms.
 
 Design Pattern: Generator (focused SVG generation)
 """
+
 from __future__ import annotations
 
 import math
@@ -51,16 +52,16 @@ class CamSVGGenerator:
         if mm_params_func:
             mm = mm_params_func(
                 mech_data,
-                ["base_radius_mm", "lift_mm", "follower_radius_mm"],
+                ["base_radius_mm", "lift_mm", "eccentricity_mm", "follower_radius_mm"],
             )
         else:
             mm = self._get_mm_params(
                 mech_data,
-                ["base_radius_mm", "lift_mm", "follower_radius_mm"],
+                ["base_radius_mm", "lift_mm", "eccentricity_mm", "follower_radius_mm"],
             )
 
         base_r = mm.get("base_radius_mm", 30.0)
-        lift = mm.get("lift_mm", 15.0)
+        lift = mm.get("lift_mm", mm.get("eccentricity_mm", 15.0))
         follower_r = mm.get("follower_radius_mm", 8.0)
 
         # Get center from key_points or default
@@ -98,9 +99,7 @@ class CamSVGGenerator:
         parts = [self._generate_gradients()]
 
         # Generate cam profile
-        profile_points = self._calculate_cam_profile(
-            cp, base_rp, lift_p, self.PROFILE_POINTS
-        )
+        profile_points = self._calculate_cam_profile(cp, base_rp, lift_p, self.PROFILE_POINTS)
         parts.append(self._draw_cam_profile(profile_points))
 
         # Center shaft
@@ -129,7 +128,7 @@ class CamSVGGenerator:
         <line x1="{cp[0]:.1f}" y1="{cp[1]:.1f}"
               x2="{cp[0] + base_rp:.1f}" y2="{cp[1]:.1f}"
               stroke="#666" stroke-width="0.5" stroke-dasharray="2,2"/>
-        <text x="{cp[0] + base_rp/2:.1f}" y="{cp[1] + 12:.1f}"
+        <text x="{cp[0] + base_rp / 2:.1f}" y="{cp[1] + 12:.1f}"
               font-size="7" text-anchor="middle" fill="#666">
               Base R: {base_r:.1f}mm
         </text>
@@ -138,7 +137,7 @@ class CamSVGGenerator:
         <line x1="{cp[0] + base_rp + 15:.1f}" y1="{cp[1] - base_rp:.1f}"
               x2="{cp[0] + base_rp + 15:.1f}" y2="{cp[1] - base_rp - lift_p:.1f}"
               stroke="#e74c3c" stroke-width="0.8"/>
-        <text x="{cp[0] + base_rp + 25:.1f}" y="{cp[1] - base_rp - lift_p/2:.1f}"
+        <text x="{cp[0] + base_rp + 25:.1f}" y="{cp[1] - base_rp - lift_p / 2:.1f}"
               font-size="7" text-anchor="start" fill="#e74c3c">
               Lift: {lift:.1f}mm
         </text>
@@ -262,9 +261,7 @@ class CamSVGGenerator:
         </g>
         """
 
-    def _get_mm_params(
-        self, mech_data: dict[str, Any], names: list[str]
-    ) -> dict[str, float]:
+    def _get_mm_params(self, mech_data: dict[str, Any], names: list[str]) -> dict[str, float]:
         """Get parameters in mm."""
         mm = {}
         rwp = mech_data.get("real_world_params", {})
