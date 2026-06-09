@@ -1,7 +1,4 @@
 """Draggable anchor item for mechanism pivots."""
 
 
-
-  # anchor_id, new_position
-
-
+# anchor_id, new_position

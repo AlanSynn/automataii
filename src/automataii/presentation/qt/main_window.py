@@ -877,6 +877,7 @@ class AutomataDesigner(QMainWindow):
         # Connect menu actions using ActionManager
         self.action_manager.connect_action("new_project", self.new_project_ssot)
         self.action_manager.connect_action("load_parts", self.load_parts_dialog)
+        self.action_manager.connect_action("recover_autosave", self.recover_autosave)
         self.action_manager.connect_action("save_project", self.save_project_dialog)
         self.action_manager.connect_action("exit", self.close)
         self.action_manager.connect_action(
@@ -1236,7 +1237,7 @@ class AutomataDesigner(QMainWindow):
                     self.mechanism_design_tab.cancel_character_rebind()
             except Exception:
                 logging.debug(
-                    "Suppressed exception while updating character rebind state",
+                    "MainWindow: failed while updating character rebind state",
                     exc_info=True,
                 )
 
@@ -1276,7 +1277,7 @@ class AutomataDesigner(QMainWindow):
                     self.mechanism_design_tab.cancel_character_rebind()
                 except Exception:
                     logging.debug(
-                        "Suppressed exception while cancelling character rebind",
+                        "MainWindow: failed while cancelling character rebind",
                         exc_info=True,
                     )
 
@@ -1417,6 +1418,63 @@ class AutomataDesigner(QMainWindow):
 
         # Fallback: legacy character parts JSON.
         self.project_data_manager.load_project_from_file(filepath)
+
+    def _autosave_recovery_project_dir(self) -> Path:
+        """Return the project root used for autosave recovery discovery."""
+        state_project_dir = self.project_state_manager.state.project_dir
+        if state_project_dir:
+            return Path(state_project_dir)
+        data_project_dir = getattr(self.project_data_manager, "project_dir", None)
+        if data_project_dir:
+            return Path(data_project_dir)
+        return Path(get_default_project_dir())
+
+    def _select_autosave_recovery_file(self, recovery_files: list[Path]) -> Path | None:
+        """Open a chooser rooted at the autosave directory and return the selected snapshot."""
+        if not recovery_files:
+            return None
+        autosave_dir = recovery_files[0].parent
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Recover Autosave",
+            str(autosave_dir),
+            "MotionSmith Projects (*.automataii);;All files (*)",
+        )
+        return Path(filepath) if filepath else None
+
+    def recover_autosave(self) -> bool:
+        """Recover a project from an existing autosave snapshot."""
+        project_dir = self._autosave_recovery_project_dir()
+        recovery_files = self._autosave_manager.get_recovery_files(project_dir)
+        if not recovery_files:
+            logging.info("No autosave recovery files found in %s", project_dir)
+            status_bar = self.statusBar()
+            if status_bar is not None:
+                status_bar.showMessage("No autosave recovery files found.", 3000)
+            return False
+
+        selected_path = self._select_autosave_recovery_file(recovery_files)
+        if selected_path is None:
+            status_bar = self.statusBar()
+            if status_bar is not None:
+                status_bar.showMessage("Autosave recovery cancelled.", 3000)
+            return False
+        valid_recovery_files = {
+            path.resolve()
+            for path in recovery_files
+            if path.suffix == ".automataii" and path.is_file()
+        }
+        if selected_path.resolve() not in valid_recovery_files:
+            logging.warning(
+                "Rejected autosave recovery selection outside discovered files: %s", selected_path
+            )
+            status_bar = self.statusBar()
+            if status_bar is not None:
+                status_bar.showMessage("Selected file is not a valid autosave snapshot.", 3000)
+            return False
+
+        self._project_controller.set_status_bar(self.statusBar())
+        return bool(self._project_controller.load_project(selected_path))
 
     def _get_dummy_reference_height_px(self) -> float:
         """Get/calculate reference character height from bundled dummy assets."""
@@ -1713,7 +1771,7 @@ class AutomataDesigner(QMainWindow):
                     self.mechanism_design_tab.cancel_character_rebind()
                 except Exception:
                     logging.debug(
-                        "Suppressed exception while cancelling character rebind",
+                        "MainWindow: failed while cancelling character rebind",
                         exc_info=True,
                     )
             if not character_swap_load:
@@ -1998,8 +2056,13 @@ class AutomataDesigner(QMainWindow):
         try:
             for idx in range(qpath.elementCount()):
                 elem = qpath.elementAt(idx)
-                points.append([float(elem.x), float(elem.y)])
+                points.append(AutomataDesigner._serialize_qpath_element(elem))
         except Exception:
+            logging.warning(
+                "Failed to serialize QPainterPath with %s elements",
+                qpath.elementCount(),
+                exc_info=True,
+            )
             return None
 
         if not points:
@@ -2009,6 +2072,10 @@ class AutomataDesigner(QMainWindow):
         last = points[-1]
         is_closed = abs(first[0] - last[0]) < 1.0 and abs(first[1] - last[1]) < 1.0
         return {"points": points, "is_closed": is_closed}
+
+    @staticmethod
+    def _serialize_qpath_element(elem: Any) -> list[float]:
+        return [float(elem.x), float(elem.y)]
 
     def _sanitize_for_project(
         self,
@@ -2255,7 +2322,7 @@ class AutomataDesigner(QMainWindow):
         try:
             clear_sync()
         except Exception:
-            logging.debug("Suppressed exception while clearing Foundry sync target", exc_info=True)
+            logging.debug("MainWindow: failed while clearing Foundry sync target", exc_info=True)
 
     def _switch_to_mechanism_design_tab(self):
         """Switches the main tab widget to the Mechanism Design Tab."""
@@ -2485,7 +2552,7 @@ class AutomataDesigner(QMainWindow):
                 return True
             logging.warning("Autosave failed: %s", result.error)
         except Exception:
-            logging.debug("Suppressed exception while autosaving project", exc_info=True)
+            logging.warning("Autosave raised unexpected error", exc_info=True)
         return False
 
     def _connect_signal_once(self, signal: _QtSignalLike, slot: object) -> None:
@@ -2602,7 +2669,7 @@ class AutomataDesigner(QMainWindow):
                     if callable(apply):
                         apply(preset)
             except Exception:
-                logging.debug("Suppressed exception", exc_info=True)
+                logging.debug("MainWindow: failed while applying performance preset", exc_info=True)
         elif setting_name == "debug_mode":
             # Assuming ImageProcessingTab has a method to set debug mode
             if hasattr(self.image_proc_tab, "set_debug_mode"):
@@ -2714,13 +2781,15 @@ class AutomataDesigner(QMainWindow):
         try:
             self._perform_autosave(force=True)
         except Exception:
-            logging.debug("Suppressed exception while autosaving on close", exc_info=True)
+            logging.warning(
+                "MainWindow: autosave during close raised unexpected error", exc_info=True
+            )
         try:
             if self._workspace_layout_manager:
                 self._workspace_layout_manager.save_workspace_layout()
         except Exception:
             logging.debug(
-                "Suppressed exception while saving workspace layout on close", exc_info=True
+                "MainWindow: failed while saving workspace layout on close", exc_info=True
             )
         super().closeEvent(event)
 

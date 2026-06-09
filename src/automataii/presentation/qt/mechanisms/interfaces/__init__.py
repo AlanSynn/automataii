@@ -6,13 +6,13 @@ from .mechanism import MechanismInterface, MechanismParameters, SimulationData
 from .serializer import BlueprintData, BlueprintSerializer
 
 __all__ = [
-    'MechanismInterface',
-    'MechanismParameters',
-    'SimulationData',
-    'EditorInterface',
-    'HandleConfig',
-    'BlueprintSerializer',
-    'BlueprintData',
-    'HandleInterface',
-    'HandleConstraints'
+    "MechanismInterface",
+    "MechanismParameters",
+    "SimulationData",
+    "EditorInterface",
+    "HandleConfig",
+    "BlueprintSerializer",
+    "BlueprintData",
+    "HandleInterface",
+    "HandleConstraints",
 ]

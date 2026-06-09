@@ -10,8 +10,8 @@ from typing import Any, Generic, TypeVar
 
 from automataii.infrastructure.state.base import State
 
-T = TypeVar('T')
-R = TypeVar('R')
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 class Selector(Generic[T, R]):
@@ -34,7 +34,7 @@ class Selector(Generic[T, R]):
         self.memoize = memoize
         self.max_cache_size = max(1, int(max_cache_size))
         self._cache: dict[str, tuple[Any, R]] = {}
-        self._name = selector_func.__name__ if hasattr(selector_func, '__name__') else 'anonymous'
+        self._name = selector_func.__name__ if hasattr(selector_func, "__name__") else "anonymous"
 
     def __call__(self, state: State[T]) -> R:
         """Execute selector on state."""
@@ -81,11 +81,11 @@ class Selector(Generic[T, R]):
             state_json = self._serialize_to_json(cache_data)
 
             # Use SHA256 instead of MD5 (collision-resistant)
-            return hashlib.sha256(state_json.encode('utf-8')).hexdigest()
+            return hashlib.sha256(state_json.encode("utf-8")).hexdigest()
 
         except (ValueError, TypeError, AttributeError):
             # Fallback to string representation
-            return hashlib.sha256(repr(cache_data).encode('utf-8')).hexdigest()
+            return hashlib.sha256(repr(cache_data).encode("utf-8")).hexdigest()
 
     def _cache_data(self, state: State[T]) -> Any:
         """Return the exact state subset that participates in memoization."""
@@ -105,13 +105,14 @@ class Selector(Generic[T, R]):
 
         Handles dataclasses, dicts, and other common types safely.
         """
+
         def json_default(obj: Any) -> Any:
             """Custom JSON encoder for non-serializable types."""
             if is_dataclass(obj) and not isinstance(obj, type):
                 return asdict(obj)
-            if hasattr(obj, '__dict__'):
+            if hasattr(obj, "__dict__"):
                 return obj.__dict__
-            if hasattr(obj, 'tolist'):  # numpy arrays
+            if hasattr(obj, "tolist"):  # numpy arrays
                 return obj.tolist()
             # Fallback to string representation
             return repr(obj)
@@ -127,8 +128,7 @@ class Selector(Generic[T, R]):
 
 
 def create_selector(
-    *input_selectors: Selector,
-    dependencies: list | None = None
+    *input_selectors: Selector, dependencies: list | None = None
 ) -> Callable[[Callable], Selector]:
     """
     Create a memoized selector that depends on other selectors.
@@ -140,6 +140,7 @@ def create_selector(
     Returns:
         Decorator that creates a selector
     """
+
     def decorator(result_func: Callable) -> Selector:
         def combined_selector(state: State) -> Any:
             # Get results from input selectors
@@ -148,18 +149,13 @@ def create_selector(
             # Call result function with input results
             return result_func(*input_results)
 
-        return Selector(
-            combined_selector,
-            dependencies=dependencies,
-            memoize=True
-        )
+        return Selector(combined_selector, dependencies=dependencies, memoize=True)
 
     return decorator
 
 
 def memoize(
-    dependencies: list | None = None,
-    cache_size: int = 100
+    dependencies: list | None = None, cache_size: int = 100
 ) -> Callable[[Callable], Selector]:
     """
     Decorator to create a memoized selector.
@@ -171,6 +167,7 @@ def memoize(
     Returns:
         Decorator that creates a memoized selector
     """
+
     def decorator(func: Callable) -> Selector:
         return Selector(func, dependencies=dependencies, memoize=True, max_cache_size=cache_size)
 

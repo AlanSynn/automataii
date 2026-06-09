@@ -36,15 +36,17 @@ class DraggableHandle(QGraphicsEllipseItem):
     RADIUS_DRAG = 20.0
 
     # Colors
-    COLOR_NORMAL = QColor(255, 50, 50)      # Bright red
-    COLOR_HOVER = QColor(255, 100, 100)     # Light red
-    COLOR_DRAG = QColor(255, 150, 150)      # Very light red
+    COLOR_NORMAL = QColor(255, 50, 50)  # Bright red
+    COLOR_HOVER = QColor(255, 100, 100)  # Light red
+    COLOR_DRAG = QColor(255, 150, 150)  # Very light red
 
-    def __init__(self,
-                 handle_id: str,
-                 initial_pos: QPointF,
-                 update_callback: Callable[[str, QPointF], None] | None = None,
-                 parent=None):
+    def __init__(
+        self,
+        handle_id: str,
+        initial_pos: QPointF,
+        update_callback: Callable[[str, QPointF], None] | None = None,
+        parent=None,
+    ):
         """
         Initialize draggable handle with PROPER event handling.
 
@@ -193,4 +195,3 @@ class DraggableHandle(QGraphicsEllipseItem):
             super().mouseReleaseEvent(event)
         else:
             event.ignore()
-

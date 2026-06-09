@@ -35,11 +35,11 @@ class FiveBarVisualizer(MechanismVisualizer):
     """Visualizer for 5-bar linkage mechanisms."""
 
     # Color scheme for 5-bar components
-    LEFT_CRANK_COLOR = QColor("#e74c3c")   # Red
+    LEFT_CRANK_COLOR = QColor("#e74c3c")  # Red
     RIGHT_CRANK_COLOR = QColor("#3498db")  # Blue
-    COUPLER_COLOR = QColor("#2ecc71")      # Green
-    GROUND_COLOR = QColor("#9b59b6")       # Purple
-    OUTPUT_COLOR = QColor("#f39c12")       # Orange (P point)
+    COUPLER_COLOR = QColor("#2ecc71")  # Green
+    GROUND_COLOR = QColor("#9b59b6")  # Purple
+    OUTPUT_COLOR = QColor("#f39c12")  # Orange (P point)
 
     def create_visuals(self, mechanism_data: dict[str, Any]) -> list[QGraphicsItem]:
         """
@@ -114,9 +114,9 @@ class FiveBarVisualizer(MechanismVisualizer):
         if isinstance(visual_items[0], QGraphicsLineItem):
             visual_items[0].setLine(QLineF(g1_t, c1_t))  # Left crank
         if isinstance(visual_items[1], QGraphicsLineItem):
-            visual_items[1].setLine(QLineF(c1_t, p_t))   # Left coupler
+            visual_items[1].setLine(QLineF(c1_t, p_t))  # Left coupler
         if isinstance(visual_items[2], QGraphicsLineItem):
-            visual_items[2].setLine(QLineF(p_t, c2_t))   # Right coupler
+            visual_items[2].setLine(QLineF(p_t, c2_t))  # Right coupler
         if isinstance(visual_items[3], QGraphicsLineItem):
             visual_items[3].setLine(QLineF(c2_t, g2_t))  # Right crank
         if isinstance(visual_items[4], QGraphicsLineItem):
@@ -179,9 +179,7 @@ class FiveBarVisualizer(MechanismVisualizer):
         # Fallback to calculated positions
         return self._calculate_default_positions(params)
 
-    def _calculate_default_positions(
-        self, params: dict[str, Any]
-    ) -> tuple[np.ndarray, ...] | None:
+    def _calculate_default_positions(self, params: dict[str, Any]) -> tuple[np.ndarray, ...] | None:
         """Calculate default joint positions based on link lengths."""
         # Extract parameters (support both naming conventions)
         ground = params.get("ground_link", params.get("l1", 160.0))

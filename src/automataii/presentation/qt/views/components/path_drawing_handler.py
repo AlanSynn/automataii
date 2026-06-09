@@ -28,6 +28,7 @@ TARGET_PATH_POINTS = 12
 @dataclass
 class TimedQPointF:
     """QPointF with timestamp for velocity-aware animation."""
+
     point: QPointF
     timestamp: float  # Seconds from drawing start
 
@@ -125,7 +126,9 @@ class PathDrawingHandler:
 
             self.update_preview()
 
-    def finish_drawing(self) -> tuple[list[QPointF], QPainterPath, list[TimedQPointF], float] | None:
+    def finish_drawing(
+        self,
+    ) -> tuple[list[QPointF], QPainterPath, list[TimedQPointF], float] | None:
         """
         Finish drawing and create the final spline path.
 
@@ -270,9 +273,7 @@ class PathDrawingHandler:
 
         item = QGraphicsPathItem(path)
         if pen is None:
-            pen = QPen(
-                QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap
-            )
+            pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
         item.setPen(pen)
         item.setZValue(self._z_path_line)
         self._scene.addItem(item)
@@ -395,9 +396,7 @@ class PathDrawingHandler:
 
         return path
 
-    def resample_points(
-        self, points: list[QPointF], num_target: int
-    ) -> list[QPointF]:
+    def resample_points(self, points: list[QPointF], num_target: int) -> list[QPointF]:
         """
         Resample points to a target count.
 

@@ -4,10 +4,11 @@ ActionManager module for centralizing QAction management.
 
 import logging
 from collections.abc import Callable
+from typing import cast
 
 from PyQt6.QtCore import QObject, QSize
 from PyQt6.QtGui import QAction, QIcon, QKeySequence
-from PyQt6.QtWidgets import QStyle
+from PyQt6.QtWidgets import QStyle, QWidget
 
 
 class ActionManager(QObject):
@@ -26,12 +27,12 @@ class ActionManager(QObject):
             parent: The parent object (typically MainWindow) that will own the actions
         """
         super().__init__(parent)
-        self.parent = parent
+        self._owner = parent
         self.actions: dict[str, QAction] = {}
         self.updater = None
         self._initialize_actions()
 
-    def _initialize_actions(self):
+    def _initialize_actions(self) -> None:
         """Initialize all application actions with their default properties."""
         # File actions
         self.create_action(
@@ -50,6 +51,14 @@ class ActionManager(QObject):
             tooltip="Save the current project",
             shortcut=QKeySequence("Ctrl+S"),
             status_tip="Save the current project",
+        )
+
+        self.create_action(
+            action_id="recover_autosave",
+            text="Recover Autosave...",
+            icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DialogOpenButton),
+            tooltip="Recover an autosaved project snapshot",
+            status_tip="Recover an autosaved project snapshot",
         )
 
         self.create_action(
@@ -198,7 +207,7 @@ class ActionManager(QObject):
         if action_id in self.actions:
             logging.warning(f"Action '{action_id}' already exists, overwriting")
 
-        action = QAction(text, self.parent)
+        action = QAction(text, self._owner)
 
         if icon:
             action.setIcon(icon)
@@ -276,7 +285,8 @@ class ActionManager(QObject):
         Returns:
             The requested icon
         """
-        return self.parent.style().standardIcon(standard_pixmap)
+        style = cast(QWidget, self._owner).style()
+        return style.standardIcon(standard_pixmap) if style is not None else QIcon()
 
     def setup_toolbar(self, toolbar, icon_size: QSize | None = None):
         """
@@ -312,6 +322,7 @@ class ActionManager(QObject):
         file_menu = menubar.addMenu("&File")
         file_menu.addAction(self.get_action("new_project"))
         file_menu.addAction(self.get_action("load_parts"))
+        file_menu.addAction(self.get_action("recover_autosave"))
         file_menu.addAction(self.get_action("save_project"))
         file_menu.addSeparator()
         file_menu.addAction(self.get_action("export"))
@@ -365,5 +376,6 @@ class ActionManager(QObject):
         self.updater = updater
 
         # Connect the check_updates action to the main window's check method
-        if hasattr(self.parent, 'check_for_updates'):
-            self.connect_action("check_updates", self.parent.check_for_updates)
+        check_for_updates = getattr(self._owner, "check_for_updates", None)
+        if callable(check_for_updates):
+            self.connect_action("check_updates", check_for_updates)

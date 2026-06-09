@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 from PyQt6.QtCore import QPointF
 
+from automataii.presentation.qt.tabs.cam_geometry import cam_contact_local_from_profile
 from automataii.presentation.qt.tabs.mechanism_design.components.mechanism_output_calculator import (
     MechanismOutputCalculator,
 )
@@ -64,7 +66,9 @@ def test_4bar_output_mode_joint_b_uses_output_joint_position() -> None:
 
 def test_cam_output_mode_contact_point_returns_cam_contact_position() -> None:
     calculator = MechanismOutputCalculator(
-        get_scene_transform=lambda _layer: (lambda point: QPointF(100.0 + float(point[0]), 200.0 + float(point[1])))
+        get_scene_transform=lambda _layer: (
+            lambda point: QPointF(100.0 + float(point[0]), 200.0 + float(point[1]))
+        )
     )
 
     point = calculator.calculate_output(
@@ -263,6 +267,44 @@ def test_cam_output_sanitizes_bad_profile_and_non_finite_params() -> None:
     assert point is not None
     assert math.isfinite(point.x())
     assert math.isfinite(point.y())
+
+
+def test_cam_reverse_direction_uses_opposite_rotation_phase() -> None:
+    """CAM should honor the same reverse-direction contract as linkages/gears."""
+    calculator = MechanismOutputCalculator(get_scene_transform=_scene_transform)
+    asymmetric_profile = [
+        [0.0, 10.0],
+        [20.0, 0.0],
+        [0.0, -10.0],
+        [-5.0, 0.0],
+    ]
+    phase = 0.6
+    params = {
+        "follower_rod_length": 30.0,
+        "output_point_mode": "contact_point",
+    }
+
+    forward = calculator.calculate_output(
+        mech_type="cam",
+        params=params,
+        time=phase,
+        layer_data={"cam_points_local": asymmetric_profile},
+    )
+    reverse = calculator.calculate_output(
+        mech_type="cam",
+        params=params,
+        time=phase,
+        layer_data={"cam_points_local": asymmetric_profile, "reverse_direction": True},
+    )
+
+    expected_forward = cam_contact_local_from_profile(np.asarray(asymmetric_profile), phase)
+    expected_reverse = cam_contact_local_from_profile(np.asarray(asymmetric_profile), -phase)
+
+    assert forward is not None
+    assert reverse is not None
+    assert forward.y() == pytest.approx(float(expected_forward[1]))
+    assert reverse.y() == pytest.approx(float(expected_reverse[1]))
+    assert reverse.y() != pytest.approx(forward.y())
 
 
 def test_gear_fallback_sanitizes_bad_radius_and_center() -> None:

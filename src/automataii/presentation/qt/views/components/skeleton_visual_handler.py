@@ -129,9 +129,7 @@ class SkeletonVisualHandler:
         if self._skeleton_item:
             self._skeleton_item.set_animated_pose(animated_joint_positions)
         else:
-            logging.warning(
-                "SkeletonVisualHandler: No skeleton item to update animation."
-            )
+            logging.warning("SkeletonVisualHandler: No skeleton item to update animation.")
 
     def update_visuals_from_animation_data(
         self,
@@ -177,17 +175,13 @@ class SkeletonVisualHandler:
 
         transform_data = joint_data[standardized_id]
         target_pos = transform_data.get("scene_position")
-        target_rotation = transform_data.get(
-            "world_rotation_degrees", part_item.rotation()
-        )
+        target_rotation = transform_data.get("world_rotation_degrees", part_item.rotation())
 
         if not isinstance(target_pos, QPointF):
             return
 
         # Validate bone length preservation
-        is_valid = self._validate_skeleton_length_preservation(
-            part_item, target_pos, joint_data
-        )
+        is_valid = self._validate_skeleton_length_preservation(part_item, target_pos, joint_data)
 
         if is_valid:
             part_item.setRotation(float(target_rotation))

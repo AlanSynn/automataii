@@ -11,6 +11,7 @@ from typing import Any
 @dataclass
 class BlueprintData:
     """Container for blueprint data."""
+
     mechanism_type: str
     version: str
     dimensions: dict[str, float]
@@ -22,26 +23,26 @@ class BlueprintData:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for export."""
         return {
-            'type': self.mechanism_type,
-            'version': self.version,
-            'dimensions': self.dimensions,
-            'parameters': self.parameters,
-            'visual_properties': self.visual_properties,
-            'assembly_instructions': self.assembly_instructions or [],
-            'metadata': self.metadata or {}
+            "type": self.mechanism_type,
+            "version": self.version,
+            "dimensions": self.dimensions,
+            "parameters": self.parameters,
+            "visual_properties": self.visual_properties,
+            "assembly_instructions": self.assembly_instructions or [],
+            "metadata": self.metadata or {},
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'BlueprintData':
+    def from_dict(cls, data: dict[str, Any]) -> "BlueprintData":
         """Create from imported dictionary."""
         return cls(
-            mechanism_type=data['type'],
-            version=data['version'],
-            dimensions=data['dimensions'],
-            parameters=data['parameters'],
-            visual_properties=data['visual_properties'],
-            assembly_instructions=data.get('assembly_instructions'),
-            metadata=data.get('metadata')
+            mechanism_type=data["type"],
+            version=data["version"],
+            dimensions=data["dimensions"],
+            parameters=data["parameters"],
+            visual_properties=data["visual_properties"],
+            assembly_instructions=data.get("assembly_instructions"),
+            metadata=data.get("metadata"),
         )
 
 

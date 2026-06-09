@@ -127,13 +127,16 @@ class StyleFactory:
         """Style for checkable action buttons."""
         p = cls._palette
         base = cls.action_button_style()
-        return base + f"""
+        return (
+            base
+            + f"""
             QPushButton:checked {{
                 background-color: {p.primary};
                 border-color: {p.primary_hover};
                 color: white;
             }}
         """
+        )
 
     @classmethod
     def danger_button_style(cls) -> str:

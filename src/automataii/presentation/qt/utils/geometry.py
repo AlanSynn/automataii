@@ -4,6 +4,7 @@ Qt Geometry Utilities.
 Shared utility functions for converting between Qt geometry types
 and numpy arrays.
 """
+
 import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPainterPath

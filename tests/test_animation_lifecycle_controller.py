@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -65,6 +66,82 @@ def test_reentrant_start_preserves_scheduler_ownership(qapp: QApplication) -> No
         assert scheduler.list_subscriptions() == []
         assert not scheduler.is_running
         assert not controller.is_animation_running()
+    finally:
+        scheduler.stop()
+
+
+def test_lifecycle_controllers_use_distinct_scheduler_subscription_ids(
+    qapp: QApplication,
+) -> None:
+    scheduler = CentralAnimationScheduler()
+    first = _controller()
+    second = _controller()
+    first.set_scheduler(scheduler)
+    second.set_scheduler(scheduler)
+
+    try:
+        first.start_animation({"m1": True})
+        second.start_animation({"m2": True})
+
+        subscriptions = scheduler.list_subscriptions()
+        owner_ids = {subscription["owner_id"] for subscription in subscriptions}
+        assert len(subscriptions) == 2
+        assert len(owner_ids) == 2
+        assert all(owner_id.startswith("mechanism_design_animation:") for owner_id in owner_ids)
+
+        first.stop_animation()
+        assert scheduler.is_running
+        assert len(scheduler.list_subscriptions()) == 1
+
+        second.stop_animation()
+        assert scheduler.list_subscriptions() == []
+        assert not scheduler.is_running
+    finally:
+        scheduler.stop()
+
+
+def test_lifecycle_preserves_externally_running_scheduler(qapp: QApplication) -> None:
+    scheduler = CentralAnimationScheduler()
+    controller = _controller()
+    scheduler.start()
+    controller.set_scheduler(scheduler)
+
+    try:
+        controller.start_animation({"m1": True})
+        assert scheduler.is_running
+
+        controller.stop_animation()
+
+        assert scheduler.list_subscriptions() == []
+        assert scheduler.is_running
+    finally:
+        scheduler.stop()
+
+
+def test_external_scheduler_with_overlapping_lifecycle_controllers_stays_running(
+    qapp: QApplication,
+) -> None:
+    scheduler = CentralAnimationScheduler()
+    first = _controller()
+    second = _controller()
+    scheduler.start()
+    first.set_scheduler(scheduler)
+    second.set_scheduler(scheduler)
+
+    try:
+        first.start_animation({"m1": True})
+        second.start_animation({"m2": True})
+
+        assert scheduler.is_running
+        assert len(scheduler.list_subscriptions()) == 2
+
+        first.stop_animation()
+        assert scheduler.is_running
+        assert len(scheduler.list_subscriptions()) == 1
+
+        second.stop_animation()
+        assert scheduler.list_subscriptions() == []
+        assert scheduler.is_running
     finally:
         scheduler.stop()
 
@@ -348,3 +425,84 @@ def test_disabled_part_clears_stale_ik_targets_and_resends_active(qapp: QApplica
     ik_manager.clear_mechanism_position_targets.assert_called_once()
     ik_manager.set_mechanism_position_target.assert_called_once()
     assert ik_manager.set_mechanism_position_target.call_args.args[0] == "knee"
+
+
+def test_lifecycle_mechanism_update_failure_logs_context(
+    qapp: QApplication,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    controller = _controller()
+
+    def fail_visual_update(*_args: object) -> None:
+        raise RuntimeError("visual boom")
+
+    controller.configure_callbacks(
+        get_main_window=lambda: None,
+        get_mechanism_layers=lambda: {
+            "cam-1": {"type": "cam", "params": {}, "part_name": "arm"},
+        },
+        get_part_enabled_state=lambda: {"arm": True},
+        get_parts_data=lambda: {},
+        get_presenter=lambda: None,
+        get_ui_state_manager=lambda: None,
+        calculate_mechanism_output=lambda *_args: QPointF(1.0, 2.0),
+        update_mechanism_visuals_for_animation=fail_visual_update,
+        get_target_joint_for_mechanism_control=lambda _part, joint: joint,
+        get_standardized_joint_id=lambda joint: joint,
+        ensure_skeleton_visualization=lambda _data: None,
+        setup_mechanism_ik_integration=lambda: False,
+        reset_skeleton_to_initial_state=lambda: None,
+        position_parts_at_anchor_joints=lambda: None,
+        clear_animation_cache=lambda: None,
+    )
+    controller.set_mechanism_update_fraction(1.0)
+    controller.start_animation({"cam-1": True})
+
+    with caplog.at_level(logging.WARNING):
+        controller._update_animation(0.1)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("cam-1" in message and "cam" in message for message in messages)
+
+
+def test_lifecycle_mechanism_update_failure_does_not_skip_remaining_mechanisms(
+    qapp: QApplication,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    controller = _controller()
+    visual_calls: list[str] = []
+
+    def maybe_fail_visual_update(mechanism_id: str, *_args: object) -> None:
+        visual_calls.append(mechanism_id)
+        if mechanism_id == "bad":
+            raise RuntimeError("bad visual update")
+
+    controller.configure_callbacks(
+        get_main_window=lambda: None,
+        get_mechanism_layers=lambda: {
+            "bad": {"type": "cam", "params": {}, "part_name": "arm"},
+            "good": {"type": "gear", "params": {}, "part_name": "leg"},
+        },
+        get_part_enabled_state=lambda: {"arm": True, "leg": True},
+        get_parts_data=lambda: {},
+        get_presenter=lambda: None,
+        get_ui_state_manager=lambda: None,
+        calculate_mechanism_output=lambda *_args: None,
+        update_mechanism_visuals_for_animation=maybe_fail_visual_update,
+        get_target_joint_for_mechanism_control=lambda _part, joint: joint,
+        get_standardized_joint_id=lambda joint: joint,
+        ensure_skeleton_visualization=lambda _data: None,
+        setup_mechanism_ik_integration=lambda: False,
+        reset_skeleton_to_initial_state=lambda: None,
+        position_parts_at_anchor_joints=lambda: None,
+        clear_animation_cache=lambda: None,
+    )
+    controller.set_mechanism_update_fraction(1.0)
+    controller.start_animation({"bad": True, "good": True})
+
+    with caplog.at_level(logging.WARNING):
+        controller._update_animation(0.1)
+
+    assert visual_calls == ["bad", "good"]
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("bad" in message and "cam" in message for message in messages)

@@ -6,6 +6,7 @@ for 4-bar, cam, gear, and planetary gear mechanisms.
 
 Design Pattern: Strategy (mechanism-type-specific calculations)
 """
+
 from __future__ import annotations
 
 import math
@@ -32,6 +33,7 @@ from automataii.presentation.qt.tabs.cam_geometry import (
     cam_contact_local_from_profile,
     cam_contact_local_from_rotated_profile,
     cam_follower_base_scene,
+    cam_motion_angle,
     cam_scene_unit_scale,
 )
 
@@ -68,7 +70,9 @@ def _position_rows(raw: object) -> np.ndarray | None:
     return rows
 
 
-def _bounded_frame_index(time: float, num_frames: int, reverse_direction: bool = False) -> int | None:
+def _bounded_frame_index(
+    time: float, num_frames: int, reverse_direction: bool = False
+) -> int | None:
     if num_frames <= 0 or not math.isfinite(time):
         return None
 
@@ -439,17 +443,23 @@ class MechanismOutputCalculator:
             "follower_length",
             default=40.0,
         )
-        rod_len_mul = _positive_finite_float(layer_data.get('rod_length_multiplier', 1.0), 1.0)
+        rod_len_mul = _positive_finite_float(layer_data.get("rod_length_multiplier", 1.0), 1.0)
         scaled_rod_length = follower_rod_length * rod_len_mul
 
-        cam_to_scene = layer_data.get('cam_transform_function') or self._get_scene_transform(layer_data)
+        cam_to_scene = layer_data.get("cam_transform_function") or self._get_scene_transform(
+            layer_data
+        )
         if cam_to_scene is None:
             return None
 
-        cam_angle = time  # Cam rotation angle in radians
+        reverse_direction = layer_data.get(
+            "reverse_direction",
+            params.get("reverse_direction", False),
+        )
+        cam_angle = cam_motion_angle(time, reverse_direction)
 
         # Priority: Use pre-computed cam profile from factory
-        cam_points_local = layer_data.get('cam_points_local')
+        cam_points_local = layer_data.get("cam_points_local")
         cam_profile = _position_rows(cam_points_local) if cam_points_local is not None else None
 
         if cam_profile is not None:
@@ -464,7 +474,7 @@ class MechanismOutputCalculator:
             cam_lobes = max(1, int(_positive_finite_param(params, "cam_lobes", default=1.0)))
             profile_harmonic = _finite_param(params, "profile_harmonic", default=0.3)
 
-            cam_scale_factor = _positive_finite_float(layer_data.get('cam_scale_factor', 1.0), 1.0)
+            cam_scale_factor = _positive_finite_float(layer_data.get("cam_scale_factor", 1.0), 1.0)
 
             scaled_base_radius = base_radius * cam_scale_factor
             scaled_cam_offset = cam_offset * cam_scale_factor
@@ -489,7 +499,7 @@ class MechanismOutputCalculator:
         unit_scale = cam_scene_unit_scale(cam_to_scene)
 
         # Follower X is fixed at cam center X
-        follower_x = _finite_float(layer_data.get('follower_fixed_x_scene'), math.nan)
+        follower_x = _finite_float(layer_data.get("follower_fixed_x_scene"), math.nan)
         if not math.isfinite(follower_x):
             center_scene = cam_to_scene(np.array([0.0, 0.0]))
             follower_x = center_scene.x()
@@ -599,14 +609,12 @@ class MechanismOutputCalculator:
                 )
             else:
                 sun_center_orig = np.array([0.0, 0.0], dtype=float)
-            planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array([
-                np.cos(planet_orbital_angle),
-                np.sin(planet_orbital_angle)
-            ])
-            tracking_point_orig = planet_center_orig + arm_length * np.array([
-                np.cos(planet_rotation_angle),
-                np.sin(planet_rotation_angle)
-            ])
+            planet_center_orig = sun_center_orig + (r_sun + r_planet) * np.array(
+                [np.cos(planet_orbital_angle), np.sin(planet_orbital_angle)]
+            )
+            tracking_point_orig = planet_center_orig + arm_length * np.array(
+                [np.cos(planet_rotation_angle), np.sin(planet_rotation_angle)]
+            )
 
             return to_scene_coords(tracking_point_orig)
 
@@ -651,8 +659,8 @@ class MechanismOutputCalculator:
         if not (abs(l3 - l4) <= d <= (l3 + l4)):
             return None
 
-        a = (l3 ** 2 - l4 ** 2 + d_sq) / (2 * d)
-        h = math.sqrt(max(0, l3 ** 2 - a ** 2))
+        a = (l3**2 - l4**2 + d_sq) / (2 * d)
+        h = math.sqrt(max(0, l3**2 - a**2))
         p3_p2_unit = (p2 - p3) / d
         midpoint = p3 + a * p3_p2_unit
         p4 = midpoint + h * np.array([-p3_p2_unit[1], p3_p2_unit[0]])
@@ -665,7 +673,9 @@ class MechanismOutputCalculator:
         coupler_local_x_axis = coupler_link_vec / coupler_link_len
         coupler_local_y_axis = np.array([-coupler_local_x_axis[1], coupler_local_x_axis[0]])
 
-        coupler_point_offset = coupler_point_x * coupler_local_x_axis + coupler_point_y * coupler_local_y_axis
+        coupler_point_offset = (
+            coupler_point_x * coupler_local_x_axis + coupler_point_y * coupler_local_y_axis
+        )
         output_point_orig = p3 + coupler_point_offset
 
         to_scene_coords = self._get_scene_transform(layer_data)

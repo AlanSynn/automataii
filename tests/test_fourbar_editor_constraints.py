@@ -75,6 +75,42 @@ def test_fourbar_crank_move_updates_mechanism_length_under_transform(qapp):
     )
 
 
+def test_fourbar_degenerate_crank_drag_preserves_last_valid_state(qapp):
+    editor = _create_editor_with_scaled_transform()
+    valid_pos = QPointF(120.0, 0.0)
+
+    editor.handles["crank"].setPos(valid_pos)
+    editor._on_crank_moved("crank", valid_pos)
+
+    params = editor.mechanism_data["params"]
+    original = {
+        "l2": params["l2"],
+        "L2": params.get("L2"),
+        "crank_x": params.get("crank_x"),
+        "crank_y": params.get("crank_y"),
+        "m_crank_x": params.get("m_crank_x"),
+        "m_crank_y": params.get("m_crank_y"),
+    }
+    original_pos = editor.handles["crank"].scenePos()
+    original_constraint = editor.handles["crank"].constraints["fixed_distance"]["distance"]
+    anchor = editor.handles["anchor1"].scenePos()
+
+    editor.handles["crank"].setPos(anchor)
+    editor._on_crank_moved("crank", anchor)
+
+    assert params["l2"] == pytest.approx(original["l2"], rel=1e-6)
+    assert params["L2"] == pytest.approx(original["L2"], rel=1e-6)
+    assert params.get("crank_x") == pytest.approx(original["crank_x"], rel=1e-6)
+    assert params.get("crank_y") == pytest.approx(original["crank_y"], rel=1e-6)
+    assert params.get("m_crank_x") == pytest.approx(original["m_crank_x"], rel=1e-6)
+    assert params.get("m_crank_y") == pytest.approx(original["m_crank_y"], rel=1e-6)
+    assert editor.handles["crank"].scenePos().x() == pytest.approx(original_pos.x(), rel=1e-6)
+    assert editor.handles["crank"].scenePos().y() == pytest.approx(original_pos.y(), rel=1e-6)
+    assert editor.handles["crank"].constraints["fixed_distance"]["distance"] == pytest.approx(
+        original_constraint, rel=1e-6
+    )
+
+
 def test_fourbar_anchor_move_refreshes_constraint_anchor(qapp):
     editor = _create_editor_with_scaled_transform()
     new_anchor = QPointF(20.0, 10.0)
@@ -85,6 +121,42 @@ def test_fourbar_anchor_move_refreshes_constraint_anchor(qapp):
     constraint_anchor = editor.handles["crank"].constraints["fixed_distance"]["anchor"]
     assert constraint_anchor.x() == pytest.approx(new_anchor.x(), rel=1e-6)
     assert constraint_anchor.y() == pytest.approx(new_anchor.y(), rel=1e-6)
+
+
+def test_fourbar_coupler_drag_without_transform_updates_coupler_offset(qapp):
+    scene = QGraphicsScene()
+    editor = FourBarEditor("plain_4bar", scene)
+    mechanism_data = {
+        "type": "4_bar_linkage",
+        "params": {
+            "anchor1_x": 0.0,
+            "anchor1_y": 0.0,
+            "anchor2_x": 200.0,
+            "anchor2_y": 0.0,
+            "crank_x": 50.0,
+            "crank_y": 0.0,
+            "rocker_x": 150.0,
+            "rocker_y": 0.0,
+            "l2": 50.0,
+            "l3": 100.0,
+            "l4": 50.0,
+            "crank_angle": 0.0,
+            "rocker_angle": 180.0,
+            "coupler_point_x": 0.0,
+            "coupler_point_y": 0.0,
+        },
+    }
+    editor.create_handles(mechanism_data)
+
+    new_coupler = QPointF(80.0, 25.0)
+    editor.handles["coupler"].setPos(new_coupler)
+    editor._on_coupler_moved("coupler", new_coupler)
+
+    params = editor.mechanism_data["params"]
+    assert params["coupler_x"] == pytest.approx(80.0)
+    assert params["coupler_y"] == pytest.approx(25.0)
+    assert params["coupler_point_x"] == pytest.approx(30.0)
+    assert params["coupler_point_y"] == pytest.approx(25.0)
 
 
 def _create_manager_with_scaled_transform() -> ParametricEditingManager:

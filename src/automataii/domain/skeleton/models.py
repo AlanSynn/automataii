@@ -17,12 +17,8 @@ class StandardizedJointModel(BaseModel):
 
     id: str = Field(..., description="Unique identifier for the joint.")
     name: str = Field(..., description="Human-readable name for the joint.")
-    position: tuple[float, float] = Field(
-        ..., description="2D coordinates (x, y) of the joint."
-    )
-    parent_id: str | None = Field(
-        None, description="ID of the parent joint, if any."
-    )
+    position: tuple[float, float] = Field(..., description="2D coordinates (x, y) of the joint.")
+    parent_id: str | None = Field(None, description="ID of the parent joint, if any.")
     label: str | None = Field(
         None,
         description="Original name or label from the source format, if different from 'name'.",

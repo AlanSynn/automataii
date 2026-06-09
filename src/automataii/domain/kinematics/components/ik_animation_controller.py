@@ -6,6 +6,7 @@ and easing curve calculations.
 
 Design Pattern: Controller (animation state management)
 """
+
 from __future__ import annotations
 
 import math
@@ -157,9 +158,7 @@ class IKAnimationController:
         Returns:
             Eased progress value
         """
-        curve_func = self._timing_curves.get(
-            self._timing_profile, self._ease_in_out
-        )
+        curve_func = self._timing_curves.get(self._timing_profile, self._ease_in_out)
         return curve_func(t)
 
     # Timing curve implementations
@@ -225,17 +224,10 @@ class IKAnimationController:
 
         if t < 0.5:
             t2 = t * 2
-            return -0.5 * (2 ** (10 * (t2 - 1))) * math.sin(
-                (t2 - 1 - s) * (2 * math.pi) / p
-            )
+            return -0.5 * (2 ** (10 * (t2 - 1))) * math.sin((t2 - 1 - s) * (2 * math.pi) / p)
         else:
             t2 = t * 2 - 1
-            return (
-                0.5 * (2 ** (-10 * t2)) * math.sin(
-                    (t2 - s) * (2 * math.pi) / p
-                )
-                + 1.0
-            )
+            return 0.5 * (2 ** (-10 * t2)) * math.sin((t2 - s) * (2 * math.pi) / p) + 1.0
 
     def get_available_profiles(self) -> list[str]:
         """Get list of available timing profile names."""

@@ -29,9 +29,7 @@ class BlueprintComposer:
         svg_generator: Callable[..., str] = generate_single_large_blueprint,
     ) -> None:
         self.logger = logging.getLogger(__name__)
-        self._optimizer = optimizer or BlueprintLayoutOptimizer(
-            target_character_height_mm=300.0
-        )
+        self._optimizer = optimizer or BlueprintLayoutOptimizer(target_character_height_mm=300.0)
         self._svg_generator = svg_generator
 
     @staticmethod

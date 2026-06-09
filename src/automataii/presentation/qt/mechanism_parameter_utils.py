@@ -5,6 +5,7 @@ Factory-created and imported mechanisms can carry both current internal names
 (``p_x``/``p_y``).  These helpers intentionally treat explicit zero as a valid
 value instead of falling through to an alias.
 """
+
 from __future__ import annotations
 
 import math

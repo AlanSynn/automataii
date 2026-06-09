@@ -6,6 +6,7 @@ camera state persistence, and tab activation/deactivation lifecycle.
 
 Design Pattern: Orchestrator (coordinates tab lifecycle events)
 """
+
 from __future__ import annotations
 
 import logging
@@ -108,9 +109,7 @@ class TabOrchestrator(QObject):
             previous_tab.deactivate_tab()
 
         # Handle camera state sharing
-        camera_state_applied = self._handle_camera_state_transition(
-            previous_tab, current_tab
-        )
+        camera_state_applied = self._handle_camera_state_transition(previous_tab, current_tab)
 
         # Update status bar
         self._update_status_bar(current_tab, index)

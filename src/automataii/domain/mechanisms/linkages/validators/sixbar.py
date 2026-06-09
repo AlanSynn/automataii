@@ -156,8 +156,12 @@ class SixBarValidator(LinkageValidator):
         # If not found, try descriptive names
         if len(links) < 6:
             link_keys = [
-                "ground_link", "input_link", "coupler1_link",
-                "intermediate_link", "coupler2_link", "output_link"
+                "ground_link",
+                "input_link",
+                "coupler1_link",
+                "intermediate_link",
+                "coupler2_link",
+                "output_link",
             ]
             links = [parameters.get(k, 50.0) for k in link_keys if k in parameters]
 
@@ -201,14 +205,16 @@ class SixBarValidator(LinkageValidator):
         total = sum(links)
         for i, link in enumerate(links):
             if link >= total - link:
-                return False, f"Link {i+1} too long ({link:.1f} >= {total - link:.1f})"
+                return False, f"Link {i + 1} too long ({link:.1f} >= {total - link:.1f})"
 
         # Additional check: for each four-bar sub-loop
         # Loop 1: links 0, 1, 2, 3
         if len(links) >= 4:
             loop1 = links[:4]
             sorted_loop1 = sorted(loop1)
-            if sorted_loop1[0] + sorted_loop1[3] > sorted_loop1[1] + sorted_loop1[2] + 0.1 * sum(loop1):
+            if sorted_loop1[0] + sorted_loop1[3] > sorted_loop1[1] + sorted_loop1[2] + 0.1 * sum(
+                loop1
+            ):
                 pass  # Grashof violation in loop 1 is warning, not error
 
         return True, "Closure OK"

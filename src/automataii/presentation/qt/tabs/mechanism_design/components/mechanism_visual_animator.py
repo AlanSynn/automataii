@@ -37,6 +37,7 @@ from automataii.presentation.qt.mechanism_parameter_utils import (
 from automataii.presentation.qt.tabs.cam_geometry import (
     cam_contact_local_from_rotated_profile,
     cam_follower_base_scene,
+    cam_motion_angle,
     cam_scene_unit_scale,
 )
 
@@ -523,19 +524,21 @@ class MechanismVisualAnimator:
             if not cam_to_scene_coords:
                 return
 
-        cam_angle = time  # Cam rotation angle in radians
+        params = layer_data.get("params", {})
+        reverse_direction = layer_data.get(
+            "reverse_direction",
+            params.get("reverse_direction", False),
+        )
+        cam_angle = cam_motion_angle(time, reverse_direction)
 
         # Get params for rod length calculation
-        params = layer_data.get("params", {})
         follower_rod_length = positive_finite_param(
             params,
             "follower_rod_length",
             "follower_length",
             default=40.0,
         )
-        rod_length_multiplier = positive_finite_float(
-            layer_data.get("rod_length_multiplier"), 1.0
-        )
+        rod_length_multiplier = positive_finite_float(layer_data.get("rod_length_multiplier"), 1.0)
         scaled_rod_length = follower_rod_length * rod_length_multiplier
 
         # Prepare batch transform if available
@@ -838,8 +841,8 @@ class MechanismVisualAnimator:
             key_points = layer_data.get("key_points", {})
             fallback_cache = PlanetaryGearCache.from_params(params, gear_positions, key_points)
             r_planet = fallback_cache.r_planet
-            sun_center_orig, planet_center_orig, tracking_point_orig = (
-                fallback_cache.get_positions(time, reverse_direction)
+            sun_center_orig, planet_center_orig, tracking_point_orig = fallback_cache.get_positions(
+                time, reverse_direction
             )
 
         # Transform to scene coordinates

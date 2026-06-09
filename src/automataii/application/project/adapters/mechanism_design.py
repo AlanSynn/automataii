@@ -10,6 +10,7 @@ Data Flow:
 Architecture: Application Layer (Hexagonal)
 Pattern: Adapter
 """
+
 from __future__ import annotations
 
 import logging
@@ -252,7 +253,11 @@ class MechanismDesignTabAdapter(TabAdapter):
 
         try:
             # Get current mechanism IDs from tab
-            current_ids = set(self._tab.mechanism_layers.keys()) if hasattr(self._tab, 'mechanism_layers') else set()
+            current_ids = (
+                set(self._tab.mechanism_layers.keys())
+                if hasattr(self._tab, "mechanism_layers")
+                else set()
+            )
             state_ids = set(mechanisms.keys())
             changed_or_added_ids: list[str] = []
             ui_list_needs_refresh = False
@@ -261,12 +266,14 @@ class MechanismDesignTabAdapter(TabAdapter):
             ids_to_remove = current_ids - state_ids
             for mech_id in ids_to_remove:
                 logger.debug(f"Removing mechanism '{mech_id}' (not in state)")
-                if hasattr(self._tab, '_mvp_presenter') and hasattr(self._tab._mvp_presenter, 'remove_mechanism_layer'):
+                if hasattr(self._tab, "_mvp_presenter") and hasattr(
+                    self._tab._mvp_presenter, "remove_mechanism_layer"
+                ):
                     self._tab._mvp_presenter.remove_mechanism_layer(mech_id)
-                elif hasattr(self._tab, 'mechanism_layers'):
+                elif hasattr(self._tab, "mechanism_layers"):
                     # Fallback: direct removal
                     self._tab.mechanism_layers.pop(mech_id, None)
-                    if hasattr(self._tab, 'mechanism_enabled_state'):
+                    if hasattr(self._tab, "mechanism_enabled_state"):
                         self._tab.mechanism_enabled_state.pop(mech_id, None)
                 ui_list_needs_refresh = True
 
@@ -274,7 +281,7 @@ class MechanismDesignTabAdapter(TabAdapter):
             for mech_id, mech_data in mechanisms.items():
                 if mech_id in current_ids:
                     # Update existing mechanism
-                    if hasattr(self._tab, 'mechanism_layers'):
+                    if hasattr(self._tab, "mechanism_layers"):
                         existing = self._tab.mechanism_layers.get(mech_id, {})
                         if self._layer_matches_mechanism_data(existing, mech_data):
                             if hasattr(self._tab, "mechanism_enabled_state"):
@@ -293,17 +300,19 @@ class MechanismDesignTabAdapter(TabAdapter):
                     # Add new mechanism
                     logger.debug(f"Adding mechanism '{mech_id}' from state")
                     layer_data = self._transform_mechanism_to_layer_data(mech_data)
-                    if hasattr(self._tab, '_mvp_presenter') and hasattr(self._tab._mvp_presenter, 'add_mechanism_layer'):
+                    if hasattr(self._tab, "_mvp_presenter") and hasattr(
+                        self._tab._mvp_presenter, "add_mechanism_layer"
+                    ):
                         self._tab._mvp_presenter.add_mechanism_layer(mech_id, layer_data)
-                    elif hasattr(self._tab, 'mechanism_layers'):
+                    elif hasattr(self._tab, "mechanism_layers"):
                         self._tab.mechanism_layers[mech_id] = layer_data
-                        if hasattr(self._tab, 'mechanism_enabled_state'):
+                        if hasattr(self._tab, "mechanism_enabled_state"):
                             self._tab.mechanism_enabled_state[mech_id] = mech_data.enabled
                     changed_or_added_ids.append(mech_id)
                     ui_list_needs_refresh = True
 
             # Update the UI list only when membership changed
-            if ui_list_needs_refresh and hasattr(self._tab, '_update_mechanism_layers_list'):
+            if ui_list_needs_refresh and hasattr(self._tab, "_update_mechanism_layers_list"):
                 self._tab._update_mechanism_layers_list()
 
             # Regenerate visuals only for mechanisms that actually changed
@@ -311,13 +320,17 @@ class MechanismDesignTabAdapter(TabAdapter):
                 mech_data = mechanisms.get(mech_id)
                 if mech_data is None:
                     continue
-                layer_data = self._tab.mechanism_layers.get(mech_id) if hasattr(self._tab, 'mechanism_layers') else None
-                if layer_data and hasattr(self._tab, '_generate_mechanism_visuals_directly'):
+                layer_data = (
+                    self._tab.mechanism_layers.get(mech_id)
+                    if hasattr(self._tab, "mechanism_layers")
+                    else None
+                )
+                if layer_data and hasattr(self._tab, "_generate_mechanism_visuals_directly"):
                     self._tab._generate_mechanism_visuals_directly(
                         mech_id,
                         mech_data.type,
                         dict(mech_data.params) if mech_data.params else {},
-                        layer_data
+                        layer_data,
                     )
 
         except Exception as e:

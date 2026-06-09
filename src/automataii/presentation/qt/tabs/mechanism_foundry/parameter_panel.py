@@ -49,7 +49,9 @@ def _positive_finite_float(value: object, default: float) -> float:
     return result if result > 0.0 else default
 
 
-def _finite_range(min_value: object, max_value: object, default_min: float, default_max: float) -> tuple[float, float]:
+def _finite_range(
+    min_value: object, max_value: object, default_min: float, default_max: float
+) -> tuple[float, float]:
     low = _finite_float(min_value, default_min)
     high = _finite_float(max_value, default_max)
     if low == high:
@@ -100,7 +102,9 @@ def _unit_to_mm(value_unit: float, unit: UnitSystem) -> float:
 class CollapsibleSection(QWidget):
     toggled = pyqtSignal(bool)
 
-    def __init__(self, title: str, settings: QSettings, settings_key: str, parent: QWidget | None = None):
+    def __init__(
+        self, title: str, settings: QSettings, settings_key: str, parent: QWidget | None = None
+    ):
         super().__init__(parent)
         self._settings = settings
         self._settings_key = settings_key
@@ -380,8 +384,12 @@ class MechanismParameterPanel(QWidget):
         self._mm_button = QRadioButton("mm")
         self._inch_button = QRadioButton("inch")
         self._mm_button.setChecked(True)
-        self._mm_button.toggled.connect(lambda checked: checked and self._set_unit(UnitSystem.MILLIMETER))
-        self._inch_button.toggled.connect(lambda checked: checked and self._set_unit(UnitSystem.INCH))
+        self._mm_button.toggled.connect(
+            lambda checked: checked and self._set_unit(UnitSystem.MILLIMETER)
+        )
+        self._inch_button.toggled.connect(
+            lambda checked: checked and self._set_unit(UnitSystem.INCH)
+        )
 
         unit_group = QButtonGroup(self)
         unit_group.addButton(self._mm_button)
@@ -504,7 +512,9 @@ class MechanismParameterPanel(QWidget):
 
         for spec in specs:
             min_value, max_value = _finite_range(spec.min_value, spec.max_value, 0.0, 1.0)
-            default_value = max(min_value, min(max_value, _finite_float(spec.default_value, min_value)))
+            default_value = max(
+                min_value, min(max_value, _finite_float(spec.default_value, min_value))
+            )
             initial_value = max(
                 min_value,
                 min(max_value, _finite_float(values.get(spec.key, default_value), default_value)),
@@ -547,9 +557,7 @@ class MechanismParameterPanel(QWidget):
             )
             control.configure_unit(self._unit_system)
             control.set_value_mm(initial_value)
-            slider.valueChanged.connect(
-                lambda value, ctl=control: ctl.handle_slider_change(value)
-            )
+            slider.valueChanged.connect(lambda value, ctl=control: ctl.handle_slider_change(value))
             value_spin.valueChanged.connect(
                 lambda value, ctl=control: ctl.handle_spinbox_change(value)
             )
@@ -557,7 +565,9 @@ class MechanismParameterPanel(QWidget):
             self._dimension_controls[spec.key] = control
             self._dimensions_placeholder_layout.addWidget(widget)
 
-        self._dimensions_placeholder_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        self._dimensions_placeholder_layout.addItem(
+            QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        )
 
     def set_driver_options(self, options: Iterable[str], selected_index: int = 0) -> None:
         clear_layout(self._driver_container)
@@ -623,7 +633,9 @@ class MechanismParameterPanel(QWidget):
             return
         limited = list(hints)[:2]
         if not limited:
-            self._hints_browser.setHtml("<p style='color:#6b7280;'>Hints appear here based on selected mechanism.</p>")
+            self._hints_browser.setHtml(
+                "<p style='color:#6b7280;'>Hints appear here based on selected mechanism.</p>"
+            )
             return
         bullets = "".join(f"<li>{html.escape(str(hint))}</li>" for hint in limited)
         html_content = f"""

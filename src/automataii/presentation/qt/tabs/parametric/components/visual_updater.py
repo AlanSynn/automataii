@@ -6,6 +6,7 @@ visuals during parametric editing.
 
 Design Pattern: Service (visual rendering coordination)
 """
+
 from __future__ import annotations
 
 import logging

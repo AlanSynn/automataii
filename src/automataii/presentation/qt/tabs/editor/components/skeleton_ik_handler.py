@@ -6,6 +6,7 @@ IK result application, joint caching, and bend direction changes.
 
 Design Pattern: Handler (processes external events and updates state)
 """
+
 from __future__ import annotations
 
 import logging
@@ -142,9 +143,7 @@ class SkeletonIKHandler(QObject):
                             "parent": joint_model_dict.get("parent_id"),
                             "color": joint_model_dict.get("color", "blue"),
                             "label": joint_model_dict.get("label"),
-                            "bend_direction": joint_model_dict.get(
-                                "bend_direction", 1.0
-                            ),
+                            "bend_direction": joint_model_dict.get("bend_direction", 1.0),
                         }
                     )
 
@@ -163,9 +162,7 @@ class SkeletonIKHandler(QObject):
                                     f"SkeletonIKHandler: Part '{part_name}' - joint locked"
                                 )
 
-            logging.debug(
-                f"SkeletonIKHandler: Visualizing {len(skeleton_for_view)} joints"
-            )
+            logging.debug(f"SkeletonIKHandler: Visualizing {len(skeleton_for_view)} joints")
             self._editor_view.visualize_skeleton(skeleton_for_view, hierarchy)
         else:
             logging.info("SkeletonIKHandler: Clearing skeleton visualization")
@@ -219,9 +216,7 @@ class SkeletonIKHandler(QObject):
             from automataii.domain.animation.part_definitions import BODY_PARTS
         except ImportError:
             BODY_PARTS = {}
-            logging.warning(
-                "SkeletonIKHandler: Could not import BODY_PARTS for fallback"
-            )
+            logging.warning("SkeletonIKHandler: Could not import BODY_PARTS for fallback")
 
         editor_items = self._get_editor_items()
         parts_info = self._get_parts_info()
@@ -339,9 +334,7 @@ class SkeletonIKHandler(QObject):
         Args:
             ik_results: IK computation results from IKManager
         """
-        logging.debug(
-            f"SkeletonIKHandler: IK update with {len(ik_results)} results"
-        )
+        logging.debug(f"SkeletonIKHandler: IK update with {len(ik_results)} results")
 
         if not self._editor_view:
             logging.warning("SkeletonIKHandler: EditorView not available")
@@ -374,9 +367,7 @@ class SkeletonIKHandler(QObject):
         self._update_button_states()
         self.joint_defined.emit(joint_data)
 
-    def handle_joint_bend_direction_changed(
-        self, joint_id: str, new_direction: float
-    ) -> None:
+    def handle_joint_bend_direction_changed(self, joint_id: str, new_direction: float) -> None:
         """
         Handle joint bend direction change.
 
@@ -384,9 +375,7 @@ class SkeletonIKHandler(QObject):
             joint_id: ID of the joint
             new_direction: New bend direction value
         """
-        logging.info(
-            f"SkeletonIKHandler: Joint '{joint_id}' bend direction -> {new_direction}"
-        )
+        logging.info(f"SkeletonIKHandler: Joint '{joint_id}' bend direction -> {new_direction}")
 
         main_window = self._get_main_window()
         if not main_window:
@@ -413,8 +402,6 @@ class SkeletonIKHandler(QObject):
             joints = self._initial_skeleton_cache["joints"]
             if joint_id in joints:
                 joints[joint_id]["bend_direction"] = new_direction
-                logging.info(
-                    f"SkeletonIKHandler: Updated cached bend_direction for '{joint_id}'"
-                )
+                logging.info(f"SkeletonIKHandler: Updated cached bend_direction for '{joint_id}'")
 
         self.bend_direction_changed.emit(joint_id, new_direction)

@@ -1,4 +1,5 @@
 """Regression tests for mechanism initial-render guard paths."""
+
 from __future__ import annotations
 
 import sys
@@ -11,6 +12,8 @@ from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsEllipseItem,
     QGraphicsLineItem,
+    QGraphicsPolygonItem,
+    QGraphicsRectItem,
     QGraphicsScene,
 )
 
@@ -18,6 +21,7 @@ from automataii.presentation.qt.mechanisms.visualization.base import Visualizati
 from automataii.presentation.qt.mechanisms.visualization.visualizers.cam import (
     CamVisualizer as RegisteredCamVisualizer,
 )
+from automataii.presentation.qt.tabs.cam_geometry import cam_contact_local_from_profile
 from automataii.presentation.qt.tabs.mechanism_design.components.mechanism_output_calculator import (
     MechanismOutputCalculator,
 )
@@ -172,6 +176,56 @@ def test_cam_visual_animator_and_output_use_rotated_scene_vertical_follower(
     assert output is not None
     assert output.x() == pytest.approx(-25.0)
     assert output.y() == pytest.approx(-40.0)
+
+
+def test_cam_visual_animator_honors_reverse_direction_phase(
+    qapp: QApplication,
+) -> None:
+    scene = QGraphicsScene()
+    asymmetric_profile = np.asarray(
+        [
+            [0.0, 10.0],
+            [20.0, 0.0],
+            [0.0, -10.0],
+            [-5.0, 0.0],
+        ],
+        dtype=float,
+    )
+    visual_items = [
+        QGraphicsPolygonItem(),
+        QGraphicsEllipseItem(),
+        QGraphicsLineItem(),
+        QGraphicsRectItem(),
+        QGraphicsRectItem(),
+        QGraphicsEllipseItem(),
+    ]
+    for item in visual_items:
+        scene.addItem(item)
+    layer_data = {
+        "type": "cam",
+        "reverse_direction": True,
+        "cam_points_local": asymmetric_profile,
+        "visual_items": visual_items,
+        "params": {
+            "base_radius": 20.0,
+            "eccentricity": 5.0,
+            "follower_rod_length": 30.0,
+        },
+    }
+
+    phase = 0.6
+    animator = MechanismVisualAnimator(get_scene_transform=lambda _layer: _identity)
+    animator.update_visuals("cam_reverse", phase, layer_data, None)
+
+    expected_contact = cam_contact_local_from_profile(asymmetric_profile, -phase)
+    assert _rect_center(visual_items[1]) == pytest.approx(
+        (float(expected_contact[0]), float(expected_contact[1]))
+    )
+    rod = visual_items[2].line()
+    assert (rod.p1().x(), rod.p1().y()) == pytest.approx(
+        (float(expected_contact[0]), float(expected_contact[1]))
+    )
+    assert rod.p2().y() == pytest.approx(float(expected_contact[1]) - 30.0)
 
 
 def test_cam_generated_path_alignment_uses_shared_contact_and_center(

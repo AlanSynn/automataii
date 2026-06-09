@@ -7,6 +7,7 @@ frame updates, and animation state management.
 Design Pattern: Controller (handles animation mode operations)
 Architecture: Hexagonal - Presentation Layer
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -141,14 +142,14 @@ class AnimationModeController(QObject):
         Returns:
             True if animation started successfully
         """
-        mechanism_enabled_state = self._get_mechanism_enabled_state_fn() if self._get_mechanism_enabled_state_fn else {}
+        mechanism_enabled_state = (
+            self._get_mechanism_enabled_state_fn() if self._get_mechanism_enabled_state_fn else {}
+        )
 
         if not mechanism_enabled_state or not any(mechanism_enabled_state.values()):
             if parent_widget:
                 QMessageBox.warning(
-                    parent_widget,
-                    "Warning",
-                    "No mechanisms are enabled for animation."
+                    parent_widget, "Warning", "No mechanisms are enabled for animation."
                 )
             return False
 
@@ -163,7 +164,7 @@ class AnimationModeController(QObject):
 
         # Start IK animation if manager available
         ik_manager = self._get_ik_manager_fn() if self._get_ik_manager_fn else None
-        if ik_manager and hasattr(ik_manager, 'start_animation'):
+        if ik_manager and hasattr(ik_manager, "start_animation"):
             ik_manager.start_animation()
 
         # Start animation timer (60 FPS)
@@ -184,9 +185,9 @@ class AnimationModeController(QObject):
         # Stop IK animation
         ik_manager = self._get_ik_manager_fn() if self._get_ik_manager_fn else None
         if ik_manager:
-            if hasattr(ik_manager, 'stop_animation'):
+            if hasattr(ik_manager, "stop_animation"):
                 ik_manager.stop_animation()
-            if hasattr(ik_manager, 'clear_mechanism_position_targets'):
+            if hasattr(ik_manager, "clear_mechanism_position_targets"):
                 ik_manager.clear_mechanism_position_targets()
 
         # Update UI
@@ -228,7 +229,9 @@ class AnimationModeController(QObject):
         """
         tab_active = self._get_tab_active_fn() if self._get_tab_active_fn else False
         mechanism_layers = self._get_mechanism_layers_fn() if self._get_mechanism_layers_fn else {}
-        part_enabled_state = self._get_part_enabled_state_fn() if self._get_part_enabled_state_fn else {}
+        part_enabled_state = (
+            self._get_part_enabled_state_fn() if self._get_part_enabled_state_fn else {}
+        )
         parts_data = self._get_parts_data_fn() if self._get_parts_data_fn else {}
         ik_manager = self._get_ik_manager_fn() if self._get_ik_manager_fn else None
         scene = self._get_scene_fn() if self._get_scene_fn else None

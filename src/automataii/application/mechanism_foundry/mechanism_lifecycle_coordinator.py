@@ -8,6 +8,7 @@ that doesn't belong in the presentation layer.
 Design Pattern: Application Service / Coordinator (DDD)
 Architecture: Hexagonal - Application Layer
 """
+
 from __future__ import annotations
 
 import logging
@@ -108,12 +109,12 @@ class MechanismLifecycleCoordinator:
         try:
             # Set up parts data in IK manager
             if context.parts_data:
-                if hasattr(ik_manager, 'set_project_parts_data'):
+                if hasattr(ik_manager, "set_project_parts_data"):
                     ik_manager.set_project_parts_data(context.parts_data)
 
             # Set skeleton data if available
             if context.skeleton_cache:
-                if hasattr(ik_manager, 'on_skeleton_data_updated_from_manager'):
+                if hasattr(ik_manager, "on_skeleton_data_updated_from_manager"):
                     ik_manager.on_skeleton_data_updated_from_manager(context.skeleton_cache)
 
             # Register mechanism controllers for each active mechanism
@@ -122,7 +123,7 @@ class MechanismLifecycleCoordinator:
                     part_name = layer_data.get("part_name")
                     if part_name and part_name in context.parts_data:
                         part_info = context.parts_data[part_name]
-                        anchor_joint = getattr(part_info, 'anchor_joint_id', None)
+                        anchor_joint = getattr(part_info, "anchor_joint_id", None)
                         if anchor_joint:
                             register_controller_fn(mech_id, layer_data, anchor_joint)
 
@@ -162,16 +163,13 @@ class MechanismLifecycleCoordinator:
             # Create callback for mechanism output calculation
             def mechanism_joint_callback(time: float) -> Any:
                 return calculate_output(
-                    layer_data.get("type"),
-                    layer_data.get("params", {}),
-                    time,
-                    layer_data
+                    layer_data.get("type"), layer_data.get("params", {}), time, layer_data
                 )
 
             # Generate complete motion path for IK system
             if self._generate_motion_path_fn:
                 joint_motion_path = self._generate_motion_path_fn(layer_data, joint_id)
-                if joint_motion_path and hasattr(ik_manager, 'set_joint_motion_path'):
+                if joint_motion_path and hasattr(ik_manager, "set_joint_motion_path"):
                     ik_manager.set_joint_motion_path(joint_id, joint_motion_path)
 
             # Get target joint for this part
@@ -179,7 +177,7 @@ class MechanismLifecycleCoordinator:
             target_joint = get_target_joint(part_name, joint_id)
 
             # Register position target
-            if hasattr(ik_manager, 'register_mechanism_position_target'):
+            if hasattr(ik_manager, "register_mechanism_position_target"):
                 ik_manager.register_mechanism_position_target(
                     joint_id, target_joint, mechanism_joint_callback
                 )
@@ -207,18 +205,18 @@ class MechanismLifecycleCoordinator:
             on_skeleton_reset: Callback when skeleton is reset
         """
         # Stop animation timer
-        if animation_timer and hasattr(animation_timer, 'isActive'):
+        if animation_timer and hasattr(animation_timer, "isActive"):
             if animation_timer.isActive():
                 animation_timer.stop()
 
         # Reset IK system
         if ik_manager:
             try:
-                if hasattr(ik_manager, 'stop_animation'):
+                if hasattr(ik_manager, "stop_animation"):
                     ik_manager.stop_animation()
-                if hasattr(ik_manager, 'clear_mechanism_position_targets'):
+                if hasattr(ik_manager, "clear_mechanism_position_targets"):
                     ik_manager.clear_mechanism_position_targets()
-                if hasattr(ik_manager, 'reset_animation_state'):
+                if hasattr(ik_manager, "reset_animation_state"):
                     ik_manager.reset_animation_state()
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
@@ -251,7 +249,8 @@ class MechanismLifecycleCoordinator:
 
         # Find and remove mechanisms for this part
         mechanisms_to_remove = [
-            mech_id for mech_id, layer_data in mechanism_layers.items()
+            mech_id
+            for mech_id, layer_data in mechanism_layers.items()
             if layer_data.get("part_name") == part_name
         ]
 

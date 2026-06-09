@@ -140,6 +140,33 @@ def test_cam_follower_constraint_boundary_matches_min_scaled_visual_rod(qapp):
     assert visual_follower_y == pytest.approx(boundary_pos.y(), rel=1e-6)
 
 
+def test_cam_size_handle_repositions_to_clamped_radius(qapp):
+    scene = QGraphicsScene()
+    editor = CamEditor("cam_size", scene)
+    mechanism_data = {
+        "type": "cam",
+        "cam_scale_factor": 1.0,
+        "params": {
+            "center_x": 0.0,
+            "center_y": 0.0,
+            "base_radius": 80.0,
+            "eccentricity": 50.0,
+            "follower_rod_length": 40.0,
+        },
+    }
+    editor.create_handles(mechanism_data)
+
+    oversized_pos = QPointF(200.0, 0.0)
+    editor.handles["size"].setPos(oversized_pos)
+    editor._on_size_moved("size", oversized_pos)
+
+    params = editor.mechanism_data["params"]
+    expected_visual_radius = params["base_radius"] + params["eccentricity"]
+    size_pos = editor.handles["size"].scenePos()
+    assert size_pos.x() == pytest.approx(expected_visual_radius, rel=1e-6)
+    assert size_pos.y() == pytest.approx(0.0, rel=1e-6)
+
+
 def test_cam_follower_handle_uses_scene_vertical_rod_under_rotated_transform(qapp):
     scene = QGraphicsScene()
     editor = CamEditor("cam_rotated", scene)

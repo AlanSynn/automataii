@@ -3,6 +3,7 @@ Qt Presentation Utilities.
 
 Shared utility functions for Qt presentation layer.
 """
+
 from .geometry import (
     numpy_array_to_qpointfs,
     qpainterpath_to_numpy_array,

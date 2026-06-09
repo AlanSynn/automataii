@@ -11,6 +11,7 @@ Extracted Modules:
 - VisualUpdater: Real-time mechanism visual updates
 - AnimationCoordinator: Animation control coordination
 """
+
 from automataii.presentation.qt.tabs.parametric.components.animation_coordinator import (
     AnimationCoordinator,
 )

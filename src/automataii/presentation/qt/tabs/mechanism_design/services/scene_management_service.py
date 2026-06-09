@@ -6,6 +6,7 @@ Handles scene clearing, mechanism data clearing, and skeleton reset operations.
 
 Design Pattern: Service (encapsulates clearing operations)
 """
+
 from __future__ import annotations
 
 import logging
@@ -83,9 +84,9 @@ class SceneManagementService:
         # Stop IK animation if running
         if ik_manager:
             try:
-                if hasattr(ik_manager, 'stop_animation'):
+                if hasattr(ik_manager, "stop_animation"):
                     ik_manager.stop_animation()
-                if hasattr(ik_manager, 'clear_mechanism_position_targets'):
+                if hasattr(ik_manager, "clear_mechanism_position_targets"):
                     ik_manager.clear_mechanism_position_targets()
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
@@ -213,7 +214,7 @@ class SceneManagementService:
             clear_animation_cache_fn: Function to clear animation cache
         """
         # Stop animation if running
-        if animation_timer and hasattr(animation_timer, 'isActive') and animation_timer.isActive():
+        if animation_timer and hasattr(animation_timer, "isActive") and animation_timer.isActive():
             animation_timer.stop()
 
         # Clear animation cache
@@ -223,11 +224,11 @@ class SceneManagementService:
         # Stop IK and clear targets
         if ik_manager:
             try:
-                if hasattr(ik_manager, 'stop_animation'):
+                if hasattr(ik_manager, "stop_animation"):
                     ik_manager.stop_animation()
-                if hasattr(ik_manager, 'clear_mechanism_position_targets'):
+                if hasattr(ik_manager, "clear_mechanism_position_targets"):
                     ik_manager.clear_mechanism_position_targets()
-                if hasattr(ik_manager, 'reset_animation_state'):
+                if hasattr(ik_manager, "reset_animation_state"):
                     ik_manager.reset_animation_state()
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
@@ -239,7 +240,7 @@ class SceneManagementService:
                 if isinstance(joint_data, dict) and "position" in joint_data:
                     pos = joint_data["position"]
                     try:
-                        if hasattr(ik_manager, 'reset_joint_to_initial'):
+                        if hasattr(ik_manager, "reset_joint_to_initial"):
                             ik_manager.reset_joint_to_initial(joint_id)
                     except Exception:
                         logging.debug("Suppressed exception", exc_info=True)
@@ -254,6 +255,7 @@ class SceneManagementService:
                         pos = joint_data["position"]
                         try:
                             from PyQt6.QtCore import QPointF
+
                             joint_item.setPos(QPointF(pos[0], pos[1]))
                         except Exception:
                             logging.debug("Suppressed exception", exc_info=True)

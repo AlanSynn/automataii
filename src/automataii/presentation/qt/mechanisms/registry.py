@@ -21,9 +21,9 @@ class MechanismRegistry:
     - Type discovery and validation
     """
 
-    _instance: Optional['MechanismRegistry'] = None
+    _instance: Optional["MechanismRegistry"] = None
 
-    def __new__(cls) -> 'MechanismRegistry':
+    def __new__(cls) -> "MechanismRegistry":
         """Ensure singleton instance."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -43,12 +43,14 @@ class MechanismRegistry:
 
         logging.info("[REGISTRY] Mechanism registry initialized")
 
-    def register_mechanism(self,
-                          mechanism_type: str,
-                          mechanism_class: type[MechanismInterface],
-                          editor_class: type[EditorInterface] | None = None,
-                          serializer_class: type[BlueprintSerializer] | None = None,
-                          metadata: dict[str, Any] | None = None) -> None:
+    def register_mechanism(
+        self,
+        mechanism_type: str,
+        mechanism_class: type[MechanismInterface],
+        editor_class: type[EditorInterface] | None = None,
+        serializer_class: type[BlueprintSerializer] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """
         Register a mechanism type.
 
@@ -94,13 +96,17 @@ class MechanismRegistry:
         try:
             mechanism_class = self._mechanisms[mechanism_type]
             mechanism = mechanism_class(parameters)
-            logging.info(f"[REGISTRY] Created mechanism: {parameters.mechanism_id} (type: {mechanism_type})")
+            logging.info(
+                f"[REGISTRY] Created mechanism: {parameters.mechanism_id} (type: {mechanism_type})"
+            )
             return mechanism
         except Exception as e:
             logging.error(f"[REGISTRY] Failed to create mechanism: {e}")
             return None
 
-    def create_editor(self, mechanism_type: str, mechanism_id: str, scene: Any) -> EditorInterface | None:
+    def create_editor(
+        self, mechanism_type: str, mechanism_id: str, scene: Any
+    ) -> EditorInterface | None:
         """
         Create an editor instance for a mechanism.
 

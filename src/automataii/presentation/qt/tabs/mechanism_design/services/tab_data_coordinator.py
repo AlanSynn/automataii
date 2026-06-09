@@ -6,6 +6,7 @@ Handles path data from editor, parts data, and mechanism layers list UI.
 
 Design Pattern: Coordinator (orchestrates data flow and UI updates)
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -334,13 +335,13 @@ class TabDataCoordinator:
         if not main_window:
             return
 
-        editor_tab = getattr(main_window, 'editor_tab', None)
+        editor_tab = getattr(main_window, "editor_tab", None)
         if not editor_tab:
             return
 
-        editor_parts_data = getattr(editor_tab, 'current_parts_info', None)
+        editor_parts_data = getattr(editor_tab, "current_parts_info", None)
         editor_path_data = None
-        if hasattr(editor_tab, 'get_current_path_data'):
+        if hasattr(editor_tab, "get_current_path_data"):
             editor_path_data = editor_tab.get_current_path_data()
 
         if not editor_parts_data:
@@ -348,15 +349,14 @@ class TabDataCoordinator:
 
         # Filter out disabled parts
         disabled_parts = {
-            'torso',
-            'left_arm_upper', 'right_arm_upper',
-            'left_leg_upper', 'right_leg_upper'
+            "torso",
+            "left_arm_upper",
+            "right_arm_upper",
+            "left_leg_upper",
+            "right_leg_upper",
         }
 
-        all_parts = [
-            part for part in editor_parts_data.keys()
-            if part not in disabled_parts
-        ]
+        all_parts = [part for part in editor_parts_data.keys() if part not in disabled_parts]
 
         for part in all_parts:
             item = QListWidgetItem(part)
@@ -364,10 +364,10 @@ class TabDataCoordinator:
 
             # Color based on whether part has motion path
             has_motion_path = (
-                editor_path_data and
-                part in editor_path_data and
-                editor_path_data[part] is not None and
-                not editor_path_data[part].isEmpty()
+                editor_path_data
+                and part in editor_path_data
+                and editor_path_data[part] is not None
+                and not editor_path_data[part].isEmpty()
             )
 
             if has_motion_path:
@@ -417,8 +417,7 @@ class TabDataCoordinator:
             Dict of enabled parts with their paths
         """
         return {
-            name: path for name, path in path_data.items()
-            if part_enabled_state.get(name, True)
+            name: path for name, path in path_data.items() if part_enabled_state.get(name, True)
         }
 
     def resolve_target_part(

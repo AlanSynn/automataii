@@ -2,7 +2,6 @@
 Hover view controls widget for canvas views.
 """
 
-
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 
@@ -186,7 +185,6 @@ class HoverViewControls(QWidget):
         """Show the controls and start auto-hide timer."""
         self.show()
         self._hide_timer.start(self._hide_delay)
-
 
     def _auto_hide(self):
         """Auto-hide the controls."""

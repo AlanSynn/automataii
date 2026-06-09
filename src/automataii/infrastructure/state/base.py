@@ -30,7 +30,7 @@ class Action:
             raise ValueError("Action type cannot be empty")
 
 
-StateType = TypeVar('StateType')
+StateType = TypeVar("StateType")
 
 
 class State(Generic[StateType]):
@@ -47,28 +47,28 @@ class State(Generic[StateType]):
         """Get the state data."""
         return self._data
 
-    def freeze(self) -> 'State[StateType]':
+    def freeze(self) -> "State[StateType]":
         """Make this state immutable."""
         self._frozen = True
         return self
 
-    def copy(self, **changes) -> 'State[StateType]':
+    def copy(self, **changes) -> "State[StateType]":
         """Create a copy with optional changes."""
-        if hasattr(self._data, '_replace'):
+        if hasattr(self._data, "_replace"):
             # NamedTuple or dataclass
             new_data = self._data._replace(**changes)
-        elif hasattr(self._data, 'copy'):
+        elif hasattr(self._data, "copy"):
             # Dict-like
             new_data = self._data.copy()
             new_data.update(changes)
         else:
             # Fallback
-            new_data = changes.get('data', self._data)
+            new_data = changes.get("data", self._data)
 
         return State(new_data)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if hasattr(self, '_frozen') and self._frozen and name != '_frozen':
+        if hasattr(self, "_frozen") and self._frozen and name != "_frozen":
             raise AttributeError("Cannot modify frozen state")
         super().__setattr__(name, value)
 
@@ -128,13 +128,11 @@ class ActionTypes:
 
 
 # Common actions
-def create_action(action_type: str, payload: dict[str, Any] = None, meta: dict[str, Any] = None) -> Action:
+def create_action(
+    action_type: str, payload: dict[str, Any] = None, meta: dict[str, Any] = None
+) -> Action:
     """Helper to create actions."""
-    return Action(
-        type=action_type,
-        payload=payload or {},
-        meta=meta or {}
-    )
+    return Action(type=action_type, payload=payload or {}, meta=meta or {})
 
 
 # Action creators

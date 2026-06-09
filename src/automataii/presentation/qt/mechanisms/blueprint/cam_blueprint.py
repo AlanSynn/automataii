@@ -6,6 +6,11 @@ Creates detailed manufacturing drawings for cam mechanisms.
 import math
 from typing import Any, SupportsFloat, SupportsIndex, cast
 
+from automataii.domain.mechanisms.cam.profile import (
+    build_pear_cam_profile_from_params,
+    cam_profile_to_drawing_points,
+)
+
 from .generator import BlueprintGenerator
 
 _NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
@@ -29,6 +34,13 @@ def _non_negative_finite_float(value: object, default: float) -> float:
     return result if result >= 0.0 else default
 
 
+def _first_value(params: dict[str, Any], *names: str, default: object = None) -> object:
+    for name in names:
+        if name in params:
+            return params[name]
+    return default
+
+
 class CamBlueprintGenerator(BlueprintGenerator):
     """
     Blueprint generator for cam mechanisms.
@@ -41,11 +53,11 @@ class CamBlueprintGenerator(BlueprintGenerator):
     - Surface finish requirements
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize cam blueprint generator."""
         super().__init__("cam")
 
-    def _generate_front_view(self, mechanism_data: dict[str, Any]):
+    def _generate_front_view(self, mechanism_data: dict[str, Any]) -> None:
         """Generate front view showing cam profile and follower."""
         params = mechanism_data.get("params", {})
         viewport = self.views[0]
@@ -53,12 +65,24 @@ class CamBlueprintGenerator(BlueprintGenerator):
         # Cam parameters
         center_x = viewport.x + viewport.width / 2
         center_y = viewport.y + viewport.height / 2 + 20
-        base_radius = _positive_finite_float(params.get("base_radius"), 30.0)
-        eccentricity = _non_negative_finite_float(params.get("eccentricity"), 15.0)
+        base_radius = _positive_finite_float(
+            _first_value(params, "base_radius", "cam_radius", "base_radius_mm"),
+            30.0,
+        )
+        eccentricity = _non_negative_finite_float(
+            _first_value(params, "eccentricity", "cam_offset", "lift_mm", "eccentricity_mm"),
+            15.0,
+        )
         params.get("rotation_angle", 0)
 
         # Generate cam profile
-        profile_points = self._generate_cam_profile(center_x, center_y, base_radius, eccentricity)
+        profile_points = self._generate_cam_profile(
+            center_x,
+            center_y,
+            base_radius,
+            eccentricity,
+            params=params,
+        )
 
         # Follower parameters
         rod_length = _positive_finite_float(params.get("follower_rod_length"), 60.0)
@@ -116,31 +140,37 @@ class CamBlueprintGenerator(BlueprintGenerator):
         self._add_cam_dimensions(center_x, center_y, base_radius, eccentricity, rod_length)
 
     def _generate_cam_profile(
-        self, cx: float, cy: float, base_r: float, ecc: float
+        self,
+        cx: float,
+        cy: float,
+        base_r: float,
+        ecc: float,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> list[tuple[float, float]]:
-        """Generate egg-shaped cam profile points."""
-        points = []
-        num_points = 360  # One point per degree for precision
-
-        for i in range(num_points):
-            angle = i * math.pi / 180
-
-            # Egg shape formula: varying radius
-            # Maximum radius at bottom (270°), minimum at top (90°)
-            radius_variation = _non_negative_finite_float(ecc, 15.0) * math.cos(angle)
-            radius = max(1e-6, _positive_finite_float(base_r, 30.0) + radius_variation)
-
-            x = cx + radius * math.cos(angle - math.pi / 2)  # Rotate 90° for proper orientation
-            y = cy + radius * math.sin(angle - math.pi / 2)
-
-            points.append((x, y))
-
-        return points
+        """Generate cam profile points using the shared domain profile helper."""
+        profile_params = dict(params or {})
+        if not any(
+            key in profile_params for key in ("base_radius", "cam_radius", "base_radius_mm")
+        ):
+            profile_params["base_radius"] = base_r
+            profile_params["cam_radius"] = base_r
+        if not any(
+            key in profile_params
+            for key in ("eccentricity", "cam_offset", "lift_mm", "eccentricity_mm")
+        ):
+            profile_params["eccentricity"] = ecc
+            profile_params["cam_offset"] = ecc
+        local_points = build_pear_cam_profile_from_params(profile_params, num_samples=360)
+        return cast(list[tuple[float, float]], cam_profile_to_drawing_points(local_points, cx, cy))
 
     def _draw_cam_profile(
         self, points: list[tuple[float, float]], cx: float, cy: float, base_radius: float
     ) -> str:
         """Draw cam profile with smooth curve."""
+        if not points:
+            return ""
+
         # Create path from points
         path_data = f"M {points[0][0]:.2f},{points[0][1]:.2f}"
 
@@ -260,7 +290,7 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
         return f'<g id="profile-points">{point_markers}</g>'
 
-    def _generate_side_view(self, mechanism_data: dict[str, Any]):
+    def _generate_side_view(self, mechanism_data: dict[str, Any]) -> None:
         """Generate side view showing cam thickness."""
         params = mechanism_data.get("params", {})
         viewport = self.views[2]
@@ -300,7 +330,7 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
         self.svg_elements.append(side_view_svg)
 
-    def _generate_isometric_view(self, mechanism_data: dict[str, Any]):
+    def _generate_isometric_view(self, mechanism_data: dict[str, Any]) -> None:
         """Generate displacement diagram."""
         viewport = self.views[3]
 
@@ -362,7 +392,7 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
     def _add_cam_dimensions(
         self, cx: float, cy: float, base_r: float, ecc: float, rod_length: float
-    ):
+    ) -> None:
         """Add cam-specific dimensions."""
         # Base radius
         self.dimensions.append(self.create_radius_dimension(cx, cy, base_r, 45))
@@ -389,7 +419,7 @@ class CamBlueprintGenerator(BlueprintGenerator):
             )
         )
 
-    def _add_tolerances(self, mechanism_data: dict[str, Any]):
+    def _add_tolerances(self, mechanism_data: dict[str, Any]) -> None:
         """Add cam-specific tolerances."""
         super()._add_tolerances(mechanism_data)
 
@@ -406,7 +436,7 @@ class CamBlueprintGenerator(BlueprintGenerator):
 
         self.svg_elements.append(cam_tolerances)
 
-    def _add_part_list(self, mechanism_data: dict[str, Any]):
+    def _add_part_list(self, mechanism_data: dict[str, Any]) -> None:
         """Add cam-specific part list."""
         parts = [
             {"name": "CAM DISC", "quantity": 1, "material": "TOOL STEEL"},

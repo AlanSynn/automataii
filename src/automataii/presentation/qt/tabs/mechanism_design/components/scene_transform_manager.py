@@ -6,6 +6,7 @@ for mapping mechanism coordinates to Qt scene coordinates and back.
 
 Design Pattern: Adapter (coordinate space adaptation)
 """
+
 from __future__ import annotations
 
 import math
@@ -214,10 +215,9 @@ class SceneTransformManager:
             mech_vec = mech_anchor2 - mech_anchor1
             mech_len = np.linalg.norm(mech_vec)
 
-            scene_vec = np.array([
-                scene_anchor2.x() - scene_anchor1.x(),
-                scene_anchor2.y() - scene_anchor1.y()
-            ])
+            scene_vec = np.array(
+                [scene_anchor2.x() - scene_anchor1.x(), scene_anchor2.y() - scene_anchor1.y()]
+            )
             scene_len = np.linalg.norm(scene_vec)
 
             if mech_len < 1e-10 or scene_len < 1e-10:
@@ -235,8 +235,12 @@ class SceneTransformManager:
             sin_r = math.sin(rotation)
 
             # Calculate translation
-            offset_x = scene_anchor1.x() - scale * (mech_anchor1[0] * cos_r - mech_anchor1[1] * sin_r)
-            offset_y = scene_anchor1.y() - scale * (mech_anchor1[0] * sin_r + mech_anchor1[1] * cos_r)
+            offset_x = scene_anchor1.x() - scale * (
+                mech_anchor1[0] * cos_r - mech_anchor1[1] * sin_r
+            )
+            offset_y = scene_anchor1.y() - scale * (
+                mech_anchor1[0] * sin_r + mech_anchor1[1] * cos_r
+            )
 
             def to_scene_coords(p_orig: np.ndarray) -> QPointF:
                 """Transform mechanism coordinates to scene coordinates."""

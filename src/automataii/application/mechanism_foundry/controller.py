@@ -124,6 +124,7 @@ MECHANISM_CONFIGS: dict[str, MechanismConfiguration] = {
     ),
 }
 
+
 def _build_entry_from_config(
     key: str,
     display_name: str,

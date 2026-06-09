@@ -1,5 +1,4 @@
-"""Unified linkage mechanism with modular strategy and validator pattern.
-"""
+"""Unified linkage mechanism with modular strategy and validator pattern."""
 
 from __future__ import annotations
 

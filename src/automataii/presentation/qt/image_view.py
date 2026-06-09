@@ -87,9 +87,7 @@ class ImageProcessingView(QGraphicsView):
         self.joint_to_part_map: dict[
             str, CharacterPartItem
         ] = {}  # Maps skeleton joint name to its controlling CharacterPartItem
-        self.skeleton_to_part_map: dict[
-            str, str
-        ] = {}  # Initialize skeleton_to_part_map
+        self.skeleton_to_part_map: dict[str, str] = {}  # Initialize skeleton_to_part_map
 
         # Data state
         self.original_skeleton_data = None  # Store the originally loaded data format
@@ -133,9 +131,7 @@ class ImageProcessingView(QGraphicsView):
         """Sets the display unit for the grid and updates the view."""
         if unit.lower() in ["cm", "inch", "px"]:
             self.display_unit = unit.lower()
-            logging.info(
-                f"ImageProcessingView: Display unit set to {self.display_unit}"
-            )
+            logging.info(f"ImageProcessingView: Display unit set to {self.display_unit}")
             self.viewport().update()  # Trigger a repaint of the background
         else:
             logging.warning(
@@ -255,8 +251,6 @@ class ImageProcessingView(QGraphicsView):
             if current_scale > 0:
                 self._viewport_controller.zoom_to_scale(current_scale)
 
-
-
     # --- Image and Skeleton Loading ---
 
     def load_image(self, image_path: str):
@@ -300,9 +294,7 @@ class ImageProcessingView(QGraphicsView):
             rect_item = QGraphicsRectItem(scene_rect)
             rect_item.setPen(QPen(QColor("red"), 2))
             # rect_item.setBrush(Qt.BrushStyle(NoBrush))
-            rect_item.setZValue(
-                1
-            )  # Ensure it's drawn above the image but below joints potentially
+            rect_item.setZValue(1)  # Ensure it's drawn above the image but below joints potentially
             self.scene().addItem(rect_item)
 
         # Clear joint labels if reloading image
@@ -343,9 +335,7 @@ class ImageProcessingView(QGraphicsView):
                 if os.path.basename(base_dir) == "character_data":
                     char_data_dir = base_dir
                 else:  # Fallback: assume it's one level up
-                    char_data_dir = os.path.join(
-                        os.path.dirname(base_dir), "character_data"
-                    )
+                    char_data_dir = os.path.join(os.path.dirname(base_dir), "character_data")
                 # logging.warning(f"No character_data directory found near {image_path}")
                 # return
 
@@ -361,9 +351,7 @@ class ImageProcessingView(QGraphicsView):
                 # Validate format *after* loading
                 if not (
                     loaded_bb_data
-                    and all(
-                        k in loaded_bb_data for k in ["left", "right", "top", "bottom"]
-                    )
+                    and all(k in loaded_bb_data for k in ["left", "right", "top", "bottom"])
                 ):
                     logging.warning(f"Invalid bounding box format in {bb_file}")
                     loaded_bb_data = None  # Reset to None if format is invalid
@@ -388,9 +376,7 @@ class ImageProcessingView(QGraphicsView):
                 bb_h = bb_bottom - bb_top
 
                 self.bb_center = ((bb_left + bb_right) / 2, (bb_top + bb_bottom) / 2)
-                logging.info(
-                    f"Loaded bounding box: {self.bounding_box}, Center: {self.bb_center}"
-                )
+                logging.info(f"Loaded bounding box: {self.bounding_box}, Center: {self.bb_center}")
 
                 # Create the debug rectangle item ONLY if dimensions are valid
                 if bb_w > 0 and bb_h > 0:
@@ -437,9 +423,7 @@ class ImageProcessingView(QGraphicsView):
 
         # Handle None input gracefully
         if skeleton_data_dict is None:
-            logging.debug(
-                "ImageProcessingView: load_skeleton called with None. Clearing skeleton."
-            )
+            logging.debug("ImageProcessingView: load_skeleton called with None. Clearing skeleton.")
             self._clear_skeleton()  # Clear previous skeleton visuals and data
             self.original_skeleton_data = None
             self.scene().update()
@@ -465,7 +449,9 @@ class ImageProcessingView(QGraphicsView):
 
         # Check if this is StandardizedSkeletonModel format (from SkeletonManager)
         if char_cfg_skeleton_list is None and "joints" in skeleton_data_dict:
-            logging.debug("ImageProcessingView: Detected StandardizedSkeletonModel format, converting to AD format")
+            logging.debug(
+                "ImageProcessingView: Detected StandardizedSkeletonModel format, converting to AD format"
+            )
             char_cfg_skeleton_list = self._convert_standardized_to_ad_format(skeleton_data_dict)
             # Create a new dict with 'skeleton' key for internal storage
             skeleton_data_dict = {"skeleton": char_cfg_skeleton_list}
@@ -539,12 +525,14 @@ class ImageProcessingView(QGraphicsView):
                 else:
                     parent_name = getattr(parent_joint, "name", parent_id)
 
-            result.append({
-                "name": name,
-                "parent": parent_name,
-                "loc": list(position) if isinstance(position, tuple) else position,
-                "coordinates": list(position) if isinstance(position, tuple) else position,
-            })
+            result.append(
+                {
+                    "name": name,
+                    "parent": parent_name,
+                    "loc": list(position) if isinstance(position, tuple) else position,
+                    "coordinates": list(position) if isinstance(position, tuple) else position,
+                }
+            )
 
         return result
 
@@ -669,9 +657,7 @@ class ImageProcessingView(QGraphicsView):
             or "skeleton" not in skeleton_data
             or not isinstance(skeleton_data["skeleton"], list)
         ):
-            logging.warning(
-                "visualize_skeleton called with invalid or missing skeleton data."
-            )
+            logging.warning("visualize_skeleton called with invalid or missing skeleton data.")
             return
 
         skeleton_list = skeleton_data["skeleton"]
@@ -681,9 +667,7 @@ class ImageProcessingView(QGraphicsView):
             if j.get("name") and j.get("loc") and len(j.get("loc")) >= 2
         }
 
-        bone_pen = QPen(
-            QColor("#FF5733"), 2, Qt.PenStyle.SolidLine
-        )  # Bright orange for bones
+        bone_pen = QPen(QColor("#FF5733"), 2, Qt.PenStyle.SolidLine)  # Bright orange for bones
         joint_brush = QBrush(QColor("#FFC300"))  # Yellow for joints
         joint_pen = QPen(QColor("#C70039"), 1)  # Dark red outline for joints
         joint_radius = 4
@@ -693,11 +677,7 @@ class ImageProcessingView(QGraphicsView):
             child_name = joint_info.get("name")
             parent_name = joint_info.get("parent")
 
-            if (
-                child_name in joint_locations
-                and parent_name
-                and parent_name in joint_locations
-            ):
+            if child_name in joint_locations and parent_name and parent_name in joint_locations:
                 p1 = joint_locations[parent_name]
                 p2 = joint_locations[child_name]
                 bone_line = QGraphicsLineItem(QLineF(p1, p2))
@@ -786,9 +766,7 @@ class ImageProcessingView(QGraphicsView):
         guide_direction = QPointF(0, 0)
 
         if not connected_lines:
-            logging.debug(
-                f"No connected lines for joint {joint.joint_name} to calculate guide."
-            )
+            logging.debug(f"No connected lines for joint {joint.joint_name} to calculate guide.")
             return None
 
         if len(connected_lines) == 1:
@@ -798,9 +776,7 @@ class ImageProcessingView(QGraphicsView):
             if not other_joint:
                 return None
 
-            bone_vector = (
-                other_joint.pos() - joint_pos
-            )  # Vector in image_item coordinates
+            bone_vector = other_joint.pos() - joint_pos  # Vector in image_item coordinates
             guide_direction = perpendicular_vector(bone_vector)
 
         else:  # len(connected_lines) >= 2 (intermediate joint)
@@ -875,17 +851,12 @@ class ImageProcessingView(QGraphicsView):
     # --- New methods for managing interactive CharacterPartItems ---
     def clear_character_parts(self):
         """Removes all CharacterPartItem instances from this view's scene."""
-        logging.debug(
-            f"ImageProcessingView: Clearing {len(self.part_items)} character part items."
-        )
+        logging.debug(f"ImageProcessingView: Clearing {len(self.part_items)} character part items.")
         for part_item in self.part_items.values():
             if part_item.scene() == self.scene():
                 self.scene().removeItem(part_item)
         self.part_items.clear()
         self.joint_to_part_map.clear()
-
-
-
 
     def mousePressEvent(self, event: QEvent):
         # Check if the click is on a joint
@@ -913,14 +884,10 @@ class ImageProcessingView(QGraphicsView):
             # self.dragged_joint_item.setPos(new_pos) # this was causing issues
 
             # Simpler: move the joint to the current mouse position in scene coordinates
-            self.dragged_joint_item.setPos(
-                current_scene_pos + self.drag_start_pos_offset
-            )
+            self.dragged_joint_item.setPos(current_scene_pos + self.drag_start_pos_offset)
 
             self._update_lines(self.dragged_joint_item)
-            self._update_joint_label_position(
-                self.dragged_joint_item.name
-            )  # Update label
+            self._update_joint_label_position(self.dragged_joint_item.name)  # Update label
             self._update_linked_part_position(
                 self.dragged_joint_item.name, self.dragged_joint_item.scenePos()
             )
@@ -936,9 +903,7 @@ class ImageProcessingView(QGraphicsView):
         corner_size = 150  # Size of the corner area to trigger controls
 
         corner_rect = view_rect.adjusted(
-            view_rect.width() - corner_size,
-            view_rect.height() - corner_size,
-            0, 0
+            view_rect.width() - corner_size, view_rect.height() - corner_size, 0, 0
         )
 
         if corner_rect.contains(event.pos()):
@@ -961,9 +926,7 @@ class ImageProcessingView(QGraphicsView):
 
         super().mouseReleaseEvent(event)
 
-    def _update_linked_part_position(
-        self, joint_name: str, new_joint_scene_pos: QPointF
-    ):
+    def _update_linked_part_position(self, joint_name: str, new_joint_scene_pos: QPointF):
         """Moves the CharacterPartItem linked to the given joint name.
 
         The CharacterPartItem should be moved such that its anchor_offset
@@ -1047,7 +1010,7 @@ class ImageProcessingView(QGraphicsView):
 
     def _position_hover_controls(self):
         """Position hover controls in bottom-right corner."""
-        if hasattr(self, 'hover_controls'):
+        if hasattr(self, "hover_controls"):
             view_rect = self.rect()
             controls_rect = self.hover_controls.rect()
 
@@ -1064,7 +1027,6 @@ class ImageProcessingView(QGraphicsView):
         """Handle resize events to reposition hover controls."""
         super().resizeEvent(event)
         self._position_hover_controls()
-
 
     # --- Zoom Methods (delegated to ViewportController) ---
 

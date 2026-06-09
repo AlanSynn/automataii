@@ -56,9 +56,7 @@ class EditorViewState:
 
     def start_path(self, start_points: Iterable[Point]) -> EditorViewState:
         points = tuple(
-            point
-            for raw_point in start_points
-            if (point := _finite_point(raw_point)) is not None
+            point for raw_point in start_points if (point := _finite_point(raw_point)) is not None
         )
         return replace(self, drawing_path=True, path_points=points, path_closed=False)
 
@@ -104,15 +102,15 @@ class EditorViewState:
         raw: Mapping[str, Iterable[Point]] | None,
         corrected: Mapping[str, Iterable[Point]] | None,
     ) -> EditorViewState:
-        def _convert(mapping: Mapping[str, Iterable[Point]] | None) -> Mapping[str, tuple[Point, ...]]:
+        def _convert(
+            mapping: Mapping[str, Iterable[Point]] | None,
+        ) -> Mapping[str, tuple[Point, ...]]:
             if not mapping:
                 return {}
             converted: dict[str, tuple[Point, ...]] = {}
             for name, points in mapping.items():
                 finite_points = tuple(
-                    point
-                    for raw_point in points
-                    if (point := _finite_point(raw_point)) is not None
+                    point for raw_point in points if (point := _finite_point(raw_point)) is not None
                 )
                 if finite_points:
                     converted[name] = finite_points

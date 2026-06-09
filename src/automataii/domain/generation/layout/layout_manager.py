@@ -91,9 +91,7 @@ class SmartLayoutManager:
             return items
 
         # Sort items by priority and size (larger, higher priority first)
-        sorted_items = sorted(
-            items, key=lambda item: (-item.priority, -item.bounds.area())
-        )
+        sorted_items = sorted(items, key=lambda item: (-item.priority, -item.bounds.area()))
 
         # Place items using modified bin packing algorithm
         placed_items: list[LayoutItem] = []
@@ -140,18 +138,14 @@ class SmartLayoutManager:
         self.logger.info(f"Successfully laid out {len(placed_items)} items")
         return placed_items
 
-    def _has_overlaps(
-        self, bounds: ScaledBounds, placed_items: list[LayoutItem]
-    ) -> bool:
+    def _has_overlaps(self, bounds: ScaledBounds, placed_items: list[LayoutItem]) -> bool:
         """Check if bounds overlap with any placed items."""
         for item in placed_items:
             if bounds.overlaps_with(item.bounds, self.padding_mm):
                 return True
         return False
 
-    def calculate_total_dimensions(
-        self, items: list[LayoutItem]
-    ) -> tuple[float, float]:
+    def calculate_total_dimensions(self, items: list[LayoutItem]) -> tuple[float, float]:
         """Calculate total blueprint dimensions from placed items."""
         if not items:
             return (self.page_width_mm, 400.0)  # Default size

@@ -1,5 +1,4 @@
-"""Four-bar linkage computation strategy.
-"""
+"""Four-bar linkage computation strategy."""
 
 from __future__ import annotations
 
@@ -163,9 +162,7 @@ class FourBarStrategy(LinkageStrategy):
 
             # Law of cosines: angle at B
             alpha = math.atan2(a_y, a_x)
-            cos_beta = (output**2 + dist_a_o4**2 - coupler**2) / (
-                2 * output * dist_a_o4
-            )
+            cos_beta = (output**2 + dist_a_o4**2 - coupler**2) / (2 * output * dist_a_o4)
             cos_beta = max(-1.0, min(1.0, cos_beta))
             beta = math.acos(cos_beta)
 

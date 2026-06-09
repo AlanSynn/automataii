@@ -15,18 +15,13 @@ from .state import (
 
 
 class MechanismRecommendationService(Protocol):
-    def recommend(self, part_name: str, path: PartPath) -> Iterable[Recommendation]:
-        ...
+    def recommend(self, part_name: str, path: PartPath) -> Iterable[Recommendation]: ...
 
 
 class MechanismGenerationService(Protocol):
-    def build_layer(
-        self, part_name: str, recommendation: Recommendation
-    ) -> MechanismLayer:
-        ...
+    def build_layer(self, part_name: str, recommendation: Recommendation) -> MechanismLayer: ...
 
-    def clear_layers_for_part(self, part_name: str) -> None:
-        ...
+    def clear_layers_for_part(self, part_name: str) -> None: ...
 
 
 MechanismDesignListener = Callable[[MechanismDesignState], None]
@@ -90,9 +85,7 @@ class MechanismDesignController:
         self._set_state(self._state.select_part(part_name))
         return self._state
 
-    def request_recommendations(
-        self, part_name: str
-    ) -> Iterable[Recommendation]:
+    def request_recommendations(self, part_name: str) -> Iterable[Recommendation]:
         if part_name not in self._state.enabled_paths:
             raise KeyError(f"No enabled path for part '{part_name}'")
 
@@ -102,16 +95,12 @@ class MechanismDesignController:
             part_name=part_name,
             point_count=len(path.points),
         ) as span:
-            recommendations = tuple(
-                self._recommendation_service.recommend(part_name, path)
-            )
+            recommendations = tuple(self._recommendation_service.recommend(part_name, path))
             span.set(count=len(recommendations))
             self._set_state(self._state.with_recommendations(recommendations))
             return recommendations
 
-    def apply_recommendation(
-        self, part_name: str, recommendation_id: str
-    ) -> MechanismLayer:
+    def apply_recommendation(self, part_name: str, recommendation_id: str) -> MechanismLayer:
         rec = self._find_recommendation(recommendation_id)
         with telemetry_span(
             "application.mechanism_design.apply_recommendation",
@@ -135,9 +124,7 @@ class MechanismDesignController:
             for lid, layer in self._state.layers.items()
             if not lid.startswith(f"{part_name}:")
         }
-        new_paths = {
-            name: path for name, path in self._state.paths.items() if name != part_name
-        }
+        new_paths = {name: path for name, path in self._state.paths.items() if name != part_name}
         new_state = (
             self._state.with_paths(new_paths)
             .with_layers(layers)

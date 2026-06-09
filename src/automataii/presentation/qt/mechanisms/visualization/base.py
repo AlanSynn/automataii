@@ -91,8 +91,9 @@ class MechanismVisualizer(ABC):
         pass
 
     @abstractmethod
-    def update_visuals(self, visual_items: list[QGraphicsItem],
-                      mechanism_data: dict[str, Any]) -> None:
+    def update_visuals(
+        self, visual_items: list[QGraphicsItem], mechanism_data: dict[str, Any]
+    ) -> None:
         """
         Update existing visual items with new mechanism state.
 
@@ -136,7 +137,7 @@ class MechanismVisualizer(ABC):
         """
         # Default implementation based on class name
         class_name = self.__class__.__name__
-        return class_name.replace('Visualizer', '').lower()
+        return class_name.replace("Visualizer", "").lower()
 
     @staticmethod
     def extract_params(mechanism_data: dict[str, Any]) -> dict[str, Any]:

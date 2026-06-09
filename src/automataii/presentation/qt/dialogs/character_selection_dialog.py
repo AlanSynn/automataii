@@ -188,14 +188,16 @@ class CharacterSelectionDialog(QDialog):
                 pixmap = QPixmap(100, 130)
                 pixmap.fill(Qt.GlobalColor.transparent)
                 from PyQt6.QtGui import QPainter
+
                 painter = QPainter(pixmap)
                 renderer.render(painter)
                 painter.end()
                 self._thumbnail_label.setPixmap(
                     pixmap.scaled(
-                        100, 130,
+                        100,
+                        130,
                         Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation
+                        Qt.TransformationMode.SmoothTransformation,
                     )
                 )
                 return
@@ -206,9 +208,10 @@ class CharacterSelectionDialog(QDialog):
             if not pixmap.isNull():
                 self._thumbnail_label.setPixmap(
                     pixmap.scaled(
-                        100, 130,
+                        100,
+                        130,
                         Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation
+                        Qt.TransformationMode.SmoothTransformation,
                     )
                 )
                 return

@@ -32,6 +32,9 @@ from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
 class CamEditor(MechanismEditor):
     """Editor for cam mechanisms with physics-based follower."""
 
+    _MIN_TOTAL_RADIUS = 15.0
+    _MAX_TOTAL_RADIUS = 130.0  # base_radius max (80) + eccentricity max (50)
+
     def create_handles(self, mechanism_data: dict[str, Any]) -> None:
         """Create handles for cam shape and follower rod."""
         self.mechanism_data = mechanism_data
@@ -106,8 +109,8 @@ class CamEditor(MechanismEditor):
         size_handle_pos = QPointF(center.x() + scaled_total_radius, center.y())
 
         # Constraints: min/max radius
-        min_radius = 15.0 * cam_scale_factor  # Minimum total radius
-        max_radius = 150.0 * cam_scale_factor  # Maximum total radius
+        min_radius = self._MIN_TOTAL_RADIUS * cam_scale_factor
+        max_radius = self._MAX_TOTAL_RADIUS * cam_scale_factor
 
         handle = ParametricHandle(
             size_handle_pos,
@@ -192,6 +195,19 @@ class CamEditor(MechanismEditor):
         params["base_radius"] = new_base_radius
         params["eccentricity"] = new_eccentricity
 
+        # Keep the visual handle attached to the clamped physical outer radius.
+        if "size" in self.handles:
+            clamped_scaled_total_radius = (new_base_radius + new_eccentricity) * cam_scale_factor
+            size_handle = self.handles["size"]
+            size_handle.setPos(QPointF(center.x() + clamped_scaled_total_radius, center.y()))
+            size_handle.constraints["min_x"] = (
+                center.x() + self._MIN_TOTAL_RADIUS * cam_scale_factor
+            )
+            size_handle.constraints["max_x"] = (
+                center.x() + self._MAX_TOTAL_RADIUS * cam_scale_factor
+            )
+            size_handle.constraints["fixed_y"] = center.y()
+
         logging.debug(
             f"[CAM-EDITOR] Size adjusted: base_radius={new_base_radius:.1f}, "
             f"eccentricity={new_eccentricity:.1f}"
@@ -258,13 +274,9 @@ class CamEditor(MechanismEditor):
         )
 
         scaled_rod_length = rod_length * rod_length_multiplier
-        scaled_contact_y = center.y() + cam_contact_y_from_params(
-            params, scale=cam_scale_factor
-        )
+        scaled_contact_y = center.y() + cam_contact_y_from_params(params, scale=cam_scale_factor)
 
-        follower_pos = QPointF(
-            center.x(), scaled_contact_y - scaled_rod_length
-        )
+        follower_pos = QPointF(center.x(), scaled_contact_y - scaled_rod_length)
 
         handle = ParametricHandle(
             follower_pos,
@@ -332,8 +344,8 @@ class CamEditor(MechanismEditor):
             cam_scale_factor = positive_finite_float(
                 self.mechanism_data.get("cam_scale_factor"), 1.0
             )
-            min_radius = 15.0 * cam_scale_factor
-            max_radius = 150.0 * cam_scale_factor
+            min_radius = self._MIN_TOTAL_RADIUS * cam_scale_factor
+            max_radius = self._MAX_TOTAL_RADIUS * cam_scale_factor
             size_handle.constraints["min_x"] = new_pos.x() + min_radius
             size_handle.constraints["max_x"] = new_pos.x() + max_radius
             size_handle.constraints["fixed_y"] = new_pos.y()
@@ -347,9 +359,7 @@ class CamEditor(MechanismEditor):
             rod_length_multiplier = positive_finite_float(
                 self.mechanism_data.get("rod_length_multiplier"), 1.0
             )
-            contact_y = new_pos.y() + cam_contact_y_from_params(
-                params, scale=cam_scale_factor
-            )
+            contact_y = new_pos.y() + cam_contact_y_from_params(params, scale=cam_scale_factor)
             min_y, max_y = self._follower_y_bounds(
                 contact_y,
                 rod_length_multiplier=rod_length_multiplier,
@@ -358,9 +368,7 @@ class CamEditor(MechanismEditor):
             # Keep follower constraints consistent with mechanism-space transforms.
             center_mech = self._to_mech(new_pos)
             if center_mech is not None:
-                mech_contact_y = self._contact_y(
-                    center_mech[1], params, scale=cam_scale_factor
-                )
+                mech_contact_y = self._contact_y(center_mech[1], params, scale=cam_scale_factor)
                 contact_scene = self._to_scene((float(center_mech[0]), mech_contact_y))
                 if contact_scene is not None:
                     unit_scale = cam_scene_unit_scale(self._to_scene)

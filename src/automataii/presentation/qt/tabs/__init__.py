@@ -3,6 +3,7 @@ Tab components for the Automataii application.
 
 Each tab is a self-contained module with its own components directory.
 """
+
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
 from automataii.presentation.qt.tabs.lab import LabTab

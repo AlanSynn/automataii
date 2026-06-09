@@ -24,12 +24,12 @@ class FourBarMechanism(MechanismInterface):
         self.params = parameters.params
 
         # Extract link lengths and anchor positions
-        self.p1 = np.array(self.params.get('anchor1', [0, 0]))
-        self.p2 = np.array(self.params.get('anchor2', [100, 0]))
+        self.p1 = np.array(self.params.get("anchor1", [0, 0]))
+        self.p2 = np.array(self.params.get("anchor2", [100, 0]))
         self.l1 = np.linalg.norm(self.p2 - self.p1)  # Ground link
-        self.l2 = self.params.get('l2', 40)  # Crank
-        self.l3 = self.params.get('l3', 60)  # Coupler
-        self.l4 = self.params.get('l4', 50)  # Rocker
+        self.l2 = self.params.get("l2", 40)  # Crank
+        self.l3 = self.params.get("l3", 60)  # Coupler
+        self.l4 = self.params.get("l4", 50)  # Rocker
 
         # Validate mechanism
         self._validate_grashof()
@@ -43,9 +43,9 @@ class FourBarMechanism(MechanismInterface):
         # Check triangle inequality
         links = [self.l1, self.l2, self.l3, self.l4]
         for i in range(4):
-            other_links = links[:i] + links[i+1:]
+            other_links = links[:i] + links[i + 1 :]
             if links[i] > sum(other_links):
-                return False, f"Link {i+1} violates triangle inequality"
+                return False, f"Link {i + 1} violates triangle inequality"
 
         # Check Grashof condition
         is_grashof, grashof_type = self._check_grashof_condition()
@@ -54,21 +54,17 @@ class FourBarMechanism(MechanismInterface):
 
     def simulate(self, num_frames: int = 100) -> SimulationData:
         """Run four-bar simulation."""
-        time_steps = np.linspace(0, 2*np.pi, num_frames)
+        time_steps = np.linspace(0, 2 * np.pi, num_frames)
 
         joint_positions = {
-            'anchor1': np.tile(self.p1, (num_frames, 1)),
-            'anchor2': np.tile(self.p2, (num_frames, 1)),
-            'crank': [],
-            'rocker': [],
-            'coupler': []
+            "anchor1": np.tile(self.p1, (num_frames, 1)),
+            "anchor2": np.tile(self.p2, (num_frames, 1)),
+            "crank": [],
+            "rocker": [],
+            "coupler": [],
         }
 
-        link_orientations = {
-            'crank': [],
-            'coupler': [],
-            'rocker': []
-        }
+        link_orientations = {"crank": [], "coupler": [], "rocker": []}
 
         output_path = []
 
@@ -81,22 +77,26 @@ class FourBarMechanism(MechanismInterface):
 
             if p4 is not None:
                 # Calculate coupler point (midpoint or custom ratio)
-                coupler_ratio = self.params.get('coupler_ratio', 0.5)
+                coupler_ratio = self.params.get("coupler_ratio", 0.5)
                 p_coupler = p3 * (1 - coupler_ratio) + p4 * coupler_ratio
 
-                joint_positions['crank'].append(p3)
-                joint_positions['rocker'].append(p4)
-                joint_positions['coupler'].append(p_coupler)
+                joint_positions["crank"].append(p3)
+                joint_positions["rocker"].append(p4)
+                joint_positions["coupler"].append(p_coupler)
 
                 # Calculate link orientations
-                link_orientations['crank'].append(np.arctan2(p3[1] - self.p1[1], p3[0] - self.p1[0]))
-                link_orientations['coupler'].append(np.arctan2(p4[1] - p3[1], p4[0] - p3[0]))
-                link_orientations['rocker'].append(np.arctan2(p4[1] - self.p2[1], p4[0] - self.p2[0]))
+                link_orientations["crank"].append(
+                    np.arctan2(p3[1] - self.p1[1], p3[0] - self.p1[0])
+                )
+                link_orientations["coupler"].append(np.arctan2(p4[1] - p3[1], p4[0] - p3[0]))
+                link_orientations["rocker"].append(
+                    np.arctan2(p4[1] - self.p2[1], p4[0] - self.p2[0])
+                )
 
                 output_path.append(p_coupler)
 
         # Convert lists to arrays
-        for key in ['crank', 'rocker', 'coupler']:
+        for key in ["crank", "rocker", "coupler"]:
             if joint_positions[key]:
                 joint_positions[key] = np.array(joint_positions[key])
             else:
@@ -115,9 +115,9 @@ class FourBarMechanism(MechanismInterface):
             link_orientations=link_orientations,
             output_path=np.array(output_path) if output_path else None,
             metadata={
-                'mechanism_type': 'four_bar',
-                'grashof_type': self._check_grashof_condition()[1]
-            }
+                "mechanism_type": "four_bar",
+                "grashof_type": self._check_grashof_condition()[1],
+            },
         )
 
     def update_parameters(self, param_changes: dict[str, Any]) -> None:
@@ -125,19 +125,19 @@ class FourBarMechanism(MechanismInterface):
         self.params.update(param_changes)
 
         # Update internal state
-        if 'anchor1' in param_changes:
-            self.p1 = np.array(param_changes['anchor1'])
-        if 'anchor2' in param_changes:
-            self.p2 = np.array(param_changes['anchor2'])
+        if "anchor1" in param_changes:
+            self.p1 = np.array(param_changes["anchor1"])
+        if "anchor2" in param_changes:
+            self.p2 = np.array(param_changes["anchor2"])
 
         self.l1 = np.linalg.norm(self.p2 - self.p1)
 
-        if 'l2' in param_changes:
-            self.l2 = param_changes['l2']
-        if 'l3' in param_changes:
-            self.l3 = param_changes['l3']
-        if 'l4' in param_changes:
-            self.l4 = param_changes['l4']
+        if "l2" in param_changes:
+            self.l2 = param_changes["l2"]
+        if "l3" in param_changes:
+            self.l3 = param_changes["l3"]
+        if "l4" in param_changes:
+            self.l4 = param_changes["l4"]
 
         # Re-validate
         self._validate_grashof()
@@ -145,20 +145,20 @@ class FourBarMechanism(MechanismInterface):
     def get_key_points(self) -> dict[str, tuple[float, float]]:
         """Get key points for visualization."""
         return {
-            'anchor1': tuple(self.p1),
-            'anchor2': tuple(self.p2),
-            'crank_length': self.l2,
-            'coupler_length': self.l3,
-            'rocker_length': self.l4
+            "anchor1": tuple(self.p1),
+            "anchor2": tuple(self.p2),
+            "crank_length": self.l2,
+            "coupler_length": self.l3,
+            "rocker_length": self.l4,
         }
 
     def get_constraints(self) -> dict[str, Any]:
         """Get mechanism constraints."""
         return {
-            'min_link_length': 10,
-            'max_link_length': 500,
-            'grashof_condition': self._check_grashof_condition()[0],
-            'workspace_bounds': self._calculate_workspace_bounds()
+            "min_link_length": 10,
+            "max_link_length": 500,
+            "grashof_condition": self._check_grashof_condition()[0],
+            "workspace_bounds": self._calculate_workspace_bounds(),
         }
 
     def calculate_output_motion(self, input_angle: float) -> dict[str, Any]:
@@ -170,22 +170,22 @@ class FourBarMechanism(MechanismInterface):
         p4 = self._solve_rocker_position(p3)
 
         if p4 is None:
-            return {'valid': False, 'reason': 'No solution at this angle'}
+            return {"valid": False, "reason": "No solution at this angle"}
 
         # Calculate rocker angle
         rocker_angle = np.arctan2(p4[1] - self.p2[1], p4[0] - self.p2[0])
 
         # Calculate coupler point
-        coupler_ratio = self.params.get('coupler_ratio', 0.5)
+        coupler_ratio = self.params.get("coupler_ratio", 0.5)
         p_coupler = p3 * (1 - coupler_ratio) + p4 * coupler_ratio
 
         return {
-            'valid': True,
-            'crank_position': p3.tolist(),
-            'rocker_position': p4.tolist(),
-            'rocker_angle': rocker_angle,
-            'coupler_position': p_coupler.tolist(),
-            'mechanical_advantage': self._calculate_mechanical_advantage(input_angle)
+            "valid": True,
+            "crank_position": p3.tolist(),
+            "rocker_position": p4.tolist(),
+            "rocker_angle": rocker_angle,
+            "coupler_position": p_coupler.tolist(),
+            "mechanical_advantage": self._calculate_mechanical_advantage(input_angle),
         }
 
     @property
@@ -216,14 +216,14 @@ class FourBarMechanism(MechanismInterface):
             return None
 
         # Calculate angle for rocker
-        a = (d*d + self.l4*self.l4 - self.l3*self.l3) / (2 * d * self.l4)
+        a = (d * d + self.l4 * self.l4 - self.l3 * self.l3) / (2 * d * self.l4)
         a = np.clip(a, -1, 1)
 
         angle_offset = np.arccos(a)
         base_angle = np.arctan2(p3[1] - self.p2[1], p3[0] - self.p2[0])
 
         # Choose solution based on assembly mode
-        assembly_mode = self.params.get('assembly_mode', 1)  # 1 or -1
+        assembly_mode = self.params.get("assembly_mode", 1)  # 1 or -1
         rocker_angle = base_angle + assembly_mode * angle_offset
 
         p4 = self.p2 + self.l4 * np.array([np.cos(rocker_angle), np.sin(rocker_angle)])
@@ -266,10 +266,10 @@ class FourBarMechanism(MechanismInterface):
         abs(self.l2 - self.l3)
 
         return {
-            'min_x': min(self.p1[0], self.p2[0]) - max_reach,
-            'max_x': max(self.p1[0], self.p2[0]) + max_reach,
-            'min_y': min(self.p1[1], self.p2[1]) - max_reach,
-            'max_y': max(self.p1[1], self.p2[1]) + max_reach
+            "min_x": min(self.p1[0], self.p2[0]) - max_reach,
+            "max_x": max(self.p1[0], self.p2[0]) + max_reach,
+            "min_y": min(self.p1[1], self.p2[1]) - max_reach,
+            "max_y": max(self.p1[1], self.p2[1]) + max_reach,
         }
 
     def _calculate_mechanical_advantage(self, input_angle: float) -> float:

@@ -6,6 +6,7 @@ Handles creation and update of linkage mechanism visuals.
 
 Design Pattern: Strategy (implements MechanismVisualizerProtocol)
 """
+
 from __future__ import annotations
 
 import logging
@@ -105,19 +106,17 @@ class FourBarVisualizer(BaseMechanismVisualizer):
                 p4 = np.array(joint_positions["p4_positions"][0])
 
                 # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
-                coupler_point_x = finite_param(
-                    params, "coupler_point_x", "p_x", default=0.0
-                )
-                coupler_point_y = finite_param(
-                    params, "coupler_point_y", "p_y", default=0.0
-                )
+                coupler_point_x = finite_param(params, "coupler_point_x", "p_x", default=0.0)
+                coupler_point_y = finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
                 coupler_vec = p4 - p3
                 coupler_length = np.linalg.norm(coupler_vec)
                 if coupler_length > 0:
                     coupler_unit = coupler_vec / coupler_length
                     coupler_normal = np.array([-coupler_unit[1], coupler_unit[0]])
-                    p_coupler = p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
+                    p_coupler = (
+                        p3 + coupler_point_x * coupler_unit + coupler_point_y * coupler_normal
+                    )
                 else:
                     p_coupler = p3
 
@@ -140,9 +139,7 @@ class FourBarVisualizer(BaseMechanismVisualizer):
 
         # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
         default_coupler_x = finite_float(l3, 0.0) / 2.0
-        coupler_point_x = finite_param(
-            params, "coupler_point_x", "p_x", default=default_coupler_x
-        )
+        coupler_point_x = finite_param(params, "coupler_point_x", "p_x", default=default_coupler_x)
         coupler_point_y = finite_param(params, "coupler_point_y", "p_y", default=0.0)
 
         coupler_vec = p4 - p3
@@ -186,7 +183,14 @@ class FourBarVisualizer(BaseMechanismVisualizer):
         visual_items.append(follower_link)
 
         # Coupler (triangle or line)
-        area = abs(p3[0] * (p4[1] - p_coupler[1]) + p4[0] * (p_coupler[1] - p3[1]) + p_coupler[0] * (p3[1] - p4[1])) / 2
+        area = (
+            abs(
+                p3[0] * (p4[1] - p_coupler[1])
+                + p4[0] * (p_coupler[1] - p3[1])
+                + p_coupler[0] * (p3[1] - p4[1])
+            )
+            / 2
+        )
 
         if area < 1e-3:  # Collinear
             coupler_line = QGraphicsLineItem(QLineF(p3_t, p4_t))
@@ -234,9 +238,7 @@ class FourBarVisualizer(BaseMechanismVisualizer):
         for pos, color, name in zip(pivot_positions, pivot_colors, pivot_names, strict=False):
             # Outer circle
             outer_pivot = self.scene.addEllipse(
-                pos.x() - 8, pos.y() - 8, 16, 16,
-                QPen(color.darker(150), 2),
-                QBrush(color)
+                pos.x() - 8, pos.y() - 8, 16, 16, QPen(color.darker(150), 2), QBrush(color)
             )
             outer_pivot.setZValue(Z_MECHANISM_PIVOT)
             outer_pivot.setToolTip(name)
@@ -244,18 +246,19 @@ class FourBarVisualizer(BaseMechanismVisualizer):
 
             # Inner highlight
             inner_pivot = self.scene.addEllipse(
-                pos.x() - 4, pos.y() - 4, 8, 8,
-                QPen(Qt.PenStyle.NoPen),
-                QBrush(color.lighter(150))
+                pos.x() - 4, pos.y() - 4, 8, 8, QPen(Qt.PenStyle.NoPen), QBrush(color.lighter(150))
             )
             inner_pivot.setZValue(Z_MECHANISM_PIVOT + 1)
             visual_items.append(inner_pivot)
 
         # Coupler marker
         coupler_marker = self.scene.addEllipse(
-            p_coupler_t.x() - 4, p_coupler_t.y() - 4, 8, 8,
+            p_coupler_t.x() - 4,
+            p_coupler_t.y() - 4,
+            8,
+            8,
             QPen(QColor("#ff0000"), 2),
-            QBrush(QColor("#ff0000"))
+            QBrush(QColor("#ff0000")),
         )
         coupler_marker.setZValue(Z_SELECTION_MARKER)
         coupler_marker.setToolTip("Coupler Point (follows path)")
@@ -272,7 +275,10 @@ class FourBarVisualizer(BaseMechanismVisualizer):
             jp = mechanism_data.get("full_simulation_data", {}).get("joint_positions", {})
             if not jp:
                 return
-            if not all(k in jp and len(jp[k]) > 0 for k in ("p1_positions", "p2_positions", "p3_positions", "p4_positions")):
+            if not all(
+                k in jp and len(jp[k]) > 0
+                for k in ("p1_positions", "p2_positions", "p3_positions", "p4_positions")
+            ):
                 return
 
             mu_min = 180.0
@@ -304,10 +310,12 @@ class FourBarVisualizer(BaseMechanismVisualizer):
 
             radius = 24.0
             halo = self.scene.addEllipse(
-                p2_t.x() - radius, p2_t.y() - radius,
-                radius * 2, radius * 2,
+                p2_t.x() - radius,
+                p2_t.y() - radius,
+                radius * 2,
+                radius * 2,
                 QPen(color, 5, Qt.PenStyle.SolidLine),
-                QBrush(Qt.BrushStyle.NoBrush)
+                QBrush(Qt.BrushStyle.NoBrush),
             )
             halo.setZValue(30)
             visual_items.append(halo)
@@ -339,6 +347,7 @@ class FourBarVisualizer(BaseMechanismVisualizer):
         """Regenerate simulation data from parameters."""
         # Simulation generation is handled by domain layer
         from automataii.domain.mechanisms.linkages.fourbar.compute import compute_4bar_positions
+
         return compute_4bar_positions(params)
 
 
@@ -485,6 +494,7 @@ class FiveBarVisualizer(BaseMechanismVisualizer):
     ) -> dict[str, Any]:
         """Regenerate simulation data from parameters."""
         from automataii.domain.mechanisms.linkages.fivebar.compute import compute_5bar_positions
+
         return compute_5bar_positions(params)
 
 
@@ -570,9 +580,7 @@ class SixBarVisualizer(BaseMechanismVisualizer):
 
             # Add pivots
             self._create_pivots(
-                visual_items,
-                [p1_scene, p2_scene, p6_scene],
-                [p3_scene, p4_scene, p5_scene]
+                visual_items, [p1_scene, p2_scene, p6_scene], [p3_scene, p4_scene, p5_scene]
             )
 
         except Exception:
@@ -649,4 +657,5 @@ class SixBarVisualizer(BaseMechanismVisualizer):
     ) -> dict[str, Any]:
         """Regenerate simulation data from parameters."""
         from automataii.domain.mechanisms.linkages.sixbar.compute import compute_6bar_positions
+
         return compute_6bar_positions(params)

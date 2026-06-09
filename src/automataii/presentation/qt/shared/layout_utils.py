@@ -56,9 +56,7 @@ def clear_layout(layout: QLayout | None, delete_widgets: bool = True) -> None:
 
 
 def remove_widget_from_layout(
-    layout: QLayout | None,
-    widget: QWidget,
-    delete_widget: bool = True
+    layout: QLayout | None, widget: QWidget, delete_widget: bool = True
 ) -> bool:
     """Remove a specific widget from a layout.
 
@@ -104,10 +102,7 @@ def remove_widget_from_layout(
 
 
 def replace_widget_in_layout(
-    layout: QLayout | None,
-    old_widget: QWidget,
-    new_widget: QWidget,
-    delete_old: bool = True
+    layout: QLayout | None, old_widget: QWidget, new_widget: QWidget, delete_old: bool = True
 ) -> bool:
     """Replace a widget in a layout with another widget.
 

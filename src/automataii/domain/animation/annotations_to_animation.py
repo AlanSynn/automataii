@@ -48,9 +48,7 @@ def annotations_to_animation(
 
     # create mvc config
     mvc_cfg = {
-        "scene": {
-            "ANIMATED_CHARACTERS": [animated_drawing_dict]
-        },  # add the character to the scene
+        "scene": {"ANIMATED_CHARACTERS": [animated_drawing_dict]},  # add the character to the scene
         "controller": {
             "MODE": render_mode,  # 'video_render', 'image_sequence', or 'interactive'
             "OUTPUT_VIDEO_PATH": output_path,
@@ -78,6 +76,7 @@ def annotations_to_animation(
 
 if __name__ == "__main__":
     from ..utils.paths import get_project_root
+
     project_root = get_project_root()
     log_dir = project_root / "logs"
     log_dir.mkdir(exist_ok=True, parents=True)
@@ -100,6 +99,4 @@ if __name__ == "__main__":
         "yes",
     )
 
-    annotations_to_animation(
-        char_anno_dir, motion_cfg_fn, retarget_cfg_fn, use_image_sequence
-    )
+    annotations_to_animation(char_anno_dir, motion_cfg_fn, retarget_cfg_fn, use_image_sequence)

@@ -6,6 +6,7 @@ Handles creation and update of cam mechanism visuals using analytic pear-cam pro
 
 Design Pattern: Strategy (implements MechanismVisualizerProtocol)
 """
+
 from __future__ import annotations
 
 import logging
@@ -602,9 +603,7 @@ class CamVisualizer(BaseMechanismVisualizer):
             fallback_points: list[list[float]] = []
             for i in range(num_samples + 1):
                 theta = 2 * np.pi * i / num_samples
-                fallback_points.append(
-                    [base_radius * np.cos(theta), base_radius * np.sin(theta)]
-                )
+                fallback_points.append([base_radius * np.cos(theta), base_radius * np.sin(theta)])
             return np.array(fallback_points, dtype=float)
 
         thetas = np.linspace(0, 2 * np.pi, num_samples + 1)

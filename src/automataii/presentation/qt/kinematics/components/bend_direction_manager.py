@@ -85,8 +85,8 @@ class BendDirectionManager:
             return self._bend_directions[joint_id]
 
         # Try abstract name extraction for standardized IDs
-        if '_' in joint_id and joint_id.split('_')[-1].isdigit():
-            abstract_name = '_'.join(joint_id.split('_')[:-1])
+        if "_" in joint_id and joint_id.split("_")[-1].isdigit():
+            abstract_name = "_".join(joint_id.split("_")[:-1])
             if abstract_name in self._bend_directions:
                 return self._bend_directions[abstract_name]
 
@@ -104,8 +104,8 @@ class BendDirectionManager:
         self._bend_directions[joint_id] = normalized
 
         # Also store with alternative form for compatibility
-        if '_' in joint_id and joint_id.split('_')[-1].isdigit():
-            abstract_name = '_'.join(joint_id.split('_')[:-1])
+        if "_" in joint_id and joint_id.split("_")[-1].isdigit():
+            abstract_name = "_".join(joint_id.split("_")[:-1])
             self._bend_directions[abstract_name] = normalized
 
     def clear(self) -> None:
@@ -113,9 +113,7 @@ class BendDirectionManager:
         self._bend_directions.clear()
 
     def get_for_root_joint(
-        self,
-        root_joint_std_id: str,
-        hierarchy: dict[str, list[str]] | None = None
+        self, root_joint_std_id: str, hierarchy: dict[str, list[str]] | None = None
     ) -> float:
         """
         Get bend direction for a limb based on its root joint.
@@ -149,24 +147,28 @@ class BendDirectionManager:
 
         # Also try just the abstract name portion
         if not middle_joint_std_id:
-            if '_' in root_joint_std_id:
-                parts = root_joint_std_id.split('_')
+            if "_" in root_joint_std_id:
+                parts = root_joint_std_id.split("_")
                 if len(parts) >= 2:
                     # Try 'left_shoulder' from 'left_shoulder_7'
-                    abstract_root = '_'.join(parts[:-1]) if parts[-1].isdigit() else root_joint_std_id
+                    abstract_root = (
+                        "_".join(parts[:-1]) if parts[-1].isdigit() else root_joint_std_id
+                    )
                     middle_joint_std_id = self.ROOT_TO_MIDDLE_MAPPING.get(abstract_root)
 
         if middle_joint_std_id:
             direction = self.get(middle_joint_std_id)
             logger.debug(
                 "BendDirectionManager: bend_direction %s for '%s' (from '%s')",
-                direction, middle_joint_std_id, root_joint_std_id
+                direction,
+                middle_joint_std_id,
+                root_joint_std_id,
             )
             return float(direction)
 
         logger.debug(
             "BendDirectionManager: No middle joint found for root '%s', using default 1.0",
-            root_joint_std_id
+            root_joint_std_id,
         )
         return 1.0
 
@@ -176,7 +178,7 @@ class BendDirectionManager:
         p0_pos: QPointF,  # Parent/root position
         p1_pos: QPointF,  # Middle joint position
         p2_pos: QPointF,  # End effector position
-        standardized_id: str | None = None
+        standardized_id: str | None = None,
     ) -> int:
         """
         Calculate bend direction from joint geometry using cross product.
@@ -210,15 +212,13 @@ class BendDirectionManager:
 
         logger.debug(
             "BendDirectionManager: Calculated bend_direction = %s for '%s'",
-            direction, middle_joint_abstract_name
+            direction,
+            middle_joint_abstract_name,
         )
 
         return direction
 
-    def update_from_skeleton_data(
-        self,
-        joints_data: dict[str, dict[str, Any]]
-    ) -> int:
+    def update_from_skeleton_data(self, joints_data: dict[str, dict[str, Any]]) -> int:
         """
         Update bend directions from skeleton joint data.
 
@@ -243,14 +243,13 @@ class BendDirectionManager:
                 self._bend_directions[joint_id] = bend_dir
 
                 # Also store with abstract name for compatibility
-                if '_' in joint_id and joint_id.split('_')[-1].isdigit():
-                    abstract_name = '_'.join(joint_id.split('_')[:-1])
+                if "_" in joint_id and joint_id.split("_")[-1].isdigit():
+                    abstract_name = "_".join(joint_id.split("_")[:-1])
                     self._bend_directions[abstract_name] = bend_dir
 
                 count += 1
                 logger.debug(
-                    "BendDirectionManager: Updated '%s' to %s from skeleton",
-                    joint_id, bend_dir
+                    "BendDirectionManager: Updated '%s' to %s from skeleton", joint_id, bend_dir
                 )
 
         return count
@@ -273,10 +272,10 @@ class BendDirectionManager:
                 continue
 
             # Extract abstract name
-            if '_' in std_id:
-                parts = std_id.split('_')
+            if "_" in std_id:
+                parts = std_id.split("_")
                 if len(parts) >= 3 and parts[-1].isdigit():
-                    abstract_name = '_'.join(parts[:-1])
+                    abstract_name = "_".join(parts[:-1])
                 else:
                     abstract_name = std_id
             else:

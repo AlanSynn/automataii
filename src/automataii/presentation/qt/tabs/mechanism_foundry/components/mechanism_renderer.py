@@ -6,6 +6,7 @@ cam mechanism drawing, and grid visualization.
 
 Design Pattern: Renderer (dedicated rendering responsibilities)
 """
+
 from __future__ import annotations
 
 import logging
@@ -135,9 +136,7 @@ class MechanismRenderer:
             if safety_label:
                 safety_label.setText(f"Error: {str(e)}")
 
-    def _draw_mechanism_state(
-        self, state: MechanismState, mechanism_type: str | None
-    ) -> None:
+    def _draw_mechanism_state(self, state: MechanismState, mechanism_type: str | None) -> None:
         """
         Draw mechanism based on state and type.
 
@@ -146,9 +145,7 @@ class MechanismRenderer:
             mechanism_type: Type identifier for mechanism
         """
         if mechanism_type == "fourbar":
-            items = self._fourbar_renderer.render(
-                state, self._scene, self._render_config
-            )
+            items = self._fourbar_renderer.render(state, self._scene, self._render_config)
             for item in items:
                 if item:
                     item.setData(0, "mechanism_item")
@@ -276,13 +273,9 @@ class MechanismRenderer:
             color = "red"
             prefix = "✗"
 
-        safety_label.setText(
-            f"<span style='color:{color}'>{prefix} {safety.message}</span>"
-        )
+        safety_label.setText(f"<span style='color:{color}'>{prefix} {safety.message}</span>")
 
-    def _show_default_paths(
-        self, state: MechanismState, mechanism_type: str
-    ) -> None:
+    def _show_default_paths(self, state: MechanismState, mechanism_type: str) -> None:
         """
         Show default paths for tracked points.
 
@@ -341,7 +334,5 @@ class MechanismRenderer:
         y_axis.setZValue(-98)
 
         # Origin marker
-        origin = self._scene.addEllipse(
-            -3, -3, 6, 6, axis_pen, QBrush(axis_color)
-        )
+        origin = self._scene.addEllipse(-3, -3, 6, 6, axis_pen, QBrush(axis_color))
         origin.setZValue(-97)

@@ -91,9 +91,7 @@ class MechanismManager(QObject):
                 ref_point = target_part_info.motion_path_data[0]
 
             # Create a dummy circle as a placeholder visual
-            dummy_item = QGraphicsEllipseItem(
-                ref_point.x() - 20, ref_point.y() - 20, 40, 40
-            )
+            dummy_item = QGraphicsEllipseItem(ref_point.x() - 20, ref_point.y() - 20, 40, 40)
             dummy_item.setBrush(QBrush(QColor(255, 0, 0, 100)))  # Semi-transparent red
             dummy_item.setToolTip(f"Generated {mechanism_type} (placeholder)")
             generated_items.append(dummy_item)
@@ -109,9 +107,7 @@ class MechanismManager(QObject):
             self.mechanism_visuals_ready.emit(generated_items)
 
         self.mechanism_data_updated.emit(generated_data)
-        logging.info(
-            f"MechanismManager: Generation process complete for {mechanism_type}."
-        )
+        logging.info(f"MechanismManager: Generation process complete for {mechanism_type}.")
 
 
 # Example usage (for testing, not part of the class)
@@ -121,9 +117,7 @@ if __name__ == "__main__":
     from PyQt6.QtWidgets import QApplication
 
     logging.basicConfig(level=logging.DEBUG)
-    app = QApplication(
-        sys.argv
-    )  # QApplication instance is required for QObject signals
+    app = QApplication(sys.argv)  # QApplication instance is required for QObject signals
 
     manager = MechanismManager()
 

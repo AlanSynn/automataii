@@ -6,6 +6,7 @@ bone updates, and animation state visualization.
 
 Design Pattern: Visualizer (rendering responsibilities)
 """
+
 from __future__ import annotations
 
 import logging
@@ -359,13 +360,11 @@ class SkeletonVisualizer(QObject):
 
                 if deviation > self.LENGTH_ERROR_THRESHOLD:
                     self.validation_warning.emit(
-                        f"Bone {bone_key}: {deviation*100:.1f}% length deviation (error)"
+                        f"Bone {bone_key}: {deviation * 100:.1f}% length deviation (error)"
                     )
                     all_valid = False
                 elif deviation > self.LENGTH_WARNING_THRESHOLD:
-                    logging.warning(
-                        f"Bone {bone_key}: {deviation*100:.1f}% length deviation"
-                    )
+                    logging.warning(f"Bone {bone_key}: {deviation * 100:.1f}% length deviation")
 
         return all_valid
 

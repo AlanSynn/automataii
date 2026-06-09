@@ -7,6 +7,7 @@ for monitoring animation system health.
 Architecture: Presentation Layer
 Pattern: Observer + Statistics
 """
+
 from __future__ import annotations
 
 import logging
@@ -150,9 +151,7 @@ class PerformanceProfiler:
         if phase_name not in self._phase_start_times:
             return
 
-        phase_time_ms = (
-            time.perf_counter() - self._phase_start_times[phase_name]
-        ) * 1000.0
+        phase_time_ms = (time.perf_counter() - self._phase_start_times[phase_name]) * 1000.0
         self._current_phase_times[phase_name] = phase_time_ms
 
         # Update history
@@ -201,17 +200,13 @@ class PerformanceProfiler:
         """
         # Calculate averages
         avg_frame_time = (
-            sum(self._frame_times) / len(self._frame_times)
-            if self._frame_times
-            else 0.0
+            sum(self._frame_times) / len(self._frame_times) if self._frame_times else 0.0
         )
 
         fps = 1000.0 / avg_frame_time if avg_frame_time > 0 else 0.0
 
         # Phase times from last frame
-        phase_times = (
-            self._last_frame.phase_times if self._last_frame else {}
-        )
+        phase_times = self._last_frame.phase_times if self._last_frame else {}
 
         # Phase averages
         phase_avg = {}
@@ -262,8 +257,7 @@ class PerformanceProfiler:
             f"FPS: {stats['fps']:.1f} (target: {stats['target_fps']})",
             f"Frame time: {stats['avg_frame_time_ms']:.2f}ms avg "
             f"({stats['min_frame_time_ms']:.2f} - {stats['max_frame_time_ms']:.2f})",
-            f"Slow frames: {stats['slow_frame_count']} "
-            f"(>{stats['slow_frame_threshold_ms']:.1f}ms)",
+            f"Slow frames: {stats['slow_frame_count']} (>{stats['slow_frame_threshold_ms']:.1f}ms)",
         ]
 
         if stats["phase_avg"]:

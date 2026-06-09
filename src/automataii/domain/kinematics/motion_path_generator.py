@@ -7,6 +7,7 @@ Pure domain logic with no Qt dependencies except QPainterPath for path represent
 Design Pattern: Domain Service (DDD)
 Architecture: Hexagonal - Domain Core
 """
+
 from __future__ import annotations
 
 import logging

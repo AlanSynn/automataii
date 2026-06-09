@@ -41,10 +41,10 @@ class EventBus:
 
         # Statistics
         self._stats = {
-            'events_published': 0,
-            'events_processed': 0,
-            'handlers_called': 0,
-            'errors': 0
+            "events_published": 0,
+            "events_processed": 0,
+            "handlers_called": 0,
+            "errors": 0,
         }
 
     def subscribe(
@@ -52,7 +52,7 @@ class EventBus:
         event_type: type[Event],
         handler: EventHandler | Callable[[Event], None],
         priority: EventPriority = EventPriority.NORMAL,
-        filter_func: EventFilter | None = None
+        filter_func: EventFilter | None = None,
     ) -> str:
         """
         Subscribe to events of a specific type.
@@ -139,7 +139,7 @@ class EventBus:
 
         with self._lock:
             self._event_history.append(event)
-            self._stats['events_published'] += 1
+            self._stats["events_published"] += 1
 
         # Find handlers for this event type and its base classes
         handlers = self._get_handlers_for_event(event)
@@ -167,7 +167,7 @@ class EventBus:
         # Apply filters
         filtered_handlers = []
         for handler in handlers:
-            if hasattr(handler, 'filter_func') and handler.filter_func:
+            if hasattr(handler, "filter_func") and handler.filter_func:
                 if handler.filter_func(event):
                     filtered_handlers.append(handler)
             else:
@@ -180,15 +180,16 @@ class EventBus:
         for handler in handlers:
             try:
                 handler.handle(event)
-                self._stats['handlers_called'] += 1
+                self._stats["handlers_called"] += 1
             except Exception as e:
-                self._stats['errors'] += 1
+                self._stats["errors"] += 1
                 self._logger.error(f"Error in handler {handler}: {e}", exc_info=True)
 
-        self._stats['events_processed'] += 1
+        self._stats["events_processed"] += 1
 
     def _process_async(self, event: Event, handlers: list[EventHandler]) -> None:
         """Process event asynchronously."""
+
         async def process_handlers():
             for handler in handlers:
                 try:
@@ -196,9 +197,9 @@ class EventBus:
                         await handler.handle(event)
                     else:
                         handler.handle(event)
-                    self._stats['handlers_called'] += 1
+                    self._stats["handlers_called"] += 1
                 except Exception as e:
-                    self._stats['errors'] += 1
+                    self._stats["errors"] += 1
                     self._logger.error(f"Error in async handler {handler}: {e}", exc_info=True)
 
         # Schedule async processing
@@ -209,12 +210,12 @@ class EventBus:
             # No event loop, use thread pool
             self._thread_pool.submit(lambda: self._process_sync(event, handlers))
 
-        self._stats['events_processed'] += 1
+        self._stats["events_processed"] += 1
 
     def _process_queued(self, event: Event, handlers: list[EventHandler]) -> None:
         """Process event in background thread."""
         self._thread_pool.submit(self._process_sync, event, handlers)
-        self._stats['events_processed'] += 1
+        self._stats["events_processed"] += 1
 
     def get_stats(self) -> dict[str, Any]:
         """Get event bus statistics."""
@@ -238,7 +239,7 @@ class EventBus:
     def __del__(self) -> None:
         """Ensure thread pool is cleaned up on garbage collection."""
         try:
-            if hasattr(self, '_thread_pool'):
+            if hasattr(self, "_thread_pool"):
                 self._thread_pool.shutdown(wait=False)
         except Exception:
             pass  # Suppress errors during garbage collection
@@ -252,7 +253,7 @@ class FunctionEventHandler(EventHandler):
         func: Callable[[Event], None],
         event_type: type[Event],
         priority: EventPriority = EventPriority.NORMAL,
-        filter_func: EventFilter | None = None
+        filter_func: EventFilter | None = None,
     ):
         self.func = func
         self._event_type = event_type

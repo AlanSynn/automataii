@@ -1,4 +1,5 @@
 """Matching/fallback helpers for mechanism-to-character rebinding."""
+
 from __future__ import annotations
 
 from typing import Any

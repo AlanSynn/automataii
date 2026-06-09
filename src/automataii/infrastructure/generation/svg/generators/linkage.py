@@ -6,6 +6,7 @@ Handles manufacturing-ready SVG generation for linkage mechanisms.
 
 Design Pattern: Generator (focused SVG generation)
 """
+
 from __future__ import annotations
 
 import math
@@ -61,9 +62,7 @@ class LinkageSVGGenerator:
         required = ["ground_pivot_1", "ground_pivot_2", "crank_end", "rocker_end"]
         if not all(name in kp for name in required):
             if fallback_generator:
-                return fallback_generator(
-                    mech_data.get("id", "mech"), "4_bar_linkage", bounds
-                )
+                return fallback_generator(mech_data.get("id", "mech"), "4_bar_linkage", bounds)
             return ""
 
         # Extract key points
@@ -156,9 +155,7 @@ class LinkageSVGGenerator:
 
         return "".join(parts)
 
-    def generate_multibar_svg(
-        self, mech_data: dict[str, Any], bounds: ScaledBounds
-    ) -> str:
+    def generate_multibar_svg(self, mech_data: dict[str, Any], bounds: ScaledBounds) -> str:
         """
         Generate N-bar (5/6-bar) linkage SVG.
 
@@ -275,7 +272,7 @@ class LinkageSVGGenerator:
                 fill="#fff" stroke="{color}" stroke-width="1"/>
 
         <!-- Dimension label -->
-        <text x="{(x1+x2)/2:.1f}" y="{(y1+y2)/2 - 18:.1f}"
+        <text x="{(x1 + x2) / 2:.1f}" y="{(y1 + y2) / 2 - 18:.1f}"
               class="dimension-text" font-size="7" text-anchor="middle" fill="{color}">
               {name} {length_mm:.1f}mm
         </text>
@@ -308,9 +305,7 @@ class LinkageSVGGenerator:
         </defs>
         """
 
-    def _generate_pivot(
-        self, pos: tuple[float, float], radius: float, label: str
-    ) -> str:
+    def _generate_pivot(self, pos: tuple[float, float], radius: float, label: str) -> str:
         """Generate ground pivot with mounting base."""
         x, y = pos
         return f"""
@@ -322,9 +317,7 @@ class LinkageSVGGenerator:
               font-size="6" text-anchor="middle" fill="#333">{label}</text>
         """
 
-    def _generate_moving_joint(
-        self, pos: tuple[float, float], radius: float
-    ) -> str:
+    def _generate_moving_joint(self, pos: tuple[float, float], radius: float) -> str:
         """Generate moving joint marker."""
         x, y = pos
         return f"""

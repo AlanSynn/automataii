@@ -75,9 +75,7 @@ class FiveBarValidator(LinkageValidator):
             if "A" in positions and "B" in positions:
                 a_pos = positions["A"]
                 b_pos = positions["B"]
-                reach_ok, reach_msg = self._check_reachability(
-                    a_pos, b_pos, coupler
-                )
+                reach_ok, reach_msg = self._check_reachability(a_pos, b_pos, coupler)
                 if not reach_ok:
                     return SafetyStatus(
                         level=SafetyLevel.DANGER,
@@ -87,9 +85,7 @@ class FiveBarValidator(LinkageValidator):
 
             # 3. Singularity detection
             if all(k in positions for k in ["O1", "O2", "A", "B"]):
-                sing_level, sing_msg = self._check_singularity(
-                    positions, input1, input2, coupler
-                )
+                sing_level, sing_msg = self._check_singularity(positions, input1, input2, coupler)
                 if sing_level == "danger":
                     return SafetyStatus(
                         level=SafetyLevel.DANGER,
@@ -156,7 +152,10 @@ class FiveBarValidator(LinkageValidator):
         for i, link in enumerate(links):
             if link >= total - link:
                 link_names = ["ground", "input1", "coupler", "input2", "output"]
-                return False, f"Invalid closure: {link_names[i]} too long ({link:.1f} >= {total - link:.1f})"
+                return (
+                    False,
+                    f"Invalid closure: {link_names[i]} too long ({link:.1f} >= {total - link:.1f})",
+                )
 
         return True, "Closure OK"
 
@@ -238,7 +237,7 @@ class FiveBarValidator(LinkageValidator):
 
         # If coupler is stretched or compressed too much
         if dist < coupler * 0.2:
-            return "critical", f"Near folded configuration (dist/coupler={dist/coupler:.2f})"
+            return "critical", f"Near folded configuration (dist/coupler={dist / coupler:.2f})"
         elif dist < coupler * 0.4:
             return "poor", "Poor transmission angle region"
         elif dist < coupler * 0.6:

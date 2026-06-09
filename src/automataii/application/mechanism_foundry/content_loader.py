@@ -101,7 +101,9 @@ class ContentLoader:
         return number if math.isfinite(number) else None
 
     @classmethod
-    def _parse_parameter_options(cls, raw_options: object) -> dict[str, tuple[ParameterOption, ...]]:
+    def _parse_parameter_options(
+        cls, raw_options: object
+    ) -> dict[str, tuple[ParameterOption, ...]]:
         if not isinstance(raw_options, dict):
             return {}
 
@@ -122,7 +124,9 @@ class ContentLoader:
                     ParameterOption(
                         value=value,
                         label=label,
-                        description=cls._safe_text(description) if description is not None else None,
+                        description=cls._safe_text(description)
+                        if description is not None
+                        else None,
                     )
                 )
             if parsed:
@@ -153,7 +157,9 @@ class ContentLoader:
             diagram_path=self._safe_text(diagram_path) if diagram_path is not None else None,
             tags=tags,
             motions=motions,
-            gallery_summary=self._safe_text(gallery_summary) if gallery_summary is not None else None,
+            gallery_summary=self._safe_text(gallery_summary)
+            if gallery_summary is not None
+            else None,
         )
 
     def _create_default_content(self, mechanism_type: str) -> MechanismContent:

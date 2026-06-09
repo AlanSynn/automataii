@@ -6,6 +6,7 @@ Handles manufacturing-ready SVG generation for gear mechanisms.
 
 Design Pattern: Generator (focused SVG generation)
 """
+
 from __future__ import annotations
 
 import math
@@ -110,7 +111,7 @@ class GearSVGGenerator:
         parts.append(f"""
         <line x1="{c1p[0]:.1f}" y1="{c1p[1]:.1f}" x2="{c2p[0]:.1f}" y2="{c2p[1]:.1f}"
               stroke="#666" stroke-width="0.8" stroke-dasharray="3,3"/>
-        <text x="{(c1p[0] + c2p[0])/2:.1f}" y="{(c1p[1] + c2p[1])/2 - 8:.1f}"
+        <text x="{(c1p[0] + c2p[0]) / 2:.1f}" y="{(c1p[1] + c2p[1]) / 2 - 8:.1f}"
               font-size="7" text-anchor="middle" fill="#666">
               Center: {r1 + r2:.1f}mm
         </text>
@@ -204,7 +205,7 @@ class GearSVGGenerator:
             py = cp[1] + planet_orbit_r * scale * math.sin(angle)
             parts.append(
                 self._generate_detailed_gear(
-                    (px, py), rpp, planet_teeth, "planet-gradient", f"P{i+1}", rp, scale
+                    (px, py), rpp, planet_teeth, "planet-gradient", f"P{i + 1}", rp, scale
                 )
             )
 
@@ -248,7 +249,7 @@ class GearSVGGenerator:
             tooth_x = cx + (radius + tooth_height / 2) * math.cos(angle)
             tooth_y = cy + (radius + tooth_height / 2) * math.sin(angle)
             parts.append(f"""
-            <circle cx="{tooth_x:.1f}" cy="{tooth_y:.1f}" r="{tooth_height/3:.1f}"
+            <circle cx="{tooth_x:.1f}" cy="{tooth_y:.1f}" r="{tooth_height / 3:.1f}"
                     fill="#bdc3c7" stroke="#95a5a6" stroke-width="0.5"/>
             """)
 
@@ -265,7 +266,7 @@ class GearSVGGenerator:
             hole_x = cx + hole_radius * math.cos(hole_angle)
             hole_y = cy + hole_radius * math.sin(hole_angle)
             parts.append(f"""
-            <circle cx="{hole_x:.1f}" cy="{hole_y:.1f}" r="{shaft_radius*0.6:.1f}"
+            <circle cx="{hole_x:.1f}" cy="{hole_y:.1f}" r="{shaft_radius * 0.6:.1f}"
                     fill="#fff" stroke="#7f8c8d" stroke-width="0.8"/>
             """)
 
@@ -277,8 +278,8 @@ class GearSVGGenerator:
 
         # Keyway
         parts.append(f"""
-        <rect x="{cx - keyway_width/2:.1f}" y="{cy - shaft_radius:.1f}"
-              width="{keyway_width:.1f}" height="{shaft_radius*0.6:.1f}" fill="#7f8c8d"/>
+        <rect x="{cx - keyway_width / 2:.1f}" y="{cy - shaft_radius:.1f}"
+              width="{keyway_width:.1f}" height="{shaft_radius * 0.6:.1f}" fill="#7f8c8d"/>
         """)
 
         # Label
@@ -287,7 +288,7 @@ class GearSVGGenerator:
               font-size="8" text-anchor="middle" font-weight="bold">{gear_name}</text>
         <text x="{cx:.1f}" y="{cy - radius - 2:.1f}"
               font-size="6" text-anchor="middle" fill="#666">
-              ⌀{actual_radius_mm*2:.1f}mm ({teeth}T)
+              ⌀{actual_radius_mm * 2:.1f}mm ({teeth}T)
         </text>
         """)
 
@@ -348,7 +349,7 @@ class GearSVGGenerator:
                 Gear 1 (Drive):
             </text>
             <text x="{bounds.width - 155}" y="52" font-size="6">
-                • Diameter: {2*r1:.1f}mm ({teeth1} teeth)
+                • Diameter: {2 * r1:.1f}mm ({teeth1} teeth)
             </text>
             <text x="{bounds.width - 155}" y="62" font-size="6">
                 • Module: {self.MODULE_MM:.1f}mm
@@ -357,7 +358,7 @@ class GearSVGGenerator:
                 Gear 2 (Driven):
             </text>
             <text x="{bounds.width - 155}" y="99" font-size="6">
-                • Diameter: {2*r2:.1f}mm ({teeth2} teeth)
+                • Diameter: {2 * r2:.1f}mm ({teeth2} teeth)
             </text>
             <text x="{bounds.width - 155}" y="109" font-size="6">
                 • Module: {self.MODULE_MM:.1f}mm
@@ -368,9 +369,7 @@ class GearSVGGenerator:
         </g>
         """
 
-    def _get_mm_params(
-        self, mech_data: dict[str, Any], names: list[str]
-    ) -> dict[str, float]:
+    def _get_mm_params(self, mech_data: dict[str, Any], names: list[str]) -> dict[str, float]:
         """Get parameters in mm."""
         mm = {}
         rwp = mech_data.get("real_world_params", {})

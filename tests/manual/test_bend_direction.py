@@ -12,8 +12,9 @@ from automataii.presentation.qt.kinematics import IKManager
 
 logging.basicConfig(level=logging.DEBUG)
 
+
 def test_bend_direction():
-    app = QApplication(sys.argv)
+    _app = QApplication(sys.argv)
 
     # Create managers
     skeleton_manager = SkeletonManager()
@@ -32,7 +33,7 @@ def test_bend_direction():
             {"parent": "root_0", "child": "left_shoulder_7"},
             {"parent": "left_shoulder_7", "child": "left_elbow_8"},
             {"parent": "left_elbow_8", "child": "left_hand_9"},
-        ]
+        ],
     }
 
     # Update skeleton
@@ -50,7 +51,7 @@ def test_bend_direction():
         target,
         80,  # upper arm length
         80,  # lower arm length
-        "left_shoulder_7"
+        "left_shoulder_7",
     )
     if result:
         print(f"Elbow position: {result[0].x():.1f}, {result[0].y():.1f}")
@@ -68,13 +69,14 @@ def test_bend_direction():
         target,
         80,  # upper arm length
         80,  # lower arm length
-        "left_shoulder_7"
+        "left_shoulder_7",
     )
     if result:
         print(f"Elbow position: {result[0].x():.1f}, {result[0].y():.1f}")
         print(f"Hand position: {result[1].x():.1f}, {result[1].y():.1f}")
 
     print("\n=== Test Complete ===")
+
 
 if __name__ == "__main__":
     test_bend_direction()

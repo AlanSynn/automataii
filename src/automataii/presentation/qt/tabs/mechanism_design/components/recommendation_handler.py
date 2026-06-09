@@ -6,6 +6,7 @@ dialog, preview rendering, and selection workflow.
 
 Design Pattern: Handler (recommendation event handling)
 """
+
 from __future__ import annotations
 
 import logging
@@ -160,8 +161,8 @@ class RecommendationHandler:
             anchor_joint_id = None
 
             if part_info:
-                anchor_joint_id = getattr(part_info, 'anchor_joint_id', None)
-                anchor_pos = getattr(part_info, 'anchor_position', None)
+                anchor_joint_id = getattr(part_info, "anchor_joint_id", None)
+                anchor_pos = getattr(part_info, "anchor_position", None)
                 if anchor_pos:
                     if isinstance(anchor_pos, QPointF):
                         anchor_position = anchor_pos
@@ -282,8 +283,8 @@ class RecommendationHandler:
 
             # Add anchor information
             if part_info:
-                anchor_joint_id = getattr(part_info, 'anchor_joint_id', None)
-                anchor_pos = getattr(part_info, 'anchor_position', None)
+                anchor_joint_id = getattr(part_info, "anchor_joint_id", None)
+                anchor_pos = getattr(part_info, "anchor_position", None)
 
                 mechanism_data["anchor_joint_id"] = anchor_joint_id
 

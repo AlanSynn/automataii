@@ -6,6 +6,7 @@ position adjustment for parametric handles.
 
 Design Pattern: Strategy (constraint-type-specific calculations)
 """
+
 from __future__ import annotations
 
 import math
@@ -18,6 +19,7 @@ from PyQt6.QtCore import QPointF
 @dataclass(frozen=True)
 class ConstraintResult:
     """Result of constraint application."""
+
     position: QPointF
     was_constrained: bool
     constraint_type: str | None = None
@@ -103,17 +105,17 @@ class ConstraintSolver:
         """Apply bounding box constraints."""
         constrained = False
 
-        if 'min_x' in constraints and x < constraints['min_x']:
-            x = constraints['min_x']
+        if "min_x" in constraints and x < constraints["min_x"]:
+            x = constraints["min_x"]
             constrained = True
-        if 'max_x' in constraints and x > constraints['max_x']:
-            x = constraints['max_x']
+        if "max_x" in constraints and x > constraints["max_x"]:
+            x = constraints["max_x"]
             constrained = True
-        if 'min_y' in constraints and y < constraints['min_y']:
-            y = constraints['min_y']
+        if "min_y" in constraints and y < constraints["min_y"]:
+            y = constraints["min_y"]
             constrained = True
-        if 'max_y' in constraints and y > constraints['max_y']:
-            y = constraints['max_y']
+        if "max_y" in constraints and y > constraints["max_y"]:
+            y = constraints["max_y"]
             constrained = True
 
         return x, y, constrained
@@ -127,16 +129,16 @@ class ConstraintSolver:
         """Apply fixed axis constraints."""
         constrained = False
 
-        if 'fixed_x' in constraints:
+        if "fixed_x" in constraints:
             try:
-                x = float(constraints['fixed_x'])
+                x = float(constraints["fixed_x"])
                 constrained = True
             except (ValueError, TypeError):
                 pass
 
-        if 'fixed_y' in constraints:
+        if "fixed_y" in constraints:
             try:
-                y = float(constraints['fixed_y'])
+                y = float(constraints["fixed_y"])
                 constrained = True
             except (ValueError, TypeError):
                 pass
@@ -150,10 +152,10 @@ class ConstraintSolver:
         constraints: dict[str, Any],
     ) -> tuple[float, float, bool]:
         """Apply grid snapping."""
-        if 'snap_grid' not in constraints:
+        if "snap_grid" not in constraints:
             return x, y, False
 
-        grid_size = constraints['snap_grid']
+        grid_size = constraints["snap_grid"]
         if grid_size <= 0:
             return x, y, False
 
@@ -169,11 +171,11 @@ class ConstraintSolver:
         constraints: dict[str, Any],
     ) -> tuple[float, float, bool]:
         """Apply fixed distance from anchor constraint."""
-        if 'fixed_distance' not in constraints:
+        if "fixed_distance" not in constraints:
             return x, y, False
 
-        anchor = constraints['fixed_distance'].get('anchor')
-        distance = constraints['fixed_distance'].get('distance')
+        anchor = constraints["fixed_distance"].get("anchor")
+        distance = constraints["fixed_distance"].get("distance")
 
         if anchor is None or distance is None:
             return x, y, False
@@ -199,30 +201,28 @@ class ConstraintSolver:
         constraints: dict[str, Any],
     ) -> tuple[float, float, bool]:
         """Apply radial constraint around a center point."""
-        if 'center' not in constraints:
+        if "center" not in constraints:
             return x, y, False
 
         has_radial = (
-            'min_radius' in constraints or
-            'max_radius' in constraints or
-            'angle' in constraints
+            "min_radius" in constraints or "max_radius" in constraints or "angle" in constraints
         )
         if not has_radial:
             return x, y, False
 
-        center = constraints['center']
+        center = constraints["center"]
         dx = x - center.x()
         dy = y - center.y()
         r = math.sqrt(dx * dx + dy * dy)
 
         # Clamp radius
-        r_min = constraints.get('min_radius', 0.0)
-        r_max = constraints.get('max_radius', float('inf'))
+        r_min = constraints.get("min_radius", 0.0)
+        r_max = constraints.get("max_radius", float("inf"))
         r = max(r_min, min(r_max, r if r > 0 else r_min))
 
         # Lock angle if provided
-        if 'angle' in constraints:
-            ang_deg = float(constraints['angle'])
+        if "angle" in constraints:
+            ang_deg = float(constraints["angle"])
             ang = math.radians(ang_deg)
             x = center.x() + r * math.cos(ang)
             y = center.y() + r * math.sin(ang)
@@ -250,29 +250,29 @@ class ConstraintSolver:
         Time Complexity: O(c)
         """
         # Check for conflicting constraints
-        if 'fixed_x' in constraints and 'min_x' in constraints:
-            if constraints['fixed_x'] < constraints['min_x']:
+        if "fixed_x" in constraints and "min_x" in constraints:
+            if constraints["fixed_x"] < constraints["min_x"]:
                 return False, "fixed_x is less than min_x"
 
-        if 'fixed_x' in constraints and 'max_x' in constraints:
-            if constraints['fixed_x'] > constraints['max_x']:
+        if "fixed_x" in constraints and "max_x" in constraints:
+            if constraints["fixed_x"] > constraints["max_x"]:
                 return False, "fixed_x is greater than max_x"
 
-        if 'fixed_y' in constraints and 'min_y' in constraints:
-            if constraints['fixed_y'] < constraints['min_y']:
+        if "fixed_y" in constraints and "min_y" in constraints:
+            if constraints["fixed_y"] < constraints["min_y"]:
                 return False, "fixed_y is less than min_y"
 
-        if 'fixed_y' in constraints and 'max_y' in constraints:
-            if constraints['fixed_y'] > constraints['max_y']:
+        if "fixed_y" in constraints and "max_y" in constraints:
+            if constraints["fixed_y"] > constraints["max_y"]:
                 return False, "fixed_y is greater than max_y"
 
         # Validate radial constraints
-        if 'min_radius' in constraints and 'max_radius' in constraints:
-            if constraints['min_radius'] > constraints['max_radius']:
+        if "min_radius" in constraints and "max_radius" in constraints:
+            if constraints["min_radius"] > constraints["max_radius"]:
                 return False, "min_radius is greater than max_radius"
 
         # Validate grid snap
-        if 'snap_grid' in constraints and constraints['snap_grid'] <= 0:
+        if "snap_grid" in constraints and constraints["snap_grid"] <= 0:
             return False, "snap_grid must be positive"
 
         return True, ""
@@ -287,13 +287,13 @@ class ConstraintSolver:
         """Create a bounds constraint dictionary."""
         constraints = {}
         if min_x is not None:
-            constraints['min_x'] = min_x
+            constraints["min_x"] = min_x
         if max_x is not None:
-            constraints['max_x'] = max_x
+            constraints["max_x"] = max_x
         if min_y is not None:
-            constraints['min_y'] = min_y
+            constraints["min_y"] = min_y
         if max_y is not None:
-            constraints['max_y'] = max_y
+            constraints["max_y"] = max_y
         return constraints
 
     def create_radial_constraint(
@@ -304,13 +304,13 @@ class ConstraintSolver:
         fixed_angle: float | None = None,
     ) -> dict[str, Any]:
         """Create a radial constraint dictionary."""
-        constraints = {'center': center}
+        constraints = {"center": center}
         if min_radius is not None:
-            constraints['min_radius'] = min_radius
+            constraints["min_radius"] = min_radius
         if max_radius is not None:
-            constraints['max_radius'] = max_radius
+            constraints["max_radius"] = max_radius
         if fixed_angle is not None:
-            constraints['angle'] = fixed_angle
+            constraints["angle"] = fixed_angle
         return constraints
 
     def create_distance_constraint(
@@ -320,8 +320,8 @@ class ConstraintSolver:
     ) -> dict[str, Any]:
         """Create a fixed distance constraint dictionary."""
         return {
-            'fixed_distance': {
-                'anchor': anchor,
-                'distance': distance,
+            "fixed_distance": {
+                "anchor": anchor,
+                "distance": distance,
             }
         }

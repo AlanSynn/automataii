@@ -1,5 +1,4 @@
-"""Base abstraction for linkage validation strategies.
-"""
+"""Base abstraction for linkage validation strategies."""
 
 from __future__ import annotations
 

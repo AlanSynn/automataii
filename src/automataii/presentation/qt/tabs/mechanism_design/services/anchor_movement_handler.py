@@ -6,6 +6,7 @@ Handles parameter recalculation when anchor points are moved.
 
 Design Pattern: Strategy (mechanism-specific parameter calculation)
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable

@@ -6,6 +6,7 @@ Handles view-related operations like centering, zooming, and bounds calculations
 
 Design Pattern: Service (encapsulates view utility operations)
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,7 +54,7 @@ class ViewUtilitiesService:
         # Include parts
         if current_editor_items:
             for _part_name, part_item in current_editor_items.items():
-                if part_item and hasattr(part_item, 'scene') and part_item.scene():
+                if part_item and hasattr(part_item, "scene") and part_item.scene():
                     try:
                         part_rect = part_item.sceneBoundingRect()
                         if combined_rect is None:
@@ -66,7 +67,7 @@ class ViewUtilitiesService:
         # Include skeleton joints
         if skeleton_joint_items:
             for joint_item in skeleton_joint_items.values():
-                if joint_item and hasattr(joint_item, 'scene') and joint_item.scene():
+                if joint_item and hasattr(joint_item, "scene") and joint_item.scene():
                     try:
                         joint_rect = joint_item.sceneBoundingRect()
                         if combined_rect is None:
@@ -128,7 +129,7 @@ class ViewUtilitiesService:
             view: QGraphicsView to configure
             antialiasing: Whether to enable antialiasing
         """
-        if view and hasattr(view, 'setRenderHint'):
+        if view and hasattr(view, "setRenderHint"):
             try:
                 view.setRenderHint(QPainter.RenderHint.Antialiasing, antialiasing)
             except Exception:

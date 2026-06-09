@@ -11,6 +11,7 @@ from typing import Any
 @dataclass
 class ViewPort:
     """Viewport configuration for drawings."""
+
     x: float
     y: float
     width: float
@@ -91,34 +92,34 @@ class BlueprintGenerator:
         front_view = ViewPort(
             x=margin,
             y=margin,
-            width=(self.drawing_width - 3*margin) / 2,
-            height=(self.drawing_height - 3*margin) / 2,
+            width=(self.drawing_width - 3 * margin) / 2,
+            height=(self.drawing_height - 3 * margin) / 2,
             scale=1.0,
-            label="FRONT VIEW"
+            label="FRONT VIEW",
         )
         top_view = ViewPort(
             x=(self.drawing_width + margin) / 2,
             y=margin,
-            width=(self.drawing_width - 3*margin) / 2,
-            height=(self.drawing_height - 3*margin) / 2,
+            width=(self.drawing_width - 3 * margin) / 2,
+            height=(self.drawing_height - 3 * margin) / 2,
             scale=1.0,
-            label="TOP VIEW"
+            label="TOP VIEW",
         )
         side_view = ViewPort(
             x=margin,
             y=(self.drawing_height + margin) / 2,
-            width=(self.drawing_width - 3*margin) / 2,
-            height=(self.drawing_height - 3*margin) / 2,
+            width=(self.drawing_width - 3 * margin) / 2,
+            height=(self.drawing_height - 3 * margin) / 2,
             scale=1.0,
-            label="SIDE VIEW"
+            label="SIDE VIEW",
         )
         isometric_view = ViewPort(
             x=(self.drawing_width + margin) / 2,
             y=(self.drawing_height + margin) / 2,
-            width=(self.drawing_width - 3*margin) / 2,
-            height=(self.drawing_height - 3*margin) / 2,
+            width=(self.drawing_width - 3 * margin) / 2,
+            height=(self.drawing_height - 3 * margin) / 2,
             scale=1.0,
-            label="ISOMETRIC VIEW"
+            label="ISOMETRIC VIEW",
         )
 
         # List-based access (for backward compatibility)
@@ -126,15 +127,15 @@ class BlueprintGenerator:
 
         # Named access (for convenience)
         self.viewports = {
-            'front': front_view,
-            'top': top_view,
-            'side': side_view,
-            'isometric': isometric_view
+            "front": front_view,
+            "top": top_view,
+            "side": side_view,
+            "isometric": isometric_view,
         }
 
     def _add_title_block(self, mechanism_data: dict[str, Any]):
         """Add standard title block with drawing information."""
-        title_block_svg = f'''
+        title_block_svg = f"""
         <!-- Title Block -->
         <g id="title-block">
             <rect x="300" y="250" width="110" height="40"
@@ -146,23 +147,23 @@ class BlueprintGenerator:
 
             <text x="302" y="258" font-size="8" font-family="Arial">TITLE:</text>
             <text x="357" y="258" font-size="8" font-family="Arial" font-weight="bold">
-                {mechanism_data.get('type', 'MECHANISM').upper()}
+                {mechanism_data.get("type", "MECHANISM").upper()}
             </text>
 
             <text x="302" y="268" font-size="8" font-family="Arial">PART NO:</text>
             <text x="357" y="268" font-size="8" font-family="Arial">
-                {mechanism_data.get('id', 'M-001')[:10]}
+                {mechanism_data.get("id", "M-001")[:10]}
             </text>
 
             <text x="302" y="278" font-size="8" font-family="Arial">MATERIAL:</text>
             <text x="357" y="278" font-size="8" font-family="Arial">
-                {mechanism_data.get('material', 'STEEL')}
+                {mechanism_data.get("material", "STEEL")}
             </text>
 
             <text x="302" y="288" font-size="8" font-family="Arial">SCALE:</text>
             <text x="357" y="288" font-size="8" font-family="Arial">1:1</text>
         </g>
-        '''
+        """
         self.svg_elements.append(title_block_svg)
 
     def _generate_front_view(self, mechanism_data: dict[str, Any]):
@@ -187,36 +188,36 @@ class BlueprintGenerator:
 
     def _add_dimensions(self, mechanism_data: dict[str, Any]):
         """Add dimension lines and values."""
-        dimensions_svg = '''
+        dimensions_svg = """
         <!-- Dimensions -->
         <g id="dimensions" stroke="black" stroke-width="0.35" fill="none">
-        '''
+        """
 
         for dimension in self.dimensions:
             dimensions_svg += dimension
 
-        dimensions_svg += '</g>'
+        dimensions_svg += "</g>"
         self.svg_elements.append(dimensions_svg)
 
     def _add_tolerances(self, mechanism_data: dict[str, Any]):
         """Add tolerance specifications."""
-        mechanism_data.get('tolerances', {})
+        mechanism_data.get("tolerances", {})
 
-        tolerance_svg = '''
+        tolerance_svg = """
         <!-- Tolerances -->
         <g id="tolerances" font-size="6" font-family="Arial">
             <text x="10" y="280">UNLESS OTHERWISE SPECIFIED:</text>
             <text x="10" y="286">DIMENSIONS ARE IN MILLIMETERS</text>
             <text x="10" y="292">TOLERANCES: ±0.1mm</text>
         </g>
-        '''
+        """
         self.svg_elements.append(tolerance_svg)
 
     def _add_part_list(self, mechanism_data: dict[str, Any]):
         """Add bill of materials / part list."""
-        parts = mechanism_data.get('parts', [])
+        parts = mechanism_data.get("parts", [])
 
-        part_list_svg = '''
+        part_list_svg = """
         <!-- Part List -->
         <g id="part-list" font-size="7" font-family="Arial">
             <rect x="10" y="200" width="120" height="40"
@@ -230,43 +231,43 @@ class BlueprintGenerator:
             <text x="32" y="206" font-weight="bold">DESCRIPTION</text>
             <text x="92" y="206" font-weight="bold">QTY</text>
             <text x="112" y="206" font-weight="bold">MAT.</text>
-        '''
+        """
 
         # Add parts (example)
         y_offset = 214
         for i, part in enumerate(parts[:5], 1):  # Limit to 5 parts for space
             part_list_svg += f'''
             <text x="12" y="{y_offset}">{i}</text>
-            <text x="32" y="{y_offset}">{part.get('name', 'Part')[:20]}</text>
-            <text x="92" y="{y_offset}">{part.get('quantity', 1)}</text>
-            <text x="112" y="{y_offset}">{part.get('material', 'STL')[:5]}</text>
+            <text x="32" y="{y_offset}">{part.get("name", "Part")[:20]}</text>
+            <text x="92" y="{y_offset}">{part.get("quantity", 1)}</text>
+            <text x="112" y="{y_offset}">{part.get("material", "STL")[:5]}</text>
             '''
             y_offset += 6
 
-        part_list_svg += '</g>'
+        part_list_svg += "</g>"
         self.svg_elements.append(part_list_svg)
 
     def _add_assembly_notes(self, mechanism_data: dict[str, Any]):
         """Add assembly instructions and notes."""
-        notes = mechanism_data.get('assembly_notes', [])
+        notes = mechanism_data.get("assembly_notes", [])
 
-        notes_svg = '''
+        notes_svg = """
         <!-- Assembly Notes -->
         <g id="notes" font-size="6" font-family="Arial">
             <text x="140" y="210" font-weight="bold">ASSEMBLY NOTES:</text>
-        '''
+        """
 
         y_offset = 216
         for i, note in enumerate(notes[:5], 1):
             notes_svg += f'<text x="140" y="{y_offset}">{i}. {note[:50]}</text>'
             y_offset += 6
 
-        notes_svg += '</g>'
+        notes_svg += "</g>"
         self.svg_elements.append(notes_svg)
 
     def _combine_svg_elements(self) -> str:
         """Combine all SVG elements into final blueprint."""
-        svg = '''<?xml version="1.0" encoding="UTF-8"?>
+        svg = """<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      width="420mm" height="297mm"
      viewBox="0 0 420 297">
@@ -279,7 +280,7 @@ class BlueprintGenerator:
 
     <!-- Viewport Borders -->
     <g id="viewports" stroke="black" stroke-width="0.5" fill="none">
-'''
+"""
 
         for view in self.views:
             svg += f'''
@@ -291,18 +292,19 @@ class BlueprintGenerator:
         </text>
 '''
 
-        svg += '    </g>\n\n'
+        svg += "    </g>\n\n"
 
         # Add all generated elements
         for element in self.svg_elements:
-            svg += element + '\n'
+            svg += element + "\n"
 
-        svg += '</svg>'
+        svg += "</svg>"
 
         return svg
 
-    def _add_dimension_line(self, x1: float, y1: float, x2: float, y2: float,
-                            value: str, offset: float = 10) -> None:
+    def _add_dimension_line(
+        self, x1: float, y1: float, x2: float, y2: float, value: str, offset: float = 10
+    ) -> None:
         """Add a dimension line directly to svg_elements.
 
         Convenience method for child classes.
@@ -310,8 +312,9 @@ class BlueprintGenerator:
         dimension_svg = self.create_dimension_line(x1, y1, x2, y2, value, offset)
         self.svg_elements.append(dimension_svg)
 
-    def create_dimension_line(self, x1: float, y1: float, x2: float, y2: float,
-                            value: str, offset: float = 10) -> str:
+    def create_dimension_line(
+        self, x1: float, y1: float, x2: float, y2: float, value: str, offset: float = 10
+    ) -> str:
         """Create a dimension line with arrows and text."""
         # Calculate midpoint
         mid_x = (x1 + x2) / 2
@@ -320,7 +323,7 @@ class BlueprintGenerator:
         # Calculate perpendicular offset
         dx = x2 - x1
         dy = y2 - y1
-        length = math.sqrt(dx*dx + dy*dy)
+        length = math.sqrt(dx * dx + dy * dy)
 
         if length > 0:
             perp_x = -dy / length * offset
@@ -347,9 +350,9 @@ class BlueprintGenerator:
             <line x1="{ox1}" y1="{oy1}" x2="{ox2}" y2="{oy2}"/>
 
             <!-- Arrows -->
-            <polygon points="{ox1-2},{oy1} {ox1+2},{oy1-1} {ox1+2},{oy1+1}"
+            <polygon points="{ox1 - 2},{oy1} {ox1 + 2},{oy1 - 1} {ox1 + 2},{oy1 + 1}"
                      fill="black"/>
-            <polygon points="{ox2+2},{oy2} {ox2-2},{oy2-1} {ox2-2},{oy2+1}"
+            <polygon points="{ox2 + 2},{oy2} {ox2 - 2},{oy2 - 1} {ox2 - 2},{oy2 + 1}"
                      fill="black"/>
 
             <!-- Value -->
@@ -360,8 +363,7 @@ class BlueprintGenerator:
         </g>
         '''
 
-    def create_radius_dimension(self, cx: float, cy: float, r: float,
-                               angle: float = 45) -> str:
+    def create_radius_dimension(self, cx: float, cy: float, r: float, angle: float = 45) -> str:
         """Create radius dimension with leader line."""
         # Calculate point on circle
         rad = math.radians(angle)
@@ -379,7 +381,7 @@ class BlueprintGenerator:
             <line x1="{px}" y1="{py}" x2="{lx}" y2="{ly}"/>
 
             <!-- Arrow -->
-            <polygon points="{px-2},{py} {px+2},{py-1} {px+2},{py+1}"
+            <polygon points="{px - 2},{py} {px + 2},{py - 1} {px + 2},{py + 1}"
                      fill="black"/>
 
             <!-- Value -->
@@ -389,8 +391,9 @@ class BlueprintGenerator:
         </g>
         '''
 
-    def create_angle_dimension(self, cx: float, cy: float, r: float,
-                              start_angle: float, end_angle: float) -> str:
+    def create_angle_dimension(
+        self, cx: float, cy: float, r: float, start_angle: float, end_angle: float
+    ) -> str:
         """Create angle dimension arc."""
         # Calculate arc path
         start_rad = math.radians(start_angle)

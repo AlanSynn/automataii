@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """
 Direct test of the blueprint export functionality to verify it's working correctly.
 This test simulates what happens when the user exports a blueprint.
 """
+
 import sys
 
-sys.path.append('src')
+sys.path.append("src")
 import pytest
 
 # Manual blueprint export inspection; skip in automated pytest runs.
@@ -24,42 +26,39 @@ def test_direct_blueprint_export():
     # Simulate some basic part and mechanism data
     part_items = [
         {
-            'id': 'test_head',
-            'type': 'head',
-            'bounds': {'width': 50, 'height': 60},
-            'clip_path': 'M 0 0 L 50 0 L 50 60 L 0 60 Z',
-            'texture_data_uri': None
+            "id": "test_head",
+            "type": "head",
+            "bounds": {"width": 50, "height": 60},
+            "clip_path": "M 0 0 L 50 0 L 50 60 L 0 60 Z",
+            "texture_data_uri": None,
         },
         {
-            'id': 'test_torso',
-            'type': 'torso',
-            'bounds': {'width': 80, 'height': 120},
-            'clip_path': 'M 0 0 L 80 0 L 80 120 L 0 120 Z',
-            'texture_data_uri': None
-        }
+            "id": "test_torso",
+            "type": "torso",
+            "bounds": {"width": 80, "height": 120},
+            "clip_path": "M 0 0 L 80 0 L 80 120 L 0 120 Z",
+            "texture_data_uri": None,
+        },
     ]
 
     mechanism_layers = {
-        'test_4bar': {
-            'id': 'test_4bar',
-            'type': '4_bar_linkage',
-            'total_scale_factor': 1.5,
-            'key_points': {
-                'ground_pivot_a': [0, 0],
-                'ground_pivot_b': [60, 0],
-                'coupler_a': [20, 40],
-                'coupler_b': [40, 40]
-            }
+        "test_4bar": {
+            "id": "test_4bar",
+            "type": "4_bar_linkage",
+            "total_scale_factor": 1.5,
+            "key_points": {
+                "ground_pivot_a": [0, 0],
+                "ground_pivot_b": [60, 0],
+                "coupler_a": [20, 40],
+                "coupler_b": [40, 40],
+            },
         },
-        'test_gear': {
-            'id': 'test_gear',
-            'type': 'gear',
-            'total_scale_factor': 1.2,
-            'params': {
-                'radius_mm': 25.0,
-                'teeth': 20
-            }
-        }
+        "test_gear": {
+            "id": "test_gear",
+            "type": "gear",
+            "total_scale_factor": 1.2,
+            "params": {"radius_mm": 25.0, "teeth": 20},
+        },
     }
 
     # Create optimizer
@@ -67,7 +66,9 @@ def test_direct_blueprint_export():
 
     # Optimize layout
     print("⚙️  Optimizing blueprint layout...")
-    layout_items, scale_info, metrics = optimizer.optimize_blueprint_layout(part_items, mechanism_layers)
+    layout_items, scale_info, metrics = optimizer.optimize_blueprint_layout(
+        part_items, mechanism_layers
+    )
 
     print("✅ Layout optimization complete:")
     print(f"   - Layout items: {len(layout_items)}")
@@ -90,8 +91,8 @@ def test_direct_blueprint_export():
     )
 
     # Save to file
-    output_file = 'test_direct_blueprint_export.svg'
-    with open(output_file, 'w', encoding='utf-8') as f:
+    output_file = "test_direct_blueprint_export.svg"
+    with open(output_file, "w", encoding="utf-8") as f:
         f.write(svg_content)
 
     print(f"✅ Blueprint exported successfully to {output_file}")
@@ -103,15 +104,15 @@ def test_direct_blueprint_export():
         print(f"✅ File verification passed: {file_size:,} bytes")
 
         # Check if file contains expected content
-        with open(output_file, encoding='utf-8') as f:
+        with open(output_file, encoding="utf-8") as f:
             content = f.read()
 
         checks = [
-            ('SVG header', '<svg' in content),
-            ('Blueprint title', 'Test Manufacturing Blueprint' in content),
-            ('Character parts', 'test_head' in content or 'test_torso' in content),
-            ('Mechanisms', 'test_4bar' in content or 'test_gear' in content),
-            ('Manufacturing details', 'manufacturing' in content.lower()),
+            ("SVG header", "<svg" in content),
+            ("Blueprint title", "Test Manufacturing Blueprint" in content),
+            ("Character parts", "test_head" in content or "test_torso" in content),
+            ("Mechanisms", "test_4bar" in content or "test_gear" in content),
+            ("Manufacturing details", "manufacturing" in content.lower()),
         ]
 
         print("\n🔍 Content verification:")
@@ -137,6 +138,7 @@ def test_direct_blueprint_export():
 
     return True
 
+
 if __name__ == "__main__":
     try:
         success = test_direct_blueprint_export()
@@ -148,5 +150,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Test failed with exception: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

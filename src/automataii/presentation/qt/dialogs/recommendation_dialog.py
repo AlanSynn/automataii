@@ -1,8 +1,9 @@
 import json
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 import numpy as np
 from PyQt6.QtCore import QLineF, QPointF, QRectF, Qt, QTimer
@@ -38,6 +39,9 @@ from automataii.presentation.qt.tabs.cam_geometry import build_pear_cam_profile
 from automataii.utils.paths import resolve_path
 
 logger = logging.getLogger(__name__)
+_NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+_ScreenTransform = Callable[[np.ndarray], QPointF]
+_SimulationTransform = Callable[[np.ndarray, QTransform], QPointF]
 
 
 # --- Time-aware matching helpers ---
@@ -59,6 +63,55 @@ def _finite_path_array(points: object, min_points: int = 2) -> np.ndarray | None
         if arc_length <= 1e-9 or extent <= 1e-9:
             return None
     return array
+
+
+def _finite_float(value: object, default: float) -> float:
+    """Return a finite float, or ``default`` for invalid numeric payloads."""
+    try:
+        result = float(cast(_NumericPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if np.isfinite(result) else default
+
+
+def _stable_recommendation_identity(row: dict[str, Any], json_type: str) -> str:
+    """Return a deterministic identity string for tie-breaking equal scores."""
+    payload = {
+        "id": row.get("id") or row.get("path_id") or row.get("source_id"),
+        "name": row.get("name"),
+        "type": json_type,
+        "reverse_direction": row.get("reverse_direction"),
+        "parameters": row.get("parameters", {}),
+        "key_points": row.get("key_points", {}),
+        "path_coordinates": row.get("path_coordinates"),
+    }
+    return json.dumps(payload, sort_keys=True, default=str)
+
+
+def _coerce_reverse_direction(value: object, default: bool = False) -> bool:
+    """Coerce persisted/UI direction flags without treating junk payloads as true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"1", "true", "yes", "y", "on", "reverse", "reversed"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", "forward"}:
+            return False
+        return default
+    if isinstance(value, int | float | np.integer | np.floating):
+        numeric_value = float(value)
+        return bool(value) if np.isfinite(numeric_value) else default
+    return default
+
+
+def _candidate_reverse_direction(row: dict[str, Any]) -> bool:
+    """Return the candidate's persisted direction flag using dialog/candidate precedence."""
+    raw_params = row.get("parameters")
+    params = raw_params if isinstance(raw_params, dict) else {}
+    if "reverse_direction" in row:
+        return _coerce_reverse_direction(row.get("reverse_direction"), False)
+    return _coerce_reverse_direction(params.get("reverse_direction"), False)
 
 
 def _cumulative_arc_length(points: np.ndarray) -> np.ndarray:
@@ -269,22 +322,22 @@ def align_and_compare_paths(
 class MechanismPreviewWidget(QGraphicsView):
     """A widget to display a preview of a single mechanism."""
 
-    def __init__(self, mechanism_data: dict[str, Any], parent: QWidget | None = None):
+    def __init__(self, mechanism_data: dict[str, Any], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.mechanism_data = mechanism_data
         self.setFixedSize(280, 220)  # Reduced size to prevent overlap in dialog
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        self.scene = QGraphicsScene(self)
-        self.setScene(self.scene)
+        self._preview_scene = QGraphicsScene(self)
+        self.setScene(self._preview_scene)
         self.setBackgroundBrush(QColor("#ffffff"))  # White background
         # CAM animation state
         self._cam_poly_item: QGraphicsPolygonItem | None = None
         self._follower_item: QGraphicsRectItem | None = None
         self._rod_item: QGraphicsPathItem | None = None
         self._cam_points_local: np.ndarray | None = None
-        self._cam_to_screen: Callable | None = None
+        self._cam_to_screen: _ScreenTransform | None = None
         self._cam_angle: float = 0.0
         self._cam_timer: QTimer | None = None
         self._render_preview()  # Render after background is set and scene is ready
@@ -296,9 +349,10 @@ class MechanismPreviewWidget(QGraphicsView):
 
         if user_path_points is None or mech_path_points is None:
             logger.debug("Aligned paths not found for preview.")
-            text_item = self.scene.addText("Path data not available", QFont("Arial", 14))
-            text_item.setDefaultTextColor(QColor("#666666"))
-            text_item.setPos(bounds.center().x() - 80, bounds.center().y() - 20)
+            text_item = self._preview_scene.addText("Path data not available", QFont("Arial", 14))
+            if text_item is not None:
+                text_item.setDefaultTextColor(QColor("#666666"))
+                text_item.setPos(bounds.center().x() - 80, bounds.center().y() - 20)
             return
 
         def numpy_to_qpainterpath(points: np.ndarray) -> QPainterPath:
@@ -333,34 +387,45 @@ class MechanismPreviewWidget(QGraphicsView):
         user_item = QGraphicsPathItem(transform.map(user_path))
         user_pen = QPen(BITTERSWEET, 8.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
         user_item.setPen(user_pen)
-        self.scene.addItem(user_item)
+        self._preview_scene.addItem(user_item)
 
         # Draw mechanism path (blue, solid)
         mech_item = QGraphicsPathItem(transform.map(mech_path))
         mech_pen = QPen(STEEL_BLUE, 8.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         mech_item.setPen(mech_pen)
-        self.scene.addItem(mech_item)
+        self._preview_scene.addItem(mech_item)
 
     def _draw_mechanism_structure(self, transform: QTransform) -> None:
         """Draws the mechanism structure (e.g., links and pivots) for a single frame."""
         mech_type = self.mechanism_data.get("original_json_type")
         params = self.mechanism_data.get("parameters")
-        full_sim_data = self.mechanism_data.get("full_simulation_data", {})
+        full_sim_data = self.mechanism_data.get("full_simulation_data")
 
-        if not all([mech_type, params, full_sim_data]):
+        if not isinstance(params, dict) or not isinstance(full_sim_data, dict) or not mech_type:
             return
 
-        # Central dispatcher for drawing mechanisms from simulation data
-        if mech_type == "4-bar Coupler" and "joint_positions" in full_sim_data:
-            self._draw_4_bar_from_sim(transform, full_sim_data, params)
-        elif mech_type in ["Cam-Follower", "Cam Follower"] and "cam_data" in full_sim_data:
-            self._draw_cam_follower_from_sim(transform, full_sim_data, params)
-        elif mech_type in ["Simple Gear", "Gear Contact"] and "gear_data" in full_sim_data:
-            self._draw_simple_gear_from_sim(transform, full_sim_data, params)
-        elif mech_type == "Planetary Gear" and "gear_positions" in full_sim_data:
-            self._draw_planetary_gear_from_sim(transform, full_sim_data, params)
+        # Central dispatcher for drawing mechanisms from simulation data. Preview payloads come
+        # from template search files, so malformed rows must be skipped instead of crashing the UI.
+        try:
+            if mech_type == "4-bar Coupler" and "joint_positions" in full_sim_data:
+                self._draw_4_bar_from_sim(transform, full_sim_data, params)
+            elif mech_type in ["Cam-Follower", "Cam Follower"] and "cam_data" in full_sim_data:
+                self._draw_cam_follower_from_sim(transform, full_sim_data, params)
+            elif mech_type in ["Simple Gear", "Gear Contact"] and "gear_data" in full_sim_data:
+                self._draw_simple_gear_from_sim(transform, full_sim_data, params)
+            elif mech_type == "Planetary Gear" and "gear_positions" in full_sim_data:
+                self._draw_planetary_gear_from_sim(transform, full_sim_data, params)
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            logger.warning(
+                "Skipping malformed %s recommendation preview structure: %s",
+                mech_type,
+                exc,
+                exc_info=True,
+            )
 
-    def _get_transform_for_sim_data(self, full_sim_data: dict, path_key: str) -> Callable | None:
+    def _get_transform_for_sim_data(
+        self, full_sim_data: dict[str, Any], path_key: str
+    ) -> _SimulationTransform | None:
         """Helper to create a transformation function to align simulation data with the displayed path."""
         mech_path = np.array(full_sim_data.get(path_key, []))
         user_path_aligned = self.mechanism_data.get("user_path_aligned_np")
@@ -387,7 +452,7 @@ class MechanismPreviewWidget(QGraphicsView):
         return to_screen_coords
 
     def _draw_4_bar_from_sim(
-        self, transform: QTransform, full_sim_data: dict, params: dict
+        self, transform: QTransform, full_sim_data: dict[str, Any], params: dict[str, Any]
     ) -> None:
         """Draws the 4-bar linkage structure using exact simulation positions."""
         joint_positions = full_sim_data["joint_positions"]
@@ -402,7 +467,7 @@ class MechanismPreviewWidget(QGraphicsView):
         if not to_screen_coords_func:
             return
 
-        def to_screen_coords(p):
+        def to_screen_coords(p: np.ndarray) -> QPointF:
             return to_screen_coords_func(p, transform)
 
         self._draw_4_bar_structure_from_sim(p1, p2, p3, p4, to_screen_coords)
@@ -413,7 +478,7 @@ class MechanismPreviewWidget(QGraphicsView):
         p2: np.ndarray,
         p3: np.ndarray,
         p4: np.ndarray,
-        to_screen_coords: callable,
+        to_screen_coords: _ScreenTransform,
     ) -> None:
         """Draws the 4-bar linkage structure using exact simulation positions with triangular coupler."""
         params = self.mechanism_data.get("parameters", {})
@@ -428,13 +493,20 @@ class MechanismPreviewWidget(QGraphicsView):
         else:
             p_coupler = p3
 
-        p1_t, p2_t, p3_t, p4_t, p_coupler_t = map(to_screen_coords, [p1, p2, p3, p4, p_coupler])
+        screen_points: tuple[QPointF, QPointF, QPointF, QPointF, QPointF] = (
+            to_screen_coords(p1),
+            to_screen_coords(p2),
+            to_screen_coords(p3),
+            to_screen_coords(p4),
+            to_screen_coords(p_coupler),
+        )
+        p1_t, p2_t, p3_t, p4_t, p_coupler_t = screen_points
 
-        self.scene.addLine(
+        self._preview_scene.addLine(
             QLineF(p1_t, p3_t),
             QPen(QColor("#e74c3c"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap),
         )
-        self.scene.addLine(
+        self._preview_scene.addLine(
             QLineF(p2_t, p4_t),
             QPen(QColor("#f39c12"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap),
         )
@@ -448,17 +520,17 @@ class MechanismPreviewWidget(QGraphicsView):
             / 2
         )
         if area < 1e-3:
-            self.scene.addLine(
+            self._preview_scene.addLine(
                 QLineF(p3_t, p4_t),
                 QPen(QColor("#2ecc71"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap),
             )
         else:
             triangle_polygon = QPolygonF([p3_t, p4_t, p_coupler_t])
-            self.scene.addPolygon(
+            self._preview_scene.addPolygon(
                 triangle_polygon, QPen(QColor("#2ecc71"), 2), QBrush(QColor("#2ecc71").lighter(160))
             )
 
-        self.scene.addEllipse(
+        self._preview_scene.addEllipse(
             p_coupler_t.x() - 3,
             p_coupler_t.y() - 3,
             6,
@@ -467,22 +539,24 @@ class MechanismPreviewWidget(QGraphicsView):
             QBrush(QColor("#ff0000")),
         )
 
-    def _draw_cam_follower_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
+    def _draw_cam_follower_from_sim(
+        self, transform: QTransform, full_sim_data: dict[str, Any], params: dict[str, Any]
+    ) -> None:
         """Template-driven cam preview with rigid rotation animation."""
-        base_radius = float(params.get("base_radius", 25.0))
+        base_radius = _finite_float(params.get("base_radius", 25.0), 25.0)
         # Override eccentricity with user total lift if available
-        eccentricity = float(params.get("eccentricity", 10.0))
+        eccentricity = _finite_float(params.get("eccentricity", 10.0), 10.0)
         try:
             up = self.mechanism_data.get("user_path_aligned_np")
             if up is not None and len(up) > 0:
                 umin = float(np.min(up[:, 1]))
                 umax = float(np.max(up[:, 1]))
                 user_lift = abs(umax - umin)
-                if user_lift > 1e-9:
+                if np.isfinite(user_lift) and user_lift > 1e-9:
                     eccentricity = user_lift
         except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
-        rod_len = float(params.get("follower_rod_length", 40.0))
+            logging.debug("Could not derive cam lift from aligned user path", exc_info=True)
+        rod_len = _finite_float(params.get("follower_rod_length", 40.0), 40.0)
 
         cam_data = full_sim_data.get("cam_data", {}) if full_sim_data else {}
         if cam_data and "follower_y_positions" in cam_data:
@@ -508,11 +582,12 @@ class MechanismPreviewWidget(QGraphicsView):
             or self.mechanism_data.get("parameters", {}).get("cam_template_svg_path")
             or default_template
         )
-        template_points = None
+        template_points: np.ndarray | None = None
         try:
             axis, poly = self._load_cam_profile_svg(svg_path)
-            if axis is not None and poly.shape[0] >= 3:
-                template_points = poly - axis
+            valid_poly = _finite_path_array(poly, min_points=3)
+            if axis is not None and valid_poly is not None:
+                template_points = valid_poly - axis
         except Exception:
             logging.debug(
                 "Could not load cam template %s; using analytic fallback", svg_path, exc_info=True
@@ -548,7 +623,7 @@ class MechanismPreviewWidget(QGraphicsView):
         self._cam_poly_item = QGraphicsPolygonItem(cam_polygon)
         self._cam_poly_item.setPen(QPen(cam_color, 3))
         self._cam_poly_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.scene.addItem(self._cam_poly_item)
+        self._preview_scene.addItem(self._cam_poly_item)
 
         y_max = float(np.max(self._cam_points_local[:, 1]))
         follower_center = np.array([0.0, y_max - rod_len])  # follower above cam
@@ -560,7 +635,7 @@ class MechanismPreviewWidget(QGraphicsView):
         )
         self._follower_item.setPen(QPen(follower_color, 2))
         self._follower_item.setBrush(QBrush(follower_color.lighter(140)))
-        self.scene.addItem(self._follower_item)
+        self._preview_scene.addItem(self._follower_item)
 
         cam_top_scene = self._cam_to_screen(np.array([0.0, y_max]))
         rod_path = QPainterPath(cam_top_scene)
@@ -568,7 +643,7 @@ class MechanismPreviewWidget(QGraphicsView):
         rod_pen = QPen(QColor("#2ecc71"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         self._rod_item = QGraphicsPathItem(rod_path)
         self._rod_item.setPen(rod_pen)
-        self.scene.addItem(self._rod_item)
+        self._preview_scene.addItem(self._rod_item)
 
         # Start animation
         if self._cam_timer is None:
@@ -576,7 +651,7 @@ class MechanismPreviewWidget(QGraphicsView):
             self._cam_timer.timeout.connect(lambda: self._tick_cam_animation(rod_len))
             self._cam_timer.start(60)  # ~16 FPS
 
-    def _tick_cam_animation(self, rod_len: float):
+    def _tick_cam_animation(self, rod_len: float) -> None:
         if (
             self._cam_points_local is None
             or self._cam_poly_item is None
@@ -623,36 +698,63 @@ class MechanismPreviewWidget(QGraphicsView):
                     cy = float(elem.attrib.get("cy", "0"))
                     axis = np.array([cx, cy], dtype=float)
                 except Exception:
-                    logging.debug("Suppressed exception", exc_info=True)
+                    logging.debug("Skipping malformed cam template axis circle", exc_info=True)
             elif tag == "path":
                 d = elem.attrib.get("d", "")
                 if not d:
                     continue
-                tokens = d.replace(",", " ").split()
+                tokens = re.findall(
+                    r"[MmLlZz]|[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?",
+                    d.replace(",", " "),
+                )
                 i = 0
+                command = ""
+                current = np.array([0.0, 0.0], dtype=float)
+                start_point: np.ndarray | None = None
                 while i < len(tokens):
-                    cmd = tokens[i]
-                    if cmd in ("M", "L") and i + 2 < len(tokens):
+                    token = tokens[i]
+                    if token in ("Z", "z"):
+                        if start_point is not None:
+                            current = start_point.copy()
+                        i += 1
+                        continue
+                    if token in ("M", "m", "L", "l"):
+                        command = token
+                        i += 1
+                        continue
+                    if command in ("M", "m", "L", "l") and i + 1 < len(tokens):
                         try:
-                            x = float(tokens[i + 1])
-                            y = float(tokens[i + 2])
-                            poly_pts.append((x, y))
-                            i += 3
-                        except Exception:
-                            i += 1
-                    else:
-                        try:
-                            x = float(cmd)
-                            y = float(tokens[i + 1])
-                            poly_pts.append((x, y))
+                            next_point = np.array([float(tokens[i]), float(tokens[i + 1])])
+                            if command in ("m", "l"):
+                                next_point = current + next_point
+                            current = next_point
+                            if start_point is None:
+                                start_point = current.copy()
+                            poly_pts.append((float(current[0]), float(current[1])))
+                            if command in ("M", "m"):
+                                command = "L" if command == "M" else "l"
                             i += 2
                         except Exception:
+                            logging.debug(
+                                "Skipping malformed cam template path segment", exc_info=True
+                            )
                             i += 1
-        if axis is None and poly_pts:
-            arr = np.array(poly_pts, dtype=float)
+                    else:
+                        logging.debug("Skipping unsupported cam template path token: %s", token)
+                        i += 1
+        valid_poly = _finite_path_array(poly_pts, min_points=3)
+        if axis is None and valid_poly is not None:
+            arr = valid_poly
             center = (np.min(arr, axis=0) + np.max(arr, axis=0)) / 2.0
             axis = center
-        return axis, np.array(poly_pts, dtype=float)
+        if axis is not None and not np.isfinite(axis).all():
+            axis = None
+        if valid_poly is None:
+            logger.warning(
+                "CAM template %s did not contain a finite non-degenerate profile", svg_path
+            )
+            return axis, np.empty((0, 2), dtype=float)
+        return axis, valid_poly
 
     def _build_cam_from_template(
         self,
@@ -661,39 +763,55 @@ class MechanismPreviewWidget(QGraphicsView):
         eccentricity: float,
         num_samples: int = 180,
     ) -> np.ndarray:
-        if template_points is None or len(template_points) < 3:
-            thetas = np.linspace(0, 2 * np.pi, num_samples)
-            return np.stack([base_radius * np.cos(thetas), base_radius * np.sin(thetas)], axis=1)
-        thetas = np.linspace(0, 2 * np.pi, num_samples)
+        base_radius = max(1e-6, _finite_float(base_radius, 25.0))
+        eccentricity = max(0.0, _finite_float(eccentricity, 10.0))
+        sample_count = max(3, int(_finite_float(num_samples, 180.0)))
+
+        def fallback_circle() -> np.ndarray:
+            circle_thetas = np.linspace(0, 2 * np.pi, sample_count)
+            return np.stack(
+                [base_radius * np.cos(circle_thetas), base_radius * np.sin(circle_thetas)],
+                axis=1,
+            )
+
+        valid_template = _finite_path_array(template_points, min_points=3)
+        if valid_template is None:
+            return fallback_circle()
+        thetas = np.linspace(0, 2 * np.pi, sample_count)
         u = np.stack([np.cos(thetas), np.sin(thetas)], axis=1)
-        dots = u @ template_points.T
+        dots = u @ valid_template.T
         r_templ = np.max(dots, axis=1)
         r_min = float(np.min(r_templ))
         r_max = float(np.max(r_templ))
-        denom = max(1e-9, r_max - r_min)
+        denom = r_max - r_min
+        if not np.isfinite(denom) or denom <= 1e-9:
+            return fallback_circle()
         s = (r_templ - r_min) / denom
         r = base_radius + eccentricity * s
         return np.stack([r * np.cos(thetas), r * np.sin(thetas)], axis=1)
 
-    def _draw_simple_gear_from_sim(self, transform: QTransform, full_sim_data: dict, params: dict):
+    def _draw_simple_gear_from_sim(
+        self, transform: QTransform, full_sim_data: dict[str, Any], params: dict[str, Any]
+    ) -> None:
         """Draws a simple gear train from simulation data."""
         gear_data = full_sim_data["gear_data"]
         frame_idx = 0
 
         g1_center = np.array(gear_data["gear1_centers"][frame_idx])
         g2_center = np.array(gear_data["gear2_centers"][frame_idx])
-        theta1 = gear_data["gear1_angles"][frame_idx]
-        theta2 = gear_data["gear2_angles"][frame_idx]
-        r1, r2 = params.get("r1"), params.get("r2")
+        theta1 = float(gear_data["gear1_angles"][frame_idx])
+        theta2 = float(gear_data["gear2_angles"][frame_idx])
+        r1 = _finite_float(params.get("r1", params.get("gear1_radius", 20.0)), 20.0)
+        r2 = _finite_float(params.get("r2", params.get("gear2_radius", 20.0)), 20.0)
 
         to_screen_coords_func = self._get_transform_for_sim_data(gear_data, "tracking_points")
         if not to_screen_coords_func:
             return
 
-        def to_screen_coords(p):
+        def to_screen_coords(p: np.ndarray) -> QPointF:
             return to_screen_coords_func(p, transform)
 
-        def draw_gear(center, radius, angle, color):
+        def draw_gear(center: np.ndarray, radius: float, angle: float, color: QColor) -> None:
             path = QPainterPath()
             for i in range(101):
                 theta = 2 * np.pi * i / 100
@@ -703,18 +821,18 @@ class MechanismPreviewWidget(QGraphicsView):
                     path.moveTo(p_screen)
                 else:
                     path.lineTo(p_screen)
-            self.scene.addPath(path, QPen(color, 4), QBrush(color.lighter(170)))
+            self._preview_scene.addPath(path, QPen(color, 4), QBrush(color.lighter(170)))
 
             p1 = to_screen_coords(center)
             p2 = to_screen_coords(center + radius * np.array([np.cos(angle), np.sin(angle)]))
-            self.scene.addLine(QLineF(p1, p2), QPen(QColor("white"), 2))
+            self._preview_scene.addLine(QLineF(p1, p2), QPen(QColor("white"), 2))
 
         draw_gear(g1_center, r1, theta1, QColor("#3498db"))
         draw_gear(g2_center, r2, theta2, QColor("#2ecc71"))
 
     def _draw_planetary_gear_from_sim(
-        self, transform: QTransform, full_sim_data: dict, params: dict
-    ):
+        self, transform: QTransform, full_sim_data: dict[str, Any], params: dict[str, Any]
+    ) -> None:
         """Draws a planetary gear system from simulation data."""
         gear_pos = full_sim_data["gear_positions"]
         frame_idx = 0
@@ -722,21 +840,22 @@ class MechanismPreviewWidget(QGraphicsView):
         sun_center = np.array(gear_pos["sun_centers"][frame_idx])
         planet_center = np.array(gear_pos["planet_centers"][frame_idx])
         tracking_point = np.array(gear_pos["tracking_points"][frame_idx])
-        r_sun, r_planet = params.get("r_sun"), params.get("r_planet")
+        r_sun = _finite_float(params.get("r_sun", params.get("sun_radius", 20.0)), 20.0)
+        r_planet = _finite_float(params.get("r_planet", params.get("planet_radius", 20.0)), 20.0)
 
         to_screen_coords_func = self._get_transform_for_sim_data(gear_pos, "tracking_points")
         if not to_screen_coords_func:
             return
 
-        def to_screen_coords(p):
+        def to_screen_coords(p: np.ndarray) -> QPointF:
             return to_screen_coords_func(p, transform)
 
-        def draw_gear(center, radius, color):
+        def draw_gear(center: np.ndarray, radius: float, color: QColor) -> None:
             p1_screen = to_screen_coords(center)
             p2_screen = to_screen_coords(center + np.array([radius, 0]))
             radius_screen = QLineF(p1_screen, p2_screen).length()
 
-            self.scene.addEllipse(
+            self._preview_scene.addEllipse(
                 p1_screen.x() - radius_screen,
                 p1_screen.y() - radius_screen,
                 radius_screen * 2,
@@ -750,19 +869,19 @@ class MechanismPreviewWidget(QGraphicsView):
 
         p1 = to_screen_coords(planet_center)
         p2 = to_screen_coords(tracking_point)
-        self.scene.addLine(QLineF(p1, p2), QPen(QColor("#f39c12"), 3))
-        self.scene.addEllipse(
+        self._preview_scene.addLine(QLineF(p1, p2), QPen(QColor("#f39c12"), 3))
+        self._preview_scene.addEllipse(
             p2.x() - 5, p2.y() - 5, 10, 10, QPen(QColor("#e74c3c")), QBrush(QColor("#e74c3c"))
         )
 
     def _render_preview(self) -> None:
-        self.scene.clear()
+        self._preview_scene.clear()
         margin = 5
         view_rect_int = self.rect()
         view_rect_f = QRectF(view_rect_int)
         view_rect_adjusted_f = view_rect_f.adjusted(margin, margin, -margin, -margin)
 
-        self.scene.setSceneRect(view_rect_f)
+        self._preview_scene.setSceneRect(view_rect_f)
         self._draw_path_comparison(view_rect_adjusted_f)
 
 
@@ -772,7 +891,7 @@ class PreviewContainer(QWidget):
     selected = Signal(dict)
     clicked = Signal(dict)
 
-    def __init__(self, mechanism_data: dict[str, Any], parent: QWidget | None = None):
+    def __init__(self, mechanism_data: dict[str, Any], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.mechanism_data = mechanism_data
         self._is_selected = False
@@ -860,14 +979,14 @@ class PreviewContainer(QWidget):
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event: Any) -> None:
         """Handle mouse press to emit clicked signal."""
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.mechanism_data)
             self._set_selected_style(True)
         super().mousePressEvent(event)
 
-    def _set_selected_style(self, selected: bool):
+    def _set_selected_style(self, selected: bool) -> None:
         """Update visual style to show selection."""
         self._is_selected = selected
         if selected:
@@ -908,7 +1027,7 @@ class MechanismRecommendationDialog(QDialog):
         generated_paths_filepath: str,
         num_samples_user_path: int = DEFAULT_NUM_SAMPLES_FOR_PATH,
         parent: QWidget | None = None,
-    ):
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Mechanism Recommendations")
         self.setMinimumSize(1050, 650)
@@ -1044,7 +1163,7 @@ class MechanismRecommendationDialog(QDialog):
 
     def _load_generated_paths(self, filepath: str) -> list[dict[str, Any]]:
         """Loads mechanism paths from a JSON file and prepares them."""
-        loaded_paths = []
+        loaded_paths: list[dict[str, Any]] = []
         try:
             with open(filepath) as f:
                 raw_data = json.load(f)
@@ -1157,7 +1276,7 @@ class MechanismRecommendationDialog(QDialog):
                 self.user_motion_path_np, gen_path_np, mechanism_type=json_type_str
             )
 
-            if user_path_aligned is None or gen_path_aligned is None:
+            if user_path_aligned is None or gen_path_aligned is None or transform_params is None:
                 continue
 
             if total_comparisons <= 5:
@@ -1170,11 +1289,31 @@ class MechanismRecommendationDialog(QDialog):
                 # Skip types we don't recognize as a target family
                 continue
 
-            # Time-aware matching: resample aligned shapes by arc-length (proxy for time)
+            # Time-aware matching: resample aligned shapes by arc-length (proxy for time).
+            # Hausdorff alignment is intentionally shape-only, so compare both traversal
+            # directions afterward.  Stored/template paths may be generated in the opposite
+            # order from the path the user just drew; the selected direction must therefore
+            # become explicit metadata instead of being hidden in a bad score.
             N = DEFAULT_NUM_SAMPLES_FOR_PATH
             user_time = _resample_time_aligned(user_path_aligned, N)
-            mech_time = _resample_time_aligned(gen_path_aligned, N)
-            time_score = _time_aware_distance(user_time, mech_time)
+            mech_time_forward = _resample_time_aligned(gen_path_aligned, N)
+            mech_path_aligned_reversed = gen_path_aligned[::-1]
+            mech_time_reversed = _resample_time_aligned(mech_path_aligned_reversed, N)
+            time_score_forward = _time_aware_distance(user_time, mech_time_forward)
+            time_score_reversed = _time_aware_distance(user_time, mech_time_reversed)
+            matched_reversed = time_score_reversed < time_score_forward
+            time_score = time_score_reversed if matched_reversed else time_score_forward
+            if not np.isfinite(time_score):
+                continue
+
+            existing_reverse_direction = _candidate_reverse_direction(gen_path_data)
+            reverse_direction = existing_reverse_direction ^ matched_reversed
+            selected_mech_path_aligned = (
+                mech_path_aligned_reversed if matched_reversed else gen_path_aligned
+            )
+            raw_params = gen_path_data.get("parameters", {})
+            params = dict(raw_params) if isinstance(raw_params, dict) else {}
+            params["reverse_direction"] = reverse_direction
 
             preview_data = {
                 "name": gen_path_data.get("name", f"{json_type_str} Mechanism"),
@@ -1184,16 +1323,20 @@ class MechanismRecommendationDialog(QDialog):
                 "overall_score": time_score,
                 "scores": {
                     "time_aware": time_score,
+                    "time_aware_forward": time_score_forward,
+                    "time_aware_reversed": time_score_reversed,
                     "shape_only": distance,
+                    "path_direction": "reversed" if matched_reversed else "forward",
                 },
-                "parameters": gen_path_data.get("parameters", {}),
+                "parameters": params,
+                "reverse_direction": reverse_direction,
                 "path_coordinates_np": gen_path_np,
                 "path_coordinates": gen_path_data.get("path_coordinates"),
                 "key_points": gen_path_data.get("key_points", {}),
                 "path_normalization": gen_path_data.get("path_normalization", {}),
                 "full_simulation_data": gen_path_data.get("full_simulation_data", {}),
                 "user_path_aligned_np": user_path_aligned,
-                "mech_path_aligned_np": gen_path_aligned,
+                "mech_path_aligned_np": selected_mech_path_aligned,
                 "transform_params": transform_params,
             }
 
@@ -1216,9 +1359,17 @@ class MechanismRecommendationDialog(QDialog):
                     }
 
             # Keep best (lowest score) per family
+            candidate_key = (
+                float(time_score),
+                bool(matched_reversed),
+                str(json_type_str),
+                str(preview_data["name"]),
+                _stable_recommendation_identity(gen_path_data, str(json_type_str)),
+            )
+            preview_data["_selection_key"] = candidate_key
             if (
                 family not in best_by_family
-                or preview_data["overall_score"] < best_by_family[family]["overall_score"]
+                or candidate_key < best_by_family[family]["_selection_key"]
             ):
                 best_by_family[family] = preview_data
 
@@ -1229,7 +1380,13 @@ class MechanismRecommendationDialog(QDialog):
         families_order = ["Four-Bar Linkage", "Cam & Follower", "Gears"]
         results: list[dict[str, Any] | None] = []
         for fam in families_order:
-            results.append(best_by_family.get(fam))
+            best = best_by_family.get(fam)
+            if best is None:
+                results.append(None)
+            else:
+                cleaned_best = dict(best)
+                cleaned_best.pop("_selection_key", None)
+                results.append(cleaned_best)
 
         for i, mech in enumerate(results):
             if mech:
@@ -1285,12 +1442,26 @@ class MechanismRecommendationDialog(QDialog):
         params = mechanism_data.get("parameters")
         path_points = mechanism_data.get("path_coordinates_np")
 
-        if path_points is None or params is None:
+        path_array = _finite_path_array(path_points)
+        if path_array is None or not isinstance(params, dict):
             return None
 
-        all_points = [path_points]
+        all_points: list[np.ndarray] = [path_array]
         mech_type = mechanism_data.get("original_json_type")
-        key_points = mechanism_data.get("key_points")
+        raw_key_points = mechanism_data.get("key_points")
+        key_points = raw_key_points if isinstance(raw_key_points, dict) else {}
+
+        def point_array(value: object) -> np.ndarray | None:
+            if value is None:
+                return None
+            try:
+                point = np.asarray(value, dtype=float).reshape(-1)
+            except (TypeError, ValueError):
+                return None
+            if point.shape[0] < 2:
+                return None
+            point_pair = point[:2]
+            return point_pair if np.isfinite(point_pair).all() else None
 
         if mech_type == "4-bar Coupler" and key_points:
             p1_coords = key_points.get("ground_pivot_1")
@@ -1298,30 +1469,28 @@ class MechanismRecommendationDialog(QDialog):
             p3_coords = key_points.get("initial_moving_joint_1")
             p4_coords = key_points.get("initial_moving_joint_2")
 
-            pivot_points = []
+            pivot_points: list[np.ndarray] = []
             for coords in [p1_coords, p2_coords, p3_coords, p4_coords]:
-                if coords:
-                    pivot_points.append(coords)
+                point = point_array(coords)
+                if point is not None:
+                    pivot_points.append(point)
 
             if pivot_points:
                 all_points.append(np.array(pivot_points))
 
-        elif mech_type == "Cam Follower":
-            base_radius = params.get("base_radius")
-            eccentricity = params.get("eccentricity")
-            if base_radius is not None and eccentricity is not None:
-                if key_points:
-                    cam_center_coords = key_points.get("cam_center")
-                    rotation_center_coords = key_points.get("rotation_center")
-                    if cam_center_coords:
-                        cam_center_orig = np.array(cam_center_coords)
-                    else:
-                        cam_center_orig = np.array([eccentricity, 0])
-                    if rotation_center_coords:
-                        all_points.append(np.array([rotation_center_coords]))
+        elif mech_type in ["Cam Follower", "Cam-Follower", "Cam & Follower", "Cam"]:
+            base_radius = _finite_float(params.get("base_radius"), float("nan"))
+            eccentricity = _finite_float(params.get("eccentricity"), float("nan"))
+            if np.isfinite(base_radius) and np.isfinite(eccentricity):
+                cam_center = point_array(key_points.get("cam_center"))
+                cam_center_orig = (
+                    cam_center if cam_center is not None else np.array([eccentricity, 0.0])
+                )
+                rotation_center = point_array(key_points.get("rotation_center"))
+                if rotation_center is not None:
+                    all_points.append(np.array([rotation_center]))
                 else:
-                    cam_center_orig = np.array([eccentricity, 0])
-                    all_points.append(np.array([[0, 0]]))
+                    all_points.append(np.array([[0.0, 0.0]]))
 
                 # Create proper egg-shaped cam profile with correct physics
                 thetas = np.linspace(0, 2 * np.pi, 40)  # More points for smoother egg shape
@@ -1340,18 +1509,14 @@ class MechanismRecommendationDialog(QDialog):
                 cam_points = np.column_stack([cam_points_x, cam_points_y])
                 all_points.append(cam_points)
 
-        elif mech_type == "Gear Contact":
-            r1, r2 = params.get("r1"), params.get("r2")
-            if r1 and r2:
-                if key_points:
-                    gear1_center = key_points.get("gear1_center", [0, 0])
-                    gear2_center = key_points.get("gear2_center", [r1 + r2, 0])
-                else:
-                    gear1_center = [0, 0]
-                    gear2_center = [r1 + r2, 0]
-
-                c1_orig = np.array(gear1_center)
-                c2_orig = np.array(gear2_center)
+        elif mech_type in ["Gear Contact", "Simple Gear", "Gears (Simple Pair)", "Gear"]:
+            r1 = _finite_float(params.get("r1", params.get("gear1_radius")), float("nan"))
+            r2 = _finite_float(params.get("r2", params.get("gear2_radius")), float("nan"))
+            if np.isfinite(r1) and np.isfinite(r2) and r1 > 0.0 and r2 > 0.0:
+                gear1_center = point_array(key_points.get("gear1_center"))
+                gear2_center = point_array(key_points.get("gear2_center"))
+                c1_orig = gear1_center if gear1_center is not None else np.array([0.0, 0.0])
+                c2_orig = gear2_center if gear2_center is not None else np.array([r1 + r2, 0.0])
                 thetas = np.linspace(0, 2 * np.pi, 20)
                 g1_points = c1_orig + r1 * np.array([np.cos(thetas), np.sin(thetas)]).T
                 g2_points = c2_orig + r2 * np.array([np.cos(thetas), np.sin(thetas)]).T
@@ -1359,81 +1524,3 @@ class MechanismRecommendationDialog(QDialog):
                 all_points.append(g2_points)
 
         return np.vstack(all_points)
-
-
-if __name__ == "__main__":
-    import logging
-    import sys
-
-    from PyQt6.QtWidgets import QApplication
-
-    logging.basicConfig(level=logging.DEBUG)
-
-    app = QApplication(sys.argv)
-
-    dummy_path = QPainterPath()
-    dummy_path.moveTo(10, 10)
-    dummy_path.lineTo(50, 80)
-    dummy_path.quadTo(100, 100, 150, 50)
-
-    example_recs_data = [
-        {
-            "name": "Recommended Cam 1",
-            "type": "Cam & Follower",
-            "overall_score": 0.85,
-            "user_motion_path_local": dummy_path.translated(0, 0),
-        },
-        {
-            "name": "Recommended Linkage A",
-            "type": "4-Bar Linkage",
-            "overall_score": 0.72,
-            "user_motion_path_local": dummy_path.translated(10, 10),
-        },
-        {
-            "name": "Simple Gears",
-            "type": "gears",
-            "overall_score": 0.91,
-            "user_motion_path_local": dummy_path.translated(-5, 5),
-        },
-        None,
-        {
-            "name": "Another Cam",
-            "type": "cam",
-            "overall_score": 0.60,
-        },
-    ]
-    empty_recs = []
-    error_recs = [None, None]
-
-    tests = [
-        (example_recs_data, "Full Example Recommendations"),
-        (empty_recs, "Empty Recommendations"),
-        (error_recs, "Error/None Recommendations"),
-        ([example_recs_data[0]], "Single Cam Recommendation"),
-        ([example_recs_data[1]], "Single Linkage Recommendation"),
-    ]
-    current_test_index_ref = [0]
-
-    def run_test(recs, title):
-        print(f"\n--- Running Test: {title} ---")
-        selected_mechanism = MechanismRecommendationDialog.get_recommendation(recs, None)
-        if selected_mechanism:
-            print(f"Mechanism selected: {selected_mechanism.get('name')}")
-        else:
-            print("Dialog cancelled or no mechanism selected.")
-        run_next_test()
-
-    def run_next_test():
-        if current_test_index_ref[0] < len(tests):
-            recs, title = tests[current_test_index_ref[0]]
-            current_test_index_ref[0] += 1
-            from PyQt6.QtCore import QTimer
-
-            QTimer.singleShot(100, lambda: run_test(recs, title))
-        else:
-            print("\n--- All tests completed ---")
-            app.quit()
-
-    run_next_test()
-
-    sys.exit(app.exec())

@@ -83,9 +83,7 @@ class Linkage(BaseMechanism):
         # Let coupler make an angle, say, -30 deg relative to crank for visual separation
         coupler_angle_rel_rad = math.radians(-45)  # Angle of coupler relative to crank
         theta_coupler_rad = theta1_rad + coupler_angle_rel_rad
-        p1 + QPointF(
-            l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad)
-        )
+        p1 + QPointF(l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad))
 
         # The coupler extension point (p_coupler_end) extends from p1 along the coupler l2 direction by l3_ext
         # Or, for more general look, let l3_ext be a point on the coupler body (triangle p0-p1-p_coupler_end).
@@ -93,9 +91,7 @@ class Linkage(BaseMechanism):
         # Or simplify: l1 is crank, l2 is a link attached to p1, and p_coupler_end is its end.
         # Let's redefine: l1=crank, l2=coupler link from p1. p_coupler_end is not used directly from l3_ext.
         # Instead, l2 is the main coupler arm. This makes it a 2-link open chain for visualization.
-        p2 = p1 + QPointF(
-            l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad)
-        )
+        p2 = p1 + QPointF(l2 * math.cos(theta_coupler_rad), l2 * math.sin(theta_coupler_rad))
 
         points = {
             "p0": [p0.x(), p0.y()],
@@ -170,9 +166,7 @@ class Linkage(BaseMechanism):
         d = math.sqrt(d_sq)
 
         # Check for constructibility
-        if (
-            d > (l2 + l3) or d < abs(l2 - l3) or d == 0
-        ):  # Links cannot reach or collinear issue
+        if d > (l2 + l3) or d < abs(l2 - l3) or d == 0:  # Links cannot reach or collinear issue
             # print(f"4-bar linkage not constructible with l1={l1}, l2={l2}, l3={l3}, l4={l4}, d={d:.2f}, theta1={input_angle_deg:.1f}")
             # Return a "broken" or default state if not constructible, or None
             # For previews, might want to show something still.
@@ -192,9 +186,7 @@ class Linkage(BaseMechanism):
         ):  # Allow small negative due to precision, but treat as non-constructible if significant
             # print(f"4-bar linkage: h_sq negative ({h_sq:.2f}), non-constructible.")
             return None
-        h = math.sqrt(
-            max(0, h_sq)
-        )  # max(0, ..) to handle tiny negatives from precision
+        h = math.sqrt(max(0, h_sq))  # max(0, ..) to handle tiny negatives from precision
 
         # Midpoint between p1 and intersection of line p1-p3_fixed and line perpendicular to p2
         p_mid_x = p3_fixed.x() + a * (p1.x() - p3_fixed.x()) / d
@@ -329,9 +321,7 @@ if __name__ == "__main__":
         bar_type="4bar", link_lengths=non_constructible_lengths_2, input_angle_deg=0
     )
     if linkage_4bar_fail_2 is None:
-        print(
-            "\nSuccessfully identified non-constructible 4-bar linkage (case 2) as None."
-        )
+        print("\nSuccessfully identified non-constructible 4-bar linkage (case 2) as None.")
     else:
         print("\nError: Non-constructible 4-bar linkage (case 2) did not return None.")
         # print(linkage_4bar_fail_2)
@@ -355,24 +345,27 @@ class LinkageGenerator:
         """
         try:
             # Extract linkage parameters - handle GUI format
-            linkage_type = linkage_data.get('type', '4_bar_linkage')
-            params = linkage_data.get('params', {})
-            name = linkage_data.get('name', 'Linkage')
+            linkage_type = linkage_data.get("type", "4_bar_linkage")
+            params = linkage_data.get("params", {})
+            name = linkage_data.get("name", "Linkage")
 
             # Debug logging
-            self.logger.debug(f"LinkageGenerator received data: type={linkage_type}, params={params}")
+            self.logger.debug(
+                f"LinkageGenerator received data: type={linkage_type}, params={params}"
+            )
 
             # Handle GUI format with params (l1, l2, l3, l4)
-            if params and 'l1' in params:
+            if params and "l1" in params:
                 # Convert from GUI format to links/joints format
-                l1 = params.get('l1', 50)
-                l2 = params.get('l2', 80)
-                l3 = params.get('l3', 70)
-                l4 = params.get('l4', 90)
+                l1 = params.get("l1", 50)
+                l2 = params.get("l2", 80)
+                l3 = params.get("l3", 70)
+                l4 = params.get("l4", 90)
 
                 # Create links and joints from parameters - use proper 4-bar layout
                 # Position joints to form a proper 4-bar linkage
                 import math
+
                 theta = math.radians(45)  # Initial crank angle
 
                 # Joint positions
@@ -385,44 +378,77 @@ class LinkageGenerator:
                 B = [O2[0] - l3 * 0.7, l3 * 0.7]  # Approximation for visualization
 
                 links = [
-                    {'name': 'Ground', 'start': O1, 'end': O2, 'length': l4, 'width': 10},
-                    {'name': 'Crank', 'start': O1, 'end': A, 'length': l1, 'width': 8},
-                    {'name': 'Coupler', 'start': A, 'end': B, 'length': l2, 'width': 8},
-                    {'name': 'Rocker', 'start': O2, 'end': B, 'length': l3, 'width': 8}
+                    {"name": "Ground", "start": O1, "end": O2, "length": l4, "width": 10},
+                    {"name": "Crank", "start": O1, "end": A, "length": l1, "width": 8},
+                    {"name": "Coupler", "start": A, "end": B, "length": l2, "width": 8},
+                    {"name": "Rocker", "start": O2, "end": B, "length": l3, "width": 8},
                 ]
 
                 joints = [
-                    {'name': 'O1', 'position': O1, 'type': 'revolute', 'links': ['Ground', 'Crank']},
-                    {'name': 'A', 'position': A, 'type': 'revolute', 'links': ['Crank', 'Coupler']},
-                    {'name': 'B', 'position': B, 'type': 'revolute', 'links': ['Coupler', 'Rocker']},
-                    {'name': 'O2', 'position': O2, 'type': 'revolute', 'links': ['Ground', 'Rocker']}
+                    {
+                        "name": "O1",
+                        "position": O1,
+                        "type": "revolute",
+                        "links": ["Ground", "Crank"],
+                    },
+                    {"name": "A", "position": A, "type": "revolute", "links": ["Crank", "Coupler"]},
+                    {
+                        "name": "B",
+                        "position": B,
+                        "type": "revolute",
+                        "links": ["Coupler", "Rocker"],
+                    },
+                    {
+                        "name": "O2",
+                        "position": O2,
+                        "type": "revolute",
+                        "links": ["Ground", "Rocker"],
+                    },
                 ]
             else:
                 # Fallback to original format
-                links = linkage_data.get('links', [])
-                joints = linkage_data.get('joints', [])
+                links = linkage_data.get("links", [])
+                joints = linkage_data.get("joints", [])
 
             if not links or not joints:
                 # Generate basic 4-bar linkage if no data
                 links = [
-                    {'name': 'Ground', 'start': [0, 0], 'end': [100, 0], 'length': 100, 'width': 10},
-                    {'name': 'Crank', 'start': [0, 0], 'end': [40, 30], 'length': 50, 'width': 8},
-                    {'name': 'Coupler', 'start': [40, 30], 'end': [90, 40], 'length': 80, 'width': 8},
-                    {'name': 'Rocker', 'start': [100, 0], 'end': [90, 40], 'length': 60, 'width': 8}
+                    {
+                        "name": "Ground",
+                        "start": [0, 0],
+                        "end": [100, 0],
+                        "length": 100,
+                        "width": 10,
+                    },
+                    {"name": "Crank", "start": [0, 0], "end": [40, 30], "length": 50, "width": 8},
+                    {
+                        "name": "Coupler",
+                        "start": [40, 30],
+                        "end": [90, 40],
+                        "length": 80,
+                        "width": 8,
+                    },
+                    {
+                        "name": "Rocker",
+                        "start": [100, 0],
+                        "end": [90, 40],
+                        "length": 60,
+                        "width": 8,
+                    },
                 ]
                 joints = [
-                    {'name': 'O1', 'position': [0, 0], 'type': 'revolute'},
-                    {'name': 'A', 'position': [40, 30], 'type': 'revolute'},
-                    {'name': 'B', 'position': [90, 40], 'type': 'revolute'},
-                    {'name': 'O2', 'position': [100, 0], 'type': 'revolute'}
+                    {"name": "O1", "position": [0, 0], "type": "revolute"},
+                    {"name": "A", "position": [40, 30], "type": "revolute"},
+                    {"name": "B", "position": [90, 40], "type": "revolute"},
+                    {"name": "O2", "position": [100, 0], "type": "revolute"},
                 ]
 
             # Calculate linkage bounds for layout
             all_x = []
             all_y = []
             for link in links:
-                all_x.extend([link.get('start', [0, 0])[0], link.get('end', [50, 0])[0]])
-                all_y.extend([link.get('start', [0, 0])[1], link.get('end', [50, 0])[1]])
+                all_x.extend([link.get("start", [0, 0])[0], link.get("end", [50, 0])[0]])
+                all_y.extend([link.get("start", [0, 0])[1], link.get("end", [50, 0])[1]])
 
             min_x, max_x = min(all_x), max(all_x)
             min_y, max_y = min(all_y), max(all_y)
@@ -442,13 +468,14 @@ class LinkageGenerator:
 
             # Draw links with detailed specifications
             for i, link in enumerate(links):
-                start_pos = link.get('start', [0, 0])
-                end_pos = link.get('end', [50, 0])
-                length = link.get('length', 50.0)
-                width = link.get('width', 8.0)  # Link width for cutting
+                start_pos = link.get("start", [0, 0])
+                end_pos = link.get("end", [50, 0])
+                length = link.get("length", 50.0)
+                width = link.get("width", 8.0)  # Link width for cutting
 
                 # Calculate link angle and perpendicular offset for width
                 import math
+
                 dx = end_pos[0] - start_pos[0]
                 dy = end_pos[1] - start_pos[1]
                 angle = math.atan2(dy, dx)
@@ -460,7 +487,7 @@ class LinkageGenerator:
                     [start_pos[0] + perp_x, start_pos[1] + perp_y],
                     [start_pos[0] - perp_x, start_pos[1] - perp_y],
                     [end_pos[0] - perp_x, end_pos[1] - perp_y],
-                    [end_pos[0] + perp_x, end_pos[1] + perp_y]
+                    [end_pos[0] + perp_x, end_pos[1] + perp_y],
                 ]
 
                 path_data = f"M {link_points[0][0]:.2f},{link_points[0][1]:.2f} "
@@ -469,8 +496,8 @@ class LinkageGenerator:
                 path_data += "Z"
 
                 svg_content += f'''
-                <!-- Link {i+1} -->
-                <g class="link-{i+1}">
+                <!-- Link {i + 1} -->
+                <g class="link-{i + 1}">
                     <!-- Link body (cutting outline) -->
                     <path d="{path_data}" fill="none" stroke="red" stroke-width="2"/>
 
@@ -490,7 +517,7 @@ class LinkageGenerator:
                           width="50" height="30" fill="white" stroke="#ddd" stroke-width="0.3" rx="2"/>
                     <text x="{(start_pos[0] + end_pos[0]) / 2}" y="{(start_pos[1] + end_pos[1]) / 2 - 8}"
                           font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">
-                          {link.get('name', f'LINK {i+1}')}
+                          {link.get("name", f"LINK {i + 1}")}
                     </text>
                     <text x="{(start_pos[0] + end_pos[0]) / 2}" y="{(start_pos[1] + end_pos[1]) / 2 + 8}"
                           font-family="Arial" font-size="7" text-anchor="middle">
@@ -501,12 +528,12 @@ class LinkageGenerator:
 
             # Draw joints with manufacturing specifications
             for i, joint in enumerate(joints):
-                pos = joint.get('position', [0, 0])
-                joint_type = joint.get('type', 'revolute')
+                pos = joint.get("position", [0, 0])
+                joint_type = joint.get("type", "revolute")
 
-                if joint_type == 'fixed':
+                if joint_type == "fixed":
                     # Ground joint with mounting holes
-                    svg_content += f'''
+                    svg_content += f"""
                     <g class="ground-joint" transform="translate({pos[0]},{pos[1]})">
                         <!-- Base plate -->
                         <rect x="-15" y="-8" width="30" height="16"
@@ -521,13 +548,13 @@ class LinkageGenerator:
                               stroke="black" stroke-width="1"/>
                         <!-- Label -->
                         <text x="0" y="-15" font-family="Arial" font-size="7" text-anchor="middle">
-                            {joint.get('name', 'GROUND PIVOT')}
+                            {joint.get("name", "GROUND PIVOT")}
                         </text>
                     </g>
-                    '''
+                    """
                 else:
                     # Revolute joint with bearing specifications
-                    svg_content += f'''
+                    svg_content += f"""
                     <g class="revolute-joint" transform="translate({pos[0]},{pos[1]})">
                         <!-- Bearing outer ring -->
                         <circle r="5" fill="none" stroke="black" stroke-width="1"/>
@@ -537,10 +564,10 @@ class LinkageGenerator:
                         <circle r="0.5" fill="black"/>
                         <!-- Label -->
                         <text x="8" y="3" font-family="Arial" font-size="6">
-                            {joint.get('name', f'J{i+1}')} - Ø6mm
+                            {joint.get("name", f"J{i + 1}")} - Ø6mm
                         </text>
                     </g>
-                    '''
+                    """
 
             # Add manufacturing notes with anti-overlap layout
             svg_content += f'''

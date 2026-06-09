@@ -1,5 +1,4 @@
-"""Four-bar linkage validation with Grashof and transmission angle analysis.
-"""
+"""Four-bar linkage validation with Grashof and transmission angle analysis."""
 
 from __future__ import annotations
 
@@ -103,6 +102,7 @@ class FourBarValidator(LinkageValidator):
 
         except Exception as e:
             from automataii.domain.mechanisms.core.state import SafetyLevel, SafetyStatus
+
             return SafetyStatus(
                 level=SafetyLevel.DANGER,
                 message=f"Validation error: {str(e)}",

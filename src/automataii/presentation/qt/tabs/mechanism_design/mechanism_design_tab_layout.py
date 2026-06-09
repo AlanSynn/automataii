@@ -82,9 +82,7 @@ class MechanismDesignTabLayout:
         control_panel_area = self._create_control_panel_area()
         control_panel_area.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH)
         control_panel_area.setMaximumWidth(self.CONTROL_PANEL_MAX_WIDTH)
-        control_panel_area.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
-        )
+        control_panel_area.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         splitter.addWidget(control_panel_area)
 
         # Create mechanism scene and view (right side, resizable)
@@ -116,9 +114,7 @@ class MechanismDesignTabLayout:
         scroll_area.setWidgetResizable(True)
         scroll_area.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH)
         scroll_area.setMaximumWidth(self.CONTROL_PANEL_MAX_WIDTH)
-        scroll_area.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
-        )
+        scroll_area.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 

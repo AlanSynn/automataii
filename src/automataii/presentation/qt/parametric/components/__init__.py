@@ -14,6 +14,7 @@ Extracted Modules:
 - GearEditor: Gear mechanism editor
 - PlanetaryGearEditor: Planetary gear editor
 """
+
 from automataii.presentation.qt.parametric.components.base_editor import (
     HandleStyle,
     MechanismEditor,

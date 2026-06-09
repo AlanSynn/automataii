@@ -6,6 +6,7 @@ Provides rotation control for gear and other rotatable mechanisms.
 
 Design Pattern: Strategy (rotation interaction behavior)
 """
+
 from __future__ import annotations
 
 import math
@@ -119,9 +120,7 @@ class RotationHandle(QGraphicsEllipseItem):
                 # Apply rotation to mechanism if significant movement
                 if abs(angle_diff) > 0.01:  # Lower threshold for responsive rotation
                     # Use current mouse position as rotation center for maximum user control
-                    self.parent_tab._rotate_mechanism(
-                        self.mechanism_id, scene_pos, angle_diff
-                    )
+                    self.parent_tab._rotate_mechanism(self.mechanism_id, scene_pos, angle_diff)
 
             # Store current angle for next movement
             self._previous_angle = current_angle
@@ -131,9 +130,7 @@ class RotationHandle(QGraphicsEllipseItem):
 
             # Update display angle
             self.current_rotation = math.degrees(current_angle)
-            self.setToolTip(
-                f"🔄 Rotation Handle: {self.current_rotation:.1f}° (drag to rotate)"
-            )
+            self.setToolTip(f"🔄 Rotation Handle: {self.current_rotation:.1f}° (drag to rotate)")
 
             event.accept()
         else:

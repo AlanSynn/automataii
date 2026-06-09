@@ -55,6 +55,7 @@ _DEFAULT_COLOR: ColorRGBA = (100, 100, 100, 200)
 @dataclass(frozen=True)
 class ForceVector:
     """Force vector with position, magnitude, angle, and type."""
+
     position: Point2D  # (x, y) coordinates
     magnitude: float
     angle: float  # degrees

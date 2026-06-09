@@ -33,24 +33,24 @@ from automataii.infrastructure.state.store import (
 
 __all__ = [
     # Store
-    'StateStore',
-    'get_global_store',
-    'set_global_store',
+    "StateStore",
+    "get_global_store",
+    "set_global_store",
     # Base
-    'Action',
-    'Reducer',
-    'State',
-    'ActionTypes',
-    'create_action',
-    'reset_action',
+    "Action",
+    "Reducer",
+    "State",
+    "ActionTypes",
+    "create_action",
+    "reset_action",
     # Middleware
-    'Middleware',
-    'LoggingMiddleware',
-    'PersistenceMiddleware',
+    "Middleware",
+    "LoggingMiddleware",
+    "PersistenceMiddleware",
     # Selectors
-    'Selector',
-    'SelectorRegistry',
-    'create_selector',
-    'memoize',
-    'get_global_registry',
+    "Selector",
+    "SelectorRegistry",
+    "create_selector",
+    "memoize",
+    "get_global_registry",
 ]

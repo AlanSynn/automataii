@@ -12,12 +12,12 @@ mechanism_registry.register_mechanism(
     editor_class=FourBarEditor,
     serializer_class=FourBarSerializer,
     metadata={
-        'display_name': '4-Bar Linkage',
-        'description': 'Four-bar linkage mechanism with customizable link lengths',
-        'icon': 'four_bar.svg',
-        'category': 'linkages',
-        'complexity': 'medium'
-    }
+        "display_name": "4-Bar Linkage",
+        "description": "Four-bar linkage mechanism with customizable link lengths",
+        "icon": "four_bar.svg",
+        "category": "linkages",
+        "complexity": "medium",
+    },
 )
 
-__all__ = ['FourBarMechanism', 'FourBarEditor', 'FourBarSerializer']
+__all__ = ["FourBarMechanism", "FourBarEditor", "FourBarSerializer"]

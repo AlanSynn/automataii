@@ -13,6 +13,7 @@ import numpy as np
 @dataclass
 class MechanismParameters:
     """Container for mechanism parameters."""
+
     mechanism_type: str
     mechanism_id: str
     part_name: str
@@ -22,28 +23,29 @@ class MechanismParameters:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            'type': self.mechanism_type,
-            'id': self.mechanism_id,
-            'part_name': self.part_name,
-            'params': self.params,
-            'metadata': self.metadata or {}
+            "type": self.mechanism_type,
+            "id": self.mechanism_id,
+            "part_name": self.part_name,
+            "params": self.params,
+            "metadata": self.metadata or {},
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'MechanismParameters':
+    def from_dict(cls, data: dict[str, Any]) -> "MechanismParameters":
         """Create from dictionary."""
         return cls(
-            mechanism_type=data['type'],
-            mechanism_id=data['id'],
-            part_name=data['part_name'],
-            params=data['params'],
-            metadata=data.get('metadata')
+            mechanism_type=data["type"],
+            mechanism_id=data["id"],
+            part_name=data["part_name"],
+            params=data["params"],
+            metadata=data.get("metadata"),
         )
 
 
 @dataclass
 class SimulationData:
     """Container for simulation results."""
+
     frames: int
     time_steps: np.ndarray
     joint_positions: dict[str, np.ndarray]  # joint_name -> positions array
@@ -53,23 +55,20 @@ class SimulationData:
 
     def get_frame(self, frame_index: int) -> dict[str, Any]:
         """Get data for a specific frame."""
-        frame_data = {
-            'time': self.time_steps[frame_index],
-            'joints': {}
-        }
+        frame_data = {"time": self.time_steps[frame_index], "joints": {}}
 
         for joint_name, positions in self.joint_positions.items():
             if len(positions) > frame_index:
-                frame_data['joints'][joint_name] = positions[frame_index]
+                frame_data["joints"][joint_name] = positions[frame_index]
 
         if self.link_orientations:
-            frame_data['orientations'] = {}
+            frame_data["orientations"] = {}
             for link_name, orientations in self.link_orientations.items():
                 if len(orientations) > frame_index:
-                    frame_data['orientations'][link_name] = orientations[frame_index]
+                    frame_data["orientations"][link_name] = orientations[frame_index]
 
         if self.output_path is not None and len(self.output_path) > frame_index:
-            frame_data['output'] = self.output_path[frame_index]
+            frame_data["output"] = self.output_path[frame_index]
 
         return frame_data
 

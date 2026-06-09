@@ -55,7 +55,11 @@ class ScenarioOptimizer:
     @staticmethod
     def _format_param(key: object, value: object) -> str:
         key_text = ScenarioOptimizer._safe_text(key, "param")
-        if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(float(value)):
+        if (
+            isinstance(value, int | float)
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+        ):
             value_text = f"{float(value):g}"
         else:
             value_text = ScenarioOptimizer._safe_text(value, "n/a")
@@ -102,7 +106,9 @@ class ScenarioOptimizer:
             bounds = ScaledBounds(0.0, mech_y, 260.0, 180.0)
             params = mech_data.get("params", {})
             params_items = list(params.items())[:4] if isinstance(params, dict) else []
-            params_summary = ", ".join(self._format_param(key, value) for key, value in params_items)
+            params_summary = ", ".join(
+                self._format_param(key, value) for key, value in params_items
+            )
             mech_name = self._safe_text(mech_data.get("display_name"), str(mech_id))
             svg = _svg_panel(
                 bounds.width,
@@ -161,7 +167,9 @@ def run_blueprint_export_scenario(output_dir: Path, unit_system: str = "metric")
         {"name": "Connector Plate", "width_mm": 120.0, "height_mm": 60.0},
     ]
 
-    composer = BlueprintComposer(optimizer=ScenarioOptimizer(), svg_generator=generate_single_large_blueprint)
+    composer = BlueprintComposer(
+        optimizer=ScenarioOptimizer(), svg_generator=generate_single_large_blueprint
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")

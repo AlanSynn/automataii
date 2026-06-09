@@ -16,7 +16,7 @@ def event_handler(
     event_type: type[Event],
     priority: EventPriority = EventPriority.NORMAL,
     filter_func: EventFilter | None = None,
-    auto_subscribe: bool = True
+    auto_subscribe: bool = True,
 ):
     """
     Decorator to mark a method as an event handler.
@@ -27,6 +27,7 @@ def event_handler(
             # Handle project loaded event
             pass
     """
+
     def decorator(func: F) -> F:
         # Use setattr to dynamically add attributes without type errors
         func._event_type = event_type
@@ -53,7 +54,7 @@ def async_event_handler(
     event_type: type[Event],
     priority: EventPriority = EventPriority.NORMAL,
     filter_func: EventFilter | None = None,
-    auto_subscribe: bool = True
+    auto_subscribe: bool = True,
 ):
     """
     Decorator to mark an async method as an event handler.
@@ -64,6 +65,7 @@ def async_event_handler(
             # Handle project loaded event asynchronously
             await some_async_operation()
     """
+
     def decorator(func: F) -> F:
         # Use setattr to dynamically add attributes without type errors
         func._event_type = event_type

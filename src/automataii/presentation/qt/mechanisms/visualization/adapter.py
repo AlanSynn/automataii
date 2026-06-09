@@ -23,8 +23,7 @@ class VisualizationAdapter:
     breaking existing functionality.
     """
 
-    def __init__(self, scene: QGraphicsScene,
-                 transform_function: Callable | None = None):
+    def __init__(self, scene: QGraphicsScene, transform_function: Callable | None = None):
         """
         Initialize the adapter.
 
@@ -37,8 +36,9 @@ class VisualizationAdapter:
         self._visualizers: dict[str, Any] = {}
         self._visual_items: dict[str, list[QGraphicsItem]] = {}
 
-    def create_mechanism_visuals(self, mechanism_id: str,
-                                mechanism_data: dict[str, Any]) -> list[QGraphicsItem]:
+    def create_mechanism_visuals(
+        self, mechanism_id: str, mechanism_data: dict[str, Any]
+    ) -> list[QGraphicsItem]:
         """
         Create visuals for a mechanism using the new system.
 
@@ -85,8 +85,7 @@ class VisualizationAdapter:
 
         return visual_items
 
-    def update_mechanism_visuals(self, mechanism_id: str,
-                                mechanism_data: dict[str, Any]) -> None:
+    def update_mechanism_visuals(self, mechanism_id: str, mechanism_data: dict[str, Any]) -> None:
         """
         Update existing visuals for a mechanism.
 

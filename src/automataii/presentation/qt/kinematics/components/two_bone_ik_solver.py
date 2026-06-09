@@ -105,12 +105,8 @@ class TwoBoneIKSolver:
         dist = math.sqrt(dist_sq) if dist_sq > 1e-12 else 0.0
 
         # Calculate elbow constraints
-        min_elbow_internal_angle_rad = math.pi - math.radians(
-            self._config.max_elbow_flexion_deg
-        )
-        min_elbow_internal_angle_rad = max(
-            0.0, min(math.pi, min_elbow_internal_angle_rad)
-        )
+        min_elbow_internal_angle_rad = math.pi - math.radians(self._config.max_elbow_flexion_deg)
+        min_elbow_internal_angle_rad = max(0.0, min(math.pi, min_elbow_internal_angle_rad))
 
         cos_min_elbow_angle = math.cos(min_elbow_internal_angle_rad)
         d_min_sq_with_limit = l1 * l1 + l2 * l2 - 2 * l1 * l2 * cos_min_elbow_angle

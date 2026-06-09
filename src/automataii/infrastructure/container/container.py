@@ -18,14 +18,15 @@ from typing import (
 )
 from weakref import WeakKeyDictionary
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class Lifetime(Enum):
     """Service lifetime modes."""
-    SINGLETON = "singleton"      # One instance for entire application
-    TRANSIENT = "transient"      # New instance every time
-    SCOPED = "scoped"           # One instance per scope
+
+    SINGLETON = "singleton"  # One instance for entire application
+    TRANSIENT = "transient"  # New instance every time
+    SCOPED = "scoped"  # One instance per scope
 
 
 class Injectable:
@@ -53,7 +54,7 @@ class ServiceDescriptor(Generic[T]):
         factory: Callable[..., T] | None = None,
         instance: T | None = None,
         lifetime: Lifetime = Lifetime.TRANSIENT,
-        name: str | None = None
+        name: str | None = None,
     ):
         self.service_type = service_type
         self.implementation = implementation or service_type
@@ -115,7 +116,7 @@ class Container:
     - Generic type support
     """
 
-    def __init__(self, parent: Optional['Container'] = None):
+    def __init__(self, parent: Optional["Container"] = None):
         self.parent = parent
         self._services: dict[str, ServiceDescriptor] = {}
         self._singletons: dict[str, Any] = {}
@@ -133,8 +134,8 @@ class Container:
         service_type: type[T],
         implementation: type[T] | None = None,
         factory: Callable[..., T] | None = None,
-        instance: T | None = None
-    ) -> 'Container':
+        instance: T | None = None,
+    ) -> "Container":
         """Register a singleton service."""
         return self._register(service_type, implementation, factory, instance, Lifetime.SINGLETON)
 
@@ -142,11 +143,10 @@ class Container:
         self,
         service_type: type[T],
         implementation: type[T] | None = None,
-        factory: Callable[..., T] | None = None
-    ) -> 'Container':
+        factory: Callable[..., T] | None = None,
+    ) -> "Container":
         """Register a transient service."""
         return self._register(service_type, implementation, factory, None, Lifetime.TRANSIENT)
-
 
     def _register(
         self,
@@ -154,15 +154,15 @@ class Container:
         implementation: type[T] | None,
         factory: Callable[..., T] | None,
         instance: T | None,
-        lifetime: Lifetime
-    ) -> 'Container':
+        lifetime: Lifetime,
+    ) -> "Container":
         """Internal registration method."""
         descriptor = ServiceDescriptor(
             service_type=service_type,
             implementation=implementation,
             factory=factory,
             instance=instance,
-            lifetime=lifetime
+            lifetime=lifetime,
         )
 
         with self._lock:
@@ -194,7 +194,9 @@ class Container:
 
         # Check circular dependency
         if key in self._resolving:
-            raise CircularDependencyError(f"Circular dependency detected for {service_type.__name__}")
+            raise CircularDependencyError(
+                f"Circular dependency detected for {service_type.__name__}"
+            )
 
         try:
             self._resolving.add(key)
@@ -270,7 +272,7 @@ class Container:
         kwargs = {}
 
         for param_name, param in sig.parameters.items():
-            if param_name == 'self':
+            if param_name == "self":
                 continue
 
             # Get parameter type
@@ -286,8 +288,7 @@ class Container:
                         kwargs[param_name] = param.default
                     else:
                         # Try to create if it's an Injectable
-                        if (inspect.isclass(param_type) and
-                            issubclass(param_type, Injectable)):
+                        if inspect.isclass(param_type) and issubclass(param_type, Injectable):
                             kwargs[param_name] = self._auto_resolve(param_type)
                         else:
                             raise
@@ -302,7 +303,7 @@ class Container:
 
     def _get_service_key(self, service_type: type) -> str:
         """Get unique key for service type."""
-        if hasattr(service_type, '__name__'):
+        if hasattr(service_type, "__name__"):
             return service_type.__name__
         else:
             return str(service_type)
@@ -320,16 +321,19 @@ class Container:
 # Exceptions
 class ServiceNotFoundError(Exception):
     """Raised when a service cannot be found."""
+
     pass
 
 
 class CircularDependencyError(Exception):
     """Raised when a circular dependency is detected."""
+
     pass
 
 
 class ScopeError(Exception):
     """Raised when scope-related operations fail."""
+
     pass
 
 

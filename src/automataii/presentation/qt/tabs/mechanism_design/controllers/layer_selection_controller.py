@@ -7,6 +7,7 @@ part visibility toggling, and mechanism visual visibility.
 Design Pattern: Controller (handles layer selection operations)
 Architecture: Hexagonal - Presentation Layer
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -153,10 +154,16 @@ class LayerSelectionController(QObject):
             mechanism_view.setTransform(current_view_transform)
 
         # Handle selection
-        layers_list = self._get_mechanism_layers_list_fn() if self._get_mechanism_layers_list_fn else None
+        layers_list = (
+            self._get_mechanism_layers_list_fn() if self._get_mechanism_layers_list_fn else None
+        )
         selected_items = layers_list.selectedItems() if layers_list else []
         is_selection_valid = bool(selected_items)
-        parametric_mode = self._get_parametric_mode_enabled_fn() if self._get_parametric_mode_enabled_fn else False
+        parametric_mode = (
+            self._get_parametric_mode_enabled_fn()
+            if self._get_parametric_mode_enabled_fn
+            else False
+        )
         presenter = self._get_presenter_fn() if self._get_presenter_fn else None
 
         if is_selection_valid:
@@ -198,14 +205,22 @@ class LayerSelectionController(QObject):
             return
 
         # In parametric mode, don't toggle enabled/disabled state
-        parametric_mode = self._get_parametric_mode_enabled_fn() if self._get_parametric_mode_enabled_fn else False
+        parametric_mode = (
+            self._get_parametric_mode_enabled_fn()
+            if self._get_parametric_mode_enabled_fn
+            else False
+        )
         if parametric_mode:
             return
 
         # Normal mode: Toggle enabled/disabled state
-        presenter_view_model = self._get_presenter_view_model_fn() if self._get_presenter_view_model_fn else None
+        presenter_view_model = (
+            self._get_presenter_view_model_fn() if self._get_presenter_view_model_fn else None
+        )
         presenter = self._get_presenter_fn() if self._get_presenter_fn else None
-        part_enabled_state = self._get_part_enabled_state_fn() if self._get_part_enabled_state_fn else {}
+        part_enabled_state = (
+            self._get_part_enabled_state_fn() if self._get_part_enabled_state_fn else {}
+        )
 
         if presenter_view_model and presenter:
             part_vm = presenter_view_model.find_part(part_name)
@@ -234,16 +249,20 @@ class LayerSelectionController(QObject):
             part_name: Name of the part
             enabled: Whether the part is enabled
         """
-        current_editor_items = self._get_current_editor_items_fn() if self._get_current_editor_items_fn else {}
+        current_editor_items = (
+            self._get_current_editor_items_fn() if self._get_current_editor_items_fn else {}
+        )
 
         # Control part visibility in the scene
         if part_name in current_editor_items:
             part_item = current_editor_items[part_name]
-            if hasattr(part_item, 'setVisible'):
+            if hasattr(part_item, "setVisible"):
                 part_item.setVisible(enabled)
 
         # Control mechanism visuals if they exist
-        has_mechanism = self._part_has_mechanism_fn(part_name) if self._part_has_mechanism_fn else False
+        has_mechanism = (
+            self._part_has_mechanism_fn(part_name) if self._part_has_mechanism_fn else False
+        )
         if has_mechanism:
             self.toggle_mechanism_visuals(part_name, enabled)
 
@@ -266,10 +285,10 @@ class LayerSelectionController(QObject):
                 # Update visual items visibility
                 visual_items = layer_data.get("visual_items", [])
                 for item in visual_items:
-                    if hasattr(item, 'setVisible'):
+                    if hasattr(item, "setVisible"):
                         item.setVisible(enabled)
 
                 # Update trace visibility using manager
                 trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
-                if trace_item and hasattr(trace_item, 'setVisible'):
+                if trace_item and hasattr(trace_item, "setVisible"):
                     trace_item.setVisible(enabled)

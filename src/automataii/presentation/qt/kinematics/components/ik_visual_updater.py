@@ -105,9 +105,7 @@ class IKVisualUpdater:
             if not (jid and pj):
                 continue
 
-            update = self._compute_component_visual_update(
-                jid, pj, joints_config, pos
-            )
+            update = self._compute_component_visual_update(jid, pj, joints_config, pos)
 
             if update:
                 updated[jid] = update

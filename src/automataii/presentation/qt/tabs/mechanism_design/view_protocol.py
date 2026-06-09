@@ -6,6 +6,7 @@ This enables true MVP separation and makes the Tab a "Passive View".
 
 Architecture: MVP - Passive View Pattern
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -44,7 +45,9 @@ class MechanismDesignView(Protocol):
 
     # === UI UPDATE METHODS ===
 
-    def update_ui_state(self, has_paths: bool, has_mechanisms: bool, animation_running: bool) -> None:
+    def update_ui_state(
+        self, has_paths: bool, has_mechanisms: bool, animation_running: bool
+    ) -> None:
         """Update UI button states based on current state."""
         ...
 

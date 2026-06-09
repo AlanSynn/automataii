@@ -57,8 +57,6 @@ class AnchorItem(QGraphicsEllipseItem):  # Inherit only from QGraphicsEllipseIte
     def __str__(self) -> str:
         return f"<AnchorItem '{self.anchor_id}' at ({self.scenePos().x():.1f}, {self.scenePos().y():.1f})>"
 
-
-
     def hoverEnterEvent(self, event):
         """Change cursor on hover."""
         self.setBrush(QBrush(self._color.lighter(130)))
@@ -73,10 +71,7 @@ class AnchorItem(QGraphicsEllipseItem):  # Inherit only from QGraphicsEllipseIte
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
         """Emit signal when position changes."""
-        if (
-            change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
-            and self.scene()
-        ):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and self.scene():
             # This signal is emitted *after* the position has changed.
             self.signals.anchorMoved.emit(
                 self.anchor_id, self.scenePos()
@@ -128,9 +123,7 @@ if __name__ == "__main__":
     scene.addItem(anchor2)
 
     def handle_anchor_move(anchor_id, pos):
-        print(
-            f"Anchor '{anchor_id}' moved to scene position: ({pos.x():.1f}, {pos.y():.1f})"
-        )
+        print(f"Anchor '{anchor_id}' moved to scene position: ({pos.x():.1f}, {pos.y():.1f})")
 
     # Connections will now use the exposed signals from the AnchorItem instance
     anchor1.anchorMoved.connect(handle_anchor_move)

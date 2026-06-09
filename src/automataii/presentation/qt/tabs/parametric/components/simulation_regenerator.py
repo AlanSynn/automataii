@@ -6,6 +6,7 @@ mechanism simulations when parameters change.
 
 Design Pattern: Service (stateless computation)
 """
+
 from __future__ import annotations
 
 import logging
@@ -82,22 +83,22 @@ class SimulationRegenerator:
                 A_new = O0 + L1 * np.array([math.cos(theta), math.sin(theta)])
 
                 # Solve for coupler-rocker joint using circle intersection
-                B_new = self._solve_circle_intersection(
-                    A_new, L2, O1, L3
-                )
+                B_new = self._solve_circle_intersection(A_new, L2, O1, L3)
 
                 if B_new is None:
                     continue
 
-                frames.append({
-                    "angle": math.degrees(theta),
-                    "positions": {
-                        "O0": O0.tolist(),
-                        "O1": O1.tolist(),
-                        "A": A_new.tolist(),
-                        "B": B_new.tolist(),
-                    },
-                })
+                frames.append(
+                    {
+                        "angle": math.degrees(theta),
+                        "positions": {
+                            "O0": O0.tolist(),
+                            "O1": O1.tolist(),
+                            "A": A_new.tolist(),
+                            "B": B_new.tolist(),
+                        },
+                    }
+                )
 
             if not frames:
                 return None
@@ -152,16 +153,18 @@ class SimulationRegenerator:
                 if C_new is None:
                     continue
 
-                frames.append({
-                    "angle": math.degrees(theta),
-                    "positions": {
-                        "O0": O0.tolist(),
-                        "O1": O1.tolist(),
-                        "A": A_new.tolist(),
-                        "B": B_new.tolist(),
-                        "C": C_new.tolist(),
-                    },
-                })
+                frames.append(
+                    {
+                        "angle": math.degrees(theta),
+                        "positions": {
+                            "O0": O0.tolist(),
+                            "O1": O1.tolist(),
+                            "A": A_new.tolist(),
+                            "B": B_new.tolist(),
+                            "C": C_new.tolist(),
+                        },
+                    }
+                )
 
             if not frames:
                 return None
@@ -196,13 +199,15 @@ class SimulationRegenerator:
             for i in range(num_steps):
                 theta = 2 * math.pi * i / num_steps
 
-                frames.append({
-                    "angle": math.degrees(theta),
-                    "positions": {
-                        "O0": O0.tolist(),
-                        "O1": O1.tolist(),
-                    },
-                })
+                frames.append(
+                    {
+                        "angle": math.degrees(theta),
+                        "positions": {
+                            "O0": O0.tolist(),
+                            "O1": O1.tolist(),
+                        },
+                    }
+                )
 
             layer_data["simulation"] = {
                 "frames": frames,
@@ -238,15 +243,17 @@ class SimulationRegenerator:
                 theta1 = 2 * math.pi * i / num_steps
                 theta2 = -theta1 * gear_ratio  # Counter-rotation
 
-                frames.append({
-                    "angle": math.degrees(theta1),
-                    "gear1_angle": math.degrees(theta1),
-                    "gear2_angle": math.degrees(theta2),
-                    "positions": {
-                        "center1": c1.tolist(),
-                        "center2": c2.tolist(),
-                    },
-                })
+                frames.append(
+                    {
+                        "angle": math.degrees(theta1),
+                        "gear1_angle": math.degrees(theta1),
+                        "gear2_angle": math.degrees(theta2),
+                        "positions": {
+                            "center1": c1.tolist(),
+                            "center2": c2.tolist(),
+                        },
+                    }
+                )
 
             layer_data["simulation"] = {
                 "frames": frames,
@@ -290,15 +297,17 @@ class SimulationRegenerator:
                     py = center[1] + planet_orbit_r * math.sin(planet_angle)
                     planet_positions.append([px, py])
 
-                frames.append({
-                    "angle": math.degrees(carrier_angle),
-                    "sun_angle": math.degrees(sun_angle),
-                    "carrier_angle": math.degrees(carrier_angle),
-                    "planet_positions": planet_positions,
-                    "positions": {
-                        "center": center.tolist(),
-                    },
-                })
+                frames.append(
+                    {
+                        "angle": math.degrees(carrier_angle),
+                        "sun_angle": math.degrees(sun_angle),
+                        "carrier_angle": math.degrees(carrier_angle),
+                        "planet_positions": planet_positions,
+                        "positions": {
+                            "center": center.tolist(),
+                        },
+                    }
+                )
 
             layer_data["simulation"] = {
                 "frames": frames,
@@ -344,14 +353,16 @@ class SimulationRegenerator:
 
                 follower_y = center[1] - base_r - displacement
 
-                frames.append({
-                    "angle": math.degrees(angle),
-                    "follower_displacement": displacement,
-                    "positions": {
-                        "center": center.tolist(),
-                        "follower": [center[0], follower_y],
-                    },
-                })
+                frames.append(
+                    {
+                        "angle": math.degrees(angle),
+                        "follower_displacement": displacement,
+                        "positions": {
+                            "center": center.tolist(),
+                            "follower": [center[0], follower_y],
+                        },
+                    }
+                )
 
             layer_data["simulation"] = {
                 "frames": frames,

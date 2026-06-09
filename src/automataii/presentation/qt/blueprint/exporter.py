@@ -1,14 +1,32 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
-from typing import Any
+from typing import Any, SupportsFloat, SupportsIndex, cast
 
 import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from automataii.infrastructure.telemetry import telemetry_span
+
+_NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
+
+
+def _finite_float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(cast(_NumericPayload, value))
+    except (TypeError, ValueError):
+        return default
+    return result if math.isfinite(result) else default
+
+
+def _first_value(params: dict[str, Any], *names: str, default: object = None) -> object:
+    for name in names:
+        if name in params:
+            return params[name]
+    return default
 
 
 class BlueprintExporter:
@@ -25,7 +43,9 @@ class BlueprintExporter:
         mechanism_view: Any,
         get_mechanism_layers: Callable[[], dict[str, Any]],
         get_current_editor_items: Callable[[], dict[str, Any]],
-        get_scene_transform_function: Callable[[dict[str, Any]], Callable[[np.ndarray], QPointF] | None],
+        get_scene_transform_function: Callable[
+            [dict[str, Any]], Callable[[np.ndarray], QPointF] | None
+        ],
     ) -> None:
         self._parent = parent
         self._mechanism_view = mechanism_view
@@ -79,12 +99,16 @@ class BlueprintExporter:
             layout.addWidget(imperial_radio)
 
             # Info text
-            info_label = QLabel("\nMetric is recommended for precision manufacturing.\nImperial can be useful for woodworking projects.")
+            info_label = QLabel(
+                "\nMetric is recommended for precision manufacturing.\nImperial can be useful for woodworking projects."
+            )
             info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
             layout.addWidget(info_label)
 
             # Dialog buttons
-            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
             button_box.accepted.connect(unit_dialog.accept)
             button_box.rejected.connect(unit_dialog.reject)
             layout.addWidget(button_box)
@@ -139,6 +163,7 @@ class BlueprintExporter:
 
             if not part_items and not mechanism_layers:
                 from PyQt6.QtWidgets import QMessageBox
+
                 QMessageBox.warning(
                     self._parent,
                     "Blueprint Export",
@@ -149,8 +174,10 @@ class BlueprintExporter:
 
             # Log scale factor information for debugging
             for mech_id, mech_data in mechanism_layers.items():
-                scale_factor = mech_data.get('total_scale_factor', 'N/A')
-                logging.info(f"[BLUEPRINT] Enhanced mechanism {mech_id}: scale_factor={scale_factor}")
+                scale_factor = mech_data.get("total_scale_factor", "N/A")
+                logging.info(
+                    f"[BLUEPRINT] Enhanced mechanism {mech_id}: scale_factor={scale_factor}"
+                )
 
             logging.info(
                 "[BLUEPRINT] Export request: %s parts, %s mechanisms, unit_system=%s",
@@ -178,6 +205,7 @@ class BlueprintExporter:
             if success:
                 logging.info("[BLUEPRINT] Blueprint export completed via composer pipeline")
                 from PyQt6.QtWidgets import QMessageBox
+
                 QMessageBox.information(
                     self._parent,
                     "Blueprint Export Complete",
@@ -186,23 +214,23 @@ class BlueprintExporter:
                     f"Mechanisms: {len(mechanism_layers)}\n"
                     f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n"
                     f"Units: {unit_label}\n\n"
-                    "Fixed: Now uses screen-calculated dimensions instead of defaults.\n"
-                    "The blueprint uses the original large-format layout\n"
-                    "with proper part outlines and mechanism details.",
+                    "The blueprint uses the large-format layout with measured part outlines\n"
+                    "and current mechanism details.",
                 )
             else:
                 logging.warning("[BLUEPRINT] Blueprint export failed")
                 from PyQt6.QtWidgets import QMessageBox
+
                 QMessageBox.warning(
                     self._parent,
                     "Blueprint Export Failed",
-                    "Blueprint export failed.\n"
-                    "Check the console for details.",
+                    "Blueprint export failed.\nCheck the console for details.",
                 )
 
         except ImportError as e:
             logging.error(f"[BLUEPRINT] Blueprint import error: {e}")
             from PyQt6.QtWidgets import QMessageBox
+
             QMessageBox.critical(
                 self._parent,
                 "Blueprint Export Error",
@@ -213,6 +241,7 @@ class BlueprintExporter:
         except Exception as e:
             logging.error(f"[BLUEPRINT] Blueprint export unexpected error: {e}")
             from PyQt6.QtWidgets import QMessageBox
+
             QMessageBox.critical(
                 self._parent,
                 "Blueprint Export Error",
@@ -266,7 +295,9 @@ class BlueprintExporter:
             unit_group.addButton(imperial_radio, 1)
             layout.addWidget(imperial_radio)
 
-            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
             button_box.accepted.connect(unit_dialog.accept)
             button_box.rejected.connect(unit_dialog.reject)
             layout.addWidget(button_box)
@@ -293,8 +324,10 @@ class BlueprintExporter:
 
             part_items = self._collect_part_items()
 
-            logging.info(f"[BLUEPRINT] Scale enhanced mechanism data: "
-                        f"total_scale_factor={mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A')}")
+            logging.info(
+                f"[BLUEPRINT] Scale enhanced mechanism data: "
+                f"total_scale_factor={mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A')}"
+            )
 
             with telemetry_span(
                 "ui.blueprint.export_mechanism",
@@ -307,7 +340,10 @@ class BlueprintExporter:
                 if filename:
                     import os
 
-                    os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
+                    os.makedirs(
+                        os.path.dirname(filename) if os.path.dirname(filename) else ".",
+                        exist_ok=True,
+                    )
                     result = blueprint_manager.compose_single_page(
                         part_items=part_items,
                         mechanism_layers=mechanism_layers,
@@ -333,6 +369,7 @@ class BlueprintExporter:
                         result.height_mm,
                     )
                     from PyQt6.QtWidgets import QMessageBox
+
                     QMessageBox.information(
                         self._parent,
                         "Export Successful",
@@ -341,7 +378,7 @@ class BlueprintExporter:
                         f"Parts included: {len(part_items)}\n"
                         f"Scale Factor: {mechanism_layers[mechanism_id].get('total_scale_factor', 'N/A'):.3f}\n"
                         f"Units: {unit_label}\n\n"
-                        "Fixed: Now uses screen-calculated dimensions instead of defaults.",
+                        "Blueprint uses measured scene scale and current mechanism details.",
                     )
                 else:
                     success = blueprint_manager.export_blueprint(
@@ -365,12 +402,14 @@ class BlueprintExporter:
                         )
 
         except Exception as e:
-            logging.error(f"[BLUEPRINT] Failed to export blueprint for mechanism {mechanism_id}: {e}")
+            logging.error(
+                f"[BLUEPRINT] Failed to export blueprint for mechanism {mechanism_id}: {e}"
+            )
             from PyQt6.QtWidgets import QMessageBox
+
             QMessageBox.critical(
                 self._parent, "Export Failed", f"Failed to export blueprint:\n{str(e)}"
             )
-
 
     def show_mechanism_dimensions(self, mechanism_id: str) -> None:
         """Show a dimension summary for a specific mechanism."""
@@ -398,7 +437,7 @@ class BlueprintExporter:
         dimensions_text = "=== MECHANISM DIMENSIONS ===\n"
         dimensions_text += f"Type: {mech_type}\n"
         dimensions_text += f"Scale: 1 pixel = {scale_factor:.2f} mm\n"
-        dimensions_text += "Printable on: Letter size (8.5\" x 11\")\n\n"
+        dimensions_text += 'Printable on: Letter size (8.5" x 11")\n\n'
 
         if mech_type == "4_bar_linkage":
             L1 = params.get("L1", 0) * scale_factor
@@ -407,10 +446,10 @@ class BlueprintExporter:
             L4 = params.get("L4", 0) * scale_factor
 
             dimensions_text += "Link Lengths (mm):\n"
-            dimensions_text += f"  Ground Link (L1): {L1:.1f} mm ({L1/mm_per_inch:.2f}\")\n"
-            dimensions_text += f"  Crank (L2): {L2:.1f} mm ({L2/mm_per_inch:.2f}\")\n"
-            dimensions_text += f"  Coupler (L3): {L3:.1f} mm ({L3/mm_per_inch:.2f}\")\n"
-            dimensions_text += f"  Rocker (L4): {L4:.1f} mm ({L4/mm_per_inch:.2f}\")\n"
+            dimensions_text += f'  Ground Link (L1): {L1:.1f} mm ({L1 / mm_per_inch:.2f}")\n'
+            dimensions_text += f'  Crank (L2): {L2:.1f} mm ({L2 / mm_per_inch:.2f}")\n'
+            dimensions_text += f'  Coupler (L3): {L3:.1f} mm ({L3 / mm_per_inch:.2f}")\n'
+            dimensions_text += f'  Rocker (L4): {L4:.1f} mm ({L4 / mm_per_inch:.2f}")\n'
 
         elif mech_type == "cam":
             base_radius = params.get("base_radius", 0) * scale_factor
@@ -418,21 +457,27 @@ class BlueprintExporter:
             rod_length = params.get("follower_rod_length", 0) * scale_factor
 
             dimensions_text += "Cam Dimensions (mm):\n"
-            dimensions_text += f"  Base Radius: {base_radius:.1f} mm ({base_radius/mm_per_inch:.2f}\")\n"
-            dimensions_text += f"  Eccentricity: {eccentricity:.1f} mm ({eccentricity/mm_per_inch:.2f}\")\n"
+            dimensions_text += (
+                f'  Base Radius: {base_radius:.1f} mm ({base_radius / mm_per_inch:.2f}")\n'
+            )
+            dimensions_text += (
+                f'  Eccentricity: {eccentricity:.1f} mm ({eccentricity / mm_per_inch:.2f}")\n'
+            )
             dimensions_text += f"  Max Radius: {base_radius + eccentricity:.1f} mm\n"
             dimensions_text += f"  Min Radius: {base_radius - eccentricity:.1f} mm\n"
-            dimensions_text += f"  Follower Rod Length: {rod_length:.1f} mm ({rod_length/mm_per_inch:.2f}\")\n"
+            dimensions_text += (
+                f'  Follower Rod Length: {rod_length:.1f} mm ({rod_length / mm_per_inch:.2f}")\n'
+            )
 
         elif mech_type == "gear":
             r1 = params.get("r1", 0) * scale_factor
             r2 = params.get("r2", 0) * scale_factor
 
             dimensions_text += "Gear Dimensions (mm):\n"
-            dimensions_text += f"  Gear 1 Radius: {r1:.1f} mm ({r1/mm_per_inch:.2f}\")\n"
-            dimensions_text += f"  Gear 2 Radius: {r2:.1f} mm ({r2/mm_per_inch:.2f}\")\n"
+            dimensions_text += f'  Gear 1 Radius: {r1:.1f} mm ({r1 / mm_per_inch:.2f}")\n'
+            dimensions_text += f'  Gear 2 Radius: {r2:.1f} mm ({r2 / mm_per_inch:.2f}")\n'
             dimensions_text += f"  Center Distance: {r1 + r2:.1f} mm\n"
-            dimensions_text += f"  Gear Ratio: {r2/r1:.2f}:1\n"
+            dimensions_text += f"  Gear Ratio: {r2 / r1:.2f}:1\n"
 
         elif mech_type == "planetary_gear":
             r_sun = params.get("r_sun", 0) * scale_factor
@@ -440,15 +485,21 @@ class BlueprintExporter:
             arm_length = params.get("arm_length", 0) * scale_factor
 
             dimensions_text += "Planetary Gear Dimensions (mm):\n"
-            dimensions_text += f"  Sun Gear Radius: {r_sun:.1f} mm ({r_sun/mm_per_inch:.2f}\")\n"
-            dimensions_text += f"  Planet Gear Radius: {r_planet:.1f} mm ({r_planet/mm_per_inch:.2f}\")\n"
-            dimensions_text += f"  Arm Length: {arm_length:.1f} mm ({arm_length/mm_per_inch:.2f}\")\n"
+            dimensions_text += f'  Sun Gear Radius: {r_sun:.1f} mm ({r_sun / mm_per_inch:.2f}")\n'
+            dimensions_text += (
+                f'  Planet Gear Radius: {r_planet:.1f} mm ({r_planet / mm_per_inch:.2f}")\n'
+            )
+            dimensions_text += (
+                f'  Arm Length: {arm_length:.1f} mm ({arm_length / mm_per_inch:.2f}")\n'
+            )
             dimensions_text += f"  Orbital Radius: {r_sun + r_planet:.1f} mm\n"
 
         msg_box = QMessageBox()
         msg_box.setWindowTitle("Mechanism Dimensions")
         msg_box.setText(dimensions_text)
-        msg_box.setDetailedText(self.generate_blueprint_instructions(mech_type, params, scale_factor))
+        msg_box.setDetailedText(
+            self.generate_blueprint_instructions(mech_type, params, scale_factor)
+        )
         msg_box.setIcon(QMessageBox.Icon.Information)
         msg_box.exec()
 
@@ -458,7 +509,9 @@ class BlueprintExporter:
         """Show dimensions for an arbitrary available mechanism (first one)."""
         mechanism_layers = self._get_mechanism_layers()
         if not mechanism_layers:
-            QMessageBox.warning(self._parent, "No Mechanism", "No mechanism available to show dimensions.")
+            QMessageBox.warning(
+                self._parent, "No Mechanism", "No mechanism available to show dimensions."
+            )
             return
         mechanism_id = next(iter(mechanism_layers.keys()))
         self.show_mechanism_dimensions(mechanism_id)
@@ -523,7 +576,9 @@ class BlueprintExporter:
                             (transformed_point.x() - transformed_origin.x()) ** 2
                             + (transformed_point.y() - transformed_origin.y()) ** 2
                         ) ** 0.5
-                        mechanism_scale_factors[mech_id] = scene_distance / 100.0 if scene_distance > 0 else 1.0
+                        mechanism_scale_factors[mech_id] = (
+                            scene_distance / 100.0 if scene_distance > 0 else 1.0
+                        )
                     except Exception:
                         mechanism_scale_factors[mech_id] = 1.0
 
@@ -558,7 +613,9 @@ class BlueprintExporter:
                 "target_character_height_mm": 300.0,
             }
 
-    def enhance_mechanism_layers_with_scale_info(self, screen_scale_info: dict[str, Any]) -> dict[str, Any]:
+    def enhance_mechanism_layers_with_scale_info(
+        self, screen_scale_info: dict[str, Any]
+    ) -> dict[str, Any]:
         """Attach scale info and real-world params to each mechanism layer."""
         enhanced_layers: dict[str, Any] = {}
 
@@ -572,12 +629,18 @@ class BlueprintExporter:
                 mechanism_scale_factors = screen_scale_info.get("mechanism_scale_factors", {})
                 mech_scale_factor = mechanism_scale_factors.get(mech_id, 1.0)
                 enhanced_layer["mechanism_to_screen_scale"] = mech_scale_factor
-                enhanced_layer["screen_to_blueprint_scale"] = screen_scale_info.get("mm_per_pixel", 0.36)
-                enhanced_layer["total_scale_factor"] = mech_scale_factor * screen_scale_info.get("mm_per_pixel", 0.36)
+                enhanced_layer["screen_to_blueprint_scale"] = screen_scale_info.get(
+                    "mm_per_pixel", 0.36
+                )
+                enhanced_layer["total_scale_factor"] = mech_scale_factor * screen_scale_info.get(
+                    "mm_per_pixel", 0.36
+                )
 
                 if "params" in enhanced_layer:
                     real_world_params = self.calculate_real_world_mechanism_params(
-                        enhanced_layer["params"], enhanced_layer["total_scale_factor"], enhanced_layer.get("type", "unknown")
+                        enhanced_layer["params"],
+                        enhanced_layer["total_scale_factor"],
+                        enhanced_layer.get("type", "unknown"),
                     )
                     enhanced_layer["real_world_params"] = real_world_params
 
@@ -596,7 +659,9 @@ class BlueprintExporter:
 
         return enhanced_layers
 
-    def calculate_real_world_mechanism_params(self, params: dict[str, Any], scale_factor: float, mech_type: str) -> dict[str, Any]:
+    def calculate_real_world_mechanism_params(
+        self, params: dict[str, Any], scale_factor: float, mech_type: str
+    ) -> dict[str, Any]:
         """Convert mechanism params to mm using total scale factor."""
         real_world_params: dict[str, Any] = {}
         try:
@@ -633,7 +698,9 @@ class BlueprintExporter:
 
         return real_world_params
 
-    def generate_blueprint_instructions(self, mech_type: str, params: dict[str, Any], scale_factor: float) -> str:
+    def generate_blueprint_instructions(
+        self, mech_type: str, params: dict[str, Any], scale_factor: float
+    ) -> str:
         """Generate printable assembly instructions text for the mechanism."""
         instructions = "=== CONSTRUCTION INSTRUCTIONS ===\n\n"
         mm_per_inch = 25.4
@@ -649,10 +716,10 @@ class BlueprintExporter:
             L2 = params.get("L2", 0) * scale_factor
             L3 = params.get("L3", 0) * scale_factor
             L4 = params.get("L4", 0) * scale_factor
-            instructions += f"   - Ground link: {L1:.1f} mm ({L1/mm_per_inch:.2f}\")\n"
-            instructions += f"   - Crank: {L2:.1f} mm ({L2/mm_per_inch:.2f}\")\n"
-            instructions += f"   - Coupler: {L3:.1f} mm ({L3/mm_per_inch:.2f}\")\n"
-            instructions += f"   - Rocker: {L4:.1f} mm ({L4/mm_per_inch:.2f}\")\n\n"
+            instructions += f'   - Ground link: {L1:.1f} mm ({L1 / mm_per_inch:.2f}")\n'
+            instructions += f'   - Crank: {L2:.1f} mm ({L2 / mm_per_inch:.2f}")\n'
+            instructions += f'   - Coupler: {L3:.1f} mm ({L3 / mm_per_inch:.2f}")\n'
+            instructions += f'   - Rocker: {L4:.1f} mm ({L4 / mm_per_inch:.2f}")\n\n'
             instructions += "2. Drill holes at both ends of each bar (5-6mm diameter)\n"
             instructions += "3. Mount ground link to base plate\n"
             instructions += "4. Connect crank to left ground pivot\n"
@@ -660,20 +727,59 @@ class BlueprintExporter:
             instructions += "6. Connect coupler between crank and rocker\n"
             instructions += "7. Ensure all joints move freely\n"
         elif mech_type == "cam":
-            base_radius = params.get("base_radius", 0) * scale_factor
-            eccentricity = params.get("eccentricity", 0) * scale_factor
-            rod_length = params.get("follower_rod_length", 0) * scale_factor
+            base_radius = (
+                _finite_float(
+                    _first_value(params, "base_radius", "cam_radius", "base_radius_mm"),
+                    0.0,
+                )
+                * scale_factor
+            )
+            eccentricity = (
+                _finite_float(
+                    _first_value(
+                        params,
+                        "eccentricity",
+                        "cam_offset",
+                        "lift_mm",
+                        "eccentricity_mm",
+                    ),
+                    0.0,
+                )
+                * scale_factor
+            )
+            rod_length = (
+                _finite_float(
+                    _first_value(params, "follower_rod_length", "follower_length"),
+                    0.0,
+                )
+                * scale_factor
+            )
             instructions += "Materials Needed:\n"
             instructions += "- Cam material (wood, acrylic, or metal)\n"
-            instructions += f"- Follower rod: {rod_length:.1f} mm ({rod_length/mm_per_inch:.2f}\")\n"
+            instructions += (
+                f'- Follower rod: {rod_length:.1f} mm ({rod_length / mm_per_inch:.2f}")\n'
+            )
             instructions += "- Linear bearing or guide\n"
             instructions += "- Rotation shaft and bearing\n\n"
             instructions += "Cam Profile Creation:\n"
-            instructions += "1. Draw egg-shaped profile:\n"
-            instructions += f"   - Maximum radius: {base_radius + eccentricity:.1f} mm ({(base_radius + eccentricity)/mm_per_inch:.2f}\")\n"
-            instructions += f"   - Minimum radius: {base_radius - eccentricity:.1f} mm ({(base_radius - eccentricity)/mm_per_inch:.2f}\")\n"
-            instructions += f"   - Base radius: {base_radius:.1f} mm ({base_radius/mm_per_inch:.2f}\")\n"
-            instructions += f"   - Eccentricity: {eccentricity:.1f} mm ({eccentricity/mm_per_inch:.2f}\")\n"
+            instructions += "1. Use the generated CAM profile from the blueprint/SVG export:\n"
+            instructions += (
+                f"   - Base radius/reference: {base_radius:.1f} mm "
+                f'({base_radius / mm_per_inch:.2f}")\n'
+            )
+            instructions += (
+                f"   - Lift/eccentricity input: {eccentricity:.1f} mm "
+                f'({eccentricity / mm_per_inch:.2f}")\n'
+            )
+            if "cam_lobes" in params or "profile_harmonic" in params:
+                lobes = max(1, int(_finite_float(params.get("cam_lobes"), 1.0)))
+                harmonic = _finite_float(params.get("profile_harmonic"), math.nan)
+                instructions += f"   - Lobes: {lobes}\n"
+                if math.isfinite(harmonic):
+                    instructions += f"   - Harmonic: {harmonic:.2f}\n"
+            instructions += (
+                "   - Follow the plotted outline; do not approximate a generic profile.\n"
+            )
             instructions += "2. Mark center hole for shaft\n"
             instructions += "3. Cut cam profile carefully\n"
             instructions += "4. Smooth edges for proper follower contact\n"
@@ -690,10 +796,10 @@ class BlueprintExporter:
             instructions += "- Mounting plate\n\n"
             instructions += "Gear Specifications:\n"
             instructions += "Gear 1:\n"
-            instructions += f"  - Pitch diameter: {2*r1:.1f} mm\n"
+            instructions += f"  - Pitch diameter: {2 * r1:.1f} mm\n"
             instructions += f"  - Estimated teeth: {teeth1}\n"
             instructions += "Gear 2:\n"
-            instructions += f"  - Pitch diameter: {2*r2:.1f} mm\n"
+            instructions += f"  - Pitch diameter: {2 * r2:.1f} mm\n"
             instructions += f"  - Estimated teeth: {teeth2}\n"
             instructions += f"Center distance: {r1 + r2:.1f} mm\n\n"
             instructions += "Assembly:\n"

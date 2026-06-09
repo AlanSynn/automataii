@@ -46,15 +46,9 @@ class OptionsTab(QWidget):
 
         self._scroll_area = QScrollArea(self)
         self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        self._scroll_area.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        self._scroll_area.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         root_layout.addWidget(self._scroll_area)
 
         self._content_widget = QWidget(self._scroll_area)
@@ -86,17 +80,13 @@ class OptionsTab(QWidget):
         self.toolbar_toggle_check.toggled.connect(
             lambda val: self.setting_changed.emit("toolbar_visibility", val)
         )
-        self.toolbar_toggle_check.setToolTip(
-            "Show or hide the main application toolbar."
-        )
+        self.toolbar_toggle_check.setToolTip("Show or hide the main application toolbar.")
         appearance_layout.addRow(self.toolbar_toggle_check)
 
         # New Checkbox for Part Properties
         self.part_props_toggle_check = QCheckBox("Show Part Properties Panel")
         self.part_props_toggle_check.setChecked(False)  # Hidden by default
-        self.part_props_toggle_check.toggled.connect(
-            self.partPropertiesVisibilityChanged.emit
-        )
+        self.part_props_toggle_check.toggled.connect(self.partPropertiesVisibilityChanged.emit)
         self.part_props_toggle_check.toggled.connect(
             lambda val: self.setting_changed.emit("part_properties_visibility", val)
         )
@@ -114,9 +104,7 @@ class OptionsTab(QWidget):
         self.anim_duration_spin = QDoubleSpinBox()
         self.anim_duration_spin.setRange(0.1, 60.0)  # Min 0.1s, Max 60s
         self.anim_duration_spin.setSingleStep(0.1)
-        self.anim_duration_spin.setValue(
-            self._initial_anim_duration
-        )  # Use initial value
+        self.anim_duration_spin.setValue(self._initial_anim_duration)  # Use initial value
         self.anim_duration_spin.valueChanged.connect(self.animationDurationChanged.emit)
         self.anim_duration_spin.valueChanged.connect(
             lambda val: self.setting_changed.emit("animation_duration", val)
@@ -207,9 +195,7 @@ class OptionsTab(QWidget):
 
         self.adv_proc_toggle_check = QCheckBox("Show Detailed Processing Steps")
         self.adv_proc_toggle_check.setChecked(False)  # Hidden by default
-        self.adv_proc_toggle_check.toggled.connect(
-            self.advancedProcessingVisibilityChanged.emit
-        )
+        self.adv_proc_toggle_check.toggled.connect(self.advancedProcessingVisibilityChanged.emit)
         self.adv_proc_toggle_check.toggled.connect(
             lambda val: self.setting_changed.emit("detailed_processing_visibility", val)
         )
@@ -228,17 +214,13 @@ class OptionsTab(QWidget):
         self.unit_combo.addItems(["cm", "inch", "px"])  # Standard units
         self.unit_combo.setCurrentText("cm")  # Default to cm
         self.unit_combo.currentTextChanged.connect(self._on_unit_changed)
-        self.unit_combo.setToolTip(
-            "Select the unit system for grid display in editor views."
-        )
+        self.unit_combo.setToolTip("Select the unit system for grid display in editor views.")
         unit_settings_layout.addRow("Grid Unit System:", self.unit_combo)
 
         self.grid_system_check = QCheckBox("Enable Grid System")
         self.grid_system_check.setChecked(True)
         self.grid_system_check.toggled.connect(self._on_grid_system_toggled)
-        self.grid_system_check.setToolTip(
-            "Enable grid snapping for Foundry and Mechanism Design."
-        )
+        self.grid_system_check.setToolTip("Enable grid snapping for Foundry and Mechanism Design.")
         unit_settings_layout.addRow(self.grid_system_check)
 
         self.grid_cell_size_spin = QDoubleSpinBox()
@@ -247,9 +229,7 @@ class OptionsTab(QWidget):
         self.grid_cell_size_spin.setDecimals(1)
         self.grid_cell_size_spin.setSuffix(" cm")
         self.grid_cell_size_spin.setValue(2.5)
-        self.grid_cell_size_spin.valueChanged.connect(
-            self._on_grid_cell_size_changed
-        )
+        self.grid_cell_size_spin.valueChanged.connect(self._on_grid_cell_size_changed)
         self.grid_cell_size_spin.setToolTip(
             "Grid cell size used for length snapping in centimeters."
         )
@@ -263,9 +243,7 @@ class OptionsTab(QWidget):
     def _create_group_form_layout(group: QGroupBox) -> QFormLayout:
         layout = QFormLayout(group)
         layout.setSpacing(8)
-        layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
+        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         return layout
 
@@ -277,9 +255,7 @@ class OptionsTab(QWidget):
     def _on_unit_changed(self, unit_text: str):
         """Emits signals when the unit system selection changes."""
         self.unitChanged.emit(unit_text)
-        self.setting_changed.emit(
-            "unit_system", unit_text
-        )  # Also emit through generic signal
+        self.setting_changed.emit("unit_system", unit_text)  # Also emit through generic signal
 
     def _on_grid_system_toggled(self, enabled: bool) -> None:
         self.grid_cell_size_spin.setEnabled(enabled)
@@ -311,10 +287,6 @@ class OptionsTab(QWidget):
             # Fallback to balanced
             mode = "balanced"
         self.physicsSnapModeChanged.emit(mode)
-
-
-
-
 
     def set_debug_mode(self, enabled: bool):
         """Sets the 'Enable Debug Visuals' checkbox state."""

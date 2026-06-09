@@ -12,8 +12,4 @@ from .controllers.parameter_controller import ParameterController
 from .handles.anchor_handle import AnchorHandle
 from .handles.base_handle import BaseHandle
 
-__all__ = [
-    'BaseHandle',
-    'AnchorHandle',
-    'ParameterController'
-]
+__all__ = ["BaseHandle", "AnchorHandle", "ParameterController"]

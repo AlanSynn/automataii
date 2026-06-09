@@ -6,6 +6,7 @@ Owns all business state and coordination logic, leaving View as pure UI.
 
 Design Pattern: MVP (Model-View-Presenter) - Passive View variant
 """
+
 from __future__ import annotations
 
 import logging
@@ -252,7 +253,7 @@ class MechanismDesignPresenter(QObject):
         """
         self.selected_part_name = part_name
         # Sync to tab for backward compatibility
-        if hasattr(self._tab, 'selected_part_name'):
+        if hasattr(self._tab, "selected_part_name"):
             self._tab.selected_part_name = part_name
 
     def set_animation_running(self, is_running: bool) -> None:
@@ -280,17 +281,21 @@ class MechanismDesignPresenter(QObject):
         """
         try:
             # Restore skeleton visualization
-            if hasattr(self._tab, '_initial_skeleton_data_cache') and self._tab._initial_skeleton_data_cache:
+            if (
+                hasattr(self._tab, "_initial_skeleton_data_cache")
+                and self._tab._initial_skeleton_data_cache
+            ):
                 try:
-                    if hasattr(self._tab, '_ensure_skeleton_visualization'):
-                        self._tab._ensure_skeleton_visualization(self._tab._initial_skeleton_data_cache)
+                    if hasattr(self._tab, "_ensure_skeleton_visualization"):
+                        self._tab._ensure_skeleton_visualization(
+                            self._tab._initial_skeleton_data_cache
+                        )
                 except Exception:
                     logging.debug("Suppressed exception", exc_info=True)
 
             # Regenerate mechanism visuals if needed
             enabled_mechanisms = [
-                mid for mid, enabled in self._tab.mechanism_enabled_state.items()
-                if enabled
+                mid for mid, enabled in self._tab.mechanism_enabled_state.items() if enabled
             ]
 
             for mechanism_id in enabled_mechanisms:
@@ -304,27 +309,34 @@ class MechanismDesignPresenter(QObject):
                             for item in visual_items
                         )
 
-                        if needs_regeneration and hasattr(self._tab, '_generate_mechanism_visuals_directly'):
+                        if needs_regeneration and hasattr(
+                            self._tab, "_generate_mechanism_visuals_directly"
+                        ):
                             self._tab._generate_mechanism_visuals_directly(
                                 mechanism_id,
                                 layer_data.get("type"),
                                 layer_data.get("params", {}),
-                                layer_data
+                                layer_data,
                             )
 
                         # Regenerate trace items if missing
                         trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
-                        if trace_item is None or self._visual_item_manager.is_visual_item_invalid(trace_item):
+                        if trace_item is None or self._visual_item_manager.is_visual_item_invalid(
+                            trace_item
+                        ):
                             self._path_trace_manager.init_trace(mechanism_id, self._scene)
                             # Restore trace points if they exist
                             from PyQt6.QtGui import QPainterPath
+
                             trace_points = self._path_trace_manager.get_trace_points(mechanism_id)
                             if len(trace_points) > 1:
                                 path = QPainterPath()
                                 path.moveTo(trace_points[0])
                                 for point in trace_points[1:]:
                                     path.lineTo(point)
-                                new_trace_item = self._path_trace_manager.get_trace_item(mechanism_id)
+                                new_trace_item = self._path_trace_manager.get_trace_item(
+                                    mechanism_id
+                                )
                                 if new_trace_item:
                                     new_trace_item.setPath(path)
 
@@ -340,14 +352,14 @@ class MechanismDesignPresenter(QObject):
         Uses Tab's state directly for proper delegation pattern.
         """
         # Stop IK manager
-        if hasattr(self._main_window, 'ik_manager') and self._main_window.ik_manager:
+        if hasattr(self._main_window, "ik_manager") and self._main_window.ik_manager:
             try:
                 self._main_window.ik_manager.stop_animation()
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
 
         # Stop animation timer (from Tab)
-        if hasattr(self._tab, 'animation_timer') and self._tab.animation_timer.isActive():
+        if hasattr(self._tab, "animation_timer") and self._tab.animation_timer.isActive():
             self._tab.animation_timer.stop()
 
         # Collect and clear visual items (from Tab's mechanism_layers)
@@ -361,7 +373,7 @@ class MechanismDesignPresenter(QObject):
         self._path_trace_manager.clear_all_traces(self._scene)
 
         # Clear path visual items
-        if hasattr(self._tab, 'path_visual_items'):
+        if hasattr(self._tab, "path_visual_items"):
             self._tab.path_visual_items.clear()
 
         # Safe remove visual items
@@ -371,11 +383,7 @@ class MechanismDesignPresenter(QObject):
         # Update scene (batched for performance)
         self._request_scene_update()
 
-    def _regenerate_visuals_if_needed(
-        self,
-        mechanism_id: str,
-        layer_data: dict
-    ) -> None:
+    def _regenerate_visuals_if_needed(self, mechanism_id: str, layer_data: dict) -> None:
         """Regenerate visuals if they're missing or invalid."""
         visual_items = layer_data.get("visual_items", [])
         needs_regeneration = not visual_items or any(
@@ -385,8 +393,7 @@ class MechanismDesignPresenter(QObject):
 
         if needs_regeneration:
             self.view_update_requested.emit(
-                'regenerate_visuals',
-                {'mechanism_id': mechanism_id, 'layer_data': layer_data}
+                "regenerate_visuals", {"mechanism_id": mechanism_id, "layer_data": layer_data}
             )
 
     # === ANIMATION CONTROL ===
@@ -437,9 +444,9 @@ class MechanismDesignPresenter(QObject):
         if total_mechs == 0:
             return
 
-        batch_count = max(1, int(math.ceil(
-            total_mechs * max(0.05, min(1.0, self.mechanism_update_fraction))
-        )))
+        batch_count = max(
+            1, int(math.ceil(total_mechs * max(0.05, min(1.0, self.mechanism_update_fraction))))
+        )
 
         start = self._mech_rr_cursor % total_mechs
         for offset in range(batch_count):
@@ -456,9 +463,8 @@ class MechanismDesignPresenter(QObject):
         self._mechanism_id_cache_dirty = True
 
     def _get_mechanism_id_cache(self) -> tuple[str, ...]:
-        if (
-            self._mechanism_id_cache_dirty
-            or len(self._mechanism_id_cache) != len(self.mechanism_layers)
+        if self._mechanism_id_cache_dirty or len(self._mechanism_id_cache) != len(
+            self.mechanism_layers
         ):
             self._mechanism_id_cache = tuple(self.mechanism_layers.keys())
             self._mechanism_id_cache_dirty = False
@@ -468,11 +474,7 @@ class MechanismDesignPresenter(QObject):
                 self._mech_rr_cursor = 0
         return self._mechanism_id_cache
 
-    def _update_mechanism_animation(
-        self,
-        mechanism_id: str,
-        layer_data: dict
-    ) -> None:
+    def _update_mechanism_animation(self, mechanism_id: str, layer_data: dict) -> None:
         """Update a single mechanism's animation."""
         if not layer_data or not layer_data.get("part_name"):
             return
@@ -483,35 +485,31 @@ class MechanismDesignPresenter(QObject):
 
         # Request View to update mechanism visuals
         self.view_update_requested.emit(
-            'update_mechanism_animation',
+            "update_mechanism_animation",
             {
-                'mechanism_id': mechanism_id,
-                'time': self.animation_time,
-                'layer_data': layer_data,
-            }
+                "mechanism_id": mechanism_id,
+                "time": self.animation_time,
+                "layer_data": layer_data,
+            },
         )
 
     def _reset_skeleton_to_initial(self) -> None:
         """Reset skeleton to initial state."""
-        if hasattr(self._main_window, 'ik_manager') and self._main_window.ik_manager:
+        if hasattr(self._main_window, "ik_manager") and self._main_window.ik_manager:
             try:
                 ik = self._main_window.ik_manager
-                if hasattr(ik, 'stop_animation'):
+                if hasattr(ik, "stop_animation"):
                     ik.stop_animation()
-                if hasattr(ik, 'clear_mechanism_position_targets'):
+                if hasattr(ik, "clear_mechanism_position_targets"):
                     ik.clear_mechanism_position_targets()
-                if hasattr(ik, 'reset_animation_state'):
+                if hasattr(ik, "reset_animation_state"):
                     ik.reset_animation_state()
             except Exception:
                 logging.debug("Suppressed exception", exc_info=True)
 
     # === MECHANISM MANAGEMENT ===
 
-    def add_mechanism_layer(
-        self,
-        mechanism_id: str,
-        layer_data: dict
-    ) -> None:
+    def add_mechanism_layer(self, mechanism_id: str, layer_data: dict) -> None:
         """Add a mechanism layer."""
         self.mechanism_layers[mechanism_id] = layer_data
         self.mechanism_enabled_state[mechanism_id] = True
@@ -535,8 +533,7 @@ class MechanismDesignPresenter(QObject):
         """Toggle mechanism enabled state."""
         self.mechanism_enabled_state[mechanism_id] = enabled
         self.view_update_requested.emit(
-            'toggle_mechanism_visuals',
-            {'mechanism_id': mechanism_id, 'enabled': enabled}
+            "toggle_mechanism_visuals", {"mechanism_id": mechanism_id, "enabled": enabled}
         )
 
     def clear_all_mechanisms(self) -> None:
@@ -561,13 +558,15 @@ class MechanismDesignPresenter(QObject):
         """Update mechanism list in View."""
         items = []
         for mech_id, layer_data in self.mechanism_layers.items():
-            items.append({
-                'id': mech_id,
-                'name': layer_data.get('name', f'Mechanism {mech_id[:8]}'),
-                'type': layer_data.get('type', 'unknown'),
-                'part_name': layer_data.get('part_name', ''),
-                'enabled': self.mechanism_enabled_state.get(mech_id, True),
-            })
+            items.append(
+                {
+                    "id": mech_id,
+                    "name": layer_data.get("name", f"Mechanism {mech_id[:8]}"),
+                    "type": layer_data.get("type", "unknown"),
+                    "part_name": layer_data.get("part_name", ""),
+                    "enabled": self.mechanism_enabled_state.get(mech_id, True),
+                }
+            )
         self.mechanism_list_changed.emit(items)
 
     # === PATH DATA ===
@@ -580,8 +579,9 @@ class MechanismDesignPresenter(QObject):
 
         parts_to_clear = previous_parts - current_parts
         for part_name in current_parts:
-            if (part_name in self.path_data and
-                path_data.get(part_name) != self.path_data.get(part_name)):
+            if part_name in self.path_data and path_data.get(part_name) != self.path_data.get(
+                part_name
+            ):
                 parts_to_clear.add(part_name)
 
         for part_name in parts_to_clear:
@@ -606,7 +606,8 @@ class MechanismDesignPresenter(QObject):
         self._tab._clear_animation_cache()
 
         mechanisms_to_remove = [
-            mech_id for mech_id, layer_data in self.mechanism_layers.items()
+            mech_id
+            for mech_id, layer_data in self.mechanism_layers.items()
             if layer_data.get("part_name") == part_name
         ]
 
@@ -634,14 +635,13 @@ class MechanismDesignPresenter(QObject):
         to ProjectStateManager for undo/redo support and Foundry sync.
         """
         # Emit signal to propagate changes (for undo/redo and Foundry sync)
-        if self._tab and hasattr(self._tab, '_emit_mechanism_params_changed'):
+        if self._tab and hasattr(self._tab, "_emit_mechanism_params_changed"):
             self._tab._emit_mechanism_params_changed(mechanism_id)
 
     def _on_visuals_recreate(self, mechanism_id: str, layer_data: dict) -> None:
         """Handle visual recreation request."""
         self.view_update_requested.emit(
-            'recreate_visuals',
-            {'mechanism_id': mechanism_id, 'layer_data': layer_data}
+            "recreate_visuals", {"mechanism_id": mechanism_id, "layer_data": layer_data}
         )
 
     def _on_handles_update(self, mechanism_id: str, moved_handle: str) -> None:
@@ -742,12 +742,12 @@ class MechanismDesignPresenter(QObject):
         # at the top level where TransformService expects them.
         # This is consistent with _generate_mechanism_visuals_directly which uses **layer_data.
         self.view_update_requested.emit(
-            'generate_mechanism_visuals',
+            "generate_mechanism_visuals",
             {
-                'mechanism_id': result.mechanism_id,
-                'mechanism_type': layer_data["type"],
+                "mechanism_id": result.mechanism_id,
+                "mechanism_type": layer_data["type"],
                 **layer_data,  # Spreads transform_params, generated_path, etc. at top level
-            }
+            },
         )
 
         self._update_mechanism_list()
@@ -758,7 +758,9 @@ class MechanismDesignPresenter(QObject):
         self._tab._clear_animation_cache()
         self._reset_skeleton_to_initial()
 
-        mechanism_id = mechanism_graphics_data.get("mechanism_id", mechanism_graphics_data.get("id"))
+        mechanism_id = mechanism_graphics_data.get(
+            "mechanism_id", mechanism_graphics_data.get("id")
+        )
         mechanism_type = mechanism_graphics_data.get(
             "mechanism_type", mechanism_graphics_data.get("type")
         )
@@ -793,9 +795,14 @@ class MechanismDesignPresenter(QObject):
 
         # Merge computed fields back to layer_data
         for key in (
-            'cam_profile_local_points', 'cam_points_local', 'cam_template_svg_path',
-            'cam_transform_function', 'cam_axis_local', 'cam_scale_factor',
-            'rod_length_multiplier', 'follower_fixed_x_scene',
+            "cam_profile_local_points",
+            "cam_points_local",
+            "cam_template_svg_path",
+            "cam_transform_function",
+            "cam_axis_local",
+            "cam_scale_factor",
+            "rod_length_multiplier",
+            "follower_fixed_x_scene",
         ):
             if key in mechanism_graphics_data:
                 layer_data[key] = mechanism_graphics_data[key]
@@ -830,19 +837,23 @@ class MechanismDesignPresenter(QObject):
     def _get_character_position(self) -> list[float]:
         """Get character ground position from skeleton cache."""
         from automataii.domain.kinematics.joint_mapping_service import JointMappingService
+
         service = JointMappingService()
         return list(service.get_character_ground_position(self._initial_skeleton_data_cache))
 
     def clear_mechanism_data(self) -> None:
         """Clear all mechanism data. Business logic moved from Tab."""
         # Stop animation
-        if hasattr(self._tab, 'animation_timer') and self._tab.animation_timer.isActive():
+        if hasattr(self._tab, "animation_timer") and self._tab.animation_timer.isActive():
             self._tab.animation_timer.stop()
-        if hasattr(self._tab, '_animation_frame_coordinator') and self._tab._animation_frame_coordinator:
+        if (
+            hasattr(self._tab, "_animation_frame_coordinator")
+            and self._tab._animation_frame_coordinator
+        ):
             self._tab._animation_frame_coordinator.reset_state()
 
         # Clear via scene management service
-        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        ik_manager = getattr(self._main_window, "ik_manager", None)
         self._tab._scene_management_service.clear_mechanism_data(
             mechanism_layers=self.mechanism_layers,
             mechanism_enabled_state=self.mechanism_enabled_state,
@@ -876,7 +887,7 @@ class MechanismDesignPresenter(QObject):
             MechanismLifecycleContext,
         )
 
-        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        ik_manager = getattr(self._main_window, "ik_manager", None)
         if not ik_manager:
             return False
 
@@ -902,16 +913,16 @@ class MechanismDesignPresenter(QObject):
         joint_id: str,
     ) -> None:
         """Register mechanism as IK controller."""
-        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        ik_manager = getattr(self._main_window, "ik_manager", None)
         if not ik_manager:
             return
 
         # Generate motion path
         joint_motion_path = self._tab._generate_joint_motion_path(layer_data, joint_id)
-        if joint_motion_path and hasattr(ik_manager, 'set_joint_motion_path'):
+        if joint_motion_path and hasattr(ik_manager, "set_joint_motion_path"):
             ik_manager.set_joint_motion_path(joint_id, joint_motion_path)
             part_name = layer_data.get("part_name")
-            if part_name and hasattr(ik_manager, 'set_part_motion_path'):
+            if part_name and hasattr(ik_manager, "set_part_motion_path"):
                 ik_manager.set_part_motion_path(part_name, joint_motion_path)
 
         # Register callback
@@ -924,12 +935,12 @@ class MechanismDesignPresenter(QObject):
             )
             return result if isinstance(result, QPointF) or result is None else None
 
-        if hasattr(ik_manager, 'register_mechanism_controller'):
+        if hasattr(ik_manager, "register_mechanism_controller"):
             ik_manager.register_mechanism_controller(joint_id, mech_id, mechanism_callback)
 
         # Enable IK for part
         part_name = layer_data.get("part_name")
-        if part_name and hasattr(ik_manager, 'enable_ik_for_part'):
+        if part_name and hasattr(ik_manager, "enable_ik_for_part"):
             ik_manager.enable_ik_for_part(part_name, True)
 
     def set_parts_data(self, parts_data: dict[str, Any]) -> dict[str, Any]:
@@ -953,6 +964,7 @@ class MechanismDesignPresenter(QObject):
         import logging
 
         from automataii.domain.kinematics.joint_mapping_service import JointMappingService
+
         service = JointMappingService()
         raw_std_id = service.standardize_joint_id(abstract_joint_id)
         std_id = raw_std_id if isinstance(raw_std_id, str) else None
@@ -960,13 +972,15 @@ class MechanismDesignPresenter(QObject):
         # Use presenter's cache first, then fallback to Tab's cache
         cache = self._initial_skeleton_data_cache
         if not cache:
-            cache = getattr(self._tab, '_initial_skeleton_data_cache', None)
+            cache = getattr(self._tab, "_initial_skeleton_data_cache", None)
 
         # Debug: Log cache state (only first call)
-        if not hasattr(self, '_cache_logged'):
+        if not hasattr(self, "_cache_logged"):
             self._cache_logged = True
-            logging.debug(f"[JOINT-MAP] Cache exists={cache is not None}, keys={list(cache.keys()) if cache else []}")
-            joints_preview = list(cache.get('joints', {}).keys())[:5] if cache else []
+            logging.debug(
+                f"[JOINT-MAP] Cache exists={cache is not None}, keys={list(cache.keys()) if cache else []}"
+            )
+            joints_preview = list(cache.get("joints", {}).keys())[:5] if cache else []
             logging.debug(f"[JOINT-MAP] Sample joint keys: {joints_preview}")
 
         raw_joints = cache.get("joints", {}) if cache else {}
@@ -1004,8 +1018,8 @@ class MechanismDesignPresenter(QObject):
                 # Also check if target is a prefix without underscore
                 # e.g., "left_hand" matches "left_hand9" (no underscore)
                 if joint_id.startswith(target_id) and len(joint_id) > len(target_id):
-                    suffix = joint_id[len(target_id):]
-                    if suffix[0].isdigit() or suffix[0] == '_':
+                    suffix = joint_id[len(target_id) :]
+                    if suffix[0].isdigit() or suffix[0] == "_":
                         logging.debug(f"[JOINT-MAP] Prefix matched '{target_id}' -> '{joint_id}'")
                         return joint_id
 
@@ -1022,7 +1036,7 @@ class MechanismDesignPresenter(QObject):
             return False
 
         try:
-            if hasattr(view, 'update_visuals_from_animation_data'):
+            if hasattr(view, "update_visuals_from_animation_data"):
                 view.update_visuals_from_animation_data(ik_results)
 
             if self._tab_active:
@@ -1037,7 +1051,7 @@ class MechanismDesignPresenter(QObject):
 
     def reset_skeleton_to_initial_state(self) -> None:
         """Reset skeleton to initial state. Business logic moved from Tab."""
-        ik_manager = getattr(self._main_window, 'ik_manager', None)
+        ik_manager = getattr(self._main_window, "ik_manager", None)
         self.animation_time = 0.0
 
         # Delegate IK reset to application layer
@@ -1045,7 +1059,7 @@ class MechanismDesignPresenter(QObject):
             self._tab._position_parts_at_anchor_joints()
             self._tab.on_skeleton_updated(skeleton_data)
             view = self._tab.mechanism_view
-            if hasattr(view, 'skeleton_graphics_item') and view.skeleton_graphics_item:
+            if hasattr(view, "skeleton_graphics_item") and view.skeleton_graphics_item:
                 view.skeleton_graphics_item.update()
 
         self._tab._lifecycle_coordinator.reset_skeleton_state(
@@ -1057,7 +1071,7 @@ class MechanismDesignPresenter(QObject):
 
         # Fallback: try to get from skeleton manager if no cache
         if not self._initial_skeleton_data_cache:
-            skeleton_mgr = getattr(self._main_window, 'skeleton_manager', None)
+            skeleton_mgr = getattr(self._main_window, "skeleton_manager", None)
             if skeleton_mgr:
                 initial_skeleton = skeleton_mgr.get_current_skeleton_data()
                 if initial_skeleton:

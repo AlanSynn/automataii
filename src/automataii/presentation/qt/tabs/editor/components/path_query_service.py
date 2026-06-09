@@ -7,6 +7,7 @@ about motion path existence and collection.
 Time Complexity: O(n) for most operations where n = number of parts
 Space Complexity: O(1) for existence queries, O(n) for collection
 """
+
 from __future__ import annotations
 
 import logging

@@ -2,4 +2,4 @@
 
 from .mechanism_adapter import MechanismAdapter
 
-__all__ = ['MechanismAdapter']
+__all__ = ["MechanismAdapter"]

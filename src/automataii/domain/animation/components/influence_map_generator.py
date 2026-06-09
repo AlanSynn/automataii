@@ -6,6 +6,7 @@ influence map creation for body part segmentation.
 
 Design Pattern: Generator (vectorized computation)
 """
+
 from __future__ import annotations
 
 import math
@@ -44,7 +45,7 @@ class InfluenceMapGenerator:
         self._joint_map = joint_map
 
         # Pre-compute coordinate grids
-        self._y_grid, self._x_grid = np.mgrid[0:self._height, 0:self._width]
+        self._y_grid, self._x_grid = np.mgrid[0 : self._height, 0 : self._width]
 
     def create_part_influence(
         self,
@@ -78,7 +79,7 @@ class InfluenceMapGenerator:
         # Apply falloff
         if falloff_type == "gaussian":
             sigma = base_radius / 2.0
-            influence = np.exp(-(distances ** 2) / (2 * sigma ** 2))
+            influence = np.exp(-(distances**2) / (2 * sigma**2))
         else:  # linear
             influence = np.clip(1.0 - distances / base_radius, 0, 1)
 
@@ -132,13 +133,11 @@ class InfluenceMapGenerator:
         # Perpendicular component (distance from bone)
         nearest_x = x1 + t * ux
         nearest_y = y1 + t * uy
-        perp_dist = np.sqrt(
-            (self._x_grid - nearest_x) ** 2 + (self._y_grid - nearest_y) ** 2
-        )
+        perp_dist = np.sqrt((self._x_grid - nearest_x) ** 2 + (self._y_grid - nearest_y) ** 2)
 
         # Gaussian falloff from bone
         sigma = width / 2.0
-        influence = np.exp(-(perp_dist ** 2) / (2 * sigma ** 2))
+        influence = np.exp(-(perp_dist**2) / (2 * sigma**2))
 
         return influence.astype(np.float32)
 
@@ -208,9 +207,7 @@ class InfluenceMapGenerator:
         if modulation_mask is None:
             return influence_map
 
-        modulated = influence_map * (
-            1.0 - strength + strength * modulation_mask
-        )
+        modulated = influence_map * (1.0 - strength + strength * modulation_mask)
         return np.clip(modulated, 0, 1).astype(np.float32)
 
     def get_joint_position(self, joint_name: str) -> tuple[int, int] | None:

@@ -27,28 +27,25 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
 
     def _generate_front_view(self, mechanism_data: dict[str, Any]):
         """Generate front view showing complete linkage assembly."""
-        params = mechanism_data.get('params', {})
+        params = mechanism_data.get("params", {})
         viewport = self.views[0]
 
         # Link parameters
-        p1 = params.get('anchor1', [viewport.x + 50, viewport.y + 80])
-        p2 = params.get('anchor2', [viewport.x + 150, viewport.y + 80])
-        l2 = params.get('l2', 40)  # Crank
-        l3 = params.get('l3', 60)  # Coupler
-        l4 = params.get('l4', 50)  # Rocker
+        p1 = params.get("anchor1", [viewport.x + 50, viewport.y + 80])
+        p2 = params.get("anchor2", [viewport.x + 150, viewport.y + 80])
+        l2 = params.get("l2", 40)  # Crank
+        l3 = params.get("l3", 60)  # Coupler
+        l4 = params.get("l4", 50)  # Rocker
 
         # Calculate joint positions (example configuration)
         crank_angle = math.radians(45)  # Show at 45 degrees
-        p3 = [
-            p1[0] + l2 * math.cos(crank_angle),
-            p1[1] + l2 * math.sin(crank_angle)
-        ]
+        p3 = [p1[0] + l2 * math.cos(crank_angle), p1[1] + l2 * math.sin(crank_angle)]
 
         # Solve for p4 position (simplified)
         rocker_angle = math.radians(30)
         p4 = [
             p2[0] + l4 * math.cos(math.pi - rocker_angle),
-            p2[1] + l4 * math.sin(math.pi - rocker_angle)
+            p2[1] + l4 * math.sin(math.pi - rocker_angle),
         ]
 
         linkage_svg = f'''
@@ -89,7 +86,8 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
 
     def _draw_ground_link(self, p1: list[float], p2: list[float]) -> str:
         """Draw ground link with foundation symbols."""
-        return f'''
+        return (
+            f'''
         <g id="ground-link">
             <!-- Ground link bar -->
             <line x1="{p1[0]}" y1="{p1[1]}" x2="{p2[0]}" y2="{p2[1]}"
@@ -97,26 +95,32 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
 
             <!-- Foundation hatching -->
             <g stroke="black" stroke-width="0.5">
-        ''' + ''.join([
-            f'<line x1="{p1[0] + i}" y1="{p1[1] + 3}" x2="{p1[0] + i - 5}" y2="{p1[1] + 10}"/>'
-            for i in range(0, int(p2[0] - p1[0]) + 5, 5)
-        ]) + f'''
+        '''
+            + "".join(
+                [
+                    f'<line x1="{p1[0] + i}" y1="{p1[1] + 3}" x2="{p1[0] + i - 5}" y2="{p1[1] + 10}"/>'
+                    for i in range(0, int(p2[0] - p1[0]) + 5, 5)
+                ]
+            )
+            + f"""
             </g>
 
             <!-- Ground symbols -->
-            <path d="M {p1[0]-10},{p1[1]+3} L {p1[0]+10},{p1[1]+3}
-                     M {p1[0]-7},{p1[1]+6} L {p1[0]+7},{p1[1]+6}
-                     M {p1[0]-4},{p1[1]+9} L {p1[0]+4},{p1[1]+9}"
+            <path d="M {p1[0] - 10},{p1[1] + 3} L {p1[0] + 10},{p1[1] + 3}
+                     M {p1[0] - 7},{p1[1] + 6} L {p1[0] + 7},{p1[1] + 6}
+                     M {p1[0] - 4},{p1[1] + 9} L {p1[0] + 4},{p1[1] + 9}"
                   stroke="black" stroke-width="0.7"/>
-            <path d="M {p2[0]-10},{p2[1]+3} L {p2[0]+10},{p2[1]+3}
-                     M {p2[0]-7},{p2[1]+6} L {p2[0]+7},{p2[1]+6}
-                     M {p2[0]-4},{p2[1]+9} L {p2[0]+4},{p2[1]+9}"
+            <path d="M {p2[0] - 10},{p2[1] + 3} L {p2[0] + 10},{p2[1] + 3}
+                     M {p2[0] - 7},{p2[1] + 6} L {p2[0] + 7},{p2[1] + 6}
+                     M {p2[0] - 4},{p2[1] + 9} L {p2[0] + 4},{p2[1] + 9}"
                   stroke="black" stroke-width="0.7"/>
         </g>
-        '''
+        """
+        )
 
-    def _draw_link(self, start: list[float], end: list[float],
-                  label: str, length: float, width: float) -> str:
+    def _draw_link(
+        self, start: list[float], end: list[float], label: str, length: float, width: float
+    ) -> str:
         """Draw a single link with realistic shape."""
         # Calculate angle and perpendicular
         dx = end[0] - start[0]
@@ -124,8 +128,8 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
         angle = math.atan2(dy, dx)
 
         # Perpendicular offsets for width
-        perp_x = -math.sin(angle) * width/2
-        perp_y = math.cos(angle) * width/2
+        perp_x = -math.sin(angle) * width / 2
+        perp_y = math.cos(angle) * width / 2
 
         # Link profile points
         p1 = f"{start[0] + perp_x},{start[1] + perp_y}"
@@ -140,20 +144,21 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
                   stroke="black" stroke-width="0.7" fill="white"/>
 
             <!-- Lightening holes -->
-            <circle cx="{(start[0] + end[0])/2}" cy="{(start[1] + end[1])/2}"
-                    r="{width/3}"
+            <circle cx="{(start[0] + end[0]) / 2}" cy="{(start[1] + end[1]) / 2}"
+                    r="{width / 3}"
                     stroke="black" stroke-width="0.5" fill="white"/>
 
             <!-- Link label -->
-            <text x="{(start[0] + end[0])/2}" y="{(start[1] + end[1])/2 - width - 2}"
+            <text x="{(start[0] + end[0]) / 2}" y="{(start[1] + end[1]) / 2 - width - 2}"
                   font-size="6" font-family="Arial" text-anchor="middle">
                 {label}
             </text>
         </g>
         '''
 
-    def _draw_coupler_link(self, start: list[float], end: list[float],
-                          label: str, length: float, width: float) -> str:
+    def _draw_coupler_link(
+        self, start: list[float], end: list[float], label: str, length: float, width: float
+    ) -> str:
         """Draw coupler link with triangular extension."""
         base_link = self._draw_link(start, end, label, length, width)
 
@@ -164,7 +169,7 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
         # Perpendicular extension for coupler point
         dx = end[0] - start[0]
         dy = end[1] - start[1]
-        length = math.sqrt(dx*dx + dy*dy)
+        length = math.sqrt(dx * dx + dy * dy)
 
         if length > 0:
             perp_x = -dy / length * 30
@@ -195,8 +200,7 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
 
         return base_link + extension
 
-    def _draw_revolute_joint(self, x: float, y: float,
-                            label: str, is_fixed: bool) -> str:
+    def _draw_revolute_joint(self, x: float, y: float, label: str, is_fixed: bool) -> str:
         """Draw revolute joint with bearing representation."""
         return f'''
         <g id="joint-{label}">
@@ -210,13 +214,13 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
 
             <!-- Pin/Shaft -->
             <circle cx="{x}" cy="{y}" r="2"
-                    stroke="black" stroke-width="0.5" fill="{'black' if is_fixed else 'gray'}"/>
+                    stroke="black" stroke-width="0.5" fill="{"black" if is_fixed else "gray"}"/>
 
             <!-- Cross-hairs for fixed joints -->
-            {'<g stroke="black" stroke-width="0.5">' if is_fixed else ''}
-            {f'<line x1="{x-2}" y1="{y}" x2="{x+2}" y2="{y}"/>' if is_fixed else ''}
-            {f'<line x1="{x}" y1="{y-2}" x2="{x}" y2="{y+2}"/>' if is_fixed else ''}
-            {'</g>' if is_fixed else ''}
+            {'<g stroke="black" stroke-width="0.5">' if is_fixed else ""}
+            {f'<line x1="{x - 2}" y1="{y}" x2="{x + 2}" y2="{y}"/>' if is_fixed else ""}
+            {f'<line x1="{x}" y1="{y - 2}" x2="{x}" y2="{y + 2}"/>' if is_fixed else ""}
+            {"</g>" if is_fixed else ""}
 
             <!-- Joint label -->
             <text x="{x - 10}" y="{y - 8}" font-size="7" font-family="Arial" font-weight="bold">
@@ -241,11 +245,11 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
     def _generate_side_view(self, mechanism_data: dict[str, Any]):
         """Generate side view showing link thickness and joint details."""
         viewport = self.views[2]
-        params = mechanism_data.get('params', {})
+        params = mechanism_data.get("params", {})
 
-        link_thickness = params.get('thickness', 5)
-        pin_diameter = params.get('pin_diameter', 8)
-        bearing_width = params.get('bearing_width', 10)
+        link_thickness = params.get("thickness", 5)
+        pin_diameter = params.get("pin_diameter", 8)
+        bearing_width = params.get("bearing_width", 10)
 
         side_view_svg = f'''
         <g id="side-view-linkage">
@@ -257,20 +261,20 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
             <!-- Joint assembly cross-section -->
             <g transform="translate({viewport.x + 100}, {viewport.y + 60})">
                 <!-- Bearing -->
-                <rect x="-{bearing_width/2}" y="-10"
+                <rect x="-{bearing_width / 2}" y="-10"
                       width="{bearing_width}" height="20"
                       stroke="black" stroke-width="0.5" fill="none"/>
 
                 <!-- Pin -->
-                <rect x="-{pin_diameter/2}" y="-12"
+                <rect x="-{pin_diameter / 2}" y="-12"
                       width="{pin_diameter}" height="24"
                       stroke="black" stroke-width="0.5" fill="gray"/>
 
                 <!-- Retaining rings -->
-                <rect x="-{pin_diameter/2 + 1}" y="-13"
+                <rect x="-{pin_diameter / 2 + 1}" y="-13"
                       width="{pin_diameter + 2}" height="2"
                       stroke="black" stroke-width="0.5" fill="black"/>
-                <rect x="-{pin_diameter/2 + 1}" y="11"
+                <rect x="-{pin_diameter / 2 + 1}" y="11"
                       width="{pin_diameter + 2}" height="2"
                       stroke="black" stroke-width="0.5" fill="black"/>
             </g>
@@ -304,7 +308,7 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
             </text>
 
             <!-- Simplified exploded assembly -->
-            <g transform="translate({viewport.x + viewport.width/2}, {viewport.y + viewport.height/2})">
+            <g transform="translate({viewport.x + viewport.width / 2}, {viewport.y + viewport.height / 2})">
                 <!-- Base plate -->
                 <path d="M -40,20 L 40,20 L 45,25 L -35,25 Z"
                       stroke="black" stroke-width="0.5" fill="lightgray"/>
@@ -346,42 +350,44 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
 
         self.svg_elements.append(exploded_svg)
 
-    def _add_linkage_dimensions(self, p1: list[float], p2: list[float],
-                               p3: list[float], p4: list[float],
-                               l2: float, l3: float, l4: float):
+    def _add_linkage_dimensions(
+        self,
+        p1: list[float],
+        p2: list[float],
+        p3: list[float],
+        p4: list[float],
+        l2: float,
+        l3: float,
+        l4: float,
+    ):
         """Add dimensions for linkage."""
         # Ground link length
         self.dimensions.append(
             self.create_dimension_line(
-                p1[0], p1[1] + 20,
-                p2[0], p2[1] + 20,
-                f"{math.sqrt((p2[0]-p1[0])**2 + (p2[1]-p1[1])**2):.1f}±0.1", 8
+                p1[0],
+                p1[1] + 20,
+                p2[0],
+                p2[1] + 20,
+                f"{math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2):.1f}±0.1",
+                8,
             )
         )
 
         # Crank length
         self.dimensions.append(
-            self.create_dimension_line(
-                p1[0] - 15, p1[1],
-                p3[0] - 15, p3[1],
-                f"{l2}±0.1", -10
-            )
+            self.create_dimension_line(p1[0] - 15, p1[1], p3[0] - 15, p3[1], f"{l2}±0.1", -10)
         )
 
         # Rocker length
         self.dimensions.append(
-            self.create_dimension_line(
-                p2[0] + 15, p2[1],
-                p4[0] + 15, p4[1],
-                f"{l4}±0.1", 10
-            )
+            self.create_dimension_line(p2[0] + 15, p2[1], p4[0] + 15, p4[1], f"{l4}±0.1", 10)
         )
 
     def _add_tolerances(self, mechanism_data: dict[str, Any]):
         """Add linkage-specific tolerances."""
         super()._add_tolerances(mechanism_data)
 
-        linkage_tolerances = '''
+        linkage_tolerances = """
         <g id="linkage-tolerances" font-size="6" font-family="Arial">
             <text x="140" y="260">LINKAGE SPECIFICATIONS:</text>
             <text x="140" y="266">PIN FIT: H7/g6</text>
@@ -390,35 +396,35 @@ class FourBarBlueprintGenerator(BlueprintGenerator):
             <text x="240" y="266">SURFACE FINISH: Ra 3.2μm</text>
             <text x="240" y="272">GRASHOF CONDITION: VERIFIED</text>
         </g>
-        '''
+        """
 
         self.svg_elements.append(linkage_tolerances)
 
     def _add_part_list(self, mechanism_data: dict[str, Any]):
         """Add linkage-specific part list."""
         parts = [
-            {'name': 'CRANK LINK', 'quantity': 1, 'material': 'AL 6061-T6'},
-            {'name': 'COUPLER LINK', 'quantity': 1, 'material': 'AL 6061-T6'},
-            {'name': 'ROCKER LINK', 'quantity': 1, 'material': 'AL 6061-T6'},
-            {'name': 'SHOULDER PIN Ø8x20', 'quantity': 4, 'material': 'STEEL'},
-            {'name': 'BALL BEARING 608ZZ', 'quantity': 4, 'material': 'STEEL'},
-            {'name': 'RETAINING RING Ø8', 'quantity': 8, 'material': 'SPRING STL'},
-            {'name': 'BASE FRAME', 'quantity': 1, 'material': 'STEEL'}
+            {"name": "CRANK LINK", "quantity": 1, "material": "AL 6061-T6"},
+            {"name": "COUPLER LINK", "quantity": 1, "material": "AL 6061-T6"},
+            {"name": "ROCKER LINK", "quantity": 1, "material": "AL 6061-T6"},
+            {"name": "SHOULDER PIN Ø8x20", "quantity": 4, "material": "STEEL"},
+            {"name": "BALL BEARING 608ZZ", "quantity": 4, "material": "STEEL"},
+            {"name": "RETAINING RING Ø8", "quantity": 8, "material": "SPRING STL"},
+            {"name": "BASE FRAME", "quantity": 1, "material": "STEEL"},
         ]
 
-        mechanism_data['parts'] = parts
+        mechanism_data["parts"] = parts
         super()._add_part_list(mechanism_data)
 
     def _add_assembly_notes(self, mechanism_data: dict[str, Any]):
         """Add linkage-specific assembly notes."""
         notes = [
-            'Press bearings into links using arbor press',
-            'Ensure 0.01-0.02mm clearance on all pins',
-            'Apply light machine oil to all joints',
-            'Check for smooth rotation without binding',
-            'Verify coupler point trajectory before final assembly',
-            'Torque frame bolts to 15 Nm'
+            "Press bearings into links using arbor press",
+            "Ensure 0.01-0.02mm clearance on all pins",
+            "Apply light machine oil to all joints",
+            "Check for smooth rotation without binding",
+            "Verify coupler point trajectory before final assembly",
+            "Torque frame bolts to 15 Nm",
         ]
 
-        mechanism_data['assembly_notes'] = notes
+        mechanism_data["assembly_notes"] = notes
         super()._add_assembly_notes(mechanism_data)

@@ -68,7 +68,9 @@ def _part_vm(name: str, path: PartPath, state: MechanismDesignState) -> PartView
     return PartViewModel(name=name, enabled=enabled, has_layers=has_layers, is_selected=is_selected)
 
 
-def _layer_vm(layer_id: str, layer: MechanismLayer, state: MechanismDesignState) -> MechanismLayerViewModel:
+def _layer_vm(
+    layer_id: str, layer: MechanismLayer, state: MechanismDesignState
+) -> MechanismLayerViewModel:
     part_name = layer_id.split(":", 1)[0] if ":" in layer_id else layer_id
     is_selected = state.selected_layer_id == layer_id
     return MechanismLayerViewModel(

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QElapsedTimer, QObject, QPointF, QTimer, pyqtSignal
@@ -30,6 +31,16 @@ if TYPE_CHECKING:
 
 def _finite_qpoint(point: QPointF) -> bool:
     return math.isfinite(point.x()) and math.isfinite(point.y())
+
+
+@dataclass
+class _LifecycleSchedulerOwnership:
+    """Tracks scheduler start authority shared by lifecycle controllers."""
+
+    owner_ids: set[str] = field(default_factory=set)
+
+
+_LIFECYCLE_SCHEDULER_OWNERSHIP: dict[int, _LifecycleSchedulerOwnership] = {}
 
 
 class AnimationLifecycleController(QObject):
@@ -75,7 +86,7 @@ class AnimationLifecycleController(QObject):
 
         # Central scheduler (optional, for unified animation timing)
         self._scheduler: CentralAnimationScheduler | None = None
-        self._subscription_id = "mechanism_design_animation"
+        self._subscription_id = f"mechanism_design_animation:{id(self):x}"
 
         # Fallback animation timer (used when no scheduler is set)
         self._animation_timer = QTimer(self)
@@ -249,6 +260,22 @@ class AnimationLifecycleController(QObject):
                 f"[ANIM-SUB] Subscribed to scheduler: id={self._subscription_id}, scheduler_running={self._scheduler.is_running}"
             )
 
+    def _scheduler_ownership(self) -> _LifecycleSchedulerOwnership | None:
+        if self._scheduler is None:
+            return None
+        return _LIFECYCLE_SCHEDULER_OWNERSHIP.get(id(self._scheduler))
+
+    def _claim_scheduler_ownership(self) -> None:
+        """Claim shared stop authority for a scheduler started by lifecycle code."""
+        if self._scheduler is None:
+            return
+        ownership = _LIFECYCLE_SCHEDULER_OWNERSHIP.setdefault(
+            id(self._scheduler),
+            _LifecycleSchedulerOwnership(),
+        )
+        ownership.owner_ids.add(self._subscription_id)
+        self._started_scheduler = True
+
     def _unsubscribe_from_scheduler(self) -> None:
         """Unsubscribe from the central scheduler."""
         if self._scheduler and self._use_scheduler:
@@ -259,6 +286,16 @@ class AnimationLifecycleController(QObject):
         """Stop a scheduler this controller started once its subscription is gone."""
         if not self._scheduler or not self._started_scheduler:
             return
+        scheduler_key = id(self._scheduler)
+        ownership = _LIFECYCLE_SCHEDULER_OWNERSHIP.get(scheduler_key)
+        if ownership is None:
+            self._started_scheduler = False
+            return
+        ownership.owner_ids.discard(self._subscription_id)
+        if ownership.owner_ids:
+            self._started_scheduler = False
+            return
+        _LIFECYCLE_SCHEDULER_OWNERSHIP.pop(scheduler_key, None)
         if not self._scheduler.list_subscriptions():
             self._scheduler.stop()
         self._started_scheduler = False
@@ -336,16 +373,18 @@ class AnimationLifecycleController(QObject):
         # Start mechanism animation - use scheduler if available, otherwise local timer
         logging.info(f"[ANIM-START] Starting animation: scheduler={self._scheduler is not None}")
         if self._scheduler:
-            was_using_scheduler = self._use_scheduler
-            already_owned_scheduler = self._started_scheduler
+            lifecycle_owned_running = self._scheduler_ownership() is not None
             self._subscribe_to_scheduler()
             # Ensure scheduler is running
             if not self._scheduler.is_running:
                 logging.info("[ANIM-START] Starting scheduler (was not running)")
                 self._scheduler.start()
-                self._started_scheduler = True
+                self._claim_scheduler_ownership()
             else:
-                self._started_scheduler = already_owned_scheduler if was_using_scheduler else False
+                if self._started_scheduler or lifecycle_owned_running:
+                    self._claim_scheduler_ownership()
+                else:
+                    self._started_scheduler = False
                 logging.info(
                     f"[ANIM-START] Scheduler already running, subscriptions={len(self._scheduler._subscriptions)}"
                 )
@@ -442,7 +481,12 @@ class AnimationLifecycleController(QObject):
             try:
                 self._update_mechanism_visuals_for_animation(mechanism_id, 0, layer_data)
             except Exception:
-                logging.debug("Suppressed exception", exc_info=True)
+                logging.debug(
+                    "AnimationLifecycleController: failed to reset mechanism visuals for id=%s type=%s",
+                    mechanism_id,
+                    layer_data.get("type", "unknown"),
+                    exc_info=True,
+                )
 
             # Calculate the t=0 coupler position for this mechanism
             initial_coupler_pos = None
@@ -455,7 +499,11 @@ class AnimationLifecycleController(QObject):
                 )
             except Exception:
                 logging.debug(
-                    "Suppressed exception calculating t=0 coupler position", exc_info=True
+                    "AnimationLifecycleController: failed to calculate reset coupler position "
+                    "for id=%s type=%s",
+                    mechanism_id,
+                    layer_data.get("type", "unknown"),
+                    exc_info=True,
                 )
 
             # Initialize trace with t=0 coupler position (instead of just clearing)
@@ -490,7 +538,7 @@ class AnimationLifecycleController(QObject):
                 )
                 ui_state_manager.set_animation_state(animation_state)
             except ImportError:
-                pass
+                logging.debug("Animation state type is unavailable; UI state update skipped")
 
     # --- Animation Frame Update ---
 
@@ -674,8 +722,13 @@ class AnimationLifecycleController(QObject):
                             mechanism_id, output_pos, self._trace_frame_tick, self._mechanism_scene
                         )
 
-            except Exception as e:
-                logging.debug(f"AnimationLifecycleController: Mechanism update error: {e}")
+            except Exception:
+                logging.warning(
+                    "AnimationLifecycleController: mechanism update failed for id=%s type=%s",
+                    mechanism_id,
+                    layer_data.get("type", "unknown"),
+                    exc_info=True,
+                )
 
         # Throttled IK target updates
         logging.debug(

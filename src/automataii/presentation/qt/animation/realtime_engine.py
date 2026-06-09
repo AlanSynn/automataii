@@ -385,7 +385,10 @@ class RealTimeAnimationEngine:
         # Track performance
         compute_time = time.perf_counter() - start_time
         self._last_compute_time = compute_time
-        if self._frame_times.maxlen is not None and len(self._frame_times) == self._frame_times.maxlen:
+        if (
+            self._frame_times.maxlen is not None
+            and len(self._frame_times) == self._frame_times.maxlen
+        ):
             self._frame_time_sum -= self._frame_times[0]
         self._frame_times.append(compute_time)
         self._frame_time_sum += compute_time

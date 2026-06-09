@@ -4,6 +4,7 @@ Test Mechanism Foundry to Design tab export workflow.
 Verifies that mechanisms can be exported from Foundry and imported
 into the Design tab with correct parameter mapping.
 """
+
 from __future__ import annotations
 
 import math
@@ -50,7 +51,7 @@ class TestMechanismInstantiationService:
         # Verify parameter mapping
         params = layer_data["params"]
         assert params["l1"] == pytest.approx(150.0)  # ground_link -> l1
-        assert params["l2"] == pytest.approx(40.0)   # input_link -> l2
+        assert params["l2"] == pytest.approx(40.0)  # input_link -> l2
         assert params["l3"] == pytest.approx(120.0)  # coupler_link -> l3
         assert params["l4"] == pytest.approx(130.0)  # output_link -> l4
 
@@ -70,6 +71,7 @@ class TestMechanismInstantiationService:
             "cam_lobes": 2,
             "profile_harmonic": 0.4,
             "output_point_mode": "contact_point",
+            "reverse_direction": True,
         }
 
         layer_data = service.create_layer_data_from_foundry(
@@ -91,15 +93,17 @@ class TestMechanismInstantiationService:
         assert layer_data["rod_length_multiplier"] == 1.0
         assert layer_data["cam_position"] == [500.0, 400.0]
         assert layer_data["key_points"]["cam_center"] == [500.0, 400.0]
+        assert layer_data["reverse_direction"] is True
 
         # Verify parameter mapping
         params = layer_data["params"]
-        assert params["base_radius"] == 60.0    # cam_radius -> base_radius
-        assert params["eccentricity"] == 20.0   # cam_offset -> eccentricity
+        assert params["base_radius"] == 60.0  # cam_radius -> base_radius
+        assert params["eccentricity"] == 20.0  # cam_offset -> eccentricity
         assert params["follower_rod_length"] == 100.0  # follower_length -> follower_rod_length
         assert params["cam_lobes"] == 2
         assert params["profile_harmonic"] == 0.4
         assert params["output_point_mode"] == "contact_point"
+        assert params["reverse_direction"] is True
 
     def test_create_layer_data_from_foundry_gear(self):
         """Test creating layer data from Foundry gear_train export."""
@@ -667,7 +671,9 @@ class TestMechanismDesignTabImport:
         )
 
         fake_tab = SimpleNamespace(
-            parts_data={"left_arm": SimpleNamespace(anchor_joint_id="left_shoulder", roi=[0, 0, 50, 20])},
+            parts_data={
+                "left_arm": SimpleNamespace(anchor_joint_id="left_shoulder", roi=[0, 0, 50, 20])
+            },
             initial_skeleton_cache={
                 "joints": {
                     "left_shoulder": {"position": [512.0, 274.0]},
@@ -709,7 +715,9 @@ class TestMechanismDesignTabImport:
 
         fake_tab = SimpleNamespace(
             current_editor_items={"left_arm": _DummyPartItem()},
-            parts_data={"left_arm": SimpleNamespace(anchor_joint_id="left_shoulder", roi=[0, 0, 50, 20])},
+            parts_data={
+                "left_arm": SimpleNamespace(anchor_joint_id="left_shoulder", roi=[0, 0, 50, 20])
+            },
             initial_skeleton_cache=None,
         )
 
@@ -788,8 +796,7 @@ class TestMechanismDesignGridSettings:
         from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 
         assert (
-            MechanismDesignTab._normalize_foundry_mechanism_type(" Four_Bar_Linkage ")
-            == "four_bar"
+            MechanismDesignTab._normalize_foundry_mechanism_type(" Four_Bar_Linkage ") == "four_bar"
         )
         assert MechanismDesignTab._normalize_foundry_mechanism_type(" CAM ") == "cam_follower"
         assert "cam_offset" in MechanismDesignTab._length_param_keys_for_foundry_type(" CAM ")
@@ -806,9 +813,7 @@ class TestMechanismDesignPresenterPayloadCompat:
         presenter = MechanismDesignPresenter.__new__(MechanismDesignPresenter)
         presenter._tab = SimpleNamespace(_clear_animation_cache=MagicMock())
         presenter._reset_skeleton_to_initial = MagicMock()
-        presenter._visual_item_manager = SimpleNamespace(
-            safe_remove_visual_items=MagicMock()
-        )
+        presenter._visual_item_manager = SimpleNamespace(safe_remove_visual_items=MagicMock())
         presenter._transform_service = SimpleNamespace(
             get_scene_transform=MagicMock(return_value=MagicMock(name="transform"))
         )
@@ -1116,9 +1121,7 @@ class TestMechanismDesignTabFoundryUpdate:
             },
         )
         layer_data["foundry_synced"] = True
-        before_key_points = {
-            key: list(value) for key, value in layer_data["key_points"].items()
-        }
+        before_key_points = {key: list(value) for key, value in layer_data["key_points"].items()}
         params = layer_data["params"]
         mapped_update = {
             "l1": params["l1"],

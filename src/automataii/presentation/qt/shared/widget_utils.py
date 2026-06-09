@@ -40,10 +40,7 @@ def blocked_signals(widget: T) -> Iterator[T]:
         widget.blockSignals(False)
 
 
-def set_value_silently(
-    widget: QSlider | QSpinBox | QDoubleSpinBox,
-    value: int | float
-) -> None:
+def set_value_silently(widget: QSlider | QSpinBox | QDoubleSpinBox, value: int | float) -> None:
     """Set widget value without triggering signals.
 
     Works with QSlider, QSpinBox, and QDoubleSpinBox.
@@ -60,7 +57,7 @@ def set_combo_silently(
     combo: QComboBox,
     items: list[str] | None = None,
     current_text: str | None = None,
-    current_index: int | None = None
+    current_index: int | None = None,
 ) -> None:
     """Set combo box contents and/or selection without triggering signals.
 
@@ -118,7 +115,7 @@ class SliderSpinboxSync:
         min_value: float,
         max_value: float,
         step: float = 1.0,
-        on_value_changed: Callable[[float], None] | None = None
+        on_value_changed: Callable[[float], None] | None = None,
     ):
         """Initialize slider-spinbox synchronization.
 
@@ -217,7 +214,7 @@ class SliderSpinboxSync:
         self,
         min_value: float | None = None,
         max_value: float | None = None,
-        step: float | None = None
+        step: float | None = None,
     ) -> None:
         """Update the synchronization range.
 

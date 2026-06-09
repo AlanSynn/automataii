@@ -16,6 +16,8 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
 
+from automataii.presentation.qt.mechanism_parameter_utils import finite_float, positive_finite_float
+
 from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
 
 
@@ -27,8 +29,14 @@ class FourBarEditor(MechanismEditor):
         self.mechanism_data = mechanism_data
         params = mechanism_data.get("params", {})
 
-        p1 = QPointF(params.get("anchor1_x", 0), params.get("anchor1_y", 0))
-        p2 = QPointF(params.get("anchor2_x", 100), params.get("anchor2_y", 0))
+        p1 = QPointF(
+            finite_float(params.get("anchor1_x"), 0.0),
+            finite_float(params.get("anchor1_y"), 0.0),
+        )
+        p2 = QPointF(
+            finite_float(params.get("anchor2_x"), 100.0),
+            finite_float(params.get("anchor2_y"), 0.0),
+        )
 
         crank_pos = self._calculate_crank_position(p1, params)
         rocker_pos = self._calculate_rocker_position(p2, params)
@@ -64,11 +72,11 @@ class FourBarEditor(MechanismEditor):
                 if mech is not None:
                     self._reproject_handle(hid, mech)
         except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
+            logging.debug("4-bar initial handle reprojection skipped", exc_info=True)
 
         self._sync_length_constraints()
 
-    def _create_link_handles(self):
+    def _create_link_handles(self) -> None:
         """Create handles at link midpoints for length adjustment."""
         if "anchor1" in self.handles and "crank" in self.handles:
             p1 = self.handles["anchor1"].scenePos()
@@ -104,12 +112,17 @@ class FourBarEditor(MechanismEditor):
             size=8, color=QColor(150, 255, 150), hover_color=QColor(200, 255, 200), opacity=0.7
         )
 
-    def _get_handle_constraints(self, handle_id: str) -> dict:
+    def _get_handle_constraints(self, handle_id: str) -> dict[str, Any]:
         """Get movement constraints for handle."""
         if handle_id in ["anchor1", "anchor2"]:
             return {}
 
-        constraints = {"min_x": -2000, "max_x": 2000, "min_y": -2000, "max_y": 2000}
+        constraints: dict[str, Any] = {
+            "min_x": -2000,
+            "max_x": 2000,
+            "min_y": -2000,
+            "max_y": 2000,
+        }
 
         if handle_id == "crank":
             if "anchor1" in self.handles:
@@ -139,6 +152,11 @@ class FourBarEditor(MechanismEditor):
         """Calculate Euclidean distance in scene space."""
         return math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
 
+    @staticmethod
+    def _is_finite_scene_point(point: QPointF) -> bool:
+        """Return True only for finite scene coordinates."""
+        return math.isfinite(point.x()) and math.isfinite(point.y())
+
     def _sync_length_constraints(self) -> None:
         """Keep crank/rocker fixed-distance constraints in sync with live handle positions."""
         if "anchor1" in self.handles and "crank" in self.handles:
@@ -157,15 +175,18 @@ class FourBarEditor(MechanismEditor):
                 "distance": self._scene_distance(anchor2, rocker),
             }
 
-    def _calculate_crank_position(self, anchor1: QPointF, params: dict) -> QPointF:
+    def _calculate_crank_position(self, anchor1: QPointF, params: dict[str, Any]) -> QPointF:
         """Calculate crank joint position in scene coordinates."""
         # Use explicit scene coordinates if available
         if "crank_x" in params and "crank_y" in params:
-            return QPointF(params["crank_x"], params["crank_y"])
+            return QPointF(
+                finite_float(params.get("crank_x"), anchor1.x()),
+                finite_float(params.get("crank_y"), anchor1.y()),
+            )
 
         # Get mechanism-space parameters
-        angle = params.get("crank_angle", 0)
-        mech_length = params.get("l2", 60)
+        angle = finite_float(params.get("crank_angle"), 0.0)
+        mech_length = positive_finite_float(params.get("l2"), 60.0)
 
         # If we have transforms, calculate in mechanism space and convert to scene
         if self.to_scene_coords is not None and self.to_mech_coords is not None:
@@ -185,15 +206,18 @@ class FourBarEditor(MechanismEditor):
         y = anchor1.y() + mech_length * math.sin(math.radians(angle))
         return QPointF(x, y)
 
-    def _calculate_rocker_position(self, anchor2: QPointF, params: dict) -> QPointF:
+    def _calculate_rocker_position(self, anchor2: QPointF, params: dict[str, Any]) -> QPointF:
         """Calculate rocker joint position in scene coordinates."""
         # Use explicit scene coordinates if available
         if "rocker_x" in params and "rocker_y" in params:
-            return QPointF(params["rocker_x"], params["rocker_y"])
+            return QPointF(
+                finite_float(params.get("rocker_x"), anchor2.x()),
+                finite_float(params.get("rocker_y"), anchor2.y()),
+            )
 
         # Get mechanism-space parameters
-        angle = params.get("rocker_angle", 45)
-        mech_length = params.get("l4", 70)
+        angle = finite_float(params.get("rocker_angle"), 45.0)
+        mech_length = positive_finite_float(params.get("l4"), 70.0)
 
         # If we have transforms, calculate in mechanism space and convert to scene
         if self.to_scene_coords is not None and self.to_mech_coords is not None:
@@ -213,7 +237,7 @@ class FourBarEditor(MechanismEditor):
         y = anchor2.y() + mech_length * math.sin(math.radians(angle))
         return QPointF(x, y)
 
-    def _calculate_coupler_position(self, params: dict) -> QPointF:
+    def _calculate_coupler_position(self, params: dict[str, Any]) -> QPointF:
         """Calculate coupler point position in scene coordinates."""
         # Use explicit scene coordinates if available
         if "coupler_x" in params and "coupler_y" in params:
@@ -225,14 +249,16 @@ class FourBarEditor(MechanismEditor):
             rocker_pos = self.handles["rocker"].scenePos()
             # Coupler at midpoint of crank-rocker link
             return QPointF(
-                (crank_pos.x() + rocker_pos.x()) / 2,
-                (crank_pos.y() + rocker_pos.y()) / 2
+                (crank_pos.x() + rocker_pos.x()) / 2, (crank_pos.y() + rocker_pos.y()) / 2
             )
 
         # Fallback to default scene position
-        return QPointF(params.get("coupler_point_x", 350), params.get("coupler_point_y", 250))
+        return QPointF(
+            finite_float(params.get("coupler_point_x"), 350.0),
+            finite_float(params.get("coupler_point_y"), 250.0),
+        )
 
-    def _on_anchor1_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_anchor1_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle anchor1 movement."""
         old_scene = QPointF(
             self.mechanism_data["params"].get("anchor1_x", new_pos.x()),
@@ -254,7 +280,7 @@ class FourBarEditor(MechanismEditor):
         self._sync_length_constraints()
         self._trigger_mechanism_update()
 
-    def _on_anchor2_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_anchor2_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle anchor2 movement."""
         old_scene = QPointF(
             self.mechanism_data["params"].get("anchor2_x", new_pos.x()),
@@ -276,9 +302,12 @@ class FourBarEditor(MechanismEditor):
         self._sync_length_constraints()
         self._trigger_mechanism_update()
 
-    def _on_crank_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_crank_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle crank joint movement."""
         anchor1 = self.handles["anchor1"].scenePos()
+        params = self.mechanism_data["params"]
+        last_valid_pos = self._calculate_crank_position(anchor1, params)
+
         dx = new_pos.x() - anchor1.x()
         dy = new_pos.y() - anchor1.y()
 
@@ -293,11 +322,20 @@ class FourBarEditor(MechanismEditor):
             angle = math.degrees(math.atan2(dy_mech, dx_mech))
             length = math.hypot(dx_mech, dy_mech)
 
-        self.mechanism_data["params"]["crank_angle"] = angle
-        self.mechanism_data["params"]["l2"] = length
-        self.mechanism_data["params"]["L2"] = length
-        self.mechanism_data["params"]["crank_x"] = new_pos.x()
-        self.mechanism_data["params"]["crank_y"] = new_pos.y()
+        if not self._is_finite_scene_point(new_pos) or not math.isfinite(length) or length <= 1e-9:
+            self.handles["crank"].setPos(last_valid_pos)
+            self._sync_length_constraints()
+            logging.debug(
+                "Rejected degenerate 4-bar crank drag for %s; restored last valid position",
+                self.mechanism_id,
+            )
+            return
+
+        params["crank_angle"] = angle
+        params["l2"] = length
+        params["L2"] = length
+        params["crank_x"] = new_pos.x()
+        params["crank_y"] = new_pos.y()
 
         self._update_dependent_handles("crank", new_pos)
         mech = self._to_mech(new_pos)
@@ -308,7 +346,7 @@ class FourBarEditor(MechanismEditor):
         self._sync_length_constraints()
         self._trigger_mechanism_update()
 
-    def _on_rocker_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_rocker_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle rocker joint movement."""
         anchor2 = self.handles["anchor2"].scenePos()
         dx = new_pos.x() - anchor2.x()
@@ -339,38 +377,49 @@ class FourBarEditor(MechanismEditor):
         self._sync_length_constraints()
         self._trigger_mechanism_update()
 
-    def _on_coupler_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_coupler_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle coupler point movement."""
         params = self.mechanism_data.get("params", {})
         params["coupler_x"] = new_pos.x()
         params["coupler_y"] = new_pos.y()
 
         try:
-            if self.to_mech_coords and "crank" in self.handles and "rocker" in self.handles:
+            if "crank" in self.handles and "rocker" in self.handles:
                 p3_scene = self.handles["crank"].scenePos()
                 p4_scene = self.handles["rocker"].scenePos()
+                p3_source: np.ndarray | None = None
+                p4_source: np.ndarray | None = None
+                pc_source: np.ndarray | None = None
 
-                p3_mech = self._to_mech(p3_scene)
-                p4_mech = self._to_mech(p4_scene)
-                p_c_mech = self._to_mech(new_pos)
+                if self.to_mech_coords:
+                    p3_mech = self._to_mech(p3_scene)
+                    p4_mech = self._to_mech(p4_scene)
+                    p_c_mech = self._to_mech(new_pos)
+                    if p3_mech is not None and p4_mech is not None and p_c_mech is not None:
+                        p3_source = np.array([p3_mech[0], p3_mech[1]], dtype=float)
+                        p4_source = np.array([p4_mech[0], p4_mech[1]], dtype=float)
+                        pc_source = np.array([p_c_mech[0], p_c_mech[1]], dtype=float)
 
-                if p3_mech is not None and p4_mech is not None and p_c_mech is not None:
-                    v = np.array([p4_mech[0] - p3_mech[0], p4_mech[1] - p3_mech[1]], dtype=float)
-                    L = float(np.hypot(v[0], v[1]))
-                    if L > 1e-9:
-                        u = v / L
-                        n = np.array([-u[1], u[0]], dtype=float)
-                        rel = np.array(
-                            [p_c_mech[0] - p3_mech[0], p_c_mech[1] - p3_mech[1]], dtype=float
-                        )
-                        params["coupler_point_x"] = float(rel.dot(u))
-                        params["coupler_point_y"] = float(rel.dot(n))
+                if p3_source is None or p4_source is None or pc_source is None:
+                    # No transform: preserve the same coupler-local semantics in scene space.
+                    p3_source = np.array([p3_scene.x(), p3_scene.y()], dtype=float)
+                    p4_source = np.array([p4_scene.x(), p4_scene.y()], dtype=float)
+                    pc_source = np.array([new_pos.x(), new_pos.y()], dtype=float)
+
+                v = p4_source - p3_source
+                length = float(np.hypot(v[0], v[1]))
+                if length > 1e-9:
+                    u = v / length
+                    n = np.array([-u[1], u[0]], dtype=float)
+                    rel = pc_source - p3_source
+                    params["coupler_point_x"] = float(rel.dot(u))
+                    params["coupler_point_y"] = float(rel.dot(n))
         except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
+            logging.debug("4-bar coupler-local coordinate update skipped", exc_info=True)
 
         self._trigger_mechanism_update()
 
-    def _on_crank_length_changed(self, handle_id: str, new_pos: QPointF):
+    def _on_crank_length_changed(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle crank length adjustment."""
         anchor1 = self.handles["anchor1"].scenePos()
         crank = self.handles["crank"].scenePos()
@@ -421,7 +470,7 @@ class FourBarEditor(MechanismEditor):
             self._sync_length_constraints()
             self._trigger_mechanism_update()
 
-    def _update_dependent_handles(self, changed_handle: str, new_pos: QPointF):
+    def _update_dependent_handles(self, changed_handle: str, new_pos: QPointF) -> None:
         """Update handles that depend on the changed handle."""
         if self._updating:
             return
@@ -436,7 +485,7 @@ class FourBarEditor(MechanismEditor):
         finally:
             self._updating = False
 
-    def _trigger_mechanism_update(self):
+    def _trigger_mechanism_update(self) -> None:
         """Trigger mechanism simulation update."""
         if self._updating:
             return
@@ -496,11 +545,16 @@ class FourBarEditor(MechanismEditor):
             coupler = p3 * (1 - t) + p4 * t
 
             path_points.append(
-                {"angle": angle, "crank": p3.tolist(), "rocker": p4.tolist(), "coupler": coupler.tolist()}
+                {
+                    "angle": angle,
+                    "crank": p3.tolist(),
+                    "rocker": p4.tolist(),
+                    "coupler": coupler.tolist(),
+                }
             )
 
         return {"type": "4bar", "path": path_points, "params": params}
 
     def update_visuals(self, simulation_data: dict[str, Any]) -> None:
         """Update mechanism visuals based on simulation."""
-        pass
+        return None

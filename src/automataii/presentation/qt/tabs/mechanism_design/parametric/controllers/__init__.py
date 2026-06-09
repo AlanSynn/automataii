@@ -2,4 +2,4 @@
 
 from .parameter_controller import ParameterController
 
-__all__ = ['ParameterController']
+__all__ = ["ParameterController"]

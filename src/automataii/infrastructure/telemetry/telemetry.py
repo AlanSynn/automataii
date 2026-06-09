@@ -35,6 +35,7 @@ class TelemetrySpan:
             # Do work
             span.set(result="success")
     """
+
     name: str
     fields: dict[str, Any] = field(default_factory=dict)
     logger: logging.Logger = field(

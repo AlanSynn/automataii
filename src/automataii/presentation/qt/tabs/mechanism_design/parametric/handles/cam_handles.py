@@ -34,19 +34,21 @@ class CamRodLengthHandle(DraggableHandle):
     """
 
     # Visual constants for rod handle
-    COLOR_NORMAL = QColor(255, 165, 0)      # Orange for rod
-    COLOR_HOVER = QColor(255, 200, 100)     # Light orange
-    COLOR_DRAG = QColor(255, 220, 150)      # Very light orange
+    COLOR_NORMAL = QColor(255, 165, 0)  # Orange for rod
+    COLOR_HOVER = QColor(255, 200, 100)  # Light orange
+    COLOR_DRAG = QColor(255, 220, 150)  # Very light orange
 
-    def __init__(self,
-                 mechanism_id: str,
-                 initial_position: QPointF,
-                 cam_center: QPointF,
-                 base_radius: float,
-                 initial_rod_length: float,
-                 mechanism_data: dict[str, Any],
-                 update_callback: Callable[[str, str, float], None] | None = None,
-                 parent=None):
+    def __init__(
+        self,
+        mechanism_id: str,
+        initial_position: QPointF,
+        cam_center: QPointF,
+        base_radius: float,
+        initial_rod_length: float,
+        mechanism_data: dict[str, Any],
+        update_callback: Callable[[str, str, float], None] | None = None,
+        parent=None,
+    ):
         """
         Initialize CAM rod length handle.
 
@@ -60,6 +62,7 @@ class CamRodLengthHandle(DraggableHandle):
             update_callback: Function to call when rod length changes
             parent: Qt parent object
         """
+
         # Create wrapper callback for rod length parameter
         def rod_update_callback(handle_id: str, new_pos: QPointF):
             new_rod_length = self._calculate_rod_length_from_position(new_pos)
@@ -70,7 +73,7 @@ class CamRodLengthHandle(DraggableHandle):
             handle_id=f"{mechanism_id}_cam_rod",
             initial_pos=initial_position,
             update_callback=rod_update_callback,
-            parent=parent
+            parent=parent,
         )
 
         self.mechanism_id = mechanism_id
@@ -80,17 +83,19 @@ class CamRodLengthHandle(DraggableHandle):
         self.mechanism_data = mechanism_data
 
         # Rod length constraints
-        self.min_rod_length = 15.0    # Minimum rod length
-        self.max_rod_length = 150.0   # Maximum rod length
+        self.min_rod_length = 15.0  # Minimum rod length
+        self.max_rod_length = 150.0  # Maximum rod length
 
         # Override colors for rod-specific appearance
         self._setup_rod_appearance()
 
-        logging.info(f"Created CamRodLengthHandle for {mechanism_id} with initial length {initial_rod_length}")
+        logging.info(
+            f"Created CamRodLengthHandle for {mechanism_id} with initial length {initial_rod_length}"
+        )
 
     def _setup_rod_appearance(self):
         """Setup rod-specific visual appearance."""
-        self.COLOR_NORMAL = QColor(255, 165, 0)      # Orange
+        self.COLOR_NORMAL = QColor(255, 165, 0)  # Orange
         self.COLOR_HOVER = QColor(255, 200, 100)
         self.COLOR_DRAG = QColor(255, 220, 150)
 
@@ -179,8 +184,6 @@ class CamRodLengthHandle(DraggableHandle):
         return QPointF(constrained_x, constrained_y)
 
 
-
-
 class CamSizeHandle(DraggableHandle):
     """
     Handle for adjusting CAM size (base radius and eccentricity).
@@ -193,19 +196,21 @@ class CamSizeHandle(DraggableHandle):
     """
 
     # Visual constants for cam size handle
-    COLOR_NORMAL = QColor(70, 130, 180)      # Steel blue for cam
-    COLOR_HOVER = QColor(100, 149, 237)      # Cornflower blue
-    COLOR_DRAG = QColor(135, 206, 250)       # Light sky blue
+    COLOR_NORMAL = QColor(70, 130, 180)  # Steel blue for cam
+    COLOR_HOVER = QColor(100, 149, 237)  # Cornflower blue
+    COLOR_DRAG = QColor(135, 206, 250)  # Light sky blue
 
-    def __init__(self,
-                 mechanism_id: str,
-                 initial_position: QPointF,
-                 cam_center: QPointF,
-                 initial_base_radius: float,
-                 initial_eccentricity: float,
-                 mechanism_data: dict[str, Any],
-                 update_callback: Callable[[str, str, float], None] | None = None,
-                 parent=None):
+    def __init__(
+        self,
+        mechanism_id: str,
+        initial_position: QPointF,
+        cam_center: QPointF,
+        initial_base_radius: float,
+        initial_eccentricity: float,
+        mechanism_data: dict[str, Any],
+        update_callback: Callable[[str, str, float], None] | None = None,
+        parent=None,
+    ):
         """
         Initialize CAM size handle.
 
@@ -219,6 +224,7 @@ class CamSizeHandle(DraggableHandle):
             update_callback: Function to call when cam size changes
             parent: Qt parent object
         """
+
         # Create wrapper callback for cam size parameters
         def size_update_callback(handle_id: str, new_pos: QPointF):
             new_base_radius, new_eccentricity = self._calculate_cam_params_from_position(new_pos)
@@ -230,7 +236,7 @@ class CamSizeHandle(DraggableHandle):
             handle_id=f"{mechanism_id}_cam_size",
             initial_pos=initial_position,
             update_callback=size_update_callback,
-            parent=parent
+            parent=parent,
         )
 
         self.mechanism_id = mechanism_id
@@ -252,7 +258,7 @@ class CamSizeHandle(DraggableHandle):
 
     def _setup_cam_appearance(self):
         """Setup cam-specific visual appearance."""
-        self.COLOR_NORMAL = QColor(70, 130, 180)      # Steel blue
+        self.COLOR_NORMAL = QColor(70, 130, 180)  # Steel blue
         self.COLOR_HOVER = QColor(100, 149, 237)
         self.COLOR_DRAG = QColor(135, 206, 250)
 
@@ -286,8 +292,7 @@ class CamSizeHandle(DraggableHandle):
         base_radius = max(self.min_base_radius, min(self.max_base_radius, distance * 0.8))
 
         # Eccentricity based on horizontal offset (egg asymmetry)
-        eccentricity = max(self.min_eccentricity,
-                         min(self.max_eccentricity, abs(dx) * 0.6))
+        eccentricity = max(self.min_eccentricity, min(self.max_eccentricity, abs(dx) * 0.6))
 
         return base_radius, eccentricity
 
@@ -302,11 +307,15 @@ class CamSizeHandle(DraggableHandle):
             new_base_radius, new_eccentricity = self._calculate_cam_params_from_position(new_pos)
 
             # Update internal state
-            if (new_base_radius != self.current_base_radius or
-                new_eccentricity != self.current_eccentricity):
+            if (
+                new_base_radius != self.current_base_radius
+                or new_eccentricity != self.current_eccentricity
+            ):
                 self.current_base_radius = new_base_radius
                 self.current_eccentricity = new_eccentricity
-                logging.debug(f"[CAM_SIZE] Size changed to radius={new_base_radius:.1f}, ecc={new_eccentricity:.1f}")
+                logging.debug(
+                    f"[CAM_SIZE] Size changed to radius={new_base_radius:.1f}, ecc={new_eccentricity:.1f}"
+                )
 
             # Continue with standard processing
             return super().itemChange(change, value)
@@ -314,15 +323,15 @@ class CamSizeHandle(DraggableHandle):
         return super().itemChange(change, value)
 
 
-
-
-def create_cam_handles(mechanism_id: str,
-                      cam_center: QPointF,
-                      base_radius: float,
-                      eccentricity: float,
-                      rod_length: float,
-                      mechanism_data: dict[str, Any],
-                      update_callback: Callable[[str, str, float], None] | None = None) -> list[DraggableHandle]:
+def create_cam_handles(
+    mechanism_id: str,
+    cam_center: QPointF,
+    base_radius: float,
+    eccentricity: float,
+    rod_length: float,
+    mechanism_data: dict[str, Any],
+    update_callback: Callable[[str, str, float], None] | None = None,
+) -> list[DraggableHandle]:
     """
     Create all CAM handles for parametric editing.
 
@@ -356,7 +365,7 @@ def create_cam_handles(mechanism_id: str,
         base_radius=base_radius,
         initial_rod_length=rod_length,
         mechanism_data=mechanism_data,
-        update_callback=update_callback
+        update_callback=update_callback,
     )
     handles.append(rod_handle)
 
@@ -368,7 +377,7 @@ def create_cam_handles(mechanism_id: str,
         initial_base_radius=base_radius,
         initial_eccentricity=eccentricity,
         mechanism_data=mechanism_data,
-        update_callback=update_callback
+        update_callback=update_callback,
     )
     handles.append(size_handle)
 

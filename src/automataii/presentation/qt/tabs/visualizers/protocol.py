@@ -7,6 +7,7 @@ enabling the replacement of 68+ type-switch statements with registry-based dispa
 Design Pattern: Strategy (via Protocol)
 SOLID Principle: Open/Closed - new mechanisms can be added without modifying existing code
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable

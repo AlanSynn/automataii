@@ -82,8 +82,9 @@ class FourBarVisualizer(MechanismVisualizer):
 
         return visual_items
 
-    def update_visuals(self, visual_items: list[QGraphicsItem],
-                      mechanism_data: dict[str, Any]) -> None:
+    def update_visuals(
+        self, visual_items: list[QGraphicsItem], mechanism_data: dict[str, Any]
+    ) -> None:
         """
         Update existing visual items with new mechanism state.
 
@@ -92,7 +93,9 @@ class FourBarVisualizer(MechanismVisualizer):
             mechanism_data: Updated mechanism parameters and state
         """
         # Get updated joint positions
-        joint_positions = self._get_joint_positions(mechanism_data, self.extract_params(mechanism_data))
+        joint_positions = self._get_joint_positions(
+            mechanism_data, self.extract_params(mechanism_data)
+        )
         if not joint_positions:
             return
 
@@ -109,11 +112,15 @@ class FourBarVisualizer(MechanismVisualizer):
         item_index = 0
 
         # Update links
-        if item_index < len(visual_items) and isinstance(visual_items[item_index], QGraphicsLineItem):
+        if item_index < len(visual_items) and isinstance(
+            visual_items[item_index], QGraphicsLineItem
+        ):
             visual_items[item_index].setLine(QLineF(p1_t, p3_t))  # Driver link
             item_index += 1
 
-        if item_index < len(visual_items) and isinstance(visual_items[item_index], QGraphicsLineItem):
+        if item_index < len(visual_items) and isinstance(
+            visual_items[item_index], QGraphicsLineItem
+        ):
             visual_items[item_index].setLine(QLineF(p2_t, p4_t))  # Follower link
             item_index += 1
 
@@ -127,8 +134,9 @@ class FourBarVisualizer(MechanismVisualizer):
                 # Update line
                 visual_items[item_index].setLine(QLineF(p3_t, p4_t))
 
-    def _get_joint_positions(self, mechanism_data: dict[str, Any],
-                            params: dict[str, Any]) -> tuple | None:
+    def _get_joint_positions(
+        self, mechanism_data: dict[str, Any], params: dict[str, Any]
+    ) -> tuple | None:
         """
         Get joint positions from simulation data or calculate defaults.
 
@@ -185,8 +193,9 @@ class FourBarVisualizer(MechanismVisualizer):
 
         return p1, p2, p3, p4, p_coupler
 
-    def _calculate_coupler_point(self, p3: np.ndarray, p4: np.ndarray,
-                                 params: dict[str, Any]) -> np.ndarray:
+    def _calculate_coupler_point(
+        self, p3: np.ndarray, p4: np.ndarray, params: dict[str, Any]
+    ) -> np.ndarray:
         """Calculate coupler point position."""
         # Support both param name conventions: coupler_point_x/y (internal) and p_x/p_y (JSON/dataset)
         coupler_point_x = finite_param(params, "coupler_point_x", "p_x", default=0.0)
@@ -202,8 +211,9 @@ class FourBarVisualizer(MechanismVisualizer):
 
         return p3
 
-    def _create_links(self, p1_t: QPointF, p2_t: QPointF,
-                     p3_t: QPointF, p4_t: QPointF) -> list[QGraphicsItem]:
+    def _create_links(
+        self, p1_t: QPointF, p2_t: QPointF, p3_t: QPointF, p4_t: QPointF
+    ) -> list[QGraphicsItem]:
         """Create link visual items."""
         links = []
 
@@ -230,18 +240,33 @@ class FourBarVisualizer(MechanismVisualizer):
 
         return links
 
-    def _create_coupler(self, p3_t: QPointF, p4_t: QPointF, p_coupler_t: QPointF,
-                       p3: np.ndarray, p4: np.ndarray, p_coupler: np.ndarray) -> list[QGraphicsItem]:
+    def _create_coupler(
+        self,
+        p3_t: QPointF,
+        p4_t: QPointF,
+        p_coupler_t: QPointF,
+        p3: np.ndarray,
+        p4: np.ndarray,
+        p_coupler: np.ndarray,
+    ) -> list[QGraphicsItem]:
         """Create coupler visual (triangle or line)."""
         coupler_items = []
 
         # Check if coupler forms a triangle or is collinear
-        area = abs(p3[0]*(p4[1]-p_coupler[1]) + p4[0]*(p_coupler[1]-p3[1]) +
-                  p_coupler[0]*(p3[1]-p4[1])) / 2
+        area = (
+            abs(
+                p3[0] * (p4[1] - p_coupler[1])
+                + p4[0] * (p_coupler[1] - p3[1])
+                + p_coupler[0] * (p3[1] - p4[1])
+            )
+            / 2
+        )
 
         if area < 1e-3:  # Collinear - show as line
             coupler_line = QGraphicsLineItem(QLineF(p3_t, p4_t))
-            coupler_pen = QPen(self.COUPLER_COLOR, 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+            coupler_pen = QPen(
+                self.COUPLER_COLOR, 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap
+            )
             coupler_line.setPen(coupler_pen)
             coupler_line.setZValue(self.config.z_index_base + 6)
             coupler_items.append(coupler_line)
@@ -261,8 +286,9 @@ class FourBarVisualizer(MechanismVisualizer):
 
         return coupler_items
 
-    def _create_pivots(self, p1_t: QPointF, p2_t: QPointF,
-                      p3_t: QPointF, p4_t: QPointF) -> list[QGraphicsItem]:
+    def _create_pivots(
+        self, p1_t: QPointF, p2_t: QPointF, p3_t: QPointF, p4_t: QPointF
+    ) -> list[QGraphicsItem]:
         """Create pivot point visual items."""
         pivots = []
 
@@ -270,7 +296,7 @@ class FourBarVisualizer(MechanismVisualizer):
             QColor("#f39c12"),  # Orange for ground pivot 1
             QColor("#f39c12"),  # Orange for ground pivot 2
             QColor("#e74c3c"),  # Red for moving joint 1
-            QColor("#3498db")   # Blue for moving joint 2
+            QColor("#3498db"),  # Blue for moving joint 2
         ]
         pivot_positions = [p1_t, p2_t, p3_t, p4_t]
         pivot_names = ["Ground Pivot 1", "Ground Pivot 2", "Moving Joint 1", "Moving Joint 2"]
@@ -279,9 +305,7 @@ class FourBarVisualizer(MechanismVisualizer):
             # Create compound pivot visual
 
             # Outer circle
-            outer_pivot = QGraphicsEllipseItem(
-                pos.x() - 8, pos.y() - 8, 16, 16
-            )
+            outer_pivot = QGraphicsEllipseItem(pos.x() - 8, pos.y() - 8, 16, 16)
             outer_pivot.setPen(QPen(color.darker(150), 2))
             outer_pivot.setBrush(QBrush(color))
             outer_pivot.setZValue(self.config.z_index_pivot)
@@ -289,9 +313,7 @@ class FourBarVisualizer(MechanismVisualizer):
             pivots.append(outer_pivot)
 
             # Inner highlight
-            inner_pivot = QGraphicsEllipseItem(
-                pos.x() - 4, pos.y() - 4, 8, 8
-            )
+            inner_pivot = QGraphicsEllipseItem(pos.x() - 4, pos.y() - 4, 8, 8)
             inner_pivot.setPen(QPen(Qt.PenStyle.NoPen))
             inner_pivot.setBrush(QBrush(color.lighter(150)))
             inner_pivot.setZValue(self.config.z_index_pivot + 1)
@@ -301,9 +323,7 @@ class FourBarVisualizer(MechanismVisualizer):
 
     def _create_coupler_point(self, p_coupler_t: QPointF) -> QGraphicsItem:
         """Create coupler point indicator."""
-        coupler_point = QGraphicsEllipseItem(
-            p_coupler_t.x() - 5, p_coupler_t.y() - 5, 10, 10
-        )
+        coupler_point = QGraphicsEllipseItem(p_coupler_t.x() - 5, p_coupler_t.y() - 5, 10, 10)
         coupler_point.setPen(QPen(QColor("#27ae60"), 2))
         coupler_point.setBrush(QBrush(QColor("#27ae60")))
         coupler_point.setZValue(self.config.z_index_pivot + 2)

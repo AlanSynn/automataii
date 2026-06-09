@@ -6,6 +6,7 @@ data loading, selection management, and part item creation.
 
 Design Pattern: Manager (coordinates part data operations)
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,13 +47,15 @@ class PartsDataManager(QObject):
     part_selected = pyqtSignal(str)
 
     # Parts that should be disabled in the list
-    DISABLED_PARTS = frozenset({
-        "torso",
-        "left_arm_upper",
-        "right_arm_upper",
-        "left_leg_upper",
-        "right_leg_upper",
-    })
+    DISABLED_PARTS = frozenset(
+        {
+            "torso",
+            "left_arm_upper",
+            "right_arm_upper",
+            "left_leg_upper",
+            "right_leg_upper",
+        }
+    )
 
     def __init__(
         self,
@@ -167,9 +170,7 @@ class PartsDataManager(QObject):
             item.setData(Qt.ItemDataRole.UserRole, part_name)
 
             # Disable upper parts and torso
-            if any(
-                disabled in part_name.lower() for disabled in self.DISABLED_PARTS
-            ):
+            if any(disabled in part_name.lower() for disabled in self.DISABLED_PARTS):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
                 item.setForeground(QBrush(QColor(150, 150, 150)))
@@ -207,14 +208,10 @@ class PartsDataManager(QObject):
                     item_to_select = self._current_editor_items[part_name]
                     self._editor_scene.clearSelection()
                     item_to_select.setSelected(True)
-                    logging.info(
-                        f"PartsDataManager: Part '{part_name}' selected and highlighted"
-                    )
+                    logging.info(f"PartsDataManager: Part '{part_name}' selected and highlighted")
                 else:
                     self._editor_scene.clearSelection()
-                    logging.debug(
-                        f"PartsDataManager: Part '{part_name}' not in scene"
-                    )
+                    logging.debug(f"PartsDataManager: Part '{part_name}' not in scene")
 
                 self.part_selected.emit(part_name)
             else:
@@ -250,9 +247,7 @@ class PartsDataManager(QObject):
                 )
                 break
 
-    def handle_part_item_double_clicked(
-        self, double_clicked_item: CharacterPartItem
-    ) -> None:
+    def handle_part_item_double_clicked(self, double_clicked_item: CharacterPartItem) -> None:
         """
         Handle CharacterPartItem double-clicked in EditorView.
 
@@ -357,14 +352,10 @@ class PartsDataManager(QObject):
                     if len(joint_pos) >= 2:
                         scene_pos = QPointF(joint_pos[0], joint_pos[1])
 
-                        position_valid = self._validate_position(
-                            item, scene_pos, joints_dict
-                        )
+                        position_valid = self._validate_position(item, scene_pos, joints_dict)
 
                         if position_valid:
-                            item.set_scene_position_from_anchor(
-                                scene_pos, bypass_validation=True
-                            )
+                            item.set_scene_position_from_anchor(scene_pos, bypass_validation=True)
                             logging.info(
                                 f"PartsDataManager: Positioned '{part_name}' at '{std_joint_id}'"
                             )
@@ -373,9 +364,7 @@ class PartsDataManager(QObject):
                     is_locked = joint_data.get("is_locked", False)
                     item.set_joint_locked(is_locked)
                 else:
-                    logging.warning(
-                        f"PartsDataManager: Could not find anchor for '{part_name}'"
-                    )
+                    logging.warning(f"PartsDataManager: Could not find anchor for '{part_name}'")
 
         self._current_editor_items = created_editor_items
 
@@ -383,9 +372,7 @@ class PartsDataManager(QObject):
         self._update_button_states()
         self._editor_view.reset_view()
 
-        logging.info(
-            f"PartsDataManager: Added {len(self._current_editor_items)} items to scene"
-        )
+        logging.info(f"PartsDataManager: Added {len(self._current_editor_items)} items to scene")
 
         self.parts_loaded.emit(True)
         self._emit_path_data()
@@ -427,9 +414,7 @@ class PartsDataManager(QObject):
 
     # --- Part List Styling ---
 
-    def update_part_list_styles(
-        self, has_motion_path: Callable[[str], bool]
-    ) -> None:
+    def update_part_list_styles(self, has_motion_path: Callable[[str], bool]) -> None:
         """
         Update item backgrounds to show which parts have paths.
 
@@ -462,9 +447,7 @@ class PartsDataManager(QObject):
                 if item.text().endswith(" ●"):
                     item.setText(part_name)
 
-    def update_active_part_visuals(
-        self, has_motion_path: Callable[[str], bool]
-    ) -> None:
+    def update_active_part_visuals(self, has_motion_path: Callable[[str], bool]) -> None:
         """
         Update visual state of CharacterPartItems.
 

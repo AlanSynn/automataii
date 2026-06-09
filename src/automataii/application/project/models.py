@@ -7,6 +7,7 @@ for all cross-tab data in the application.
 Architecture: Application Layer (Hexagonal)
 Pattern: Immutable Value Objects with Factory Methods
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -19,9 +20,11 @@ from typing import Any
 # PRIMITIVE VALUE OBJECTS
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class Point:
     """2D point (immutable)."""
+
     x: float
     y: float
 
@@ -36,6 +39,7 @@ class Point:
 @dataclass(frozen=True)
 class Transform:
     """2D transform (position, rotation, scale)."""
+
     x: float = 0.0
     y: float = 0.0
     rotation: float = 0.0
@@ -46,6 +50,7 @@ class Transform:
 # PART DATA
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class PartData:
     """
@@ -54,9 +59,10 @@ class PartData:
     Produced by: ImageProcessingTab
     Consumed by: EditorTab, MechanismDesignTab
     """
+
     name: str
     texture_path: str  # Relative to project dir
-    mask_path: str     # Relative to project dir
+    mask_path: str  # Relative to project dir
     anchor_joint: str
     transform: Transform = field(default_factory=Transform)
     z_index: int = 0
@@ -161,6 +167,7 @@ class PartData:
 # SKELETON DATA
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class JointData:
     """
@@ -171,6 +178,7 @@ class JointData:
     - is_locked: Toggled by user
     - bend_direction: Set in joint properties
     """
+
     id: str
     position: Point
     name: str | None = None
@@ -215,6 +223,7 @@ class JointData:
 @dataclass(frozen=True)
 class BoneData:
     """Bone connecting two joints."""
+
     from_joint: str
     to_joint: str
 
@@ -235,6 +244,7 @@ class SkeletonData:
     Consumed by: EditorTab, MechanismDesignTab
     Modified by: EditorTab (joint positions, locks)
     """
+
     joints: Mapping[str, JointData] = field(default_factory=dict)
     bones: Sequence[BoneData] = field(default_factory=tuple)
     root_joint: str = ""
@@ -294,6 +304,7 @@ class SkeletonData:
 # PATH DATA
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class TimedPoint:
     """
@@ -302,6 +313,7 @@ class TimedPoint:
     The timestamp is relative to the start of drawing (in seconds).
     This allows preserving the original drawing velocity for natural motion.
     """
+
     x: float
     y: float
     t: float  # Time in seconds from start
@@ -333,6 +345,7 @@ class PathData:
     to preserve original drawing velocity/acceleration.
     Otherwise, falls back to uniform interpolation over points.
     """
+
     part_name: str
     points: Sequence[Point] = field(default_factory=tuple)
     timed_points: Sequence[TimedPoint] | None = None  # Optional timing data
@@ -467,6 +480,7 @@ class PathData:
 # MECHANISM DATA
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class MechanismData:
     """
@@ -475,6 +489,7 @@ class MechanismData:
     Produced by: MechanismDesignTab
     Consumed by: MechanismDesignTab (for animation)
     """
+
     id: str
     part_name: str
     type: str  # "4_bar_linkage", "cam", "gear", "planetary_gear"
@@ -549,9 +564,11 @@ class MechanismData:
 # PROJECT METADATA
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class ProjectMetadata:
     """Project metadata for versioning and tracking."""
+
     version: str = "2.0"
     name: str = "Untitled"
     created_at: datetime = field(default_factory=datetime.now)
@@ -573,14 +590,19 @@ class ProjectMetadata:
         return cls(
             version=data.get("version", "2.0"),
             name=data.get("name", "Untitled"),
-            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(),
-            modified_at=datetime.fromisoformat(data["modified_at"]) if "modified_at" in data else datetime.now(),
+            created_at=datetime.fromisoformat(data["created_at"])
+            if "created_at" in data
+            else datetime.now(),
+            modified_at=datetime.fromisoformat(data["modified_at"])
+            if "modified_at" in data
+            else datetime.now(),
         )
 
 
 # =============================================================================
 # PROJECT STATE (Single Source of Truth)
 # =============================================================================
+
 
 @dataclass(frozen=True)
 class ProjectState:
@@ -592,6 +614,7 @@ class ProjectState:
 
     Factory methods create new state instances (immutability).
     """
+
     # Project location
     project_dir: Path | None = None
     image_path: Path | None = None
@@ -746,7 +769,9 @@ class ProjectState:
                 )
 
             if "mask_path" in normalized_part:
-                normalized_part["mask_path"] = _resolve_asset_path(normalized_part.get("mask_path", ""))
+                normalized_part["mask_path"] = _resolve_asset_path(
+                    normalized_part.get("mask_path", "")
+                )
 
             if "original_svg_path" in normalized_part:
                 normalized_part["original_svg_path"] = _resolve_asset_path(
@@ -765,8 +790,13 @@ class ProjectState:
             metadata=ProjectMetadata.from_dict(data.get("metadata", {})),
             parts=resolved_parts,
             skeleton=SkeletonData.from_dict(skeleton_data) if skeleton_data else None,
-            paths={name: PathData.from_dict({**pdata, "part_name": name}) for name, pdata in paths_data.items()},
-            mechanisms={mid: MechanismData.from_dict(mdata) for mid, mdata in mechanisms_data.items()},
+            paths={
+                name: PathData.from_dict({**pdata, "part_name": name})
+                for name, pdata in paths_data.items()
+            },
+            mechanisms={
+                mid: MechanismData.from_dict(mdata) for mid, mdata in mechanisms_data.items()
+            },
         )
 
     @classmethod

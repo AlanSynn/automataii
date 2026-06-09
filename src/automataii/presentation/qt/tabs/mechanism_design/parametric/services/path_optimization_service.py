@@ -78,9 +78,7 @@ class PathOptimizationService(QObject):
     optimization_completed = Signal(str, dict)  # mechanism_id, results
     optimization_failed = Signal(str, str)  # mechanism_id, error_message
 
-    def __init__(self,
-                 parameter_controller: ParameterController,
-                 parent=None):
+    def __init__(self, parameter_controller: ParameterController, parent=None):
         """
         Initialize path optimization service.
 
@@ -110,8 +108,6 @@ class PathOptimizationService(QObject):
 
         logging.debug("PathOptimizationService initialized")
 
-
-
     def has_target_path(self, mechanism_id: str) -> bool:
         """
         Check if mechanism has target path set.
@@ -135,15 +131,11 @@ class PathOptimizationService(QObject):
                 finite_points.append(finite_point)
         return finite_points
 
-
-
-
-
     def _get_mechanism_data(self, mechanism_id: str) -> dict[str, Any] | None:
         """Get mechanism data from parameter controller."""
         try:
             mechanism_tab = self.parameter_controller.mechanism_tab
-            if hasattr(mechanism_tab, 'mechanism_layers'):
+            if hasattr(mechanism_tab, "mechanism_layers"):
                 return mechanism_tab.mechanism_layers.get(mechanism_id)
             return None
         except Exception as e:
@@ -154,7 +146,7 @@ class PathOptimizationService(QObject):
         """Extract current mechanism parameters for optimization."""
         if not isinstance(mechanism_data, dict):
             return {}
-        params = mechanism_data.get('params', {})
+        params = mechanism_data.get("params", {})
         if not isinstance(params, dict):
             return {}
 
@@ -162,7 +154,7 @@ class PathOptimizationService(QObject):
         # l1 is determined by anchor positions
         optimization_params = {}
 
-        for param in ['l2', 'l3', 'l4', 'theta2', 'theta3']:
+        for param in ["l2", "l3", "l4", "theta2", "theta3"]:
             if param in params:
                 value = _finite_float(params[param], math.nan)
                 if not math.isfinite(value):
@@ -173,8 +165,9 @@ class PathOptimizationService(QObject):
 
         return optimization_params
 
-    def _run_optimization_async(self, mechanism_id: str, initial_params: dict[str, float],
-                               mechanism_data: dict[str, Any]):
+    def _run_optimization_async(
+        self, mechanism_id: str, initial_params: dict[str, float], mechanism_data: dict[str, Any]
+    ):
         """
         Run optimization asynchronously.
 
@@ -184,11 +177,15 @@ class PathOptimizationService(QObject):
         self.active_optimizations[mechanism_id] = True
         target_path = self._finite_target_path(mechanism_id)
         if len(target_path) < 2:
-            self.optimization_failed.emit(mechanism_id, "Target path must contain at least two finite points")
+            self.optimization_failed.emit(
+                mechanism_id, "Target path must contain at least two finite points"
+            )
             self.active_optimizations[mechanism_id] = False
             return
         if not initial_params:
-            self.optimization_failed.emit(mechanism_id, "No finite parameters available for optimization")
+            self.optimization_failed.emit(
+                mechanism_id, "No finite parameters available for optimization"
+            )
             self.active_optimizations[mechanism_id] = False
             return
 
@@ -218,7 +215,7 @@ class PathOptimizationService(QObject):
                 bounds=bounds,
                 max_nfev=_positive_int(self.max_iterations, 100, minimum=1),
                 ftol=_positive_finite_float(self.tolerance, 1e-6),
-                method='trf'  # Trust Region Reflective algorithm
+                method="trf",  # Trust Region Reflective algorithm
             )
 
             # Process results
@@ -245,11 +242,11 @@ class PathOptimizationService(QObject):
         upper_bounds = []
 
         for param in param_names:
-            if param in ['l2', 'l3', 'l4']:
+            if param in ["l2", "l3", "l4"]:
                 # Link length bounds
-                lower_bounds.append(5.0)   # Minimum link length
-                upper_bounds.append(400.0) # Maximum link length
-            elif param in ['theta2', 'theta3']:
+                lower_bounds.append(5.0)  # Minimum link length
+                upper_bounds.append(400.0)  # Maximum link length
+            elif param in ["theta2", "theta3"]:
                 # Angle bounds (in radians)
                 lower_bounds.append(-2 * math.pi)
                 upper_bounds.append(2 * math.pi)
@@ -260,8 +257,13 @@ class PathOptimizationService(QObject):
 
         return (lower_bounds, upper_bounds)
 
-    def _calculate_path_error(self, x: np.ndarray, param_names: list[str],
-                             mechanism_data: dict[str, Any], target_path: list[QPointF]) -> np.ndarray:
+    def _calculate_path_error(
+        self,
+        x: np.ndarray,
+        param_names: list[str],
+        mechanism_data: dict[str, Any],
+        target_path: list[QPointF],
+    ) -> np.ndarray:
         """
         Calculate error between mechanism path and target path.
 
@@ -275,10 +277,7 @@ class PathOptimizationService(QObject):
             Error vector for least squares optimization
         """
         try:
-            target_path = [
-                point for point in target_path
-                if _finite_qpoint(point) is not None
-            ]
+            target_path = [point for point in target_path if _finite_qpoint(point) is not None]
             if not target_path:
                 return np.ones(1) * 1000.0
             if not bool(np.isfinite(x).all()):
@@ -324,8 +323,9 @@ class PathOptimizationService(QObject):
             logging.error(f"Path error calculation failed: {e}")
             return np.ones(len(target_path)) * 1000.0
 
-    def _generate_mechanism_path(self, params: dict[str, float],
-                                mechanism_data: dict[str, Any]) -> list[QPointF] | None:
+    def _generate_mechanism_path(
+        self, params: dict[str, float], mechanism_data: dict[str, Any]
+    ) -> list[QPointF] | None:
         """
         Generate coupler path for current mechanism parameters.
 
@@ -340,21 +340,21 @@ class PathOptimizationService(QObject):
             if not isinstance(mechanism_data, dict):
                 return None
             # Get anchor positions
-            key_points = mechanism_data.get('key_points', {})
+            key_points = mechanism_data.get("key_points", {})
             if not isinstance(key_points, dict):
                 return None
-            if 'ground_pivot_1' not in key_points or 'ground_pivot_2' not in key_points:
+            if "ground_pivot_1" not in key_points or "ground_pivot_2" not in key_points:
                 return None
 
-            anchor1 = _finite_qpoint(key_points['ground_pivot_1'])
-            anchor2 = _finite_qpoint(key_points['ground_pivot_2'])
+            anchor1 = _finite_qpoint(key_points["ground_pivot_1"])
+            anchor2 = _finite_qpoint(key_points["ground_pivot_2"])
             if anchor1 is None or anchor2 is None:
                 return None
 
             # Get link lengths
-            l2 = _positive_finite_float(params.get('l2', 30.0), 30.0)
-            l3 = _positive_finite_float(params.get('l3', 40.0), 40.0)
-            l4 = _positive_finite_float(params.get('l4', 35.0), 35.0)
+            l2 = _positive_finite_float(params.get("l2", 30.0), 30.0)
+            l3 = _positive_finite_float(params.get("l3", 40.0), 40.0)
+            l4 = _positive_finite_float(params.get("l4", 35.0), 35.0)
 
             # Calculate ground link length
             dx = anchor2.x() - anchor1.x()
@@ -394,8 +394,9 @@ class PathOptimizationService(QObject):
             logging.error(f"Mechanism path generation failed: {e}")
             return None
 
-    def _solve_rocker_angle(self, anchor2: QPointF, crank_joint: QPointF,
-                           l3: float, l4: float) -> tuple[float, QPointF] | None:
+    def _solve_rocker_angle(
+        self, anchor2: QPointF, crank_joint: QPointF, l3: float, l4: float
+    ) -> tuple[float, QPointF] | None:
         """
         Solve for rocker angle given crank position.
 
@@ -503,11 +504,11 @@ class PathOptimizationService(QObject):
 
             # Create result dictionary
             optimization_result = {
-                'success': bool(result.success) and bool(optimized_params),
-                'optimized_params': optimized_params,
-                'final_error': final_error,
-                'iterations': iterations,
-                'message': str(result.message)
+                "success": bool(result.success) and bool(optimized_params),
+                "optimized_params": optimized_params,
+                "final_error": final_error,
+                "iterations": iterations,
+                "message": str(result.message),
             }
 
             # Store results
@@ -556,15 +557,14 @@ class PathOptimizationService(QObject):
                 # Emit progress signal (placeholder value)
                 self.optimization_progress.emit(mechanism_id, 0.5)
 
-
-
     def _calculate_success_rate(self) -> float:
         """Calculate optimization success rate."""
         if not self.optimization_results:
             return 0.0
 
-        successful = sum(1 for result in self.optimization_results.values()
-                        if result.get('success', False))
+        successful = sum(
+            1 for result in self.optimization_results.values() if result.get("success", False)
+        )
         return successful / len(self.optimization_results)
 
     def __repr__(self) -> str:

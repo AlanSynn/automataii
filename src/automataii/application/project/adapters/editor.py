@@ -10,6 +10,7 @@ Data Flow:
 Architecture: Application Layer (Hexagonal)
 Pattern: Adapter
 """
+
 from __future__ import annotations
 
 import logging

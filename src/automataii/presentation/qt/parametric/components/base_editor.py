@@ -260,9 +260,7 @@ class MechanismEditor(ABC):
         except Exception:
             return None
 
-    def _reproject_handle(
-        self, handle_id: str, mech_xy: tuple[float, float] | None
-    ) -> None:
+    def _reproject_handle(self, handle_id: str, mech_xy: tuple[float, float] | None) -> None:
         """Reproject handle from mechanism to scene coordinates."""
         if handle_id not in self.handles or mech_xy is None:
             return

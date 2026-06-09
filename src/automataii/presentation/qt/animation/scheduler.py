@@ -7,6 +7,7 @@ multiple independent timers.
 Architecture: Presentation Layer
 Pattern: Observer + Singleton
 """
+
 from __future__ import annotations
 
 import logging
@@ -421,9 +422,7 @@ class CentralAnimationScheduler(QObject):
             "total_time": self._total_time,
             "target_fps": self._target_fps,
             "subscriptions": len(self._subscriptions),
-            "enabled_subscriptions": sum(
-                1 for s in self._subscriptions.values() if s.enabled
-            ),
+            "enabled_subscriptions": sum(1 for s in self._subscriptions.values() if s.enabled),
         }
 
     def list_subscriptions(self) -> list[dict]:

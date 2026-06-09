@@ -1,5 +1,4 @@
-"""Six-bar linkage computation strategy.
-"""
+"""Six-bar linkage computation strategy."""
 
 from __future__ import annotations
 
@@ -36,13 +35,15 @@ class SixBarStrategy(LinkageStrategy):
 
         Note: pivot_height defines upper ground pivot location.
         """
-        return frozenset([
-            "ground_link",
-            "input_link",
-            "coupler_link",
-            "output_link",
-            "pivot_height",
-        ])
+        return frozenset(
+            [
+                "ground_link",
+                "input_link",
+                "coupler_link",
+                "output_link",
+                "pivot_height",
+            ]
+        )
 
     def compute_positions(
         self,

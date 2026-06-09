@@ -18,14 +18,14 @@ from .visualizers import (
 )
 
 __all__ = [
-    'MechanismVisualizer',
-    'VisualizationConfig',
-    'VisualizationAdapter',
-    'VisualizerFactory',
-    'FourBarVisualizer',
-    'FiveBarVisualizer',
-    'SixBarVisualizer',
-    'CamVisualizer',
-    'GearVisualizer',
-    'PlanetaryGearVisualizer'
+    "MechanismVisualizer",
+    "VisualizationConfig",
+    "VisualizationAdapter",
+    "VisualizerFactory",
+    "FourBarVisualizer",
+    "FiveBarVisualizer",
+    "SixBarVisualizer",
+    "CamVisualizer",
+    "GearVisualizer",
+    "PlanetaryGearVisualizer",
 ]

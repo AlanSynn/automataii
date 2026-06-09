@@ -6,6 +6,7 @@ result application, and part generation from segmentation masks.
 
 Design Pattern: Handler (processes segmentation workflow)
 """
+
 from __future__ import annotations
 
 import logging
@@ -198,15 +199,11 @@ class ManualSegmentationHandler(QObject):
                 if part_info:
                     parts_info[part_name] = part_info
             except Exception as e:
-                logging.warning(
-                    f"ManualSegmentationHandler: Failed to extract {part_name}: {e}"
-                )
+                logging.warning(f"ManualSegmentationHandler: Failed to extract {part_name}: {e}")
 
         return parts_info
 
-    def _extract_part_info_from_mask(
-        self, part_name: str, mask_data: dict
-    ) -> PartInfo | None:
+    def _extract_part_info_from_mask(self, part_name: str, mask_data: dict) -> PartInfo | None:
         """
         Extract PartInfo from segmentation mask data.
 
@@ -244,7 +241,5 @@ class ManualSegmentationHandler(QObject):
             return part_info
 
         except Exception as e:
-            logging.error(
-                f"ManualSegmentationHandler: Error extracting {part_name}: {e}"
-            )
+            logging.error(f"ManualSegmentationHandler: Error extracting {part_name}: {e}")
             return None

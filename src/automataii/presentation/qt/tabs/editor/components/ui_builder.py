@@ -124,9 +124,7 @@ class EditorTabUIBuilder:
         scroll_area.setWidgetResizable(True)
         scroll_area.setMinimumWidth(self.CONTROL_PANEL_MIN_WIDTH)
         scroll_area.setMaximumWidth(self.CONTROL_PANEL_MAX_WIDTH)
-        scroll_area.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
-        )
+        scroll_area.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
@@ -212,7 +210,9 @@ class EditorTabUIBuilder:
 
         define_motion_path_btn = QPushButton("Start Drawing")
         define_motion_path_btn.setCheckable(True)
-        define_motion_path_btn.setToolTip("Toggle mode to draw a motion path for the selected part.")
+        define_motion_path_btn.setToolTip(
+            "Toggle mode to draw a motion path for the selected part."
+        )
         define_motion_path_btn.setEnabled(False)
         define_motion_path_btn.setStyleSheet(StyleFactory.action_button_checked_style())
 
@@ -249,7 +249,9 @@ class EditorTabUIBuilder:
         smoothness_slider.setMaximum(100)
         smoothness_slider.setValue(50)
         smoothness_slider.setEnabled(False)
-        smoothness_slider.setToolTip("Adjust path smoothness (0% = raw points, 100% = perfect ellipse)")
+        smoothness_slider.setToolTip(
+            "Adjust path smoothness (0% = raw points, 100% = perfect ellipse)"
+        )
         smoothness_slider.setStyleSheet(StyleFactory.smoothness_slider_style())
         smoothness_layout.addWidget(smoothness_slider)
 
@@ -291,16 +293,12 @@ class EditorTabUIBuilder:
         button_style = StyleFactory.compact_animation_button_style()
 
         # Play button
-        play_btn = QPushButton(
-            self._style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), ""
-        )
+        play_btn = QPushButton(self._style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay), "")
         play_btn.setToolTip("Play Animation")
         play_btn.setStyleSheet(button_style)
 
         # Stop button
-        stop_btn = QPushButton(
-            self._style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), ""
-        )
+        stop_btn = QPushButton(self._style.standardIcon(QStyle.StandardPixmap.SP_MediaStop), "")
         stop_btn.setToolTip("Stop Animation")
         stop_btn.setEnabled(False)
         stop_btn.setStyleSheet(button_style)

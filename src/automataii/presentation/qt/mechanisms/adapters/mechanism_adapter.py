@@ -28,7 +28,9 @@ class MechanismAdapter:
         self.editors: dict[str, EditorInterface] = {}
         self.serializers: dict[str, BlueprintSerializer] = {}
 
-    def create_mechanism_from_legacy(self, mechanism_data: dict[str, Any]) -> MechanismInterface | None:
+    def create_mechanism_from_legacy(
+        self, mechanism_data: dict[str, Any]
+    ) -> MechanismInterface | None:
         """
         Create mechanism from legacy data format.
 
@@ -54,9 +56,9 @@ class MechanismAdapter:
             logging.error(f"[ADAPTER] Failed to create mechanism from legacy data: {e}")
             return None
 
-    def create_editor_for_mechanism(self,
-                                   mechanism_id: str,
-                                   scene: QGraphicsScene) -> EditorInterface | None:
+    def create_editor_for_mechanism(
+        self, mechanism_id: str, scene: QGraphicsScene
+    ) -> EditorInterface | None:
         """
         Create editor for existing mechanism.
 
@@ -111,9 +113,9 @@ class MechanismAdapter:
 
         # Prepare mechanism data for serialization
         mechanism_data = {
-            'parameters': mechanism.get_key_points(),
-            'constraints': mechanism.get_constraints(),
-            'simulation': mechanism.simulate(num_frames=1)
+            "parameters": mechanism.get_key_points(),
+            "constraints": mechanism.get_constraints(),
+            "simulation": mechanism.simulate(num_frames=1),
         }
 
         return serializer.serialize(mechanism_data)
@@ -134,7 +136,7 @@ class MechanismAdapter:
             "cam": "cam",
             "gear": "gear",
             "simple_gear": "gear",
-            "planetary_gear": "planetary_gear"
+            "planetary_gear": "planetary_gear",
         }
 
         legacy_type = legacy_data.get("type", "unknown")
@@ -146,10 +148,10 @@ class MechanismAdapter:
             part_name=legacy_data.get("part_name", ""),
             params=legacy_data.get("params", {}),
             metadata={
-                'legacy_type': legacy_type,
-                'key_points': legacy_data.get("key_points"),
-                'transform_params': legacy_data.get("transform_params")
-            }
+                "legacy_type": legacy_type,
+                "key_points": legacy_data.get("key_points"),
+                "transform_params": legacy_data.get("transform_params"),
+            },
         )
 
     def cleanup(self) -> None:

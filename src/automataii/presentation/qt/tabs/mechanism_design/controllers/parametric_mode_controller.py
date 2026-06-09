@@ -7,6 +7,7 @@ toggle and handle visibility management.
 Design Pattern: Controller (handles parametric mode operations)
 Architecture: Hexagonal - Presentation Layer
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -91,7 +92,9 @@ class ParametricModeController(QObject):
         Returns:
             New enabled state after toggle
         """
-        parametric_manager = self._get_parametric_manager_fn() if self._get_parametric_manager_fn else None
+        parametric_manager = (
+            self._get_parametric_manager_fn() if self._get_parametric_manager_fn else None
+        )
 
         if parametric_manager:
             parametric_manager.toggle_parametric_mode(enabled)
@@ -124,7 +127,9 @@ class ParametricModeController(QObject):
         if not self._parametric_mode_enabled:
             return
 
-        parametric_editor = self._get_parametric_editor_fn() if self._get_parametric_editor_fn else None
+        parametric_editor = (
+            self._get_parametric_editor_fn() if self._get_parametric_editor_fn else None
+        )
         if not parametric_editor:
             return
 
@@ -132,8 +137,7 @@ class ParametricModeController(QObject):
 
         # Find first mechanism for this part
         mech_id = next(
-            (mid for mid, ld in mechanism_layers.items() if ld.get("part_name") == part_name),
-            None
+            (mid for mid, ld in mechanism_layers.items() if ld.get("part_name") == part_name), None
         )
 
         if mech_id:
@@ -149,7 +153,9 @@ class ParametricModeController(QObject):
 
         Delegates to ParametricEditor.set_active_editor(None).
         """
-        parametric_editor = self._get_parametric_editor_fn() if self._get_parametric_editor_fn else None
+        parametric_editor = (
+            self._get_parametric_editor_fn() if self._get_parametric_editor_fn else None
+        )
         if parametric_editor:
             parametric_editor.set_active_editor(None)
 

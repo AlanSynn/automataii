@@ -94,9 +94,7 @@ class AnchorPositionService:
         eccentricity = max(0.0, finite_float(params.get("eccentricity"), 10.0))
         rod_length = positive_finite_float(params.get("follower_rod_length"), 40.0)
         cam_scale_factor = positive_finite_float(layer_data.get("cam_scale_factor"), 1.0)
-        rod_length_multiplier = positive_finite_float(
-            layer_data.get("rod_length_multiplier"), 1.0
-        )
+        rod_length_multiplier = positive_finite_float(layer_data.get("rod_length_multiplier"), 1.0)
 
         # Use stored transform function if available
         if "cam_transform_function" in layer_data:

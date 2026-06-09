@@ -8,6 +8,7 @@ ellipse fitting, and feasibility snapping.
 Design Pattern: Manager (coordinates path operations)
 Time Complexity: O(n) for path operations, O(n²) for RDP simplification
 """
+
 from __future__ import annotations
 
 import logging
@@ -164,25 +165,19 @@ class MotionPathManager(QObject):
             mechanism_tab = main_window.mechanism_design_tab
             if hasattr(mechanism_tab, "_clear_mechanism_for_part"):
                 mechanism_tab._clear_mechanism_for_part(part_name)
-                logging.info(
-                    f"🔄 MotionPathManager: Cleared mechanism visuals for '{part_name}'"
-                )
+                logging.info(f"🔄 MotionPathManager: Cleared mechanism visuals for '{part_name}'")
 
         # Clear existing motion path visuals
         if hasattr(self._editor_view, "clear_visual_path_for_component"):
             self._editor_view.clear_visual_path_for_component(part_name)
-            logging.info(
-                f"🔄 MotionPathManager: Cleared motion path visuals for '{part_name}'"
-            )
+            logging.info(f"🔄 MotionPathManager: Cleared motion path visuals for '{part_name}'")
 
         # Clear from project data manager
         if main_window and hasattr(main_window, "project_data_manager"):
             parts_data = main_window.project_data_manager.get_current_parts_data()
             if parts_data and part_name in parts_data:
                 parts_data[part_name].motion_path_data = None
-                logging.info(
-                    f"🔄 MotionPathManager: Cleared motion_path_data for '{part_name}'"
-                )
+                logging.info(f"🔄 MotionPathManager: Cleared motion_path_data for '{part_name}'")
 
         # Set drawing mode
         self._editor_view.set_mode("define_motion_path")
@@ -311,9 +306,7 @@ class MotionPathManager(QObject):
 
         main_window = self._get_main_window()
         if main_window:
-            main_window.statusBar().showMessage(
-                f"Path vertices updated for part: {part_name}"
-            )
+            main_window.statusBar().showMessage(f"Path vertices updated for part: {part_name}")
 
         logging.info(f"Completed vertex editing for '{part_name}'")
 
@@ -368,9 +361,7 @@ class MotionPathManager(QObject):
 
         main_window = self._get_main_window()
         if main_window:
-            main_window.statusBar().showMessage(
-                f"Motion path cleared for part: {part_name}"
-            )
+            main_window.statusBar().showMessage(f"Motion path cleared for part: {part_name}")
 
         self._update_button_states()
         self._editor_view.viewport().update()
@@ -402,9 +393,7 @@ class MotionPathManager(QObject):
         final_path_item = self._editor_view.final_paths_map.get(part_name)
 
         if not final_path_item:
-            logging.error(
-                f"Could not find final spline path for {part_name} in final_paths_map."
-            )
+            logging.error(f"Could not find final spline path for {part_name} in final_paths_map.")
             motion_qpath = QPainterPath()
             if path_points:
                 motion_qpath.moveTo(path_points[0])
@@ -443,9 +432,7 @@ class MotionPathManager(QObject):
         self._emit_path_data()
 
         if main_window:
-            main_window.statusBar().showMessage(
-                f"Motion path completed for part: {part_name}"
-            )
+            main_window.statusBar().showMessage(f"Motion path completed for part: {part_name}")
 
         self._update_button_states()
         logging.info(f"Completed spline motion path for part: {part_name}")
@@ -499,9 +486,7 @@ class MotionPathManager(QObject):
         # Fallback to original points
         self._regenerate_path_with_smoothness(part_name, value)
 
-    def _regenerate_path_with_smoothness(
-        self, part_name: str, smoothness_percentage: int
-    ) -> None:
+    def _regenerate_path_with_smoothness(self, part_name: str, smoothness_percentage: int) -> None:
         """
         Regenerate motion path using tolerance-based smoothing.
 
@@ -513,9 +498,7 @@ class MotionPathManager(QObject):
         """
         original_points = self._get_original_path_points(part_name)
         if not original_points or len(original_points) < 3:
-            logging.warning(
-                f"Cannot regenerate path for {part_name}: insufficient points"
-            )
+            logging.warning(f"Cannot regenerate path for {part_name}: insufficient points")
             return
 
         # Smoothness 0: raw path
@@ -575,9 +558,7 @@ class MotionPathManager(QObject):
         # Show dual-track overlays
         raw_overlay = self._create_raw_path(original_points)
         if hasattr(self._editor_view, "set_raw_overlay_path"):
-            raw_pen = QPen(
-                QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap
-            )
+            raw_pen = QPen(QColor("#6a4c93"), 3.0, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
             self._editor_view.set_raw_overlay_path(part_name, raw_overlay, raw_pen)
 
         # Feasibility snapping
@@ -710,9 +691,7 @@ class MotionPathManager(QObject):
                     max_dist = d
                     index = i
 
-            if max_dist > epsilon or any(
-                (start_idx < k < end_idx) for k in keep_indices
-            ):
+            if max_dist > epsilon or any((start_idx < k < end_idx) for k in keep_indices):
                 left = rdp_segment(start_idx, index)
                 right = rdp_segment(index, end_idx)
                 return left[:-1] + right
@@ -765,9 +744,7 @@ class MotionPathManager(QObject):
             mid_abs = ik.sim_limb_configs.get(eff_abs, {}).get("parentAnchor")
             if not mid_abs:
                 return None
-            root_abs = (
-                ik.sim_limb_configs.get(mid_abs, {}).get("parentAnchor") or mid_abs
-            )
+            root_abs = ik.sim_limb_configs.get(mid_abs, {}).get("parentAnchor") or mid_abs
 
             # Get standardized joint IDs
             def std_id_of(abs_name: str) -> str:
@@ -1002,7 +979,9 @@ class MotionPathManager(QObject):
             logging.warning(f"_show_vertex_handles: Path is empty for '{part_name}'")
             return
 
-        logging.debug(f"_show_vertex_handles: Starting for '{part_name}', path length={path.length():.1f}")
+        logging.debug(
+            f"_show_vertex_handles: Starting for '{part_name}', path length={path.length():.1f}"
+        )
 
         # Start vertex editing via EditorView
         result = self._editor_view.start_vertex_editing(part_name, path, is_closed)
@@ -1067,7 +1046,9 @@ class MotionPathManager(QObject):
 
         if path and not path.isEmpty():
             is_closed = self._closed_path_radio.isChecked() if self._closed_path_radio else True
-            logging.info(f"show_vertex_handles: Showing handles for '{part_name}', path length={path.length():.1f}")
+            logging.info(
+                f"show_vertex_handles: Showing handles for '{part_name}', path length={path.length():.1f}"
+            )
             self._show_vertex_handles(part_name, path, is_closed)
         else:
             logging.debug(f"show_vertex_handles: No valid path found for '{part_name}'")

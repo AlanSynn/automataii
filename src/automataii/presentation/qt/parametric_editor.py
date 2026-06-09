@@ -8,11 +8,14 @@ Individual mechanism editors are in parametric/components/.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from typing import Any
 
 from PyQt6.QtCore import QObject, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsScene
+
+from automataii.presentation.qt.mechanism_parameter_utils import finite_float
 
 # Import from extracted components
 from automataii.presentation.qt.parametric.components import (
@@ -36,6 +39,25 @@ __all__ = [
     "PlanetaryGearEditor",
     "ParametricEditor",
 ]
+
+
+def _point_from_editor_handle_or_params(
+    editor: MechanismEditor,
+    params: dict[str, Any],
+    handle_name: str,
+    x_key: str,
+    y_key: str,
+    default: QPointF,
+) -> QPointF:
+    """Read the live handle point when available, otherwise fall back to params."""
+    handle = editor.handles.get(handle_name)
+    if handle is not None:
+        position = handle.scenePos()
+        return QPointF(float(position.x()), float(position.y()))
+    return QPointF(
+        finite_float(params.get(x_key), default.x()),
+        finite_float(params.get(y_key), default.y()),
+    )
 
 
 class ParametricEditor(QObject):
@@ -108,16 +130,30 @@ class ParametricEditor(QObject):
         # Connect update callback
         for handle in editor.handles.values():
             original_callback = handle.on_moved
-            handle.on_moved = lambda hid, pos, cb=original_callback, mid=mechanism_id: (
-                cb(hid, pos) if cb else None,
-                self._queue_update(mid),
+            handle.on_moved = self._wrap_handle_callback(
+                original_callback,
+                mechanism_id,
             )
 
-        logging.info(
-            f"[PARAMETRIC-EDITOR] Created {mechanism_type} editor for {mechanism_id}"
-        )
+        logging.info(f"[PARAMETRIC-EDITOR] Created {mechanism_type} editor for {mechanism_id}")
 
         return editor
+
+    def _wrap_handle_callback(
+        self,
+        callback: Callable[[str, QPointF], None] | None,
+        mechanism_id: str,
+    ) -> Callable[[str, QPointF], None]:
+        """Wrap a handle callback so GUI drags always queue a mechanism update."""
+
+        def wrapped(handle_id: str, position: QPointF) -> None:
+            try:
+                if callback is not None:
+                    callback(handle_id, position)
+            finally:
+                self._queue_update(mechanism_id)
+
+        return wrapped
 
     def remove_editor(self, mechanism_id: str) -> None:
         """Remove editor and its handles."""
@@ -144,9 +180,7 @@ class ParametricEditor(QObject):
             editor_type = self.active_editor.__class__.__name__
             part_name = "unknown"
             if hasattr(self.active_editor, "original_mechanism_data"):
-                part_name = self.active_editor.original_mechanism_data.get(
-                    "part_name", "unknown"
-                )
+                part_name = self.active_editor.original_mechanism_data.get("part_name", "unknown")
             logging.info(
                 f"[PARAMETRIC-EDITOR] Activated editor {mechanism_id} "
                 f"(part: {part_name}, type: {editor_type})"
@@ -154,9 +188,7 @@ class ParametricEditor(QObject):
         else:
             self.active_editor = None
             if mechanism_id:
-                logging.warning(
-                    f"[PARAMETRIC-EDITOR] No editor found for mechanism {mechanism_id}"
-                )
+                logging.warning(f"[PARAMETRIC-EDITOR] No editor found for mechanism {mechanism_id}")
 
     def _queue_update(self, mechanism_id: str) -> None:
         """Queue mechanism update for batching."""
@@ -178,9 +210,7 @@ class ParametricEditor(QObject):
 
         self._pending_updates.clear()
 
-    def update_mechanism_visuals(
-        self, mechanism_id: str, simulation_data: dict[str, Any]
-    ) -> None:
+    def update_mechanism_visuals(self, mechanism_id: str, simulation_data: dict[str, Any]) -> None:
         """Update visuals for a mechanism."""
         if mechanism_id in self.editors:
             self.editors[mechanism_id].update_visuals(simulation_data)
@@ -202,13 +232,30 @@ class ParametricEditor(QObject):
 
         for _mech_id, editor in self.editors.items():
             if isinstance(editor, CamEditor):
-                mech_data = editor.mechanism_data
-                cam_center = QPointF(
-                    mech_data.get("cam_center_x", 0), mech_data.get("cam_center_y", 0)
+                params = editor.mechanism_data.get("params", {})
+                center_handle = editor.handles.get("center")
+                cam_center = (
+                    center_handle.scenePos()
+                    if center_handle is not None
+                    else QPointF(
+                        finite_float(
+                            params.get("center_x", params.get("cam_center_x")),
+                            0.0,
+                        ),
+                        finite_float(
+                            params.get("center_y", params.get("cam_center_y")),
+                            0.0,
+                        ),
+                    )
                 )
-                follower_pos = QPointF(
-                    mech_data.get("follower_x", 0),
-                    mech_data.get("follower_y", cam_center.y() - 100),
+                follower_handle = editor.handles.get("follower")
+                follower_pos = (
+                    follower_handle.scenePos()
+                    if follower_handle is not None
+                    else QPointF(
+                        finite_float(params.get("follower_x"), cam_center.x()),
+                        finite_float(params.get("follower_y"), cam_center.y() - 100.0),
+                    )
                 )
 
                 if follower_pos.y() >= cam_center.y():
@@ -220,39 +267,28 @@ class ParametricEditor(QObject):
                     return False, error_msg
 
             elif isinstance(editor, FourBarEditor):
-                mech_data = editor.mechanism_data
-                anchor1 = QPointF(
-                    mech_data.get("anchor1_x", 0), mech_data.get("anchor1_y", 0)
+                params = editor.mechanism_data.get("params", {})
+
+                anchor1 = _point_from_editor_handle_or_params(
+                    editor, params, "anchor1", "anchor1_x", "anchor1_y", QPointF(0.0, 0.0)
                 )
-                anchor2 = QPointF(
-                    mech_data.get("anchor2_x", 200), mech_data.get("anchor2_y", 0)
+                anchor2 = _point_from_editor_handle_or_params(
+                    editor, params, "anchor2", "anchor2_x", "anchor2_y", QPointF(200.0, 0.0)
                 )
-                joint1 = QPointF(
-                    mech_data.get("joint1_x", 50), mech_data.get("joint1_y", 100)
+                joint1 = _point_from_editor_handle_or_params(
+                    editor, params, "crank", "crank_x", "crank_y", QPointF(50.0, 100.0)
                 )
-                joint2 = QPointF(
-                    mech_data.get("joint2_x", 150), mech_data.get("joint2_y", 100)
+                joint2 = _point_from_editor_handle_or_params(
+                    editor, params, "rocker", "rocker_x", "rocker_y", QPointF(150.0, 100.0)
                 )
 
-                ground_link = (
-                    (anchor2.x() - anchor1.x()) ** 2 + (anchor2.y() - anchor1.y()) ** 2
-                ) ** 0.5
-                link1 = (
-                    (joint1.x() - anchor1.x()) ** 2 + (joint1.y() - anchor1.y()) ** 2
-                ) ** 0.5
-                link2 = (
-                    (joint2.x() - anchor2.x()) ** 2 + (joint2.y() - anchor2.y()) ** 2
-                ) ** 0.5
-                coupler = (
-                    (joint2.x() - joint1.x()) ** 2 + (joint2.y() - joint1.y()) ** 2
-                ) ** 0.5
+                ground_link = math.hypot(anchor2.x() - anchor1.x(), anchor2.y() - anchor1.y())
+                link1 = math.hypot(joint1.x() - anchor1.x(), joint1.y() - anchor1.y())
+                link2 = math.hypot(joint2.x() - anchor2.x(), joint2.y() - anchor2.y())
+                coupler = math.hypot(joint2.x() - joint1.x(), joint2.y() - joint1.y())
 
-                lengths = [ground_link, link1, link2, coupler]
-                s = min(lengths)
-                l_max = max(lengths)
-                p, q = sorted(
-                    [length for length in lengths if length != s and length != l_max]
-                )
+                sorted_lengths = sorted([ground_link, link1, link2, coupler])
+                s, p, q, l_max = sorted_lengths
 
                 if s + l_max > p + q:
                     error_msg = (
@@ -260,13 +296,12 @@ class ParametricEditor(QObject):
                         "shortest + longest > sum of other two links"
                     )
                     logging.warning(f"[PHYSICS-VALIDATION] {error_msg}")
+                    return False, error_msg
 
             elif isinstance(editor, GearEditor):
                 pass
 
-        logging.info(
-            "[PARAMETRIC-EDITOR] Physics constraints validation completed successfully"
-        )
+        logging.info("[PARAMETRIC-EDITOR] Physics constraints validation completed successfully")
         return True, ""
 
     def disable_editing(self) -> None:

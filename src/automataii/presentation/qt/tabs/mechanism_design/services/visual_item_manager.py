@@ -6,6 +6,7 @@ Handles safe removal, validation, and interaction state of visual items.
 
 Design Pattern: Facade (simplifies Qt object lifecycle management)
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,7 +69,7 @@ class VisualItemManager:
 
             try:
                 # Quick validity check without accessing properties that might crash
-                if hasattr(item, 'scene'):
+                if hasattr(item, "scene"):
                     item_scene = item.scene()
 
                     # Only try to remove if item is actually in a scene
@@ -129,13 +130,13 @@ class VisualItemManager:
             for _mechanism_id, layer_data in mechanism_layers.items():
                 visual_items = layer_data.get("visual_items", [])
                 for item in visual_items:
-                    if hasattr(item, 'setFlag'):
+                    if hasattr(item, "setFlag"):
                         # Disable all mouse interaction flags
                         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
                         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-                        if hasattr(item, 'setAcceptedMouseButtons'):
+                        if hasattr(item, "setAcceptedMouseButtons"):
                             item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-                        if hasattr(item, 'setAcceptHoverEvents'):
+                        if hasattr(item, "setAcceptHoverEvents"):
                             item.setAcceptHoverEvents(False)
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
@@ -154,15 +155,15 @@ class VisualItemManager:
             for _mechanism_id, layer_data in mechanism_layers.items():
                 visual_items = layer_data.get("visual_items", [])
                 for item in visual_items:
-                    if hasattr(item, 'setFlag'):
+                    if hasattr(item, "setFlag"):
                         # Restore default interaction flags
                         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-                        if hasattr(item, 'setAcceptedMouseButtons'):
+                        if hasattr(item, "setAcceptedMouseButtons"):
                             item.setAcceptedMouseButtons(
                                 Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton
                             )
-                        if hasattr(item, 'setAcceptHoverEvents'):
+                        if hasattr(item, "setAcceptHoverEvents"):
                             item.setAcceptHoverEvents(True)
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
@@ -184,7 +185,7 @@ class VisualItemManager:
         """
         try:
             for handle in handles:
-                if hasattr(handle, 'handle_type') and handle.handle_type == 'rotation':
+                if hasattr(handle, "handle_type") and handle.handle_type == "rotation":
                     continue  # Skip rotation handle
 
                 # Blue color for free editing mode

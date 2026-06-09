@@ -13,19 +13,18 @@ pytest.skip("Manual CAM mechanism test; skipping in automated pytest.", allow_mo
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 
+
 def test_cam_positioning():
     """Test that CAM is positioned below and follower above."""
 
     # Simulate CAM creation with scaling
     base_radius = 25.0
-    eccentricity = 10.0
     follower_rod_length = 40.0
 
     cam_scale_factor = 0.4
     rod_length_multiplier = 2.5
 
     scaled_base_radius = base_radius * cam_scale_factor
-    scaled_eccentricity = eccentricity * cam_scale_factor
     scaled_rod_length = follower_rod_length * rod_length_multiplier
 
     # CAM center at origin
@@ -33,7 +32,6 @@ def test_cam_positioning():
 
     # Follower position (negative Y means up in scene coordinates)
     follower_y = cam_center[1] - (scaled_base_radius + scaled_rod_length)
-    follower_pos = np.array([cam_center[0], follower_y])
 
     print("CAM Positioning Test:")
     print(f"  CAM center: {cam_center}")
@@ -47,6 +45,7 @@ def test_cam_positioning():
     print("✓ CAM is below, follower is above")
 
     return True
+
 
 def test_animation_scaling():
     """Test that animation uses correct scaling."""
@@ -66,17 +65,20 @@ def test_animation_scaling():
     print(f"  Rod length: original=40.0, scaled={scaled_rod_length:.2f}")
 
     # Test animation at different angles
-    for angle in [0, np.pi/2, np.pi, 3*np.pi/2]:
-        lift = scaled_eccentricity * (1 + np.cos(angle + np.pi/2)) / 2
+    for angle in [0, np.pi / 2, np.pi, 3 * np.pi / 2]:
+        lift = scaled_eccentricity * (1 + np.cos(angle + np.pi / 2)) / 2
         cam_radius_at_angle = scaled_base_radius + lift
         follower_y = 0 - cam_radius_at_angle - scaled_rod_length
 
-        print(f"  At angle {angle:.2f}: cam_radius={cam_radius_at_angle:.2f}, follower_y={follower_y:.2f}")
+        print(
+            f"  At angle {angle:.2f}: cam_radius={cam_radius_at_angle:.2f}, follower_y={follower_y:.2f}"
+        )
         assert follower_y < 0, f"Follower should always be above CAM at angle {angle}"
 
     print("✓ Animation maintains correct positioning")
 
     return True
+
 
 def test_parametric_edit():
     """Test parametric editing calculations."""
@@ -102,6 +104,7 @@ def test_parametric_edit():
     print("✓ Parametric edit calculations correct")
 
     return True
+
 
 if __name__ == "__main__":
     print("=== CAM Mechanism Verification ===\n")

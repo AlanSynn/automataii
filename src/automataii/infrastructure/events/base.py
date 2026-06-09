@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
-EventType = TypeVar('EventType', bound='Event')
+EventType = TypeVar("EventType", bound="Event")
 
 
 @dataclass(frozen=True)
@@ -92,6 +92,7 @@ class UIEvent(Event):
 @dataclass(frozen=True)
 class ApplicationStarted(SystemEvent):
     """Fired when the application starts."""
+
     component: str = "application"
     startup_time: float = 0.0
 
@@ -99,6 +100,7 @@ class ApplicationStarted(SystemEvent):
 @dataclass(frozen=True)
 class ApplicationShutdown(SystemEvent):
     """Fired when the application shuts down."""
+
     component: str = "application"
     clean_shutdown: bool = True
 
@@ -106,6 +108,7 @@ class ApplicationShutdown(SystemEvent):
 @dataclass(frozen=True)
 class ProjectLoaded(DomainEvent):
     """Fired when a project is loaded."""
+
     aggregate_type: str = "project"
     project_path: str = ""
     project_name: str = ""
@@ -114,6 +117,7 @@ class ProjectLoaded(DomainEvent):
 @dataclass(frozen=True)
 class ProjectSaved(DomainEvent):
     """Fired when a project is saved."""
+
     aggregate_type: str = "project"
     project_path: str = ""
     save_time: float = 0.0
@@ -122,6 +126,7 @@ class ProjectSaved(DomainEvent):
 @dataclass(frozen=True)
 class ProjectCreated(DomainEvent):
     """Fired when a project is created."""
+
     aggregate_type: str = "project"
     project_name: str = ""
     template_used: str = ""
@@ -130,6 +135,7 @@ class ProjectCreated(DomainEvent):
 @dataclass(frozen=True)
 class ProjectClosed(DomainEvent):
     """Fired when a project is closed."""
+
     aggregate_type: str = "project"
     project_name: str = ""
 
@@ -137,6 +143,7 @@ class ProjectClosed(DomainEvent):
 @dataclass(frozen=True)
 class ProjectModified(DomainEvent):
     """Fired when a project is modified."""
+
     aggregate_type: str = "project"
     modification_type: str = ""
 
@@ -144,6 +151,7 @@ class ProjectModified(DomainEvent):
 @dataclass(frozen=True)
 class AutoSaveTriggered(DomainEvent):
     """Fired when auto-save is triggered."""
+
     aggregate_type: str = "project"
     backup_path: str | None = None
 
@@ -151,6 +159,7 @@ class AutoSaveTriggered(DomainEvent):
 @dataclass(frozen=True)
 class ComponentActivated(UIEvent):
     """Fired when a UI component is activated."""
+
     component_id: str = ""
     component_type: str = ""
 
@@ -158,6 +167,7 @@ class ComponentActivated(UIEvent):
 @dataclass(frozen=True)
 class ComponentDeactivated(UIEvent):
     """Fired when a UI component is deactivated."""
+
     component_id: str = ""
     component_type: str = ""
 
@@ -165,6 +175,7 @@ class ComponentDeactivated(UIEvent):
 @dataclass(frozen=True)
 class ImageSelectedEvent(UIEvent):
     """Fired when an image is selected."""
+
     image_path: str = ""
     widget_id: str | None = "landing_tab"
     action: str | None = "image_selected"
@@ -173,6 +184,7 @@ class ImageSelectedEvent(UIEvent):
 @dataclass(frozen=True)
 class ProjectLoadedEvent(DomainEvent):
     """Fired when a project is loaded (alias for ProjectLoaded)."""
+
     aggregate_type: str = "project"
     project_path: str = ""
     project_name: str = ""

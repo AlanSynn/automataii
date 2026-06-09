@@ -74,9 +74,7 @@ class PNGBlueprintProcessor:
             elif isinstance(part_item.part_info, dict):
                 raw_path = part_item.part_info.get("image_path")
             else:
-                logging.warning(
-                    f"Unknown part_info format: {type(part_item.part_info)}"
-                )
+                logging.warning(f"Unknown part_info format: {type(part_item.part_info)}")
                 raw_path = None
 
             # 1) Absolute path if valid
@@ -118,9 +116,7 @@ class PNGBlueprintProcessor:
             logging.error(f"Error processing part PNG: {e}")
             return None
 
-    def generate_parts_blueprint_svg(
-        self, part_items: list[Any], padding: float = 20.0
-    ) -> str:
+    def generate_parts_blueprint_svg(self, part_items: list[Any], padding: float = 20.0) -> str:
         """
         Generate complete parts blueprint using PNG contour extraction.
 
@@ -202,7 +198,7 @@ class PNGBlueprintProcessor:
   </defs>
 
   <!-- Blueprint Title -->
-  <rect x="5" y="5" width="{total_width-10}" height="40" fill="none" stroke="black" stroke-width="2"/>
+  <rect x="5" y="5" width="{total_width - 10}" height="40" fill="none" stroke="black" stroke-width="2"/>
   <text x="20" y="25" class="part-label" font-size="14">Character Parts Manufacturing Blueprint</text>
   <text x="20" y="35" class="manufacturing-note">Scale: 1:1 | Units: mm | Material: 3mm Plywood/Acrylic | Extracted from PNG Contours</text>
 
@@ -212,7 +208,7 @@ class PNGBlueprintProcessor:
   </g>
 
   <!-- Border -->
-  <rect x="2" y="2" width="{total_width-4}" height="{total_height-4}" fill="none" stroke="black" stroke-width="1"/>
+  <rect x="2" y="2" width="{total_width - 4}" height="{total_height - 4}" fill="none" stroke="black" stroke-width="1"/>
 </svg>'''
 
         return svg_content
@@ -252,7 +248,7 @@ class PNGBlueprintProcessor:
         <path d="{offset_path}" class="cutting-path"/>
 
         <!-- Part label -->
-        <text x="{x_offset + width/2:.2f}" y="{y_offset - 5:.2f}"
+        <text x="{x_offset + width / 2:.2f}" y="{y_offset - 5:.2f}"
               class="part-label" text-anchor="middle">{part_name_text}</text>
 
         <!-- Dimensions -->
@@ -261,16 +257,16 @@ class PNGBlueprintProcessor:
             <line x1="{x_offset:.2f}" y1="{y_offset + height + 10:.2f}"
                   x2="{x_offset + width:.2f}" y2="{y_offset + height + 10:.2f}"
                   class="dimension-line"/>
-            <text x="{x_offset + width/2:.2f}" y="{y_offset + height + 20:.2f}"
+            <text x="{x_offset + width / 2:.2f}" y="{y_offset + height + 20:.2f}"
                   class="dimension-text" text-anchor="middle">{width:.1f}mm</text>
 
             <!-- Height dimension -->
             <line x1="{x_offset - 10:.2f}" y1="{y_offset:.2f}"
                   x2="{x_offset - 10:.2f}" y2="{y_offset + height:.2f}"
                   class="dimension-line"/>
-            <text x="{x_offset - 15:.2f}" y="{y_offset + height/2:.2f}"
+            <text x="{x_offset - 15:.2f}" y="{y_offset + height / 2:.2f}"
                   class="dimension-text" text-anchor="middle"
-                  transform="rotate(-90, {x_offset - 15:.2f}, {y_offset + height/2:.2f})">
+                  transform="rotate(-90, {x_offset - 15:.2f}, {y_offset + height / 2:.2f})">
                   {height:.1f}mm</text>
         </g>
 

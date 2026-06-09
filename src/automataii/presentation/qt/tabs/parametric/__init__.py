@@ -8,6 +8,7 @@ Main Classes:
 - ParametricEditingManager: Main facade for parametric editing
 - Components in .components/ subpackage
 """
+
 from automataii.presentation.qt.tabs.parametric.components import (
     AnimationCoordinator,
     ParameterMapper,

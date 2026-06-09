@@ -12,6 +12,7 @@ Pure Domain Components:
 - Point2D, IKSolution: Pure domain data types
 - Joint configuration: Mappings and limb definitions
 """
+
 from .components.ik_animation_controller import (
     AnimationConfig,
     IKAnimationController,

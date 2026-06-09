@@ -6,6 +6,7 @@ vectorized operations for coordinate transforms.
 
 Design Pattern: Flyweight (shared pre-computed data)
 """
+
 from __future__ import annotations
 
 import math
@@ -122,6 +123,7 @@ class LinkageCache:
 
     Pre-converts joint positions from lists to numpy arrays for O(1) frame access.
     """
+
     # Pre-converted position arrays: shape (num_frames, 2)
     p1_positions: np.ndarray
     p2_positions: np.ndarray
@@ -167,10 +169,12 @@ class LinkageCache:
 
         coupler_offset = np.array([0.0, 0.0])
         if params:
-            coupler_offset = np.array([
-                _finite_param(params, "coupler_point_x", "p_x", default=0.0),
-                _finite_param(params, "coupler_point_y", "p_y", default=0.0),
-            ])
+            coupler_offset = np.array(
+                [
+                    _finite_param(params, "coupler_point_x", "p_x", default=0.0),
+                    _finite_param(params, "coupler_point_y", "p_y", default=0.0),
+                ]
+            )
 
         return cls(
             p1_positions=p1,
@@ -235,6 +239,7 @@ class CamCache:
 
     Pre-computes base profile points; rotation is applied via matrix multiplication.
     """
+
     # Base profile in local coordinates: shape (num_points, 2)
     base_profile: np.ndarray
     num_points: int
@@ -341,6 +346,7 @@ class CamCache:
 @dataclass(slots=True)
 class GearCache:
     """Cached data for gear mechanisms."""
+
     # Gear 1
     gear1_center: np.ndarray
     gear1_radius: float
@@ -422,7 +428,9 @@ class GearCache:
 
             full_rotations = int(time / (2 * np.pi))
             theta1 = float(self.gear1_angles[frame_index] + full_rotations * 2 * np.pi)
-            theta2 = float(self.gear2_angles[frame_index] + full_rotations * 2 * np.pi * (-self.gear_ratio))
+            theta2 = float(
+                self.gear2_angles[frame_index] + full_rotations * 2 * np.pi * (-self.gear_ratio)
+            )
             return theta1, theta2
         else:
             theta1 = time
@@ -433,6 +441,7 @@ class GearCache:
 @dataclass(slots=True)
 class PlanetaryGearCache:
     """Cached data for planetary gear mechanism."""
+
     r_sun: float
     r_planet: float
     arm_length: float
@@ -539,10 +548,12 @@ class PlanetaryGearCache:
         if reverse:
             normalized_time = 1.0 - normalized_time
 
-        if (self.planet_centers is not None and
-            self.sun_centers is not None and
-            self.tracking_points is not None and
-            self.num_frames > 0):
+        if (
+            self.planet_centers is not None
+            and self.sun_centers is not None
+            and self.tracking_points is not None
+            and self.num_frames > 0
+        ):
             frame_index = int(normalized_time * (self.num_frames - 1))
             frame_index = max(0, min(frame_index, self.num_frames - 1))
 
@@ -555,12 +566,12 @@ class PlanetaryGearCache:
             rotation_angle = self.tracking_angle_offset - time * (self.r_sun / self.r_planet)
 
             sun = self.sun_center
-            planet = sun + (self.r_sun + self.r_planet) * np.array([
-                np.cos(orbital_angle), np.sin(orbital_angle)
-            ])
-            tracking = planet + self.arm_length * np.array([
-                np.cos(rotation_angle), np.sin(rotation_angle)
-            ])
+            planet = sun + (self.r_sun + self.r_planet) * np.array(
+                [np.cos(orbital_angle), np.sin(orbital_angle)]
+            )
+            tracking = planet + self.arm_length * np.array(
+                [np.cos(rotation_angle), np.sin(rotation_angle)]
+            )
 
         return sun, planet, tracking
 
@@ -601,9 +612,7 @@ class AnimationCacheManager:
         elif mech_type == "gear":
             gear_data = full_sim.get("gear_data", {})
             key_points = layer_data.get("key_points", {})
-            self._gear_caches[mechanism_id] = GearCache.from_params(
-                params, gear_data, key_points
-            )
+            self._gear_caches[mechanism_id] = GearCache.from_params(params, gear_data, key_points)
 
         elif mech_type == "planetary_gear":
             gear_positions = full_sim.get("gear_positions", {})

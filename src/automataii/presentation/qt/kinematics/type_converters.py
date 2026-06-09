@@ -10,6 +10,7 @@ Architecture Note:
     uses Point2D for all calculations, while IKManager uses QPointF
     for Qt integration.
 """
+
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF
@@ -61,10 +62,7 @@ def ik_solution_to_qpoints(
     Returns:
         Dictionary mapping joint names to QPointF positions
     """
-    return {
-        name: point2d_to_qpoint(pos)
-        for name, pos in solution.joint_positions.items()
-    }
+    return {name: point2d_to_qpoint(pos) for name, pos in solution.joint_positions.items()}
 
 
 def extract_two_bone_result(

@@ -113,9 +113,7 @@ class BatchSimulationService:
         states: list[MechanismState] | None = [] if include_states else None
 
         if self._enable_parallel and n_angles > 10:
-            return self._simulate_parallel(
-                mechanism, parameters, angles, include_states
-            )
+            return self._simulate_parallel(mechanism, parameters, angles, include_states)
 
         # Sequential simulation
         for i, angle in enumerate(angles):
@@ -252,9 +250,7 @@ class BatchSimulationService:
         if resolution <= 0:
             raise ValueError(f"resolution must be positive, got {resolution}")
 
-        result = self.generate_animation_frames(
-            mechanism, parameters, num_frames=resolution
-        )
+        result = self.generate_animation_frames(mechanism, parameters, num_frames=resolution)
 
         if joint_name not in result.positions:
             logger.warning(f"Joint '{joint_name}' not found in mechanism")

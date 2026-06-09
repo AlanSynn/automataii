@@ -82,7 +82,7 @@ def main():
     # Test 2: Cached computation time
     print("\n2. Cached Path Retrieval (target: ≤1ms)")
     times = []
-    for i in range(100):
+    for _i in range(100):
         elapsed, success = measure_cached_computation()
         times.append(elapsed)
 

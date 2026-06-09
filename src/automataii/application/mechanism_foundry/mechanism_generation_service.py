@@ -7,6 +7,7 @@ between domain services without UI concerns.
 Design Pattern: Application Service (DDD)
 Architecture: Hexagonal - Application Layer
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -102,8 +103,7 @@ class MechanismGenerationService:
         """
         if not self._create_layer_data_fn:
             return MechanismGenerationResult(
-                success=False,
-                error_message="Layer data creation not configured"
+                success=False, error_message="Layer data creation not configured"
             )
 
         try:
@@ -118,8 +118,7 @@ class MechanismGenerationService:
 
             if not layer_data:
                 return MechanismGenerationResult(
-                    success=False,
-                    error_message="Failed to create layer data"
+                    success=False, error_message="Failed to create layer data"
                 )
 
             # Verify coupler joint connection
@@ -145,10 +144,7 @@ class MechanismGenerationService:
             )
 
         except Exception as e:
-            return MechanismGenerationResult(
-                success=False,
-                error_message=str(e)
-            )
+            return MechanismGenerationResult(success=False, error_message=str(e))
 
     def prepare_mechanism_visuals(
         self,

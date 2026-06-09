@@ -6,6 +6,7 @@ Allows users to adjust motion paths by repositioning vertices.
 Design Pattern: Observer (handles emit signals on position change)
 Architecture: Hexagonal - Presentation Layer
 """
+
 from __future__ import annotations
 
 import logging

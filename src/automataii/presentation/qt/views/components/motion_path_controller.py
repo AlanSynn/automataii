@@ -6,6 +6,7 @@ preview updates, and spline path generation.
 
 Design Pattern: Controller (motion path state management)
 """
+
 from __future__ import annotations
 
 import math
@@ -145,9 +146,7 @@ class MotionPathController(QObject):
             return None
 
         if len(self._draw_points) < self.MIN_POINTS_FOR_PATH:
-            self._show_status(
-                f"Need at least {self.MIN_POINTS_FOR_PATH} points for a path."
-            )
+            self._show_status(f"Need at least {self.MIN_POINTS_FOR_PATH} points for a path.")
             self.cancel_drawing()
             return None
 
@@ -334,9 +333,7 @@ class MotionPathController(QObject):
         if resampled:
             last = resampled[-1]
             end = points[-1]
-            dist = math.sqrt(
-                (end.x() - last.x()) ** 2 + (end.y() - last.y()) ** 2
-            )
+            dist = math.sqrt((end.x() - last.x()) ** 2 + (end.y() - last.y()) ** 2)
             if dist > target_spacing * 0.5:
                 resampled.append(end)
 

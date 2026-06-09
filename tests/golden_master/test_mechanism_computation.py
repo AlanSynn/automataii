@@ -229,9 +229,7 @@ class TestMechanismRegistryGoldenMaster:
             for mech_type in catalog.list_types():
                 mechanism = catalog.get(mech_type)
                 if mechanism and hasattr(mechanism, "required_parameters"):
-                    required_params[mech_type] = sorted(
-                        list(mechanism.required_parameters)
-                    )
+                    required_params[mech_type] = sorted(mechanism.required_parameters)
         except Exception:
             from automataii.domain.mechanisms.catalog.registry import MechanismRegistry
 
@@ -241,9 +239,7 @@ class TestMechanismRegistryGoldenMaster:
             for mech_type in registry.list_types():
                 mechanism = registry.get(mech_type)
                 if mechanism:
-                    required_params[mech_type] = sorted(
-                        list(mechanism.required_parameters)
-                    )
+                    required_params[mech_type] = sorted(mechanism.required_parameters)
 
         snapshot = golden_master("mechanism_required_params")
         snapshot.assert_matches(

@@ -1,6 +1,7 @@
 """
 Test state management system
 """
+
 import pytest
 
 from automataii.infrastructure.state import Action, Reducer, State, StateStore
@@ -8,6 +9,7 @@ from automataii.infrastructure.state import Action, Reducer, State, StateStore
 
 class AppState:
     """Test application state"""
+
     def __init__(self):
         self.counter = 0
         self.user_name = ""
@@ -109,7 +111,7 @@ class TestStateStore:
         store = StateStore(initial_state=AppState(), reducer=reducer)
 
         # Multiple increments
-        for i in range(5):
+        for _i in range(5):
             store.dispatch(Action(type="INCREMENT"))
 
         assert store.state.data.counter == 5

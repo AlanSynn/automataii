@@ -6,6 +6,7 @@ without Qt dependencies where possible.
 
 Design Pattern: Solver (pure algorithmic computation)
 """
+
 from __future__ import annotations
 
 import math
@@ -248,9 +249,7 @@ class IKSolverCore:
         dy = end.y - start.y
         return math.atan2(dy, dx)
 
-    def calculate_chain_lengths(
-        self, positions: list[Point2D]
-    ) -> list[float]:
+    def calculate_chain_lengths(self, positions: list[Point2D]) -> list[float]:
         """
         Calculate bone lengths for a chain of positions.
 

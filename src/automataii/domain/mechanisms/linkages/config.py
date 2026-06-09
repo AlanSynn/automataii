@@ -1,5 +1,4 @@
-"""Linkage configuration dataclass with role-based identification.
-"""
+"""Linkage configuration dataclass with role-based identification."""
 
 from __future__ import annotations
 

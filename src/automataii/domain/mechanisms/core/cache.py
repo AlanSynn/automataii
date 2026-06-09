@@ -4,6 +4,7 @@ Cached computation functions for mechanism calculations.
 Uses functools.lru_cache for memoization of expensive pure computations.
 All functions in this module must be pure (no side effects, deterministic output).
 """
+
 from __future__ import annotations
 
 import math
@@ -138,9 +139,7 @@ def compute_cam_profile_points(
 
         base_radius = cam_radius
         primary_variation = cam_offset * math.cos(cam_lobes * theta)
-        secondary_variation = (cam_offset * profile_harmonic) * math.cos(
-            2 * cam_lobes * theta
-        )
+        secondary_variation = (cam_offset * profile_harmonic) * math.cos(2 * cam_lobes * theta)
 
         radius = base_radius + primary_variation + secondary_variation
         x = radius * math.cos(theta)
@@ -236,7 +235,9 @@ def get_cache_stats() -> dict[str, dict]:
             "misses": info.misses,
             "maxsize": info.maxsize,
             "currsize": info.currsize,
-            "hit_rate": info.hits / (info.hits + info.misses) if (info.hits + info.misses) > 0 else 0,
+            "hit_rate": info.hits / (info.hits + info.misses)
+            if (info.hits + info.misses) > 0
+            else 0,
         }
 
     return stats

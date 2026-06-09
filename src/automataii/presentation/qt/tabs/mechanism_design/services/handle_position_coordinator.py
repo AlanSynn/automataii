@@ -6,6 +6,7 @@ Coordinates handle creation, rotation, and position synchronization.
 
 Design Pattern: Coordinator (orchestrates handle position operations)
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,7 +68,7 @@ class HandlePositionCoordinator:
             return ""
         prefix = f"{mechanism_id}_"
         if handle_id.startswith(prefix):
-            return handle_id[len(prefix):]
+            return handle_id[len(prefix) :]
         return handle_id.rsplit("_", 1)[-1]
 
     @staticmethod
@@ -85,12 +86,8 @@ class HandlePositionCoordinator:
                 return key_points[alias]
 
         if anchor_name == "crank_length":
-            p1 = HandlePositionCoordinator._finite_point_array(
-                key_points.get("ground_pivot_1")
-            )
-            crank = HandlePositionCoordinator._finite_point_array(
-                key_points.get("crank_end")
-            )
+            p1 = HandlePositionCoordinator._finite_point_array(key_points.get("ground_pivot_1"))
+            crank = HandlePositionCoordinator._finite_point_array(key_points.get("crank_end"))
             if p1 is not None and crank is not None:
                 midpoint = (p1 + crank) / 2.0
                 return midpoint
@@ -195,7 +192,7 @@ class HandlePositionCoordinator:
             # Apply rotation to all anchor handles - no constraints!
             for handle in handles:
                 # Skip the rotation handle itself
-                if hasattr(handle, 'handle_type') and handle.handle_type == 'rotation':
+                if hasattr(handle, "handle_type") and handle.handle_type == "rotation":
                     continue
 
                 current_pos = handle.pos()
@@ -216,7 +213,7 @@ class HandlePositionCoordinator:
                 rotated_count += 1
 
                 # Update key_points in layer_data
-                if hasattr(handle, 'anchor_name') and mechanism_id in mechanism_layers:
+                if hasattr(handle, "anchor_name") and mechanism_id in mechanism_layers:
                     layer_data = mechanism_layers[mechanism_id]
                     if "key_points" not in layer_data:
                         layer_data["key_points"] = {}
@@ -268,7 +265,7 @@ class HandlePositionCoordinator:
             self._updating_handles_programmatically = True
             try:
                 for handle in handles:
-                    if getattr(handle, 'handle_type', '') == 'rotation':
+                    if getattr(handle, "handle_type", "") == "rotation":
                         continue
 
                     anchor_name = self._handle_anchor_name(handle, mechanism_id)
@@ -280,7 +277,7 @@ class HandlePositionCoordinator:
                         new_scene_pos = _scene_pos_from_mech(point)
 
                         # Temporarily disable callback if present
-                        original_cb = getattr(handle, 'update_callback', None)
+                        original_cb = getattr(handle, "update_callback", None)
                         if original_cb is not None:
                             handle.update_callback = None
                         handle.setPos(new_scene_pos)
@@ -336,7 +333,7 @@ class HandlePositionCoordinator:
 
                     # ULTRATHINK: Temporarily disable callback for DraggableHandle
                     original_callback = None
-                    if hasattr(handle, 'update_callback'):
+                    if hasattr(handle, "update_callback"):
                         original_callback = handle.update_callback
                         handle.update_callback = None
 
@@ -382,7 +379,7 @@ class HandlePositionCoordinator:
             updated_count = 0
 
             for handle in handles:
-                handle_id = getattr(handle, 'handle_id', None)
+                handle_id = getattr(handle, "handle_id", None)
                 if not handle_id:
                     continue
 
@@ -392,7 +389,9 @@ class HandlePositionCoordinator:
                 if mechanism_type == "cam":
                     # Support both CamEditor naming (center, follower) and legacy (rod_length, cam_size)
                     if "center" in handle_id and "gear" not in handle_id:
-                        new_pos = anchor_positions.get("cam_center") or anchor_positions.get("center")
+                        new_pos = anchor_positions.get("cam_center") or anchor_positions.get(
+                            "center"
+                        )
                     elif "follower" in handle_id:
                         new_pos = (
                             anchor_positions.get("cam_follower")
@@ -424,13 +423,12 @@ class HandlePositionCoordinator:
                     elif "planet_radius" in handle_id:
                         new_pos = anchor_positions.get("planet_radius")
                     elif "arm_length" in handle_id:
-                        new_pos = (
-                            anchor_positions.get("arm_length")
-                            or anchor_positions.get("tracking_point")
+                        new_pos = anchor_positions.get("arm_length") or anchor_positions.get(
+                            "tracking_point"
                         )
 
                 elif mechanism_type == "4_bar_linkage":
-                    anchor_name = getattr(handle, 'anchor_name', None)
+                    anchor_name = getattr(handle, "anchor_name", None)
                     if anchor_name and anchor_name in anchor_positions:
                         new_pos = anchor_positions[anchor_name]
 
@@ -470,7 +468,7 @@ class HandlePositionCoordinator:
                 parent_tab=parent_tab,
                 mechanism_id=mechanism_id,
                 center_pos=center_pos,
-                radius=radius
+                radius=radius,
             )
             return rotation_handle
 
@@ -506,7 +504,7 @@ class HandlePositionCoordinator:
                 "gear1_center": QPointF(center_x - 60, center_y),
                 "gear2_center": QPointF(center_x + 60, center_y),
                 "gear1_radius": QPointF(center_x - 60, center_y - 50),
-                "gear2_radius": QPointF(center_x + 60, center_y - 50)
+                "gear2_radius": QPointF(center_x + 60, center_y - 50),
             }
 
             # Create anchor handles

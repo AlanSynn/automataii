@@ -7,6 +7,7 @@ Eliminates duplication across ImageProcessingView, EditorView, MechanismView.
 Architecture: Presentation Layer
 Pattern: Strategy (pluggable behaviors)
 """
+
 from __future__ import annotations
 
 import logging
@@ -100,7 +101,7 @@ class ViewportController(QObject):
 
     @property
     def zoom_scale(self) -> float:
-        return self._config.zoom_factor_base ** self._zoom_level
+        return self._config.zoom_factor_base**self._zoom_level
 
     @property
     def view(self) -> QGraphicsView:
@@ -112,13 +113,9 @@ class ViewportController(QObject):
 
         # Transformation anchors
         if cfg.anchor_under_mouse:
-            self._view.setTransformationAnchor(
-                QGraphicsView.ViewportAnchor.AnchorUnderMouse
-            )
+            self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         else:
-            self._view.setTransformationAnchor(
-                QGraphicsView.ViewportAnchor.AnchorViewCenter
-            )
+            self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
 
         self._view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
 
@@ -245,9 +242,7 @@ class ViewportController(QObject):
         scale = transform.m11()  # Horizontal scale factor
 
         if scale > 0:
-            self._zoom_level = int(
-                math.log(scale) / math.log(self._config.zoom_factor_base)
-            )
+            self._zoom_level = int(math.log(scale) / math.log(self._config.zoom_factor_base))
             # Clamp to valid range
             self._zoom_level = max(
                 self._config.min_zoom_level,

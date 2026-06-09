@@ -6,6 +6,7 @@ Provides common interface for all tab adapters.
 Architecture: Application Layer (Hexagonal)
 Pattern: Template Method
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class QObjectABCMeta(type(QObject), ABCMeta):
     """Combined metaclass for QObject and ABC."""
+
     pass
 
 

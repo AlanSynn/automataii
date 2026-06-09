@@ -6,6 +6,7 @@ joint locking operations.
 
 Design Pattern: Handler (skeleton manipulation workflow)
 """
+
 from __future__ import annotations
 
 import logging

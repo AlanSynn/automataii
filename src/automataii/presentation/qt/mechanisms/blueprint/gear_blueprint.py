@@ -27,20 +27,20 @@ class GearBlueprintGenerator(BlueprintGenerator):
 
     def _generate_front_view(self, mechanism_data: dict[str, Any]):
         """Generate front view showing complete gear pair."""
-        params = mechanism_data.get('params', {})
+        params = mechanism_data.get("params", {})
         viewport = self.views[0]  # Front view viewport
 
         # Gear parameters
-        r1 = params.get('gear1_radius', 30)
-        r2 = params.get('gear2_radius', 50)
-        center1 = (viewport.x + 50, viewport.y + viewport.height/2)
+        r1 = params.get("gear1_radius", 30)
+        r2 = params.get("gear2_radius", 50)
+        center1 = (viewport.x + 50, viewport.y + viewport.height / 2)
         center2 = (center1[0] + r1 + r2 + 2, center1[1])  # Proper meshing distance
 
         # Calculate tooth parameters
-        module = params.get('module', 2)  # Module (tooth size)
+        module = params.get("module", 2)  # Module (tooth size)
         n1 = int(2 * r1 / module)  # Number of teeth
         n2 = int(2 * r2 / module)
-        pressure_angle = params.get('pressure_angle', 20)  # degrees
+        pressure_angle = params.get("pressure_angle", 20)  # degrees
 
         gear_svg = f'''
         <g id="front-view-gears" transform="translate(0,0)">
@@ -52,10 +52,10 @@ class GearBlueprintGenerator(BlueprintGenerator):
 
             <!-- Center marks -->
             <g stroke="black" stroke-width="0.35">
-                <line x1="{center1[0]-5}" y1="{center1[1]}" x2="{center1[0]+5}" y2="{center1[1]}"/>
-                <line x1="{center1[0]}" y1="{center1[1]-5}" x2="{center1[0]}" y2="{center1[1]+5}"/>
-                <line x1="{center2[0]-5}" y1="{center2[1]}" x2="{center2[0]+5}" y2="{center2[1]}"/>
-                <line x1="{center2[0]}" y1="{center2[1]-5}" x2="{center2[0]}" y2="{center2[1]+5}"/>
+                <line x1="{center1[0] - 5}" y1="{center1[1]}" x2="{center1[0] + 5}" y2="{center1[1]}"/>
+                <line x1="{center1[0]}" y1="{center1[1] - 5}" x2="{center1[0]}" y2="{center1[1] + 5}"/>
+                <line x1="{center2[0] - 5}" y1="{center2[1]}" x2="{center2[0] + 5}" y2="{center2[1]}"/>
+                <line x1="{center2[0]}" y1="{center2[1] - 5}" x2="{center2[0]}" y2="{center2[1] + 5}"/>
             </g>
 
             <!-- Pitch circles (dashed) -->
@@ -88,9 +88,16 @@ class GearBlueprintGenerator(BlueprintGenerator):
         # Add dimensions
         self._add_gear_dimensions(center1, center2, r1, r2)
 
-    def _generate_gear_with_teeth(self, cx: float, cy: float, r: float,
-                                 n_teeth: int, module: float,
-                                 pressure_angle: float, gear_id: str) -> str:
+    def _generate_gear_with_teeth(
+        self,
+        cx: float,
+        cy: float,
+        r: float,
+        n_teeth: int,
+        module: float,
+        pressure_angle: float,
+        gear_id: str,
+    ) -> str:
         """Generate detailed gear with involute tooth profile."""
 
         # Calculate tooth geometry
@@ -110,8 +117,7 @@ class GearBlueprintGenerator(BlueprintGenerator):
 
             # Generate involute curve for tooth profile
             tooth_svg = self._generate_tooth_profile(
-                cx, cy, base_radius, pitch_radius,
-                outer_radius, root_radius, angle, tooth_thickness
+                cx, cy, base_radius, pitch_radius, outer_radius, root_radius, angle, tooth_thickness
             )
             gear_path += tooth_svg
 
@@ -128,13 +134,21 @@ class GearBlueprintGenerator(BlueprintGenerator):
                   stroke="black" stroke-width="0.5" fill="white"/>
         '''
 
-        gear_path += '</g>\n'
+        gear_path += "</g>\n"
 
         return gear_path
 
-    def _generate_tooth_profile(self, cx: float, cy: float, base_r: float,
-                               pitch_r: float, outer_r: float, root_r: float,
-                               angle: float, thickness: float) -> str:
+    def _generate_tooth_profile(
+        self,
+        cx: float,
+        cy: float,
+        base_r: float,
+        pitch_r: float,
+        outer_r: float,
+        root_r: float,
+        angle: float,
+        thickness: float,
+    ) -> str:
         """Generate single tooth with involute profile."""
 
         # Simplified tooth profile (for clarity in manufacturing)
@@ -149,40 +163,26 @@ class GearBlueprintGenerator(BlueprintGenerator):
         # Root circle points
         root_angle1 = angle - tooth_angle * 0.7
         root_angle2 = angle + tooth_angle * 0.7
-        points.append((
-            cx + root_r * math.cos(root_angle1),
-            cy + root_r * math.sin(root_angle1)
-        ))
+        points.append((cx + root_r * math.cos(root_angle1), cy + root_r * math.sin(root_angle1)))
 
         # Pitch circle points (involute starts here)
         pitch_angle1 = angle - tooth_angle / 2
         pitch_angle2 = angle + tooth_angle / 2
-        points.append((
-            cx + pitch_r * math.cos(pitch_angle1),
-            cy + pitch_r * math.sin(pitch_angle1)
-        ))
+        points.append(
+            (cx + pitch_r * math.cos(pitch_angle1), cy + pitch_r * math.sin(pitch_angle1))
+        )
 
         # Outer circle points (tooth tip)
         tip_angle1 = angle - tooth_angle * 0.3
         tip_angle2 = angle + tooth_angle * 0.3
-        points.append((
-            cx + outer_r * math.cos(tip_angle1),
-            cy + outer_r * math.sin(tip_angle1)
-        ))
-        points.append((
-            cx + outer_r * math.cos(tip_angle2),
-            cy + outer_r * math.sin(tip_angle2)
-        ))
+        points.append((cx + outer_r * math.cos(tip_angle1), cy + outer_r * math.sin(tip_angle1)))
+        points.append((cx + outer_r * math.cos(tip_angle2), cy + outer_r * math.sin(tip_angle2)))
 
         # Other side of tooth
-        points.append((
-            cx + pitch_r * math.cos(pitch_angle2),
-            cy + pitch_r * math.sin(pitch_angle2)
-        ))
-        points.append((
-            cx + root_r * math.cos(root_angle2),
-            cy + root_r * math.sin(root_angle2)
-        ))
+        points.append(
+            (cx + pitch_r * math.cos(pitch_angle2), cy + pitch_r * math.sin(pitch_angle2))
+        )
+        points.append((cx + root_r * math.cos(root_angle2), cy + root_r * math.sin(root_angle2)))
 
         # Create path
         path_data = f"M {points[0][0]:.2f},{points[0][1]:.2f}"
@@ -199,11 +199,11 @@ class GearBlueprintGenerator(BlueprintGenerator):
 
     def _generate_top_view(self, mechanism_data: dict[str, Any]):
         """Generate top view showing gear thickness."""
-        params = mechanism_data.get('params', {})
+        params = mechanism_data.get("params", {})
         viewport = self.views[1]  # Top view viewport
 
-        gear_thickness = params.get('thickness', 10)
-        params.get('shaft_diameter', 10)
+        gear_thickness = params.get("thickness", 10)
+        params.get("shaft_diameter", 10)
 
         top_view_svg = f'''
         <g id="top-view-gear">
@@ -237,31 +237,33 @@ class GearBlueprintGenerator(BlueprintGenerator):
         # Add thickness dimension
         self.dimensions.append(
             self.create_dimension_line(
-                viewport.x + 30, viewport.y + 40,
-                viewport.x + 30, viewport.y + 40 + gear_thickness,
-                f"{gear_thickness}±0.1", -15
+                viewport.x + 30,
+                viewport.y + 40,
+                viewport.x + 30,
+                viewport.y + 40 + gear_thickness,
+                f"{gear_thickness}±0.1",
+                -15,
             )
         )
 
-    def _add_gear_dimensions(self, center1: tuple[float, float],
-                            center2: tuple[float, float],
-                            r1: float, r2: float):
+    def _add_gear_dimensions(
+        self, center1: tuple[float, float], center2: tuple[float, float], r1: float, r2: float
+    ):
         """Add detailed dimensions for gears."""
 
         # Pitch diameter dimensions
-        self.dimensions.append(
-            self.create_radius_dimension(center1[0], center1[1], r1, 135)
-        )
-        self.dimensions.append(
-            self.create_radius_dimension(center2[0], center2[1], r2, 45)
-        )
+        self.dimensions.append(self.create_radius_dimension(center1[0], center1[1], r1, 135))
+        self.dimensions.append(self.create_radius_dimension(center2[0], center2[1], r2, 45))
 
         # Center distance
         self.dimensions.append(
             self.create_dimension_line(
-                center1[0], center1[1] + r1 + 25,
-                center2[0], center2[1] + r2 + 25,
-                f"{r1 + r2 + 2:.1f}±0.05", 10
+                center1[0],
+                center1[1] + r1 + 25,
+                center2[0],
+                center2[1] + r2 + 25,
+                f"{r1 + r2 + 2:.1f}±0.05",
+                10,
             )
         )
 
@@ -269,40 +271,40 @@ class GearBlueprintGenerator(BlueprintGenerator):
         """Add gear-specific tolerances."""
         super()._add_tolerances(mechanism_data)
 
-        gear_tolerances = f'''
+        gear_tolerances = f"""
         <g id="gear-tolerances" font-size="6" font-family="Arial">
             <text x="140" y="280">GEAR SPECIFICATIONS:</text>
-            <text x="140" y="286">MODULE: {mechanism_data.get('params', {}).get('module', 2)}mm</text>
-            <text x="140" y="292">PRESSURE ANGLE: {mechanism_data.get('params', {}).get('pressure_angle', 20)}°</text>
+            <text x="140" y="286">MODULE: {mechanism_data.get("params", {}).get("module", 2)}mm</text>
+            <text x="140" y="292">PRESSURE ANGLE: {mechanism_data.get("params", {}).get("pressure_angle", 20)}°</text>
             <text x="220" y="280">BACKLASH: 0.05-0.10mm</text>
             <text x="220" y="286">SURFACE FINISH: Ra 1.6</text>
-            <text x="220" y="292">MATERIAL: {mechanism_data.get('material', 'STEEL')} HRC 58-62</text>
+            <text x="220" y="292">MATERIAL: {mechanism_data.get("material", "STEEL")} HRC 58-62</text>
         </g>
-        '''
+        """
 
         self.svg_elements.append(gear_tolerances)
 
     def _add_part_list(self, mechanism_data: dict[str, Any]):
         """Add gear-specific part list."""
         parts = [
-            {'name': 'DRIVER GEAR', 'quantity': 1, 'material': 'STEEL'},
-            {'name': 'DRIVEN GEAR', 'quantity': 1, 'material': 'STEEL'},
-            {'name': 'SHAFT KEY 6x6x25', 'quantity': 2, 'material': 'STEEL'},
-            {'name': 'RETAINING RING', 'quantity': 4, 'material': 'SPRING STL'}
+            {"name": "DRIVER GEAR", "quantity": 1, "material": "STEEL"},
+            {"name": "DRIVEN GEAR", "quantity": 1, "material": "STEEL"},
+            {"name": "SHAFT KEY 6x6x25", "quantity": 2, "material": "STEEL"},
+            {"name": "RETAINING RING", "quantity": 4, "material": "SPRING STL"},
         ]
 
-        mechanism_data['parts'] = parts
+        mechanism_data["parts"] = parts
         super()._add_part_list(mechanism_data)
 
     def _add_assembly_notes(self, mechanism_data: dict[str, Any]):
         """Add gear-specific assembly notes."""
         notes = [
-            'Ensure proper backlash (0.05-0.10mm) during assembly',
-            'Apply gear oil before operation',
-            'Check alignment of shafts (parallel within 0.02mm)',
-            'Verify smooth rotation without binding',
-            'Break-in period: 100 hours at 50% load'
+            "Ensure proper backlash (0.05-0.10mm) during assembly",
+            "Apply gear oil before operation",
+            "Check alignment of shafts (parallel within 0.02mm)",
+            "Verify smooth rotation without binding",
+            "Break-in period: 100 hours at 50% load",
         ]
 
-        mechanism_data['assembly_notes'] = notes
+        mechanism_data["assembly_notes"] = notes
         super()._add_assembly_notes(mechanism_data)

@@ -12,6 +12,7 @@ It delegates to specialized components for different responsibilities:
 The manager maintains the same public API while internally composing
 these specialized components.
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,7 +68,9 @@ class ParametricEditingManager:
                        shared resources like mechanism_layers, mechanism_scene, etc.
         """
         self.parent_tab = parent_tab
-        logging.info(f"[PARAMETRIC-INIT] ParametricEditingManager created with parent_tab_id={id(parent_tab)}")
+        logging.info(
+            f"[PARAMETRIC-INIT] ParametricEditingManager created with parent_tab_id={id(parent_tab)}"
+        )
         self.parametric_mode_enabled = False
         self.physics_snap_mode = "balanced"
 
@@ -109,9 +112,7 @@ class ParametricEditingManager:
                         self.parent_tab._on_parametric_mechanism_update
                     )
 
-                if hasattr(
-                    self.parent_tab.parametric_editor, "visual_refresh_requested"
-                ):
+                if hasattr(self.parent_tab.parametric_editor, "visual_refresh_requested"):
                     self.parent_tab.parametric_editor.visual_refresh_requested.connect(
                         self.parent_tab._on_parametric_visual_refresh
                     )
@@ -121,9 +122,7 @@ class ParametricEditingManager:
                 if hasattr(self.parent_tab, "mechanism_view"):
                     self._visual_updater.set_view(self.parent_tab.mechanism_view)
                 if hasattr(self.parent_tab, "visuals_factory"):
-                    self._visual_updater.set_visuals_factory(
-                        self.parent_tab.visuals_factory
-                    )
+                    self._visual_updater.set_visuals_factory(self.parent_tab.visuals_factory)
 
         except Exception:
             self.parent_tab.parametric_editor = None
@@ -132,6 +131,7 @@ class ParametricEditingManager:
         """Check if parametric functionality is available in parent module."""
         try:
             import sys
+
             parent_module = sys.modules[self.parent_tab.__class__.__module__]
             return getattr(parent_module, "PARAMETRIC_AVAILABLE", False)
         except Exception as e:
@@ -158,6 +158,7 @@ class ParametricEditingManager:
         """Show information message dialog."""
         try:
             from PyQt6.QtWidgets import QMessageBox
+
             parent = getattr(self.parent_tab, "main_window", self.parent_tab)
             QMessageBox.information(parent, title, message)
         except Exception:
@@ -234,7 +235,9 @@ class ParametricEditingManager:
             self._disable_parametric_mode()
 
             if should_restore_animation:
-                logging.info(f"[PARAMETRIC] Restoring animation via QTimer, parent_tab_id={id(self.parent_tab)}")
+                logging.info(
+                    f"[PARAMETRIC] Restoring animation via QTimer, parent_tab_id={id(self.parent_tab)}"
+                )
                 QTimer.singleShot(100, self.parent_tab._on_start_animation)
 
         self._logger.debug("Updating UI state...")
@@ -278,7 +281,9 @@ class ParametricEditingManager:
                 except Exception as e:
                     import traceback
 
-                    self._logger.error("Error creating parametric editor for %s: %s", mechanism_id, e)
+                    self._logger.error(
+                        "Error creating parametric editor for %s: %s", mechanism_id, e
+                    )
                     self._logger.debug(traceback.format_exc())
 
             self.parent_tab.parametric_editor.enable_editing()
@@ -374,9 +379,7 @@ class ParametricEditingManager:
             self._logger.error("Error enabling mechanism visual interaction: %s", e)
 
     @pyqtSlot(str, dict)
-    def _on_parametric_mechanism_update(
-        self, mechanism_id: str, params: dict[str, Any]
-    ) -> None:
+    def _on_parametric_mechanism_update(self, mechanism_id: str, params: dict[str, Any]) -> None:
         """Handle mechanism parameter updates from parametric editor."""
         try:
             if mechanism_id not in self.parent_tab.mechanism_layers:
@@ -405,7 +408,7 @@ class ParametricEditingManager:
             self._update_mechanism_visuals_realtime(mechanism_id, layer_data)
 
             # Emit signal to propagate changes to StateManager (for undo/redo)
-            if hasattr(self.parent_tab, 'mechanism_parameters_changed'):
+            if hasattr(self.parent_tab, "mechanism_parameters_changed"):
                 self.parent_tab.mechanism_parameters_changed.emit(
                     mechanism_id, dict(layer_data.get("params", {}))
                 )
@@ -567,9 +570,7 @@ class ParametricEditingManager:
         new_g2 = g1 + dir_vec * desired
         params["gear2_x"] = float(new_g2[0])
         params["gear2_y"] = float(new_g2[1])
-        self._logger.warning(
-            "[PHYSICS-SNAP] Adjusted gear2 to maintain mesh (Δ=%.3f)", desired - d
-        )
+        self._logger.warning("[PHYSICS-SNAP] Adjusted gear2 to maintain mesh (Δ=%.3f)", desired - d)
         return True
 
     def _enforce_cam_follower_snap(self, layer_data: dict[str, Any]) -> bool:
@@ -750,11 +751,7 @@ class ParametricEditingManager:
         p1 = np.array(key_points.get("ground_pivot_1", [0, 0]), dtype=float)
         p2 = np.array(key_points.get("ground_pivot_2", [100, 0]), dtype=float)
 
-        if (
-            "joint_3" in key_points
-            and "joint_4" in key_points
-            and "joint_5" in key_points
-        ):
+        if "joint_3" in key_points and "joint_4" in key_points and "joint_5" in key_points:
             p3 = np.array(key_points["joint_3"], dtype=float)
             p4 = np.array(key_points["joint_4"], dtype=float)
             p5 = np.array(key_points["joint_5"], dtype=float)
@@ -858,9 +855,7 @@ class ParametricEditingManager:
         """Generate cam mechanism data with correct physics."""
         num_frames = 100
         cam_scale_factor = self._positive_float(layer_data.get("cam_scale_factor"), 1.0)
-        rod_length_multiplier = self._positive_float(
-            layer_data.get("rod_length_multiplier"), 1.0
-        )
+        rod_length_multiplier = self._positive_float(layer_data.get("rod_length_multiplier"), 1.0)
         rod_length = self._positive_float(params.get("follower_rod_length"), 40.0)
         scaled_rod_length = rod_length * rod_length_multiplier
 
@@ -1051,11 +1046,7 @@ class ParametricEditingManager:
         params["r2"] = float(r2)
 
         key_points = layer_data.get("key_points", {})
-        if (
-            not has_explicit_radii
-            and "gear1_center" in key_points
-            and "gear2_center" in key_points
-        ):
+        if not has_explicit_radii and "gear1_center" in key_points and "gear2_center" in key_points:
             g1 = np.array(key_points["gear1_center"], dtype=float)
             g2 = np.array(key_points["gear2_center"], dtype=float)
             distance = float(np.linalg.norm(g2 - g1))
@@ -1258,7 +1249,11 @@ class ParametricEditingManager:
                     candidates,
                     key=lambda candidate: float(np.linalg.norm(candidate - preferred)),
                 )
-            return candidates[0] if float(candidates[0][1]) >= float(candidates[1][1]) else candidates[1]
+            return (
+                candidates[0]
+                if float(candidates[0][1]) >= float(candidates[1][1])
+                else candidates[1]
+            )
         except Exception:
             return self._solve_circle_intersection(center1, radius1, center2, radius2)
 
@@ -1280,11 +1275,7 @@ class ParametricEditingManager:
             a = (radius1**2 - radius2**2 + d**2) / (2 * d)
             h = np.sqrt(radius1**2 - a**2)
             p = center1 + a * (center2 - center1) / d
-            offset = (
-                h
-                * np.array([-(center2[1] - center1[1]), center2[0] - center1[0]])
-                / d
-            )
+            offset = h * np.array([-(center2[1] - center1[1]), center2[0] - center1[0]]) / d
 
             intersection1 = p + offset
             intersection2 = p - offset
@@ -1301,12 +1292,15 @@ class ParametricEditingManager:
         self, mechanism_id: str, mechanism_data: dict[str, Any]
     ) -> bool:
         """Try to update via visualization adapter. Returns True if handled."""
-        if not (hasattr(self.parent_tab, "visualization_adapter")
-                and self.parent_tab.visualization_adapter):
+        if not (
+            hasattr(self.parent_tab, "visualization_adapter")
+            and self.parent_tab.visualization_adapter
+        ):
             return False
 
         try:
             from ..visualization import VISUALIZATION_AVAILABLE
+
             if not VISUALIZATION_AVAILABLE:
                 return False
 
@@ -1347,8 +1341,10 @@ class ParametricEditingManager:
         for item in visual_items:
             if item and self._is_item_valid(item):
                 try:
-                    if (hasattr(self.parent_tab, "mechanism_scene")
-                            and item.scene() == self.parent_tab.mechanism_scene):
+                    if (
+                        hasattr(self.parent_tab, "mechanism_scene")
+                        and item.scene() == self.parent_tab.mechanism_scene
+                    ):
                         self.parent_tab.mechanism_scene.removeItem(item)
                 except RuntimeError:
                     pass
@@ -1392,9 +1388,7 @@ class ParametricEditingManager:
             if self._try_visualization_adapter_update(mechanism_id, mechanism_data):
                 return
 
-            layer_data = self.parent_tab.mechanism_layers.get(
-                mechanism_id, mechanism_data
-            )
+            layer_data = self.parent_tab.mechanism_layers.get(mechanism_id, mechanism_data)
 
             # Handle animation state
             animation_was_running = (
@@ -1425,7 +1419,9 @@ class ParametricEditingManager:
 
             # Restore animation if needed
             if animation_was_running and not self.parametric_mode_enabled:
-                logging.info(f"[PARAMETRIC] Restoring animation after update, parent_tab_id={id(self.parent_tab)}")
+                logging.info(
+                    f"[PARAMETRIC] Restoring animation after update, parent_tab_id={id(self.parent_tab)}"
+                )
                 self.parent_tab._on_start_animation()
 
         except Exception as e:
@@ -1439,9 +1435,7 @@ class ParametricEditingManager:
         except (RuntimeError, AttributeError):
             return False
 
-    def _create_mechanism_visuals(
-        self, layer_data: dict[str, Any], mechanism_type: str
-    ) -> list:
+    def _create_mechanism_visuals(self, layer_data: dict[str, Any], mechanism_type: str) -> list:
         """Create visual items for a mechanism based on its type."""
         vf = getattr(self.parent_tab, "visuals_factory", None)
         if not vf:
@@ -1486,11 +1480,11 @@ class ParametricEditingManager:
         """Update handle positions for a specific mechanism."""
         try:
             if hasattr(self.parent_tab, "_update_handle_positions_for_mechanism"):
-                self.parent_tab._update_handle_positions_for_mechanism(
-                    mechanism_id, layer_data
-                )
+                self.parent_tab._update_handle_positions_for_mechanism(mechanism_id, layer_data)
         except Exception as e:
-            self._logger.error("Error updating handle positions for mechanism %s: %s", mechanism_id, e)
+            self._logger.error(
+                "Error updating handle positions for mechanism %s: %s", mechanism_id, e
+            )
 
     def is_parametric_mode_enabled(self) -> bool:
         """Check if parametric mode is currently enabled."""

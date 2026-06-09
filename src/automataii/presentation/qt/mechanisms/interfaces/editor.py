@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QGraphicsScene
 @dataclass
 class HandleConfig:
     """Configuration for an interactive handle."""
+
     handle_id: str
     position: QPointF
     param_name: str
@@ -29,12 +30,12 @@ class HandleConfig:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
-            'id': self.handle_id,
-            'position': (self.position.x(), self.position.y()),
-            'param_name': self.param_name,
-            'tooltip': self.tooltip,
-            'size': self.size,
-            'constraints': self.constraints
+            "id": self.handle_id,
+            "position": (self.position.x(), self.position.y()),
+            "param_name": self.param_name,
+            "tooltip": self.tooltip,
+            "size": self.size,
+            "constraints": self.constraints,
         }
 
 

@@ -2,4 +2,4 @@
 
 from .path_optimization_service import PathOptimizationService
 
-__all__ = ['PathOptimizationService']
+__all__ = ["PathOptimizationService"]

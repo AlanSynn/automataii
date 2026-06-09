@@ -6,6 +6,7 @@ physical constraints like Grashof condition and gear meshing.
 
 Design Pattern: Service (constraint validation and correction)
 """
+
 from __future__ import annotations
 
 import logging

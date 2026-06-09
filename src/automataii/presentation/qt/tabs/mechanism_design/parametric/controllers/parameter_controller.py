@@ -68,13 +68,15 @@ class ParameterController(QObject):
 
     # Signals for mechanism updates
     mechanism_update_requested = Signal(str, dict)  # mechanism_id, updated_params
-    visual_refresh_requested = Signal(str)          # mechanism_id
-    constraint_violation = Signal(str, str, str)    # mechanism_id, param_name, error_msg
+    visual_refresh_requested = Signal(str)  # mechanism_id
+    constraint_violation = Signal(str, str, str)  # mechanism_id, param_name, error_msg
 
-    def __init__(self,
-                 mechanism_tab_ref,  # Reference to MechanismDesignTab
-                 update_throttle_ms: int = 50,  # Max update frequency
-                 parent=None):
+    def __init__(
+        self,
+        mechanism_tab_ref,  # Reference to MechanismDesignTab
+        update_throttle_ms: int = 50,  # Max update frequency
+        parent=None,
+    ):
         """
         Initialize parameter controller.
 
@@ -90,15 +92,15 @@ class ParameterController(QObject):
 
         # Handle management
         self.active_handles: dict[str, list[BaseHandle]] = {}  # mechanism_id -> [handles]
-        self.handle_registry: dict[str, BaseHandle] = {}       # handle_id -> handle
+        self.handle_registry: dict[str, BaseHandle] = {}  # handle_id -> handle
 
         # Update throttling for performance (Jeff Dean principle)
         self.update_timer = QTimer()
         self.update_timer.setSingleShot(True)
         self.update_timer.timeout.connect(self._process_pending_updates)
 
-        self.pending_updates: dict[str, dict[str, Any]] = {}   # mechanism_id -> {param: value}
-        self.last_update_time: dict[str, float] = {}           # mechanism_id -> timestamp
+        self.pending_updates: dict[str, dict[str, Any]] = {}  # mechanism_id -> {param: value}
+        self.last_update_time: dict[str, float] = {}  # mechanism_id -> timestamp
 
         # Parameter change history for undo/redo (Command pattern)
         self.change_history: deque = deque(maxlen=50)  # Keep last 50 changes
@@ -174,7 +176,6 @@ class ParameterController(QObject):
         """
         return self.active_handles.get(mechanism_id, [])
 
-
     # Event Handlers (Observer Pattern)
 
     def _on_parameter_changed(self, mechanism_id: str, param_name: str, new_value: Any):
@@ -195,10 +196,10 @@ class ParameterController(QObject):
 
         # Record change for undo/redo
         change_record = {
-            'mechanism_id': mechanism_id,
-            'param_name': param_name,
-            'new_value': new_value,
-            'timestamp': time.time()
+            "mechanism_id": mechanism_id,
+            "param_name": param_name,
+            "new_value": new_value,
+            "timestamp": time.time(),
         }
         self.change_history.append(change_record)
 
@@ -211,8 +212,6 @@ class ParameterController(QObject):
         self._schedule_update(mechanism_id)
 
         logging.debug(f"Parameter changed: {mechanism_id}:{param_name} = {new_value}")
-
-
 
     # Update Management (Performance Optimization)
 
@@ -281,7 +280,7 @@ class ParameterController(QObject):
         """
         try:
             # Get mechanism data
-            if not hasattr(self.mechanism_tab, 'mechanism_layers'):
+            if not hasattr(self.mechanism_tab, "mechanism_layers"):
                 return
 
             mechanism_layers = self.mechanism_tab.mechanism_layers
@@ -309,7 +308,7 @@ class ParameterController(QObject):
             self._recalculate_mechanism(mechanism_id, layer_data)
 
             # Notify Foundry of parameter changes (bidirectional sync)
-            if hasattr(self.mechanism_tab, '_emit_mechanism_params_changed'):
+            if hasattr(self.mechanism_tab, "_emit_mechanism_params_changed"):
                 self.mechanism_tab._emit_mechanism_params_changed(mechanism_id)
 
         except Exception as e:
@@ -352,7 +351,7 @@ class ParameterController(QObject):
         # from the main mechanism_design_tab
 
         # For now, delegate to mechanism tab if method exists
-        if hasattr(self.mechanism_tab, '_recalculate_mechanism_parameters'):
+        if hasattr(self.mechanism_tab, "_recalculate_mechanism_parameters"):
             self.mechanism_tab._recalculate_mechanism_parameters(mechanism_id, layer_data)
 
     def _recalculate_cam_mechanism(self, mechanism_id: str, layer_data: dict[str, Any]):
@@ -365,9 +364,7 @@ class ParameterController(QObject):
             # Extract CAM parameters with gravity physics validation
             base_radius = _bounded_float(params.get("base_radius", 25.0), 25.0, 10.0, 80.0)
             eccentricity = _bounded_float(params.get("eccentricity", 10.0), 10.0, 2.0, 30.0)
-            rod_length = _bounded_float(
-                params.get("follower_rod_length", 40.0), 40.0, 15.0, 150.0
-            )
+            rod_length = _bounded_float(params.get("follower_rod_length", 40.0), 40.0, 15.0, 150.0)
 
             # Update parameters with constrained values (gravity physics enforcement)
             params["base_radius"] = base_radius
@@ -386,11 +383,13 @@ class ParameterController(QObject):
             params["cam_center"] = [cam_center_x, cam_center_y]
             params["follower_position"] = [cam_center_x, follower_y]
 
-            logging.debug(f"[CAM_PARAM] Updated {mechanism_id}: radius={base_radius:.1f}, "
-                         f"ecc={eccentricity:.1f}, rod={rod_length:.1f}")
+            logging.debug(
+                f"[CAM_PARAM] Updated {mechanism_id}: radius={base_radius:.1f}, "
+                f"ecc={eccentricity:.1f}, rod={rod_length:.1f}"
+            )
 
             # Trigger visual refresh through mechanism tab
-            if hasattr(self.mechanism_tab, '_regenerate_cam_mechanism_realtime'):
+            if hasattr(self.mechanism_tab, "_regenerate_cam_mechanism_realtime"):
                 self.mechanism_tab._regenerate_cam_mechanism_realtime(mechanism_id, layer_data)
 
         except Exception as e:
@@ -413,7 +412,7 @@ class ParameterController(QObject):
             self.visual_refresh_requested.emit(mechanism_id)
 
             # Call mechanism tab's visual update if available
-            if hasattr(self.mechanism_tab, '_update_mechanism_visuals_realtime'):
+            if hasattr(self.mechanism_tab, "_update_mechanism_visuals_realtime"):
                 self.mechanism_tab._update_mechanism_visuals_realtime(mechanism_id, layer_data)
 
         except Exception as e:
@@ -429,18 +428,19 @@ class ParameterController(QObject):
             mechanism_id: Mechanism to capture
         """
         try:
-            if hasattr(self.mechanism_tab, 'mechanism_layers'):
+            if hasattr(self.mechanism_tab, "mechanism_layers"):
                 mechanism_layers = self.mechanism_tab.mechanism_layers
                 if mechanism_id in mechanism_layers:
                     # Deep copy current state
                     import copy
+
                     current_state = copy.deepcopy(mechanism_layers[mechanism_id])
 
                     # Store in undo stack
                     undo_entry = {
-                        'mechanism_id': mechanism_id,
-                        'state': current_state,
-                        'timestamp': time.time()
+                        "mechanism_id": mechanism_id,
+                        "state": current_state,
+                        "timestamp": time.time(),
                     }
                     self.undo_stack.append(undo_entry)
 
@@ -465,8 +465,6 @@ class ParameterController(QObject):
         # This could involve cleaning up intermediate states
         pass
 
-
-
     def _capture_current_state_for_redo(self, mechanism_id: str):
         """Capture current state for redo stack."""
         # Similar to _capture_mechanism_state but for redo stack
@@ -476,7 +474,6 @@ class ParameterController(QObject):
         """Restore mechanism to previous state."""
         # Implementation would restore mechanism state and update visuals
         pass
-
 
     def __repr__(self) -> str:
         """String representation for debugging."""

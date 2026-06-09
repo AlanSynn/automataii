@@ -94,13 +94,12 @@ class ONNXImageProcessor:
             logging.warning(f"Pose model not found: {self.pose_path}")
             # Note: ONNX models are included in the build, so this shouldn't happen
 
-
     def preprocess_for_detection(self, image):
         """Preprocess image for detection - Exact MMDetection pipeline"""
         h, w = image.shape[:2]
 
         # Resize with keep_ratio=True to (1333, 800)
-        scale = min(1333/w, 800/h)
+        scale = min(1333 / w, 800 / h)
         new_w, new_h = int(w * scale), int(h * scale)
         resized = cv2.resize(image, (new_w, new_h))
 
@@ -114,7 +113,7 @@ class ONNXImageProcessor:
         padded = padded.astype(np.float32)
         padded[:, :, 0] -= 103.53  # B
         padded[:, :, 1] -= 116.28  # G
-        padded[:, :, 2] -= 123.675 # R
+        padded[:, :, 2] -= 123.675  # R
 
         # Convert to CHW format and add batch dimension
         input_tensor = np.transpose(padded, (2, 0, 1))[np.newaxis, ...].astype(np.float32)
@@ -157,7 +156,9 @@ class ONNXImageProcessor:
             return [0, 0, w, h, 0.9]
 
         try:
-            input_tensor, scale, (new_h, new_w), (pad_h, pad_w) = self.preprocess_for_detection(image)
+            input_tensor, scale, (new_h, new_w), (pad_h, pad_w) = self.preprocess_for_detection(
+                image
+            )
             input_name = self.detector_session.get_inputs()[0].name
             self.detector_session.run(None, {input_name: input_tensor})
 
@@ -260,6 +261,7 @@ def _build_image_temp_session_id(img_fn: str) -> str | None:
 
 def segment(img: np.ndarray) -> np.ndarray:
     """Robust segmentation for both photos and line art"""
+
     def _to_binary(mask: np.ndarray) -> np.ndarray:
         return (mask > 0).astype(np.uint8) * 255
 
@@ -326,7 +328,9 @@ def segment(img: np.ndarray) -> np.ndarray:
     # Fallback to content-based segmentation
     if len(img.shape) == 3:
         # Convert to grayscale
-        gray = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY) if img.shape[2] >= 3 else img[:, :, 0]
+        gray = (
+            cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY) if img.shape[2] >= 3 else img[:, :, 0]
+        )
     else:
         gray = img
 
@@ -348,7 +352,9 @@ def segment(img: np.ndarray) -> np.ndarray:
         return _keep_significant_components(mask)
     else:
         # Photo or dark background - use adaptive threshold
-        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 115, 8)
+        binary = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 115, 8
+        )
 
         # Morphological operations to clean up
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -357,18 +363,18 @@ def segment(img: np.ndarray) -> np.ndarray:
 
     # Remove border pixels and flood fill from edges
     h, w = binary.shape[:2]
-    mask = np.zeros([h+2, w+2], np.uint8)
+    mask = np.zeros([h + 2, w + 2], np.uint8)
     mask[1:-1, 1:-1] = binary.copy()
 
     im_floodfill = binary.copy()
 
     # Flood fill from edges
-    for x in range(0, w-1, 10):
+    for x in range(0, w - 1, 10):
         cv2.floodFill(im_floodfill, mask, (x, 0), 0)
-        cv2.floodFill(im_floodfill, mask, (x, h-1), 0)
-    for y in range(0, h-1, 10):
+        cv2.floodFill(im_floodfill, mask, (x, h - 1), 0)
+    for y in range(0, h - 1, 10):
         cv2.floodFill(im_floodfill, mask, (0, y), 0)
-        cv2.floodFill(im_floodfill, mask, (w-1, y), 0)
+        cv2.floodFill(im_floodfill, mask, (w - 1, y), 0)
 
     # Find largest connected component
     contours, _ = cv2.findContours(im_floodfill, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -516,27 +522,45 @@ def create_skeleton_config(keypoints):
     kpts = keypoints[:, :2]
 
     skeleton = []
-    skeleton.append({'loc': [int(x) for x in (kpts[11] + kpts[12]) / 2], 'name': 'root', 'parent': None})
-    skeleton.append({'loc': [int(x) for x in (kpts[11] + kpts[12]) / 2], 'name': 'hip', 'parent': 'root'})
-    skeleton.append({'loc': [int(x) for x in (kpts[5] + kpts[6]) / 2], 'name': 'torso', 'parent': 'hip'})
-    skeleton.append({'loc': [int(x) for x in kpts[0]], 'name': 'neck', 'parent': 'torso'})
-    skeleton.append({'loc': [int(x) for x in kpts[6]], 'name': 'right_shoulder', 'parent': 'torso'})
-    skeleton.append({'loc': [int(x) for x in kpts[8]], 'name': 'right_elbow', 'parent': 'right_shoulder'})
-    skeleton.append({'loc': [int(x) for x in kpts[10]], 'name': 'right_hand', 'parent': 'right_elbow'})
-    skeleton.append({'loc': [int(x) for x in kpts[5]], 'name': 'left_shoulder', 'parent': 'torso'})
-    skeleton.append({'loc': [int(x) for x in kpts[7]], 'name': 'left_elbow', 'parent': 'left_shoulder'})
-    skeleton.append({'loc': [int(x) for x in kpts[9]], 'name': 'left_hand', 'parent': 'left_elbow'})
-    skeleton.append({'loc': [int(x) for x in kpts[12]], 'name': 'right_hip', 'parent': 'root'})
-    skeleton.append({'loc': [int(x) for x in kpts[14]], 'name': 'right_knee', 'parent': 'right_hip'})
-    skeleton.append({'loc': [int(x) for x in kpts[16]], 'name': 'right_foot', 'parent': 'right_knee'})
-    skeleton.append({'loc': [int(x) for x in kpts[11]], 'name': 'left_hip', 'parent': 'root'})
-    skeleton.append({'loc': [int(x) for x in kpts[13]], 'name': 'left_knee', 'parent': 'left_hip'})
-    skeleton.append({'loc': [int(x) for x in kpts[15]], 'name': 'left_foot', 'parent': 'left_knee'})
+    skeleton.append(
+        {"loc": [int(x) for x in (kpts[11] + kpts[12]) / 2], "name": "root", "parent": None}
+    )
+    skeleton.append(
+        {"loc": [int(x) for x in (kpts[11] + kpts[12]) / 2], "name": "hip", "parent": "root"}
+    )
+    skeleton.append(
+        {"loc": [int(x) for x in (kpts[5] + kpts[6]) / 2], "name": "torso", "parent": "hip"}
+    )
+    skeleton.append({"loc": [int(x) for x in kpts[0]], "name": "neck", "parent": "torso"})
+    skeleton.append({"loc": [int(x) for x in kpts[6]], "name": "right_shoulder", "parent": "torso"})
+    skeleton.append(
+        {"loc": [int(x) for x in kpts[8]], "name": "right_elbow", "parent": "right_shoulder"}
+    )
+    skeleton.append(
+        {"loc": [int(x) for x in kpts[10]], "name": "right_hand", "parent": "right_elbow"}
+    )
+    skeleton.append({"loc": [int(x) for x in kpts[5]], "name": "left_shoulder", "parent": "torso"})
+    skeleton.append(
+        {"loc": [int(x) for x in kpts[7]], "name": "left_elbow", "parent": "left_shoulder"}
+    )
+    skeleton.append({"loc": [int(x) for x in kpts[9]], "name": "left_hand", "parent": "left_elbow"})
+    skeleton.append({"loc": [int(x) for x in kpts[12]], "name": "right_hip", "parent": "root"})
+    skeleton.append(
+        {"loc": [int(x) for x in kpts[14]], "name": "right_knee", "parent": "right_hip"}
+    )
+    skeleton.append(
+        {"loc": [int(x) for x in kpts[16]], "name": "right_foot", "parent": "right_knee"}
+    )
+    skeleton.append({"loc": [int(x) for x in kpts[11]], "name": "left_hip", "parent": "root"})
+    skeleton.append({"loc": [int(x) for x in kpts[13]], "name": "left_knee", "parent": "left_hip"})
+    skeleton.append({"loc": [int(x) for x in kpts[15]], "name": "left_foot", "parent": "left_knee"})
 
     return skeleton
 
 
-def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> AnnotationResults | None:
+def image_to_annotations(
+    img_fn: str, detector_onnx=None, pose_onnx=None
+) -> AnnotationResults | None:
     """
     Modern ONNX-based image to annotations pipeline
 
@@ -604,7 +628,7 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
         }
 
         bbox_path = outdir / "bounding_box.yaml"
-        with open(bbox_path, 'w') as f:
+        with open(bbox_path, "w") as f:
             yaml.dump(bbox_data, f)
 
         # Step 2: Pose estimation
@@ -626,9 +650,9 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
 
         # Adjust skeleton coordinates to cropped image space
         for joint in skeleton:
-            orig_x, orig_y = joint['loc']
-            joint['loc'] = [orig_x - left, orig_y - top]  # Convert to cropped coordinates
-            joint['loc_original'] = [orig_x, orig_y]  # Keep original coordinates
+            orig_x, orig_y = joint["loc"]
+            joint["loc"] = [orig_x - left, orig_y - top]  # Convert to cropped coordinates
+            joint["loc_original"] = [orig_x, orig_y]  # Keep original coordinates
 
         # Build silhouette mask early so skeleton can be reconciled to actual character bounds.
         mask = segment(cropped)
@@ -667,18 +691,26 @@ def image_to_annotations(img_fn: str, detector_onnx=None, pose_onnx=None) -> Ann
 
         # Save character config
         char_cfg_path = outdir / "char_cfg.yaml"
-        with open(char_cfg_path, 'w') as f:
+        with open(char_cfg_path, "w") as f:
             yaml.dump(char_cfg, f)
 
         # Create joint overlay
         joint_overlay = texture.copy()
         for joint in skeleton:
-            x, y = joint['loc']
-            name = joint['name']
+            x, y = joint["loc"]
+            name = joint["name"]
             if 0 <= x < joint_overlay.shape[1] and 0 <= y < joint_overlay.shape[0]:
                 cv2.circle(joint_overlay, (int(x), int(y)), 5, (0, 0, 0, 255), 5)
-                cv2.putText(joint_overlay, name, (int(x), int(y + 15)),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0, 255), 1, 2)
+                cv2.putText(
+                    joint_overlay,
+                    name,
+                    (int(x), int(y + 15)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 0, 0, 255),
+                    1,
+                    2,
+                )
 
         joint_overlay_path = outdir / "joint_overlay.png"
         cv2.imwrite(str(joint_overlay_path), joint_overlay)
@@ -703,18 +735,21 @@ def main():
     """Command line interface"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Convert image to animation annotations using ONNX models")
+    parser = argparse.ArgumentParser(
+        description="Convert image to animation annotations using ONNX models"
+    )
     parser.add_argument("image", help="Path to input image")
     parser.add_argument("--detector-onnx", help="Path to detector ONNX model")
     parser.add_argument("--pose-onnx", help="Path to pose ONNX model")
-    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
+    )
 
     args = parser.parse_args()
 
     # Setup logging
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s - %(levelname)s - %(message)s"
+        level=getattr(logging, args.log_level), format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
     # Process image

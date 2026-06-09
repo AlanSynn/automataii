@@ -34,18 +34,20 @@ class AnchorHandle(BaseHandle):
     """
 
     # Anchor-specific appearance - VERY BRIGHT for visibility
-    COLOR_ANCHOR = QColor(255, 0, 0)          # BRIGHT RED for visibility
+    COLOR_ANCHOR = QColor(255, 0, 0)  # BRIGHT RED for visibility
     COLOR_ANCHOR_HOVER = QColor(255, 100, 100)  # Light red
-    COLOR_ANCHOR_ACTIVE = QColor(255, 200, 200) # Very light red
+    COLOR_ANCHOR_ACTIVE = QColor(255, 200, 200)  # Very light red
 
-    def __init__(self,
-                 mechanism_id: str,
-                 anchor_name: str,  # 'ground_pivot_1' or 'ground_pivot_2'
-                 initial_position: QPointF,
-                 mechanism_data: dict,
-                 update_callback: Callable[[str, QPointF], None],
-                 constraint_validator: Callable | None = None,
-                 parent=None):
+    def __init__(
+        self,
+        mechanism_id: str,
+        anchor_name: str,  # 'ground_pivot_1' or 'ground_pivot_2'
+        initial_position: QPointF,
+        mechanism_data: dict,
+        update_callback: Callable[[str, QPointF], None],
+        constraint_validator: Callable | None = None,
+        parent=None,
+    ):
         """
         Initialize anchor handle for ground pivot manipulation.
 
@@ -58,8 +60,9 @@ class AnchorHandle(BaseHandle):
             constraint_validator: Optional constraint validation function
             parent: Qt parent object
         """
-        super().__init__(mechanism_id, anchor_name, initial_position,
-                        constraint_validator, None, parent)
+        super().__init__(
+            mechanism_id, anchor_name, initial_position, constraint_validator, None, parent
+        )
 
         self.anchor_name = anchor_name
         self.mechanism_data = mechanism_data
@@ -67,7 +70,7 @@ class AnchorHandle(BaseHandle):
 
         # Anchor-specific constraints
         self.min_distance_to_other_anchor = 20.0  # Minimum pixel distance
-        self.max_distance_to_other_anchor = 500.0 # Maximum pixel distance
+        self.max_distance_to_other_anchor = 500.0  # Maximum pixel distance
 
         # Override colors for anchor-specific appearance
         self._setup_anchor_appearance()
@@ -155,7 +158,9 @@ class AnchorHandle(BaseHandle):
         """
         try:
             # Get other anchor position
-            other_anchor_name = "ground_pivot_2" if self.anchor_name == "ground_pivot_1" else "ground_pivot_1"
+            other_anchor_name = (
+                "ground_pivot_2" if self.anchor_name == "ground_pivot_1" else "ground_pivot_1"
+            )
             key_points = self.mechanism_data.get("key_points", {})
 
             if other_anchor_name in key_points:
@@ -169,11 +174,17 @@ class AnchorHandle(BaseHandle):
 
                 # Check minimum distance constraint
                 if distance < self.min_distance_to_other_anchor:
-                    return False, f"Anchors too close: {distance:.1f} < {self.min_distance_to_other_anchor}"
+                    return (
+                        False,
+                        f"Anchors too close: {distance:.1f} < {self.min_distance_to_other_anchor}",
+                    )
 
                 # Check maximum distance constraint
                 if distance > self.max_distance_to_other_anchor:
-                    return False, f"Anchors too far: {distance:.1f} > {self.max_distance_to_other_anchor}"
+                    return (
+                        False,
+                        f"Anchors too far: {distance:.1f} > {self.max_distance_to_other_anchor}",
+                    )
 
                 # Validate mechanism link length constraints
                 params = self.mechanism_data.get("params", {})
@@ -188,7 +199,9 @@ class AnchorHandle(BaseHandle):
             logging.warning(f"Constraint validation failed: {e}")
             return True, ""  # Allow movement if validation fails
 
-    def _validate_linkage_geometry(self, pos1: QPointF, pos2: QPointF, params: dict) -> tuple[bool, str]:
+    def _validate_linkage_geometry(
+        self, pos1: QPointF, pos2: QPointF, params: dict
+    ) -> tuple[bool, str]:
         """
         Validate that linkage geometry remains valid with new anchor positions.
 
@@ -243,7 +256,9 @@ class AnchorHandle(BaseHandle):
         Constraint validation will be deferred to when exiting parametric editing mode.
         """
         if not self._is_dragging or not self._is_enabled:
-            logging.info(f"[ANCHOR] ❌ Not dragging or not enabled: dragging={self._is_dragging}, enabled={self._is_enabled}")
+            logging.info(
+                f"[ANCHOR] ❌ Not dragging or not enabled: dragging={self._is_dragging}, enabled={self._is_enabled}"
+            )
             return
 
         new_position = event.scenePos()
@@ -256,21 +271,25 @@ class AnchorHandle(BaseHandle):
         old_pos = self.pos()
         self.setPos(new_position)
         actual_pos = self.pos()
-        logging.info(f"[ANCHOR] ✅ Moved {self.anchor_name} from {old_pos} to {new_position}, actual: {actual_pos}")
+        logging.info(
+            f"[ANCHOR] ✅ Moved {self.anchor_name} from {old_pos} to {new_position}, actual: {actual_pos}"
+        )
 
         # CRITICAL: Call the update callback immediately to trigger mechanism update
-        if hasattr(self, 'update_callback') and self.update_callback:
+        if hasattr(self, "update_callback") and self.update_callback:
             self.update_callback(new_position)
-            logging.info(f"[ANCHOR] 🔥 Called update callback for {self.anchor_name} at {new_position}")
+            logging.info(
+                f"[ANCHOR] 🔥 Called update callback for {self.anchor_name} at {new_position}"
+            )
         else:
             logging.warning(f"[ANCHOR] ⚠️ No update_callback for {self.anchor_name}")
 
         # Don't call super() as it may reset position
         # super().mouseMoveEvent(event)
 
-
-
     def __repr__(self) -> str:
         """String representation for debugging."""
         pos = self.pos()
-        return f"AnchorHandle({self.mechanism_id}:{self.anchor_name} at {pos.x():.1f},{pos.y():.1f})"
+        return (
+            f"AnchorHandle({self.mechanism_id}:{self.anchor_name} at {pos.x():.1f},{pos.y():.1f})"
+        )

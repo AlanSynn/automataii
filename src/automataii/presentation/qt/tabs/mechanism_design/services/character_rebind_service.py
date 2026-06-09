@@ -4,6 +4,7 @@ Character rebind service for mechanism layers.
 Handles mechanism-to-part reassignment and type-specific readjustment when
 character parts/skeleton are replaced after mechanisms were already created.
 """
+
 from __future__ import annotations
 
 import math
@@ -154,7 +155,7 @@ class MechanismCharacterRebindService:
                     joint_data = candidate
                     break
                 if joint_id.startswith(anchor_joint_id) and len(joint_id) > len(anchor_joint_id):
-                    suffix = joint_id[len(anchor_joint_id):]
+                    suffix = joint_id[len(anchor_joint_id) :]
                     if suffix.startswith("_"):
                         joint_data = candidate
                         break
@@ -286,7 +287,9 @@ class MechanismCharacterRebindService:
         ):
             val = max(
                 1.0,
-                min(5000.0, self._float(params.get(low_key, params.get(high_key, default)), default)),
+                min(
+                    5000.0, self._float(params.get(low_key, params.get(high_key, default)), default)
+                ),
             )
             val = max(1.0, min(5000.0, val * scale_factor))
             params[low_key] = val

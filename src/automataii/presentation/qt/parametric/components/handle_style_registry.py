@@ -6,6 +6,7 @@ for all parametric handle types across mechanism editors.
 
 Design Pattern: Registry (style lookup and management)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from PyQt6.QtGui import QColor
 
 class HandleType(Enum):
     """Enumeration of handle types."""
+
     ANCHOR = auto()
     JOINT = auto()
     LINK_LENGTH = auto()
@@ -34,6 +36,7 @@ class HandleType(Enum):
 @dataclass
 class HandleStyle:
     """Visual style configuration for parametric handles."""
+
     size: float = 12.0
     color: QColor = field(default_factory=lambda: QColor(255, 100, 0))
     hover_color: QColor = field(default_factory=lambda: QColor(255, 150, 50))
@@ -207,13 +210,13 @@ class HandleStyleRegistry:
         if base_type:
             base = self.get_style(base_type)
             return HandleStyle(
-                size=overrides.get('size', base.size),
-                color=overrides.get('color', base.color),
-                hover_color=overrides.get('hover_color', base.hover_color),
-                active_color=overrides.get('active_color', base.active_color),
-                border_width=overrides.get('border_width', base.border_width),
-                border_color=overrides.get('border_color', base.border_color),
-                opacity=overrides.get('opacity', base.opacity),
+                size=overrides.get("size", base.size),
+                color=overrides.get("color", base.color),
+                hover_color=overrides.get("hover_color", base.hover_color),
+                active_color=overrides.get("active_color", base.active_color),
+                border_width=overrides.get("border_width", base.border_width),
+                border_color=overrides.get("border_color", base.border_color),
+                opacity=overrides.get("opacity", base.opacity),
             )
         else:
             return HandleStyle(**overrides)
@@ -238,29 +241,29 @@ class HandleStyleRegistry:
         # Map handle names to types
         handle_type_map = {
             # 4-bar linkage
-            'anchor1': HandleType.ANCHOR,
-            'anchor2': HandleType.ANCHOR,
-            'crank': HandleType.JOINT,
-            'rocker': HandleType.JOINT,
-            'coupler': HandleType.COUPLER,
-            'crank_length': HandleType.LINK_LENGTH,
-            'rocker_length': HandleType.LINK_LENGTH,
+            "anchor1": HandleType.ANCHOR,
+            "anchor2": HandleType.ANCHOR,
+            "crank": HandleType.JOINT,
+            "rocker": HandleType.JOINT,
+            "coupler": HandleType.COUPLER,
+            "crank_length": HandleType.LINK_LENGTH,
+            "rocker_length": HandleType.LINK_LENGTH,
             # Cam
-            'center': HandleType.CAM_CENTER,
-            'follower': HandleType.FOLLOWER,
-            'profile': HandleType.CAM_PROFILE,
+            "center": HandleType.CAM_CENTER,
+            "follower": HandleType.FOLLOWER,
+            "profile": HandleType.CAM_PROFILE,
             # Gear
-            'gear_center': HandleType.GEAR_CENTER,
-            'gear1_center': HandleType.GEAR_CENTER,
-            'gear2_center': HandleType.GEAR_CENTER,
-            'sun_center': HandleType.GEAR_CENTER,
-            'gear_radius': HandleType.GEAR_RADIUS,
-            'gear1_radius': HandleType.GEAR_RADIUS,
-            'gear2_radius': HandleType.GEAR_RADIUS,
-            'planet_radius': HandleType.GEAR_RADIUS,
-            'mesh': HandleType.MESH_POINT,
+            "gear_center": HandleType.GEAR_CENTER,
+            "gear1_center": HandleType.GEAR_CENTER,
+            "gear2_center": HandleType.GEAR_CENTER,
+            "sun_center": HandleType.GEAR_CENTER,
+            "gear_radius": HandleType.GEAR_RADIUS,
+            "gear1_radius": HandleType.GEAR_RADIUS,
+            "gear2_radius": HandleType.GEAR_RADIUS,
+            "planet_radius": HandleType.GEAR_RADIUS,
+            "mesh": HandleType.MESH_POINT,
             # General
-            'rotation': HandleType.ROTATION,
+            "rotation": HandleType.ROTATION,
         }
 
         # Find matching handle type

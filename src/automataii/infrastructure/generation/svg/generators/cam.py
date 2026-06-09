@@ -12,7 +12,13 @@ from __future__ import annotations
 import math
 from typing import Any, SupportsFloat, SupportsIndex, cast
 
+import numpy as np
+
 from automataii.domain.generation.layout import ScaledBounds
+from automataii.domain.mechanisms.cam.profile import (
+    build_pear_cam_profile_from_params,
+    cam_profile_to_drawing_points,
+)
 
 _NumericPayload = str | bytes | bytearray | SupportsFloat | SupportsIndex
 
@@ -125,7 +131,14 @@ class CamSVGGenerator:
         parts = [self._generate_gradients()]
 
         # Generate cam profile
-        profile_points = self._calculate_cam_profile(cp, base_rp, lift_p, self.PROFILE_POINTS)
+        profile_params = self._profile_params(mech_data, mm, base_r, lift)
+        profile_points = self._calculate_cam_profile(
+            cp,
+            base_rp,
+            lift_p,
+            self.PROFILE_POINTS,
+            params=profile_params,
+        )
         parts.append(self._draw_cam_profile(profile_points))
 
         # Center shaft
@@ -170,7 +183,7 @@ class CamSVGGenerator:
         """)
 
         # Specifications panel
-        parts.append(self._generate_spec_panel(bounds, base_r, lift, follower_r))
+        parts.append(self._generate_spec_panel(bounds, base_r, lift, follower_r, profile_params))
 
         return "".join(parts)
 
@@ -180,11 +193,15 @@ class CamSVGGenerator:
         base_radius: float,
         lift: float,
         num_points: int,
+        *,
+        params: dict[str, Any] | None = None,
     ) -> list[tuple[float, float]]:
         """
         Calculate cam profile points.
 
-        Uses a simple harmonic motion profile.
+        Uses the shared domain cam profile helper so manufacturing export stays
+        aligned with Design/Foundry parameters such as ``cam_lobes`` and
+        ``profile_harmonic``.
 
         Args:
             center: Center point of cam
@@ -196,25 +213,27 @@ class CamSVGGenerator:
             List of (x, y) profile points
         """
         cx, cy = center
-        points = []
+        profile_params = dict(params or {})
+        # Radius/lift arguments are already packed into SVG units.  Preserve
+        # timing/lobe shape controls from params, but do not let unscaled mm
+        # aliases override the packed geometry.
+        profile_params["base_radius"] = base_radius
+        profile_params["cam_radius"] = base_radius
+        profile_params["base_radius_mm"] = base_radius
+        profile_params["eccentricity"] = lift
+        profile_params["cam_offset"] = lift
+        profile_params["lift_mm"] = lift
+        profile_params["eccentricity_mm"] = lift
+        local_points = build_pear_cam_profile_from_params(
+            profile_params,
+            num_samples=max(3, int(_positive_finite_float(num_points, float(self.PROFILE_POINTS)))),
+        )
+        return self._to_svg_points(local_points, cx, cy)
 
-        for i in range(num_points):
-            angle = (2 * math.pi * i) / num_points
-
-            # Harmonic motion: rise during 0-180°, dwell during 180-360°
-            if angle < math.pi:
-                # Rise phase (harmonic)
-                displacement = (lift / 2) * (1 - math.cos(angle))
-            else:
-                # Fall phase (harmonic)
-                displacement = (lift / 2) * (1 + math.cos(angle - math.pi))
-
-            r = max(1e-6, base_radius + displacement)
-            x = cx + r * math.cos(angle - math.pi / 2)  # Start from top
-            y = cy + r * math.sin(angle - math.pi / 2)
-            points.append((x, y))
-
-        return points
+    @staticmethod
+    def _to_svg_points(profile: np.ndarray, cx: float, cy: float) -> list[tuple[float, float]]:
+        """Convert local domain cam points to the historical SVG orientation."""
+        return cast(list[tuple[float, float]], cam_profile_to_drawing_points(profile, cx, cy))
 
     def _draw_cam_profile(self, points: list[tuple[float, float]]) -> str:
         """Draw cam profile as filled polygon."""
@@ -254,8 +273,10 @@ class CamSVGGenerator:
         base_r: float,
         lift: float,
         follower_r: float,
+        params: dict[str, Any],
     ) -> str:
         """Generate cam specifications panel."""
+        motion_line, detail_line = self._motion_profile_lines(params)
         return f"""
         <g class="cam-manufacturing-specs">
             <rect x="{bounds.width - 160}" y="10" width="150" height="120"
@@ -276,16 +297,28 @@ class CamSVGGenerator:
                 Motion Profile:
             </text>
             <text x="{bounds.width - 155}" y="98" font-size="6">
-                Simple Harmonic Motion
+                {motion_line}
             </text>
             <text x="{bounds.width - 155}" y="108" font-size="6">
-                Rise: 0-180° | Fall: 180-360°
+                {detail_line}
             </text>
             <text x="{bounds.width - 155}" y="120" font-size="6">
                 Material: Steel/Aluminum
             </text>
         </g>
         """
+
+    def _motion_profile_lines(self, params: dict[str, Any]) -> tuple[str, str]:
+        """Return short spec-panel copy that stays valid for custom CAM profiles."""
+        has_lobe_profile = "cam_lobes" in params or "profile_harmonic" in params
+        if has_lobe_profile:
+            lobes = max(1, int(_positive_finite_float(params.get("cam_lobes"), 1.0)))
+            harmonic = _finite_float(params.get("profile_harmonic"), math.nan)
+            if math.isfinite(harmonic):
+                return "Parameter-driven lobe profile", f"Lobes: {lobes} | Harmonic: {harmonic:.2f}"
+            return "Parameter-driven lobe profile", f"Lobes: {lobes}"
+
+        return "Parameter-driven cam profile", "Rise/dwell/return from params"
 
     def _get_mm_params(self, mech_data: dict[str, Any], names: list[str]) -> dict[str, float]:
         """Get parameters in mm."""
@@ -296,3 +329,28 @@ class CamSVGGenerator:
                 if n in rwp:
                     mm[n] = _finite_float(rwp[n], math.nan)
         return mm
+
+    def _profile_params(
+        self,
+        mech_data: dict[str, Any],
+        mm: dict[str, float],
+        base_r: float,
+        lift: float,
+    ) -> dict[str, Any]:
+        """Merge cam parameter aliases for shared profile generation."""
+        params: dict[str, Any] = {}
+        for key in ("params", "parameters", "real_world_params"):
+            raw = mech_data.get(key)
+            if isinstance(raw, dict):
+                params.update(raw)
+        params.update({key: value for key, value in mm.items() if math.isfinite(value)})
+        params.setdefault(
+            "base_radius", params.get("cam_radius", params.get("base_radius_mm", base_r))
+        )
+        params.setdefault("cam_radius", params["base_radius"])
+        params.setdefault(
+            "eccentricity",
+            params.get("cam_offset", params.get("lift_mm", params.get("eccentricity_mm", lift))),
+        )
+        params.setdefault("cam_offset", params["eccentricity"])
+        return params

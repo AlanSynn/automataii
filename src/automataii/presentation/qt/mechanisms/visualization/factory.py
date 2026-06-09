@@ -28,8 +28,9 @@ class VisualizerFactory:
         logging.debug(f"Registered visualizer for mechanism type: {mechanism_type}")
 
     @classmethod
-    def create(cls, mechanism_type: str,
-               config: VisualizationConfig | None = None) -> MechanismVisualizer | None:
+    def create(
+        cls, mechanism_type: str, config: VisualizationConfig | None = None
+    ) -> MechanismVisualizer | None:
         """
         Create a visualizer for the specified mechanism type.
 

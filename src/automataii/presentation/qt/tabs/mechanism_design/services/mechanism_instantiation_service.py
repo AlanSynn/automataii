@@ -6,6 +6,7 @@ Handles mechanism type mapping, CAM positioning, and layer data creation.
 
 Design Pattern: Factory (mechanism layer creation)
 """
+
 from __future__ import annotations
 
 import logging
@@ -94,7 +95,25 @@ def _positive_int(value: Any, default: int, minimum: int = 1) -> int:
     return result if result >= minimum else default
 
 
-def _finite_point(value: Any, default: tuple[float, float] | None = None) -> tuple[float, float] | None:
+def _bool_flag(value: Any, default: bool = False) -> bool:
+    """Coerce common persisted/UI boolean payloads without treating junk as true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"1", "true", "yes", "y", "on", "reverse", "reversed"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", "forward"}:
+            return False
+        return default
+    if isinstance(value, int | float) and math.isfinite(float(value)):
+        return bool(value)
+    return default
+
+
+def _finite_point(
+    value: Any, default: tuple[float, float] | None = None
+) -> tuple[float, float] | None:
     if not isinstance(value, list | tuple) or len(value) < 2:
         return default
     x = _finite_float(value[0], math.nan)
@@ -313,10 +332,16 @@ class MechanismInstantiationService:
                     x_max, y_max = float(np.max(path_np[:, 0])), float(np.max(path_np[:, 1]))
                     user_bbox_w = x_max - x_min
                     user_bbox_h = y_max - y_min
-                    user_scale = max(user_bbox_w, user_bbox_h) / 2.0 if max(user_bbox_w, user_bbox_h) > 0 else 1.0
+                    user_scale = (
+                        max(user_bbox_w, user_bbox_h) / 2.0
+                        if max(user_bbox_w, user_bbox_h) > 0
+                        else 1.0
+                    )
 
                     # Normalize eccentricity
-                    ecc_norm = total_lift_screen / user_scale if user_scale > 0 else total_lift_screen
+                    ecc_norm = (
+                        total_lift_screen / user_scale if user_scale > 0 else total_lift_screen
+                    )
                     ecc_norm = _positive_finite_float(ecc_norm, 1e-6)
 
                     return {
@@ -459,7 +484,9 @@ class MechanismInstantiationService:
             # Cam position: center X at path center, Y below path bottom
             # Cam should be positioned so follower can reach the path
             path_center_x = (x_min + x_max) / 2.0
-            cam_y = y_max + base_radius + eccentricity  # Below path bottom (y_max is bottom in Qt coords)
+            cam_y = (
+                y_max + base_radius + eccentricity
+            )  # Below path bottom (y_max is bottom in Qt coords)
 
             # Rod length multiplier to scale rod independently
             rod_length_multiplier = 1.0
@@ -504,7 +531,15 @@ class MechanismInstantiationService:
         internal_type = self.map_mechanism_type(mechanism_type_value, original_json_type)
         mechanism_id = self.generate_mechanism_id()
         raw_params = mechanism_data.get("parameters", {})
-        params = raw_params.copy() if isinstance(raw_params, dict) else {}
+        raw_params = raw_params if isinstance(raw_params, dict) else {}
+        params = raw_params.copy()
+        reverse_direction = _bool_flag(
+            mechanism_data.get(
+                "reverse_direction",
+                params.get("reverse_direction", raw_params.get("reverse_direction", False)),
+            )
+        )
+        params["reverse_direction"] = reverse_direction
 
         # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
         # The dialog stores the exact path the user drew for THIS mechanism recommendation.
@@ -525,6 +560,7 @@ class MechanismInstantiationService:
             "key_points": mechanism_data.get("key_points", {}),
             "name": mechanism_data.get("name", f"{mechanism_type_value} Mechanism"),
             "type": mechanism_type_value,
+            "reverse_direction": reverse_direction,
         }
 
         # Create layer data structure
@@ -539,11 +575,14 @@ class MechanismInstantiationService:
             "full_simulation_data": graphics_data["full_simulation_data"],
             "key_points": graphics_data["key_points"],
             "visual_items": [],
+            "reverse_direction": reverse_direction,
         }
 
         # Apply CAM-specific configuration
         if internal_type == "cam":
-            self._configure_cam_layer(layer_data, graphics_data, effective_target_path, fallback_position)
+            self._configure_cam_layer(
+                layer_data, graphics_data, effective_target_path, fallback_position
+            )
 
         return layer_data, graphics_data
 
@@ -575,9 +614,18 @@ class MechanismInstantiationService:
 
         raw_params = candidate_data.get("parameters", {})
         raw_params = raw_params if isinstance(raw_params, dict) else {}
-        params = convert_params_fn(mechanism_type_value, raw_params) if convert_params_fn else raw_params
+        params = (
+            convert_params_fn(mechanism_type_value, raw_params) if convert_params_fn else raw_params
+        )
         if not isinstance(params, dict):
             params = {}
+        reverse_direction = _bool_flag(
+            candidate_data.get(
+                "reverse_direction",
+                params.get("reverse_direction", raw_params.get("reverse_direction", False)),
+            )
+        )
+        params["reverse_direction"] = reverse_direction
 
         # IMPORTANT: Always prefer user_motion_path_local from the dialog over target_path from path_data.
         # The dialog stores the exact path the user drew for THIS mechanism recommendation.
@@ -599,7 +647,7 @@ class MechanismInstantiationService:
             "original_json_type": candidate_data.get("original_json_type"),
             "path_normalization": candidate_data.get("path_normalization", {}),
             "full_simulation_data": candidate_data.get("full_simulation_data", {}),
-            "reverse_direction": False,
+            "reverse_direction": reverse_direction,
         }
 
         # Generate key_points from simulation if missing
@@ -685,7 +733,9 @@ class MechanismInstantiationService:
 
         if auto_params:
             # Use auto-generated params for vertical path
-            logging.debug("Auto-generating CAM params for vertical path (candidate): %s", auto_params)
+            logging.debug(
+                "Auto-generating CAM params for vertical path (candidate): %s", auto_params
+            )
             layer_data["params"]["base_radius"] = auto_params["base_radius"]
             layer_data["params"]["eccentricity"] = auto_params["eccentricity"]
             layer_data["params"]["follower_rod_length"] = auto_params["follower_rod_length"]
@@ -700,7 +750,9 @@ class MechanismInstantiationService:
             # the same contact-height rule as visual rendering for placement.
             ecc_params = self.calculate_cam_eccentricity_from_path(path)
             if ecc_params:
-                layer_data["params"]["eccentricity"] = ecc_params.get("eccentricity", layer_data["params"].get("eccentricity", 10))
+                layer_data["params"]["eccentricity"] = ecc_params.get(
+                    "eccentricity", layer_data["params"].get("eccentricity", 10)
+                )
                 br = _positive_finite_float(layer_data["params"].get("base_radius"), math.nan)
                 ecc = _positive_finite_float(ecc_params.get("eccentricity", 10), 10.0)
                 if not math.isfinite(br) or br > 3 * ecc:
@@ -769,6 +821,10 @@ class MechanismInstantiationService:
         # Map Foundry parameter names to internal parameter names
         safe_parameters = parameters if isinstance(parameters, dict) else {}
         params = self.map_foundry_params_to_internal(canonical_foundry_type, safe_parameters)
+        reverse_direction = _bool_flag(
+            params.get("reverse_direction", safe_parameters.get("reverse_direction", False))
+        )
+        params["reverse_direction"] = reverse_direction
         normalized_part_name = (
             part_name.strip() if isinstance(part_name, str) and part_name.strip() else None
         )
@@ -800,7 +856,7 @@ class MechanismInstantiationService:
             },
             "key_points": {},
             "full_simulation_data": {},
-            "reverse_direction": False,
+            "reverse_direction": reverse_direction,
             "source": "foundry",
             "source_type": canonical_foundry_type,
         }
@@ -835,7 +891,9 @@ class MechanismInstantiationService:
                 l2 = _positive_finite_float(params.get("l2", params.get("L2", 40.0)), 40.0)
                 l3 = _positive_finite_float(params.get("l3", params.get("L3", 120.0)), 120.0)
                 l4 = _positive_finite_float(params.get("l4", params.get("L4", 130.0)), 130.0)
-                input_angle = _finite_float(params.get("input_angle", params.get("crank_angle", 30.0)), 30.0)
+                input_angle = _finite_float(
+                    params.get("input_angle", params.get("crank_angle", 30.0)), 30.0
+                )
                 theta = math.radians(input_angle)
 
                 gp1 = (pos[0] - l1 * 0.5, pos[1])
@@ -913,8 +971,12 @@ class MechanismInstantiationService:
                     params["coupler_y"] = float(coupler_world[1])
             else:
                 layer_data["scene_anchor_key"] = FOURBAR_ANCHOR_GROUND_MIDPOINT
-                coupler_x = _finite_float(params.get("coupler_point_x", params.get("p_x", l3 * 0.5)), l3 * 0.5)
-                coupler_y = _finite_float(params.get("coupler_point_y", params.get("p_y", 0.0)), 0.0)
+                coupler_x = _finite_float(
+                    params.get("coupler_point_x", params.get("p_x", l3 * 0.5)), l3 * 0.5
+                )
+                coupler_y = _finite_float(
+                    params.get("coupler_point_y", params.get("p_y", 0.0)), 0.0
+                )
                 coupler_vec = (
                     rocker_arr[0] - crank_arr[0],
                     rocker_arr[1] - crank_arr[1],
@@ -1055,8 +1117,12 @@ class MechanismInstantiationService:
             params["l2"] = _positive_finite_float(foundry_params.get("input_link", 40.0), 40.0)
             params["l3"] = _positive_finite_float(foundry_params.get("coupler_link", 120.0), 120.0)
             params["l4"] = _positive_finite_float(foundry_params.get("output_link", 130.0), 130.0)
-            params["coupler_point_x"] = _finite_float(foundry_params.get("coupler_point_x", 60.0), 60.0)
-            params["coupler_point_y"] = _finite_float(foundry_params.get("coupler_point_y", 30.0), 30.0)
+            params["coupler_point_x"] = _finite_float(
+                foundry_params.get("coupler_point_x", 60.0), 60.0
+            )
+            params["coupler_point_y"] = _finite_float(
+                foundry_params.get("coupler_point_y", 30.0), 30.0
+            )
             if "input_angle" in foundry_params:
                 angle = _finite_float(foundry_params["input_angle"], 30.0)
                 params["input_angle"] = angle
@@ -1071,7 +1137,9 @@ class MechanismInstantiationService:
 
         elif normalized_type == "cam_follower":
             # Map Foundry cam params to internal
-            params["base_radius"] = _positive_finite_float(foundry_params.get("cam_radius", 60.0), 60.0)
+            params["base_radius"] = _positive_finite_float(
+                foundry_params.get("cam_radius", 60.0), 60.0
+            )
             params["eccentricity"] = _finite_float(foundry_params.get("cam_offset", 20.0), 20.0)
             if params["eccentricity"] < 0.0:
                 params["eccentricity"] = 20.0
@@ -1079,9 +1147,13 @@ class MechanismInstantiationService:
                 foundry_params.get("follower_length", 100.0), 100.0
             )
             params["cam_lobes"] = _positive_int(foundry_params.get("cam_lobes", 1), 1)
-            params["profile_harmonic"] = _finite_float(foundry_params.get("profile_harmonic", 0.3), 0.3)
+            params["profile_harmonic"] = _finite_float(
+                foundry_params.get("profile_harmonic", 0.3), 0.3
+            )
             if "input_angle" in foundry_params:
                 params["input_angle"] = _finite_float(foundry_params["input_angle"], 0.0)
+            if "reverse_direction" in foundry_params:
+                params["reverse_direction"] = _bool_flag(foundry_params["reverse_direction"])
             output_mode = foundry_params.get("output_point_mode")
             if isinstance(output_mode, str):
                 normalized_mode = output_mode.strip().lower()

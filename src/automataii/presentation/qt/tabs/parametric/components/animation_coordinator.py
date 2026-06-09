@@ -6,6 +6,7 @@ state when entering/exiting parametric mode.
 
 Design Pattern: Coordinator (manages state transitions)
 """
+
 from __future__ import annotations
 
 import logging

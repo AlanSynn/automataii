@@ -13,6 +13,7 @@ Extracted Modules:
 - PartsDataManager: Parts list and data management
 - path_geometry: Pure functions for path creation and interpolation
 """
+
 from automataii.presentation.qt.tabs.editor.components.motion_path_manager import (
     MotionPathManager,
 )

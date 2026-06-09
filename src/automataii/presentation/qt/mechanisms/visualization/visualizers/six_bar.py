@@ -34,14 +34,14 @@ class SixBarVisualizer(MechanismVisualizer):
     """Visualizer for 6-bar linkage mechanisms."""
 
     # Color scheme for 6-bar components
-    LEFT_CRANK_COLOR = QColor("#e74c3c")   # Red
+    LEFT_CRANK_COLOR = QColor("#e74c3c")  # Red
     RIGHT_CRANK_COLOR = QColor("#3498db")  # Blue
-    COUPLER_COLOR = QColor("#2ecc71")      # Green
-    GROUND_COLOR = QColor("#9b59b6")       # Purple
-    ROCKER_COLOR = QColor("#e67e22")       # Orange (G3→Q)
-    CONNECTOR_COLOR = QColor("#1abc9c")    # Teal (P→Q)
-    OUTPUT_COLOR = QColor("#f1c40f")       # Yellow (Q point - output)
-    P_COLOR = QColor("#f39c12")            # Orange (P point)
+    COUPLER_COLOR = QColor("#2ecc71")  # Green
+    GROUND_COLOR = QColor("#9b59b6")  # Purple
+    ROCKER_COLOR = QColor("#e67e22")  # Orange (G3→Q)
+    CONNECTOR_COLOR = QColor("#1abc9c")  # Teal (P→Q)
+    OUTPUT_COLOR = QColor("#f1c40f")  # Yellow (Q point - output)
+    P_COLOR = QColor("#f39c12")  # Orange (P point)
 
     def create_visuals(self, mechanism_data: dict[str, Any]) -> list[QGraphicsItem]:
         """
@@ -93,9 +93,7 @@ class SixBarVisualizer(MechanismVisualizer):
         visual_items.extend(self._create_links(g1_t, g2_t, c1_t, c2_t, p_t, g3_t, q_t))
 
         # Create pivots and joints
-        visual_items.extend(
-            self._create_pivots_and_joints(g1_t, g2_t, c1_t, c2_t, p_t, g3_t, q_t)
-        )
+        visual_items.extend(self._create_pivots_and_joints(g1_t, g2_t, c1_t, c2_t, p_t, g3_t, q_t))
 
         return visual_items
 
@@ -126,17 +124,17 @@ class SixBarVisualizer(MechanismVisualizer):
         if isinstance(visual_items[0], QGraphicsLineItem):
             visual_items[0].setLine(QLineF(g1_t, c1_t))  # Left crank
         if isinstance(visual_items[1], QGraphicsLineItem):
-            visual_items[1].setLine(QLineF(c1_t, p_t))   # Left coupler
+            visual_items[1].setLine(QLineF(c1_t, p_t))  # Left coupler
         if isinstance(visual_items[2], QGraphicsLineItem):
-            visual_items[2].setLine(QLineF(p_t, c2_t))   # Right coupler
+            visual_items[2].setLine(QLineF(p_t, c2_t))  # Right coupler
         if isinstance(visual_items[3], QGraphicsLineItem):
             visual_items[3].setLine(QLineF(c2_t, g2_t))  # Right crank
         if isinstance(visual_items[4], QGraphicsLineItem):
             visual_items[4].setLine(QLineF(g1_t, g2_t))  # Ground
         if isinstance(visual_items[5], QGraphicsLineItem):
-            visual_items[5].setLine(QLineF(g3_t, q_t))   # Rocker
+            visual_items[5].setLine(QLineF(g3_t, q_t))  # Rocker
         if isinstance(visual_items[6], QGraphicsLineItem):
-            visual_items[6].setLine(QLineF(p_t, q_t))    # Connector
+            visual_items[6].setLine(QLineF(p_t, q_t))  # Connector
 
         # Update pivots and joints (items 7+)
         pivot_positions = [g1_t, g2_t, g3_t, c1_t, c2_t, p_t, q_t]
@@ -216,9 +214,7 @@ class SixBarVisualizer(MechanismVisualizer):
         # Fallback to calculated positions
         return self._calculate_default_positions(params)
 
-    def _calculate_default_positions(
-        self, params: dict[str, Any]
-    ) -> tuple[np.ndarray, ...] | None:
+    def _calculate_default_positions(self, params: dict[str, Any]) -> tuple[np.ndarray, ...] | None:
         """Calculate default joint positions based on link lengths."""
         # Extract parameters (support both naming conventions)
         ground = params.get("ground_link", params.get("l1", 210.0))
@@ -363,9 +359,7 @@ class SixBarVisualizer(MechanismVisualizer):
 
         # Rocker (G3→Q)
         rocker = QGraphicsLineItem(QLineF(g3_t, q_t))
-        rocker.setPen(
-            QPen(self.ROCKER_COLOR, 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
-        )
+        rocker.setPen(QPen(self.ROCKER_COLOR, 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         rocker.setZValue(self.config.z_index_base + 7)
         links.append(rocker)
 

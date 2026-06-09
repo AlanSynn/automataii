@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class EventPriority(IntEnum):
     """Event handler priorities."""
+
     LOWEST = 0
     LOW = 25
     NORMAL = 50
@@ -33,6 +34,7 @@ class EventFilter(Protocol):
 
 class EventProcessingMode(Enum):
     """Event processing modes."""
+
     SYNC = "synchronous"
     ASYNC = "asynchronous"
     QUEUED = "queued"

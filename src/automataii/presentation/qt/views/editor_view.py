@@ -79,12 +79,8 @@ class EditorView(QGraphicsView):
     zoom_changed = pyqtSignal(float)  # Emitted when zoom level changes
 
     # Signals for item interactions
-    part_item_clicked = pyqtSignal(
-        CharacterPartItem
-    )  # Emits the CharacterPartItem instance
-    part_item_double_clicked = pyqtSignal(
-        CharacterPartItem
-    )  # Emits the CharacterPartItem instance
+    part_item_clicked = pyqtSignal(CharacterPartItem)  # Emits the CharacterPartItem instance
+    part_item_double_clicked = pyqtSignal(CharacterPartItem)  # Emits the CharacterPartItem instance
     part_item_moved = pyqtSignal(
         CharacterPartItem, QPointF
     )  # Emits item and its new scene position
@@ -196,9 +192,7 @@ class EditorView(QGraphicsView):
         self.scene().addItem(self.skeleton_graphics_item)
         self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY)  # Set Z-value
 
-        self.selection_markers: dict[
-            str, QGraphicsEllipseItem
-        ] = {}  # For mechanism point markers
+        self.selection_markers: dict[str, QGraphicsEllipseItem] = {}  # For mechanism point markers
 
         # MotionPathDrawer handles low-level path drawing, visualization, and overlays
         self._motion_path_drawer = MotionPathDrawer(self.scene(), parent=self)
@@ -207,9 +201,7 @@ class EditorView(QGraphicsView):
                 points, timed_points, duration
             )
         )
-        self._motion_path_drawer.drawing_cancelled.connect(
-            lambda: self.drawing_cancelled.emit()
-        )
+        self._motion_path_drawer.drawing_cancelled.connect(lambda: self.drawing_cancelled.emit())
         self._motion_path_drawer.path_data_cleared.connect(
             lambda key: self.path_data_cleared_for_component.emit(key)
         )
@@ -253,11 +245,15 @@ class EditorView(QGraphicsView):
         self._grid_major_path: QPainterPath | None = None
 
     # ---- Overlay path helpers (delegated to MotionPathManager) ----
-    def set_raw_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
+    def set_raw_overlay_path(
+        self, key: str, path: QPainterPath | None, pen: QPen | None = None
+    ) -> None:
         """Set or clear the raw path overlay for a component key (part name)."""
         self._motion_path_drawer.set_raw_overlay_path(key, path, pen)
 
-    def set_corrected_overlay_path(self, key: str, path: QPainterPath | None, pen: QPen | None = None) -> None:
+    def set_corrected_overlay_path(
+        self, key: str, path: QPainterPath | None, pen: QPen | None = None
+    ) -> None:
         """Set or clear the feasibility-corrected path overlay for a component key."""
         self._motion_path_drawer.set_corrected_overlay_path(key, path, pen)
 
@@ -361,7 +357,11 @@ class EditorView(QGraphicsView):
             x = left
             count_v = int(round(left / grid_size_pixels))
             while x <= right:
-                target = self._grid_major_path if count_v % major_interval == 0 else self._grid_minor_path
+                target = (
+                    self._grid_major_path
+                    if count_v % major_interval == 0
+                    else self._grid_minor_path
+                )
                 target.moveTo(x, top)
                 target.lineTo(x, bottom)
                 x += grid_size_pixels
@@ -371,7 +371,11 @@ class EditorView(QGraphicsView):
             y = top
             count_h = int(round(top / grid_size_pixels))
             while y <= bottom:
-                target = self._grid_major_path if count_h % major_interval == 0 else self._grid_minor_path
+                target = (
+                    self._grid_major_path
+                    if count_h % major_interval == 0
+                    else self._grid_minor_path
+                )
                 target.moveTo(left, y)
                 target.lineTo(right, y)
                 y += grid_size_pixels
@@ -435,20 +439,14 @@ class EditorView(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
             self.setInteractive(True)
             self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
-        elif (
-            mode.startswith("select_") or mode == "define_joint"
-        ):  # Point selection modes
+        elif mode.startswith("select_") or mode == "define_joint":  # Point selection modes
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setInteractive(
-                True
-            )  # Allow item clicks if needed, but main action is scene click
+            self.setInteractive(True)  # Allow item clicks if needed, but main action is scene click
             self.viewport().setCursor(Qt.CursorShape.CrossCursor)
         elif mode == "define_motion_path":
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setInteractive(True)
-            self.viewport().setCursor(
-                Qt.CursorShape.CrossCursor
-            )  # Or a custom pen cursor
+            self.viewport().setCursor(Qt.CursorShape.CrossCursor)  # Or a custom pen cursor
         elif mode == "edit_vertices":
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setInteractive(True)
@@ -461,9 +459,7 @@ class EditorView(QGraphicsView):
     def get_selected_item(self):
         """Returns the single selected CharacterPartItem, or None."""
         selected_items = self.scene().selectedItems()
-        if len(selected_items) == 1 and isinstance(
-            selected_items[0], CharacterPartItem
-        ):
+        if len(selected_items) == 1 and isinstance(selected_items[0], CharacterPartItem):
             return selected_items[0]
         return None
 
@@ -496,8 +492,8 @@ class EditorView(QGraphicsView):
             target_scale = self._pinch_start_view_scale * gesture.scaleFactor()
 
             # Clamp to ViewportController's configured limits
-            min_scale = config.zoom_factor_base ** config.min_zoom_level
-            max_scale = config.zoom_factor_base ** config.max_zoom_level
+            min_scale = config.zoom_factor_base**config.min_zoom_level
+            max_scale = config.zoom_factor_base**config.max_zoom_level
             target_scale = max(min_scale, min(target_scale, max_scale))
             target_scale = max(0.1, min(target_scale, 10.0))  # Absolute limits
 
@@ -531,16 +527,19 @@ class EditorView(QGraphicsView):
         """Zoom out by specified steps. Delegates to ViewportController."""
         self._viewport_controller.zoom_out(steps)
 
-
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press events based on the current mode."""
         scene_pos = self.mapToScene(event.pos())
 
         # --- Panning --- (Middle button, Alt+Left, or Right button)
-        if (event.button() == Qt.MouseButton.MiddleButton or
-            event.button() == Qt.MouseButton.RightButton or
-            (event.button() == Qt.MouseButton.LeftButton
-             and event.modifiers() & Qt.KeyboardModifier.AltModifier)):
+        if (
+            event.button() == Qt.MouseButton.MiddleButton
+            or event.button() == Qt.MouseButton.RightButton
+            or (
+                event.button() == Qt.MouseButton.LeftButton
+                and event.modifiers() & Qt.KeyboardModifier.AltModifier
+            )
+        ):
             self._panning = True
             self._pan_start_pos = event.pos()
             self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -615,17 +614,25 @@ class EditorView(QGraphicsView):
         # 🔧 PANNING FIX: More robust panning state reset
         if self._panning:
             # Check if the released button matches any panning button
-            if (event.button() == Qt.MouseButton.MiddleButton
+            if (
+                event.button() == Qt.MouseButton.MiddleButton
                 or event.button() == Qt.MouseButton.RightButton
-                or (event.button() == Qt.MouseButton.LeftButton
-                    and event.modifiers() & Qt.KeyboardModifier.AltModifier)):
+                or (
+                    event.button() == Qt.MouseButton.LeftButton
+                    and event.modifiers() & Qt.KeyboardModifier.AltModifier
+                )
+            ):
                 self._panning = False
                 self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
                 logging.debug(f"Panning stopped - button: {event.button()}")
                 super().mouseReleaseEvent(event)
                 return
             # Also check for any button release when panning (safety fallback)
-            elif event.button() in [Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton]:
+            elif event.button() in [
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.RightButton,
+                Qt.MouseButton.MiddleButton,
+            ]:
                 self._panning = False
                 self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
                 logging.debug(f"Panning force-stopped - fallback for button: {event.button()}")
@@ -635,9 +642,7 @@ class EditorView(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.current_mode == "define_motion_path" and self._is_drawing_freehand:
                 num_original_points = len(self._motion_path_points)
-                if (
-                    num_original_points >= 3
-                ):  # Need at least 3 points for a meaningful curve
+                if num_original_points >= 3:  # Need at least 3 points for a meaningful curve
                     # Resample points
                     # If fewer than TARGET_PATH_POINTS but >=3, use original points for spline for better representation
                     # If more than TARGET_PATH_POINTS, resample down to TARGET_PATH_POINTS
@@ -705,9 +710,7 @@ class EditorView(QGraphicsView):
 
                         self.scene().addItem(final_path_item)
                         self.final_paths_map[component_key] = final_path_item
-                        logging.debug(
-                            f"Added final path for component '{component_key}'."
-                        )
+                        logging.debug(f"Added final path for component '{component_key}'.")
                     else:
                         # If no key, path is orphaned, but still add to scene for now (might be an error condition)
                         self.scene().addItem(final_path_item)
@@ -725,10 +728,7 @@ class EditorView(QGraphicsView):
                     )
 
                     # Clear the red dashed preview path
-                    if (
-                        self._motion_preview_path_item
-                        and self._motion_preview_path_item.scene()
-                    ):
+                    if self._motion_preview_path_item and self._motion_preview_path_item.scene():
                         self.scene().removeItem(self._motion_preview_path_item)
                         self._motion_preview_path_item = None
                     self._motion_path_points.clear()  # Clear original drawn points for next session
@@ -758,7 +758,9 @@ class EditorView(QGraphicsView):
 
             # Apply translation directly to the view transform
             current_transform = self.transform()
-            current_transform.translate(delta.x() * self._pan_sensitivity, delta.y() * self._pan_sensitivity)
+            current_transform.translate(
+                delta.x() * self._pan_sensitivity, delta.y() * self._pan_sensitivity
+            )
             self.setTransform(current_transform)
             return
 
@@ -787,11 +789,7 @@ class EditorView(QGraphicsView):
         view_rect = self.rect()
         corner_size = 150  # Size of the corner area to trigger controls
 
-        view_rect.adjusted(
-            view_rect.width() - corner_size,
-            view_rect.height() - corner_size,
-            0, 0
-        )
+        view_rect.adjusted(view_rect.width() - corner_size, view_rect.height() - corner_size, 0, 0)
 
         # 🔧 VIEW CONTROLS FIX: Hover controls disabled
         # if corner_rect.contains(event.pos()):
@@ -819,10 +817,7 @@ class EditorView(QGraphicsView):
             return
 
         # Ctrl+0 for reset view
-        if (
-            event.key() == Qt.Key.Key_0
-            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
+        if event.key() == Qt.Key.Key_0 and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.reset_view()
             return
 
@@ -873,7 +868,6 @@ class EditorView(QGraphicsView):
 
     # --- Joint Definition --- #
 
-
     def _handle_joint_definition_click(self, scene_pos: QPointF, view_pos: QPointF):
         item_at_click = self.itemAt(view_pos)  # Use view_pos for itemAt
 
@@ -887,9 +881,7 @@ class EditorView(QGraphicsView):
         if self._joint_parent_item is None:
             # First click: select parent item and mark joint point on it
             self._joint_parent_item = item_at_click
-            self._joint_parent_pos = item_at_click.mapFromScene(
-                scene_pos
-            )  # Store local pos
+            self._joint_parent_pos = item_at_click.mapFromScene(scene_pos)  # Store local pos
             # Update status or visual cue
             self.setCursor(Qt.CursorShape.CrossCursor)  # Change cursor
             logging.info(
@@ -899,13 +891,9 @@ class EditorView(QGraphicsView):
                 f"Selected {self._joint_parent_item.part_info.name} as parent. Click another part to define joint."
             )
 
-        elif (
-            self._joint_parent_item
-        ):  # If parent is already selected, this click is for child
+        elif self._joint_parent_item:  # If parent is already selected, this click is for child
             if item_at_click == self._joint_parent_item:
-                logging.debug(
-                    "Clicked the same item again for joint definition. Resetting."
-                )
+                logging.debug("Clicked the same item again for joint definition. Resetting.")
                 self._reset_joint_definition_state()
                 self._show_status_message("Joint definition reset. Click first part.")
                 return
@@ -956,12 +944,14 @@ class EditorView(QGraphicsView):
 
     # --- Motion Path Definition --- #
 
-    def start_define_motion_path(self, target_item: CharacterPartItem | None, is_closed: bool = True):
+    def start_define_motion_path(
+        self, target_item: CharacterPartItem | None, is_closed: bool = True
+    ):
         """Starts the freehand motion path definition mode."""
         if self.current_mode == "define_motion_path":
             return  # Already in this mode
 
-        if target_item is None and not getattr(self.parent_window, 'selected_part_name', None):
+        if target_item is None and not getattr(self.parent_window, "selected_part_name", None):
             logging.warning(
                 "EditorView: start_define_motion_path called with no target_item and no selected part."
             )
@@ -970,7 +960,10 @@ class EditorView(QGraphicsView):
         component_key = None
         if target_item and target_item.part_info and target_item.part_info.name:
             component_key = target_item.part_info.name
-        elif hasattr(self.parent_window, 'selected_part_name') and self.parent_window.selected_part_name:
+        elif (
+            hasattr(self.parent_window, "selected_part_name")
+            and self.parent_window.selected_part_name
+        ):
             component_key = self.parent_window.selected_part_name
 
         # Delegate to MotionPathManager - it handles clearing existing paths
@@ -986,7 +979,6 @@ class EditorView(QGraphicsView):
         logging.info("EditorView: Entered freehand motion path definition mode.")
         if target_item:
             logging.info(f"EditorView: Motion path target: {target_item.part_info.name}")
-
 
     def _cancel_motion_path_drawing(self):
         """Cancels the current motion path drawing operation and cleans up."""
@@ -1012,7 +1004,6 @@ class EditorView(QGraphicsView):
 
     # --- End Effector Selection --- #
 
-
     def _handle_end_effector_selection_click(self, scene_pos: QPointF):
         """Handles the click to set the end effector position."""
         if not self._target_part_for_end_effector:
@@ -1021,9 +1012,7 @@ class EditorView(QGraphicsView):
 
         local_pos = self._target_part_for_end_effector.mapFromScene(scene_pos)
         self.end_effector_selected.emit(local_pos, scene_pos)  # Emit signal
-        self._target_part_for_end_effector.end_effector_offset = (
-            local_pos  # Update item directly
-        )
+        self._target_part_for_end_effector.end_effector_offset = local_pos  # Update item directly
         self._target_part_for_end_effector._update_end_effector_marker()  # Update visual
         self._show_status_message(
             f"End effector set for '{self._target_part_for_end_effector.part_info.name}'"
@@ -1032,21 +1021,16 @@ class EditorView(QGraphicsView):
 
     # --- Simulation Control --- #
 
-        # Parent window likely starts the timer/updates
+    # Parent window likely starts the timer/updates
 
-        # Parent window likely stops the timer/updates
-
+    # Parent window likely stops the timer/updates
 
     def _restore_original_transforms(self):
         """Restores the saved transforms of all part items."""
-        logging.debug(
-            f"Restoring {len(self._original_transforms)} original item transforms."
-        )
+        logging.debug(f"Restoring {len(self._original_transforms)} original item transforms.")
         for item_name, initial_transform in self._original_transforms.items():
             item = self.parent_window.editor_items.get(item_name)
-            if (
-                item and item.scene() == self.scene()
-            ):  # Check if item still exists in the scene
+            if item and item.scene() == self.scene():  # Check if item still exists in the scene
                 # logging.debug(f"  Restoring {item_name}: transform={initial_transform}")
                 item.setTransform(initial_transform)
             else:
@@ -1062,7 +1046,6 @@ class EditorView(QGraphicsView):
         self.setInteractive(True)
 
     # --- Skeleton Visualization --- #
-
 
     def visualize_skeleton(
         self, skeleton_data: list[dict[str, Any]], hierarchy_data: dict[str, list[str]]
@@ -1083,18 +1066,12 @@ class EditorView(QGraphicsView):
             logging.error("EditorView: No scene available to visualize skeleton.")
             return
 
-        if (
-            not skeleton_data
-        ):  # This now implies skeleton_data is an empty list if clearing
+        if not skeleton_data:  # This now implies skeleton_data is an empty list if clearing
             # If skeleton_data is empty or None, clear the current skeleton display
             if self.skeleton_graphics_item:
-                logging.debug(
-                    "EditorView: visualize_skeleton - Clearing existing skeleton item."
-                )
+                logging.debug("EditorView: visualize_skeleton - Clearing existing skeleton item.")
                 # load_skeleton_data with empty data will clear it
-                self.skeleton_graphics_item.load_skeleton_data(
-                    [], {}
-                )  # Pass empty hierarchy too
+                self.skeleton_graphics_item.load_skeleton_data([], {})  # Pass empty hierarchy too
             else:
                 logging.debug(
                     "EditorView: visualize_skeleton - No skeleton data and no existing item to clear."
@@ -1102,9 +1079,7 @@ class EditorView(QGraphicsView):
             return
 
         if self.skeleton_graphics_item is None:
-            logging.debug(
-                "EditorView: visualize_skeleton - Creating new SkeletonGraphicsItem."
-            )
+            logging.debug("EditorView: visualize_skeleton - Creating new SkeletonGraphicsItem.")
             # Pass both skeleton_data and hierarchy_data to the constructor or load_skeleton_data
             self.skeleton_graphics_item = SkeletonGraphicsItem(
                 skeleton_data, hierarchy_data, mechanism_mode=self.mechanism_mode
@@ -1113,7 +1088,9 @@ class EditorView(QGraphicsView):
             self.skeleton_graphics_item.setZValue(Z_SKELETON_OVERLAY)
 
             # Connect the joint_clicked signal
-            self.skeleton_graphics_item.joint_clicked.connect(self._handle_joint_bend_direction_changed)
+            self.skeleton_graphics_item.joint_clicked.connect(
+                self._handle_joint_bend_direction_changed
+            )
         else:
             logging.debug(
                 "EditorView: visualize_skeleton - Updating existing SkeletonGraphicsItem."
@@ -1125,19 +1102,17 @@ class EditorView(QGraphicsView):
                 pass  # No connections to disconnect or object deleted
 
             # Call load_skeleton_data with both skeleton_data and hierarchy_data
-            self.skeleton_graphics_item.load_skeleton_data(
-                skeleton_data, hierarchy_data
-            )
+            self.skeleton_graphics_item.load_skeleton_data(skeleton_data, hierarchy_data)
 
             # Reconnect the signal
-            self.skeleton_graphics_item.joint_clicked.connect(self._handle_joint_bend_direction_changed)
+            self.skeleton_graphics_item.joint_clicked.connect(
+                self._handle_joint_bend_direction_changed
+            )
             logging.debug("EditorView: Reconnected joint_clicked signal after skeleton reload")
 
         self.scene().update()  # Trigger a repaint of the scene  # Trigger a repaint of the scene
 
-    def update_skeleton_animation(
-        self, animated_joint_positions: dict[str, tuple[float, float]]
-    ):
+    def update_skeleton_animation(self, animated_joint_positions: dict[str, tuple[float, float]]):
         """Updates the skeleton item with new animated joint positions."""
         logging.debug(
             f"EditorView:update_skeleton_animation - Received animated_joint_positions (count: {len(animated_joint_positions)}): {animated_joint_positions if len(animated_joint_positions) < 5 else str(list(animated_joint_positions.items())[:5]) + '...'}"
@@ -1232,10 +1207,14 @@ class EditorView(QGraphicsView):
                     # Apply the calculated world rotation
                     part_item.setRotation(float(target_part_world_rotation))
                     # Use bypass for legitimate animation - the validation was done above
-                    part_item.set_scene_position_from_anchor(target_joint_scene_pos, bypass_validation=True)
+                    part_item.set_scene_position_from_anchor(
+                        target_joint_scene_pos, bypass_validation=True
+                    )
                 else:
                     # Skip position update that would violate skeleton constraints
-                    logging.debug(f"Skeleton length constraint violation prevented for part '{part_item.name()}'")
+                    logging.debug(
+                        f"Skeleton length constraint violation prevented for part '{part_item.name()}'"
+                    )
                     # Still update rotation if valid
                     if target_part_world_rotation is not None:
                         part_item.setRotation(float(target_part_world_rotation))
@@ -1250,7 +1229,7 @@ class EditorView(QGraphicsView):
         self,
         part_item: CharacterPartItem,
         new_anchor_pos: QPointF,
-        joint_data: dict[str, dict[str, Any]]
+        joint_data: dict[str, dict[str, Any]],
     ) -> bool:
         """
         Validates that applying a new position won't violate skeleton bone length constraints.
@@ -1301,9 +1280,7 @@ class EditorView(QGraphicsView):
         return True
 
     def _get_connected_joints_for_part(
-        self,
-        part_item: CharacterPartItem,
-        joint_data: dict[str, dict[str, Any]]
+        self, part_item: CharacterPartItem, joint_data: dict[str, dict[str, Any]]
     ) -> list[tuple[str, str, float]]:
         """
         Get the bone connections (parent-child joint pairs) that this part participates in.
@@ -1344,6 +1321,7 @@ class EditorView(QGraphicsView):
 
             if isinstance(other_pos, QPointF) and isinstance(current_pos, QPointF):
                 from PyQt6.QtCore import QLineF
+
                 distance = QLineF(current_pos, other_pos).length()
 
                 # Only consider reasonable bone lengths (not too short or too long)
@@ -1352,16 +1330,12 @@ class EditorView(QGraphicsView):
 
         return connections
 
-
-
     # --- Utility --- #
 
     def _show_status_message(self, message: str):
         """Safely displays a message in the parent window's status bar."""
         if self.parent_window and hasattr(self.parent_window, "statusBar"):
-            self.parent_window.statusBar().showMessage(
-                message, 5000
-            )  # Show for 5 seconds
+            self.parent_window.statusBar().showMessage(message, 5000)  # Show for 5 seconds
         else:
             logging.info(f"Status: {message}")  # Fallback logging
 
@@ -1431,9 +1405,7 @@ class EditorView(QGraphicsView):
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True)  # Ensures consistent thickness regardless of zoom
             self._motion_preview_path_item.setPen(pen)
-            self._motion_preview_path_item.setZValue(
-                Z_MOTION_PATH_PREVIEW
-            )  # Use the new Z-index
+            self._motion_preview_path_item.setZValue(Z_MOTION_PATH_PREVIEW)  # Use the new Z-index
             self.scene().addItem(self._motion_preview_path_item)
 
         self._motion_preview_path_item.setPath(path)
@@ -1571,7 +1543,9 @@ class EditorView(QGraphicsView):
 
     # ---- Vertex Editing Methods ----
 
-    def start_vertex_editing(self, part_name: str, path: QPainterPath, is_closed: bool = True) -> bool:
+    def start_vertex_editing(
+        self, part_name: str, path: QPainterPath, is_closed: bool = True
+    ) -> bool:
         """
         Start vertex editing mode for a motion path.
 
@@ -1651,11 +1625,11 @@ class EditorView(QGraphicsView):
         center = self.mapToScene(self.viewport().rect().center())
 
         return {
-            'transform': self.transform(),
-            'center': center,
-            'zoom_level': controller_state['zoom_level'],
-            'h_scroll': controller_state['h_scroll'],
-            'v_scroll': controller_state['v_scroll'],
+            "transform": self.transform(),
+            "center": center,
+            "zoom_level": controller_state["zoom_level"],
+            "h_scroll": controller_state["h_scroll"],
+            "v_scroll": controller_state["v_scroll"],
         }
 
     def set_camera_state(self, state: dict[str, Any]):
@@ -1665,15 +1639,15 @@ class EditorView(QGraphicsView):
             state: Dict containing transform, center, and zoom_level
         """
         # Handle legacy format (transform + center) for backward compatibility
-        if 'transform' in state:
-            self.setTransform(state['transform'])
+        if "transform" in state:
+            self.setTransform(state["transform"])
 
-        if 'center' in state:
-            self.centerOn(state['center'])
+        if "center" in state:
+            self.centerOn(state["center"])
 
         # Use ViewportController for zoom_level if available
-        if 'zoom_level' in state:
-            self._viewport_controller.zoom_to_level(state['zoom_level'])
+        if "zoom_level" in state:
+            self._viewport_controller.zoom_to_level(state["zoom_level"])
 
     def _setup_hover_controls(self):
         """Setup hover view controls - DISABLED for mouse-only control."""

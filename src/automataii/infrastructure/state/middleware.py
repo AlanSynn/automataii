@@ -19,7 +19,7 @@ class Middleware(ABC):
     """
 
     @abstractmethod
-    def process(self, store: 'StateStore', action: 'Action') -> 'Action':
+    def process(self, store: "StateStore", action: "Action") -> "Action":
         """
         Process action through middleware.
 
@@ -42,11 +42,10 @@ class LoggingMiddleware(Middleware):
         self._logger = logging.getLogger("StateStore")
         self._log_level = log_level
 
-    def process(self, store: 'StateStore', action: 'Action') -> 'Action':
+    def process(self, store: "StateStore", action: "Action") -> "Action":
         """Log action details."""
         self._logger.log(
-            self._log_level,
-            f"Action dispatched: {action.type} with payload: {action.payload}"
+            self._log_level, f"Action dispatched: {action.type} with payload: {action.payload}"
         )
         return action
 
@@ -61,14 +60,14 @@ class PersistenceMiddleware(Middleware):
         self._persist_actions = persist_actions or set()
         self._storage_backend = None  # Could be file, database, etc.
 
-    def process(self, store: 'StateStore', action: 'Action') -> 'Action':
+    def process(self, store: "StateStore", action: "Action") -> "Action":
         """Persist action if needed."""
         if action.type in self._persist_actions:
             self._persist_action(action)
 
         return action
 
-    def _persist_action(self, action: 'Action') -> None:
+    def _persist_action(self, action: "Action") -> None:
         """Persist action to storage."""
         # Placeholder implementation
         self._logger.debug(f"Persisting action: {action.type}")

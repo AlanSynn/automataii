@@ -3,7 +3,6 @@ Utility functions for mechanism design operations.
 This module contains standalone utility functions that don't depend on class state.
 """
 
-
 import numpy as np
 from PyQt6.QtGui import QPainterPath
 
@@ -20,7 +19,9 @@ def qpainterpath_to_numpy_array(path: QPainterPath, num_points: int = 100) -> np
     """
     if path.isEmpty():
         return None
-    points = np.array([[path.elementAt(i).x, path.elementAt(i).y] for i in range(path.elementCount())])
+    points = np.array(
+        [[path.elementAt(i).x, path.elementAt(i).y] for i in range(path.elementCount())]
+    )
     return points
 
 
@@ -36,10 +37,10 @@ def convert_json_params_to_internal(mechanism_type: str, json_params: dict) -> d
     """
     if "4-Bar" in mechanism_type:
         params = {
-            "l1": json_params.get('l1'),
-            "l2": json_params.get('l2'),
-            "l3": json_params.get('l3'),
-            "l4": json_params.get('l4'),
+            "l1": json_params.get("l1"),
+            "l2": json_params.get("l2"),
+            "l3": json_params.get("l3"),
+            "l4": json_params.get("l4"),
         }
         # Handle both formats: nested coupler_point and direct p_x/p_y
         coupler_point = json_params.get("coupler_point", {})
@@ -48,8 +49,8 @@ def convert_json_params_to_internal(mechanism_type: str, json_params: dict) -> d
             params["coupler_point_y"] = coupler_point.get("y", 0.0)
         else:
             # Fallback to p_x/p_y format used in dataset generator
-            params["coupler_point_x"] = json_params.get('p_x', 0.0)
-            params["coupler_point_y"] = json_params.get('p_y', 0.0)
+            params["coupler_point_x"] = json_params.get("p_x", 0.0)
+            params["coupler_point_y"] = json_params.get("p_y", 0.0)
         return params
 
     elif "Cam" in mechanism_type:

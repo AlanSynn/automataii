@@ -28,6 +28,7 @@ Usage:
     # Render (happens automatically in paintGL)
     canvas.update()
 """
+
 from __future__ import annotations
 
 import logging
@@ -243,9 +244,13 @@ class GeometryBuffer:
 
             # Two triangles
             idx_base = self._index_count
-            self._indices[idx_base:idx_base + 6] = [
-                base_idx, base_idx + 1, base_idx + 2,
-                base_idx, base_idx + 2, base_idx + 3,
+            self._indices[idx_base : idx_base + 6] = [
+                base_idx,
+                base_idx + 1,
+                base_idx + 2,
+                base_idx,
+                base_idx + 2,
+                base_idx + 3,
             ]
 
             self._vertex_count += 4
@@ -285,14 +290,14 @@ class GeometryBuffer:
         # Perimeter vertices. Vectorized writes avoid per-segment Python loops
         # during animation batching and keep performance tests stable under load.
         unit_vertices = self._circle_unit_vertices(segments)
-        perimeter_slice = self._vertices[base_idx + 1:base_idx + 1 + segments]
+        perimeter_slice = self._vertices[base_idx + 1 : base_idx + 1 + segments]
         perimeter_slice[:, 0] = float(center[0]) + (float(radius) * unit_vertices[:, 0])
         perimeter_slice[:, 1] = float(center[1]) + (float(radius) * unit_vertices[:, 1])
         perimeter_slice[:, 2:6] = color
 
         # Triangle fan indices
         idx_base = self._index_count
-        self._indices[idx_base:idx_base + segments * 3] = (
+        self._indices[idx_base : idx_base + segments * 3] = (
             self._circle_index_offsets(segments) + base_idx
         )
 
@@ -470,11 +475,14 @@ class OpenGLCanvas:
         top -= self._pan_y
 
         # Orthographic projection matrix
-        mvp = np.array([
-            [2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left)],
-            [0.0, 2.0 / (top - bottom), 0.0, -(top + bottom) / (top - bottom)],
-            [0.0, 0.0, -1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ], dtype=np.float32)
+        mvp = np.array(
+            [
+                [2.0 / (right - left), 0.0, 0.0, -(right + left) / (right - left)],
+                [0.0, 2.0 / (top - bottom), 0.0, -(top + bottom) / (top - bottom)],
+                [0.0, 0.0, -1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
 
         return mvp

@@ -227,9 +227,7 @@ class GlobalSceneBatcher:
     def cleanup(cls) -> None:
         """Clean up dead references."""
         dead_ids = [
-            scene_id
-            for scene_id, batcher_ref in cls._scene_map.items()
-            if batcher_ref() is None
+            scene_id for scene_id, batcher_ref in cls._scene_map.items() if batcher_ref() is None
         ]
         for scene_id in dead_ids:
             del cls._scene_map[scene_id]

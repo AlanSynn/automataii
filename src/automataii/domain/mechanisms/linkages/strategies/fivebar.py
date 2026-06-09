@@ -1,5 +1,4 @@
-"""Five-bar linkage computation strategy.
-"""
+"""Five-bar linkage computation strategy."""
 
 from __future__ import annotations
 

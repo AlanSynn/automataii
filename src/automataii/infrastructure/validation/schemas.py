@@ -135,6 +135,7 @@ def validate_mechanism_catalog(raw_data: dict[str, Any]) -> MechanismCatalogSche
 
 # --- Project Data Schemas ---
 
+
 class PartInfoSchema(BaseModel):
     """Schema for part information in project data."""
 

@@ -33,15 +33,19 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
 
         # Map the visual part name (e.g., 'left_arm_upper') to the logical joint name ('left_elbow')
         part_to_joint_mapping = {
-            'left_arm_upper': 'left_elbow',
-            'right_arm_upper': 'right_elbow',
-            'left_leg_upper': 'left_knee',
-            'right_leg_upper': 'right_knee'
+            "left_arm_upper": "left_elbow",
+            "right_arm_upper": "right_elbow",
+            "left_leg_upper": "left_knee",
+            "right_leg_upper": "right_knee",
         }
 
         joint_key = part_to_joint_mapping.get(part_name)
         if not joint_key or joint_key not in bend_directions:
-            logger.debug("No bend direction for joint '%s' (from part '%s'). Skipping hint.", joint_key, part_name)
+            logger.debug(
+                "No bend direction for joint '%s' (from part '%s'). Skipping hint.",
+                joint_key,
+                part_name,
+            )
             continue
 
         # Use the stable bend direction provided by IKManager. Do NOT recalculate it.
@@ -51,7 +55,7 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
         prev_item = chain[i - 1]
 
         prev_pos = prev_item.mapToScene(prev_item.anchor_offset)  # e.g., shoulder
-        curr_pos = current_item.mapToScene(current_item.anchor_offset) # e.g., elbow
+        curr_pos = current_item.mapToScene(current_item.anchor_offset)  # e.g., elbow
 
         # --- Simplified and Robust Bend Hint Calculation ---
         # 1. Create a vector from the limb's root (shoulder) to its middle (elbow)
@@ -60,7 +64,7 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
         # 2. Calculate a vector perpendicular to this limb segment.
         #    The direction of rotation is controlled by `bend_dir` (+1 for CCW, -1 for CW).
         # 🔧 COORDINATE SYSTEM FIX: Adjust perpendicular vector for Qt's Y-down coordinate system
-        perp_x = vec_to_middle.y() * bend_dir   # Remove negative sign for Qt Y-down
+        perp_x = vec_to_middle.y() * bend_dir  # Remove negative sign for Qt Y-down
         perp_y = -vec_to_middle.x() * bend_dir  # Add negative sign for Qt Y-down
         perp_vec = QPointF(perp_x, perp_y)
 
@@ -77,7 +81,12 @@ def calculate_bend_hint(chain: list, bend_directions: dict[str, int]) -> dict[st
             # CRITICAL FIX: Use joint_key (e.g., 'left_elbow') as the key, not part_name
             bend_hints[joint_key] = hint_position
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Bend hint for '%s' set with direction %s. Hint pos: %s", joint_key, bend_dir, hint_position)
+                logger.debug(
+                    "Bend hint for '%s' set with direction %s. Hint pos: %s",
+                    joint_key,
+                    bend_dir,
+                    hint_position,
+                )
 
     return bend_hints
 
@@ -88,7 +97,7 @@ def solve_ik_fabrik_with_constraints(
     original_bone_lengths: list[float] | None = None,
     bend_directions: dict[str, int] | None = None,
     iterations: int = 10,
-    tolerance: float = 1.0
+    tolerance: float = 1.0,
 ):
     """FABRIK solver with bend direction constraints for natural limb bending.
 
@@ -155,10 +164,10 @@ def solve_ik_fabrik_with_constraints(
 
                 # Map part name to joint name for bend hint lookup
                 part_to_joint_mapping = {
-                    'left_arm_upper': 'left_elbow',
-                    'right_arm_upper': 'right_elbow',
-                    'left_leg_upper': 'left_knee',
-                    'right_leg_upper': 'right_knee'
+                    "left_arm_upper": "left_elbow",
+                    "right_arm_upper": "right_elbow",
+                    "left_leg_upper": "left_knee",
+                    "right_leg_upper": "right_knee",
                 }
 
                 joint_name = part_to_joint_mapping.get(part_name, part_name)
@@ -224,10 +233,10 @@ def solve_ik_fabrik_with_constraints(
 
                 # Map part name to joint name for bend hint lookup (backward pass)
                 part_to_joint_mapping = {
-                    'left_arm_upper': 'left_elbow',
-                    'right_arm_upper': 'right_elbow',
-                    'left_leg_upper': 'left_knee',
-                    'right_leg_upper': 'right_knee'
+                    "left_arm_upper": "left_elbow",
+                    "right_arm_upper": "right_elbow",
+                    "left_leg_upper": "left_knee",
+                    "right_leg_upper": "right_knee",
                 }
 
                 joint_name = part_to_joint_mapping.get(part_name, part_name)
@@ -282,14 +291,13 @@ def solve_ik_fabrik_with_constraints(
         if error < tolerance:
             break
 
-
     # Apply positions and rotations to chain
     for i in range(len(chain)):
         item = chain[i]
         new_pos = joint_positions[i]
 
         # Skip locked joints
-        if hasattr(item, 'is_joint_locked') and item.is_joint_locked:
+        if hasattr(item, "is_joint_locked") and item.is_joint_locked:
             continue
 
         # FABRIK solver already maintains bone length constraints,
@@ -299,14 +307,11 @@ def solve_ik_fabrik_with_constraints(
         # Calculate rotation to point to next joint
         if i < len(chain) - 1:
             next_pos = joint_positions[i + 1]
-            angle_rad = math.atan2(
-                next_pos.y() - new_pos.y(),
-                next_pos.x() - new_pos.x()
-            )
+            angle_rad = math.atan2(next_pos.y() - new_pos.y(), next_pos.x() - new_pos.x())
             angle_deg = math.degrees(angle_rad)
 
             # Store initial angle if not set
-            if not hasattr(item, '_initial_world_angle'):
+            if not hasattr(item, "_initial_world_angle"):
                 item._initial_world_angle = angle_deg
 
             # Apply relative rotation
@@ -315,10 +320,9 @@ def solve_ik_fabrik_with_constraints(
             item.setRotation(item.rotation() + angle_delta)
 
 
-
-
-
-def _stretch_chain_to_target_with_preservation(chain: list, bone_lengths: list[float], base_pos: QPointF, target_pos: QPointF):
+def _stretch_chain_to_target_with_preservation(
+    chain: list, bone_lengths: list[float], base_pos: QPointF, target_pos: QPointF
+):
     """Stretch the chain towards target while preserving bone length constraints."""
     direction = target_pos - base_pos
     distance = QLineF(base_pos, target_pos).length()
@@ -350,7 +354,7 @@ def _stretch_chain_to_target_with_preservation(chain: list, bone_lengths: list[f
     # Position joints along the line from base to effective target
     current_pos = base_pos
     for i in range(1, len(chain)):
-        if hasattr(chain[i], 'is_joint_locked') and chain[i].is_joint_locked:
+        if hasattr(chain[i], "is_joint_locked") and chain[i].is_joint_locked:
             continue
 
         bone_length = bone_lengths[i - 1]
@@ -362,7 +366,7 @@ def _stretch_chain_to_target_with_preservation(chain: list, bone_lengths: list[f
         # Update rotation
         if i > 0:
             prev_item = chain[i - 1]
-            if not (hasattr(prev_item, 'is_joint_locked') and prev_item.is_joint_locked):
+            if not (hasattr(prev_item, "is_joint_locked") and prev_item.is_joint_locked):
                 angle_rad = math.atan2(direction_normalized.y(), direction_normalized.x())
                 angle_deg = math.degrees(angle_rad)
                 current_world_angle = get_world_rotation(prev_item)

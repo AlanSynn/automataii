@@ -112,8 +112,18 @@ class EnhancedInfoPanel(QWidget):
                 "text": f"{GrashofAnalysis.from_config(config).classification.value} ({'Pass' if GrashofAnalysis.from_config(config).passes else 'Fail'})"
                 if config.type == LinkageType.FOUR_BAR
                 else "N/A",
-                "bg": "#dcfce7" if config.type == LinkageType.FOUR_BAR and GrashofAnalysis.from_config(config).passes else "#fee2e2" if config.type == LinkageType.FOUR_BAR else "#e2e8f0",
-                "fg": "#166534" if config.type == LinkageType.FOUR_BAR and GrashofAnalysis.from_config(config).passes else "#b91c1c" if config.type == LinkageType.FOUR_BAR else "#475569",
+                "bg": "#dcfce7"
+                if config.type == LinkageType.FOUR_BAR
+                and GrashofAnalysis.from_config(config).passes
+                else "#fee2e2"
+                if config.type == LinkageType.FOUR_BAR
+                else "#e2e8f0",
+                "fg": "#166534"
+                if config.type == LinkageType.FOUR_BAR
+                and GrashofAnalysis.from_config(config).passes
+                else "#b91c1c"
+                if config.type == LinkageType.FOUR_BAR
+                else "#475569",
             },
             note="Tip: Watch how the driver pulls the coupler—try changing the driven link or bar count to see different motions.",
         )
@@ -131,7 +141,9 @@ class EnhancedInfoPanel(QWidget):
         self._roles_label.setText("\n".join(roles))
 
         if badge:
-            self._set_grashof_badge(badge.get("text", "N/A"), badge.get("bg", "#e2e8f0"), badge.get("fg", "#475569"))
+            self._set_grashof_badge(
+                badge.get("text", "N/A"), badge.get("bg", "#e2e8f0"), badge.get("fg", "#475569")
+            )
         else:
             self._set_grashof_badge("N/A", "#e2e8f0", "#475569")
 

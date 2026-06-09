@@ -444,6 +444,538 @@ class TestRecommendationTemplateSearchContracts:
         )
         assert tracked.returncode == 0, f"{rel_path} must be tracked for clean checkout/package"
 
+    def test_best_recommendation_tie_break_is_input_order_independent(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]
+
+        def row(name: str) -> dict[str, Any]:
+            return {
+                "type": "4-bar Coupler",
+                "name": name,
+                "parameters": {},
+                "path_coordinates": user_path,
+                "path_coordinates_np": np.asarray(user_path, dtype=float),
+            }
+
+        def best_name(rows: list[dict[str, Any]]) -> str:
+            dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+            dialog.user_motion_path_np = np.asarray(user_path, dtype=float)
+            dialog.generated_paths_data = rows
+            dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+            result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+            assert result[0] is not None
+            return str(result[0]["name"])
+
+        assert best_name([row("Beta"), row("Alpha")]) == "Alpha"
+        assert best_name([row("Alpha"), row("Beta")]) == "Alpha"
+
+    def test_recommendation_scores_reversed_saved_path_against_current_user_drawing(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = np.asarray(
+            [[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [3.0, 1.0], [3.0, 2.0]],
+            dtype=float,
+        )
+        stored_reversed_path = user_path[::-1].copy()
+        dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+        dialog.user_motion_path_np = user_path
+        dialog.generated_paths_data = [
+            {
+                "name": "reverse-saved-fourbar",
+                "type": "4-bar Coupler",
+                "parameters": {"l1": 10.0},
+                "path_coordinates": stored_reversed_path.tolist(),
+                "path_coordinates_np": stored_reversed_path,
+            }
+        ]
+        dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+
+        result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+
+        best = result[0]
+        assert best is not None
+        assert best["name"] == "reverse-saved-fourbar"
+        assert best["scores"]["path_direction"] == "reversed"
+        assert best["scores"]["time_aware_reversed"] < best["scores"]["time_aware_forward"]
+        assert best["scores"]["time_aware"] == best["scores"]["time_aware_reversed"]
+        assert best["reverse_direction"] is True
+        assert best["parameters"]["reverse_direction"] is True
+
+    def test_recommendation_reversed_match_toggles_existing_reverse_direction(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = np.asarray(
+            [[0.0, 0.0], [1.0, 0.0], [1.5, 2.0], [3.0, 2.0]],
+            dtype=float,
+        )
+        stored_reversed_path = user_path[::-1].copy()
+        dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+        dialog.user_motion_path_np = user_path
+        dialog.generated_paths_data = [
+            {
+                "name": "already-reversed-fourbar",
+                "type": "4-bar Coupler",
+                "reverse_direction": True,
+                "parameters": {},
+                "path_coordinates": stored_reversed_path.tolist(),
+                "path_coordinates_np": stored_reversed_path,
+            }
+        ]
+        dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+
+        result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+
+        best = result[0]
+        assert best is not None
+        assert best["scores"]["path_direction"] == "reversed"
+        assert best["reverse_direction"] is False
+        assert best["parameters"]["reverse_direction"] is False
+
+    def test_recommendation_keeps_forward_direction_on_exact_direction_tie(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        palindromic_path = np.asarray([[0.0, 0.0], [1.0, 1.0], [0.0, 0.0]], dtype=float)
+        dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+        dialog.user_motion_path_np = palindromic_path
+        dialog.generated_paths_data = [
+            {
+                "name": "direction-tie-fourbar",
+                "type": "4-bar Coupler",
+                "reverse_direction": False,
+                "parameters": {},
+                "path_coordinates": palindromic_path.tolist(),
+                "path_coordinates_np": palindromic_path,
+            }
+        ]
+        dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+
+        result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+
+        best = result[0]
+        assert best is not None
+        assert best["scores"]["path_direction"] == "forward"
+        assert best["scores"]["time_aware_forward"] == best["scores"]["time_aware_reversed"]
+        assert best["reverse_direction"] is False
+
+    def test_recommendation_direction_coerces_string_and_numeric_reverse_flags(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = np.asarray(
+            [[0.0, 0.0], [2.0, 1.0], [4.0, 1.0], [5.0, 3.0]],
+            dtype=float,
+        )
+        stored_reversed_path = user_path[::-1].copy()
+
+        def best_reverse_flag(row: dict[str, Any]) -> bool:
+            dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+            dialog.user_motion_path_np = user_path
+            row = {
+                "name": "coerced-fourbar",
+                "type": "4-bar Coupler",
+                "path_coordinates": stored_reversed_path.tolist(),
+                "path_coordinates_np": stored_reversed_path,
+                **row,
+            }
+            dialog.generated_paths_data = [row]
+            dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+            result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+            best = result[0]
+            assert best is not None
+            assert best["scores"]["path_direction"] == "reversed"
+            return best["reverse_direction"]
+
+        assert best_reverse_flag({"reverse_direction": "reverse", "parameters": {}}) is False
+        assert best_reverse_flag({"parameters": {"reverse_direction": "true"}}) is False
+        assert best_reverse_flag({"reverse_direction": 1, "parameters": {}}) is False
+
+    def test_recommendation_prefers_forward_candidate_over_same_shape_reversed_candidate(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = np.asarray(
+            [[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [4.0, 1.0], [5.0, 3.0]],
+            dtype=float,
+        )
+
+        def row(name: str, path: np.ndarray) -> dict[str, Any]:
+            return {
+                "name": name,
+                "type": "4-bar Coupler",
+                "parameters": {},
+                "path_coordinates": path.tolist(),
+                "path_coordinates_np": path,
+            }
+
+        dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+        dialog.user_motion_path_np = user_path
+        dialog.generated_paths_data = [
+            row("a-same-shape-reversed", user_path[::-1].copy()),
+            row("z-same-shape-forward", user_path.copy()),
+        ]
+        dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+
+        result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+
+        best = result[0]
+        assert best is not None
+        assert best["name"] == "z-same-shape-forward"
+        assert best["scores"]["path_direction"] == "forward"
+        assert best["scores"]["time_aware_forward"] <= best["scores"]["time_aware_reversed"]
+
+    def test_recommendation_top_level_reverse_flag_wins_over_parameter_flag(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = np.asarray([[0.0, 0.0], [2.0, 1.0], [4.0, 0.0]], dtype=float)
+        dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+        dialog.user_motion_path_np = user_path
+        dialog.generated_paths_data = [
+            {
+                "name": "top-level-wins",
+                "type": "4-bar Coupler",
+                "reverse_direction": True,
+                "parameters": {"reverse_direction": False},
+                "path_coordinates": user_path.tolist(),
+                "path_coordinates_np": user_path,
+            }
+        ]
+        dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+
+        result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+
+        best = result[0]
+        assert best is not None
+        assert best["scores"]["path_direction"] == "forward"
+        assert best["reverse_direction"] is True
+        assert best["parameters"]["reverse_direction"] is True
+
+    def test_equal_path_reverse_direction_tie_is_input_order_independent(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        user_path = np.asarray([[0.0, 0.0], [1.0, 2.0], [2.0, 0.0]], dtype=float)
+
+        def row(reverse_direction: bool) -> dict[str, Any]:
+            return {
+                "name": "same-candidate",
+                "type": "4-bar Coupler",
+                "reverse_direction": reverse_direction,
+                "parameters": {},
+                "path_coordinates": user_path.tolist(),
+                "path_coordinates_np": user_path.copy(),
+            }
+
+        def best_reverse(rows: list[dict[str, Any]]) -> bool:
+            dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+            dialog.user_motion_path_np = user_path
+            dialog.generated_paths_data = rows
+            dialog._get_mechanism_points_orig = MagicMock(return_value=None)
+            result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+            best = result[0]
+            assert best is not None
+            return best["reverse_direction"]
+
+        assert best_reverse([row(True), row(False)]) is False
+        assert best_reverse([row(False), row(True)]) is False
+
+    def test_create_layer_data_from_recommendation_preserves_direction_metadata(self):
+        from PyQt6.QtGui import QPainterPath
+
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        user_path = QPainterPath()
+        user_path.moveTo(0.0, 0.0)
+        user_path.lineTo(10.0, 10.0)
+
+        layer_data, graphics_data = service.create_layer_data_from_recommendation(
+            {
+                "type": "Four-Bar Linkage",
+                "original_json_type": "4-bar Coupler",
+                "name": "reverse-selected",
+                "reverse_direction": True,
+                "parameters": {"l1": 10.0},
+                "user_motion_path_local": user_path,
+            },
+            target_path=None,
+        )
+
+        assert layer_data["reverse_direction"] is True
+        assert layer_data["params"]["reverse_direction"] is True
+        assert graphics_data["reverse_direction"] is True
+        assert graphics_data["params"]["reverse_direction"] is True
+
+    def test_create_layer_data_from_recommendation_coerces_parameter_direction_metadata(self):
+        from PyQt6.QtGui import QPainterPath
+
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        user_path = QPainterPath()
+        user_path.moveTo(0.0, 0.0)
+        user_path.lineTo(10.0, 10.0)
+
+        layer_data, graphics_data = (
+            MechanismInstantiationService().create_layer_data_from_recommendation(
+                {
+                    "type": "Four-Bar Linkage",
+                    "original_json_type": "4-bar Coupler",
+                    "name": "parameter-reverse-selected",
+                    "parameters": {"reverse_direction": "reversed"},
+                    "user_motion_path_local": user_path,
+                },
+                target_path=None,
+            )
+        )
+
+        assert layer_data["reverse_direction"] is True
+        assert layer_data["params"]["reverse_direction"] is True
+        assert graphics_data["reverse_direction"] is True
+        assert graphics_data["params"]["reverse_direction"] is True
+
+    def test_create_layer_data_prefers_dialog_user_path_over_stale_target_path(self):
+        from PyQt6.QtGui import QPainterPath
+
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        dialog_path = QPainterPath()
+        dialog_path.moveTo(0.0, 0.0)
+        dialog_path.lineTo(10.0, 10.0)
+        stale_path = QPainterPath()
+        stale_path.moveTo(100.0, 100.0)
+        stale_path.lineTo(200.0, 200.0)
+
+        layer_data, graphics_data = (
+            MechanismInstantiationService().create_layer_data_from_recommendation(
+                {
+                    "type": "Four-Bar Linkage",
+                    "original_json_type": "4-bar Coupler",
+                    "name": "fresh-path-selected",
+                    "parameters": {},
+                    "user_motion_path_local": dialog_path,
+                },
+                target_path=stale_path,
+            )
+        )
+
+        assert layer_data["generated_path"] is dialog_path
+        assert graphics_data["generated_path"] is dialog_path
+
+    def test_degenerate_cam_template_svg_falls_back_to_finite_circle(self, tmp_path):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismPreviewWidget,
+        )
+
+        template = tmp_path / "degenerate_cam.svg"
+        template.write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<circle cx="0" cy="0" r="1"/>'
+            '<path d="M 1 1 L 1 1 L 1 1 Z"/>'
+            "</svg>",
+            encoding="utf-8",
+        )
+
+        axis, poly = MechanismPreviewWidget._load_cam_profile_svg(object(), str(template))
+        assert axis is not None
+        assert poly.shape == (0, 2)
+
+        fallback = MechanismPreviewWidget._build_cam_from_template(
+            object(),
+            poly,
+            base_radius=25.0,
+            eccentricity=10.0,
+            num_samples=16,
+        )
+
+        assert fallback.shape == (16, 2)
+        assert np.isfinite(fallback).all()
+        radii = np.linalg.norm(fallback, axis=1)
+        assert np.allclose(radii, 25.0)
+
+    def test_cam_follower_alias_contributes_to_preview_envelope(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        path_points = np.asarray([[0.0, 0.0], [10.0, 5.0], [20.0, 0.0]], dtype=float)
+        mechanism_data = {
+            "original_json_type": "Cam-Follower",
+            "parameters": {"base_radius": 25.0, "eccentricity": 10.0},
+            "path_coordinates_np": path_points,
+            "key_points": {"cam_center": [3.0, 4.0]},
+        }
+
+        envelope = MechanismRecommendationDialog._get_mechanism_points_orig(
+            object(),
+            mechanism_data,
+        )
+
+        assert envelope is not None
+        assert envelope.shape[0] > path_points.shape[0]
+        assert np.isfinite(envelope).all()
+
+    def test_best_recommendations_tolerates_string_numeric_template_params(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        path_points = np.asarray(
+            [[0.0, 0.0], [10.0, 4.0], [20.0, 0.0], [30.0, 4.0]],
+            dtype=float,
+        )
+        dialog = MechanismRecommendationDialog.__new__(MechanismRecommendationDialog)
+        dialog.user_motion_path_np = path_points
+        dialog.generated_paths_data = [
+            {
+                "name": "string-cam",
+                "type": "Cam-Follower",
+                "parameters": {"base_radius": "25.0", "eccentricity": "10.0"},
+                "path_coordinates": path_points.tolist(),
+                "path_coordinates_np": path_points,
+                "key_points": {"cam_center": ["3.0", "4.0"], "rotation_center": ["0", "0"]},
+            },
+            {
+                "name": "string-gear",
+                "type": "Simple Gear",
+                "parameters": {"r1": "40.0", "r2": "60.0"},
+                "path_coordinates": path_points.tolist(),
+                "path_coordinates_np": path_points,
+                "key_points": {"gear1_center": ["0", "0"], "gear2_center": ["100", "0"]},
+            },
+        ]
+
+        result = MechanismRecommendationDialog._get_best_recommendations(dialog)
+
+        assert result[1] is not None
+        assert result[1]["name"] == "string-cam"
+        assert result[2] is not None
+        assert result[2]["name"] == "string-gear"
+
+    def test_mechanism_preview_envelope_rejects_malformed_numeric_params_without_crash(self):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismRecommendationDialog,
+        )
+
+        path_points = np.asarray([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]], dtype=float)
+        mechanism_data = {
+            "original_json_type": "Simple Gear",
+            "parameters": {"r1": "not-a-number", "r2": "60.0"},
+            "path_coordinates_np": path_points,
+            "key_points": ["not", "a", "dict"],
+        }
+
+        envelope = MechanismRecommendationDialog._get_mechanism_points_orig(
+            object(),
+            mechanism_data,
+        )
+
+        assert envelope is not None
+        assert np.array_equal(envelope, path_points)
+
+    def test_cam_template_svg_parser_accepts_lowercase_relative_repeated_commands(self, tmp_path):
+        import numpy as np
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismPreviewWidget,
+        )
+
+        template = tmp_path / "lowercase_cam.svg"
+        template.write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg"><path d="m 0 0 l 10 0 0 10 -10 0 z"/></svg>',
+            encoding="utf-8",
+        )
+
+        axis, poly = MechanismPreviewWidget._load_cam_profile_svg(object(), str(template))
+
+        assert axis is not None
+        assert poly.shape == (4, 2)
+        assert np.allclose(poly, [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
+
+    def test_draw_mechanism_structure_ignores_malformed_sim_payloads(self, caplog):
+        import sys
+
+        import numpy as np
+        from PyQt6.QtGui import QTransform
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.presentation.qt.dialogs.recommendation_dialog import (
+            MechanismPreviewWidget,
+        )
+
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+
+        with caplog.at_level(logging.WARNING):
+            MechanismPreviewWidget(
+                {
+                    "original_json_type": "4-bar Coupler",
+                    "parameters": {"p_x": 0.0, "p_y": 0.0},
+                    "user_path_aligned_np": np.asarray(
+                        [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]],
+                        dtype=float,
+                    ),
+                    "mech_path_aligned_np": np.asarray(
+                        [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]],
+                        dtype=float,
+                    ),
+                    "full_simulation_data": {
+                        "coupler_path": [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]],
+                        "joint_positions": {
+                            "p1_positions": [],
+                            "p2_positions": [],
+                            "p3_positions": [],
+                            "p4_positions": [],
+                        },
+                    },
+                }
+            )._draw_mechanism_structure(QTransform())
+
+        assert "Skipping malformed 4-bar Coupler recommendation preview structure" in caplog.text
+
 
 class TestPresenterMechanismHandling:
     """Test presenter's mechanism handling with defensive checks."""

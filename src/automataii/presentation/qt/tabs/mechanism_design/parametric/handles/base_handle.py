@@ -42,19 +42,21 @@ class BaseHandle(QGraphicsEllipseItem):
     ACTIVE_RADIUS = 22.0
 
     # Colors for different states
-    COLOR_NORMAL = QColor(70, 130, 180)      # Steel blue
-    COLOR_HOVER = QColor(100, 149, 237)      # Cornflower blue
-    COLOR_ACTIVE = QColor(65, 105, 225)      # Royal blue
-    COLOR_DISABLED = QColor(169, 169, 169)   # Dark gray
-    COLOR_ERROR = QColor(220, 20, 60)        # Crimson
+    COLOR_NORMAL = QColor(70, 130, 180)  # Steel blue
+    COLOR_HOVER = QColor(100, 149, 237)  # Cornflower blue
+    COLOR_ACTIVE = QColor(65, 105, 225)  # Royal blue
+    COLOR_DISABLED = QColor(169, 169, 169)  # Dark gray
+    COLOR_ERROR = QColor(220, 20, 60)  # Crimson
 
-    def __init__(self,
-                 mechanism_id: str,
-                 param_name: str,
-                 initial_position: QPointF,
-                 constraint_validator: Callable | None = None,
-                 parameter_changed_callback: Callable | None = None,
-                 parent=None):
+    def __init__(
+        self,
+        mechanism_id: str,
+        param_name: str,
+        initial_position: QPointF,
+        constraint_validator: Callable | None = None,
+        parameter_changed_callback: Callable | None = None,
+        parent=None,
+    ):
         """
         Initialize interactive handle.
 
@@ -96,7 +98,9 @@ class BaseHandle(QGraphicsEllipseItem):
 
         # CRITICAL: Accept all mouse events and force interaction
         self.setAcceptHoverEvents(True)
-        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton | Qt.MouseButton.MiddleButton)
+        self.setAcceptedMouseButtons(
+            Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton | Qt.MouseButton.MiddleButton
+        )
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         # FORCE this item to be on top and interactive
@@ -111,8 +115,9 @@ class BaseHandle(QGraphicsEllipseItem):
     def _setup_appearance(self):
         """Setup initial visual appearance."""
         # Set rectangular bounds for the handle
-        self.setRect(-self.HANDLE_RADIUS, -self.HANDLE_RADIUS,
-                    self.HANDLE_RADIUS * 2, self.HANDLE_RADIUS * 2)
+        self.setRect(
+            -self.HANDLE_RADIUS, -self.HANDLE_RADIUS, self.HANDLE_RADIUS * 2, self.HANDLE_RADIUS * 2
+        )
 
         # Initial pen and brush
         self._update_visual_state()
@@ -166,8 +171,9 @@ class BaseHandle(QGraphicsEllipseItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, enabled)
         self._update_visual_state()
 
-        cursor = QCursor(Qt.CursorShape.PointingHandCursor if enabled
-                        else Qt.CursorShape.ForbiddenCursor)
+        cursor = QCursor(
+            Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ForbiddenCursor
+        )
         self.setCursor(cursor)
 
     def isEnabled(self) -> bool:
@@ -195,7 +201,9 @@ class BaseHandle(QGraphicsEllipseItem):
         logging.info(f"[HANDLE] 🔥 MOUSE PRESS {self.param_name} button={event.button()}")
 
         if not self._is_enabled or event.button() != Qt.MouseButton.LeftButton:
-            logging.info(f"[HANDLE] ❌ Ignoring press - enabled:{self._is_enabled} button:{event.button()}")
+            logging.info(
+                f"[HANDLE] ❌ Ignoring press - enabled:{self._is_enabled} button:{event.button()}"
+            )
             event.ignore()
             return
 
@@ -217,10 +225,14 @@ class BaseHandle(QGraphicsEllipseItem):
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent):
         """Handle mouse move - update parameter during drag without real-time constraint validation."""
-        logging.info(f"[HANDLE BASE] mouseMoveEvent called for {self.param_name}, dragging={self._is_dragging}")
+        logging.info(
+            f"[HANDLE BASE] mouseMoveEvent called for {self.param_name}, dragging={self._is_dragging}"
+        )
 
         if not self._is_dragging or not self._is_enabled:
-            logging.info(f"[HANDLE BASE] Not processing move: dragging={self._is_dragging}, enabled={self._is_enabled}")
+            logging.info(
+                f"[HANDLE BASE] Not processing move: dragging={self._is_dragging}, enabled={self._is_enabled}"
+            )
             return
 
         # CRITICAL: Move handle to new position
@@ -256,7 +268,9 @@ class BaseHandle(QGraphicsEllipseItem):
         # Finalize parameter change
         final_value = self.get_current_parameter_value()
         final_pos = self.pos()
-        logging.info(f"[HANDLE] ✅ Finished dragging {self.param_name}: value={final_value}, pos={final_pos}")
+        logging.info(
+            f"[HANDLE] ✅ Finished dragging {self.param_name}: value={final_value}, pos={final_pos}"
+        )
 
         # Don't call super() as it might interfere
         # super().mouseReleaseEvent(event)
@@ -321,7 +335,6 @@ class BaseHandle(QGraphicsEllipseItem):
         dx = point.x() - handle_center.x()
         dy = point.y() - handle_center.y()
         return math.sqrt(dx * dx + dy * dy)
-
 
     def __repr__(self) -> str:
         """String representation for debugging."""

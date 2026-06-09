@@ -31,7 +31,6 @@ class PartInfo:
         model: PartInfoModel,
         resolved_image_path: str | None = None,
     ) -> None:
-
         self.name: str = model.name
         self.roi: list[float] | None = model.roi
         self.image_path: str | None = (

@@ -19,12 +19,12 @@ def example_create_mechanism():
         mechanism_id="mechanism_001",
         part_name="left_arm_lower",
         params={
-            'anchor1': [0, 0],
-            'anchor2': [100, 0],
-            'l2': 40,  # Crank length
-            'l3': 60,  # Coupler length
-            'l4': 50   # Rocker length
-        }
+            "anchor1": [0, 0],
+            "anchor2": [100, 0],
+            "l2": 40,  # Crank length
+            "l3": 60,  # Coupler length
+            "l4": 50,  # Rocker length
+        },
     )
 
     # Create mechanism through registry
@@ -54,21 +54,13 @@ def example_create_editor():
 
     # Create editor through registry
     editor = mechanism_registry.create_editor(
-        mechanism_type="four_bar",
-        mechanism_id="mechanism_001",
-        scene=scene
+        mechanism_type="four_bar", mechanism_id="mechanism_001", scene=scene
     )
 
     if editor:
         # Create handles
         mechanism_data = {
-            'params': {
-                'anchor1': [0, 0],
-                'anchor2': [100, 0],
-                'l2': 40,
-                'l3': 60,
-                'l4': 50
-            }
+            "params": {"anchor1": [0, 0], "anchor2": [100, 0], "l2": 40, "l3": 60, "l4": 50}
         }
         handles = editor.create_handles(mechanism_data)
         print(f"Created {len(handles)} handles")
@@ -88,13 +80,7 @@ def example_export_blueprint():
     if serializer:
         # Prepare mechanism data
         mechanism_data = {
-            'parameters': {
-                'anchor1': [0, 0],
-                'anchor2': [100, 0],
-                'l2': 40,
-                'l3': 60,
-                'l4': 50
-            }
+            "parameters": {"anchor1": [0, 0], "anchor2": [100, 0], "l2": 40, "l3": 60, "l4": 50}
         }
 
         # Serialize to blueprint
@@ -120,16 +106,16 @@ def example_adapter_usage():
 
     # Convert legacy mechanism data
     legacy_data = {
-        'type': '4_bar_linkage',
-        'id': 'legacy_001',
-        'part_name': 'right_arm_lower',
-        'params': {
-            'ground_pivot_1': [0, 0],
-            'ground_pivot_2': [100, 0],
-            'L2': 40,
-            'L3': 60,
-            'L4': 50
-        }
+        "type": "4_bar_linkage",
+        "id": "legacy_001",
+        "part_name": "right_arm_lower",
+        "params": {
+            "ground_pivot_1": [0, 0],
+            "ground_pivot_2": [100, 0],
+            "L2": 40,
+            "L3": 60,
+            "L4": 50,
+        },
     }
 
     # Create mechanism from legacy format
@@ -140,10 +126,10 @@ def example_adapter_usage():
 
         # Create editor
         scene = QGraphicsScene()
-        adapter.create_editor_for_mechanism('legacy_001', scene)
+        adapter.create_editor_for_mechanism("legacy_001", scene)
 
         # Export blueprint
-        adapter.export_mechanism_blueprint('legacy_001')
+        adapter.export_mechanism_blueprint("legacy_001")
 
     return adapter
 

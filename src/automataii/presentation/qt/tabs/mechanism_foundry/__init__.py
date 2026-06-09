@@ -18,4 +18,4 @@ Components:
 
 from .foundry_view import MechanismFoundryView
 
-__all__ = ['MechanismFoundryView']
+__all__ = ["MechanismFoundryView"]

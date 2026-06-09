@@ -141,7 +141,9 @@ class MechanismTransferService:
             or isinstance(pivot_point, str | bytes | bytearray)
             or len(pivot_point) != 2
         ):
-            raise TransferValidationError(f"pivot_point must contain two numeric values: {pivot_point}")
+            raise TransferValidationError(
+                f"pivot_point must contain two numeric values: {pivot_point}"
+            )
 
         normalized_pivot: list[float] = []
         for index, value in enumerate(pivot_point):

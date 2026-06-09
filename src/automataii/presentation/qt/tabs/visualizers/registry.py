@@ -7,6 +7,7 @@ eliminating the need for type-switch statements throughout the codebase.
 Design Pattern: Registry + Singleton
 SOLID Principle: Dependency Inversion - depend on abstractions (Protocol), not concretions
 """
+
 from __future__ import annotations
 
 import logging
@@ -72,9 +73,7 @@ class MechanismVisualizerRegistry:
             Visualizers are lazily instantiated on first access.
         """
         if mechanism_type in self._visualizer_classes:
-            logger.warning(
-                f"Visualizer for '{mechanism_type}' already registered, overwriting"
-            )
+            logger.warning(f"Visualizer for '{mechanism_type}' already registered, overwriting")
         self._visualizer_classes[mechanism_type] = visualizer_class
         # Clear cached instance if re-registering
         self._visualizers.pop(mechanism_type, None)

@@ -4,7 +4,8 @@
 import logging
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 
 def test_bend_direction_lookup():
     """Test that bend direction lookup works correctly with different key formats."""
@@ -12,7 +13,7 @@ def test_bend_direction_lookup():
     # Simulate the sim_joint_bend_directions dictionary
     sim_joint_bend_directions = {
         "left_elbow_8": -1.0,  # User set this to -1.0
-        "left_elbow": -1.0,    # Also stored with abstract name
+        "left_elbow": -1.0,  # Also stored with abstract name
         "right_elbow_5": 1.0,
         "right_elbow": 1.0,
     }
@@ -37,11 +38,13 @@ def test_bend_direction_lookup():
         else:
             # Try abstract name
             abstract_name = None
-            if '_' in joint_id and joint_id.split('_')[-1].isdigit():
-                abstract_name = '_'.join(joint_id.split('_')[:-1])
+            if "_" in joint_id and joint_id.split("_")[-1].isdigit():
+                abstract_name = "_".join(joint_id.split("_")[:-1])
                 if abstract_name in sim_joint_bend_directions:
                     bend_direction = float(sim_joint_bend_directions[abstract_name])
-                    print(f"✓ {description}: Found via abstract {abstract_name} -> {bend_direction}")
+                    print(
+                        f"✓ {description}: Found via abstract {abstract_name} -> {bend_direction}"
+                    )
                 else:
                     print(f"✗ {description}: Not found, using default {bend_direction}")
             else:
@@ -51,6 +54,7 @@ def test_bend_direction_lookup():
             assert bend_direction == expected, f"Expected {expected}, got {bend_direction}"
 
     print("\nAll bend direction lookup tests passed!")
+
 
 def test_two_bone_ik_math():
     """Test that the two-bone IK math correctly applies bend direction."""
@@ -77,8 +81,11 @@ def test_two_bone_ik_math():
     # The difference should be 2 * alpha_rad
     expected_diff = 2 * alpha_rad
     actual_diff = abs(angle1_final_inverted - angle1_final)
-    assert abs(actual_diff - expected_diff) < 0.001, f"Expected diff {expected_diff}, got {actual_diff}"
+    assert abs(actual_diff - expected_diff) < 0.001, (
+        f"Expected diff {expected_diff}, got {actual_diff}"
+    )
     print(f"✓ Angle difference matches expected: {actual_diff:.2f} rad")
+
 
 def test_fabrik_bend_hints():
     """Test that FABRIK bend hints are correctly keyed."""
@@ -93,12 +100,12 @@ def test_fabrik_bend_hints():
 
     # Simulate the part_to_joint_mapping
     part_to_joint_mapping = {
-        'left_arm_upper': 'left_elbow',
-        'right_arm_upper': 'right_elbow',
+        "left_arm_upper": "left_elbow",
+        "right_arm_upper": "right_elbow",
     }
 
     # Test that the mapping works
-    test_parts = ['left_arm_upper', 'right_arm_upper']
+    test_parts = ["left_arm_upper", "right_arm_upper"]
     for part_name in test_parts:
         joint_key = part_to_joint_mapping.get(part_name)
         if joint_key and joint_key in bend_directions:
@@ -106,9 +113,10 @@ def test_fabrik_bend_hints():
             print(f"✓ Part '{part_name}' -> Joint '{joint_key}' -> Bend dir: {bend_dir}")
         else:
             print(f"✗ Failed to map part '{part_name}'")
-            assert False, f"Failed to map {part_name}"
+            raise AssertionError(f"Failed to map {part_name}")
 
     print("All FABRIK bend hint tests passed!")
+
 
 if __name__ == "__main__":
     print("=" * 50)

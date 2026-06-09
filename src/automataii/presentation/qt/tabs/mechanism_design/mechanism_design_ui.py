@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 # Parametric Design System (ULTRATHINK Architecture)
 try:
     import automataii.presentation.qt.parametric_editor  # noqa: F401
+
     PARAMETRIC_AVAILABLE = True
 except ImportError:
     PARAMETRIC_AVAILABLE = False
@@ -93,7 +94,9 @@ class MechanismDesignUI:
         """)
         layers_layout = QVBoxLayout(layers_group)
         self.mechanism_layers_list = QListWidget()
-        self.mechanism_layers_list.setToolTip("Parts for mechanisms - black: has motion path, gray: no motion path")
+        self.mechanism_layers_list.setToolTip(
+            "Parts for mechanisms - black: has motion path, gray: no motion path"
+        )
         self.mechanism_layers_list.setMinimumHeight(180)
         self.mechanism_layers_list.setStyleSheet("""
             QListWidget {
@@ -182,7 +185,9 @@ class MechanismDesignUI:
 
         self.assign_character_btn = QPushButton("Assign Character")
         self.assign_character_btn.setEnabled(False)
-        self.assign_character_btn.setToolTip("Assign a dummy character to the mechanism for simulation")
+        self.assign_character_btn.setToolTip(
+            "Assign a dummy character to the mechanism for simulation"
+        )
         self.assign_character_btn.setStyleSheet("""
             QPushButton {
                 background-color: #9b59b6;
@@ -209,7 +214,9 @@ class MechanismDesignUI:
         # Parametric Design Button (ULTRATHINK Architecture)
         if PARAMETRIC_AVAILABLE:
             self.parametric_edit_btn = QPushButton("Parametric Edit")
-            self.parametric_edit_btn.setToolTip("Enable interactive parameter editing with drag handles")
+            self.parametric_edit_btn.setToolTip(
+                "Enable interactive parameter editing with drag handles"
+            )
             self.parametric_edit_btn.setEnabled(False)  # Enable when mechanisms are loaded
             self.parametric_edit_btn.setStyleSheet("""
                 QPushButton {
@@ -231,7 +238,6 @@ class MechanismDesignUI:
                 }
             """)
             generation_layout.addWidget(self.parametric_edit_btn)
-
 
         panel_layout.addWidget(generation_group)
 
@@ -283,7 +289,6 @@ class MechanismDesignUI:
 
         animation_layout.addLayout(anim_button_layout)
         panel_layout.addWidget(animation_group)
-
 
         # 5. View Controls Group
         view_controls_group = QGroupBox("5 View Controls")

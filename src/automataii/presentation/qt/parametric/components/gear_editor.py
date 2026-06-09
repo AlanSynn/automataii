@@ -18,6 +18,30 @@ from PyQt6.QtGui import QColor
 from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
 
 
+def _finite_float(value: Any, default: float) -> float:
+    """Return a finite float or a safe default for user-editable gear params."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _positive_finite_float(value: Any, default: float, *, minimum: float = 1e-6) -> float:
+    """Return a positive finite float, preserving existing defaults for invalid inputs."""
+    return max(minimum, _finite_float(value, default))
+
+
+def _nonnegative_finite_float(value: Any, default: float) -> float:
+    """Return a non-negative finite float."""
+    return max(0.0, _finite_float(value, default))
+
+
+def _is_finite_point(point: QPointF) -> bool:
+    """Return True only when a scene point can be safely persisted."""
+    return math.isfinite(point.x()) and math.isfinite(point.y())
+
+
 class GearEditor(MechanismEditor):
     """Editor for gear mechanisms with position and size control."""
 
@@ -28,10 +52,24 @@ class GearEditor(MechanismEditor):
         key_points = mechanism_data.get("key_points", {})
 
         # Normalize aliases used across Foundry/Design/editor code paths.
-        params.setdefault("gear1_radius", float(params.get("r1", 40.0)))
-        params.setdefault("gear2_radius", float(params.get("r2", 60.0)))
+        params["gear1_radius"] = _positive_finite_float(
+            params.get("gear1_radius", params.get("r1", 40.0)),
+            40.0,
+            minimum=20.0,
+        )
+        params["gear2_radius"] = _positive_finite_float(
+            params.get("gear2_radius", params.get("r2", 60.0)),
+            60.0,
+            minimum=20.0,
+        )
         params["r1"] = float(params["gear1_radius"])
         params["r2"] = float(params["gear2_radius"])
+        clearance = _nonnegative_finite_float(
+            params.get("gear_clearance", params.get("mesh_clearance", 2.0)),
+            2.0,
+        )
+        params["gear_clearance"] = clearance
+        params["mesh_clearance"] = clearance
 
         if "gear1_x" not in params or "gear1_y" not in params:
             g1 = key_points.get("gear1_center")
@@ -78,7 +116,9 @@ class GearEditor(MechanismEditor):
         self._create_mesh_handle()
         self._sync_gear_handle_positions()
 
-    def _create_gear_handles(self, gear_id: str, center: QPointF, radius: float, is_driver: bool):
+    def _create_gear_handles(
+        self, gear_id: str, center: QPointF, radius: float, is_driver: bool
+    ) -> None:
         """Create handles for a single gear."""
         center_handle = ParametricHandle(
             center,
@@ -108,7 +148,7 @@ class GearEditor(MechanismEditor):
         self.scene.addItem(radius_handle)
         self.handles[f"{gear_id}_radius"] = radius_handle
 
-    def _create_mesh_handle(self):
+    def _create_mesh_handle(self) -> None:
         """Create handle for adjusting gear meshing."""
         params = self.mechanism_data["params"]
         center1 = QPointF(params.get("gear1_x", 0), params.get("gear1_y", 0))
@@ -127,8 +167,13 @@ class GearEditor(MechanismEditor):
         self.scene.addItem(mesh_handle)
         self.handles["mesh"] = mesh_handle
 
-    def _on_gear_center_moved(self, gear_id: str, new_pos: QPointF):
+    def _on_gear_center_moved(self, gear_id: str, new_pos: QPointF) -> None:
         """Handle gear center movement."""
+        if not _is_finite_point(new_pos):
+            self._restore_gear_center_handle(gear_id)
+            self._sync_gear_handle_positions()
+            return
+
         self.mechanism_data["params"][f"{gear_id}_x"] = new_pos.x()
         self.mechanism_data["params"][f"{gear_id}_y"] = new_pos.y()
         self._update_gear_key_point(gear_id, new_pos)
@@ -136,7 +181,18 @@ class GearEditor(MechanismEditor):
         self._sync_gear_handle_positions()
         self._trigger_gear_update()
 
-    def _on_gear_radius_changed(self, gear_id: str, new_pos: QPointF):
+    def _restore_gear_center_handle(self, gear_id: str) -> None:
+        """Restore a center handle to the last finite persisted center."""
+        params = self.mechanism_data.get("params", {})
+        center = QPointF(
+            _finite_float(params.get(f"{gear_id}_x"), 0.0),
+            _finite_float(params.get(f"{gear_id}_y"), 0.0),
+        )
+        center_handle = self.handles.get(f"{gear_id}_center")
+        if center_handle is not None:
+            center_handle.setPos(center)
+
+    def _on_gear_radius_changed(self, gear_id: str, new_pos: QPointF) -> None:
         """Handle gear radius change."""
         center = QPointF(
             self.mechanism_data["params"][f"{gear_id}_x"],
@@ -147,13 +203,16 @@ class GearEditor(MechanismEditor):
         dy = new_pos.y() - center.y()
         new_radius = math.sqrt(dx * dx + dy * dy)
 
+        # Match handle constraints for direct callback invocations as well as GUI drags.
+        new_radius = max(20.0, min(150.0, new_radius))
+
         self.mechanism_data["params"][f"{gear_id}_radius"] = new_radius
         self.mechanism_data["params"]["r1" if gear_id == "gear1" else "r2"] = new_radius
         self._auto_adjust_gear_mesh()
         self._sync_gear_handle_positions()
         self._trigger_gear_update()
 
-    def _on_mesh_adjusted(self, handle_id: str, new_pos: QPointF):
+    def _on_mesh_adjusted(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle mesh adjustment."""
         center1 = QPointF(
             self.mechanism_data["params"]["gear1_x"],
@@ -164,22 +223,32 @@ class GearEditor(MechanismEditor):
             self.mechanism_data["params"]["gear2_y"],
         )
 
+        params = self.mechanism_data["params"]
+        r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1")), 40.0)
+        r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2")), 60.0)
+
         v = center2 - center1
-        u = new_pos - center1
+        current_distance = math.hypot(v.x(), v.y())
+        if current_distance > 1e-9:
+            direction_x = v.x() / current_distance
+            direction_y = v.y() / current_distance
+        else:
+            direction_x = 1.0
+            direction_y = 0.0
 
-        if v.x() != 0 or v.y() != 0:
-            t = (u.x() * v.x() + u.y() * v.y()) / (v.x() * v.x() + v.y() * v.y())
-            t = max(0.3, min(0.7, t))
+        half_distance = (new_pos.x() - center1.x()) * direction_x + (
+            new_pos.y() - center1.y()
+        ) * direction_y
+        desired_distance = max(r1 + r2, half_distance * 2.0)
+        clearance = max(0.0, desired_distance - r1 - r2)
+        params["gear_clearance"] = clearance
+        params["mesh_clearance"] = clearance
 
-            new_center2 = center1 + v * (2 * t)
-            self.mechanism_data["params"]["gear2_x"] = new_center2.x()
-            self.mechanism_data["params"]["gear2_y"] = new_center2.y()
-            self._update_gear_key_point("gear2", new_center2)
-            self._auto_adjust_gear_mesh()
-            self._sync_gear_handle_positions()
-            self._trigger_gear_update()
+        self._auto_adjust_gear_mesh()
+        self._sync_gear_handle_positions()
+        self._trigger_gear_update()
 
-    def _update_mesh_handle(self):
+    def _update_mesh_handle(self) -> None:
         """Update mesh handle position."""
         if "mesh" not in self.handles:
             return
@@ -217,7 +286,7 @@ class GearEditor(MechanismEditor):
         for gear_id in ("gear1", "gear2"):
             cx = float(params.get(f"{gear_id}_x", 0.0))
             cy = float(params.get(f"{gear_id}_y", 0.0))
-            radius = float(params.get(f"{gear_id}_radius", 40.0))
+            radius = _positive_finite_float(params.get(f"{gear_id}_radius"), 40.0)
             center = QPointF(cx, cy)
 
             center_handle = self.handles.get(f"{gear_id}_center")
@@ -231,17 +300,27 @@ class GearEditor(MechanismEditor):
 
         self._update_mesh_handle()
 
-    def _auto_adjust_gear_mesh(self):
+    def _auto_adjust_gear_mesh(self) -> None:
         """Automatically adjust gear positions for proper meshing."""
         params = self.mechanism_data["params"]
 
         center1 = np.array([params["gear1_x"], params["gear1_y"]])
         center2 = np.array([params["gear2_x"], params["gear2_y"]])
-        r1 = params["gear1_radius"]
-        r2 = params["gear2_radius"]
+        r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1")), 40.0)
+        r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2")), 60.0)
+        clearance = _nonnegative_finite_float(
+            params.get("gear_clearance", params.get("mesh_clearance", 2.0)),
+            2.0,
+        )
+        params["gear1_radius"] = r1
+        params["gear2_radius"] = r2
+        params["r1"] = r1
+        params["r2"] = r2
+        params["gear_clearance"] = clearance
+        params["mesh_clearance"] = clearance
 
         current_distance = np.linalg.norm(center2 - center1)
-        ideal_distance = r1 + r2 + 2
+        ideal_distance = r1 + r2 + clearance
 
         if abs(current_distance - ideal_distance) > 0.1:
             direction = (
@@ -255,7 +334,7 @@ class GearEditor(MechanismEditor):
                 "gear2", QPointF(float(new_center2[0]), float(new_center2[1]))
             )
 
-    def _trigger_gear_update(self):
+    def _trigger_gear_update(self) -> None:
         """Trigger gear mechanism update."""
         simulation_data = self._simulate_gear_motion()
         self.update_visuals(simulation_data)
@@ -264,8 +343,12 @@ class GearEditor(MechanismEditor):
         """Simulate gear motion."""
         params = self.mechanism_data["params"]
 
-        r1 = params["gear1_radius"]
-        r2 = params["gear2_radius"]
+        r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1")), 40.0)
+        r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2")), 60.0)
+        params["gear1_radius"] = r1
+        params["gear2_radius"] = r2
+        params["r1"] = r1
+        params["r2"] = r2
         gear_ratio = r2 / r1
 
         angles = np.linspace(0, 360, 100)
@@ -288,7 +371,7 @@ class GearEditor(MechanismEditor):
 
     def update_visuals(self, simulation_data: dict[str, Any]) -> None:
         """Update gear visuals."""
-        pass
+        return None
 
 
 class PlanetaryGearEditor(MechanismEditor):
@@ -489,7 +572,7 @@ class PlanetaryGearEditor(MechanismEditor):
             handle.constraints["min_radius"] = self._scene_length_from_mech(arm_center_scene, 0.0)
             handle.constraints["max_radius"] = self._scene_length_from_mech(arm_center_scene, 300.0)
 
-    def _on_sun_center_moved(self, handle_id: str, new_pos: QPointF):
+    def _on_sun_center_moved(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle sun center movement."""
         self.mechanism_data["params"]["sun_x"] = float(new_pos.x())
         self.mechanism_data["params"]["sun_y"] = float(new_pos.y())
@@ -497,7 +580,7 @@ class PlanetaryGearEditor(MechanismEditor):
         self._sync_handle_positions()
         self._trigger_update()
 
-    def _on_planet_radius_changed(self, handle_id: str, new_pos: QPointF):
+    def _on_planet_radius_changed(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle planet radius change."""
         c = QPointF(
             float(self.mechanism_data["params"].get("sun_x", 0.0)),
@@ -515,7 +598,7 @@ class PlanetaryGearEditor(MechanismEditor):
         self._sync_handle_positions()
         self._trigger_update()
 
-    def _on_arm_length_changed(self, handle_id: str, new_pos: QPointF):
+    def _on_arm_length_changed(self, handle_id: str, new_pos: QPointF) -> None:
         """Handle arm length change."""
         c = QPointF(
             float(self.mechanism_data["params"].get("sun_x", 0.0)),
@@ -548,9 +631,9 @@ class PlanetaryGearEditor(MechanismEditor):
         self._sync_handle_positions()
         self._trigger_update()
 
-    def _trigger_update(self):
+    def _trigger_update(self) -> None:
         """Trigger update (no local simulation)."""
-        pass
+        return None
 
     def update_mechanism(self, param_changes: dict[str, Any]) -> dict[str, Any]:
         """Update planetary gear mechanism."""
@@ -561,4 +644,4 @@ class PlanetaryGearEditor(MechanismEditor):
 
     def update_visuals(self, simulation_data: dict[str, Any]) -> None:
         """Update planetary gear visuals."""
-        pass
+        return None

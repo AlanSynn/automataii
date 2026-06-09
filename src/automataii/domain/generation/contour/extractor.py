@@ -63,9 +63,7 @@ class AdvancedContourExtractor:
         self.min_area = _nonnegative_finite_float(min_area, 100.0)
         self.logger = logging.getLogger(__name__)
 
-    def extract_manufacturing_contours(
-        self, png_path: str
-    ) -> list[ManufacturingContour]:
+    def extract_manufacturing_contours(self, png_path: str) -> list[ManufacturingContour]:
         """
         Extract manufacturing-precision contours from PNG file.
 
@@ -118,14 +116,10 @@ class AdvancedContourExtractor:
                 # 6. Convert to manufacturing-precision SVG paths
                 svg_path = self._contour_to_svg_path(simplified_contour)
 
-                manufacturing_contour = ManufacturingContour(
-                    contour, simplified_contour, svg_path
-                )
+                manufacturing_contour = ManufacturingContour(contour, simplified_contour, svg_path)
                 manufacturing_contours.append(manufacturing_contour)
 
-            self.logger.info(
-                f"Extracted {len(manufacturing_contours)} contours from {png_path}"
-            )
+            self.logger.info(f"Extracted {len(manufacturing_contours)} contours from {png_path}")
             return manufacturing_contours
 
         except Exception as e:
@@ -152,9 +146,7 @@ class AdvancedContourExtractor:
             )
 
             # Alternative: use Otsu's method for automatic threshold
-            _, otsu_mask = cv2.threshold(
-                gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-            )
+            _, otsu_mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
             # Combine both methods for robust segmentation
             alpha_mask = cv2.bitwise_or(alpha_mask, otsu_mask)
@@ -251,9 +243,7 @@ class AdvancedContourExtractor:
 
         return " ".join(parts)
 
-    def apply_offset_to_path(
-        self, svg_path: str, offset_x: float, offset_y: float
-    ) -> str:
+    def apply_offset_to_path(self, svg_path: str, offset_x: float, offset_y: float) -> str:
         """Apply offset to SVG path coordinates."""
         if not isinstance(svg_path, str) or not svg_path:
             return ""
@@ -274,8 +264,6 @@ class AdvancedContourExtractor:
         return offset_path
 
     # Backward compatibility alias
-    def _apply_offset_to_path(
-        self, svg_path: str, offset_x: float, offset_y: float
-    ) -> str:
+    def _apply_offset_to_path(self, svg_path: str, offset_x: float, offset_y: float) -> str:
         """Alias for apply_offset_to_path for backward compatibility."""
         return self.apply_offset_to_path(svg_path, offset_x, offset_y)

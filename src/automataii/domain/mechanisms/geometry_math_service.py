@@ -252,7 +252,9 @@ class GeometryMathService:
 
         if total_length < _EPSILON:
             # Degenerate path (all points same or very close): return duplicates
-            logger.debug(f"resample_path: total_length too small ({total_length}), returning duplicates")
+            logger.debug(
+                f"resample_path: total_length too small ({total_length}), returning duplicates"
+            )
             return tuple(points[0] for _ in range(num_samples))
 
         # Build cumulative length array
@@ -339,6 +341,8 @@ class GeometryMathService:
         # Safety check for numerical stability
         mean_squared_error = sum_squared_error / len(target)
         if mean_squared_error < 0:
-            logger.warning(f"compute_path_error_rms: negative MSE ({mean_squared_error}), returning 0")
+            logger.warning(
+                f"compute_path_error_rms: negative MSE ({mean_squared_error}), returning 0"
+            )
             return 0.0
         return math.sqrt(mean_squared_error)

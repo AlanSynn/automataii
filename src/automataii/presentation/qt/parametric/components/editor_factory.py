@@ -6,6 +6,7 @@ of mechanism editors based on mechanism type.
 
 Design Pattern: Factory (type-based instantiation)
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable

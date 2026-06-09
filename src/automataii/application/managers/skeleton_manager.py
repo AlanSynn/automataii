@@ -30,9 +30,7 @@ class SkeletonManager(QObject):
     Internally uses StandardizedSkeletonModel.
     """
 
-    skeleton_updated = pyqtSignal(
-        dict
-    )  # Emits the new standardized skeleton data as a dict
+    skeleton_updated = pyqtSignal(dict)  # Emits the new standardized skeleton data as a dict
     error_occurred = pyqtSignal(str)  # Emits an error message
     skeleton_data_cleared = pyqtSignal()  # Emits when skeleton data is cleared
 
@@ -43,7 +41,6 @@ class SkeletonManager(QObject):
         )
         self._standardized_skeleton_model: StandardizedSkeletonModel | None = None
         logging.info("SkeletonManager initialized with new standardized models.")
-
 
     @property
     def standardized_model(self) -> StandardizedSkeletonModel | None:
@@ -59,8 +56,6 @@ class SkeletonManager(QObject):
             joint_id: joint.position
             for joint_id, joint in self._standardized_skeleton_model.joints.items()
         }
-
-
 
     def load_skeleton_from_dict(
         self, data: dict[str, Any] | None, source_format: str = "auto"
@@ -78,9 +73,7 @@ class SkeletonManager(QObject):
         # Start fresh without emitting transient "empty skeleton" updates.
         self.clear_data(emit_signals=False)
         if not data or not isinstance(data, dict):
-            logging.warning(
-                "SkeletonManager: No data provided or data is not a dictionary."
-            )
+            logging.warning("SkeletonManager: No data provided or data is not a dictionary.")
             self.clear_data()
             return False
 
@@ -103,9 +96,7 @@ class SkeletonManager(QObject):
         elif source_format == "standard" or (
             source_format == "auto" and self._is_already_standardized_format(data)
         ):
-            logging.info(
-                "SkeletonManager: Detected Standardized format based on hint or content."
-            )
+            logging.info("SkeletonManager: Detected Standardized format based on hint or content.")
             detected_format = "standard"
             processed_model = self._process_already_standardized_format(data)
         else:  # Fallback or if auto-detection failed and no clear format
@@ -133,9 +124,7 @@ class SkeletonManager(QObject):
             self.skeleton_updated.emit(self._standardized_skeleton_model.model_dump())
             return True
         else:
-            logging.error(
-                "SkeletonManager: Failed to process skeleton data into any known format."
-            )
+            logging.error("SkeletonManager: Failed to process skeleton data into any known format.")
             self.clear_data()  # clear_data emits its own signals
             self.error_occurred.emit(
                 "Failed to process skeleton data (unknown format or invalid content)."
@@ -179,9 +168,7 @@ class SkeletonManager(QObject):
 
         # This data typically comes from a parsed parts_info.json or char_cfg.yaml,
         # so it's likely 'animated_drawings' or a structure very close to it.
-        return self.load_skeleton_from_dict(
-            wrapper_dict, source_format="animated_drawings"
-        )
+        return self.load_skeleton_from_dict(wrapper_dict, source_format="animated_drawings")
 
     def clear_data(self, *, emit_signals: bool = True) -> None:
         """Clears all internal skeleton data and emits relevant signals."""
@@ -190,9 +177,7 @@ class SkeletonManager(QObject):
         self._standardized_skeleton_model = None
         if emit_signals:
             self.skeleton_data_cleared.emit()
-            self.skeleton_updated.emit(
-                {}
-            )  # Emit empty dict to signal state change to empty
+            self.skeleton_updated.emit({})  # Emit empty dict to signal state change to empty
 
     def _is_animated_drawings_format(self, data: dict[str, Any]) -> bool:
         """Checks if the provided data dictionary matches the Animated Drawings char_cfg.yaml structure."""
@@ -296,7 +281,7 @@ class SkeletonManager(QObject):
         joint_id = self._generate_unique_joint_id(joint_name, index, skeleton.joints)
 
         # Create joint model
-        bend_dir = 1.0 if ('elbow' in joint_name.lower() or 'knee' in joint_name.lower()) else None
+        bend_dir = 1.0 if ("elbow" in joint_name.lower() or "knee" in joint_name.lower()) else None
 
         std_joint = StandardizedJointModel(
             id=joint_id,
@@ -322,12 +307,16 @@ class SkeletonManager(QObject):
     def _parse_ad_coordinates(self, coords: Any, joint_name: str) -> tuple[float, float] | None:
         """Parse and validate coordinates for AD joint."""
         if not isinstance(coords, list) or len(coords) != 2:
-            logging.warning(f"Skipping AD joint '{joint_name}' due to invalid coordinates: {coords}")
+            logging.warning(
+                f"Skipping AD joint '{joint_name}' due to invalid coordinates: {coords}"
+            )
             return None
         try:
             return (float(coords[0]), float(coords[1]))
         except (ValueError, TypeError):
-            logging.warning(f"Skipping AD joint '{joint_name}' due to non-numeric coordinates: {coords}")
+            logging.warning(
+                f"Skipping AD joint '{joint_name}' due to non-numeric coordinates: {coords}"
+            )
             return None
 
     def _generate_unique_joint_id(
@@ -411,9 +400,7 @@ class SkeletonManager(QObject):
                 and model.joints
                 and not any(j.parent_id for j in model.joints.values())
             ):
-                model.root_joint_ids = list(
-                    model.joints.keys()
-                )  # All are roots if no parents
+                model.root_joint_ids = list(model.joints.keys())  # All are roots if no parents
 
             return model
         except ValidationError as ve:
@@ -421,9 +408,7 @@ class SkeletonManager(QObject):
                 f"Data validation failed for StandardizedSkeletonModel format: {ve}",
                 exc_info=True,
             )
-            self.error_occurred.emit(
-                f"Invalid standardized skeleton data: {ve.errors()}"
-            )
+            self.error_occurred.emit(f"Invalid standardized skeleton data: {ve.errors()}")
             return None
         except Exception as e:
             logging.error(
@@ -450,29 +435,18 @@ class SkeletonManager(QObject):
                     return joint
         return None
 
-
-    def get_joint_position(
-        self, joint_id_or_name: str
-    ) -> tuple[float, float] | None:
-        joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(
-            joint_id_or_name
-        )
+    def get_joint_position(self, joint_id_or_name: str) -> tuple[float, float] | None:
+        joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(joint_id_or_name)
         return joint.position if joint else None
 
-    def get_parent_joint(
-        self, joint_id_or_name: str
-    ) -> StandardizedJointModel | None:
-        joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(
-            joint_id_or_name
-        )
+    def get_parent_joint(self, joint_id_or_name: str) -> StandardizedJointModel | None:
+        joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(joint_id_or_name)
         if joint and joint.parent_id and self._standardized_skeleton_model:
             return self._standardized_skeleton_model.joints.get(joint.parent_id)
         return None
 
     def get_child_joints(self, joint_id_or_name: str) -> list[StandardizedJointModel]:
-        joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(
-            joint_id_or_name
-        )
+        joint = self.get_joint_by_id(joint_id_or_name) or self.get_joint_by_name(joint_id_or_name)
         if joint and self._standardized_skeleton_model:
             child_ids = self._standardized_skeleton_model.hierarchy.get(joint.id, [])
             return [
@@ -484,13 +458,8 @@ class SkeletonManager(QObject):
 
     def get_limb_length(self, descriptive_limb_name: str) -> float | None:
         """Gets a pre-calculated or defined limb length by its descriptive name."""
-        if (
-            self._standardized_skeleton_model
-            and self._standardized_skeleton_model.limb_lengths
-        ):
-            length = self._standardized_skeleton_model.limb_lengths.get(
-                descriptive_limb_name
-            )
+        if self._standardized_skeleton_model and self._standardized_skeleton_model.limb_lengths:
+            length = self._standardized_skeleton_model.limb_lengths.get(descriptive_limb_name)
             return float(length) if length is not None else None
         return None
 
@@ -699,10 +668,7 @@ class SkeletonManager(QObject):
             # Emit skeleton updated signal
             self.skeleton_updated.emit(self.get_current_skeleton_data())
         else:
-            logging.warning(
-                f"SkeletonManager: Joint '{joint_id}' not found in skeleton model"
-            )
-
+            logging.warning(f"SkeletonManager: Joint '{joint_id}' not found in skeleton model")
 
     def get_all_joint_bend_directions(self) -> dict[str, float]:
         """
@@ -775,16 +741,12 @@ if __name__ == "__main__":
                 )
             head_joint = manager.get_joint_by_name("head")
             if head_joint:
-                print(
-                    f"  Head joint label from AD: {head_joint.label}"
-                )  # Should be 'head'
+                print(f"  Head joint label from AD: {head_joint.label}")  # Should be 'head'
                 print(
                     f"  Head parent: {manager.get_parent_joint(head_joint.id).name if manager.get_parent_joint(head_joint.id) else 'None'}"
                 )
             # Test limb lengths
-            print(
-                f"  Limb length 'hip_to_neck': {manager.get_limb_length('hip_to_neck')}"
-            )
+            print(f"  Limb length 'hip_to_neck': {manager.get_limb_length('hip_to_neck')}")
             print(
                 f"  Limb length from limb_meta 'head_limb': {manager.get_limb_length('head_limb')}"
             )
@@ -803,9 +765,7 @@ if __name__ == "__main__":
         ):
             print("Successfully loaded standard skeleton.")
             if new_manager.standardized_model:
-                print(
-                    f"  Root joint IDs: {new_manager.standardized_model.root_joint_ids}"
-                )
+                print(f"  Root joint IDs: {new_manager.standardized_model.root_joint_ids}")
                 neck_joint = new_manager.get_joint_by_name("neck")
                 if neck_joint:
                     print(f"  Neck position: {neck_joint.position}")
@@ -836,9 +796,7 @@ if __name__ == "__main__":
         print("\n--- skeleton_updated SIGNAL received (dict representation): ---")
         # print(new_skel_dict)
         if new_skel_dict and "root_joint_ids" in new_skel_dict:
-            print(
-                f"Signal: Root joint IDs from dict: {new_skel_dict['root_joint_ids']}"
-            )
+            print(f"Signal: Root joint IDs from dict: {new_skel_dict['root_joint_ids']}")
         # To access full model data, the receiver would typically call manager.standardized_model
         # Or, if the dict is complete, deserialize it: StandardizedSkeletonModel.model_validate(new_skel_dict)
         current_model = manager.standardized_model  # Accessing via the manager instance
@@ -903,9 +861,7 @@ if __name__ == "__main__":
     if manager.load_skeleton_from_project_data(project_skeleton_list_for_ad_style):
         print("Successfully loaded skeleton from project data list.")
         if manager.standardized_model:
-            print(
-                f"  Root joint ID from project data: {manager.standardized_model.root_joint_ids}"
-            )
+            print(f"  Root joint ID from project data: {manager.standardized_model.root_joint_ids}")
             spine_joint = manager.get_joint_by_name("ProjectSpine")
             if spine_joint:
                 print(f"  ProjectSpine position: {spine_joint.position}")

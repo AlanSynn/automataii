@@ -12,7 +12,7 @@ from weakref import WeakSet
 from automataii.infrastructure.state.base import Action, ActionTypes, Reducer, State
 from automataii.infrastructure.state.middleware import Middleware
 
-StateType = TypeVar('StateType')
+StateType = TypeVar("StateType")
 Subscriber = Callable[[State[StateType]], None]
 
 
@@ -33,7 +33,7 @@ class StateStore(Generic[StateType]):
         initial_state: StateType,
         reducer: Reducer[StateType],
         middleware: list[Middleware] = None,
-        max_history: int = 100
+        max_history: int = 100,
     ):
         self._current_state = State(initial_state).freeze()
         self._reducer = reducer
@@ -212,12 +212,12 @@ class StateStore(Generic[StateType]):
         """Get store statistics."""
         with self._lock:
             return {
-                'dispatch_count': self._dispatch_count,
-                'subscriber_count': len(self._subscribers),
-                'history_size': len(self._history),
-                'future_size': len(self._future),
-                'history_enabled': self._history_enabled,
-                'current_action_type': self._history[-1][1].type if self._history else None
+                "dispatch_count": self._dispatch_count,
+                "subscriber_count": len(self._subscribers),
+                "history_size": len(self._history),
+                "future_size": len(self._future),
+                "history_enabled": self._history_enabled,
+                "current_action_type": self._history[-1][1].type if self._history else None,
             }
 
 

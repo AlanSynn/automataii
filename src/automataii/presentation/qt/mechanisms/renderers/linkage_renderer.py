@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 
 class LinkageRenderer:
     @staticmethod
-    def _remove_cached_item(scene: QGraphicsScene, cache: dict[str, QGraphicsItem], key: str) -> None:
+    def _remove_cached_item(
+        scene: QGraphicsScene, cache: dict[str, QGraphicsItem], key: str
+    ) -> None:
         item = cache.pop(key, None)
         if item is None:
             return
@@ -403,7 +405,8 @@ class LinkageRenderer:
         stale_keys = [
             key
             for key in cache
-            if key.startswith("force_") and not any(key.startswith(prefix) for prefix in active_force_prefixes)
+            if key.startswith("force_")
+            and not any(key.startswith(prefix) for prefix in active_force_prefixes)
         ]
         for key in stale_keys:
             self._remove_cached_item(scene, cache, key)

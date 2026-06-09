@@ -34,14 +34,14 @@ class BlueprintExportManager(QObject):
     """
 
     # Singleton instance
-    _instance: Optional['BlueprintExportManager'] = None
+    _instance: Optional["BlueprintExportManager"] = None
     _initialized: bool = False
 
     # Signals
     export_started = pyqtSignal()
     export_completed = pyqtSignal(bool, str)  # success, message
 
-    def __new__(cls) -> 'BlueprintExportManager':
+    def __new__(cls) -> "BlueprintExportManager":
         if cls._instance is not None:
             return cls._instance
         # Do not cache the PyQt QObject before QObject.__init__ runs. Holding a
@@ -75,7 +75,7 @@ class BlueprintExportManager(QObject):
         type(self)._instance = self
 
     @classmethod
-    def get_instance(cls) -> 'BlueprintExportManager':
+    def get_instance(cls) -> "BlueprintExportManager":
         """Get the singleton instance."""
         if cls._instance is None:
             cls._instance = cls()
@@ -132,7 +132,9 @@ class BlueprintExportManager(QObject):
                     success = self._save_pdf_file(svg_content, file_path)
                     if not success:
                         fallback_svg = os.path.splitext(file_path)[0] + ".svg"
-                        self.logger.warning("PDF export unavailable; writing SVG fallback to %s", fallback_svg)
+                        self.logger.warning(
+                            "PDF export unavailable; writing SVG fallback to %s", fallback_svg
+                        )
                         success = self._save_svg_file(svg_content, fallback_svg)
                 else:
                     success = self._save_svg_file(svg_content, file_path)
@@ -140,7 +142,9 @@ class BlueprintExportManager(QObject):
                 if success:
                     unit_label = "Imperial" if unit_system == "imperial" else "Metric"
                     self.logger.info(f"Large-format blueprint ({unit_label}) saved to {file_path}")
-                    self.export_completed.emit(True, f"Blueprint exported successfully ({unit_label} units)")
+                    self.export_completed.emit(
+                        True, f"Blueprint exported successfully ({unit_label} units)"
+                    )
                 else:
                     self.logger.error("Failed to save blueprint file")
                     self.export_completed.emit(False, "Failed to save blueprint file")
@@ -159,13 +163,12 @@ class BlueprintExportManager(QObject):
                 parent_widget,
                 "Export Blueprint",
                 "blueprint.svg",
-                "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)"
+                "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)",
             )
             return file_path if file_path else None
         except Exception as e:
             self.logger.error(f"File dialog error: {e}")
             return None
-
 
     def _save_svg_file(self, svg_content: str, file_path: str) -> bool:
         """Save SVG content to file."""
@@ -173,14 +176,13 @@ class BlueprintExportManager(QObject):
             # Ensure directory exists
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(svg_content)
 
             return True
         except Exception as e:
             self.logger.error(f"Failed to save SVG file: {e}")
             return False
-
 
     def _save_pdf_file(self, svg_content: str, file_path: str) -> bool:
         """Render SVG content into a single-page PDF using Qt backends.
@@ -189,6 +191,7 @@ class BlueprintExportManager(QObject):
         """
         try:
             from PyQt6.QtGui import QPainter, QPdfWriter
+
             try:
                 from PyQt6.QtSvg import QSvgRenderer
             except Exception as e:
@@ -196,7 +199,8 @@ class BlueprintExportManager(QObject):
                 return False
 
             from PyQt6.QtCore import QByteArray
-            data = QByteArray(bytes(svg_content, 'utf-8'))
+
+            data = QByteArray(bytes(svg_content, "utf-8"))
             renderer = QSvgRenderer(data)
             if not renderer.isValid():
                 self.logger.error("SVG renderer failed to load content for PDF export")

@@ -6,6 +6,7 @@ button state updates, and part movement locking during animation.
 
 Design Pattern: State Machine (implicit via state_string transitions)
 """
+
 from __future__ import annotations
 
 import logging
@@ -212,13 +213,9 @@ class SimulationController(QObject):
         if skeleton_cache:
             self._position_parts_at_anchor()
             self._on_skeleton_updated(skeleton_cache.copy())
-            logging.info(
-                "SimulationController: Skeleton and parts reset to cached initial state."
-            )
+            logging.info("SimulationController: Skeleton and parts reset to cached initial state.")
         else:
-            logging.warning(
-                "SimulationController: No cached initial skeleton data for reset."
-            )
+            logging.warning("SimulationController: No cached initial skeleton data for reset.")
 
         if self._play_btn:
             self._play_btn.setEnabled(True)
@@ -269,9 +266,7 @@ class SimulationController(QObject):
             can_stop = False
             can_reset = has_items
         else:
-            logging.warning(
-                f"SimulationController: Unknown state string: {state_string}"
-            )
+            logging.warning(f"SimulationController: Unknown state string: {state_string}")
             is_playing = False
             can_play = has_items
             can_stop = False
@@ -307,9 +302,7 @@ class SimulationController(QObject):
         if self._play_btn:
             self._play_btn.setEnabled(has_any_path)
         if self._stop_btn:
-            self._stop_btn.setEnabled(
-                has_any_path and self._current_state == "playing"
-            )
+            self._stop_btn.setEnabled(has_any_path and self._current_state == "playing")
         if self._reset_btn:
             self._reset_btn.setEnabled(has_any_path)
 

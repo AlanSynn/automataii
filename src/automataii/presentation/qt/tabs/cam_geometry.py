@@ -9,175 +9,45 @@ contact by the rod length.
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 from PyQt6.QtCore import QPointF
 
+from automataii.domain.mechanisms.cam.profile import (
+    build_harmonic_cam_profile_from_params,
+    build_pear_cam_profile,
+    build_pear_cam_profile_from_params,
+    normalized_cam_timing,
+)
 
-def _finite_float(value: object, default: float) -> float:
+__all__ = [
+    "build_harmonic_cam_profile_from_params",
+    "build_pear_cam_profile",
+    "build_pear_cam_profile_from_params",
+    "cam_contact_local_from_profile",
+    "cam_contact_local_from_rotated_profile",
+    "cam_contact_y_from_params",
+    "cam_follower_base_scene",
+    "cam_motion_angle",
+    "cam_scene_unit_scale",
+    "normalized_cam_timing",
+    "rotate_cam_profile",
+]
+
+
+def cam_motion_angle(time: float, reverse_direction: object = False) -> float:
+    """Return the CAM rotation phase with the shared reverse-direction contract."""
     try:
-        result = float(cast(Any, value))
+        angle = float(time)
     except (TypeError, ValueError):
-        return default
-    return result if math.isfinite(result) else default
-
-
-def _positive_finite_float(value: object, default: float) -> float:
-    result = _finite_float(value, default)
-    return result if result > 0.0 else default
-
-
-def _non_negative_finite_float(value: object, default: float) -> float:
-    result = _finite_float(value, default)
-    return result if result >= 0.0 else default
-
-
-def _bounded_degrees(value: object, default: float) -> float:
-    return max(0.0, min(360.0, _finite_float(value, default)))
-
-
-def normalized_cam_timing(params: dict[str, Any]) -> tuple[float, float, float, float]:
-    """Return rise/high-dwell/return/low-dwell degrees matching visual factory rules."""
-    rise_deg = _bounded_degrees(params.get("rise_deg"), 90.0)
-    high_dwell_deg = _bounded_degrees(params.get("high_dwell_deg"), 60.0)
-    return_deg = _bounded_degrees(params.get("return_deg"), 30.0)
-
-    if "low_dwell_deg" in params:
-        low_dwell_deg = _bounded_degrees(params.get("low_dwell_deg"), 180.0)
-    else:
-        low_dwell_deg = max(0.0, 360.0 - (rise_deg + high_dwell_deg + return_deg))
-
-    total = rise_deg + high_dwell_deg + return_deg + low_dwell_deg
-    if total > 360.0:
-        scale = 360.0 / max(1e-6, total)
-        rise_deg *= scale
-        high_dwell_deg *= scale
-        return_deg *= scale
-        low_dwell_deg *= scale
-
-    return rise_deg, high_dwell_deg, return_deg, low_dwell_deg
-
-
-def build_pear_cam_profile(
-    *,
-    base_radius: float,
-    eccentricity: float,
-    rise_deg: float = 90.0,
-    high_dwell_deg: float = 60.0,
-    return_deg: float | None = None,
-    dwell_low_deg: float = 180.0,
-    align_max_to_deg: float = 90.0,
-    num_samples: int = 360,
-) -> np.ndarray:
-    """Build the analytic pear-cam profile used by the Qt visual factory."""
-    base_radius = _positive_finite_float(base_radius, 25.0)
-    eccentricity = _non_negative_finite_float(eccentricity, 10.0)
-    rise_deg = _bounded_degrees(rise_deg, 90.0)
-    high_dwell_deg = _bounded_degrees(high_dwell_deg, 60.0)
-    dwell_low_deg = _bounded_degrees(dwell_low_deg, 180.0)
-    if return_deg is None:
-        return_deg = 360.0 - (rise_deg + high_dwell_deg + dwell_low_deg)
-    return_deg = _bounded_degrees(return_deg, 30.0)
-
-    total = rise_deg + high_dwell_deg + return_deg + dwell_low_deg
-    if total > 360.0:
-        scale = 360.0 / max(1e-6, total)
-        rise_deg *= scale
-        high_dwell_deg *= scale
-        return_deg *= scale
-        dwell_low_deg *= scale
-
-    sample_count = max(3, int(_positive_finite_float(num_samples, 360.0)))
-    rise = np.deg2rad(rise_deg)
-    dwell_high = np.deg2rad(high_dwell_deg)
-    fall = np.deg2rad(return_deg)
-
-    theta0 = np.deg2rad(_finite_float(align_max_to_deg, 90.0))
-    seg1_end = theta0 + rise
-    seg2_end = seg1_end + dwell_high
-    seg3_end = seg2_end + fall
-
-    thetas = np.linspace(0, 2 * np.pi, sample_count, endpoint=False)
-    s = np.zeros_like(thetas)
-    for index, theta in enumerate(thetas):
-        rel = (theta - theta0) % (2 * np.pi) + theta0
-        if rel < seg1_end:
-            u = (rel - theta0) / rise if rise > 0 else 1.0
-            s[index] = 0.5 * (1 - np.cos(np.pi * u))
-        elif rel < seg2_end:
-            s[index] = 1.0
-        elif rel < seg3_end:
-            u = (rel - seg2_end) / fall if fall > 0 else 1.0
-            s[index] = 0.5 * (1 + np.cos(np.pi * u))
-        else:
-            s[index] = 0.0
-
-    radius = base_radius + eccentricity * s
-    points = np.stack([radius * np.cos(thetas), radius * np.sin(thetas)], axis=1)
-    return points.astype(float)
-
-
-def build_pear_cam_profile_from_params(
-    params: dict[str, Any],
-    *,
-    scale: float = 1.0,
-    num_samples: int = 360,
-) -> np.ndarray:
-    """Build a scaled pear-cam profile from mechanism parameter aliases."""
-    scale = _positive_finite_float(scale, 1.0)
-    if "cam_lobes" in params or "profile_harmonic" in params:
-        return build_harmonic_cam_profile_from_params(params, scale=scale, num_samples=num_samples)
-    rise_deg, high_dwell_deg, return_deg, low_dwell_deg = normalized_cam_timing(params)
-    return build_pear_cam_profile(
-        base_radius=_positive_finite_float(params.get("base_radius"), 25.0) * scale,
-        eccentricity=_non_negative_finite_float(params.get("eccentricity"), 10.0) * scale,
-        rise_deg=rise_deg,
-        high_dwell_deg=high_dwell_deg,
-        return_deg=return_deg,
-        dwell_low_deg=low_dwell_deg,
-        align_max_to_deg=_finite_float(params.get("align_max_deg"), 90.0),
-        num_samples=num_samples,
-    )
-
-
-def build_harmonic_cam_profile_from_params(
-    params: dict[str, Any],
-    *,
-    scale: float = 1.0,
-    num_samples: int = 360,
-) -> np.ndarray:
-    """Build the Foundry/domain harmonic cam profile from Design aliases.
-
-    Foundry exposes ``cam_lobes`` and ``profile_harmonic``.  When those
-    parameters are present, Design must not overwrite the exported profile with
-    a generic pear cam; otherwise Foundry sliders visually disappear after
-    export/import.
-    """
-    scale = _positive_finite_float(scale, 1.0)
-    base_radius = (
-        _positive_finite_float(params.get("base_radius", params.get("cam_radius")), 60.0) * scale
-    )
-    eccentricity = (
-        _non_negative_finite_float(params.get("eccentricity", params.get("cam_offset")), 20.0)
-        * scale
-    )
-    lobes_raw = _finite_float(params.get("cam_lobes"), 1.0)
-    cam_lobes = int(lobes_raw) if lobes_raw >= 1.0 and float(lobes_raw).is_integer() else 1
-    profile_harmonic = _finite_float(params.get("profile_harmonic"), 0.3)
-    sample_count = max(3, int(_positive_finite_float(num_samples, 360.0)))
-
-    thetas = np.linspace(0, 2 * np.pi, sample_count, endpoint=False)
-    radii = (
-        base_radius
-        + eccentricity * np.cos(cam_lobes * thetas)
-        + (eccentricity * profile_harmonic) * np.cos(2 * cam_lobes * thetas)
-    )
-    min_radius = max(1e-6, abs(base_radius) * 0.05)
-    radii = np.maximum(radii, min_radius)
-    return np.stack([radii * np.cos(thetas), radii * np.sin(thetas)], axis=1).astype(float)
+        return 0.0
+    if not math.isfinite(angle):
+        return 0.0
+    return -angle if bool(reverse_direction) else angle
 
 
 def rotate_cam_profile(profile: np.ndarray, angle: float) -> np.ndarray:
@@ -224,6 +94,7 @@ def cam_scene_unit_scale(to_scene: Callable[[np.ndarray], QPointF | None]) -> fl
         unit_scale = math.hypot(y_unit.x() - origin.x(), y_unit.y() - origin.y())
         return unit_scale if math.isfinite(unit_scale) and unit_scale > 0.0 else 1.0
     except Exception:
+        logging.debug("Failed to measure cam scene unit scale; using neutral scale", exc_info=True)
         return 1.0
 
 

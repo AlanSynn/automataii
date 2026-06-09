@@ -27,9 +27,7 @@ class IKPathHandler:
     Time Complexity: O(n) where n = number of path elements
     """
 
-    def extract_points_from_painter_path(
-        self, painter_path: QPainterPath | None
-    ) -> list[QPointF]:
+    def extract_points_from_painter_path(self, painter_path: QPainterPath | None) -> list[QPointF]:
         """
         Extracts QPointF coordinates from a QPainterPath.
 
@@ -53,9 +51,7 @@ class IKPathHandler:
 
         return points
 
-    def get_point_on_path(
-        self, path_obj: Any, progress: float
-    ) -> QPointF | None:
+    def get_point_on_path(self, path_obj: Any, progress: float) -> QPointF | None:
         """
         Get interpolated point on a path at given progress.
 
@@ -82,9 +78,7 @@ class IKPathHandler:
         # Find point at target distance
         target_dist = max(0, min(progress * total_length, total_length))
 
-        return self._interpolate_along_segments(
-            path_points, segment_lengths, target_dist
-        )
+        return self._interpolate_along_segments(path_points, segment_lengths, target_dist)
 
     def _normalize_path_points(self, path_obj: Any) -> list[QPointF]:
         """Normalize various path formats to list of QPointF."""
@@ -103,9 +97,7 @@ class IKPathHandler:
             return self.extract_points_from_painter_path(path_obj)
         return []
 
-    def _calculate_path_lengths(
-        self, path_points: list[QPointF]
-    ) -> tuple[float, list[float]]:
+    def _calculate_path_lengths(self, path_points: list[QPointF]) -> tuple[float, list[float]]:
         """Calculate total path length and individual segment lengths."""
         total_length = 0.0
         segment_lengths: list[float] = []

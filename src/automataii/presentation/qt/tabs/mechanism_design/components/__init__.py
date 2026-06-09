@@ -12,6 +12,7 @@ Extracted Modules:
 - SceneTransformManager: Coordinate transformations between mechanism and scene space
 - RecommendationHandler: Mechanism recommendation workflow handling
 """
+
 from automataii.presentation.qt.tabs.mechanism_design.components.animation_lifecycle_controller import (
     AnimationLifecycleController,
 )

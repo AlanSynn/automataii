@@ -167,6 +167,7 @@ class TestMenuActions:
         # Check all expected actions exist
         expected_actions = [
             "load_parts",
+            "recover_autosave",
             "save_project",
             "exit",
             "zoom_in",
@@ -206,6 +207,30 @@ class TestMenuActions:
         # Check shortcuts
         assert undo_action.shortcut() == QKeySequence("Ctrl+Z")
         assert redo_action.shortcut() == QKeySequence("Ctrl+Y")
+
+    def test_file_menu_recover_autosave_action_triggers_connected_slot(self):
+        """Recover Autosave must be reachable from the File menu QAction."""
+        from PyQt6.QtWidgets import QApplication, QMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        parent = QMainWindow()
+
+        from automataii.presentation.qt.actions.action_manager import ActionManager
+
+        manager = ActionManager(parent)
+        recover_calls: list[str] = []
+        assert manager.connect_action("recover_autosave", lambda: recover_calls.append("recover"))
+        manager.setup_menus(parent.menuBar())
+
+        file_menu = parent.menuBar().actions()[0].menu()
+        assert file_menu is not None
+        recover_action = manager.get_action("recover_autosave")
+        assert recover_action in file_menu.actions()
+
+        recover_action.trigger()
+
+        assert recover_calls == ["recover"]
+        assert app is not None
 
 
 class TestProductionBranding:
@@ -459,6 +484,32 @@ class TestProjectSaveToTmp:
         assert not state_manager.can_undo
         assert not state_manager.can_redo
 
+    def test_autosave_cleanup_keeps_recent_snapshots_and_ignores_backup_artifacts(self, tmp_path):
+        from automataii.application.project import (
+            AutoSaveManager,
+            ProjectSerializer,
+            ProjectStateManager,
+        )
+
+        state_manager = ProjectStateManager()
+        state_manager.new_project("AutosaveCleanup")
+        autosave_manager = AutoSaveManager(ProjectSerializer())
+        autosave_manager.setup(tmp_path)
+
+        autosave_dir = tmp_path / AutoSaveManager.AUTOSAVE_DIR_NAME
+        backup_artifact = autosave_dir / "autosave_manual.backup.automataii"
+        backup_artifact.write_text("not a recovery snapshot", encoding="utf-8")
+
+        for _ in range(7):
+            result = autosave_manager.autosave(state_manager.state.with_project_dir(tmp_path))
+            assert result.success
+
+        recovery_files = autosave_manager.get_recovery_files(tmp_path)
+
+        assert len(recovery_files) == 5
+        assert backup_artifact.exists()
+        assert backup_artifact not in recovery_files
+
     def test_main_window_autosave_writes_dirty_runtime_state_under_project_dir(self, tmp_path):
         from unittest.mock import MagicMock
 
@@ -544,6 +595,156 @@ class TestProjectSaveToTmp:
             (tmp_path / AutoSaveManager.AUTOSAVE_DIR_NAME).glob("autosave_*.automataii")
         )
         assert len(autosaves) == 2
+
+    def test_recover_autosave_loads_selected_snapshot_once(self, tmp_path):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        selected = tmp_path / ".autosave" / "autosave_1.automataii"
+        selected.parent.mkdir(parents=True, exist_ok=True)
+        selected.write_text("{}", encoding="utf-8")
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.project_state_manager = SimpleNamespace(state=SimpleNamespace(project_dir=tmp_path))
+        window.project_data_manager = SimpleNamespace(project_dir=tmp_path / "legacy")
+        window._autosave_manager = MagicMock()
+        window._autosave_manager.get_recovery_files.return_value = [selected]
+        window._project_controller = MagicMock()
+        window._project_controller.load_project.return_value = True
+        status_bar = MagicMock()
+        window.statusBar = MagicMock(return_value=status_bar)
+        window._select_autosave_recovery_file = MagicMock(return_value=selected)
+
+        assert AutomataDesigner.recover_autosave(window) is True
+
+        window._autosave_manager.get_recovery_files.assert_called_once_with(tmp_path)
+        window._select_autosave_recovery_file.assert_called_once_with([selected])
+        window._project_controller.set_status_bar.assert_called_once_with(status_bar)
+        window._project_controller.load_project.assert_called_once_with(selected)
+
+    def test_recover_autosave_rejects_selection_outside_discovered_snapshots(self, tmp_path):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        discovered = tmp_path / ".autosave" / "autosave_1.automataii"
+        discovered.parent.mkdir(parents=True, exist_ok=True)
+        discovered.write_text("{}", encoding="utf-8")
+        arbitrary = tmp_path / ".autosave" / "manual.automataii"
+        arbitrary.write_text("{}", encoding="utf-8")
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.project_state_manager = SimpleNamespace(state=SimpleNamespace(project_dir=tmp_path))
+        window.project_data_manager = SimpleNamespace(project_dir=None)
+        window._autosave_manager = MagicMock()
+        window._autosave_manager.get_recovery_files.return_value = [discovered]
+        window._project_controller = MagicMock()
+        window.statusBar = MagicMock(return_value=MagicMock())
+        window._select_autosave_recovery_file = MagicMock(return_value=arbitrary)
+
+        assert AutomataDesigner.recover_autosave(window) is False
+
+        window._project_controller.load_project.assert_not_called()
+
+    def test_recover_autosave_no_files_does_not_open_chooser(self, tmp_path):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.project_state_manager = SimpleNamespace(state=SimpleNamespace(project_dir=tmp_path))
+        window.project_data_manager = SimpleNamespace(project_dir=None)
+        window._autosave_manager = MagicMock()
+        window._autosave_manager.get_recovery_files.return_value = []
+        window._project_controller = MagicMock()
+        window.statusBar = MagicMock(return_value=MagicMock())
+        window._select_autosave_recovery_file = MagicMock()
+
+        assert AutomataDesigner.recover_autosave(window) is False
+
+        window._select_autosave_recovery_file.assert_not_called()
+        window._project_controller.load_project.assert_not_called()
+
+    def test_recover_autosave_cancel_does_not_load(self, tmp_path):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        selected = tmp_path / ".autosave" / "autosave_1.automataii"
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.project_state_manager = SimpleNamespace(state=SimpleNamespace(project_dir=tmp_path))
+        window.project_data_manager = SimpleNamespace(project_dir=None)
+        window._autosave_manager = MagicMock()
+        window._autosave_manager.get_recovery_files.return_value = [selected]
+        window._project_controller = MagicMock()
+        window.statusBar = MagicMock(return_value=MagicMock())
+        window._select_autosave_recovery_file = MagicMock(return_value=None)
+
+        assert AutomataDesigner.recover_autosave(window) is False
+
+        window._project_controller.load_project.assert_not_called()
+
+    def test_main_window_autosave_unexpected_error_logs_warning(self, tmp_path, caplog):
+        from unittest.mock import MagicMock
+
+        from automataii.application.project import PartData, ProjectStateManager
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        state_manager = ProjectStateManager()
+        state_manager.replace_project_state(
+            state_manager.state.with_project_dir(tmp_path).with_parts(
+                {
+                    "head": PartData(
+                        name="head",
+                        texture_path="head.png",
+                        mask_path="head_mask.png",
+                        anchor_joint="neck",
+                    )
+                }
+            ),
+            operation="test_dirty_state",
+            mark_saved=False,
+            clear_history=True,
+        )
+        window = AutomataDesigner.__new__(AutomataDesigner)
+        window.project_state_manager = state_manager
+        window._sync_runtime_state_to_ssot = MagicMock(side_effect=RuntimeError("sync failed"))
+
+        with caplog.at_level(logging.WARNING):
+            assert AutomataDesigner._perform_autosave(window) is False
+
+        assert any(
+            "Autosave raised unexpected error" in record.message for record in caplog.records
+        )
+
+    def test_qpainter_path_serialization_error_logs_warning(self, caplog, monkeypatch):
+        from PyQt6.QtGui import QPainterPath
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        def raise_on_element(_elem):
+            raise ValueError("bad point")
+
+        monkeypatch.setattr(
+            AutomataDesigner,
+            "_serialize_qpath_element",
+            staticmethod(raise_on_element),
+        )
+
+        qpath = QPainterPath()
+        qpath.moveTo(0.0, 0.0)
+        qpath.lineTo(1.0, 1.0)
+        window = AutomataDesigner.__new__(AutomataDesigner)
+
+        with caplog.at_level(logging.WARNING):
+            assert AutomataDesigner._serialize_qpainter_path(window, qpath) is None
+
+        assert any(
+            "Failed to serialize QPainterPath" in record.message for record in caplog.records
+        )
 
 
 class TestIntegration:

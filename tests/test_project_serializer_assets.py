@@ -4,12 +4,18 @@ from pathlib import Path
 
 from automataii.application.project import (
     AutoSaveManager,
+    BoneData,
+    JointData,
     MechanismData,
     PartData,
+    PathData,
+    Point,
     ProjectSerializer,
     ProjectState,
+    SkeletonData,
     Transform,
 )
+from automataii.application.project.models import TimedPoint
 
 
 def test_serializer_bundles_assets_and_load_resolves_paths(tmp_path):
@@ -123,6 +129,180 @@ def test_serializer_round_trip_preserves_mechanism_layer_payload(tmp_path):
     assert loaded_mech.layer_data["source"] == "foundry"
     assert loaded_mech.layer_data["key_points"]["ground_pivot_1"] == [10.0, 20.0]
     assert loaded_mech.layer_data["generated_path_data"]["points"][1] == [120.0, 120.0]
+
+
+def test_serializer_round_trip_preserves_mixed_project_payload(tmp_path):
+    source_dir = tmp_path / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    image_path = source_dir / "character.png"
+    texture_path = source_dir / "torso.png"
+    image_path.write_bytes(b"image")
+    texture_path.write_bytes(b"texture")
+
+    state = (
+        ProjectState.empty()
+        .with_project_dir(source_dir)
+        .with_image_path(image_path)
+        .with_parts(
+            {
+                "torso": PartData(
+                    name="torso",
+                    texture_path=str(texture_path),
+                    mask_path="",
+                    anchor_joint="root",
+                    transform=Transform(x=12.0, y=34.0, rotation=5.0, scale=1.2),
+                )
+            }
+        )
+        .with_skeleton(
+            SkeletonData(
+                root_joint="root",
+                joints={
+                    "root": JointData(id="root", name="Root", position=Point(10.0, 20.0)),
+                    "elbow": JointData(
+                        id="elbow",
+                        name="Elbow",
+                        parent="root",
+                        position=Point(40.0, 55.0),
+                        is_locked=True,
+                    ),
+                },
+                bones=(BoneData("root", "elbow"),),
+            )
+        )
+        .with_paths(
+            {
+                "torso": PathData(
+                    part_name="torso",
+                    points=(Point(0.0, 0.0), Point(10.0, 5.0), Point(20.0, 0.0)),
+                    timed_points=(
+                        TimedPoint(0.0, 0.0, 0.0),
+                        TimedPoint(10.0, 5.0, 0.5),
+                        TimedPoint(20.0, 0.0, 1.0),
+                    ),
+                    total_duration=1.0,
+                    is_closed=False,
+                )
+            }
+        )
+        .with_mechanisms(
+            {
+                "cam": MechanismData(
+                    id="cam",
+                    part_name="torso",
+                    type="cam",
+                    params={"base_radius": 25.0, "eccentricity": 10.0},
+                    layer_data={
+                        "full_simulation_data": {
+                            "cam_data": {"follower_y_positions": [1.0, 2.0, 3.0]}
+                        },
+                        "key_points": {"cam_center": [10.0, 20.0]},
+                    },
+                ),
+                "gear": MechanismData(
+                    id="gear",
+                    part_name="torso",
+                    type="gear",
+                    params={"gear1_radius": 40.0, "gear2_radius": 60.0},
+                    layer_data={"key_points": {"gear2_center": [102.0, 0.0]}},
+                    enabled=False,
+                ),
+            }
+        )
+    )
+
+    serializer = ProjectSerializer()
+    save_path = tmp_path / "mixed_project.automataii"
+    assert serializer.save(state, save_path).success is True
+
+    load_result = serializer.load(save_path)
+    assert load_result.success is True
+    assert load_result.state is not None
+
+    loaded = load_result.state
+    assert loaded.image_path is not None and loaded.image_path.exists()
+    assert loaded.parts["torso"].transform.scale == 1.2
+    assert loaded.skeleton is not None
+    assert loaded.skeleton.joints["elbow"].is_locked is True
+    assert loaded.paths["torso"].timed_points is not None
+    assert loaded.paths["torso"].timed_points[1].t == 0.5
+    assert loaded.mechanisms["cam"].layer_data["key_points"]["cam_center"] == [10.0, 20.0]
+    assert loaded.mechanisms["gear"].enabled is False
+
+
+def test_serializer_round_trip_preserves_cam_direction_and_gear_drag_payload(tmp_path):
+    state = ProjectState.empty().with_mechanisms(
+        {
+            "cam_reverse": MechanismData(
+                id="cam_reverse",
+                part_name="torso",
+                type="cam",
+                params={
+                    "base_radius": 32.0,
+                    "eccentricity": 14.0,
+                    "cam_lobes": 3,
+                    "profile_harmonic": 0.45,
+                    "output_point_mode": "contact_point",
+                    "reverse_direction": True,
+                },
+                layer_data={
+                    "source": "foundry",
+                    "reverse_direction": True,
+                    "cam_scale_factor": 1.25,
+                    "rod_length_multiplier": 1.5,
+                    "cam_points_local": [[0.0, 32.0], [20.0, 0.0], [0.0, -18.0]],
+                    "key_points": {
+                        "cam_center": [410.0, 320.0],
+                        "contact_point": [410.0, 285.0],
+                        "follower_base": [410.0, 225.0],
+                    },
+                },
+            ),
+            "gear_dragged": MechanismData(
+                id="gear_dragged",
+                part_name="torso",
+                type="gear",
+                params={
+                    "gear1_radius": 38.0,
+                    "gear2_radius": 57.0,
+                    "gear1_x": 120.0,
+                    "gear1_y": 140.0,
+                    "gear2_x": 215.0,
+                    "gear2_y": 140.0,
+                },
+                layer_data={
+                    "key_points": {
+                        "gear1_center": [120.0, 140.0],
+                        "gear2_center": [215.0, 140.0],
+                    }
+                },
+            ),
+        }
+    )
+
+    serializer = ProjectSerializer()
+    save_path = tmp_path / "cam_gear_payload.automataii"
+    assert serializer.save(state, save_path).success is True
+
+    load_result = serializer.load(save_path)
+    assert load_result.success is True
+    assert load_result.state is not None
+
+    cam = load_result.state.mechanisms["cam_reverse"]
+    assert cam.params["reverse_direction"] is True
+    assert cam.params["cam_lobes"] == 3
+    assert cam.params["profile_harmonic"] == 0.45
+    assert cam.params["output_point_mode"] == "contact_point"
+    assert cam.layer_data["reverse_direction"] is True
+    assert cam.layer_data["cam_scale_factor"] == 1.25
+    assert cam.layer_data["rod_length_multiplier"] == 1.5
+    assert cam.layer_data["key_points"]["follower_base"] == [410.0, 225.0]
+
+    gear = load_result.state.mechanisms["gear_dragged"]
+    assert gear.params["gear1_radius"] == 38.0
+    assert gear.params["gear2_radius"] == 57.0
+    assert gear.layer_data["key_points"]["gear1_center"] == [120.0, 140.0]
+    assert gear.layer_data["key_points"]["gear2_center"] == [215.0, 140.0]
 
 
 def test_serializer_reuses_existing_bundled_assets_on_repeated_save(tmp_path):

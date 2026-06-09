@@ -58,9 +58,7 @@ class MechanismDesignState:
     recommendations: tuple[Recommendation, ...] = field(default_factory=tuple)
 
     def with_paths(self, paths: Mapping[str, PartPath]) -> MechanismDesignState:
-        default_enabled = {
-            name: self.path_enabled.get(name, True) for name in paths.keys()
-        }
+        default_enabled = {name: self.path_enabled.get(name, True) for name in paths.keys()}
         return replace(
             self,
             paths=dict(paths),
@@ -77,9 +75,7 @@ class MechanismDesignState:
         return replace(self, path_enabled=updated)
 
     def with_layers(self, layers: Mapping[str, MechanismLayer]) -> MechanismDesignState:
-        selected_layer = (
-            self.selected_layer_id if self.selected_layer_id in layers else None
-        )
+        selected_layer = self.selected_layer_id if self.selected_layer_id in layers else None
         return replace(self, layers=dict(layers), selected_layer_id=selected_layer)
 
     def select_part(self, part_name: str | None) -> MechanismDesignState:
@@ -106,7 +102,5 @@ class MechanismDesignState:
     @property
     def enabled_paths(self) -> dict[str, PartPath]:
         return {
-            name: path
-            for name, path in self.paths.items()
-            if self.path_enabled.get(name, True)
+            name: path for name, path in self.paths.items() if self.path_enabled.get(name, True)
         }

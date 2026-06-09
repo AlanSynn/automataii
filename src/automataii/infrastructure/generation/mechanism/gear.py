@@ -62,9 +62,7 @@ class Gear(BaseMechanism):
         # Let's assume a default module or tooth size for estimation.
         # Pitch = Pi * Module. Roughly, tooth width ~ Pitch / 2.
         # Let tooth width be ~5-10 units. So, Circumference / (tooth_width * 2) = NumTeeth
-        default_tooth_pitch_approx = (
-            15  # Approximate pitch (circumferential distance per tooth)
-        )
+        default_tooth_pitch_approx = 15  # Approximate pitch (circumferential distance per tooth)
 
         if num_teeth1 is None:
             num_teeth1 = max(3, int((2 * math.pi * r1) / default_tooth_pitch_approx))
@@ -82,9 +80,7 @@ class Gear(BaseMechanism):
 
         if r2 > 0:  # Generate a second gear
             if num_teeth2 is None:
-                num_teeth2 = max(
-                    3, int((2 * math.pi * r2) / default_tooth_pitch_approx)
-                )
+                num_teeth2 = max(3, int((2 * math.pi * r2) / default_tooth_pitch_approx))
             # Guard against division by zero if caller explicitly passed 0
             if num_teeth2 < 1:
                 num_teeth2 = max(3, int((2 * math.pi * r2) / default_tooth_pitch_approx))
@@ -93,9 +89,7 @@ class Gear(BaseMechanism):
             # Assume they are meshing externally, typically along x-axis for default placement
             total_radius_sum = r1 + r2
             gear2_center_x = gear1_center.x() + total_radius_sum + gear_distance_offset
-            gear2_center_y = (
-                gear1_center.y()
-            )  # Align centers vertically for simple pair
+            gear2_center_y = gear1_center.y()  # Align centers vertically for simple pair
 
             # Angle of gear2: if meshing, teeth should align.
             # If gear1 rotates by theta, gear2 rotates by -theta * (r1/r2) or -theta * (N1/N2)
@@ -198,12 +192,12 @@ class GearGenerator:
         """
         try:
             # Extract gear parameters with defaults
-            center = gear_data.get('center', [0, 0])
-            radius = gear_data.get('radius', 30.0)
-            num_teeth = gear_data.get('num_teeth', 12)
-            tooth_height = gear_data.get('tooth_height', radius * 0.2)
-            angle_deg = gear_data.get('angle_deg', 0)
-            gear_name = gear_data.get('name', 'Gear')
+            center = gear_data.get("center", [0, 0])
+            radius = gear_data.get("radius", 30.0)
+            num_teeth = gear_data.get("num_teeth", 12)
+            tooth_height = gear_data.get("tooth_height", radius * 0.2)
+            angle_deg = gear_data.get("angle_deg", 0)
+            gear_name = gear_data.get("name", "Gear")
 
             # Generate gear teeth path
             teeth_path = self._generate_gear_teeth_path(
@@ -311,8 +305,15 @@ class GearGenerator:
             self.logger.error(f"Failed to generate gear SVG: {e}")
             return '<text x="0" y="0" font-family="Arial" font-size="10">Error: Failed to generate gear</text>'
 
-    def _generate_gear_teeth_path(self, cx: float, cy: float, radius: float,
-                                 num_teeth: int, tooth_height: float, angle_deg: float) -> str:
+    def _generate_gear_teeth_path(
+        self,
+        cx: float,
+        cy: float,
+        radius: float,
+        num_teeth: int,
+        tooth_height: float,
+        angle_deg: float,
+    ) -> str:
         """Generate SVG path for gear teeth."""
         if num_teeth < 3:
             return ""  # Not enough teeth to draw

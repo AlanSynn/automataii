@@ -30,6 +30,7 @@ Design Patterns:
     - Registry: Central lookup eliminates type-switches
     - Factory: Registry lazily instantiates visualizers
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

@@ -38,9 +38,7 @@ class CameraWorker(QObject):
         try:
             self._cap = cv2.VideoCapture(self._camera_index)
             if not self._cap.isOpened():
-                self.errorOccurred.emit(
-                    f"Failed to open camera index {self._camera_index}."
-                )
+                self.errorOccurred.emit(f"Failed to open camera index {self._camera_index}.")
                 self._running = False
                 return
 
@@ -158,17 +156,13 @@ class CameraDialog(QDialog):
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = frame_rgb.shape
             bytes_per_line = ch * w
-            qt_image = QImage(
-                frame_rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888
-            )
+            qt_image = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(qt_image)
 
             if self._scene_pixmap_item is None:
                 self._scene_pixmap_item = QGraphicsPixmapItem(pixmap)
                 self._scene.addItem(self._scene_pixmap_item)
-                self._view.fitInView(
-                    self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
-                )
+                self._view.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
             else:
                 self._scene_pixmap_item.setPixmap(pixmap)
 
@@ -216,10 +210,7 @@ class CameraDialog(QDialog):
         """Ensures the preview fits the view on resize."""
         super().resizeEvent(event)
         if self._scene_pixmap_item:
-            self._view.fitInView(
-                self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
-            )
-
+            self._view.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     # Override reject to ensure camera stops
     def reject(self):

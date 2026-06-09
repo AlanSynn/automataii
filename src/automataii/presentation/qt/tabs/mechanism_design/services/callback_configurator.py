@@ -7,6 +7,7 @@ callback configuration into a single coordinator.
 Design Pattern: Configurator (handles dependency wiring)
 Architecture: Hexagonal - Presentation Layer
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -54,7 +55,7 @@ class TabCallbackConfigurator:
             self._tab.parametric_manager._regenerate_mechanism_simulation(mechanism_id, layer_data)
 
             # 2. Emit signal to propagate changes (for undo/redo and Foundry sync)
-            if hasattr(self._tab, '_emit_mechanism_params_changed'):
+            if hasattr(self._tab, "_emit_mechanism_params_changed"):
                 self._tab._emit_mechanism_params_changed(mechanism_id)
 
         self._tab._anchor_movement_handler.configure_callbacks(
@@ -138,8 +139,10 @@ class TabCallbackConfigurator:
             update_mechanism_layers_list=self._tab._update_mechanism_layers_list,
             update_all_ui_states=self._tab._update_all_ui_states,
             part_has_mechanism=self._tab._part_has_mechanism,
-            set_selected_part_name=lambda name: setattr(self._tab, 'selected_part_name', name),
-            set_part_enabled_state=lambda name, val: self._tab.part_enabled_state.__setitem__(name, val),
+            set_selected_part_name=lambda name: setattr(self._tab, "selected_part_name", name),
+            set_part_enabled_state=lambda name, val: self._tab.part_enabled_state.__setitem__(
+                name, val
+            ),
         )
 
     def _configure_parametric_mode_controller(self) -> None:
@@ -150,7 +153,7 @@ class TabCallbackConfigurator:
             get_mechanism_layers=lambda: self._tab.mechanism_layers,
             get_presenter=lambda: self._tab._presenter,
             update_all_ui_states=self._tab._update_all_ui_states,
-            set_selected_part_name=lambda name: setattr(self._tab, 'selected_part_name', name),
+            set_selected_part_name=lambda name: setattr(self._tab, "selected_part_name", name),
         )
 
     def _configure_recommendation_controller(self) -> None:
@@ -165,12 +168,16 @@ class TabCallbackConfigurator:
             get_character_position=self._tab._get_character_position,
             tab_data_coordinator=self._tab._tab_data_coordinator,
             instantiation_service=self._tab._mechanism_instantiation,
-            set_selected_part_name=lambda name: setattr(self._tab, 'selected_part_name', name),
-            presenter_select_part=self._tab._mvp_presenter.select_part if self._tab._mvp_presenter else None,
+            set_selected_part_name=lambda name: setattr(self._tab, "selected_part_name", name),
+            presenter_select_part=self._tab._mvp_presenter.select_part
+            if self._tab._mvp_presenter
+            else None,
             generate_mechanism_from_candidate=self._tab._generate_mechanism_from_candidate,
             add_mechanism_layer=self._tab._add_mechanism_layer,
             handle_mechanism_visuals=self._tab.handle_mechanism_visuals,
-            create_4bar_visuals=lambda d: self._tab.visuals_factory.create_4bar_linkage_visuals(d, None),
+            create_4bar_visuals=lambda d: self._tab.visuals_factory.create_4bar_linkage_visuals(
+                d, None
+            ),
         )
 
     def _configure_mechanism_generation_service(self) -> None:
@@ -179,14 +186,27 @@ class TabCallbackConfigurator:
             convert_json_params_to_internal,
         )
         from automataii.presentation.qt.utils.geometry import qpainterpath_to_numpy_array
+
         self._tab._mechanism_generation_service.configure_callbacks(
             create_layer_data=self._tab._mechanism_instantiation.create_layer_data_from_candidate,
-            verify_coupler=lambda ld, pd, sc: self._tab.mechanism_service.verify_coupler_joint_connection(
-                ld, pd, sc, self._tab._get_scene_transform_function, self._tab._calculate_mechanism_output
-            ) if hasattr(self._tab, '_initial_skeleton_data_cache') else False,
-            adjust_mechanism=lambda ld, pd, sc: self._tab.mechanism_service.adjust_mechanism_to_target_joint(
+            verify_coupler=lambda ld,
+            pd,
+            sc: self._tab.mechanism_service.verify_coupler_joint_connection(
+                ld,
+                pd,
+                sc,
+                self._tab._get_scene_transform_function,
+                self._tab._calculate_mechanism_output,
+            )
+            if hasattr(self._tab, "_initial_skeleton_data_cache")
+            else False,
+            adjust_mechanism=lambda ld,
+            pd,
+            sc: self._tab.mechanism_service.adjust_mechanism_to_target_joint(
                 ld, pd, sc, self._tab._calculate_mechanism_output, qpainterpath_to_numpy_array
-            ) if hasattr(self._tab, '_initial_skeleton_data_cache') else False,
+            )
+            if hasattr(self._tab, "_initial_skeleton_data_cache")
+            else False,
             extract_key_points=self._tab._extract_key_points_from_simulation,
             convert_params=convert_json_params_to_internal,
         )

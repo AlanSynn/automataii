@@ -33,6 +33,7 @@ TARGET_PATH_POINTS = 12
 @dataclass
 class TimedPoint:
     """Point with timestamp for velocity-aware animation."""
+
     point: QPointF
     timestamp: float  # Seconds from drawing start
 
@@ -105,7 +106,7 @@ class MotionPathDrawer(QObject):
         self,
         target_item: "CharacterPartItem | None",
         is_closed: bool = True,
-        component_key: str | None = None
+        component_key: str | None = None,
     ) -> None:
         """
         Start freehand motion path drawing.
@@ -119,7 +120,7 @@ class MotionPathDrawer(QObject):
         if component_key and component_key in self.final_paths_map:
             self._remove_final_path(component_key)
             logging.info(f"Cleared existing path for {component_key} before new drawing")
-        elif target_item and hasattr(target_item, 'part_info') and target_item.part_info:
+        elif target_item and hasattr(target_item, "part_info") and target_item.part_info:
             key = target_item.part_info.name
             if key in self.final_paths_map:
                 self._remove_final_path(key)
@@ -189,9 +190,7 @@ class MotionPathDrawer(QObject):
 
         # Create the final spline path
         final_path_data = self._create_spline_path(
-            points_for_spline,
-            closed_loop=self._current_path_is_closed,
-            tension=0.5
+            points_for_spline, closed_loop=self._current_path_is_closed, tension=0.5
         )
 
         # Create the graphics item
@@ -204,7 +203,10 @@ class MotionPathDrawer(QObject):
 
         # Determine the component key
         if not component_key and self._current_target_item:
-            if hasattr(self._current_target_item, 'part_info') and self._current_target_item.part_info:
+            if (
+                hasattr(self._current_target_item, "part_info")
+                and self._current_target_item.part_info
+            ):
                 component_key = self._current_target_item.part_info.name
 
         # Store and display the path
@@ -252,10 +254,7 @@ class MotionPathDrawer(QObject):
     # --- Path Overlays ---
 
     def set_raw_overlay_path(
-        self,
-        key: str,
-        path: QPainterPath | None,
-        pen: QPen | None = None
+        self, key: str, path: QPainterPath | None, pen: QPen | None = None
     ) -> None:
         """
         Set or clear the raw path overlay for a component.
@@ -285,10 +284,7 @@ class MotionPathDrawer(QObject):
         self._raw_paths_map[key] = item
 
     def set_corrected_overlay_path(
-        self,
-        key: str,
-        path: QPainterPath | None,
-        pen: QPen | None = None
+        self, key: str, path: QPainterPath | None, pen: QPen | None = None
     ) -> None:
         """
         Set or clear the feasibility-corrected path overlay for a component.
@@ -310,7 +306,9 @@ class MotionPathDrawer(QObject):
 
         item = QGraphicsPathItem(path)
         if pen is None:
-            pen = QPen(QColor(255, 140, 0, 220), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+            pen = QPen(
+                QColor(255, 140, 0, 220), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap
+            )
         item.setPen(pen)
         item.setZValue(Z_MOTION_PATH_LINE)
         self._scene.addItem(item)
@@ -412,10 +410,7 @@ class MotionPathDrawer(QObject):
             self._motion_preview_path_item = None
 
     def _create_spline_path(
-        self,
-        points: list[QPointF],
-        closed_loop: bool = False,
-        tension: float = 0.5
+        self, points: list[QPointF], closed_loop: bool = False, tension: float = 0.5
     ) -> QPainterPath:
         """
         Create a QPainterPath from points using Catmull-Rom splines.
@@ -477,11 +472,7 @@ class MotionPathDrawer(QObject):
 
         return path
 
-    def _resample_points(
-        self,
-        points: list[QPointF],
-        num_target_points: int
-    ) -> list[QPointF]:
+    def _resample_points(self, points: list[QPointF], num_target_points: int) -> list[QPointF]:
         """
         Resample points to a target count.
 

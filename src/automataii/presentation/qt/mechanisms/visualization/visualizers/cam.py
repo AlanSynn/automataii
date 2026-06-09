@@ -140,9 +140,7 @@ class CamVisualizer(MechanismVisualizer):
             contact_scene = QPointF(contact_pos[0], contact_pos[1])
 
         # Create contact point visual (item 1) - Crimson
-        contact_item = QGraphicsEllipseItem(
-            contact_scene.x() - 5, contact_scene.y() - 5, 10, 10
-        )
+        contact_item = QGraphicsEllipseItem(contact_scene.x() - 5, contact_scene.y() - 5, 10, 10)
         contact_item.setPen(QPen(self.CONTACT_COLOR, 3))
         contact_item.setBrush(QBrush(self.CONTACT_COLOR))
         contact_item.setZValue(self.config.z_index_base + 3)
@@ -188,9 +186,7 @@ class CamVisualizer(MechanismVisualizer):
         visual_items.append(follower_anchor)
 
         # CAM center pivot (item 5)
-        pivot = QGraphicsEllipseItem(
-            cam_center_scene.x() - 8, cam_center_scene.y() - 8, 16, 16
-        )
+        pivot = QGraphicsEllipseItem(cam_center_scene.x() - 8, cam_center_scene.y() - 8, 16, 16)
         pivot.setPen(QPen(self.CAM_CENTER_COLOR, 2))
         pivot.setBrush(QBrush(QColor(255, 100, 100)))
         pivot.setZValue(self.config.z_index_pivot)
@@ -207,8 +203,9 @@ class CamVisualizer(MechanismVisualizer):
 
         return visual_items
 
-    def update_visuals(self, visual_items: list[QGraphicsItem],
-                      mechanism_data: dict[str, Any]) -> None:
+    def update_visuals(
+        self, visual_items: list[QGraphicsItem], mechanism_data: dict[str, Any]
+    ) -> None:
         """
         Update existing CAM visuals with new position and parameters.
 
@@ -382,9 +379,7 @@ class CamVisualizer(MechanismVisualizer):
 
             # Harmonic profile formula (same as Foundry)
             primary_variation = cam_offset * np.cos(cam_lobes * theta)
-            secondary_variation = (cam_offset * profile_harmonic) * np.cos(
-                2 * cam_lobes * theta
-            )
+            secondary_variation = (cam_offset * profile_harmonic) * np.cos(2 * cam_lobes * theta)
             r = max(min_radius, base_radius + primary_variation + secondary_variation)
 
             # Convert to Cartesian

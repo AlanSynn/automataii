@@ -40,17 +40,35 @@ from automataii.infrastructure.events.types import (
 
 __all__ = [
     # Core
-    'EventBus', 'get_global_event_bus', 'FunctionEventHandler',
+    "EventBus",
+    "get_global_event_bus",
+    "FunctionEventHandler",
     # Base types
-    'Event', 'EventHandler', 'DomainEvent', 'SystemEvent', 'UIEvent',
+    "Event",
+    "EventHandler",
+    "DomainEvent",
+    "SystemEvent",
+    "UIEvent",
     # Common events
-    'ApplicationStarted', 'ApplicationShutdown',
-    'ProjectLoaded', 'ProjectSaved', 'ProjectCreated', 'ProjectClosed', 'ProjectModified',
-    'AutoSaveTriggered', 'ComponentActivated', 'ComponentDeactivated',
-    'ImageSelectedEvent', 'ProjectLoadedEvent',
+    "ApplicationStarted",
+    "ApplicationShutdown",
+    "ProjectLoaded",
+    "ProjectSaved",
+    "ProjectCreated",
+    "ProjectClosed",
+    "ProjectModified",
+    "AutoSaveTriggered",
+    "ComponentActivated",
+    "ComponentDeactivated",
+    "ImageSelectedEvent",
+    "ProjectLoadedEvent",
     # Decorators
-    'event_handler', 'async_event_handler',
+    "event_handler",
+    "async_event_handler",
     # Types
-    'EventFilter', 'EventPriority', 'EventProcessingMode',
-    'EventCallback', 'AsyncEventCallback',
+    "EventFilter",
+    "EventPriority",
+    "EventProcessingMode",
+    "EventCallback",
+    "AsyncEventCallback",
 ]

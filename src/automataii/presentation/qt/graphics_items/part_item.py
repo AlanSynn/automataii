@@ -84,9 +84,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
 
         self._is_fixed: bool = part_info.fixed
         self._is_joint_locked: bool = False  # Whether the associated joint is locked for IK
-        self.z_value = (
-            part_info.z_value if part_info.z_value is not None else Z_PART_DEFAULT
-        )
+        self.z_value = part_info.z_value if part_info.z_value is not None else Z_PART_DEFAULT
         self.setZValue(self.z_value)
 
         # 초기 회전각을 명시적으로 0으로 설정 (월드 기준)
@@ -98,10 +96,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         self._setup_selection_highlight()
 
         # Revised anchor_offset and initial position logic
-        if (
-            self.part_info.local_pivot_offset
-            and len(self.part_info.local_pivot_offset) == 2
-        ):
+        if self.part_info.local_pivot_offset and len(self.part_info.local_pivot_offset) == 2:
             self.anchor_offset = QPointF(
                 self.part_info.local_pivot_offset[0],
                 self.part_info.local_pivot_offset[1],
@@ -224,9 +219,7 @@ class CharacterPartItem(QGraphicsPixmapItem):
         if not loaded_successfully:
             # If potential_path_str was None, the earlier warning about file not found already occurred.
             # If it was not None but loading failed, this ensures placeholder creation.
-            if (
-                potential_path_str
-            ):  # Only log this specific message if a path was attempted
+            if potential_path_str:  # Only log this specific message if a path was attempted
                 logging.warning(
                     f"CharacterPartItem '{self.part_info.name}': Failed to load texture from {potential_path_str}. Creating placeholder."
                 )
@@ -266,7 +259,6 @@ class CharacterPartItem(QGraphicsPixmapItem):
     @property
     def is_fixed(self) -> bool:
         return self._is_fixed
-
 
     @property
     def is_joint_locked(self) -> bool:
@@ -347,24 +339,16 @@ class CharacterPartItem(QGraphicsPixmapItem):
     def boundingRect(self) -> QRectF:
         if self.part_pixmap and not self.part_pixmap.isNull():
             return QRectF(self.part_pixmap.rect())
-        return (
-            self._bounding_rect_local
-            if self._bounding_rect_local
-            else QRectF(0, 0, 10, 10)
-        )
+        return self._bounding_rect_local if self._bounding_rect_local else QRectF(0, 0, 10, 10)
 
     def shape(self) -> QPainterPath:
         path = QPainterPath()
         path.addRect(self.boundingRect())
         return path
 
-
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any) -> Any:
         """Handle item changes, like position changes by the user."""
-        if (
-            change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
-            and self.scene()
-        ):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and self.scene():
             # self.position_changed_by_user.emit(self.name(), self.scenePos()) # Temporarily commented out
             # logging.debug(f"Part '{self.name()}' moved to {self.scenePos()}")
             pass  # Avoid logging every pixel change during drag
@@ -384,7 +368,6 @@ class CharacterPartItem(QGraphicsPixmapItem):
             # self.setSelected(True) # Scene selection handles this if ItemIsSelectable
             pass
 
-
     def hoverEnterEvent(self, event: QGraphicsSceneMouseEvent):
         super().hoverEnterEvent(event)
 
@@ -394,7 +377,9 @@ class CharacterPartItem(QGraphicsPixmapItem):
     def get_anchor_point_scene_pos(self) -> QPointF:
         return self.mapToScene(self.anchor_offset)
 
-    def set_scene_position_from_anchor(self, scene_anchor_pos: QPointF, bypass_validation: bool = False):
+    def set_scene_position_from_anchor(
+        self, scene_anchor_pos: QPointF, bypass_validation: bool = False
+    ):
         """
         Set the part's position based on its anchor point position in the scene.
 

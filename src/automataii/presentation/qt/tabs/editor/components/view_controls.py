@@ -6,6 +6,7 @@ that delegate to EditorView for actual implementation.
 
 Design Pattern: Facade (simplifies EditorView interface for EditorTab)
 """
+
 from __future__ import annotations
 
 import logging

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QGraphicsItem
 @dataclass
 class HandleConstraints:
     """Constraints for handle movement."""
+
     min_x: float | None = None
     max_x: float | None = None
     min_y: float | None = None
@@ -64,10 +65,9 @@ class HandleInterface(ABC):
     """
 
     @abstractmethod
-    def __init__(self,
-                 handle_id: str,
-                 position: QPointF,
-                 constraints: HandleConstraints | None = None):
+    def __init__(
+        self, handle_id: str, position: QPointF, constraints: HandleConstraints | None = None
+    ):
         """
         Initialize handle.
 

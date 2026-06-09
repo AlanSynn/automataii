@@ -23,10 +23,14 @@ class MechanismService:
         """Initialize the mechanism service."""
         pass
 
-    def verify_coupler_joint_connection(self, layer_data: dict, parts_data: dict,
-                                      initial_skeleton_data_cache: dict,
-                                      scene_transform_function_getter,
-                                      mechanism_output_calculator) -> bool:
+    def verify_coupler_joint_connection(
+        self,
+        layer_data: dict,
+        parts_data: dict,
+        initial_skeleton_data_cache: dict,
+        scene_transform_function_getter,
+        mechanism_output_calculator,
+    ) -> bool:
         """
         Verify that the mechanism attachment point is properly connected to the target skeleton joint.
 
@@ -48,9 +52,9 @@ class MechanismService:
         anchor_joint_id = part_info.anchor_joint_id
 
         # Get the target joint position from cached skeleton data
-        if (initial_skeleton_data_cache and
-            anchor_joint_id in initial_skeleton_data_cache.get("joints", {})):
-
+        if initial_skeleton_data_cache and anchor_joint_id in initial_skeleton_data_cache.get(
+            "joints", {}
+        ):
             joint_data = initial_skeleton_data_cache["joints"][anchor_joint_id]
             target_joint_pos = np.array(joint_data.get("position", [0, 0]))
 
@@ -111,9 +115,9 @@ class MechanismService:
         anchor_joint_id = part_info.anchor_joint_id
 
         # Get the target joint position from cached skeleton data
-        if (initial_skeleton_data_cache and
-            anchor_joint_id in initial_skeleton_data_cache.get("joints", {})):
-
+        if initial_skeleton_data_cache and anchor_joint_id in initial_skeleton_data_cache.get(
+            "joints", {}
+        ):
             joint_data = initial_skeleton_data_cache["joints"][anchor_joint_id]
             target_joint_pos = np.array(joint_data.get("position", [0, 0]))
 
