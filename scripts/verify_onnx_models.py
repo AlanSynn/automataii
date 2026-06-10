@@ -12,8 +12,7 @@ def _load_onnx_module():
         import onnx  # type: ignore
     except ImportError:
         logging.error(
-            "onnx package not installed. Install with `uv pip install onnx` "
-            "or `pip install onnx` and re-run."
+            "onnx package not installed. Run with `uv run --with onnx python scripts/verify_onnx_models.py`."
         )
         return None
     return onnx

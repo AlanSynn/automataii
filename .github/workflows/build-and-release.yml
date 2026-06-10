@@ -35,7 +35,7 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v1
+      uses: astral-sh/setup-uv@v4
     
     - name: Install system dependencies
       run: |
@@ -166,16 +166,16 @@ jobs:
           wget \
           file
     
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      
     - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e .
-        pip install pyinstaller requests pillow
+      run: uv sync --group build-linux
     
     - name: Build Linux AppImage
       run: |
         cd build
-        python build_linux.py --update-url "https://github.com/${{ github.repository }}/releases/latest/download"
+        uv run python build_linux.py --update-url "https://github.com/${{ github.repository }}/releases/latest/download"
       env:
         PYTHONPATH: ${{ github.workspace }}/src
     
@@ -225,11 +225,11 @@ jobs:
       with:
         python-version: ${{ env.PYTHON_VERSION }}
     
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      
     - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller pywin32 requests
-        pip install -e .
+      run: uv sync --group build-windows
     
     - name: Install NSIS
       run: |
@@ -240,7 +240,7 @@ jobs:
     - name: Build Windows executable
       run: |
         cd build
-        python build_windows.py
+        uv run python build_windows.py
       env:
         PYTHONPATH: ${{ github.workspace }}\src
     

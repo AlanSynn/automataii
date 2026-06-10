@@ -38,7 +38,7 @@ class WindowsBuilder:
         if missing_tools:
             logger.error(f"Missing required tools: {', '.join(missing_tools)}")
             if 'pyinstaller' in missing_tools:
-                logger.info("Install PyInstaller: pip install pyinstaller")
+                logger.info("Make sure pyinstaller is installed via uv sync --group build-windows")
             return False
 
         # Check for NSIS (optional)
@@ -49,25 +49,7 @@ class WindowsBuilder:
 
         return True
 
-    def install_python_dependencies(self):
-        """Install Python build dependencies"""
-        logger.info("Checking Python dependencies...")
 
-        # Check if PyInstaller is available
-        try:
-            subprocess.run([sys.executable, '-c', 'import PyInstaller'], check=True, capture_output=True)
-            logger.info("PyInstaller is already available")
-        except subprocess.CalledProcessError:
-            logger.info("Installing PyInstaller...")
-            subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller'], check=True)
-
-        # Check Windows-specific dependencies
-        try:
-            subprocess.run([sys.executable, '-c', 'import win32api'], check=True, capture_output=True)
-            logger.info("pywin32 is already available")
-        except subprocess.CalledProcessError:
-            logger.info("Installing pywin32...")
-            subprocess.run([sys.executable, '-m', 'pip', 'install', 'pywin32'], check=True)
 
     def download_winsparkle(self):
         """Download WinSparkle library"""
@@ -140,8 +122,6 @@ class WindowsBuilder:
             return False
 
         try:
-            # 1. Install Python dependencies
-            self.install_python_dependencies()
 
             # 2. Download WinSparkle
             self.download_winsparkle()

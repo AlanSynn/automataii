@@ -150,7 +150,7 @@ def _extract_function_chunk(
 def compute_embeddings_local(chunks: list[CodeChunk]) -> np.ndarray:
     """Compute embeddings using local sentence-transformers model."""
     if not HAS_SENTENCE_TRANSFORMERS:
-        raise ImportError("sentence-transformers not installed. Run: pip install sentence-transformers")
+        raise ImportError("sentence-transformers not installed. Run: uv run --with sentence-transformers python scripts/semantic_analyzer.py")
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
     texts = [chunk.semantic_text for chunk in chunks]

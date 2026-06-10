@@ -36,24 +36,14 @@ class LinuxBuilder:
         if missing_tools:
             logger.error(f"Missing required tools: {', '.join(missing_tools)}")
             if 'pyinstaller' in missing_tools:
-                logger.info("Install PyInstaller: pip install pyinstaller")
+                logger.info("Make sure pyinstaller is installed via uv sync --group build")
             if 'wget' in missing_tools:
                 logger.info("Install wget: sudo apt-get install wget or sudo yum install wget")
             return False
 
         return True
 
-    def install_python_dependencies(self):
-        """Install Python build dependencies"""
-        logger.info("Checking Python dependencies...")
 
-        # Check if PyInstaller is available
-        try:
-            subprocess.run([sys.executable, '-c', 'import PyInstaller'], check=True, capture_output=True)
-            logger.info("PyInstaller is already available")
-        except subprocess.CalledProcessError:
-            logger.info("Installing PyInstaller...")
-            subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyinstaller'], check=True)
 
     def download_appimagetool(self):
         """Download AppImageTool"""
@@ -243,8 +233,6 @@ exec ./MotionSmith "$@"
             return False
 
         try:
-            # 1. Install Python dependencies
-            self.install_python_dependencies()
 
             # 2. Download AppImageTool
             appimagetool_path = self.download_appimagetool()

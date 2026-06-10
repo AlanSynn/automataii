@@ -4,7 +4,7 @@
 **CLI:** `uv run automataii --scenario image-processing [--scenario-output <dir>]`
 
 ## Requirements
-- ONNXRuntime (`uv pip install onnxruntime`)  
+- ONNXRuntime (installed automatically via `uv sync`)  
 - ONNX detector/pose models present under `models/onnx/`
 
 ## Generated Artifacts
