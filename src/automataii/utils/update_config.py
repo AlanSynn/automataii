@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-UPDATE_SITE_BASE_URL = "https://alansynn.github.io/motionsmith/"
+UPDATE_SITE_BASE_URL = "https://alansynn.com/motionsmith/"
 DEFAULT_APPCAST_URL = f"{UPDATE_SITE_BASE_URL}appcast.xml"
 DEFAULT_RELEASES_URL = "https://github.com/AlanSynn/motionsmith/releases/latest"
 MOTIONSMITH_PAGES_REPO = "AlanSynn/motionsmith"
@@ -133,7 +133,9 @@ def validate_signed_appcast(
     enclosure_count = 0
     for item_index, item in enumerate(items, start=1):
         item_version = normalize_release_version(_sparkle_child_text(item, "version"))
-        item_short_version = normalize_release_version(_sparkle_child_text(item, "shortVersionString"))
+        item_short_version = normalize_release_version(
+            _sparkle_child_text(item, "shortVersionString")
+        )
         _collect_release_notes_reference(
             item,
             item_index,
@@ -167,9 +169,7 @@ def validate_signed_appcast(
                     payload_root,
                 )
             if not ed_signature:
-                errors.append(
-                    f"Enclosure #{enclosure_count} has no non-empty sparkle:edSignature."
-                )
+                errors.append(f"Enclosure #{enclosure_count} has no non-empty sparkle:edSignature.")
             if not _positive_int(length_value):
                 errors.append(
                     f"Enclosure #{enclosure_count} has invalid positive length: {length_value!r}."
@@ -239,7 +239,11 @@ def _validate_referenced_url(
         errors.append(f"{label} URL must use HTTPS: {url!r}.")
     if expected_url_prefix is not None and not url.startswith(expected_url_prefix):
         errors.append(f"{label} URL {url!r} does not start with {expected_url_prefix!r}.")
-    if payload_dir is None or expected_url_prefix is None or not url.startswith(expected_url_prefix):
+    if (
+        payload_dir is None
+        or expected_url_prefix is None
+        or not url.startswith(expected_url_prefix)
+    ):
         return
     relative = url.removeprefix(expected_url_prefix)
     expected_path = _safe_payload_path(relative, payload_dir)

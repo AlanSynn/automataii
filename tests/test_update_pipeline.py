@@ -4,14 +4,20 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from scripts import build_macos, generate_appcast, install_sparkle, verify_macos_release
+from scripts import (
+    build_macos,
+    check_ota_reachability,
+    generate_appcast,
+    install_sparkle,
+    verify_macos_release,
+)
 
 from automataii.utils import update_config
 from automataii.utils.auto_updater import AutoUpdater
 
 
 def test_update_config_uses_motionsmith_defaults_and_env_overrides():
-    assert update_config.DEFAULT_APPCAST_URL == "https://alansynn.github.io/motionsmith/appcast.xml"
+    assert update_config.DEFAULT_APPCAST_URL == "https://alansynn.com/motionsmith/appcast.xml"
     assert (
         update_config.DEFAULT_RELEASES_URL
         == "https://github.com/AlanSynn/motionsmith/releases/latest"
@@ -126,7 +132,7 @@ def test_ota_metadata_checks_require_motionsmith_appcast_and_public_key(tmp_path
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>SUFeedURL</key><string>https://alansynn.github.io/motionsmith/appcast.xml</string>
+<key>SUFeedURL</key><string>https://alansynn.com/motionsmith/appcast.xml</string>
 <key>CFBundleShortVersionString</key><string>1.2.3</string>
 <key>CFBundleVersion</key><string>123</string>
 <key>SUPublicEDKey</key><string>public-key</string>
@@ -181,8 +187,10 @@ def _signed_appcast_xml(
     top_level_version: bool = False,
     notes: str | None = None,
 ) -> str:
-    version_attrs = "" if top_level_version else (
-        f' sparkle:version="{version}" sparkle:shortVersionString="{version}"'
+    version_attrs = (
+        ""
+        if top_level_version
+        else (f' sparkle:version="{version}" sparkle:shortVersionString="{version}"')
     )
     item_versions = (
         f"<sparkle:version>{version}</sparkle:version>"
@@ -191,9 +199,7 @@ def _signed_appcast_xml(
         else ""
     )
     notes_xml = (
-        f"<sparkle:releaseNotesLink>{notes}</sparkle:releaseNotesLink>"
-        if notes is not None
-        else ""
+        f"<sparkle:releaseNotesLink>{notes}</sparkle:releaseNotesLink>" if notes is not None else ""
     )
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="{update_config.SPARKLE_NAMESPACE}">
@@ -202,7 +208,7 @@ def _signed_appcast_xml(
       {item_versions}
       {notes_xml}
       <enclosure
-        url="https://alansynn.github.io/motionsmith/{artifact}"
+        url="https://alansynn.com/motionsmith/{artifact}"
         length="{length}"
         type="application/octet-stream"{version_attrs}
         sparkle:edSignature="{signature}" />
@@ -228,7 +234,9 @@ def test_signed_appcast_validation_requires_expected_artifact_version_and_pages_
 
     assert validation.passed is True
     assert validation.matched_enclosure_count == 1
-    assert validation.referenced_urls == ("https://alansynn.github.io/motionsmith/MotionSmith-macos-universal2.dmg",)
+    assert validation.referenced_urls == (
+        "https://alansynn.com/motionsmith/MotionSmith-macos-universal2.dmg",
+    )
 
 
 def test_signed_appcast_validation_accepts_sparkle_top_level_version_shape(tmp_path):
@@ -240,7 +248,7 @@ def test_signed_appcast_validation_accepts_sparkle_top_level_version_shape(tmp_p
     appcast.write_text(
         _signed_appcast_xml(
             top_level_version=True,
-            notes="https://alansynn.github.io/motionsmith/MotionSmith-macos-universal2.html",
+            notes="https://alansynn.com/motionsmith/MotionSmith-macos-universal2.html",
         ),
         encoding="utf-8",
     )
@@ -304,8 +312,8 @@ def test_signed_appcast_validation_rejects_http_enclosure_url(tmp_path):
     appcast = tmp_path / "appcast.xml"
     appcast.write_text(
         _signed_appcast_xml().replace(
-            "https://alansynn.github.io/motionsmith/",
-            "http://alansynn.github.io/motionsmith/",
+            "https://alansynn.com/motionsmith/",
+            "http://alansynn.com/motionsmith/",
         ),
         encoding="utf-8",
     )
@@ -416,11 +424,11 @@ def test_signed_appcast_validation_rejects_encoded_unsafe_payload_paths(
     "notes_url,raw_notes_parts",
     [
         (
-            "https://alansynn.github.io/motionsmith/%2e%2e/notes.html",
+            "https://alansynn.com/motionsmith/%2e%2e/notes.html",
             ("%2e%2e", "notes.html"),
         ),
         (
-            "https://alansynn.github.io/motionsmith/notes%25252525252frelease.html",
+            "https://alansynn.com/motionsmith/notes%25252525252frelease.html",
             ("notes%25252525252frelease.html",),
         ),
     ],
@@ -454,8 +462,8 @@ def test_signed_appcast_validation_rejects_encoded_unsafe_release_notes_path(
 @pytest.mark.parametrize(
     "notes_url",
     [
-        "https://alansynn.github.io/motionsmith//notes.html",
-        "https://alansynn.github.io/motionsmith/notes.html;evil",
+        "https://alansynn.com/motionsmith//notes.html",
+        "https://alansynn.com/motionsmith/notes.html;evil",
     ],
 )
 def test_signed_appcast_validation_rejects_non_canonical_release_notes_url(tmp_path, notes_url):
@@ -670,7 +678,8 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
     assert "automataii/automataii" not in text
     assert "sparkle:dsaSignature" not in text
     assert "dist/Automataii-macos" not in text
-    assert "https://alansynn.github.io/motionsmith/" in text
+    assert "https://alansynn.com/motionsmith/" in text
+    assert "https://alansynn.github.io/" + "motionsmith/" not in text
     assert "signed_appcast_url" not in text
     assert "curl --proto '=https' --proto-redir '=https'" not in text
     assert "SPARKLE_ED_SIGNATURE" not in text
@@ -688,9 +697,12 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
         assert "MOTIONSMITH_PAGES_TOKEN" in workflow
         assert "MOTIONSMITH_PAGES_DEPLOY_KEY" in workflow
         assert "Preflight MotionSmith Pages publishing access" in workflow
-        assert "permissions.get(\"push\") or permissions.get(\"admin\")" in workflow
+        assert 'permissions.get("push") or permissions.get("admin")' in workflow
         assert "git@github.com:AlanSynn/motionsmith.git" in workflow
         assert "git push --dry-run origin HEAD:master" in workflow
+        assert "github.com ssh-ed25519" in workflow
+        assert "ssh-keyscan" not in workflow
+        assert "$GITHUB_WORKSPACE/scripts/check_ota_reachability.py" in workflow
         assert "https://github.com/AlanSynn/motionsmith.git" in workflow
         assert "--branch master" in workflow
         assert "git push origin master" in workflow
@@ -712,6 +724,45 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
         assert workflow.index("name: Create Release") < workflow.index(
             "name: Publish OTA payload to MotionSmith Pages repository"
         )
+
+
+def test_ota_reachability_extracts_referenced_urls():
+    appcast = _signed_appcast_xml(
+        notes="https://alansynn.com/motionsmith/release-notes.html"
+    ).encode("utf-8")
+
+    assert check_ota_reachability.referenced_urls(appcast) == (
+        "https://alansynn.com/motionsmith/MotionSmith-macos-universal2.dmg",
+        "https://alansynn.com/motionsmith/release-notes.html",
+    )
+
+
+def test_ota_reachability_rejects_non_https_urls():
+    result = check_ota_reachability.check_url(
+        "http://alansynn.com/motionsmith/appcast.xml", timeout=1
+    )
+
+    assert result.ok is False
+    assert "HTTPS" in str(result.error)
+
+
+def test_ota_reachability_blocks_https_to_http_redirect():
+    handler = check_ota_reachability.HTTPSOnlyRedirectHandler()
+    request = check_ota_reachability.urllib.request.Request(
+        "https://alansynn.com/motionsmith/appcast.xml"
+    )
+
+    with pytest.raises(check_ota_reachability.urllib.error.HTTPError) as excinfo:
+        handler.redirect_request(
+            request,
+            None,
+            301,
+            "Moved",
+            {},
+            "http://alansynn.com/motionsmith/appcast.xml",
+        )
+
+    assert "insecure redirect blocked" in str(excinfo.value)
 
 
 def test_local_sparkle_cache_is_ignored():
