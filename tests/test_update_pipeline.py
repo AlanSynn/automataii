@@ -686,12 +686,11 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
         assert "scripts/generate_appcast.py production" in workflow
         assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" in workflow
         assert "MOTIONSMITH_PAGES_TOKEN" in workflow
+        assert "MOTIONSMITH_PAGES_DEPLOY_KEY" in workflow
         assert "Preflight MotionSmith Pages publishing access" in workflow
         assert "permissions.get(\"push\") or permissions.get(\"admin\")" in workflow
-        assert (
-            "git ls-remote --exit-code --heads https://github.com/AlanSynn/motionsmith.git master"
-            in workflow
-        )
+        assert "git@github.com:AlanSynn/motionsmith.git" in workflow
+        assert "git push --dry-run origin HEAD:master" in workflow
         assert "https://github.com/AlanSynn/motionsmith.git" in workflow
         assert "--branch master" in workflow
         assert "git push origin master" in workflow
@@ -713,6 +712,10 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
         assert workflow.index("name: Create Release") < workflow.index(
             "name: Publish OTA payload to MotionSmith Pages repository"
         )
+
+
+def test_local_sparkle_cache_is_ignored():
+    assert ".sparkle/" in Path(".gitignore").read_text(encoding="utf-8")
 
 
 def test_pyinstaller_spec_declares_sparkle_metadata_without_hardcoded_public_key():

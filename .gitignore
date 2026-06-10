@@ -501,3 +501,6 @@ tmp/
 # Keep macOS metadata out even under broad resource unignore rules.
 .DS_Store
 **/.DS_Store
+
+# Local Sparkle distribution cache
+.sparkle/

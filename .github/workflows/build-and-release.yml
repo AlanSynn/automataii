@@ -241,15 +241,25 @@ jobs:
       - name: Preflight MotionSmith Pages publishing access
         env:
           MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
+          MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
         run: |
-          if [[ -z "${MOTIONSMITH_PAGES_TOKEN:-}" ]]; then
-            echo "::error::MOTIONSMITH_PAGES_TOKEN is required before creating an external release because the OTA payload must be publishable to AlanSynn/motionsmith master root."
-            exit 1
-          fi
-          python3 - <<'PY'
+          set -euo pipefail
+
+          key_file=""
+          cleanup_git_auth() {
+            if [[ -n "${MOTIONSMITH_PAGES_TOKEN:-}" ]]; then
+              git config --global --unset-all url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf 2>/dev/null || true
+            fi
+            if [[ -n "${key_file:-}" ]]; then
+              rm -f "$key_file"
+            fi
+          }
+
+          configure_pages_remote() {
+            if [[ -n "${MOTIONSMITH_PAGES_TOKEN:-}" ]]; then
+              python3 - <<'PY'
           import json
           import os
-          import sys
           import urllib.error
           import urllib.request
 
@@ -276,9 +286,33 @@ jobs:
               )
           print("MotionSmith Pages token has push/admin permission.")
           PY
-          trap 'git config --global --unset-all url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf || true' EXIT
-          git config --global url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git ls-remote --exit-code --heads https://github.com/AlanSynn/motionsmith.git master >/dev/null
+              git config --global url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf "https://github.com/"
+              PAGES_REMOTE_URL="https://github.com/AlanSynn/motionsmith.git"
+            elif [[ -n "${MOTIONSMITH_PAGES_DEPLOY_KEY:-}" ]]; then
+              mkdir -p ~/.ssh
+              chmod 700 ~/.ssh
+              key_file="$RUNNER_TEMP/motionsmith_pages_deploy_key"
+              printf '%s\n' "$MOTIONSMITH_PAGES_DEPLOY_KEY" > "$key_file"
+              chmod 600 "$key_file"
+              ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+              export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+              PAGES_REMOTE_URL="git@github.com:AlanSynn/motionsmith.git"
+              echo "Using MotionSmith Pages deploy key credential."
+            else
+              echo "::error::Set either MOTIONSMITH_PAGES_TOKEN or MOTIONSMITH_PAGES_DEPLOY_KEY before creating an external release; the OTA payload must be publishable to AlanSynn/motionsmith master root."
+              exit 1
+            fi
+          }
+
+          configure_pages_remote
+          preflight_dir=$(mktemp -d)
+          trap 'rm -rf "$preflight_dir"; cleanup_git_auth' EXIT
+          git clone --depth 1 --branch master "$PAGES_REMOTE_URL" "$preflight_dir/motionsmith"
+          cd "$preflight_dir/motionsmith"
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git commit --allow-empty -m "Preflight MotionSmith Pages write access [skip ci]"
+          git push --dry-run origin HEAD:master >/dev/null
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -301,14 +335,12 @@ jobs:
       - name: Publish OTA payload to MotionSmith Pages repository
         env:
           MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
+          MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
           OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
         run: |
+          set -euo pipefail
           if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
             echo "::error::MotionSmith Pages publication requires ota_smoke_passed=true manual attestation."
-            exit 1
-          fi
-          if [[ -z "${MOTIONSMITH_PAGES_TOKEN:-}" ]]; then
-            echo "::error::MOTIONSMITH_PAGES_TOKEN is required to publish OTA payload to AlanSynn/motionsmith master root."
             exit 1
           fi
           python3 scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml \
@@ -316,10 +348,41 @@ jobs:
             --expected-version "${{ inputs.version }}" \
             --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
             --payload-dir sparkle-appcast-payload
+
+          key_file=""
+          cleanup_git_auth() {
+            if [[ -n "${MOTIONSMITH_PAGES_TOKEN:-}" ]]; then
+              git config --global --unset-all url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf 2>/dev/null || true
+            fi
+            if [[ -n "${key_file:-}" ]]; then
+              rm -f "$key_file"
+            fi
+          }
+
+          configure_pages_remote() {
+            if [[ -n "${MOTIONSMITH_PAGES_TOKEN:-}" ]]; then
+              git config --global url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf "https://github.com/"
+              PAGES_REMOTE_URL="https://github.com/AlanSynn/motionsmith.git"
+            elif [[ -n "${MOTIONSMITH_PAGES_DEPLOY_KEY:-}" ]]; then
+              mkdir -p ~/.ssh
+              chmod 700 ~/.ssh
+              key_file="$RUNNER_TEMP/motionsmith_pages_deploy_key"
+              printf '%s\n' "$MOTIONSMITH_PAGES_DEPLOY_KEY" > "$key_file"
+              chmod 600 "$key_file"
+              ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+              export GIT_SSH_COMMAND="ssh -i $key_file -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+              PAGES_REMOTE_URL="git@github.com:AlanSynn/motionsmith.git"
+              echo "Using MotionSmith Pages deploy key credential."
+            else
+              echo "::error::Set either MOTIONSMITH_PAGES_TOKEN or MOTIONSMITH_PAGES_DEPLOY_KEY to publish OTA payload to AlanSynn/motionsmith master root."
+              exit 1
+            fi
+          }
+
+          configure_pages_remote
           workdir=$(mktemp -d)
-          trap 'rm -rf "$workdir"; git config --global --unset-all url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf || true' EXIT
-          git config --global url."https://x-access-token:${MOTIONSMITH_PAGES_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git clone --depth 1 --branch master https://github.com/AlanSynn/motionsmith.git "$workdir/motionsmith"
+          trap 'rm -rf "$workdir"; cleanup_git_auth' EXIT
+          git clone --depth 1 --branch master "$PAGES_REMOTE_URL" "$workdir/motionsmith"
           rsync -av sparkle-appcast-payload/ "$workdir/motionsmith"/
           cd "$workdir/motionsmith"
           git config user.email "action@github.com"
