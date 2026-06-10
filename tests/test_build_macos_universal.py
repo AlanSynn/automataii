@@ -217,12 +217,14 @@ def test_strict_distribution_implies_release_verification(monkeypatch, tmp_path)
         require_notarization,
         require_gatekeeper,
         strict_distribution,
+        require_ota=False,
     ):
         verified_targets.append(Path(target_path))
         assert expected_arch == "x86_64"
         assert require_notarization is True
         assert require_gatekeeper is True
         assert strict_distribution is True
+        assert require_ota is False
         return True
 
     monkeypatch.setattr(builder, "create_dmg", fake_create_dmg)
@@ -348,8 +350,8 @@ def test_hdiutil_dmg_stages_app_without_extended_attributes(monkeypatch, tmp_pat
 
     assert builder._create_hdiutil_dmg(dmg) == dmg
     assert commands[0][:3] == ["ditto", "--noextattr", "--norsrc"]
-    assert commands[1][0:2] == ["hdiutil", "create"]
-    assert commands[1][commands[1].index("-srcfolder") + 1].endswith("/root")
+    hdiutil_command = next(command for command in commands if command[0:2] == ["hdiutil", "create"])
+    assert hdiutil_command[hdiutil_command.index("-srcfolder") + 1].endswith("/root")
 
 
 def test_hdiutil_dmg_requires_ditto(monkeypatch, tmp_path):

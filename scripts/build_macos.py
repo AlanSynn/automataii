@@ -15,6 +15,20 @@ import tempfile
 import time
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from automataii.utils.update_config import (  # noqa: E402
+    configured_appcast_url,
+    normalize_release_version,
+    ota_enabled,
+    signed_appcast_path,
+    sparkle_public_ed_key,
+    validate_signed_appcast,
+)
+
 try:
     from .macos_arch import (
         MACOS_ARCH_CHOICES,
@@ -44,6 +58,8 @@ except ImportError:  # pragma: no cover - used when executed as scripts/build_ma
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+SPARKLE_FRAMEWORK_PATH_ENV = "SPARKLE_FRAMEWORK_PATH"
+
 
 class MacOSBuilder:
     def __init__(self, project_root: Path):
@@ -58,6 +74,129 @@ class MacOSBuilder:
         # Match app name in automataii.spec
         self.app_name = "MotionSmith"
         self.app_bundle = self.dist_dir / f"{self.app_name}.app"
+
+    def ota_enabled(self) -> bool:
+        """Return whether strict OTA readiness is required for this build."""
+        return ota_enabled(os.environ)
+
+    def sparkle_framework_source(self) -> Path | None:
+        """Return the configured Sparkle.framework source, if available."""
+        env_path = os.environ.get(SPARKLE_FRAMEWORK_PATH_ENV, "").strip()
+        candidates = []
+        if env_path:
+            candidates.append(Path(env_path))
+        candidates.append(self.project_root / "packaging" / "vendor" / "Sparkle.framework")
+
+        for candidate in candidates:
+            if candidate.exists() and candidate.name == "Sparkle.framework":
+                return candidate
+        return None
+
+    def check_ota_build_inputs(
+        self,
+        require_ota: bool,
+        sign_identity: str | None,
+        notarize: bool,
+        create_dmg: bool,
+        expected_artifact_name: str,
+        expected_version: str,
+    ) -> bool:
+        """Validate hard production OTA prerequisites before building."""
+        if not require_ota:
+            return True
+
+        logger.info("Strict OTA gate enabled; validating Sparkle/update release inputs.")
+        missing: list[str] = []
+        if not sign_identity:
+            missing.append("MACOS_SIGN_IDENTITY / --sign Developer ID identity")
+        if not notarize:
+            missing.append("--notarize / APPLE_NOTARY_PROFILE notarization path")
+        if not create_dmg:
+            missing.append("DMG creation")
+        if self.sparkle_framework_source() is None:
+            missing.append(
+                f"Sparkle.framework via {SPARKLE_FRAMEWORK_PATH_ENV} or packaging/vendor"
+            )
+        if not sparkle_public_ed_key(os.environ):
+            missing.append("SPARKLE_PUBLIC_ED_KEY (or SPARKLE_PUBLIC_KEY)")
+
+        appcast_path_value = signed_appcast_path(os.environ)
+        if appcast_path_value is None:
+            missing.append("MOTIONSMITH_SIGNED_APPCAST_PATH signed appcast evidence")
+        else:
+            appcast_path = Path(appcast_path_value)
+            if not appcast_path.exists():
+                missing.append(f"signed appcast evidence exists at {appcast_path}")
+            else:
+                appcast_validation = validate_signed_appcast(
+                    appcast_path,
+                    expected_artifact_name=expected_artifact_name,
+                    expected_version=expected_version,
+                )
+                if not appcast_validation.passed:
+                    missing.extend(
+                        f"signed appcast validation: {error}" for error in appcast_validation.errors
+                    )
+
+        if missing:
+            logger.error(
+                "Strict OTA gate failed for appcast %s. Missing: %s",
+                configured_appcast_url(os.environ),
+                "; ".join(missing),
+            )
+            return False
+        return True
+
+    def project_version(self) -> str:
+        """Return the project version from pyproject.toml."""
+        pyproject = self.project_root / "pyproject.toml"
+        try:
+            import tomllib
+
+            with pyproject.open("rb") as handle:
+                version = tomllib.load(handle).get("project", {}).get("version")
+            if isinstance(version, str) and version:
+                return normalize_release_version(version) or "0.1.0"
+        except Exception:
+            pass
+        return "0.1.0"
+
+    def release_version(self) -> str:
+        """Return the expected appcast/bundle version for this build."""
+        return (
+            normalize_release_version(os.environ.get("MOTIONSMITH_VERSION"))
+            or self.project_version()
+        )
+
+    def embed_sparkle_framework(self, require_ota: bool) -> bool:
+        """Copy Sparkle.framework into the app bundle when configured."""
+        source = self.sparkle_framework_source()
+        if source is None:
+            if require_ota:
+                logger.error(
+                    "Strict OTA gate requires Sparkle.framework. Set %s or vendor it under "
+                    "packaging/vendor/Sparkle.framework.",
+                    SPARKLE_FRAMEWORK_PATH_ENV,
+                )
+                return False
+            logger.info("Sparkle.framework not configured; macOS OTA runtime remains disabled.")
+            return True
+
+        destination = self.app_bundle / "Contents" / "Frameworks" / "Sparkle.framework"
+        if source.resolve() == destination.resolve():
+            logger.info("Sparkle.framework already embedded at %s", destination)
+            return True
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            shutil.rmtree(destination)
+
+        if shutil.which("ditto") is not None:
+            subprocess.run(["ditto", str(source), str(destination)], check=True)
+        else:
+            shutil.copytree(source, destination, symlinks=True)
+        logger.info("Embedded Sparkle.framework: %s -> %s", source, destination)
+        return True
 
     def check_dependencies(self) -> bool:
         """Check for required tools."""
@@ -163,18 +302,12 @@ class MacOSBuilder:
         if nested_code:
             logger.info("Signing nested Mach-O files: %s", len(nested_code))
             for code_path in nested_code:
-                subprocess.run(
-                    [
-                        "codesign",
-                        "--force",
-                        "--options",
-                        "runtime",
-                        "--sign",
-                        sign_identity,
-                        str(code_path),
-                    ],
-                    check=True,
-                )
+                self._codesign_path(code_path, sign_identity)
+        nested_bundles = self._nested_code_bundle_targets()
+        if nested_bundles:
+            logger.info("Signing nested code bundles/frameworks: %s", len(nested_bundles))
+            for code_path in nested_bundles:
+                self._codesign_path(code_path, sign_identity)
         logger.info(f"Signing app with identity: {sign_identity}")
         cmd = [
             "codesign",
@@ -194,6 +327,38 @@ class MacOSBuilder:
         except subprocess.CalledProcessError:
             subprocess.run(cmd, check=True)
         logger.info("✓ Codesign complete")
+
+    @staticmethod
+    def _codesign_path(code_path: Path, sign_identity: str) -> None:
+        cmd = [
+            "codesign",
+            "--force",
+            "--options",
+            "runtime",
+            "--sign",
+            sign_identity,
+            str(code_path),
+        ]
+        try:
+            subprocess.run(cmd + ["--timestamp"], check=True)
+        except subprocess.CalledProcessError:
+            subprocess.run(cmd, check=True)
+
+    def _nested_code_bundle_targets(self) -> list[Path]:
+        """Return nested code bundles that need their own signatures."""
+        if not self.app_bundle.exists():
+            return []
+
+        suffixes = (".framework", ".xpc", ".appex", ".app", ".bundle")
+        targets: list[Path] = []
+        for path in self.app_bundle.rglob("*"):
+            if path == self.app_bundle:
+                continue
+            if not path.is_dir() or path.is_symlink():
+                continue
+            if path.name.endswith(suffixes):
+                targets.append(path)
+        return sorted(targets, key=lambda item: len(item.parts), reverse=True)
 
     def _nested_macho_files(self) -> list[Path]:
         """Return Mach-O files inside the app that need explicit signing.
@@ -325,14 +490,16 @@ class MacOSBuilder:
             for attempt in range(1, 4):
                 result = subprocess.run(cmd, check=False, capture_output=True, text=True)
                 if result.returncode == 0:
-                    if result.stdout.strip():
-                        logger.info(result.stdout.strip())
-                    if result.stderr.strip():
-                        logger.info(result.stderr.strip())
+                    stdout = (result.stdout or "").strip()
+                    stderr = (result.stderr or "").strip()
+                    if stdout:
+                        logger.info(stdout)
+                    if stderr:
+                        logger.info(stderr)
                     break
 
                 output = "\n".join(
-                    part.strip() for part in (result.stdout, result.stderr) if part.strip()
+                    part.strip() for part in (result.stdout, result.stderr) if part and part.strip()
                 )
                 if "Resource busy" in output and attempt < 3:
                     logger.warning(
@@ -480,8 +647,12 @@ class MacOSBuilder:
         assets_dir.mkdir(parents=True, exist_ok=True)
         background_1x = assets_dir / "dmg-background.png"
         background_2x = assets_dir / "dmg-background@2x.png"
-        self._draw_dmg_background(background_1x, scale=1, image_module=Image, draw_module=ImageDraw, font_module=ImageFont)
-        self._draw_dmg_background(background_2x, scale=2, image_module=Image, draw_module=ImageDraw, font_module=ImageFont)
+        self._draw_dmg_background(
+            background_1x, scale=1, image_module=Image, draw_module=ImageDraw, font_module=ImageFont
+        )
+        self._draw_dmg_background(
+            background_2x, scale=2, image_module=Image, draw_module=ImageDraw, font_module=ImageFont
+        )
         return background_1x
 
     def _draw_dmg_background(
@@ -659,6 +830,7 @@ class MacOSBuilder:
         require_notarization: bool,
         require_gatekeeper: bool,
         strict_distribution: bool,
+        require_ota: bool = False,
     ) -> bool:
         """Run release checks for the built artifact."""
         verification = verify_release(
@@ -666,6 +838,8 @@ class MacOSBuilder:
             expected_arch=expected_arch,
             require_notarization=require_notarization or strict_distribution,
             require_gatekeeper=require_gatekeeper or strict_distribution,
+            require_ota=require_ota,
+            expected_appcast_url=configured_appcast_url(os.environ),
         )
         for check in verification.checks:
             status = "PASS" if check.passed else "FAIL"
@@ -689,6 +863,11 @@ class MacOSBuilder:
     ) -> bool:
         """Execute the macOS build pipeline."""
         logger.info("=== Starting macOS build ===")
+        require_ota = self.ota_enabled()
+        if require_ota:
+            logger.info("MOTIONSMITH_OTA_ENABLED is enabled; enforcing strict OTA readiness.")
+            verify_release_checks = True
+            strict_distribution = True
         if strict_distribution and not verify_release_checks:
             logger.info("Strict distribution requested; enabling final release verification.")
             verify_release_checks = True
@@ -707,6 +886,15 @@ class MacOSBuilder:
         if notarize and not create_dmg:
             logger.error("Notarization requires a DMG. Remove --no-dmg or disable --notarize.")
             return False
+        if not self.check_ota_build_inputs(
+            require_ota,
+            sign_identity,
+            notarize,
+            create_dmg,
+            expected_artifact_name=dmg_filename(self.app_name, arch),
+            expected_version=self.release_version(),
+        ):
+            return False
         if not self.check_architecture_requirements(arch):
             return False
         if not self.check_dependencies():
@@ -714,6 +902,8 @@ class MacOSBuilder:
         try:
             self.clean(arch_label=arch)
             self.build_executable(target_arch=pyinstaller_target_arch(arch))
+            if not self.embed_sparkle_framework(require_ota):
+                return False
             self.sign_app(sign_identity)
             if notarize and not self.notarize_app_bundle():
                 return False
@@ -734,6 +924,7 @@ class MacOSBuilder:
                 require_notarization=notarize or strict_distribution,
                 require_gatekeeper=require_gatekeeper,
                 strict_distribution=strict_distribution,
+                require_ota=require_ota,
             ):
                 return False
             logger.info("=== macOS build complete ===")

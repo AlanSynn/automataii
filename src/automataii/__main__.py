@@ -16,12 +16,12 @@ if not os.environ.get("QT_QPA_PLATFORM"):
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 try:
-    from PyQt6.QtCore import Qt
+    from PyQt6.QtCore import Qt, QTimer
     from PyQt6.QtGui import QFont
     from PyQt6.QtWidgets import QApplication
 except ImportError:
     try:
-        from PySide6.QtCore import Qt  # type: ignore[no-redef]
+        from PySide6.QtCore import Qt, QTimer  # type: ignore[no-redef]
         from PySide6.QtGui import QFont  # type: ignore[no-redef]
         from PySide6.QtWidgets import QApplication  # type: ignore[no-redef]
     except ImportError:
@@ -38,6 +38,28 @@ from automataii.utils.config import AppConfig
 from automataii.utils.logging_config import setup_logging
 from automataii.utils.paths import get_app_data_dir, get_base_path, get_project_root
 from automataii.utils.styling import LIGHT_STYLE
+
+
+def schedule_startup_update_check(
+    updater: object | None,
+    *,
+    delay_ms: int = 3000,
+    qtimer_cls: type[QTimer] = QTimer,
+) -> bool:
+    """Schedule a silent startup update check when the updater allows it."""
+    if updater is None:
+        return False
+
+    can_check = getattr(updater, "can_check_for_updates_in_background", None)
+    if not callable(can_check) or not can_check():
+        return False
+
+    check_for_updates = getattr(updater, "check_for_updates", None)
+    if not callable(check_for_updates):
+        return False
+
+    qtimer_cls.singleShot(delay_ms, lambda: check_for_updates(show_ui=False))
+    return True
 
 
 def main() -> None:
@@ -151,6 +173,11 @@ def main() -> None:
     if platform.system() == "Darwin":
         main_window.raise_()
         main_window.activateWindow()
+
+    if schedule_startup_update_check(updater):
+        logging.info("Scheduled startup update check.")
+    elif updater:
+        logging.info("Startup update check not scheduled.")
 
     logging.info("Application started.")
 

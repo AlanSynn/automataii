@@ -10,6 +10,20 @@ on:
         description: 'Version tag'
         required: true
         default: 'v0.1.0'
+      publish_external:
+        description: 'Publish GitHub Release and Pages appcast'
+        required: true
+        default: false
+        type: boolean
+      signed_appcast_url:
+        description: 'HTTPS URL to a production Sparkle EdDSA-signed appcast.xml'
+        required: false
+        default: ''
+      ota_smoke_passed:
+        description: 'Confirm an old-to-new Sparkle OTA smoke test passed for this appcast'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -69,6 +83,30 @@ jobs:
           security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
 
+      - name: Fetch and validate signed OTA appcast for publication build
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
+        env:
+          SIGNED_APPCAST_URL: ${{ inputs.signed_appcast_url }}
+          OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
+        run: |
+          if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
+            echo "::error::publish_external requires ota_smoke_passed=true after an old-to-new Sparkle OTA smoke test."
+            exit 1
+          fi
+          if [[ -z "$SIGNED_APPCAST_URL" ]]; then
+            echo "::error::publish_external requires signed_appcast_url pointing to a Sparkle EdDSA-signed appcast.xml."
+            exit 1
+          fi
+          if [[ "$SIGNED_APPCAST_URL" != https://* ]]; then
+            echo "::error::signed_appcast_url must use HTTPS."
+            exit 1
+          fi
+          mkdir -p signed-appcast
+          curl --proto '=https' --proto-redir '=https' -fsSL "$SIGNED_APPCAST_URL" -o signed-appcast/appcast.xml
+          uv run python scripts/validate_appcast.py signed-appcast/appcast.xml \
+            --expected-artifact MotionSmith-macos-universal2.dmg \
+            --expected-version "${{ inputs.version }}"
+
       - name: Build signed macOS DMG
         env:
           MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
@@ -76,6 +114,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          MOTIONSMITH_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          MOTIONSMITH_OTA_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && '1' || '' }}
+          MOTIONSMITH_SIGNED_APPCAST_PATH: signed-appcast/appcast.xml
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY || secrets.SPARKLE_PUBLIC_KEY }}
+          SPARKLE_FRAMEWORK_PATH: ${{ vars.SPARKLE_FRAMEWORK_PATH }}
         run: |
           if [[ -z "${MACOS_SIGN_IDENTITY:-}" ]]; then
             echo "::error::MACOS_SIGN_IDENTITY is required for a signed macOS release."
@@ -83,7 +126,7 @@ jobs:
           fi
           if [[ -z "${APPLE_NOTARY_PROFILE:-}" ]]; then
             if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
-              export APPLE_NOTARY_PROFILE="AutomataiiNotary"
+              export APPLE_NOTARY_PROFILE="MotionSmithNotary"
             else
               echo "::error::Set APPLE_NOTARY_PROFILE, or provide APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so CI can create a temporary keychain profile."
               exit 1
@@ -100,46 +143,33 @@ jobs:
           rm -f cert.p12
           security delete-keychain build.keychain || true
           
-      - name: Generate EdDSA key for Sparkle (if not exists)
+      - name: Note production appcast signing gate
         run: |
-          if [ ! -f sparkle_private_key ]; then
-            # Download generate_keys tool from Sparkle
-            curl -L -o sparkle.tar.xz "https://github.com/sparkle-project/Sparkle/releases/download/2.5.2/Sparkle-2.5.2.tar.xz"
-            tar -xf sparkle.tar.xz
-            ./bin/generate_keys
-            echo "SPARKLE_PRIVATE_KEY=$(cat sparkle_private_key)" >> $GITHUB_ENV
-            echo "SPARKLE_PUBLIC_KEY=$(cat sparkle_public_key)" >> $GITHUB_ENV
-          fi
+          echo "This workflow only builds diagnostic appcast artifacts by default."
+          echo "Production OTA publication requires a pre-signed Sparkle EdDSA appcast and explicit publish_external=true."
           
       - name: Generate Appcast
         env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Create appcast directory
           mkdir -p appcast
           
-          # Generate appcast from GitHub releases using API
-          uv run --with requests python scripts/generate_appcast.py automataii/automataii appcast/appcast.xml
-          
-          # Sparkle 서명 추가 (선택적)
-          if [ -n "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "$SPARKLE_PRIVATE_KEY" > sparkle_private_key
-            if [ -f ./bin/generate_appcast ]; then
-              ./bin/generate_appcast appcast/
-            fi
-          fi
+          # Generate diagnostic appcast metadata from the MotionSmith releases API.
+          # Do not publish this as production OTA evidence unless Sparkle EdDSA signing
+          # is supplied by the official Sparkle tooling.
+          uv run --with requests python scripts/generate_appcast.py AlanSynn/motionsmith appcast/appcast.xml
           
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
-          path: dist/Automataii-macos-*.dmg
+          path: dist/MotionSmith-macos-*.dmg
           
-      - name: Upload Appcast artifact
+      - name: Upload diagnostic Appcast artifact
         uses: actions/upload-artifact@v4
         with:
-          name: appcast
+          name: diagnostic-appcast
           path: appcast/appcast.xml
 
   build-linux:
@@ -204,19 +234,45 @@ jobs:
   create-release:
     needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+
+      - name: Fetch and validate signed production appcast
+        env:
+          SIGNED_APPCAST_URL: ${{ inputs.signed_appcast_url }}
+          OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
+        run: |
+          if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
+            echo "::error::publish_external requires ota_smoke_passed=true after an old-to-new Sparkle OTA smoke test."
+            exit 1
+          fi
+          if [[ -z "$SIGNED_APPCAST_URL" ]]; then
+            echo "::error::publish_external requires signed_appcast_url pointing to a Sparkle EdDSA-signed appcast.xml."
+            exit 1
+          fi
+          if [[ "$SIGNED_APPCAST_URL" != https://* ]]; then
+            echo "::error::signed_appcast_url must use HTTPS."
+            exit 1
+          fi
+          mkdir -p signed-appcast
+          curl --proto '=https' --proto-redir '=https' -fsSL "$SIGNED_APPCAST_URL" -o signed-appcast/appcast.xml
+          python3 scripts/validate_appcast.py signed-appcast/appcast.xml \
+            --expected-artifact MotionSmith-macos-universal2.dmg \
+            --expected-version "${{ inputs.version }}"
         
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.version }}
           files: |
             macos-dmg/*
             linux-appimage/*
             windows-exe/*
-            appcast/*
+            signed-appcast/appcast.xml
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -227,7 +283,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: appcast
+          path: signed-appcast
           
       - name: Deploy to Pages
         uses: actions/deploy-pages@v4

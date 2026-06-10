@@ -7,8 +7,11 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import cast
 
 from PyQt6.QtCore import QObject
+
+from automataii.utils.update_config import configured_appcast_url, configured_update_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +21,11 @@ class AutoUpdater:
 
     def __init__(self, app_instance: QObject | None = None) -> None:
         self.app_instance = app_instance
-        self.update_url = "https://github.com/automataii/automataii/releases/latest"
-        self.appcast_url = (
-            "https://github.com/automataii/automataii/releases/latest/download/appcast.xml"
-        )
+        self.update_url = configured_update_url(os.environ)
+        self.appcast_url = configured_appcast_url(os.environ)
         self.updater: object | None = None
+        self._sparkle_controller: object | None = None
+        self._updater_type: str | None = None
         self.platform = sys.platform
 
     def setup_updater(self) -> bool:
@@ -51,19 +54,21 @@ class AutoUpdater:
             connect(callback)
 
     def _setup_sparkle(self) -> bool:
-        """Setup Sparkle for macOS"""
-        try:
-            # Check if running from app bundle
-            bundle_root = getattr(sys, "_MEIPASS", None)
-            if not isinstance(bundle_root, str):
-                logger.info("Not running from bundle, skipping Sparkle setup")
-                return False
+        """Setup Sparkle for macOS.
 
-            import Foundation
+        Sparkle 2 is preferred. The legacy SUUpdater path remains as a
+        compatibility fallback for older bundled frameworks only; startup
+        background checks still respect Sparkle's persisted/user-approved
+        automatic-check state instead of forcing runtime defaults.
+        """
+        try:
             from objc import loadBundle
 
             # Find Sparkle framework
-            bundle_path = Path(bundle_root).parent / "Frameworks" / "Sparkle.framework"
+            bundle_path = self._sparkle_framework_path()
+            if bundle_path is None:
+                logger.info("Sparkle.framework not found in app bundle; update checks unavailable")
+                return False
             if not bundle_path.exists():
                 logger.warning(f"Sparkle.framework not found at {bundle_path}")
                 return False
@@ -76,10 +81,93 @@ class AutoUpdater:
                 logger.error("Failed to load Sparkle framework")
                 return False
 
-            # Get SUUpdater class
+            if self._setup_sparkle2(objc_namespace):
+                self._updater_type = "Sparkle 2"
+                logger.info("Sparkle 2 updater configured successfully")
+                return True
+
+            logger.warning("Sparkle 2 controller unavailable; trying legacy SUUpdater fallback")
+            if self._setup_legacy_sparkle(objc_namespace):
+                self._updater_type = "Sparkle (legacy SUUpdater)"
+                logger.info("Legacy Sparkle updater configured successfully")
+                return True
+
+            logger.error("No supported Sparkle updater class found")
+            return False
+
+        except ImportError:
+            logger.warning("PyObjC not available for Sparkle integration")
+            return False
+        except Exception as e:
+            logger.error(f"Sparkle setup failed: {e}")
+            return False
+
+    def _sparkle_framework_path(self) -> Path | None:
+        """Return the bundled Sparkle.framework path when the app is bundled."""
+        candidates: list[Path] = []
+
+        bundle_root = getattr(sys, "_MEIPASS", None)
+        if isinstance(bundle_root, str):
+            root = Path(bundle_root).resolve()
+            candidates.extend(
+                [
+                    root / "Sparkle.framework",
+                    root / "Frameworks" / "Sparkle.framework",
+                    root.parent / "Frameworks" / "Sparkle.framework",
+                ]
+            )
+
+        executable = Path(sys.executable).resolve()
+        if len(executable.parents) >= 2:
+            contents_dir = executable.parents[1]
+            candidates.append(contents_dir / "Frameworks" / "Sparkle.framework")
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _setup_sparkle2(self, objc_namespace: dict[str, object]) -> bool:
+        """Setup Sparkle 2 using SPUStandardUpdaterController."""
+        controller_class = objc_namespace.get("SPUStandardUpdaterController")
+        alloc = getattr(controller_class, "alloc", None)
+        if not callable(alloc):
+            return False
+
+        controller = alloc()
+        init = getattr(
+            controller,
+            "initWithStartingUpdater_updaterDelegate_userDriverDelegate_",
+            None,
+        )
+        if not callable(init):
+            return False
+
+        controller = init(True, None, None)
+        updater = self._sparkle_updater_from_controller(controller)
+        if updater is None:
+            logger.error("SPUStandardUpdaterController did not expose an updater")
+            return False
+
+        self._sparkle_controller = controller
+        self.updater = updater
+
+        if self.app_instance:
+
+            def cleanup_sparkle2() -> None:
+                logger.debug("Sparkle 2 cleanup is managed by the framework")
+
+            self._connect_about_to_quit(cleanup_sparkle2)
+
+        return True
+
+    def _setup_legacy_sparkle(self, objc_namespace: dict[str, object]) -> bool:
+        """Setup legacy Sparkle SUUpdater as a backwards-compatible fallback."""
+        try:
+            import Foundation
+
             SUUpdater = objc_namespace.get("SUUpdater")
             if not SUUpdater:
-                logger.error("SUUpdater class not found")
                 return False
 
             shared_updater = getattr(SUUpdater, "sharedUpdater", None)
@@ -88,17 +176,8 @@ class AutoUpdater:
                 return False
             updater = shared_updater()
 
-            # Configure updater
-            for method_name, value in (
-                ("setAutomaticallyChecksForUpdates_", True),
-                ("setAutomaticallyDownloadsUpdates_", False),
-                ("setUpdateCheckInterval_", 24 * 60 * 60),
-            ):
-                method = getattr(updater, method_name, None)
-                if callable(method):
-                    method(value)
-
-            # Set feed URL
+            # Set feed URL for the legacy compatibility path. Sparkle 2 should
+            # use the bundled SUFeedURL Info.plist value instead.
             NSURL = Foundation.NSURL
             feed_url = NSURL.URLWithString_(self.appcast_url)
             set_feed_url = getattr(updater, "setFeedURL_", None)
@@ -119,15 +198,56 @@ class AutoUpdater:
 
                 self._connect_about_to_quit(cleanup_sparkle)
 
-            logger.info("Sparkle updater configured successfully")
             return True
 
-        except ImportError:
-            logger.warning("PyObjC not available for Sparkle integration")
-            return False
         except Exception as e:
-            logger.error(f"Sparkle setup failed: {e}")
+            logger.error(f"Legacy Sparkle setup failed: {e}")
             return False
+
+    @staticmethod
+    def _sparkle_updater_from_controller(controller: object) -> object | None:
+        updater_accessor = getattr(controller, "updater", None)
+        if callable(updater_accessor):
+            return cast(object | None, updater_accessor())
+        return cast(object | None, getattr(controller, "updater", None))
+
+    @staticmethod
+    def _bool_method_value(target: object, method_name: str) -> bool | None:
+        method = getattr(target, method_name, None)
+        if callable(method):
+            return bool(method())
+        value = getattr(target, method_name, None)
+        if isinstance(value, bool):
+            return value
+        return None
+
+    def _sparkle_automatically_checks_for_updates(self) -> bool | None:
+        targets = [self.updater, self._sparkle_controller]
+        for target in targets:
+            if target is None:
+                continue
+            value = self._bool_method_value(target, "automaticallyChecksForUpdates")
+            if value is not None:
+                return value
+        return None
+
+    def can_check_for_updates_in_background(self) -> bool:
+        """Return whether a silent startup check is allowed right now."""
+        if self.platform != "darwin" or self.updater is None:
+            return False
+
+        check_background = getattr(self.updater, "checkForUpdatesInBackground", None)
+        if not callable(check_background):
+            return False
+
+        automatically_checks = self._sparkle_automatically_checks_for_updates()
+        if automatically_checks is not True:
+            logger.debug(
+                "Skipping background update check because Sparkle automatic checks are disabled "
+                "or unavailable."
+            )
+            return False
+        return True
 
     def _setup_winsparkle(self) -> bool:
         """Setup WinSparkle for Windows"""
@@ -239,11 +359,14 @@ class AutoUpdater:
             if self.platform == "darwin":
                 # Sparkle update check
                 if show_ui:
-                    check = getattr(self.updater, "checkForUpdates_", None)
+                    target = self._sparkle_controller or self.updater
+                    check = getattr(target, "checkForUpdates_", None)
                     if callable(check):
                         check(None)
                         return True
                 else:
+                    if not self.can_check_for_updates_in_background():
+                        return False
                     check_background = getattr(self.updater, "checkForUpdatesInBackground", None)
                     if callable(check_background):
                         check_background()
@@ -308,10 +431,11 @@ class AutoUpdater:
             "updater_available": self.updater is not None,
             "update_url": self.update_url,
             "appcast_url": self.appcast_url,
+            "startup_background_check_allowed": self.can_check_for_updates_in_background(),
         }
 
         if self.platform == "darwin":
-            info["updater_type"] = "Sparkle"
+            info["updater_type"] = self._updater_type or "Sparkle"
         elif self.platform == "win32":
             info["updater_type"] = "WinSparkle"
         elif self.platform.startswith("linux"):

@@ -13,7 +13,16 @@ on:
       create_release:
         description: 'Create GitHub release'
         required: true
-        default: true
+        default: false
+        type: boolean
+      signed_appcast_url:
+        description: 'HTTPS URL to a production Sparkle EdDSA-signed appcast.xml'
+        required: false
+        default: ''
+      ota_smoke_passed:
+        description: 'Confirm an old-to-new Sparkle OTA smoke test passed for this appcast'
+        required: true
+        default: false
         type: boolean
 
 env:
@@ -76,6 +85,30 @@ jobs:
         security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
         security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
     
+    - name: Fetch and validate signed OTA appcast for release build
+      if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release }}
+      env:
+        SIGNED_APPCAST_URL: ${{ inputs.signed_appcast_url }}
+        OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
+      run: |
+        if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
+          echo "::error::create_release requires ota_smoke_passed=true after an old-to-new Sparkle OTA smoke test."
+          exit 1
+        fi
+        if [[ -z "$SIGNED_APPCAST_URL" ]]; then
+          echo "::error::create_release requires signed_appcast_url pointing to a Sparkle EdDSA-signed appcast.xml."
+          exit 1
+        fi
+        if [[ "$SIGNED_APPCAST_URL" != https://* ]]; then
+          echo "::error::signed_appcast_url must use HTTPS."
+          exit 1
+        fi
+        mkdir -p signed-appcast
+        curl --proto '=https' --proto-redir '=https' -fsSL "$SIGNED_APPCAST_URL" -o signed-appcast/appcast.xml
+        uv run python scripts/validate_appcast.py signed-appcast/appcast.xml \
+          --expected-artifact MotionSmith-macos-universal2.dmg \
+          --expected-version "${{ inputs.version }}"
+
     - name: Build signed macOS DMG
       env:
         MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
@@ -83,6 +116,11 @@ jobs:
         APPLE_ID: ${{ secrets.APPLE_ID }}
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        MOTIONSMITH_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        MOTIONSMITH_OTA_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release && '1' || '' }}
+        MOTIONSMITH_SIGNED_APPCAST_PATH: signed-appcast/appcast.xml
+        SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY || secrets.SPARKLE_PUBLIC_KEY }}
+        SPARKLE_FRAMEWORK_PATH: ${{ vars.SPARKLE_FRAMEWORK_PATH }}
       run: |
         if [[ -z "${MACOS_SIGN_IDENTITY:-}" ]]; then
           echo "::error::MACOS_SIGN_IDENTITY is required for a signed macOS release."
@@ -90,7 +128,7 @@ jobs:
         fi
         if [[ -z "${APPLE_NOTARY_PROFILE:-}" ]]; then
           if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
-            export APPLE_NOTARY_PROFILE="AutomataiiNotary"
+            export APPLE_NOTARY_PROFILE="MotionSmithNotary"
           else
             echo "::error::Set APPLE_NOTARY_PROFILE, or provide APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so CI can create a temporary keychain profile."
             exit 1
@@ -112,13 +150,13 @@ jobs:
       with:
         name: macos-build
         path: |
-          dist/Automataii-macos-*.dmg
-          dist/AutomataII.app
+          dist/MotionSmith-macos-*.dmg
+          dist/MotionSmith.app
     
     - name: Generate macOS update info
       run: |
-        # Generate Sparkle appcast information
-        DMG_FILE=$(ls dist/Automataii-*.dmg)
+        # Generate diagnostic macOS artifact metadata.
+        DMG_FILE=$(ls dist/MotionSmith-*.dmg)
         DMG_SIZE=$(stat -f%z "$DMG_FILE")
         DMG_SHA256=$(shasum -a 256 "$DMG_FILE" | cut -d' ' -f1)
         
@@ -287,70 +325,55 @@ jobs:
   create-release:
     needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.create_release == 'true' || startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release }}
     steps:
     - uses: actions/checkout@v4
     
     - name: Download all artifacts
       uses: actions/download-artifact@v4
     
-    - name: Generate Sparkle appcast
+    - name: Fetch and validate signed production appcast
+      env:
+        SIGNED_APPCAST_URL: ${{ inputs.signed_appcast_url }}
+        OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
       run: |
-        # Download update info files
-        MACOS_INFO=$(cat macos-update-info/macos-update-info.json)
-        LINUX_INFO=$(cat linux-update-info/linux-update-info.json)
-        WINDOWS_INFO=$(cat windows-update-info/windows-update-info.json)
-        
-        # Generate Sparkle appcast XML
-        cat > appcast.xml << EOF
-        <?xml version="1.0" encoding="utf-8"?>
-        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-          <channel>
-            <title>Automataii Updates</title>
-            <link>https://github.com/${{ github.repository }}</link>
-            <description>Automataii application updates</description>
-            <language>en</language>
-            <item>
-              <title>Version ${{ github.ref_name }}</title>
-              <description><![CDATA[
-                <h2>Automataii ${{ github.ref_name }}</h2>
-                <p>Latest version of Automataii with improvements and bug fixes.</p>
-              ]]></description>
-              <pubDate>$(date -R)</pubDate>
-              <sparkle:version>${{ github.ref_name }}</sparkle:version>
-              <sparkle:shortVersionString>${{ github.ref_name }}</sparkle:shortVersionString>
-              <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-              <enclosure 
-                url="$(echo $MACOS_INFO | jq -r '.url')" 
-                length="$(echo $MACOS_INFO | jq -r '.size')" 
-                type="application/octet-stream" 
-                sparkle:version="${{ github.ref_name }}" 
-                sparkle:shortVersionString="${{ github.ref_name }}" 
-                sparkle:dsaSignature="$(echo $MACOS_INFO | jq -r '.sha256')" />
-            </item>
-          </channel>
-        </rss>
-        EOF
+        if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
+          echo "::error::create_release requires ota_smoke_passed=true after an old-to-new Sparkle OTA smoke test."
+          exit 1
+        fi
+        if [[ -z "$SIGNED_APPCAST_URL" ]]; then
+          echo "::error::create_release requires signed_appcast_url pointing to a Sparkle EdDSA-signed appcast.xml."
+          exit 1
+        fi
+        if [[ "$SIGNED_APPCAST_URL" != https://* ]]; then
+          echo "::error::signed_appcast_url must use HTTPS."
+          exit 1
+        fi
+        mkdir -p signed-appcast
+        curl --proto '=https' --proto-redir '=https' -fsSL "$SIGNED_APPCAST_URL" -o signed-appcast/appcast.xml
+        python3 scripts/validate_appcast.py signed-appcast/appcast.xml \
+          --expected-artifact MotionSmith-macos-universal2.dmg \
+          --expected-version "${{ inputs.version }}"
     
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.ref_name }}
-        name: Release ${{ github.ref_name }}
+        tag_name: ${{ inputs.version }}
+        name: Release ${{ inputs.version }}
         draft: false
         prerelease: false
         files: |
           macos-build/*
           linux-build/*
           windows-build/*
-          appcast.xml
+          signed-appcast/appcast.xml
         body: |
-          ## Automataii ${{ github.ref_name }}
+          ## MotionSmith ${{ inputs.version }}
           
           ### Downloads
           
           **macOS:**
-          - [Automataii-macos-universal2.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-macos-universal2.dmg)
+          - [MotionSmith-macos-universal2.dmg](https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/MotionSmith-macos-universal2.dmg)
           
           **Linux:**
           - [Automataii-${{ github.ref_name }}-linux-x86_64.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Automataii-${{ github.ref_name }}-linux-x86_64.AppImage)
@@ -360,7 +383,7 @@ jobs:
           
           ### Installation
           
-          **macOS:** Download the DMG file, open it, and drag Automataii to your Applications folder.
+          **macOS:** Download the DMG file, open it, and drag MotionSmith to your Applications folder.
           
           **Linux:** Download the AppImage file, make it executable (`chmod +x Automataii-*.AppImage`), and run it.
           
@@ -368,14 +391,15 @@ jobs:
           
           ### Auto-Updates
           
-          This version includes automatic update checking. The application will notify you when new versions are available.
+          This build includes updater plumbing, but production OTA notification is gated until
+          a Sparkle EdDSA-signed appcast is hosted and an old-to-new update test has passed.
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   update-appcast:
     needs: [create-release]
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.create_release == 'true' || startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -384,7 +408,7 @@ jobs:
     
     - name: Download appcast
       run: |
-        wget -O appcast.xml "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/appcast.xml"
+        wget -O appcast.xml "https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/appcast.xml"
     
     - name: Commit and push appcast
       run: |

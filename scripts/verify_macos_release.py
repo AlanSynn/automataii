@@ -13,6 +13,13 @@ import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from automataii.utils.update_config import DEFAULT_APPCAST_URL  # noqa: E402
+
 try:
     from .macos_arch import MACOS_ARCH_CHOICES, executable_arches
 except ImportError:  # pragma: no cover - used when executed as scripts/verify_macos_release.py
@@ -88,6 +95,102 @@ def _app_executable(app_path: Path) -> Path | None:
     if not isinstance(executable_name, str) or not executable_name:
         return None
     return app_path / "Contents" / "MacOS" / executable_name
+
+
+def _load_info_plist(app_path: Path) -> dict[str, object]:
+    info_plist = app_path / "Contents" / "Info.plist"
+    if not info_plist.exists():
+        return {}
+
+    with info_plist.open("rb") as handle:
+        loaded = plistlib.load(handle)
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _valid_version(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    return bool(stripped) and stripped != "0.0.0"
+
+
+def _check_update_metadata(
+    app_path: Path,
+    *,
+    require_ota: bool,
+    expected_appcast_url: str,
+) -> list[CheckResult]:
+    info = _load_info_plist(app_path)
+    feed_url = info.get("SUFeedURL")
+    short_version = info.get("CFBundleShortVersionString")
+    bundle_version = info.get("CFBundleVersion")
+    public_key = info.get("SUPublicEDKey")
+
+    return [
+        CheckResult(
+            "appcast_feed_url",
+            feed_url == expected_appcast_url,
+            require_ota,
+            f"SUFeedURL is {feed_url!r}; expected {expected_appcast_url!r}.",
+        ),
+        CheckResult(
+            "bundle_short_version",
+            _valid_version(short_version),
+            require_ota,
+            f"CFBundleShortVersionString is {short_version!r}.",
+        ),
+        CheckResult(
+            "bundle_version",
+            _valid_version(bundle_version),
+            require_ota,
+            f"CFBundleVersion is {bundle_version!r}.",
+        ),
+        CheckResult(
+            "sparkle_public_key",
+            isinstance(public_key, str) and bool(public_key.strip()),
+            require_ota,
+            "SUPublicEDKey is present."
+            if isinstance(public_key, str) and public_key.strip()
+            else "SUPublicEDKey is missing.",
+        ),
+    ]
+
+
+def _check_sparkle_framework(app_path: Path, require_ota: bool) -> list[CheckResult]:
+    framework = app_path / "Contents" / "Frameworks" / "Sparkle.framework"
+    checks = [
+        CheckResult(
+            "sparkle_framework_embedded",
+            framework.exists(),
+            require_ota,
+            f"Sparkle.framework {'found' if framework.exists() else 'not found'} at {framework}.",
+        )
+    ]
+    if not framework.exists():
+        return checks
+    if not _tool_exists("codesign"):
+        checks.append(
+            CheckResult(
+                "sparkle_framework_codesign_verify",
+                False,
+                require_ota,
+                "codesign is not available.",
+            )
+        )
+        return checks
+
+    verify = _run(["codesign", "--verify", "--strict", "--verbose=2", str(framework)])
+    checks.append(
+        CheckResult(
+            "sparkle_framework_codesign_verify",
+            verify.returncode == 0,
+            require_ota,
+            "Sparkle.framework signature verification passed."
+            if verify.returncode == 0
+            else _combined_output(verify),
+        )
+    )
+    return checks
 
 
 def _find_app_in_dmg(
@@ -403,9 +506,7 @@ def _resolve_dependency(
     if dependency.startswith("@loader_path"):
         return (loader_path.parent / dependency.removeprefix("@loader_path").lstrip("/")).exists()
     if dependency.startswith("@executable_path"):
-        return (
-            executable_dir / dependency.removeprefix("@executable_path").lstrip("/")
-        ).exists()
+        return (executable_dir / dependency.removeprefix("@executable_path").lstrip("/")).exists()
     if dependency.startswith("@rpath"):
         suffix = dependency.removeprefix("@rpath").lstrip("/")
         return any((rpath / suffix).exists() for rpath in rpaths)
@@ -461,6 +562,8 @@ def verify_release(
     expected_arch: str | None = None,
     require_notarization: bool = False,
     require_gatekeeper: bool = True,
+    require_ota: bool = False,
+    expected_appcast_url: str = DEFAULT_APPCAST_URL,
 ) -> ReleaseVerification:
     artifact = artifact.resolve()
     checks: list[CheckResult] = []
@@ -499,6 +602,14 @@ def verify_release(
         if nested_architecture is not None:
             checks.append(nested_architecture)
         checks.append(_check_dependency_closure(app_path))
+        checks.extend(
+            _check_update_metadata(
+                app_path,
+                require_ota=require_ota,
+                expected_appcast_url=expected_appcast_url,
+            )
+        )
+        checks.extend(_check_sparkle_framework(app_path, require_ota=require_ota))
         checks.append(_check_spctl(app_path, require_gatekeeper))
         checks.append(_check_stapler(stapler_target, require_notarization))
         if artifact.suffix == ".dmg":
@@ -520,7 +631,9 @@ def verify_release(
         app_stapled = (
             _check_passed(checks, "app_notarization_staple") if artifact.suffix == ".dmg" else True
         )
-        dmg_signed = _check_passed(checks, "dmg_codesign_verify") if artifact.suffix == ".dmg" else True
+        dmg_signed = (
+            _check_passed(checks, "dmg_codesign_verify") if artifact.suffix == ".dmg" else True
+        )
         dmg_embedded_app_signed = (
             _check_passed(checks, "dmg_embedded_app_codesign_verify")
             if artifact.suffix == ".dmg"
@@ -532,6 +645,16 @@ def verify_release(
             else True
         )
         dependencies = _check_passed(checks, "dependency_closure")
+        ota_ready = (
+            _check_passed(checks, "appcast_feed_url")
+            and _check_passed(checks, "bundle_short_version")
+            and _check_passed(checks, "bundle_version")
+            and _check_passed(checks, "sparkle_public_key")
+            and _check_passed(checks, "sparkle_framework_embedded")
+            and _check_passed(checks, "sparkle_framework_codesign_verify")
+            if require_ota
+            else True
+        )
         distribution_ready = (
             signed
             and developer_id
@@ -543,6 +666,7 @@ def verify_release(
             and dmg_embedded_app_signed
             and nested_arches
             and dependencies
+            and ota_ready
         )
         return ReleaseVerification(str(artifact), app_display_path, checks, distribution_ready)
     finally:
@@ -591,6 +715,16 @@ def main() -> int:
         action="store_true",
         help="Return non-zero unless the artifact is fully distribution-ready.",
     )
+    parser.add_argument(
+        "--require-ota",
+        action="store_true",
+        help="Require Sparkle OTA metadata, public key, and embedded Sparkle.framework.",
+    )
+    parser.add_argument(
+        "--expected-appcast-url",
+        default=DEFAULT_APPCAST_URL,
+        help="Expected SUFeedURL when OTA metadata is checked.",
+    )
     args = parser.parse_args()
 
     verification = verify_release(
@@ -598,6 +732,8 @@ def main() -> int:
         expected_arch=args.expected_arch,
         require_notarization=args.require_notarization or args.strict_distribution,
         require_gatekeeper=args.strict_distribution or not args.no_gatekeeper,
+        require_ota=args.require_ota,
+        expected_appcast_url=args.expected_appcast_url,
     )
     if args.json:
         print(json.dumps(asdict(verification), indent=2))
