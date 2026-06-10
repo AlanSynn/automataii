@@ -333,13 +333,13 @@ def test_build_fails_when_notarization_requested_but_dmg_was_not_created(monkeyp
 
 def test_release_workflows_accept_notary_profile_or_password_credentials():
     for workflow in (
-        ".github/workflows/build-and-release.yml",
         ".github/workflows/release.yml",
         ".github/workflows/macos-arch-build.yml",
     ):
         text = Path(workflow).read_text()
         assert "APPLE_NOTARY_PROFILE" in text
         assert "xcrun notarytool store-credentials" in text
+    assert not Path(".github/workflows/build-and-release.yml").exists()
 
 
 def test_manual_notarize_script_supports_notary_profile():

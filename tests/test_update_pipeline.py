@@ -9,6 +9,7 @@ from scripts import (
     check_ota_reachability,
     generate_appcast,
     install_sparkle,
+    publish_ota_pages,
     verify_macos_release,
 )
 
@@ -669,8 +670,8 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
         Path("src/automataii/utils/update_config.py"),
         Path("scripts/generate_appcast.py"),
         Path("scripts/install_sparkle.py"),
+        Path("scripts/publish_ota_pages.py"),
         Path(".github/workflows/release.yml"),
-        Path(".github/workflows/build-and-release.yml"),
         Path(".github/workflows/macos-arch-build.yml"),
     ]
     text = "\n".join(path.read_text(encoding="utf-8") for path in files)
@@ -686,44 +687,79 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
     assert "ED_SIGNATURE" not in text
     assert "Sparkle-2.9.3.tar.xz" in text
     assert "74a07da821f92b79310009954c0e15f350173374a3abe39095b4fc5096916be6" in text
+    assert not Path(".github/workflows/build-and-release.yml").exists()
 
-    for workflow_path in (
-        Path(".github/workflows/release.yml"),
-        Path(".github/workflows/build-and-release.yml"),
-    ):
-        workflow = workflow_path.read_text(encoding="utf-8")
-        assert "scripts/generate_appcast.py production" in workflow
-        assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" in workflow
-        assert "MOTIONSMITH_PAGES_TOKEN" in workflow
-        assert "MOTIONSMITH_PAGES_DEPLOY_KEY" in workflow
-        assert "Preflight MotionSmith Pages publishing access" in workflow
-        assert 'permissions.get("push") or permissions.get("admin")' in workflow
-        assert "git@github.com:AlanSynn/motionsmith.git" in workflow
-        assert "git push --dry-run origin HEAD:master" in workflow
-        assert "github.com ssh-ed25519" in workflow
-        assert "ssh-keyscan" not in workflow
-        assert "$GITHUB_WORKSPACE/scripts/check_ota_reachability.py" in workflow
-        assert "https://github.com/AlanSynn/motionsmith.git" in workflow
-        assert "--branch master" in workflow
-        assert "git push origin master" in workflow
-        assert "git push" in workflow
-        assert "ref: main" not in workflow
-        assert "actions/deploy-pages" not in workflow
-        assert "actions/upload-pages-artifact" not in workflow
-        assert "update-appcast" not in workflow
-        assert "MOTIONSMITH_SIGNED_APPCAST_PATH" not in workflow
-        assert "ota_smoke_passed" in workflow
-        assert "manual attestation" in workflow
-        assert "sparkle-appcast-payload/**" in workflow
-        assert "sparkle-appcast-payload/*.delta" in workflow
-        assert "sparkle-appcast-payload/*.html" in workflow
-        assert "MotionSmith-macos-universal2.dmg" in workflow
-        assert workflow.index("Preflight MotionSmith Pages publishing access") < workflow.index(
-            "name: Create Release"
-        )
-        assert workflow.index("name: Create Release") < workflow.index(
-            "name: Publish OTA payload to MotionSmith Pages repository"
-        )
+    workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "scripts/generate_appcast.py production" in workflow
+    assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" in workflow
+    assert "python3 scripts/publish_ota_pages.py preflight" in workflow
+    assert "python3 scripts/publish_ota_pages.py publish" in workflow
+    assert "MOTIONSMITH_PAGES_TOKEN" in workflow
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY" in workflow
+    assert "Preflight MotionSmith Pages publishing access" in workflow
+    assert "configure_pages_remote" not in workflow
+    assert "ssh-keyscan" not in workflow
+    assert "git config --global" not in workflow
+    assert "rsync -av" not in workflow
+    assert "https://github.com/AlanSynn/motionsmith.git" not in workflow
+    assert "ref: main" not in workflow
+    assert "actions/deploy-pages" not in workflow
+    assert "actions/upload-pages-artifact" not in workflow
+    assert "update-appcast" not in workflow
+    assert "MOTIONSMITH_SIGNED_APPCAST_PATH" not in workflow
+    assert "ota_smoke_passed" in workflow
+    assert "manual attestation" in workflow
+    assert "sparkle-appcast-payload/**" in workflow
+    assert "sparkle-appcast-payload/*.delta" not in workflow
+    assert "sparkle-appcast-payload/*.html" not in workflow
+    assert "MotionSmith-macos-universal2.dmg" in workflow
+    assert workflow.index("Preflight MotionSmith Pages publishing access") < workflow.index(
+        "name: Create Release"
+    )
+    assert workflow.index("name: Create Release") < workflow.index(
+        "name: Publish OTA payload to MotionSmith Pages repository"
+    )
+
+    publisher = Path("scripts/publish_ota_pages.py").read_text(encoding="utf-8")
+    assert 'permissions.get("push") or permissions.get("admin")' in publisher
+    assert "git@github.com:{repo}.git" in publisher
+    assert '"push", "--dry-run", "origin", f"HEAD:{args.branch}"' in publisher
+    assert "github.com ssh-ed25519" in publisher
+    assert "ssh-keyscan" not in publisher
+    assert "GIT_CONFIG_GLOBAL" in publisher
+    assert "check_ota_reachability.retry_check" in publisher
+
+
+def test_pages_payload_copy_preserves_unrelated_site_files(tmp_path):
+    payload = tmp_path / "payload"
+    destination = tmp_path / "site"
+    payload.mkdir()
+    destination.mkdir()
+    (payload / "appcast.xml").write_text("<rss />", encoding="utf-8")
+    (payload / "MotionSmith-macos-universal2.dmg").write_bytes(b"dmg")
+    (destination / "index.html").write_text("<p>site</p>", encoding="utf-8")
+
+    publish_ota_pages.copy_payload(payload, destination)
+
+    assert (destination / "appcast.xml").read_text(encoding="utf-8") == "<rss />"
+    assert (destination / "MotionSmith-macos-universal2.dmg").read_bytes() == b"dmg"
+    assert (destination / "index.html").read_text(encoding="utf-8") == "<p>site</p>"
+
+
+def test_pages_auth_uses_temp_git_config_for_token(monkeypatch, tmp_path):
+    monkeypatch.setattr(publish_ota_pages, "check_token_push_permission", lambda token, repo: None)
+
+    auth = publish_ota_pages.configure_git_auth(
+        {"MOTIONSMITH_PAGES_TOKEN": "token-value"},
+        temp_dir=tmp_path,
+        check_token_permission=True,
+    )
+
+    git_config = Path(auth.env["GIT_CONFIG_GLOBAL"])
+    assert auth.remote_url == "https://github.com/AlanSynn/motionsmith.git"
+    assert git_config.parent == tmp_path
+    assert "token-value" in git_config.read_text(encoding="utf-8")
+    assert not any("token-value" in value for key, value in auth.env.items() if key != "GIT_CONFIG_GLOBAL")
 
 
 def test_ota_reachability_extracts_referenced_urls():
