@@ -256,6 +256,31 @@ class TestProductionBranding:
             window.close()
         assert app is not None
 
+    def test_main_window_does_not_register_lab_tab(self):
+        from PyQt6.QtWidgets import QApplication
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        app = QApplication.instance() or QApplication([])
+        window = AutomataDesigner(experiment_mode=False)
+        try:
+            tab_titles = [
+                window.tab_widget.tabText(index) for index in range(window.tab_widget.count())
+            ]
+            assert tab_titles == [
+                "Welcome",
+                "Character Selection",
+                "Path Editor",
+                "Mechanism Design",
+                "Mechanism Foundry",
+                "Options",
+            ]
+            assert "Lab" not in tab_titles
+            assert not hasattr(window, "lab_tab")
+        finally:
+            window.close()
+        assert app is not None
+
     def test_main_window_wires_runtime_signals_once(self):
         """Core actions must not be connected twice during MainWindow startup."""
         from PyQt6.QtWidgets import QApplication

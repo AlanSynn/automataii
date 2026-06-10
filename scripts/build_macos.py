@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 try:
@@ -301,7 +302,13 @@ class MacOSBuilder:
                 ],
                 check=True,
             )
+            if shutil.which("xattr") is not None:
+                subprocess.run(["xattr", "-cr", str(staged_app)], check=False)
             (staging_root / "Applications").symlink_to("/Applications")
+            output_path = dmg_path.with_name(
+                f".{dmg_path.stem}-hdiutil-{os.getpid()}{dmg_path.suffix}"
+            )
+            output_path.unlink(missing_ok=True)
             cmd = [
                 "hdiutil",
                 "create",
@@ -312,10 +319,38 @@ class MacOSBuilder:
                 "-ov",
                 "-format",
                 "UDZO",
-                str(dmg_path),
+                str(output_path),
             ]
             logger.info("Creating DMG: %s", " ".join(cmd))
-            subprocess.run(cmd, check=True)
+            for attempt in range(1, 4):
+                result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+                if result.returncode == 0:
+                    if result.stdout.strip():
+                        logger.info(result.stdout.strip())
+                    if result.stderr.strip():
+                        logger.info(result.stderr.strip())
+                    break
+
+                output = "\n".join(
+                    part.strip() for part in (result.stdout, result.stderr) if part.strip()
+                )
+                if "Resource busy" in output and attempt < 3:
+                    logger.warning(
+                        "hdiutil create reported Resource busy; retrying DMG creation "
+                        "(attempt %s/3).",
+                        attempt + 1,
+                    )
+                    output_path.unlink(missing_ok=True)
+                    time.sleep(2)
+                    continue
+
+                raise subprocess.CalledProcessError(
+                    result.returncode,
+                    cmd,
+                    output=result.stdout,
+                    stderr=result.stderr,
+                )
+            output_path.replace(dmg_path)
         if not dmg_path.exists():
             raise FileNotFoundError(f"Requested DMG was not created: {dmg_path}")
         logger.info("✓ DMG created at %s", dmg_path)
@@ -393,6 +428,11 @@ class MacOSBuilder:
                     attach.stderr.strip(),
                 )
                 return False
+            detach_target = str(mount_path)
+            for line in attach.stdout.splitlines():
+                if line.startswith("/dev/"):
+                    detach_target = line.split()[0]
+                    break
 
             try:
                 app_path = next(mount_path.glob("*.app"), None)
@@ -413,12 +453,24 @@ class MacOSBuilder:
                 logger.warning("Embedded app strict codesign check failed: %s", output)
                 return False
             finally:
-                subprocess.run(
-                    ["hdiutil", "detach", str(mount_path)],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
+                for attempt in range(1, 4):
+                    detach = subprocess.run(
+                        ["hdiutil", "detach", detach_target],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if detach.returncode == 0:
+                        break
+                    if attempt == 3:
+                        subprocess.run(
+                            ["hdiutil", "detach", "-force", detach_target],
+                            check=False,
+                            capture_output=True,
+                            text=True,
+                        )
+                    else:
+                        time.sleep(1)
 
     def _create_dmg_background_assets(self) -> Path:
         """Generate deterministic 1x/2x DMG background artwork from the app logo."""

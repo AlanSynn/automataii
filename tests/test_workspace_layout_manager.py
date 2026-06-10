@@ -152,9 +152,9 @@ def test_experiment_mode_hides_foundry_and_options_tabs() -> None:
             "2. Character Selection",
             "3. Path Editor",
             "4. Mechanism Design",
-            "5. Lab",
         ]
         assert window.mechanism_foundry_tab is None
+        assert not hasattr(window, "lab_tab")
     finally:
         window.close()
 

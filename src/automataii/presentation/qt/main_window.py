@@ -54,7 +54,6 @@ from automataii.presentation.qt.kinematics.ik_manager import IKManager
 from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in models_pydantic
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
-from automataii.presentation.qt.tabs.lab import LabTab
 from automataii.presentation.qt.tabs.landing_tab import LandingTab
 from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView
@@ -765,13 +764,7 @@ class AutomataDesigner(QMainWindow):
             self.mechanism_foundry_tab.setObjectName("tab_mechanism_foundry")
             self.tab_widget.addTab(self.mechanism_foundry_tab, "Mechanism Foundry")
 
-        # --- Tab 5: Lab ---
-        self.lab_tab = LabTab(self)
-        self.lab_tab.setObjectName("tab_lab")
-        lab_title = "5. Lab" if self.experiment_mode else "Lab"
-        self.tab_widget.addTab(self.lab_tab, lab_title)
-
-        # --- Tab 6: Options ---
+        # --- Tab 5: Options ---
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         self.options_tab.setObjectName("tab_options")
         if not self.experiment_mode:
