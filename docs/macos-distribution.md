@@ -26,7 +26,7 @@ make store-notary-profile \
 
 ```bash
 APPLE_NOTARY_PROFILE=MotionSmith \
-make build-macos-release \
+make build-macos \
   SIGN_ID="Developer ID Application: Example (TEAMID)"
 ```
 
@@ -70,10 +70,10 @@ artifact.
 The repeatable universal release entrypoint is:
 
 ```bash
-make release-macos
+make build-macos          # or equivalently: make release-macos
 ```
 
-`make release-macos` calls `scripts/release_macos.py`, which loads `.env`, uses
+`make build-macos` calls `scripts/release_macos.py`, which loads `.env`, uses
 `.venv-universal2` for child `uv` commands by default, preflights the
 `notarytool` keychain profile, builds a universal2 DMG, signs it with Developer
 ID, notarizes/staples both the app and DMG, runs strict release verification,
@@ -84,12 +84,10 @@ automation:
 
 - `make build`
 - `make build-macos`
-- `make build-macos-universal`
 - `make build-macos-native`
 - `make build-macos-arm64`
 - `make build-macos-x86_64`
-- `make build-macos-signed`
-- `make build-macos-signed-native`
+- `make release-macos` (alias for `build-macos`)
 
 They do not produce unsigned distributable DMGs. For local development, run the
 app directly instead:
@@ -117,10 +115,10 @@ Useful variants:
 
 ```bash
 # Print the exact commands without running the long build.
-make release-macos OPTS="--dry-run"
+make build-macos OPTS="--dry-run"
 
 # Override the signing identity without editing .env.
-make release-macos SIGN_ID="Developer ID Application: Example (TEAMID)"
+make build-macos SIGN_ID="Developer ID Application: Example (TEAMID)"
 
 # Re-run strict verification on an existing artifact.
 make verify-macos-release \

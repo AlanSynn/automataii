@@ -1,74 +1,90 @@
 # Automataii Makefile
 # Uses uv for dependency management and development workflow
 
-.PHONY: help install dev clean test lint format type-check build run sync update deps build-macos build-windows build-linux build-experiment release-macos
+.PHONY: help sync dev update deps run test test-verbose test-coverage \
+        lint lint-fix format format-check type-check quality \
+        build build-experiment build-experiment-arm64 build-experiment-x86_64 \
+        build-macos build-macos-native build-macos-arm64 build-macos-x86_64 \
+        build-windows build-linux release-macos \
+        store-notary-profile verify-macos-release \
+        clean clean-all info
 
 # Default target
 help:
 	@echo "Automataii Development Makefile"
 	@echo ""
-	@echo "Available targets:"
-	@echo "  install       - Install dependencies with uv"
-	@echo "  dev           - Install development dependencies"
-	@echo "  sync          - Sync dependencies from lock file"
-	@echo "  update        - Update dependencies"
+	@echo "Dependencies:"
+	@echo "  sync          - Install/sync dependencies from lock file"
+	@echo "  dev           - Install with development dependencies"
+	@echo "  update        - Update and re-lock dependencies"
 	@echo "  deps          - Show dependency tree"
 	@echo ""
+	@echo "Run:"
 	@echo "  run           - Run the application"
+	@echo ""
+	@echo "Quality:"
 	@echo "  test          - Run tests with pytest"
+	@echo "  test-verbose  - Run tests with verbose output"
+	@echo "  test-coverage - Run tests with coverage report"
 	@echo "  lint          - Run ruff linter"
+	@echo "  lint-fix      - Run ruff linter with autofix"
 	@echo "  format        - Format code with ruff"
+	@echo "  format-check  - Check formatting without changes"
 	@echo "  type-check    - Run mypy type checking"
+	@echo "  quality       - lint + format-check + type-check"
 	@echo ""
-	@echo "  build         - Build distribution artifact for current platform (macOS: universal signed + notarized release)"
-	@echo "  build-experiment - Build experiment version (macOS requires signed + notarized release)"
-	@echo "  build-macos   - Build signed + notarized universal macOS release"
-	@echo "  build-macos-native - Build signed + notarized macOS release for current host architecture"
-	@echo "  build-macos-signed - Alias for signed + notarized universal macOS release"
-	@echo "  build-macos-release - Build signed + notarized universal macOS release"
-	@echo "  release-macos - Alias for build-macos-release"
-	@echo "  store-notary-profile - Store notarytool credentials in the macOS keychain"
-	@echo "  build-windows - Build Windows executable"
-	@echo "  build-linux   - Build Linux executable"
+	@echo "Build:"
+	@echo "  build                  - Build for current platform (macOS: signed + notarized)"
+	@echo "  build-macos            - Signed + notarized universal macOS release"
+	@echo "  build-macos-native     - Signed + notarized macOS release (host arch)"
+	@echo "  build-macos-arm64      - Signed + notarized macOS release (arm64)"
+	@echo "  build-macos-x86_64     - Signed + notarized macOS release (x86_64)"
+	@echo "  build-experiment       - Build experiment version"
+	@echo "  build-windows          - Build Windows executable"
+	@echo "  build-linux            - Build Linux executable"
+	@echo "  release-macos          - Alias for build-macos"
 	@echo ""
+	@echo "macOS Distribution:"
+	@echo "  store-notary-profile   - Store notarytool credentials in keychain"
+	@echo "  verify-macos-release   - Verify a signed macOS release artifact"
+	@echo ""
+	@echo "Misc:"
 	@echo "  clean         - Clean build artifacts"
-	@echo "  clean-all     - Clean everything including cache"
+	@echo "  clean-all     - Clean everything including caches"
+	@echo "  info          - Show environment info"
 
-# Environment setup
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
 PYTHON := uv run python
 UV := uv
 PROJECT_NAME := automataii
 MACOS_SIGN_ARG := $(if $(SIGN_ID),--sign "$(SIGN_ID)")
 
-# Install base dependencies
-install:
-	$(UV) sync
-
-# Install with development dependencies
-dev:
-	$(UV) sync --group dev
-
-# Sync dependencies from lock file
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
 sync:
 	$(UV) sync
 
-# Update all dependencies
+dev:
+	$(UV) sync --group dev
+
 update:
 	$(UV) lock --upgrade
 
-# Show dependency tree
 deps:
 	$(UV) tree
 
-# Run the application
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
 run:
 	$(UV) run $(PROJECT_NAME)
 
-# Run with specific module
-run-animate:
-	$(UV) run python -m $(PROJECT_NAME).animate.image_to_annotations
-
-# Testing
+# ---------------------------------------------------------------------------
+# Quality
+# ---------------------------------------------------------------------------
 test:
 	$(UV) run pytest
 
@@ -78,7 +94,6 @@ test-verbose:
 test-coverage:
 	$(UV) run pytest --cov=$(PROJECT_NAME) --cov-report=html
 
-# Code quality
 lint:
 	$(UV) run ruff check src/
 
@@ -94,10 +109,11 @@ format-check:
 type-check:
 	$(UV) run mypy src/$(PROJECT_NAME)
 
-# Combined quality check
 quality: lint format-check type-check
 
-# Building
+# ---------------------------------------------------------------------------
+# Build
+# ---------------------------------------------------------------------------
 build:
 	@echo "Building distribution artifact for current platform..."
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
@@ -109,8 +125,6 @@ build:
 build-experiment:
 	@echo "Building experiment version for current platform..."
 	$(PYTHON) scripts/build_experiment.py $(MACOS_SIGN_ARG) $(OPTS)
-
-.PHONY: build-experiment-arm64 build-experiment-x86_64
 
 build-experiment-arm64:
 	@echo "Building experiment version for macOS arm64..."
@@ -124,48 +138,9 @@ build-macos:
 	@echo "Building signed + notarized universal macOS release..."
 	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
 
-.PHONY: build-macos-native build-macos-universal build-macos-signed build-macos-signed-native build-macos-release build-macos-release-native release-macos verify-macos-release store-notary-profile build-macos-arm64 build-macos-x86_64
-
 build-macos-native:
 	@echo "Building signed + notarized macOS release for current host architecture..."
 	$(PYTHON) scripts/release_macos.py --arch auto $(MACOS_SIGN_ARG) $(OPTS)
-
-build-macos-universal:
-	@echo "Building signed + notarized universal macOS release..."
-	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
-
-build-macos-signed:
-	@echo "Building signed + notarized universal macOS release..."
-	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
-
-build-macos-signed-native:
-	@echo "Building signed + notarized macOS release for current host architecture..."
-	$(PYTHON) scripts/release_macos.py --arch auto $(MACOS_SIGN_ARG) $(OPTS)
-
-build-macos-release:
-	@echo "Building signed and notarized universal macOS release..."
-	$(PYTHON) scripts/release_macos.py --arch universal2 $(MACOS_SIGN_ARG) $(OPTS)
-
-release-macos: build-macos-release
-
-build-macos-release-native:
-	@echo "Building signed and notarized native macOS release..."
-	$(PYTHON) scripts/release_macos.py --arch auto $(MACOS_SIGN_ARG) $(OPTS)
-
-store-notary-profile:
-	@test -n "$(PROFILE)" || (echo "PROFILE is required, e.g. make store-notary-profile PROFILE=MotionSmith APPLE_ID=... APPLE_TEAM_ID=..." && exit 1)
-	@test -n "$(APPLE_ID)" || (echo "APPLE_ID is required" && exit 1)
-	@test -n "$(APPLE_TEAM_ID)" || (echo "APPLE_TEAM_ID is required" && exit 1)
-	@if [ -n "$$APPLE_APP_SPECIFIC_PASSWORD" ]; then \
-		xcrun notarytool store-credentials "$$PROFILE" --apple-id "$$APPLE_ID" --team-id "$$APPLE_TEAM_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD"; \
-	else \
-		xcrun notarytool store-credentials "$$PROFILE" --apple-id "$$APPLE_ID" --team-id "$$APPLE_TEAM_ID"; \
-	fi
-	@echo "Stored notarytool profile. Use APPLE_NOTARY_PROFILE=$(PROFILE) with build-macos-release."
-
-verify-macos-release:
-	@test -n "$(ARTIFACT)" || (echo "ARTIFACT is required, e.g. make verify-macos-release ARTIFACT=dist/MotionSmith.app" && exit 1)
-	$(PYTHON) scripts/verify_macos_release.py "$(ARTIFACT)" $(OPTS)
 
 build-macos-arm64:
 	@echo "Building signed + notarized macOS release for arm64..."
@@ -174,6 +149,9 @@ build-macos-arm64:
 build-macos-x86_64:
 	@echo "Building signed + notarized macOS release for x86_64..."
 	$(PYTHON) scripts/release_macos.py --arch x86_64 $(MACOS_SIGN_ARG) $(OPTS)
+
+# Alias kept for documentation compatibility (docs/macos-distribution.md)
+release-macos: build-macos
 
 build-windows:
 	@echo "Building Windows executable..."
@@ -184,25 +162,27 @@ build-linux:
 	@echo "Building Linux executable..."
 	$(PYTHON) scripts/build_linux.py
 
-# PyInstaller direct (alternative to scripts)
-pyinstaller:
-	$(UV) run pyinstaller automataii.spec
+# ---------------------------------------------------------------------------
+# macOS Distribution Utilities
+# ---------------------------------------------------------------------------
+store-notary-profile:
+	@test -n "$(PROFILE)" || (echo "PROFILE is required, e.g. make store-notary-profile PROFILE=MotionSmith APPLE_ID=... APPLE_TEAM_ID=..." && exit 1)
+	@test -n "$(APPLE_ID)" || (echo "APPLE_ID is required" && exit 1)
+	@test -n "$(APPLE_TEAM_ID)" || (echo "APPLE_TEAM_ID is required" && exit 1)
+	@if [ -n "$$APPLE_APP_SPECIFIC_PASSWORD" ]; then \
+		xcrun notarytool store-credentials "$$PROFILE" --apple-id "$$APPLE_ID" --team-id "$$APPLE_TEAM_ID" --password "$$APPLE_APP_SPECIFIC_PASSWORD"; \
+	else \
+		xcrun notarytool store-credentials "$$PROFILE" --apple-id "$$APPLE_ID" --team-id "$$APPLE_TEAM_ID"; \
+	fi
+	@echo "Stored notarytool profile. Use APPLE_NOTARY_PROFILE=$(PROFILE) with build-macos."
 
-# Dataset generation
-generate-dataset:
-	$(UV) run python -m $(PROJECT_NAME).generate_comprehensive_dataset
+verify-macos-release:
+	@test -n "$(ARTIFACT)" || (echo "ARTIFACT is required, e.g. make verify-macos-release ARTIFACT=dist/MotionSmith.app" && exit 1)
+	$(PYTHON) scripts/verify_macos_release.py "$(ARTIFACT)" $(OPTS)
 
-generate-animations:
-	$(UV) run python -m $(PROJECT_NAME).generate_animations
-
-# Development utilities
-shell:
-	$(UV) run python
-
-jupyter:
-	$(UV) run jupyter lab
-
+# ---------------------------------------------------------------------------
 # Cleaning
+# ---------------------------------------------------------------------------
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf build/
@@ -213,60 +193,21 @@ clean:
 	find . -type f -name "*.pyc" -delete
 	find . -type f -name "*.pyo" -delete
 
-clean-logs:
-	@echo "Cleaning log files..."
+clean-all: clean
+	@echo "Cleaning logs and caches..."
 	rm -rf logs/
 	rm -rf src/logs/
 	find . -name "*.log" -delete
-
-clean-cache:
-	@echo "Cleaning cache..."
 	rm -rf .pytest_cache/
 	rm -rf .ruff_cache/
 	rm -rf .mypy_cache/
-
-clean-all: clean clean-logs clean-cache
-	@echo "Cleaning UV cache..."
 	$(UV) cache clean
 
-# Git helpers
-git-status:
-	git status
-
-git-add-all:
-	git add .
-
-commit: lint format
-	@echo "Running quality checks before commit..."
-	$(MAKE) quality
-	@echo "Quality checks passed. Ready to commit."
-
-# Environment info
+# ---------------------------------------------------------------------------
+# Info
+# ---------------------------------------------------------------------------
 info:
 	@echo "Project: $(PROJECT_NAME)"
 	@echo "UV version: $$($(UV) --version)"
 	@echo "Python version: $$($(PYTHON) --version)"
 	@echo "Project root: $$(pwd)"
-
-# Check if uv is installed
-check-uv:
-	@which uv > /dev/null || (echo "uv is not installed. Please install it from https://docs.astral.sh/uv/" && exit 1)
-
-# Setup development environment
-setup: check-uv
-	@echo "Setting up development environment..."
-	$(MAKE) dev
-	@echo "Development environment ready!"
-
-# CI/CD targets
-ci-test: dev
-	$(MAKE) test
-
-ci-lint: dev
-	$(MAKE) lint
-	$(MAKE) format-check
-
-ci-type-check: dev
-	$(MAKE) type-check
-
-ci-all: ci-lint ci-type-check ci-test

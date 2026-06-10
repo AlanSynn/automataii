@@ -175,12 +175,7 @@ def test_makefile_macos_build_targets_route_through_notarized_release_script():
     makefile = Path("Makefile").read_text(encoding="utf-8")
     distribution_targets = {
         "build-macos": "--arch universal2",
-        "build-macos-universal": "--arch universal2",
-        "build-macos-release": "--arch universal2",
-        "build-macos-signed": "--arch universal2",
         "build-macos-native": "--arch auto",
-        "build-macos-release-native": "--arch auto",
-        "build-macos-signed-native": "--arch auto",
         "build-macos-arm64": "--arch arm64",
         "build-macos-x86_64": "--arch x86_64",
     }
