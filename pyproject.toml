@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "automataii"
 version = "0.1.0"
-description = "AI-powered character animation system with pose estimation and ONNX deployment"
+description = "Interactive mechanism design and character animation platform"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
 authors = [
     {name = "Automataii Contributors"},
 ]
-keywords = ["animation", "pose-estimation", "computer-vision", "onnx", "mmpose", "mmdetection"]
+keywords = ["mechanism-design", "linkage", "kinematics", "cam", "character-animation", "pyqt6"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -23,7 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
@@ -33,51 +33,31 @@ dependencies = [
     "opencv-python>=4.11.0",
     "pyqt6>=6.8.0",
     "pyyaml>=6.0.2",
-    "scikit-image>=0.25.0",
-    "scikit-learn>=1.7.0",
     "scipy>=1.15.0",
     "pillow>=10.0.0",
-    "matplotlib>=3.9.0",
     "pydantic>=2.11.7",
-    "psutil>=7.0.0",
-    "requests>=2.32.4",
-    "pyinstaller>=6.15.0",
-    "dmgbuild>=1.6.5",
-    "onnx>=1.19.1",
-    # Real-time acceleration dependencies (OpenGL for rendering)
-    "PyOpenGL>=3.1.7",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=6.0.0",
-    "pytest-benchmark>=4.0.0",
-    "black>=24.0.0",
-    "isort>=5.13.0",
-    "ruff>=0.8.0",
-    "mypy>=1.13.0",
-    "pre-commit>=4.0.0",
-]
 acceleration = [
-    # Optional JIT acceleration - requires compatible LLVM
     "numba>=0.60.0",
+    "PyOpenGL>=3.1.7",
     "PyOpenGL-accelerate>=3.1.7",
+]
+model-download = [
+    "requests>=2.32.4",
 ]
 
 [project.urls]
-Homepage = "https://github.com/automataii/automataii"
-Repository = "https://github.com/automataii/automataii.git"
-Issues = "https://github.com/automataii/automataii/issues"
+Homepage = "https://github.com/AlanSynn/automataii"
+Repository = "https://github.com/AlanSynn/automataii.git"
+Issues = "https://github.com/AlanSynn/automataii/issues"
 
 [project.scripts]
 automataii = "automataii.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/automataii"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.ruff]
 target-version = "py312"
@@ -111,20 +91,19 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 ignore_missing_imports = true
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "--cov=automataii",
-    "--cov-report=term-missing",
-    "-v",
-]
 
 [dependency-groups]
 dev = [
     "mypy>=1.16.0",
     "pytest>=8.4.0",
-    "vulture>=2.14",
+    "pytest-cov>=6.0.0",
+    "pytest-benchmark>=4.0.0",
+    "ruff>=0.8.0",
+]
+build = [
+    "pyinstaller>=6.15.0",
+]
+build-macos = [
+    "pyinstaller>=6.15.0",
+    "dmgbuild>=1.6.5",
 ]
