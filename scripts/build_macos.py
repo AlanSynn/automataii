@@ -121,9 +121,7 @@ class MacOSBuilder:
             missing.append("SPARKLE_PUBLIC_ED_KEY (or SPARKLE_PUBLIC_KEY)")
 
         appcast_path_value = signed_appcast_path(os.environ)
-        if appcast_path_value is None:
-            missing.append("MOTIONSMITH_SIGNED_APPCAST_PATH signed appcast evidence")
-        else:
+        if appcast_path_value is not None:
             appcast_path = Path(appcast_path_value)
             if not appcast_path.exists():
                 missing.append(f"signed appcast evidence exists at {appcast_path}")

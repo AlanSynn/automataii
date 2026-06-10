@@ -26,12 +26,23 @@ def main() -> int:
         "--expected-version",
         help="Expected release version for sparkle:version and sparkle:shortVersionString.",
     )
+    parser.add_argument(
+        "--expected-url-prefix",
+        help="Expected HTTPS URL prefix for every enclosure/release-notes URL.",
+    )
+    parser.add_argument(
+        "--payload-dir",
+        type=Path,
+        help="Local publication payload directory; every appcast-referenced URL must exist here.",
+    )
     args = parser.parse_args()
 
     validation = validate_signed_appcast(
         args.appcast,
         expected_artifact_name=args.expected_artifact,
         expected_version=args.expected_version,
+        expected_url_prefix=args.expected_url_prefix,
+        payload_dir=args.payload_dir,
     )
     if validation.passed:
         print(
