@@ -732,6 +732,103 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
     assert "check_ota_reachability.retry_check" in publisher
 
 
+def test_deploy_only_ota_workflow_uses_release_asset_without_building():
+    workflow_path = Path(".github/workflows/publish-ota.yml")
+    assert workflow_path.exists()
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    assert "workflow_dispatch" in workflow
+    for input_name in (
+        "version:",
+        "dmg_asset_name:",
+        "release_notes_asset_name:",
+        "publish_pages:",
+        "ota_smoke_passed:",
+    ):
+        assert input_name in workflow
+
+    assert "contents: write" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "GH_TOKEN: ${{ github.token }}" in workflow
+    assert "gh release download" in workflow
+    assert "gh release upload" in workflow
+    assert "scripts/install_sparkle.py" in workflow
+    assert "scripts/verify_macos_release.py" in workflow
+    assert "--require-notarization" in workflow
+    assert "--strict-distribution" in workflow
+    assert "--require-ota" in workflow
+    assert "SUPublicEDKey" in workflow
+    assert "SPARKLE_PUBLIC_ED_KEY" in workflow
+    assert "SPARKLE_PRIVATE_ED_KEY" in workflow
+    assert "scripts/generate_appcast.py production" in workflow
+    assert "scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml" in workflow
+    assert "python3 scripts/publish_ota_pages.py preflight" in workflow
+    assert "python3 scripts/publish_ota_pages.py publish" in workflow
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" in workflow
+
+    assert 'test -f "release-assets/$DMG_ASSET_NAME"' in workflow
+    assert "unexpected DMG files" in workflow
+    assert '! -name "$DMG_ASSET_NAME"' in workflow
+    assert "dmg_asset_name must end with .dmg" in workflow
+    assert "not a glob pattern" in workflow
+    assert "validate_release_assets() {" in workflow
+    assert "release_notes_asset_name must be an .html/.htm asset" in workflow
+    assert "archive or DMG release notes are not allowed" in workflow
+    assert 'test -f "release-assets/$RELEASE_NOTES_ASSET_NAME"' in workflow
+    assert workflow.index('test -f "release-assets/$RELEASE_NOTES_ASSET_NAME"') < workflow.rindex(
+        "validate_release_assets"
+    )
+    assert "if: ${{ inputs.publish_pages }}" in workflow
+    assert (
+        'release_notes_args=(--release-notes "release-assets/$RELEASE_NOTES_ASSET_NAME")'
+        in workflow
+    )
+    assert "ota_smoke_passed=true" in workflow or "OTA_SMOKE_PASSED" in workflow
+
+    assert "MotionSmith-macos-universal2.dmg" in workflow  # default only, not source of truth
+    assert '--expected-artifact "$DMG_ASSET_NAME"' in workflow
+    assert '--artifact "release-assets/$DMG_ASSET_NAME"' in workflow
+    assert "--expected-artifact MotionSmith-macos-universal2.dmg" not in workflow
+
+    for forbidden in (
+        "MACOS_CERT_P12",
+        "MACOS_CERT_PASSWORD",
+        "MACOS_SIGN_IDENTITY",
+        "KEYCHAIN_PASSWORD",
+        "APPLE_NOTARY_PROFILE",
+        "APPLE_ID",
+        "APPLE_TEAM_ID",
+        "APPLE_APP_SPECIFIC_PASSWORD",
+        "scripts/build_macos.py",
+        "scripts/build_linux.py",
+        "scripts/build_windows.py",
+        "signed-appcast/**",
+    ):
+        assert forbidden not in workflow
+
+
+def test_deployment_docs_cover_local_build_and_deploy_only_ota():
+    docs = Path("docs/deployment.md").read_text(encoding="utf-8")
+
+    for required in (
+        "Full CI release",
+        "Local build + deploy-only OTA",
+        "SPARKLE_PUBLIC_ED_KEY",
+        "SPARKLE_PRIVATE_ED_KEY",
+        "uv run python scripts/build_macos.py",
+        "gh release upload",
+        "gh workflow run publish-ota.yml",
+        "scripts/verify_macos_release.py",
+        "scripts/generate_appcast.py production",
+        "scripts/publish_ota_pages.py publish",
+        "SUPublicEDKey",
+        "extra `.dmg`",
+        "MACOS_CERT_P12",
+        "MACOS_CERT_PASSWORD",
+    ):
+        assert required in docs
+
+
 def test_pages_payload_copy_preserves_unrelated_site_files(tmp_path):
     payload = tmp_path / "payload"
     destination = tmp_path / "site"

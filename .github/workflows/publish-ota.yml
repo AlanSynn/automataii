@@ -1,0 +1,229 @@
+name: Publish Sparkle OTA
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing GitHub Release tag that contains the locally built DMG'
+        required: true
+        default: 'v0.1.0'
+      dmg_asset_name:
+        description: 'DMG asset name already uploaded to the GitHub Release'
+        required: true
+        default: 'MotionSmith-macos-universal2.dmg'
+      release_notes_asset_name:
+        description: 'Optional release-notes asset already uploaded to the same Release'
+        required: false
+        default: ''
+      publish_pages:
+        description: 'Publish the generated appcast payload to MotionSmith Pages'
+        required: true
+        default: true
+        type: boolean
+      ota_smoke_passed:
+        description: 'Manual attestation: local build and OTA key pairing smoke test passed'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  MOTIONSMITH_UPDATE_BASE_URL: 'https://alansynn.com/motionsmith/'
+
+jobs:
+  publish-ota:
+    name: Generate and publish Sparkle OTA payload
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned Sparkle 2.9.3
+        id: sparkle
+        run: |
+          python3 scripts/install_sparkle.py --output-dir .sparkle --github-output "$GITHUB_OUTPUT"
+
+      - name: Download locally built release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
+          RELEASE_NOTES_ASSET_NAME: ${{ inputs.release_notes_asset_name }}
+        run: |
+          if [[ "$DMG_ASSET_NAME" != *.dmg ]]; then
+            echo "::error::dmg_asset_name must end with .dmg."
+            exit 1
+          fi
+          case "$DMG_ASSET_NAME" in
+            *[\*\?\[]*)
+              echo "::error::dmg_asset_name must be an exact release asset name, not a glob pattern."
+              exit 1
+              ;;
+          esac
+
+          validate_release_assets() {
+            test -f "release-assets/$DMG_ASSET_NAME"
+            local extra_dmg_count
+            extra_dmg_count=$(find release-assets -maxdepth 1 -type f -name '*.dmg' ! -name "$DMG_ASSET_NAME" | wc -l | tr -d ' ')
+            if [[ "$extra_dmg_count" != "0" ]]; then
+              echo "::error::release-assets contains unexpected DMG files; refusing ambiguous OTA input."
+              find release-assets -maxdepth 1 -type f -name '*.dmg' -print
+              exit 1
+            fi
+          }
+
+          mkdir -p release-assets
+          gh release download "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$DMG_ASSET_NAME" \
+            --dir release-assets \
+            --clobber
+          if [[ -n "$RELEASE_NOTES_ASSET_NAME" ]]; then
+            if [[ "$RELEASE_NOTES_ASSET_NAME" != *.html && "$RELEASE_NOTES_ASSET_NAME" != *.htm ]]; then
+              echo "::error::release_notes_asset_name must be an .html/.htm asset; archive or DMG release notes are not allowed."
+              exit 1
+            fi
+            case "$RELEASE_NOTES_ASSET_NAME" in
+              *[\*\?\[]*)
+                echo "::error::release_notes_asset_name must be an exact release asset name, not a glob pattern."
+                exit 1
+                ;;
+            esac
+            gh release download "$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$RELEASE_NOTES_ASSET_NAME" \
+              --dir release-assets \
+              --clobber
+            test -f "release-assets/$RELEASE_NOTES_ASSET_NAME"
+          fi
+          validate_release_assets
+
+      - name: Verify downloaded DMG release readiness
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY || secrets.SPARKLE_PUBLIC_KEY }}
+          VERSION: ${{ inputs.version }}
+          DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
+        run: |
+          if [[ -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
+            echo "::error::SPARKLE_PUBLIC_ED_KEY (or SPARKLE_PUBLIC_KEY) is required to verify the downloaded app metadata."
+            exit 1
+          fi
+          python3 scripts/verify_macos_release.py "release-assets/$DMG_ASSET_NAME" \
+            --require-notarization \
+            --strict-distribution \
+            --require-ota \
+            --expected-appcast-url "${MOTIONSMITH_UPDATE_BASE_URL%/}/appcast.xml"
+          mount_dir=$(mktemp -d)
+          hdiutil attach "release-assets/$DMG_ASSET_NAME" -mountpoint "$mount_dir" -nobrowse -readonly
+          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" >/dev/null 2>&1 || true' EXIT
+          python3 - "$mount_dir" <<'PY'
+          import os
+          import plistlib
+          import sys
+          from pathlib import Path
+
+          mount_dir = Path(sys.argv[1])
+          expected = os.environ.get("SPARKLE_PUBLIC_ED_KEY", "").strip()
+          apps = sorted(mount_dir.glob("*.app"))
+          if len(apps) != 1:
+              raise SystemExit(f"Expected exactly one app in DMG, found {len(apps)}.")
+          info_path = apps[0] / "Contents" / "Info.plist"
+          with info_path.open("rb") as handle:
+              info = plistlib.load(handle)
+          actual = str(info.get("SUPublicEDKey", "")).strip()
+          if actual != expected:
+              raise SystemExit("SUPublicEDKey does not match configured SPARKLE_PUBLIC_ED_KEY.")
+          print("SUPublicEDKey matches configured Sparkle public key.")
+          PY
+
+      - name: Generate signed Sparkle appcast payload
+        env:
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY || secrets.SPARKLE_PRIVATE_KEY }}
+          OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
+          VERSION: ${{ inputs.version }}
+          DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
+          RELEASE_NOTES_ASSET_NAME: ${{ inputs.release_notes_asset_name }}
+        run: |
+          if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
+            echo "::error::Set ota_smoke_passed=true only after local build and OTA key-pair/update smoke testing."
+            exit 1
+          fi
+          if [[ -z "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
+            echo "::error::SPARKLE_PRIVATE_ED_KEY (or SPARKLE_PRIVATE_KEY) is required to sign the production Sparkle appcast."
+            exit 1
+          fi
+          release_notes_args=()
+          if [[ -n "$RELEASE_NOTES_ASSET_NAME" ]]; then
+            release_notes_args=(--release-notes "release-assets/$RELEASE_NOTES_ASSET_NAME")
+          fi
+          python3 scripts/generate_appcast.py production \
+            --artifact "release-assets/$DMG_ASSET_NAME" \
+            --output-dir sparkle-appcast-payload \
+            --download-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
+            --link "$MOTIONSMITH_UPDATE_BASE_URL" \
+            --expected-artifact "$DMG_ASSET_NAME" \
+            --expected-version "$VERSION" \
+            --sparkle-generate-appcast "${{ steps.sparkle.outputs.generate_appcast }}" \
+            --private-key-env SPARKLE_PRIVATE_ED_KEY \
+            "${release_notes_args[@]}"
+
+      - name: Validate generated appcast payload
+        env:
+          VERSION: ${{ inputs.version }}
+          DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
+        run: |
+          python3 scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml \
+            --expected-artifact "$DMG_ASSET_NAME" \
+            --expected-version "$VERSION" \
+            --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
+            --payload-dir sparkle-appcast-payload
+
+      - name: Upload generated OTA metadata to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
+        run: |
+          assets=()
+          while IFS= read -r -d '' path; do
+            assets+=("$path")
+          done < <(find sparkle-appcast-payload -maxdepth 1 -type f ! -name "$DMG_ASSET_NAME" -print0)
+          if (( ${#assets[@]} > 0 )); then
+            gh release upload "$VERSION" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+
+      - name: Preflight MotionSmith Pages publishing access
+        if: ${{ inputs.publish_pages }}
+        env:
+          MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
+          MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
+          MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT: ${{ vars.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT || secrets.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT }}
+        run: |
+          python3 scripts/publish_ota_pages.py preflight
+
+      - name: Publish OTA payload to MotionSmith Pages repository
+        if: ${{ inputs.publish_pages }}
+        env:
+          VERSION: ${{ inputs.version }}
+          DMG_ASSET_NAME: ${{ inputs.dmg_asset_name }}
+          MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
+          MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
+          MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT: ${{ vars.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT || secrets.MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT }}
+        run: |
+          python3 scripts/publish_ota_pages.py publish \
+            --payload-dir sparkle-appcast-payload \
+            --version "$VERSION" \
+            --expected-artifact "$DMG_ASSET_NAME" \
+            --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
+            --appcast-url "${MOTIONSMITH_UPDATE_BASE_URL%/}/appcast.xml" \
+            --retries 18 \
+            --delay 10 \
+            --timeout 20
