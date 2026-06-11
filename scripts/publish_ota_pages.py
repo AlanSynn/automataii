@@ -41,9 +41,9 @@ from automataii.utils.update_config import (  # noqa: E402
 )
 
 GITHUB_API_VERSION = "2022-11-28"
+PAGES_DEPLOY_KEY_FINGERPRINT_ENV = "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT"
 GITHUB_KNOWN_HOSTS = (
-    "github.com ssh-ed25519 "
-    "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+    "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
     "github.com ecdsa-sha2-nistp256 "
     "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7"
     "opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
@@ -85,12 +85,16 @@ def check_token_push_permission(token: str, repo: str = MOTIONSMITH_PAGES_REPO) 
         with urllib.request.urlopen(request, timeout=30) as response:
             loaded = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise PagesPublishError(f"MOTIONSMITH_PAGES_TOKEN cannot access {repo}: HTTP {exc.code}") from exc
+        raise PagesPublishError(
+            f"MOTIONSMITH_PAGES_TOKEN cannot access {repo}: HTTP {exc.code}"
+        ) from exc
     permissions = loaded.get("permissions") if isinstance(loaded, dict) else None
     if not isinstance(permissions, dict) or not (
         permissions.get("push") or permissions.get("admin")
     ):
-        raise PagesPublishError(f"MOTIONSMITH_PAGES_TOKEN must have push/admin permission on {repo}.")
+        raise PagesPublishError(
+            f"MOTIONSMITH_PAGES_TOKEN must have push/admin permission on {repo}."
+        )
     print("MotionSmith Pages token has push/admin permission.")
 
 
@@ -108,8 +112,10 @@ def configure_git_auth(
 
     token = source_env.get("MOTIONSMITH_PAGES_TOKEN", "").strip()
     deploy_key = source_env.get("MOTIONSMITH_PAGES_DEPLOY_KEY", "")
+    expected_deploy_key_fingerprint = source_env.get(PAGES_DEPLOY_KEY_FINGERPRINT_ENV, "").strip()
     command_env.pop("MOTIONSMITH_PAGES_TOKEN", None)
     command_env.pop("MOTIONSMITH_PAGES_DEPLOY_KEY", None)
+    command_env.pop(PAGES_DEPLOY_KEY_FINGERPRINT_ENV, None)
 
     if token:
         if check_token_permission:
@@ -134,6 +140,14 @@ def configure_git_auth(
         key_file = temp_dir / "motionsmith_pages_deploy_key"
         key_file.write_text(deploy_key.rstrip("\n") + "\n", encoding="utf-8")
         key_file.chmod(0o600)
+        if not expected_deploy_key_fingerprint:
+            raise PagesPublishError(
+                f"{PAGES_DEPLOY_KEY_FINGERPRINT_ENV} is required when "
+                "MOTIONSMITH_PAGES_DEPLOY_KEY is used."
+            )
+        verify_deploy_key_fingerprint(
+            key_file, expected_fingerprint=expected_deploy_key_fingerprint
+        )
         command_env["GIT_SSH_COMMAND"] = (
             f"ssh -i {key_file} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
         )
@@ -157,6 +171,41 @@ def ensure_github_known_hosts(path: Path) -> None:
                 handle.write(host_key + "\n")
 
 
+def verify_deploy_key_fingerprint(
+    key_file: Path,
+    *,
+    expected_fingerprint: str,
+) -> None:
+    """Fail unless the provided private deploy key has the expected public fingerprint."""
+    try:
+        public_key = subprocess.run(
+            ["ssh-keygen", "-y", "-f", str(key_file)],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        fingerprint_output = subprocess.run(
+            ["ssh-keygen", "-l", "-E", "sha256", "-f", "-"],
+            input=public_key,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+    except subprocess.CalledProcessError as exc:
+        raise PagesPublishError(
+            "MOTIONSMITH_PAGES_DEPLOY_KEY is not a readable SSH private key."
+        ) from exc
+
+    fields = fingerprint_output.split()
+    actual_fingerprint = fields[1] if len(fields) > 1 else ""
+    if actual_fingerprint != expected_fingerprint:
+        raise PagesPublishError(
+            "MOTIONSMITH_PAGES_DEPLOY_KEY fingerprint mismatch: "
+            f"expected {expected_fingerprint}, got {actual_fingerprint or 'unparseable'}."
+        )
+    print("MotionSmith Pages deploy key fingerprint verified.")
+
+
 def preflight_pages_access(args: argparse.Namespace) -> None:
     """Clone the target Pages repo and dry-run a write to prove permissions."""
     with tempfile.TemporaryDirectory(prefix="motionsmith-pages-preflight-") as temp_name:
@@ -167,7 +216,10 @@ def preflight_pages_access(args: argparse.Namespace) -> None:
             check_token_permission=True,
         )
         clone_dir = temp_dir / "motionsmith"
-        run_git(["clone", "--depth", "1", "--branch", args.branch, auth.remote_url, str(clone_dir)], auth.env)
+        run_git(
+            ["clone", "--depth", "1", "--branch", args.branch, auth.remote_url, str(clone_dir)],
+            auth.env,
+        )
         run_git(["config", "user.email", "action@github.com"], auth.env, cwd=clone_dir)
         run_git(["config", "user.name", "GitHub Action"], auth.env, cwd=clone_dir)
         run_git(
@@ -198,7 +250,10 @@ def publish_pages_payload(args: argparse.Namespace) -> None:
         temp_dir = Path(temp_name)
         auth = configure_git_auth(repo=args.repo, temp_dir=temp_dir)
         clone_dir = temp_dir / "motionsmith"
-        run_git(["clone", "--depth", "1", "--branch", args.branch, auth.remote_url, str(clone_dir)], auth.env)
+        run_git(
+            ["clone", "--depth", "1", "--branch", args.branch, auth.remote_url, str(clone_dir)],
+            auth.env,
+        )
         copy_payload(payload_dir, clone_dir)
         run_git(["config", "user.email", "action@github.com"], auth.env, cwd=clone_dir)
         run_git(["config", "user.name", "GitHub Action"], auth.env, cwd=clone_dir)
@@ -212,7 +267,11 @@ def publish_pages_payload(args: argparse.Namespace) -> None:
         if diff.returncode == 0:
             print("MotionSmith Pages payload already up to date.")
         elif diff.returncode == 1:
-            run_git(["commit", "-m", f"Publish MotionSmith OTA payload {args.version}"], auth.env, cwd=clone_dir)
+            run_git(
+                ["commit", "-m", f"Publish MotionSmith OTA payload {args.version}"],
+                auth.env,
+                cwd=clone_dir,
+            )
             run_git(["push", "origin", args.branch], auth.env, cwd=clone_dir)
         else:
             diff.check_returncode()

@@ -725,6 +725,8 @@ def test_pipeline_files_use_generated_appcast_and_cross_repo_pages_publish():
     assert "git@github.com:{repo}.git" in publisher
     assert '"push", "--dry-run", "origin", f"HEAD:{args.branch}"' in publisher
     assert "github.com ssh-ed25519" in publisher
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" in workflow
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" in publisher
     assert "ssh-keyscan" not in publisher
     assert "GIT_CONFIG_GLOBAL" in publisher
     assert "check_ota_reachability.retry_check" in publisher
@@ -759,7 +761,76 @@ def test_pages_auth_uses_temp_git_config_for_token(monkeypatch, tmp_path):
     assert auth.remote_url == "https://github.com/AlanSynn/motionsmith.git"
     assert git_config.parent == tmp_path
     assert "token-value" in git_config.read_text(encoding="utf-8")
-    assert not any("token-value" in value for key, value in auth.env.items() if key != "GIT_CONFIG_GLOBAL")
+    assert not any(
+        "token-value" in value for key, value in auth.env.items() if key != "GIT_CONFIG_GLOBAL"
+    )
+
+
+def test_pages_auth_verifies_deploy_key_fingerprint(monkeypatch, tmp_path):
+    monkeypatch.setattr(publish_ota_pages, "ensure_github_known_hosts", lambda path: None)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:3] == ["ssh-keygen", "-y", "-f"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="ssh-ed25519 AAAAC3 test-key\n")
+        if cmd == ["ssh-keygen", "-l", "-E", "sha256", "-f", "-"]:
+            assert kwargs["input"] == "ssh-ed25519 AAAAC3 test-key\n"
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout="256 SHA256:testFingerprint deploy-key (ED25519)\n",
+            )
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(publish_ota_pages.subprocess, "run", fake_run)
+
+    auth = publish_ota_pages.configure_git_auth(
+        {
+            "MOTIONSMITH_PAGES_DEPLOY_KEY": "private-key-material",
+            "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT": "SHA256:testFingerprint",
+        },
+        temp_dir=tmp_path,
+    )
+
+    assert auth.remote_url == "git@github.com:AlanSynn/motionsmith.git"
+    assert "motionsmith_pages_deploy_key" in auth.env["GIT_SSH_COMMAND"]
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY" not in auth.env
+    assert "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT" not in auth.env
+
+
+def test_pages_auth_requires_deploy_key_fingerprint(monkeypatch, tmp_path):
+    monkeypatch.setattr(publish_ota_pages, "ensure_github_known_hosts", lambda path: None)
+
+    with pytest.raises(publish_ota_pages.PagesPublishError, match="DEPLOY_KEY_FINGERPRINT"):
+        publish_ota_pages.configure_git_auth(
+            {"MOTIONSMITH_PAGES_DEPLOY_KEY": "private-key-material"},
+            temp_dir=tmp_path,
+        )
+
+
+def test_pages_auth_rejects_wrong_deploy_key_fingerprint(monkeypatch, tmp_path):
+    monkeypatch.setattr(publish_ota_pages, "ensure_github_known_hosts", lambda path: None)
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:3] == ["ssh-keygen", "-y", "-f"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="ssh-ed25519 AAAAC3 wrong-key\n")
+        if cmd == ["ssh-keygen", "-l", "-E", "sha256", "-f", "-"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout="256 SHA256:wrongFingerprint wrong-key (ED25519)\n",
+            )
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(publish_ota_pages.subprocess, "run", fake_run)
+
+    with pytest.raises(publish_ota_pages.PagesPublishError, match="fingerprint mismatch"):
+        publish_ota_pages.configure_git_auth(
+            {
+                "MOTIONSMITH_PAGES_DEPLOY_KEY": "private-key-material",
+                "MOTIONSMITH_PAGES_DEPLOY_KEY_FINGERPRINT": "SHA256:testFingerprint",
+            },
+            temp_dir=tmp_path,
+        )
 
 
 def test_ota_reachability_extracts_referenced_urls():
