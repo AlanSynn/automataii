@@ -1,5 +1,7 @@
+from unittest.mock import MagicMock
+
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QEvent, QPointF
 from PyQt6.QtWidgets import QApplication, QLabel, QToolBar
 
 
@@ -21,6 +23,21 @@ def test_view_instantiation(qapp):
     assert view.current_mechanism is not None
     assert view.mechanism_selector is not None
     assert view.mechanism_selector.count() > 0
+
+
+def test_foundry_canvas_retains_wheel_zoom_controller(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    event = MagicMock()
+    event.type.return_value = QEvent.Type.Wheel
+    event.angleDelta.return_value.y.return_value = 120
+    event.pixelDelta.return_value.y.return_value = 0
+
+    assert view._viewport_controller.view is view.graphics_view
+    assert view._viewport_controller.eventFilter(view.graphics_view.viewport(), event) is True
+    assert view._viewport_controller.zoom_level == 1
+    event.accept.assert_called_once()
 
 
 def _foundry_label_text(view, object_name: str) -> str:

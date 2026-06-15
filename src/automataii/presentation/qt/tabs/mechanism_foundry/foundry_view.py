@@ -41,6 +41,7 @@ from automataii.application.mechanism_foundry.mechanism_types import (
     canonical_mechanism_type,
     normalize_mechanism_type_key,
 )
+from automataii.presentation.qt.animation import ViewportConfig, ViewportController
 from automataii.presentation.qt.shared import blocked_signals, clear_layout
 from automataii.presentation.qt.tabs.mechanism_foundry.gallery_view import GalleryView
 from automataii.presentation.qt.tabs.mechanism_foundry.sensemaking_panel import (
@@ -231,7 +232,19 @@ class MechanismFoundryView(QWidget):
         self.graphics_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.graphics_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.graphics_view.setMouseTracking(True)
-        self.graphics_view.viewport().installEventFilter(self)
+        viewport = self.graphics_view.viewport()
+        if viewport is not None:
+            viewport.installEventFilter(self)
+        self._viewport_controller = ViewportController(
+            self.graphics_view,
+            ViewportConfig(
+                zoom_factor_base=1.05,
+                min_zoom_level=-47,
+                max_zoom_level=47,
+                anchor_under_mouse=True,
+            ),
+            parent=self,
+        )
 
         self.parameter_sliders: dict[str, tuple[QSlider, QLabel]] = {}
         self.mechanism_selector: QComboBox | None = None
@@ -1728,6 +1741,22 @@ class MechanismFoundryView(QWidget):
                 self.path_preview_overlay.show_path(
                     self.current_mechanism, self.current_parameters, point_name
                 )
+
+    def zoom_in(self) -> None:
+        """Zoom in on the mechanism canvas."""
+        self._viewport_controller.zoom_in()
+
+    def zoom_out(self) -> None:
+        """Zoom out from the mechanism canvas."""
+        self._viewport_controller.zoom_out()
+
+    def zoom_to_fit(self) -> None:
+        """Fit the mechanism canvas content in view."""
+        self._viewport_controller.zoom_to_fit()
+
+    def reset_view(self) -> None:
+        """Reset the mechanism canvas view."""
+        self._viewport_controller.reset_view()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         if a1 and a1.type() == QEvent.Type.MouseMove:

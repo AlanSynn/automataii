@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QWheelEvent
-from PyQt6.QtWidgets import QGraphicsView
+from PyQt6.QtWidgets import QGraphicsView, QWidget
 
 if TYPE_CHECKING:
     pass
@@ -36,6 +36,9 @@ class ViewportConfig:
     smooth_zoom: bool = False
     invert_zoom: bool = False
     anchor_under_mouse: bool = True
+    enable_wheel_zoom: bool = True
+    wheel_angle_step: int = 120
+    wheel_pixel_step: int = 80
 
 
 class ViewportController(QObject):
@@ -85,9 +88,13 @@ class ViewportController(QObject):
         self._config = config or ViewportConfig()
         self._zoom_level = 0
         self._initial_transform = view.transform()
+        self._viewport: QWidget | None = view.viewport()
+        self._wheel_angle_remainder = 0.0
+        self._wheel_pixel_remainder = 0.0
 
         # Apply initial configuration
         self._apply_config()
+        self._install_event_filter()
 
         logger.debug(f"ViewportController attached to {view.__class__.__name__}")
 
@@ -118,6 +125,14 @@ class ViewportController(QObject):
             self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
 
         self._view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+
+    def _install_event_filter(self) -> None:
+        """Install this controller as a wheel-event filter for the view viewport."""
+        if not self._config.enable_wheel_zoom:
+            return
+
+        if self._viewport is not None:
+            self._viewport.installEventFilter(self)
 
     # =========================================================================
     # ZOOM OPERATIONS
@@ -180,6 +195,8 @@ class ViewportController(QObject):
         # Get current scroll positions
         h_bar = self._view.horizontalScrollBar()
         v_bar = self._view.verticalScrollBar()
+        if h_bar is None or v_bar is None:
+            return
 
         # Apply pan with sensitivity
         h_bar.setValue(int(h_bar.value() - delta.x() * sensitivity))
@@ -277,14 +294,26 @@ class ViewportController(QObject):
         Returns:
             True if event was handled
         """
-        # Get scroll amount
-        delta = event.angleDelta().y()
-
-        if delta == 0:
+        if not self._config.enable_wheel_zoom:
             return False
 
-        # Calculate zoom steps (120 units = 1 step typically)
-        steps = delta // 120
+        angle_delta = event.angleDelta().y()
+        pixel_delta = event.pixelDelta().y()
+
+        if angle_delta != 0:
+            steps = self._accumulate_wheel_steps(
+                delta=angle_delta,
+                threshold=max(1, self._config.wheel_angle_step),
+                remainder_attr="_wheel_angle_remainder",
+            )
+        elif pixel_delta != 0:
+            steps = self._accumulate_wheel_steps(
+                delta=pixel_delta,
+                threshold=max(1, self._config.wheel_pixel_step),
+                remainder_attr="_wheel_pixel_remainder",
+            )
+        else:
+            return False
 
         if self._config.invert_zoom:
             steps = -steps
@@ -294,9 +323,30 @@ class ViewportController(QObject):
                 self.zoom_in(steps)
             else:
                 self.zoom_out(-steps)
-            return True
 
-        return False
+        event.accept()
+        return True
+
+    def _accumulate_wheel_steps(self, delta: int, threshold: int, remainder_attr: str) -> int:
+        """Accumulate high-resolution wheel deltas into integer zoom steps."""
+        total = getattr(self, remainder_attr) + delta
+        steps = int(total / threshold)
+
+        if steps:
+            total -= steps * threshold
+
+        setattr(self, remainder_attr, total)
+        return steps
+
+    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:
+        """Route viewport wheel events through the controller zoom policy."""
+        if watched is not self._viewport:
+            return super().eventFilter(watched, event)
+
+        if event is not None and event.type() == QEvent.Type.Wheel:
+            return self.handle_wheel_event(cast(QWheelEvent, event))
+
+        return super().eventFilter(watched, event)
 
     # =========================================================================
     # CAMERA STATE (for tab switching)
@@ -304,10 +354,13 @@ class ViewportController(QObject):
 
     def get_camera_state(self) -> dict:
         """Get current camera state for persistence."""
+        h_bar = self._view.horizontalScrollBar()
+        v_bar = self._view.verticalScrollBar()
+
         return {
             "zoom_level": self._zoom_level,
-            "h_scroll": self._view.horizontalScrollBar().value(),
-            "v_scroll": self._view.verticalScrollBar().value(),
+            "h_scroll": h_bar.value() if h_bar is not None else 0,
+            "v_scroll": v_bar.value() if v_bar is not None else 0,
             "transform": {
                 "m11": self._view.transform().m11(),
                 "m12": self._view.transform().m12(),
@@ -330,7 +383,11 @@ class ViewportController(QObject):
         # Restore scroll positions
         h_scroll = state.get("h_scroll", 0)
         v_scroll = state.get("v_scroll", 0)
-        self._view.horizontalScrollBar().setValue(h_scroll)
-        self._view.verticalScrollBar().setValue(v_scroll)
+        h_bar = self._view.horizontalScrollBar()
+        v_bar = self._view.verticalScrollBar()
+        if h_bar is not None:
+            h_bar.setValue(h_scroll)
+        if v_bar is not None:
+            v_bar.setValue(v_scroll)
 
         self.zoom_changed.emit(self._zoom_level, self.zoom_scale)

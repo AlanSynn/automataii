@@ -4,15 +4,44 @@ Tests for Animation Scheduler and Viewport Controller.
 from unittest.mock import MagicMock
 
 import pytest
+from PyQt6.QtCore import QEvent, QObject
 
 from automataii.presentation.qt.animation import (
     AnimationPriority,
     CentralAnimationScheduler,
+    ViewportConfig,
     ViewportController,
 )
 
 # Module-level QApplication to persist across tests
 _app = None
+
+
+class _WheelDelta:
+    def __init__(self, y: int) -> None:
+        self._y = y
+
+    def y(self) -> int:
+        return self._y
+
+
+class _WheelEvent:
+    def __init__(self, angle_y: int = 0, pixel_y: int = 0) -> None:
+        self._angle_y = angle_y
+        self._pixel_y = pixel_y
+        self.accepted = False
+
+    def type(self) -> QEvent.Type:
+        return QEvent.Type.Wheel
+
+    def angleDelta(self) -> _WheelDelta:
+        return _WheelDelta(self._angle_y)
+
+    def pixelDelta(self) -> _WheelDelta:
+        return _WheelDelta(self._pixel_y)
+
+    def accept(self) -> None:
+        self.accepted = True
 
 
 def get_qapp():
@@ -321,3 +350,68 @@ class TestViewportController:
 
         assert controller.zoom_level == 0
         mock_view.resetTransform.assert_called()
+
+    def test_handle_wheel_event_zoom_in_full_step(self, controller):
+        """A standard positive wheel notch zooms in and accepts the event."""
+        event = _WheelEvent(angle_y=120)
+
+        assert controller.handle_wheel_event(event) is True
+        assert event.accepted is True
+        assert controller.zoom_level == 1
+
+    def test_handle_wheel_event_zoom_out_full_step(self, controller):
+        """A standard negative wheel notch zooms out and accepts the event."""
+        event = _WheelEvent(angle_y=-120)
+
+        assert controller.handle_wheel_event(event) is True
+        assert event.accepted is True
+        assert controller.zoom_level == -1
+
+    def test_handle_wheel_event_accumulates_partial_angle_delta(self, controller):
+        """High-resolution angle deltas accumulate instead of being dropped."""
+        first_event = _WheelEvent(angle_y=40)
+        second_event = _WheelEvent(angle_y=40)
+        third_event = _WheelEvent(angle_y=40)
+
+        assert controller.handle_wheel_event(first_event) is True
+        assert controller.zoom_level == 0
+        assert controller.handle_wheel_event(second_event) is True
+        assert controller.zoom_level == 0
+        assert controller.handle_wheel_event(third_event) is True
+        assert controller.zoom_level == 1
+        assert first_event.accepted and second_event.accepted and third_event.accepted
+
+    def test_handle_wheel_event_accumulates_pixel_delta(self, mock_view):
+        """Touchpad-style pixel deltas accumulate when no angle delta is present."""
+        controller = ViewportController(mock_view, ViewportConfig(wheel_pixel_step=30))
+
+        assert controller.handle_wheel_event(_WheelEvent(pixel_y=10)) is True
+        assert controller.zoom_level == 0
+        assert controller.handle_wheel_event(_WheelEvent(pixel_y=10)) is True
+        assert controller.zoom_level == 0
+        assert controller.handle_wheel_event(_WheelEvent(pixel_y=10)) is True
+        assert controller.zoom_level == 1
+
+    def test_handle_wheel_event_disabled(self, mock_view):
+        """Disabled wheel zoom leaves the event unhandled."""
+        controller = ViewportController(mock_view, ViewportConfig(enable_wheel_zoom=False))
+        event = _WheelEvent(angle_y=120)
+
+        assert controller.handle_wheel_event(event) is False
+        assert event.accepted is False
+        assert controller.zoom_level == 0
+
+    def test_event_filter_handles_wheel_event(self, controller):
+        """Viewport wheel events are routed through the controller event filter."""
+        event = _WheelEvent(angle_y=120)
+
+        assert controller.eventFilter(controller.view.viewport(), event) is True
+        assert event.accepted is True
+        assert controller.zoom_level == 1
+
+    def test_event_filter_ignores_wheel_event_outside_viewport(self, controller):
+        """Wheel events from other widgets are not hijacked by the controller."""
+        event = QEvent(QEvent.Type.Wheel)
+
+        assert controller.eventFilter(QObject(), event) is False
+        assert controller.zoom_level == 0
