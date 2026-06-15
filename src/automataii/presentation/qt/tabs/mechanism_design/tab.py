@@ -2342,7 +2342,7 @@ class MechanismDesignTab(QWidget):
         )
 
     def _emit_mechanism_params_changed(self, mechanism_id: str) -> None:
-        """Emit mechanism_parameters_changed signal for bidirectional sync."""
+        """Emit parameter changes for SSOT history and optional Foundry listeners."""
         if getattr(self, "_suppress_foundry_sync", False):
             return
 
@@ -2350,10 +2350,6 @@ class MechanismDesignTab(QWidget):
             return
 
         layer_data = self.mechanism_layers[mechanism_id]
-
-        # Only emit for foundry-synced mechanisms
-        if not layer_data.get("foundry_synced", False):
-            return
 
         params = layer_data.get("params", {})
         self.mechanism_parameters_changed.emit(mechanism_id, params)

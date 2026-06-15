@@ -19,7 +19,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
 if TYPE_CHECKING:
-    from automataii.application.project import ProjectSerializer, ProjectStateManager
+    from automataii.application.project import ProjectSerializer, ProjectState, ProjectStateManager
 
 
 def get_default_project_dir() -> Path:
@@ -35,6 +35,39 @@ def get_default_project_dir() -> Path:
     tmp_base = Path(tempfile.gettempdir()) / "motionsmith_projects"
     tmp_base.mkdir(parents=True, exist_ok=True)
     return tmp_base
+
+
+def _safe_path_component(value: str) -> str:
+    """Return a conservative filesystem component for project-scoped temp paths."""
+    safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value)
+    safe = safe.strip("._-")
+    return safe or "untitled"
+
+
+def get_unsaved_project_dir(state: ProjectState) -> Path:
+    """
+    Return an isolated temp root for an unsaved project.
+
+    The namespace is deterministic for a ProjectState's metadata so quick-save
+    and autosave recovery do not share one global temp root across unrelated
+    unsaved projects.
+    """
+    metadata = getattr(state, "metadata", None)
+    project_name = _safe_path_component(getattr(metadata, "name", "Untitled"))
+    created_at = getattr(metadata, "created_at", datetime.now())
+    created_key = created_at.strftime("%Y%m%d%H%M%S%f")
+    project_dir = get_default_project_dir() / "unsaved" / f"{project_name}-{created_key}"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    return project_dir
+
+
+def get_project_storage_dir(state: ProjectState) -> Path:
+    """Return the stable project directory or unsaved-project temp namespace."""
+    if state.project_dir:
+        project_dir = Path(state.project_dir)
+        project_dir.mkdir(parents=True, exist_ok=True)
+        return project_dir
+    return get_unsaved_project_dir(state)
 
 
 class StatusBarProvider(Protocol):
@@ -83,6 +116,7 @@ class ProjectController(QObject):
         self._parent_widget = parent
         self._logger = logging.getLogger(__name__)
         self._status_bar: StatusBarProvider | None = None
+        self.last_dirty_decision: str | None = None
 
     def set_status_bar(self, status_bar: StatusBarProvider) -> None:
         """Set the status bar for operation feedback."""
@@ -95,22 +129,10 @@ class ProjectController(QObject):
         Returns:
             True if new project was created, False if cancelled
         """
-        # Check for unsaved changes
-        if self._state_manager.is_dirty:
-            reply = QMessageBox.question(
-                self._parent_widget,
-                "Unsaved Changes",
-                "You have unsaved changes. Do you want to save before creating a new project?",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-            )
-
-            if reply == QMessageBox.StandardButton.Save:
-                if not self.save_project():
-                    return False  # Save cancelled or failed
-            elif reply == QMessageBox.StandardButton.Cancel:
-                return False
+        if not self.confirm_save_discard_cancel(
+            "You have unsaved changes. Do you want to save before creating a new project?"
+        ):
+            return False
 
         # Clear state and create new project
         self._state_manager.new_project()
@@ -130,35 +152,83 @@ class ProjectController(QObject):
             True if save was successful, False otherwise
         """
         state = self._state_manager.state
-
-        # Determine save path
         if filepath is None:
-            if state.project_dir:
-                default_path = state.project_dir / f"{state.metadata.name}.automataii"
-            else:
-                # Default to tmp directory for temporary project storage
-                default_path = get_default_project_dir() / f"{state.metadata.name}.automataii"
+            if state.project_file_path is None:
+                return self.save_project_as()
+            filepath = state.project_file_path
+        return self._save_project_to_path(Path(filepath), update_current_path=True)
 
+    def save_project_as(self, filepath: str | Path | None = None) -> bool:
+        """
+        Save project to a new user-selected path and remember it as the current project file.
+        """
+        state = self._state_manager.state
+        if filepath is None:
+            default_path = self._default_project_file_path(state)
             filepath_str, _ = QFileDialog.getSaveFileName(
                 self._parent_widget,
-                "Save Project (SSOT)",
+                "Save Project As",
                 str(default_path),
                 "MotionSmith Project (*.automataii);;All files (*)",
             )
-
             if not filepath_str:
                 return False
-            filepath = Path(filepath_str)
-        else:
-            filepath = Path(filepath)
+            filepath = filepath_str
 
-        # Save using serializer
+        return self._save_project_to_path(Path(filepath), update_current_path=True)
+
+    def export_project(self, filepath: str | Path | None = None) -> bool:
+        """
+        Export a project copy without changing the current save path or dirty state.
+        """
+        state = self._state_manager.state
+        if filepath is None:
+            default_path = self._default_project_file_path(state, suffix="_export")
+            filepath_str, _ = QFileDialog.getSaveFileName(
+                self._parent_widget,
+                "Export Project Copy",
+                str(default_path),
+                "MotionSmith Project (*.automataii);;All files (*)",
+            )
+            if not filepath_str:
+                return False
+            filepath = filepath_str
+
+        result = self._serializer.save(state, Path(filepath))
+        if result.success and result.path:
+            self._show_status(f"Project copy exported to {result.path}", 3000)
+            self._logger.info("Project copy exported via SSOT to %s", result.path)
+            return True
+
+        QMessageBox.critical(
+            self._parent_widget,
+            "Export Error",
+            f"Failed to export project: {result.error}",
+        )
+        self._logger.error("Failed to export project: %s", result.error)
+        self.operation_failed.emit(str(result.error))
+        return False
+
+    def _default_project_file_path(self, state: ProjectState, suffix: str = "") -> Path:
+        """Return the default file path for Save As / Export dialogs."""
+        if state.project_file_path and not suffix:
+            return Path(state.project_file_path)
+        project_dir = get_project_storage_dir(state)
+        stem = _safe_path_component(state.metadata.name)
+        return project_dir / f"{stem}{suffix}.automataii"
+
+    def _save_project_to_path(self, filepath: Path, *, update_current_path: bool) -> bool:
+        """Save using serializer and optionally update the remembered current path."""
+        state = self._state_manager.state
         result = self._serializer.save(state, filepath)
 
         if result.success:
             if result.path:
+                updated_state = self._state_manager.state.with_project_dir(result.path.parent)
+                if update_current_path:
+                    updated_state = updated_state.with_project_file_path(result.path)
                 self._state_manager.replace_project_state(
-                    self._state_manager.state.with_project_dir(result.path.parent),
+                    updated_state,
                     operation="save_project",
                     clear_history=False,
                     mark_saved=True,
@@ -191,22 +261,10 @@ class ProjectController(QObject):
         Returns:
             True if load was successful, False otherwise
         """
-        # Check for unsaved changes
-        if self._state_manager.is_dirty:
-            reply = QMessageBox.question(
-                self._parent_widget,
-                "Unsaved Changes",
-                "You have unsaved changes. Do you want to save before loading?",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-            )
-
-            if reply == QMessageBox.StandardButton.Save:
-                if not self.save_project():
-                    return False
-            elif reply == QMessageBox.StandardButton.Cancel:
-                return False
+        if not self.confirm_save_discard_cancel(
+            "You have unsaved changes. Do you want to save before loading?"
+        ):
+            return False
 
         # File dialog if no path provided
         if filepath is None:
@@ -228,7 +286,8 @@ class ProjectController(QObject):
         result = self._serializer.load(filepath)
 
         if result.success and result.state:
-            state = result.state.with_project_dir(Path(filepath).parent)
+            path = Path(filepath)
+            state = result.state.with_project_dir(path.parent).with_project_file_path(path)
             self._state_manager.replace_project_state(
                 state,
                 operation="load_project",
@@ -267,7 +326,7 @@ class ProjectController(QObject):
 
         # Generate a collision-resistant filename; quick-save can be triggered
         # repeatedly within the same second by shortcuts/autosave.
-        save_dir = get_default_project_dir()
+        save_dir = get_project_storage_dir(state)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename_stem = f"{project_name}_{timestamp}"
         filepath = save_dir / f"{filename_stem}.automataii"
@@ -285,6 +344,35 @@ class ProjectController(QObject):
         else:
             self._logger.error(f"Quick save failed: {result.error}")
             return False
+
+    def confirm_save_discard_cancel(self, message: str) -> bool:
+        """
+        Ask how to handle dirty state before destructive lifecycle actions.
+
+        Returns True when the caller may continue, False when the action should
+        be cancelled because the user chose Cancel or Save failed/cancelled.
+        """
+        if not self._state_manager.is_dirty:
+            self.last_dirty_decision = "clean"
+            return True
+
+        reply = QMessageBox.question(
+            self._parent_widget,
+            "Unsaved Changes",
+            message,
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Save:
+            saved = self.save_project()
+            self.last_dirty_decision = "save" if saved else "cancel"
+            return saved
+        if reply == QMessageBox.StandardButton.Discard:
+            self.last_dirty_decision = "discard"
+            return True
+        self.last_dirty_decision = "cancel"
+        return False
 
     def undo(self) -> bool:
         """

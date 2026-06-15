@@ -38,6 +38,7 @@ from automataii.application.project import (
     PathData,
     Point,
     ProjectSerializer,
+    ProjectState,
     ProjectStateManager,
     SkeletonData,
     Transform,
@@ -67,6 +68,7 @@ from automataii.presentation.qt.windows.components import (
     WorkflowStateMachine,
     WorkspaceLayoutManager,
     get_default_project_dir,
+    get_project_storage_dir,
 )
 from automataii.utils.config import AppConfig
 from automataii.utils.paths import resolve_path
@@ -872,42 +874,21 @@ class AutomataDesigner(QMainWindow):
         self.action_manager.connect_action("load_parts", self.load_parts_dialog)
         self.action_manager.connect_action("recover_autosave", self.recover_autosave)
         self.action_manager.connect_action("save_project", self.save_project_dialog)
+        self.action_manager.connect_action("save_project_as", self.save_project_as_dialog)
+        self.action_manager.connect_action("export", self.export_project_dialog)
         self.action_manager.connect_action("exit", self.close)
+        self.action_manager.connect_action("zoom_in", lambda: self._invoke_active_zoom("zoom_in"))
+        self.action_manager.connect_action("zoom_out", lambda: self._invoke_active_zoom("zoom_out"))
         self.action_manager.connect_action(
-            "zoom_in",
-            lambda: (
-                self.editor_tab.editor_view.zoom_in()  # Call on EditorTab's view
-                if self.tab_widget.currentWidget() == self.editor_tab
-                else None
-            ),  # Add a default None if no active tab matches known views
+            "zoom_fit", lambda: self._invoke_active_zoom("zoom_to_fit")
         )
         self.action_manager.connect_action(
-            "zoom_out",
-            lambda: (
-                self.editor_tab.editor_view.zoom_out()  # Call on EditorTab's view
-                if self.tab_widget.currentWidget() == self.editor_tab
-                else None
-            ),  # Add a default None
-        )
-        self.action_manager.connect_action(
-            "zoom_fit",
-            lambda: (
-                self.editor_tab.editor_view.zoom_to_fit()  # Call on EditorTab's view
-                if self.tab_widget.currentWidget() == self.editor_tab
-                else None
-            ),  # Add a default None
-        )
-        self.action_manager.connect_action(
-            "reset_view",
-            lambda: (
-                self.editor_tab.editor_view.reset_view()  # Call on EditorTab's view
-                if self.tab_widget.currentWidget() == self.editor_tab
-                else None
-            ),
+            "reset_view", lambda: self._invoke_active_zoom("reset_view")
         )
         # Connect undo/redo to SSOT ProjectStateManager (Ctrl+Z, Ctrl+Y)
         self.action_manager.connect_action("undo", self.undo_ssot)
         self.action_manager.connect_action("redo", self.redo_ssot)
+        self.action_manager.connect_action("check_updates", self.check_for_updates)
         self.action_manager.connect_action("about", self.show_about_dialog)
         self.action_manager.connect_action("save_workspace_layout", self.save_workspace_layout)
         self.action_manager.connect_action(
@@ -1383,6 +1364,66 @@ class AutomataDesigner(QMainWindow):
                 "_toggle_part_properties_visibility called but editor_tab is not available."
             )
 
+    # --- Global View Action Routing ---
+
+    def _iter_active_zoom_candidates(self) -> list[object]:
+        """Return candidate objects that may implement zoom actions for the active tab."""
+        if not hasattr(self, "tab_widget") or self.tab_widget is None:
+            return []
+
+        current_tab = self.tab_widget.currentWidget()
+        if current_tab is None:
+            return []
+
+        candidates: list[object] = []
+
+        def add_candidate(candidate: object | None) -> None:
+            if candidate is not None and not any(candidate is existing for existing in candidates):
+                candidates.append(candidate)
+
+        add_candidate(current_tab)
+        for attr_name in (
+            "editor_view",
+            "mechanism_view",
+            "image_proc_view",
+            "graphics_view",
+            "view",
+            "canvas",
+            "_viewport_controller",
+        ):
+            candidate = getattr(current_tab, attr_name, None)
+            add_candidate(candidate)
+            nested_controller = getattr(candidate, "_viewport_controller", None)
+            add_candidate(nested_controller)
+
+        return candidates
+
+    def _invoke_active_zoom(self, action_name: str) -> bool:
+        """Invoke a zoom command on the active tab/view if it exposes one."""
+        method_candidates: dict[str, tuple[str, ...]] = {
+            "zoom_in": ("zoom_in",),
+            "zoom_out": ("zoom_out",),
+            "zoom_to_fit": ("zoom_to_fit", "fit_view_to_content", "fit_to_content"),
+            "reset_view": ("reset_view",),
+        }
+        for candidate in self._iter_active_zoom_candidates():
+            for method_name in method_candidates.get(action_name, (action_name,)):
+                method = getattr(candidate, method_name, None)
+                if callable(method):
+                    method()
+                    return True
+
+            generic_zoom = getattr(candidate, "zoom", None)
+            if callable(generic_zoom) and action_name in {"zoom_in", "zoom_out"}:
+                generic_zoom(1 if action_name == "zoom_in" else -1)
+                return True
+
+        status_bar = self.statusBar()
+        if status_bar is not None:
+            status_bar.showMessage("Zoom is not available for the active tab.", 3000)
+        logging.info("No zoom handler for active tab action %s", action_name)
+        return False
+
     # --- Project Data Handling ---
     def load_parts_dialog(self):
         """Open a file dialog and load either a full project or legacy parts JSON."""
@@ -1413,14 +1454,62 @@ class AutomataDesigner(QMainWindow):
         self.project_data_manager.load_project_from_file(filepath)
 
     def _autosave_recovery_project_dir(self) -> Path:
-        """Return the project root used for autosave recovery discovery."""
-        state_project_dir = self.project_state_manager.state.project_dir
-        if state_project_dir:
-            return Path(state_project_dir)
-        data_project_dir = getattr(self.project_data_manager, "project_dir", None)
-        if data_project_dir:
-            return Path(data_project_dir)
+        """Return the primary project root used for autosave recovery discovery."""
+        roots = self._autosave_recovery_project_dirs()
+        if roots:
+            return roots[0]
         return Path(get_default_project_dir())
+
+    def _autosave_recovery_project_dirs(self) -> list[Path]:
+        """Return project roots to scan for autosave recovery without creating new namespaces."""
+        state = self.project_state_manager.state
+        roots: list[Path] = []
+
+        def add_root(path: Path | str | None) -> None:
+            if not path:
+                return
+            root = Path(path)
+            if not any(root == existing for existing in roots):
+                roots.append(root)
+
+        if (
+            getattr(state, "project_dir", None)
+            or getattr(state, "parts", None)
+            or getattr(state, "skeleton", None)
+            or getattr(state, "paths", None)
+            or getattr(state, "mechanisms", None)
+        ):
+            add_root(get_project_storage_dir(state))
+
+        data_project_dir = getattr(self.project_data_manager, "project_dir", None)
+        add_root(data_project_dir)
+
+        unsaved_base = Path(get_default_project_dir()) / "unsaved"
+        if unsaved_base.exists():
+            for child in sorted(unsaved_base.iterdir()):
+                if child.is_dir():
+                    add_root(child)
+
+        return roots
+
+    def _get_autosave_recovery_files(self) -> list[Path]:
+        """Collect recovery files from saved and unsaved project roots."""
+        seen: set[Path] = set()
+        recovery_files: list[Path] = []
+        for project_dir in self._autosave_recovery_project_dirs():
+            for candidate in self._autosave_manager.get_recovery_files(project_dir):
+                try:
+                    resolved = candidate.resolve()
+                except OSError:
+                    resolved = candidate
+                if resolved not in seen:
+                    seen.add(resolved)
+                    recovery_files.append(candidate)
+        return sorted(
+            recovery_files,
+            key=lambda path: path.stat().st_mtime if path.exists() else 0.0,
+            reverse=True,
+        )
 
     def _select_autosave_recovery_file(self, recovery_files: list[Path]) -> Path | None:
         """Open a chooser rooted at the autosave directory and return the selected snapshot."""
@@ -1437,10 +1526,9 @@ class AutomataDesigner(QMainWindow):
 
     def recover_autosave(self) -> bool:
         """Recover a project from an existing autosave snapshot."""
-        project_dir = self._autosave_recovery_project_dir()
-        recovery_files = self._autosave_manager.get_recovery_files(project_dir)
+        recovery_files = self._get_autosave_recovery_files()
         if not recovery_files:
-            logging.info("No autosave recovery files found in %s", project_dir)
+            logging.info("No autosave recovery files found")
             status_bar = self.statusBar()
             if status_bar is not None:
                 status_bar.showMessage("No autosave recovery files found.", 3000)
@@ -1822,11 +1910,29 @@ class AutomataDesigner(QMainWindow):
         self.statusBar().showMessage("Project data cleared.")
         # Any other UI elements that need to be reset when project is cleared
 
-    def save_project_dialog(self):
+    def save_project_dialog(self) -> bool:
         """Save a full project snapshot (state + assets) via SSOT serializer."""
         self._sync_runtime_state_to_ssot(mark_saved=False)
         self._project_controller.set_status_bar(self.statusBar())
-        self._project_controller.save_project()
+        return bool(self._project_controller.save_project())
+
+    def save_project_as_dialog(self) -> bool:
+        """Save a full project snapshot to a new selected path."""
+        previous_state = self.project_state_manager.state
+        was_dirty = bool(self.project_state_manager.is_dirty)
+        self._sync_runtime_state_to_ssot(mark_saved=False)
+        self._project_controller.set_status_bar(self.statusBar())
+        saved = bool(self._project_controller.save_project_as())
+        if not saved:
+            self._restore_project_state_after_cancelled_save_as(previous_state, was_dirty)
+        return saved
+
+    def export_project_dialog(self) -> bool:
+        """Export the current project as a copy without changing the current save path."""
+        was_dirty = bool(self.project_state_manager.is_dirty)
+        self._sync_runtime_state_to_ssot(mark_saved=not was_dirty)
+        self._project_controller.set_status_bar(self.statusBar())
+        return bool(self._project_controller.export_project())
 
     def _sync_runtime_state_to_ssot(self, mark_saved: bool = False) -> None:
         """
@@ -1842,10 +1948,8 @@ class AutomataDesigner(QMainWindow):
             paths = self._collect_paths_for_state()
             mechanisms = self._collect_mechanisms_for_state()
 
-            project_dir = (
+            project_dir = self.project_state_manager.state.project_dir or (
                 self.project_data_manager.project_dir
-                or self.project_state_manager.state.project_dir
-                or getattr(self, "current_temp_char_dir", None)
             )
 
             image_path = None
@@ -1877,6 +1981,18 @@ class AutomataDesigner(QMainWindow):
             logging.exception("Failed to sync runtime state to SSOT snapshot")
         finally:
             self._runtime_to_ssot_sync_in_progress = False
+
+    def _restore_project_state_after_cancelled_save_as(
+        self, previous_state: ProjectState, was_dirty: bool
+    ) -> None:
+        """Undo pre-dialog SSOT sync when Save As is cancelled."""
+        self.project_state_manager.replace_project_state(
+            previous_state,
+            operation="cancelled_save_as_restore",
+            clear_history=False,
+            mark_saved=not was_dirty,
+            emit_signals=True,
+        )
 
     def _collect_parts_for_state(self) -> dict[str, PartData]:
         """Collect parts from runtime tabs/managers into immutable PartData models."""
@@ -2503,7 +2619,35 @@ class AutomataDesigner(QMainWindow):
         """
         self._sync_runtime_state_to_ssot(mark_saved=False)
         self._project_controller.set_status_bar(self.statusBar())
-        return self._project_controller.save_project()
+        return bool(self._project_controller.save_project())
+
+    def save_project_as_ssot(self) -> bool:
+        """
+        Save project to a new path using SSOT architecture.
+
+        Returns:
+            True if save was successful, False otherwise
+        """
+        previous_state = self.project_state_manager.state
+        was_dirty = bool(self.project_state_manager.is_dirty)
+        self._sync_runtime_state_to_ssot(mark_saved=False)
+        self._project_controller.set_status_bar(self.statusBar())
+        saved = bool(self._project_controller.save_project_as())
+        if not saved:
+            self._restore_project_state_after_cancelled_save_as(previous_state, was_dirty)
+        return saved
+
+    def export_project_ssot(self) -> bool:
+        """
+        Export a project copy without changing the current save path.
+
+        Returns:
+            True if export was successful, False otherwise
+        """
+        was_dirty = bool(self.project_state_manager.is_dirty)
+        self._sync_runtime_state_to_ssot(mark_saved=not was_dirty)
+        self._project_controller.set_status_bar(self.statusBar())
+        return bool(self._project_controller.export_project())
 
     def load_project_ssot(self) -> bool:
         """
@@ -2513,7 +2657,7 @@ class AutomataDesigner(QMainWindow):
             True if load was successful, False otherwise
         """
         self._project_controller.set_status_bar(self.statusBar())
-        return self._project_controller.load_project()
+        return bool(self._project_controller.load_project())
 
     def undo_ssot(self) -> None:
         """Undo last state mutation."""
@@ -2535,7 +2679,7 @@ class AutomataDesigner(QMainWindow):
             has_content = bool(state.parts or state.skeleton or state.paths or state.mechanisms)
             if not has_content:
                 return False
-            project_dir = state.project_dir or get_default_project_dir()
+            project_dir = get_project_storage_dir(state)
             self._autosave_manager.setup(project_dir)
             if not force and not self._autosave_manager.should_save():
                 return False
@@ -2555,6 +2699,24 @@ class AutomataDesigner(QMainWindow):
         except (TypeError, RuntimeError):
             pass
         signal.connect(slot)
+
+    def _confirm_close_with_unsaved_changes(self) -> bool:
+        """Return whether the window may close after handling dirty project state."""
+        try:
+            if self.project_state_manager.is_dirty:
+                self._sync_runtime_state_to_ssot(mark_saved=False)
+            self._project_controller.set_status_bar(self.statusBar())
+            return bool(
+                self._project_controller.confirm_save_discard_cancel(
+                    "You have unsaved changes. Do you want to save before exiting?"
+                )
+            )
+        except Exception:
+            logging.warning(
+                "MainWindow: dirty-close confirmation failed; cancelling close",
+                exc_info=True,
+            )
+            return False
 
     @pyqtSlot(dict)
     def _on_skeleton_manager_updated(self, standardized_skeleton_data_dict: dict | None):
@@ -2771,8 +2933,12 @@ class AutomataDesigner(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Persist workspace state before shutdown."""
+        if not self._confirm_close_with_unsaved_changes():
+            event.ignore()
+            return
         try:
-            self._perform_autosave(force=True)
+            if getattr(self._project_controller, "last_dirty_decision", None) != "discard":
+                self._perform_autosave(force=True)
         except Exception:
             logging.warning(
                 "MainWindow: autosave during close raised unexpected error", exc_info=True

@@ -16,6 +16,8 @@ Components:
 from automataii.presentation.qt.windows.components.project_controller import (
     ProjectController,
     get_default_project_dir,
+    get_project_storage_dir,
+    get_unsaved_project_dir,
 )
 from automataii.presentation.qt.windows.components.signal_connector import (
     SignalConnector,
@@ -37,4 +39,6 @@ __all__ = [
     "WorkflowStateMachine",
     "WorkspaceLayoutManager",
     "get_default_project_dir",
+    "get_project_storage_dir",
+    "get_unsaved_project_dir",
 ]

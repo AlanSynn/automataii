@@ -110,22 +110,71 @@ class MechanismDesignTabAdapter(TabAdapter):
                 updated = existing.with_params(params)
                 self._state_manager.update_mechanism(updated)
             else:
-                # Create new mechanism (need part_name and type from params)
-                part_name = params.get("part_name", "")
-                mech_type = params.get("type", "4_bar_linkage")
-
-                if part_name:
-                    mechanism = MechanismData(
-                        id=mechanism_id,
-                        part_name=part_name,
-                        type=mech_type,
-                        params=params,
-                        enabled=True,
-                    )
+                mechanism = self._create_mechanism_from_tab_layer(mechanism_id, params)
+                if mechanism is not None:
                     self._state_manager.add_mechanism(mechanism)
 
         except Exception as e:
             logger.exception(f"Error processing mechanism_params_changed: {e}")
+
+    def _create_mechanism_from_tab_layer(
+        self,
+        mechanism_id: str,
+        params: dict[str, Any],
+    ) -> MechanismData | None:
+        """Create MechanismData for a tab-local layer that is not in SSOT yet."""
+        layer_data: dict[str, Any] = {}
+        if self._tab and hasattr(self._tab, "mechanism_layers"):
+            raw_layer_data = self._tab.mechanism_layers.get(mechanism_id, {})
+            if isinstance(raw_layer_data, dict):
+                layer_data = dict(raw_layer_data)
+
+        layer_params = layer_data.get("params", {})
+        merged_params = dict(layer_params) if isinstance(layer_params, dict) else {}
+        merged_params.update(params)
+
+        part_name = str(
+            layer_data.get("part_name")
+            or merged_params.get("part_name")
+            or layer_data.get("part")
+            or ""
+        )
+        if not part_name:
+            logger.warning(
+                "MechanismDesignTabAdapter: Cannot create mechanism '%s' without part_name",
+                mechanism_id,
+            )
+            return None
+
+        mechanism_type = str(
+            layer_data.get("type")
+            or layer_data.get("mechanism_type")
+            or merged_params.get("type")
+            or "4_bar_linkage"
+        )
+        layer_payload = self._sanitize_layer_data_for_state(layer_data)
+
+        return MechanismData(
+            id=mechanism_id,
+            part_name=part_name,
+            type=mechanism_type,
+            params=merged_params,
+            layer_data=layer_payload,
+            enabled=bool(layer_data.get("enabled", True)),
+        )
+
+    def _sanitize_layer_data_for_state(self, layer_data: dict[str, Any]) -> dict[str, Any]:
+        """Remove transient presentation objects before storing layer context."""
+        transient_keys = {
+            "id",
+            "part_name",
+            "type",
+            "mechanism_type",
+            "params",
+            "enabled",
+            "visual_items",
+        }
+        return {key: value for key, value in layer_data.items() if key not in transient_keys}
 
     def _on_mechanism_path_generated(self, part_name: str, qpath: QPainterPath) -> None:
         """
@@ -367,6 +416,7 @@ class MechanismDesignTabAdapter(TabAdapter):
         for key, value in payload.items():
             if key == "generated_path_data":
                 cached_generated = existing_layer.get("_generated_path_data")
+                existing_generated: Any
                 if isinstance(cached_generated, dict):
                     existing_generated = cached_generated
                 else:

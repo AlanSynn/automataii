@@ -408,7 +408,7 @@ class ProjectSerializer:
 
             # Deserialize to state
             project_dir = path.parent
-            state = ProjectState.from_dict(data, project_dir)
+            state = ProjectState.from_dict(data, project_dir, project_file_path=path)
 
             logger.info(f"Project loaded from {path}")
             return LoadResult.ok(state)

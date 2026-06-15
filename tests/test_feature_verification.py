@@ -169,6 +169,7 @@ class TestMenuActions:
             "load_parts",
             "recover_autosave",
             "save_project",
+            "save_project_as",
             "exit",
             "zoom_in",
             "zoom_out",
@@ -204,9 +205,21 @@ class TestMenuActions:
         undo_action = manager.get_action("undo")
         redo_action = manager.get_action("redo")
 
-        # Check shortcuts
-        assert undo_action.shortcut() == QKeySequence("Ctrl+Z")
-        assert redo_action.shortcut() == QKeySequence("Ctrl+Y")
+        def has_standard_shortcut(action, standard_key):
+            expected = QKeySequence.keyBindings(standard_key)
+            actual = action.shortcuts()
+            return any(
+                shortcut.matches(binding) == QKeySequence.SequenceMatch.ExactMatch
+                or binding.matches(shortcut) == QKeySequence.SequenceMatch.ExactMatch
+                for shortcut in actual
+                for binding in expected
+            )
+
+        assert undo_action.isEnabled() is False
+        assert redo_action.isEnabled() is False
+        assert has_standard_shortcut(undo_action, QKeySequence.StandardKey.Undo)
+        assert has_standard_shortcut(redo_action, QKeySequence.StandardKey.Redo)
+        assert QKeySequence("Ctrl+Y") in redo_action.shortcuts()
 
     def test_file_menu_recover_autosave_action_triggers_connected_slot(self):
         """Recover Autosave must be reachable from the File menu QAction."""
@@ -230,6 +243,23 @@ class TestMenuActions:
         recover_action.trigger()
 
         assert recover_calls == ["recover"]
+        assert app is not None
+
+    def test_save_as_stays_enabled_without_project_content(self):
+        """Blank project shells should still be saveable for future templates."""
+        from PyQt6.QtWidgets import QApplication, QMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        parent = QMainWindow()
+
+        from automataii.presentation.qt.actions.action_manager import ActionManager
+
+        manager = ActionManager(parent)
+        manager.setup_menus(parent.menuBar())
+
+        assert manager.get_action("save_project_as").isEnabled() is True
+        assert manager.get_action("save_project").isEnabled() is False
+        assert manager.get_action("export").isEnabled() is False
         assert app is not None
 
 
@@ -471,7 +501,7 @@ class TestProjectSaveToTmp:
         project_dir = tmp_path / "motionsmith_projects"
         snapshots = [
             path
-            for path in project_dir.glob("QuickSaveCollision_*.automataii")
+            for path in project_dir.glob("unsaved/QuickSaveCollision-*/*.automataii")
             if ".backup" not in path.name
         ]
         assert len(snapshots) == 3
@@ -643,7 +673,7 @@ class TestProjectSaveToTmp:
 
         assert AutomataDesigner.recover_autosave(window) is True
 
-        window._autosave_manager.get_recovery_files.assert_called_once_with(tmp_path)
+        window._autosave_manager.get_recovery_files.assert_any_call(tmp_path)
         window._select_autosave_recovery_file.assert_called_once_with([selected])
         window._project_controller.set_status_bar.assert_called_once_with(status_bar)
         window._project_controller.load_project.assert_called_once_with(selected)

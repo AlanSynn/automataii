@@ -617,6 +617,7 @@ class ProjectState:
 
     # Project location
     project_dir: Path | None = None
+    project_file_path: Path | None = None
     image_path: Path | None = None
 
     # Core data
@@ -634,6 +635,9 @@ class ProjectState:
 
     def with_project_dir(self, path: Path | None) -> ProjectState:
         return replace(self, project_dir=path)
+
+    def with_project_file_path(self, path: Path | None) -> ProjectState:
+        return replace(self, project_file_path=path)
 
     def with_image_path(self, path: Path | None) -> ProjectState:
         return replace(self, image_path=path)
@@ -733,7 +737,12 @@ class ProjectState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], project_dir: Path | None = None) -> ProjectState:
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        project_dir: Path | None = None,
+        project_file_path: Path | None = None,
+    ) -> ProjectState:
         """Deserialize from dictionary."""
         parts_data = data.get("parts", {})
         paths_data = data.get("paths", {})
@@ -786,6 +795,7 @@ class ProjectState:
 
         return cls(
             project_dir=project_dir,
+            project_file_path=project_file_path,
             image_path=image_path,
             metadata=ProjectMetadata.from_dict(data.get("metadata", {})),
             parts=resolved_parts,

@@ -276,6 +276,23 @@ class ProjectStateManager(QObject):
             self._mutation_log.pop(0)
         logger.debug(f"Mutation: {operation} - {details}")
 
+    def _preserve_runtime_project_location(self, target_state: ProjectState) -> ProjectState:
+        """
+        Keep project file location stable across content undo/redo.
+
+        `project_dir` and `project_file_path` describe where the currently open
+        document lives; they are runtime context, not editable project content.
+        Save/Save As updates that context without clearing undo history, so
+        restoring an older content snapshot must not make the app forget the
+        remembered `.automataii` path.
+        """
+        current_state = self._state
+        if current_state.project_dir is not None:
+            target_state = target_state.with_project_dir(current_state.project_dir)
+        if current_state.project_file_path is not None:
+            target_state = target_state.with_project_file_path(current_state.project_file_path)
+        return target_state
+
     # =========================================================================
     # PARTS MUTATIONS
     # =========================================================================
@@ -487,7 +504,7 @@ class ProjectStateManager(QObject):
         if not self._undo_stack:
             return
         self._redo_stack.append(self._state)
-        prev_state = self._undo_stack.pop()
+        prev_state = self._preserve_runtime_project_location(self._undo_stack.pop())
         self._apply_state(
             prev_state,
             "undo",
@@ -504,7 +521,7 @@ class ProjectStateManager(QObject):
         if not self._redo_stack:
             return
         self._undo_stack.append(self._state)
-        next_state = self._redo_stack.pop()
+        next_state = self._preserve_runtime_project_location(self._redo_stack.pop())
         self._apply_state(
             next_state,
             "redo",

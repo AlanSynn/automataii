@@ -8,7 +8,7 @@ from typing import cast
 
 from PyQt6.QtCore import QObject, QSize
 from PyQt6.QtGui import QAction, QIcon, QKeySequence
-from PyQt6.QtWidgets import QStyle, QWidget
+from PyQt6.QtWidgets import QMenuBar, QStyle, QToolBar, QWidget
 
 
 class ActionManager(QObject):
@@ -29,7 +29,7 @@ class ActionManager(QObject):
         super().__init__(parent)
         self._owner = parent
         self.actions: dict[str, QAction] = {}
-        self.updater = None
+        self.updater: object | None = None
         self._initialize_actions()
 
     def _initialize_actions(self) -> None:
@@ -40,17 +40,26 @@ class ActionManager(QObject):
             text="&Load Project...",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DialogOpenButton),
             tooltip="Load a project file",
-            shortcut=QKeySequence("Ctrl+O"),
+            shortcut=QKeySequence(QKeySequence.StandardKey.Open),
             status_tip="Load a project file",
         )
 
         self.create_action(
             action_id="save_project",
-            text="&Save Project...",
+            text="&Save Project",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DialogSaveButton),
             tooltip="Save the current project",
-            shortcut=QKeySequence("Ctrl+S"),
+            shortcut=QKeySequence(QKeySequence.StandardKey.Save),
             status_tip="Save the current project",
+        )
+
+        self.create_action(
+            action_id="save_project_as",
+            text="Save Project &As...",
+            icon=self._get_standard_icon(QStyle.StandardPixmap.SP_DialogSaveButton),
+            tooltip="Save the current project to a new file",
+            shortcut=QKeySequence(QKeySequence.StandardKey.SaveAs),
+            status_tip="Save the current project to a new file",
         )
 
         self.create_action(
@@ -65,7 +74,7 @@ class ActionManager(QObject):
             action_id="exit",
             text="E&xit",
             tooltip="Exit the application",
-            shortcut=QKeySequence("Ctrl+Q"),
+            shortcut=QKeySequence(QKeySequence.StandardKey.Quit),
             status_tip="Exit the application",
         )
 
@@ -123,25 +132,35 @@ class ActionManager(QObject):
         )
 
         # Edit actions
-        self.create_action(
+        undo_action = self.create_action(
             action_id="undo",
             text="&Undo",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_ArrowLeft),
             tooltip="Undo last action",
-            shortcut=QKeySequence("Ctrl+Z"),
+            shortcut=QKeySequence(QKeySequence.StandardKey.Undo),
             status_tip="Undo the last action",
             enabled=False,  # Initially disabled
         )
 
-        self.create_action(
+        redo_action = self.create_action(
             action_id="redo",
             text="&Redo",
             icon=self._get_standard_icon(QStyle.StandardPixmap.SP_ArrowRight),
             tooltip="Redo last undone action",
-            shortcut=QKeySequence("Ctrl+Y"),
+            shortcut=QKeySequence(QKeySequence.StandardKey.Redo),
             status_tip="Redo the last undone action",
             enabled=False,  # Initially disabled
         )
+        # Qt maps StandardKey.Redo to the platform default (for example
+        # Cmd+Shift+Z on macOS). Keep common cross-platform fallbacks too.
+        redo_action.setShortcuts(
+            [
+                QKeySequence(QKeySequence.StandardKey.Redo),
+                QKeySequence("Ctrl+Y"),
+                QKeySequence("Ctrl+Shift+Z"),
+            ]
+        )
+        undo_action.setShortcuts([QKeySequence(QKeySequence.StandardKey.Undo)])
 
         # Help actions
         self.create_action(
@@ -220,8 +239,7 @@ class ActionManager(QObject):
         if checkable:
             action.setCheckable(True)
             action.setChecked(checked)
-        if enabled:
-            action.setEnabled(True)
+        action.setEnabled(enabled)
 
         self.actions[action_id] = action
         return action
@@ -288,7 +306,7 @@ class ActionManager(QObject):
         style = cast(QWidget, self._owner).style()
         return style.standardIcon(standard_pixmap) if style is not None else QIcon()
 
-    def setup_toolbar(self, toolbar, icon_size: QSize | None = None):
+    def setup_toolbar(self, toolbar: QToolBar, icon_size: QSize | None = None) -> None:
         """
         Set up the main toolbar with the appropriate actions.
 
@@ -308,7 +326,7 @@ class ActionManager(QObject):
         toolbar.addAction(self.get_action("save_project"))
         toolbar.addAction(self.get_action("export"))
 
-    def setup_menus(self, menubar):
+    def setup_menus(self, menubar: QMenuBar) -> None:
         """
         Set up the application menus with the appropriate actions.
 
@@ -320,10 +338,12 @@ class ActionManager(QObject):
 
         # File menu
         file_menu = menubar.addMenu("&File")
+        assert file_menu is not None
         file_menu.addAction(self.get_action("new_project"))
         file_menu.addAction(self.get_action("load_parts"))
         file_menu.addAction(self.get_action("recover_autosave"))
         file_menu.addAction(self.get_action("save_project"))
+        file_menu.addAction(self.get_action("save_project_as"))
         file_menu.addSeparator()
         file_menu.addAction(self.get_action("export"))
         file_menu.addSeparator()
@@ -331,6 +351,7 @@ class ActionManager(QObject):
 
         # View menu
         view_menu = menubar.addMenu("&View")
+        assert view_menu is not None
         view_menu.addAction(self.get_action("zoom_in"))
         view_menu.addAction(self.get_action("zoom_out"))
         view_menu.addAction(self.get_action("zoom_fit"))
@@ -342,11 +363,13 @@ class ActionManager(QObject):
 
         # Edit menu
         edit_menu = menubar.addMenu("&Edit")
+        assert edit_menu is not None
         edit_menu.addAction(self.get_action("undo"))
         edit_menu.addAction(self.get_action("redo"))
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
+        assert help_menu is not None
         help_menu.addAction(self.get_action("check_updates"))
         help_menu.addSeparator()
         help_menu.addAction(self.get_action("about"))
@@ -354,7 +377,7 @@ class ActionManager(QObject):
         # Initially disable project-specific actions
         self.update_actions_for_project_state(False)
 
-    def update_actions_for_project_state(self, project_loaded: bool):
+    def update_actions_for_project_state(self, project_loaded: bool) -> None:
         """
         Enables or disables actions based on whether a project is loaded.
 
@@ -371,11 +394,7 @@ class ActionManager(QObject):
         for action_id in project_dependent_actions:
             self.set_action_enabled(action_id, project_loaded)
 
-    def set_updater(self, updater):
-        """Set the auto-updater and connect the update action"""
+    def set_updater(self, updater: object) -> None:
+        """Set the auto-updater and keep the update action safe."""
         self.updater = updater
-
-        # Connect the check_updates action to the main window's check method
-        check_for_updates = getattr(self._owner, "check_for_updates", None)
-        if callable(check_for_updates):
-            self.connect_action("check_updates", check_for_updates)
+        self.set_action_enabled("check_updates", True)
