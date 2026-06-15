@@ -243,7 +243,7 @@ class OptionsTab(QWidget):
             self.grid_pitch_combo.setCurrentIndex(default_index)
         self.grid_pitch_combo.currentIndexChanged.connect(self._on_grid_pitch_choice_changed)
         self.grid_pitch_combo.setToolTip(
-            "Choose a physical pegboard pitch. The MS4N preset is 20.4 mm (2.04 cm)."
+            "Choose a physical pegboard pitch. The default board pitch is 20.0 mm (2.0 cm)."
         )
         unit_settings_layout.addRow("Physical Board Pitch:", self.grid_pitch_combo)
 

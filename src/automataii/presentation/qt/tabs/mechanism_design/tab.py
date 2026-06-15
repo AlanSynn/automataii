@@ -247,7 +247,11 @@ class MechanismDesignTab(QWidget):
         self.interactive_handles: dict[str, list[QGraphicsItem]] = {}
         self._grid_system_enabled = True
         self._grid_cell_cm = DEFAULT_GRID_CELL_CM
-        self._grid_pitch_choice = "ms4n"
+        self._grid_pitch_choice = physical_context_from_settings(
+            True,
+            DEFAULT_GRID_CELL_CM,
+            profile=DEFAULT_PHYSICAL_KIT_PROFILE,
+        ).grid_pitch_choice
         self._physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE
         # Delegated to Presenter: mechanism_layers, mechanism_enabled_state,
         # parametric_handles, path_data, part_enabled_state, parts_data
@@ -1888,7 +1892,18 @@ class MechanismDesignTab(QWidget):
         params = dict(parameters)
         params.setdefault("grid_system_enabled", getattr(self, "_grid_system_enabled", True))
         params.setdefault("grid_cell_cm", getattr(self, "_grid_cell_cm", DEFAULT_GRID_CELL_CM))
-        params.setdefault("grid_pitch_choice", getattr(self, "_grid_pitch_choice", "ms4n"))
+        params.setdefault(
+            "grid_pitch_choice",
+            getattr(
+                self,
+                "_grid_pitch_choice",
+                physical_context_from_settings(
+                    True,
+                    DEFAULT_GRID_CELL_CM,
+                    profile=DEFAULT_PHYSICAL_KIT_PROFILE,
+                ).grid_pitch_choice,
+            ),
+        )
         params.setdefault(
             "physical_profile_key",
             getattr(self, "_physical_profile", DEFAULT_PHYSICAL_KIT_PROFILE).key,

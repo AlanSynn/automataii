@@ -198,7 +198,11 @@ class MechanismInstantiationService:
         self._physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE
         self._grid_system_enabled = True
         self._grid_cell_cm = DEFAULT_GRID_CELL_CM
-        self._grid_pitch_choice = "ms4n"
+        self._grid_pitch_choice = physical_context_from_settings(
+            True,
+            DEFAULT_GRID_CELL_CM,
+            profile=DEFAULT_PHYSICAL_KIT_PROFILE,
+        ).grid_pitch_choice
 
     def set_path_converter(self, converter: Any) -> None:
         """Set the QPainterPath to numpy converter function."""
@@ -244,6 +248,7 @@ class MechanismInstantiationService:
         params.setdefault("grid_cell_cm", self._grid_cell_cm)
         params.setdefault("grid_pitch_choice", self._grid_pitch_choice)
         params.setdefault("physical_profile_key", self._physical_profile.key)
+        params.setdefault("hole_diameter_mm", self._physical_profile.hole_diameter_mm)
         return params
 
     def map_mechanism_type(self, display_type: str, original_json_type: str | None = None) -> str:

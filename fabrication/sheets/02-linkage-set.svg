@@ -3,10 +3,10 @@
      width="420mm" height="320mm"
      viewBox="0 0 420 320"
      data-profile-key="motionsmith-ms4n"
-     data-grid-pitch-mm="20.4"
-     data-hole-diameter-mm="5.0">
+     data-grid-pitch-mm="20"
+     data-hole-diameter-mm="6">
   <title>Automataii fabrication sheet 02-linkage-set: Linkage set</title>
-  <desc>Workshop sheet containing: linkages. Nominal holes are 5 mm.</desc>
+  <desc>Workshop sheet containing: linkages. Nominal holes are 6 mm.</desc>
   <defs>
     <style>
       .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
@@ -20,87 +20,87 @@
   <text x="12" y="12" class="label" text-anchor="start">02 Linkage set</text>
   <text x="12" y="18" class="tiny" text-anchor="start">2/4/6/8-cell board-compatible linkage bars</text>
   <g transform="translate(10 30)">
-  <path d="M 14 7 L 54.8 7 A 7 7 0 0 1 54.8 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="2" data-length-mm="40.8" data-pitch-mm="20.4" data-hole-count="3"/>
+  <path d="M 14 7 L 54 7 A 7 7 0 0 1 54 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="2" data-length-mm="40" data-pitch-mm="20" data-hole-count="3"/>
   </g>
   <g transform="translate(10 30)">
-  <circle cx="14" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="0"/>
+  <circle cx="14" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="0"/>
   </g>
   <g transform="translate(10 30)">
-  <circle cx="34.4" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="1"/>
+  <circle cx="34" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="1"/>
   </g>
   <g transform="translate(10 30)">
-  <circle cx="54.8" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="2"/>
+  <circle cx="54" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="2"/>
   </g>
   <g transform="translate(10 68)">
-  <path d="M 14 7 L 95.6 7 A 7 7 0 0 1 95.6 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="4" data-length-mm="81.6" data-pitch-mm="20.4" data-hole-count="5"/>
+  <path d="M 14 7 L 94 7 A 7 7 0 0 1 94 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="4" data-length-mm="80" data-pitch-mm="20" data-hole-count="5"/>
   </g>
   <g transform="translate(10 68)">
-  <circle cx="14" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="0"/>
+  <circle cx="14" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="0"/>
   </g>
   <g transform="translate(10 68)">
-  <circle cx="34.4" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="1"/>
+  <circle cx="34" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="1"/>
   </g>
   <g transform="translate(10 68)">
-  <circle cx="54.8" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="2"/>
+  <circle cx="54" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="2"/>
   </g>
   <g transform="translate(10 68)">
-  <circle cx="75.2" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="3"/>
+  <circle cx="74" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="3"/>
   </g>
   <g transform="translate(10 68)">
-  <circle cx="95.6" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="4"/>
+  <circle cx="94" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="4"/>
   </g>
   <g transform="translate(10 106)">
-  <path d="M 14 7 L 136.4 7 A 7 7 0 0 1 136.4 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="6" data-length-mm="122.4" data-pitch-mm="20.4" data-hole-count="7"/>
+  <path d="M 14 7 L 134 7 A 7 7 0 0 1 134 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="6" data-length-mm="120" data-pitch-mm="20" data-hole-count="7"/>
   </g>
   <g transform="translate(10 106)">
-  <circle cx="14" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="0"/>
+  <circle cx="14" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="0"/>
   </g>
   <g transform="translate(10 106)">
-  <circle cx="34.4" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="1"/>
+  <circle cx="34" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="1"/>
   </g>
   <g transform="translate(10 106)">
-  <circle cx="54.8" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="2"/>
+  <circle cx="54" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="2"/>
   </g>
   <g transform="translate(10 106)">
-  <circle cx="75.2" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="3"/>
+  <circle cx="74" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="3"/>
   </g>
   <g transform="translate(10 106)">
-  <circle cx="95.6" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="4"/>
+  <circle cx="94" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="4"/>
   </g>
   <g transform="translate(10 106)">
-  <circle cx="116" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="5"/>
+  <circle cx="114" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="5"/>
   </g>
   <g transform="translate(10 106)">
-  <circle cx="136.4" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="6"/>
+  <circle cx="134" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="6"/>
   </g>
   <g transform="translate(10 144)">
-  <path d="M 14 7 L 177.2 7 A 7 7 0 0 1 177.2 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="8" data-length-mm="163.2" data-pitch-mm="20.4" data-hole-count="9"/>
+  <path d="M 14 7 L 174 7 A 7 7 0 0 1 174 21 L 14 21 A 7 7 0 0 1 14 7 Z" class="cut linkage-outline" data-cells="8" data-length-mm="160" data-pitch-mm="20" data-hole-count="9"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="14" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="0"/>
+  <circle cx="14" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="0"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="34.4" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="1"/>
+  <circle cx="34" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="1"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="54.8" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="2"/>
+  <circle cx="54" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="2"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="75.2" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="3"/>
+  <circle cx="74" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="3"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="95.6" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="4"/>
+  <circle cx="94" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="4"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="116" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="5"/>
+  <circle cx="114" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="5"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="136.4" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="6"/>
+  <circle cx="134" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="6"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="156.8" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="7"/>
+  <circle cx="154" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="7"/>
   </g>
   <g transform="translate(10 144)">
-  <circle cx="177.2" cy="14" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-index="8"/>
+  <circle cx="174" cy="14" r="3" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="6" data-hole-index="8"/>
   </g>
 </svg>

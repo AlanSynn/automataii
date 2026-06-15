@@ -1,11 +1,15 @@
 {
   "generated_at": "reproducible",
   "generated_by": "scripts/generate_fabrication_templates.py",
-  "grid_cell_cm": 2.04,
-  "grid_pitch_mm": 20.4,
-  "hole_diameter_mm": 5.0,
+  "grid_cell_cm": 2.0,
+  "grid_pitch_mm": 20.0,
+  "hole_diameter_mm": 6.0,
   "managed_files": [
     "README.md",
+    "brackets/bracket-2-hole-straight.svg",
+    "brackets/bracket-3-hole-straight.svg",
+    "brackets/bracket-l-3-hole.svg",
+    "brackets/bracket-triangle-3-hole.svg",
     "cams/cam-circle.svg",
     "cams/cam-eccentric.svg",
     "cams/cam-oval.svg",
@@ -23,38 +27,309 @@
     "sheets/02-linkage-set.svg",
     "sheets/03-cam-set.svg",
     "sheets/04-prototype-set-a.svg",
-    "sheets/05-prototype-set-b.svg"
+    "sheets/05-prototype-set-b.svg",
+    "sheets/06-bracket-set.svg"
   ],
   "parts": {
+    "brackets": [
+      {
+        "hole_centers_mm": [
+          [
+            10.0,
+            10.0
+          ],
+          [
+            30.0,
+            10.0
+          ]
+        ],
+        "hole_count": 2,
+        "hole_diameter_mm": 6.0,
+        "key": "2-hole-straight",
+        "label": "2-hole straight bracket",
+        "path": "brackets/bracket-2-hole-straight.svg",
+        "pitch_mm": 20.0
+      },
+      {
+        "hole_centers_mm": [
+          [
+            10.0,
+            10.0
+          ],
+          [
+            30.0,
+            10.0
+          ],
+          [
+            50.0,
+            10.0
+          ]
+        ],
+        "hole_count": 3,
+        "hole_diameter_mm": 6.0,
+        "key": "3-hole-straight",
+        "label": "3-hole straight bracket",
+        "path": "brackets/bracket-3-hole-straight.svg",
+        "pitch_mm": 20.0
+      },
+      {
+        "hole_centers_mm": [
+          [
+            10.0,
+            10.0
+          ],
+          [
+            30.0,
+            10.0
+          ],
+          [
+            10.0,
+            30.0
+          ]
+        ],
+        "hole_count": 3,
+        "hole_diameter_mm": 6.0,
+        "key": "l-3-hole",
+        "label": "L 3-hole bracket",
+        "path": "brackets/bracket-l-3-hole.svg",
+        "pitch_mm": 20.0
+      },
+      {
+        "hole_centers_mm": [
+          [
+            10.0,
+            10.0
+          ],
+          [
+            30.0,
+            10.0
+          ],
+          [
+            10.0,
+            30.0
+          ]
+        ],
+        "hole_count": 3,
+        "hole_diameter_mm": 6.0,
+        "key": "triangle-3-hole",
+        "label": "Triangle 3-hole bracket",
+        "path": "brackets/bracket-triangle-3-hole.svg",
+        "pitch_mm": 20.0
+      }
+    ],
     "cams": [
       {
-        "base_radius_mm": 40.8,
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ]
+        ],
+        "attachment_hole_count": 8,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "base_radius_mm": 40.0,
         "eccentricity_mm": 0.0,
-        "hole_diameter_mm": 5.0,
+        "hole_diameter_mm": 6.0,
         "key": "circle",
         "label": "Circle / steady",
         "path": "cams/cam-circle.svg"
       },
       {
-        "base_radius_mm": 40.8,
-        "eccentricity_mm": 15.3,
-        "hole_diameter_mm": 5.0,
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ],
+          [
+            0.0,
+            -40.0
+          ],
+          [
+            40.0,
+            0.0
+          ],
+          [
+            0.0,
+            40.0
+          ],
+          [
+            40.0,
+            -20.0
+          ],
+          [
+            40.0,
+            20.0
+          ]
+        ],
+        "attachment_hole_count": 13,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "base_radius_mm": 40.0,
+        "eccentricity_mm": 15.0,
+        "hole_diameter_mm": 6.0,
         "key": "eccentric",
         "label": "Eccentric / bounce",
         "path": "cams/cam-eccentric.svg"
       },
       {
-        "base_radius_mm": 40.8,
-        "eccentricity_mm": 10.2,
-        "hole_diameter_mm": 5.0,
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ],
+          [
+            40.0,
+            0.0
+          ]
+        ],
+        "attachment_hole_count": 9,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "base_radius_mm": 40.0,
+        "eccentricity_mm": 10.0,
+        "hole_diameter_mm": 6.0,
         "key": "oval",
         "label": "Oval / smooth rise",
         "path": "cams/cam-oval.svg"
       },
       {
-        "base_radius_mm": 40.8,
-        "eccentricity_mm": 20.4,
-        "hole_diameter_mm": 5.0,
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ],
+          [
+            0.0,
+            40.0
+          ]
+        ],
+        "attachment_hole_count": 7,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "base_radius_mm": 40.0,
+        "eccentricity_mm": 20.0,
+        "hole_diameter_mm": 6.0,
         "key": "pear",
         "label": "Pear / slow-fast",
         "path": "cams/cam-pear.svg"
@@ -62,11 +337,52 @@
     ],
     "gears": [
       {
-        "attachment_hole_count": 4,
-        "attachment_radii_mm": [
-          20.4
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ]
         ],
-        "hole_diameter_mm": 5.0,
+        "attachment_hole_count": 8,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "attachment_radii_mm": [
+          20.0,
+          28.284
+        ],
+        "hole_diameter_mm": 6.0,
         "key": "g16",
         "label": "G16 fast/small",
         "outer_radius_mm": 51.6,
@@ -76,12 +392,102 @@
         "teeth": 16
       },
       {
-        "attachment_hole_count": 12,
-        "attachment_radii_mm": [
-          20.4,
-          40.8
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ],
+          [
+            0.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            0.0
+          ],
+          [
+            40.0,
+            0.0
+          ],
+          [
+            0.0,
+            40.0
+          ],
+          [
+            -20.0,
+            -40.0
+          ],
+          [
+            20.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            -20.0
+          ],
+          [
+            40.0,
+            -20.0
+          ],
+          [
+            -40.0,
+            20.0
+          ],
+          [
+            40.0,
+            20.0
+          ],
+          [
+            -20.0,
+            40.0
+          ],
+          [
+            20.0,
+            40.0
+          ]
         ],
-        "hole_diameter_mm": 5.0,
+        "attachment_hole_count": 20,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "attachment_radii_mm": [
+          20.0,
+          28.284,
+          40.0,
+          44.721
+        ],
+        "hole_diameter_mm": 6.0,
         "key": "g20",
         "label": "G20 medium-fast",
         "outer_radius_mm": 63.6,
@@ -91,13 +497,136 @@
         "teeth": 20
       },
       {
-        "attachment_hole_count": 20,
-        "attachment_radii_mm": [
-          20.4,
-          40.8,
-          61.2
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ],
+          [
+            0.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            0.0
+          ],
+          [
+            40.0,
+            0.0
+          ],
+          [
+            0.0,
+            40.0
+          ],
+          [
+            -20.0,
+            -40.0
+          ],
+          [
+            20.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            -20.0
+          ],
+          [
+            40.0,
+            -20.0
+          ],
+          [
+            -40.0,
+            20.0
+          ],
+          [
+            40.0,
+            20.0
+          ],
+          [
+            -20.0,
+            40.0
+          ],
+          [
+            20.0,
+            40.0
+          ],
+          [
+            -40.0,
+            -40.0
+          ],
+          [
+            40.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            40.0
+          ],
+          [
+            40.0,
+            40.0
+          ],
+          [
+            0.0,
+            -60.0
+          ],
+          [
+            -60.0,
+            0.0
+          ],
+          [
+            60.0,
+            0.0
+          ],
+          [
+            0.0,
+            60.0
+          ]
         ],
-        "hole_diameter_mm": 5.0,
+        "attachment_hole_count": 28,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "attachment_radii_mm": [
+          20.0,
+          28.284,
+          40.0,
+          44.721,
+          56.569,
+          60.0
+        ],
+        "hole_diameter_mm": 6.0,
         "key": "g24",
         "label": "G24 medium",
         "outer_radius_mm": 75.6,
@@ -107,13 +636,269 @@
         "teeth": 24
       },
       {
-        "attachment_hole_count": 20,
-        "attachment_radii_mm": [
-          20.4,
-          40.8,
-          61.2
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            20.0
+          ],
+          [
+            20.0,
+            20.0
+          ],
+          [
+            0.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            0.0
+          ],
+          [
+            40.0,
+            0.0
+          ],
+          [
+            0.0,
+            40.0
+          ],
+          [
+            -20.0,
+            -40.0
+          ],
+          [
+            20.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            -20.0
+          ],
+          [
+            40.0,
+            -20.0
+          ],
+          [
+            -40.0,
+            20.0
+          ],
+          [
+            40.0,
+            20.0
+          ],
+          [
+            -20.0,
+            40.0
+          ],
+          [
+            20.0,
+            40.0
+          ],
+          [
+            -40.0,
+            -40.0
+          ],
+          [
+            40.0,
+            -40.0
+          ],
+          [
+            -40.0,
+            40.0
+          ],
+          [
+            40.0,
+            40.0
+          ],
+          [
+            0.0,
+            -60.0
+          ],
+          [
+            -60.0,
+            0.0
+          ],
+          [
+            60.0,
+            0.0
+          ],
+          [
+            0.0,
+            60.0
+          ],
+          [
+            -20.0,
+            -60.0
+          ],
+          [
+            20.0,
+            -60.0
+          ],
+          [
+            -60.0,
+            -20.0
+          ],
+          [
+            60.0,
+            -20.0
+          ],
+          [
+            -60.0,
+            20.0
+          ],
+          [
+            60.0,
+            20.0
+          ],
+          [
+            -20.0,
+            60.0
+          ],
+          [
+            20.0,
+            60.0
+          ],
+          [
+            -40.0,
+            -60.0
+          ],
+          [
+            40.0,
+            -60.0
+          ],
+          [
+            -60.0,
+            -40.0
+          ],
+          [
+            60.0,
+            -40.0
+          ],
+          [
+            -60.0,
+            40.0
+          ],
+          [
+            60.0,
+            40.0
+          ],
+          [
+            -40.0,
+            60.0
+          ],
+          [
+            40.0,
+            60.0
+          ],
+          [
+            0.0,
+            -80.0
+          ],
+          [
+            -80.0,
+            0.0
+          ],
+          [
+            80.0,
+            0.0
+          ],
+          [
+            0.0,
+            80.0
+          ],
+          [
+            -20.0,
+            -80.0
+          ],
+          [
+            20.0,
+            -80.0
+          ],
+          [
+            -80.0,
+            -20.0
+          ],
+          [
+            80.0,
+            -20.0
+          ],
+          [
+            -80.0,
+            20.0
+          ],
+          [
+            80.0,
+            20.0
+          ],
+          [
+            -20.0,
+            80.0
+          ],
+          [
+            20.0,
+            80.0
+          ],
+          [
+            -60.0,
+            -60.0
+          ],
+          [
+            60.0,
+            -60.0
+          ],
+          [
+            -60.0,
+            60.0
+          ],
+          [
+            60.0,
+            60.0
+          ]
         ],
-        "hole_diameter_mm": 5.0,
+        "attachment_hole_count": 60,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "attachment_radii_mm": [
+          20.0,
+          28.284,
+          40.0,
+          44.721,
+          56.569,
+          60.0,
+          63.246,
+          72.111,
+          80.0,
+          82.462,
+          84.853
+        ],
+        "hole_diameter_mm": 6.0,
         "key": "g32",
         "label": "G32 slow/large",
         "outer_radius_mm": 99.6,
@@ -127,38 +912,38 @@
       {
         "cells": 2,
         "hole_count": 3,
-        "hole_diameter_mm": 5.0,
+        "hole_diameter_mm": 6.0,
         "label": "2-cell linkage",
-        "length_mm": 40.8,
+        "length_mm": 40.0,
         "path": "linkages/linkage-2-cell.svg",
-        "pitch_mm": 20.4
+        "pitch_mm": 20.0
       },
       {
         "cells": 4,
         "hole_count": 5,
-        "hole_diameter_mm": 5.0,
+        "hole_diameter_mm": 6.0,
         "label": "4-cell linkage",
-        "length_mm": 81.6,
+        "length_mm": 80.0,
         "path": "linkages/linkage-4-cell.svg",
-        "pitch_mm": 20.4
+        "pitch_mm": 20.0
       },
       {
         "cells": 6,
         "hole_count": 7,
-        "hole_diameter_mm": 5.0,
+        "hole_diameter_mm": 6.0,
         "label": "6-cell linkage",
-        "length_mm": 122.4,
+        "length_mm": 120.0,
         "path": "linkages/linkage-6-cell.svg",
-        "pitch_mm": 20.4
+        "pitch_mm": 20.0
       },
       {
         "cells": 8,
         "hole_count": 9,
-        "hole_diameter_mm": 5.0,
+        "hole_diameter_mm": 6.0,
         "label": "8-cell linkage",
-        "length_mm": 163.2,
+        "length_mm": 160.0,
         "path": "linkages/linkage-8-cell.svg",
-        "pitch_mm": 20.4
+        "pitch_mm": 20.0
       }
     ]
   },
@@ -199,7 +984,8 @@
       "contains": [
         "gears",
         "linkages",
-        "cams"
+        "cams",
+        "brackets"
       ],
       "height_mm": 320.0,
       "key": "04-prototype-set-a",
@@ -211,12 +997,23 @@
       "contains": [
         "gears",
         "linkages",
-        "cams"
+        "cams",
+        "brackets"
       ],
       "height_mm": 320.0,
       "key": "05-prototype-set-b",
       "label": "Prototype set B",
       "path": "sheets/05-prototype-set-b.svg",
+      "width_mm": 420.0
+    },
+    {
+      "contains": [
+        "brackets"
+      ],
+      "height_mm": 320.0,
+      "key": "06-bracket-set",
+      "label": "Bracket set",
+      "path": "sheets/06-bracket-set.svg",
       "width_mm": 420.0
     }
   ],

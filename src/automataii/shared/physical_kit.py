@@ -12,8 +12,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import SupportsFloat, SupportsIndex
 
-DEFAULT_GRID_PITCH_MM = 20.4
+DEFAULT_GRID_PITCH_MM = 20.0
 DEFAULT_GRID_CELL_CM = DEFAULT_GRID_PITCH_MM / 10.0
+DEFAULT_HOLE_DIAMETER_MM = 6.0
 GEAR_RADIUS_PER_TOOTH_MM = 3.0
 DEFAULT_GEAR_CLEARANCE_MM = 2.0
 LINKAGE_LENGTH_CELLS: tuple[int, ...] = (2, 4, 6, 8)
@@ -85,6 +86,7 @@ class PhysicalKitProfile:
     cam_presets: tuple[CamPreset, ...]
     gear_radius_per_tooth_mm: float
     default_gear_clearance_mm: float
+    hole_diameter_mm: float = DEFAULT_HOLE_DIAMETER_MM
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,12 +104,13 @@ class PhysicalKitContext:
             "grid_cell_cm": self.grid_cell_cm,
             "grid_pitch_choice": self.grid_pitch_choice,
             "physical_profile_key": self.profile.key,
+            "hole_diameter_mm": self.profile.hole_diameter_mm,
         }
 
 
 GRID_PITCH_CHOICES: tuple[GridPitchChoice, ...] = (
-    GridPitchChoice("ms4n", "MS4N kit — 2.04 cm", DEFAULT_GRID_PITCH_MM),
-    GridPitchChoice("2cm", "2.0 cm board", 20.0),
+    GridPitchChoice("2cm", "2.0 cm board", DEFAULT_GRID_PITCH_MM),
+    GridPitchChoice("ms4n", "Legacy MS4N kit — 2.04 cm", 20.4),
     GridPitchChoice("2_5cm", "2.5 cm board", 25.0),
 )
 
@@ -127,7 +130,7 @@ CAM_PRESETS: tuple[CamPreset, ...] = (
 
 DEFAULT_PHYSICAL_KIT_PROFILE = PhysicalKitProfile(
     key="motionsmith-ms4n",
-    label="MotionSmith MS4N-compatible pegboard kit",
+    label="MotionSmith 2cm pegboard kit (legacy MS4N pitch available)",
     default_pitch_mm=DEFAULT_GRID_PITCH_MM,
     grid_pitch_choices=GRID_PITCH_CHOICES,
     linkage_length_cells=LINKAGE_LENGTH_CELLS,

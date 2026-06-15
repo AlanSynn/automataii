@@ -1,7 +1,10 @@
+from pytest import LogCaptureFixture
+
 from automataii.shared.physical_kit import (
     CAM_PRESETS,
     DEFAULT_GRID_CELL_CM,
     DEFAULT_GRID_PITCH_MM,
+    DEFAULT_HOLE_DIAMETER_MM,
     DEFAULT_PHYSICAL_KIT_PROFILE,
     GEAR_PRESETS,
     GRID_PITCH_CHOICES,
@@ -24,9 +27,11 @@ from automataii.shared.physical_kit import (
 
 
 def test_physical_kit_default_grid_and_variant_counts() -> None:
-    assert DEFAULT_GRID_PITCH_MM == 20.4
-    assert DEFAULT_GRID_CELL_CM == 2.04
+    assert DEFAULT_GRID_PITCH_MM == 20.0
+    assert DEFAULT_GRID_CELL_CM == 2.0
+    assert DEFAULT_HOLE_DIAMETER_MM == 6.0
     assert DEFAULT_PHYSICAL_KIT_PROFILE.default_pitch_mm == DEFAULT_GRID_PITCH_MM
+    assert DEFAULT_PHYSICAL_KIT_PROFILE.hole_diameter_mm == DEFAULT_HOLE_DIAMETER_MM
     assert DEFAULT_PHYSICAL_KIT_PROFILE.grid_pitch_choices == GRID_PITCH_CHOICES
     assert DEFAULT_PHYSICAL_KIT_PROFILE.linkage_length_cells == LINKAGE_LENGTH_CELLS
     assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_presets == GEAR_PRESETS
@@ -34,8 +39,8 @@ def test_physical_kit_default_grid_and_variant_counts() -> None:
     assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_radius_per_tooth_mm == 3.0
     assert DEFAULT_PHYSICAL_KIT_PROFILE.default_gear_clearance_mm == 2.0
     assert {choice.key: choice.pitch_mm for choice in GRID_PITCH_CHOICES} == {
-        "ms4n": 20.4,
         "2cm": 20.0,
+        "ms4n": 20.4,
         "2_5cm": 25.0,
     }
     assert LINKAGE_LENGTH_CELLS == (2, 4, 6, 8)
@@ -55,9 +60,12 @@ def test_physical_context_uses_supported_pitch_presets_when_enabled() -> None:
     assert context.grid_pitch_choice == "2_5cm"
     assert context.grid_cell_cm == 2.5
     assert context.as_params()["physical_profile_key"] == DEFAULT_PHYSICAL_KIT_PROFILE.key
+    assert context.as_params()["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
 
 
-def test_unknown_physical_profile_key_warns_before_defaulting(caplog) -> None:
+def test_unknown_physical_profile_key_warns_before_defaulting(
+    caplog: LogCaptureFixture,
+) -> None:
     profile = physical_profile_from_key("missing-kit")
 
     assert profile == DEFAULT_PHYSICAL_KIT_PROFILE
@@ -80,9 +88,7 @@ def test_helpers_accept_explicit_physical_profile_variants() -> None:
         grid_pitch_choices=(GridPitchChoice("3cm", "3.0 cm board", 30.0),),
         linkage_length_cells=(1, 3),
         gear_presets=(GearPreset("g10", "G10", 10), GearPreset("g14", "G14", 14)),
-        cam_presets=(
-            CamPreset("test", "Test cam", 1.0, 0.0, 1, 0.0, 90.0, 90.0, 90.0),
-        ),
+        cam_presets=(CamPreset("test", "Test cam", 1.0, 0.0, 1, 0.0, 90.0, 90.0, 90.0),),
         gear_radius_per_tooth_mm=2.0,
         default_gear_clearance_mm=5.0,
     )
@@ -112,9 +118,7 @@ def test_single_gear_preset_profile_does_not_crash_center_distance() -> None:
         grid_pitch_choices=(GridPitchChoice("2cm", "2.0 cm board", 20.0),),
         linkage_length_cells=(2,),
         gear_presets=(GearPreset("g12", "G12", 12),),
-        cam_presets=(
-            CamPreset("circle", "Circle", 1.0, 0.0, 1, 0.0, 90.0, 90.0, 90.0),
-        ),
+        cam_presets=(CamPreset("circle", "Circle", 1.0, 0.0, 1, 0.0, 90.0, 90.0, 90.0),),
         gear_radius_per_tooth_mm=2.5,
         default_gear_clearance_mm=4.0,
     )
@@ -169,7 +173,5 @@ def test_linkage_and_cam_snapping_use_board_pitch() -> None:
     )
     assert cam["physical_cam_preset"] == nearest_cam_preset(cam, 2.5).key
     assert cam["base_radius"] in {preset.params_mm(2.5)["base_radius"] for preset in CAM_PRESETS}
-    assert cam["eccentricity"] in {
-        preset.params_mm(2.5)["eccentricity"] for preset in CAM_PRESETS
-    }
+    assert cam["eccentricity"] in {preset.params_mm(2.5)["eccentricity"] for preset in CAM_PRESETS}
     assert {"rise_deg", "high_dwell_deg", "return_deg"}.issubset(cam)

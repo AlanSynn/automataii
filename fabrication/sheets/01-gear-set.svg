@@ -3,10 +3,10 @@
      width="420mm" height="320mm"
      viewBox="0 0 420 320"
      data-profile-key="motionsmith-ms4n"
-     data-grid-pitch-mm="20.4"
-     data-hole-diameter-mm="5.0">
+     data-grid-pitch-mm="20"
+     data-hole-diameter-mm="6">
   <title>Automataii fabrication sheet 01-gear-set: Gear set</title>
-  <desc>Workshop sheet containing: gears. Nominal holes are 5 mm.</desc>
+  <desc>Workshop sheet containing: gears. Nominal holes are 6 mm.</desc>
   <defs>
     <style>
       .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
@@ -18,209 +18,389 @@
     </style>
   </defs>
   <text x="12" y="12" class="label" text-anchor="start">01 Gear set</text>
-  <text x="12" y="18" class="tiny" text-anchor="start">Gears include 5 mm axle + linkage/bracket holes</text>
+  <text x="12" y="18" class="tiny" text-anchor="start">Gears include 6 mm axle + linkage/bracket/crank/handle holes</text>
   <g transform="translate(10 24)">
   <path d="M 103.85 59.6 L 110.952 64.658 L 110.209 69.667 L 101.945 72.445 L 100.482 76.534 L 105.107 83.924 L 102.504 88.267 L 93.806 87.672 L 90.889 90.889 L 92.335 99.487 L 88.267 102.504 L 80.459 98.625 L 76.534 100.482 L 74.579 108.978 L 69.667 110.209 L 63.937 103.637 L 59.6 103.85 L 54.542 110.952 L 49.533 110.209 L 46.755 101.945 L 42.666 100.482 L 35.276 105.107 L 30.933 102.504 L 31.528 93.806 L 28.311 90.889 L 19.713 92.335 L 16.696 88.267 L 20.575 80.459 L 18.718 76.534 L 10.222 74.579 L 8.991 69.667 L 15.563 63.937 L 15.35 59.6 L 8.248 54.542 L 8.991 49.533 L 17.255 46.755 L 18.718 42.666 L 14.093 35.276 L 16.696 30.933 L 25.394 31.528 L 28.311 28.311 L 26.865 19.713 L 30.933 16.696 L 38.741 20.575 L 42.666 18.718 L 44.621 10.222 L 49.533 8.991 L 55.263 15.563 L 59.6 15.35 L 64.658 8.248 L 69.667 8.991 L 72.445 17.255 L 76.534 18.718 L 83.924 14.093 L 88.267 16.696 L 87.672 25.394 L 90.889 28.311 L 99.487 26.865 L 102.504 30.933 L 98.625 38.741 L 100.482 42.666 L 108.978 44.621 L 110.209 49.533 L 103.637 55.263 Z" class="cut gear-outline" data-teeth="16" data-pitch-radius-mm="48" data-root-radius-mm="44.25" data-outer-radius-mm="51.6"/>
   </g>
   <g transform="translate(10 24)">
-  <circle cx="59.6" cy="59.6" r="2.5" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="5.0"/>
+  <circle cx="59.6" cy="59.6" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
   </g>
   <g transform="translate(10 24)">
   <circle cx="59.6" cy="59.6" r="48" class="score pitch-circle"/>
   </g>
   <g transform="translate(10 24)">
-  <circle cx="80" cy="59.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="0" data-hole-radius-mm="20.4"/>
+  <circle cx="59.6" cy="39.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-20" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(10 24)">
-  <circle cx="59.6" cy="80" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="1" data-hole-radius-mm="20.4"/>
+  <circle cx="39.6" cy="59.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(10 24)">
-  <circle cx="39.2" cy="59.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="2" data-hole-radius-mm="20.4"/>
+  <circle cx="79.6" cy="59.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(10 24)">
-  <circle cx="59.6" cy="39.2" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="3" data-hole-radius-mm="20.4"/>
+  <circle cx="59.6" cy="79.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="0" data-hole-y-offset-mm="20" data-hole-radius-mm="20"/>
+  </g>
+  <g transform="translate(10 24)">
+  <circle cx="39.6" cy="39.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="4" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
+  </g>
+  <g transform="translate(10 24)">
+  <circle cx="79.6" cy="39.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="5" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
+  </g>
+  <g transform="translate(10 24)">
+  <circle cx="39.6" cy="79.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="6" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
+  </g>
+  <g transform="translate(10 24)">
+  <circle cx="79.6" cy="79.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="7" data-hole-x-offset-mm="20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(112 24)">
   <path d="M 127.85 71.6 L 135.004 76.59 L 134.417 81.549 L 126.296 84.731 L 125.097 88.982 L 130.359 95.939 L 128.268 100.474 L 119.561 100.991 L 117.107 104.663 L 119.962 112.905 L 116.572 116.572 L 108.131 114.373 L 104.663 117.107 L 104.831 125.828 L 100.474 128.268 L 93.126 123.568 L 88.982 125.097 L 86.447 133.443 L 81.549 134.417 L 76.013 127.677 L 71.6 127.85 L 66.61 135.004 L 61.651 134.417 L 58.469 126.296 L 54.218 125.097 L 47.261 130.359 L 42.726 128.268 L 42.209 119.561 L 38.537 117.107 L 30.295 119.962 L 26.628 116.572 L 28.827 108.131 L 26.093 104.663 L 17.372 104.831 L 14.932 100.474 L 19.632 93.126 L 18.103 88.982 L 9.757 86.447 L 8.783 81.549 L 15.523 76.013 L 15.35 71.6 L 8.196 66.61 L 8.783 61.651 L 16.904 58.469 L 18.103 54.218 L 12.841 47.261 L 14.932 42.726 L 23.639 42.209 L 26.093 38.537 L 23.238 30.295 L 26.628 26.628 L 35.069 28.827 L 38.537 26.093 L 38.369 17.372 L 42.726 14.932 L 50.074 19.632 L 54.218 18.103 L 56.753 9.757 L 61.651 8.783 L 67.187 15.523 L 71.6 15.35 L 76.59 8.196 L 81.549 8.783 L 84.731 16.904 L 88.982 18.103 L 95.939 12.841 L 100.474 14.932 L 100.991 23.639 L 104.663 26.093 L 112.905 23.238 L 116.572 26.628 L 114.373 35.069 L 117.107 38.537 L 125.828 38.369 L 128.268 42.726 L 123.568 50.074 L 125.097 54.218 L 133.443 56.753 L 134.417 61.651 L 127.677 67.187 Z" class="cut gear-outline" data-teeth="20" data-pitch-radius-mm="60" data-root-radius-mm="56.25" data-outer-radius-mm="63.6"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="71.6" cy="71.6" r="2.5" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="5.0"/>
+  <circle cx="71.6" cy="71.6" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
   </g>
   <g transform="translate(112 24)">
   <circle cx="71.6" cy="71.6" r="60" class="score pitch-circle"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="92" cy="71.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="0" data-hole-radius-mm="20.4"/>
+  <circle cx="71.6" cy="51.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-20" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="71.6" cy="92" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="1" data-hole-radius-mm="20.4"/>
+  <circle cx="51.6" cy="71.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="51.2" cy="71.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="2" data-hole-radius-mm="20.4"/>
+  <circle cx="91.6" cy="71.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="71.6" cy="51.2" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="3" data-hole-radius-mm="20.4"/>
+  <circle cx="71.6" cy="91.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="0" data-hole-y-offset-mm="20" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="112.4" cy="71.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="4" data-hole-radius-mm="40.8"/>
+  <circle cx="51.6" cy="51.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="4" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="100.45" cy="100.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="5" data-hole-radius-mm="40.8"/>
+  <circle cx="91.6" cy="51.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="5" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="71.6" cy="112.4" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="6" data-hole-radius-mm="40.8"/>
+  <circle cx="51.6" cy="91.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="6" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="42.75" cy="100.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="7" data-hole-radius-mm="40.8"/>
+  <circle cx="91.6" cy="91.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="7" data-hole-x-offset-mm="20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="30.8" cy="71.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="8" data-hole-radius-mm="40.8"/>
+  <circle cx="71.6" cy="31.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="8" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-40" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="42.75" cy="42.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="9" data-hole-radius-mm="40.8"/>
+  <circle cx="31.6" cy="71.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="9" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="0" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="71.6" cy="30.8" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="10" data-hole-radius-mm="40.8"/>
+  <circle cx="111.6" cy="71.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="10" data-hole-x-offset-mm="40" data-hole-y-offset-mm="0" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(112 24)">
-  <circle cx="100.45" cy="42.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="11" data-hole-radius-mm="40.8"/>
+  <circle cx="71.6" cy="111.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="11" data-hole-x-offset-mm="0" data-hole-y-offset-mm="40" data-hole-radius-mm="40"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="51.6" cy="31.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="12" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-40" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="91.6" cy="31.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="13" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-40" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="31.6" cy="51.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="14" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="-20" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="111.6" cy="51.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="15" data-hole-x-offset-mm="40" data-hole-y-offset-mm="-20" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="31.6" cy="91.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="16" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="20" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="111.6" cy="91.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="17" data-hole-x-offset-mm="40" data-hole-y-offset-mm="20" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="51.6" cy="111.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="18" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="40" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(112 24)">
+  <circle cx="91.6" cy="111.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="19" data-hole-x-offset-mm="20" data-hole-y-offset-mm="40" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
   <path d="M 151.85 83.6 L 159.038 88.544 L 158.553 93.468 L 150.539 96.915 L 149.524 101.264 L 155.188 107.901 L 153.445 112.531 L 144.812 113.786 L 142.706 117.725 L 146.459 125.601 L 143.578 129.622 L 134.913 128.6 L 131.86 131.86 L 133.447 140.439 L 129.622 143.578 L 121.518 140.348 L 117.725 142.706 L 117.037 151.404 L 112.531 153.445 L 105.538 148.228 L 101.264 149.524 L 98.349 157.747 L 93.468 158.553 L 88.064 151.704 L 83.6 151.85 L 78.656 159.038 L 73.732 158.553 L 70.285 150.539 L 65.936 149.524 L 59.299 155.188 L 54.669 153.445 L 53.414 144.812 L 49.475 142.706 L 41.599 146.459 L 37.578 143.578 L 38.6 134.913 L 35.34 131.86 L 26.761 133.447 L 23.622 129.622 L 26.852 121.518 L 24.494 117.725 L 15.796 117.037 L 13.755 112.531 L 18.972 105.538 L 17.676 101.264 L 9.453 98.349 L 8.647 93.468 L 15.496 88.064 L 15.35 83.6 L 8.162 78.656 L 8.647 73.732 L 16.661 70.285 L 17.676 65.936 L 12.012 59.299 L 13.755 54.669 L 22.388 53.414 L 24.494 49.475 L 20.741 41.599 L 23.622 37.578 L 32.287 38.6 L 35.34 35.34 L 33.753 26.761 L 37.578 23.622 L 45.682 26.852 L 49.475 24.494 L 50.163 15.796 L 54.669 13.755 L 61.662 18.972 L 65.936 17.676 L 68.851 9.453 L 73.732 8.647 L 79.136 15.496 L 83.6 15.35 L 88.544 8.162 L 93.468 8.647 L 96.915 16.661 L 101.264 17.676 L 107.901 12.012 L 112.531 13.755 L 113.786 22.388 L 117.725 24.494 L 125.601 20.741 L 129.622 23.622 L 128.6 32.287 L 131.86 35.34 L 140.439 33.753 L 143.578 37.578 L 140.348 45.682 L 142.706 49.475 L 151.404 50.163 L 153.445 54.669 L 148.228 61.662 L 149.524 65.936 L 157.747 68.851 L 158.553 73.732 L 151.704 79.136 Z" class="cut gear-outline" data-teeth="24" data-pitch-radius-mm="72" data-root-radius-mm="68.25" data-outer-radius-mm="75.6"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="83.6" cy="83.6" r="2.5" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="5.0"/>
+  <circle cx="83.6" cy="83.6" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
   </g>
   <g transform="translate(10 112)">
   <circle cx="83.6" cy="83.6" r="72" class="score pitch-circle"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="104" cy="83.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="0" data-hole-radius-mm="20.4"/>
+  <circle cx="83.6" cy="63.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-20" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="83.6" cy="104" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="1" data-hole-radius-mm="20.4"/>
+  <circle cx="63.6" cy="83.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="63.2" cy="83.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="2" data-hole-radius-mm="20.4"/>
+  <circle cx="103.6" cy="83.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="83.6" cy="63.2" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="3" data-hole-radius-mm="20.4"/>
+  <circle cx="83.6" cy="103.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="0" data-hole-y-offset-mm="20" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="124.4" cy="83.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="4" data-hole-radius-mm="40.8"/>
+  <circle cx="63.6" cy="63.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="4" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="112.45" cy="112.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="5" data-hole-radius-mm="40.8"/>
+  <circle cx="103.6" cy="63.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="5" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="83.6" cy="124.4" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="6" data-hole-radius-mm="40.8"/>
+  <circle cx="63.6" cy="103.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="6" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="54.75" cy="112.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="7" data-hole-radius-mm="40.8"/>
+  <circle cx="103.6" cy="103.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="7" data-hole-x-offset-mm="20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="42.8" cy="83.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="8" data-hole-radius-mm="40.8"/>
+  <circle cx="83.6" cy="43.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="8" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-40" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="54.75" cy="54.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="9" data-hole-radius-mm="40.8"/>
+  <circle cx="43.6" cy="83.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="9" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="0" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="83.6" cy="42.8" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="10" data-hole-radius-mm="40.8"/>
+  <circle cx="123.6" cy="83.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="10" data-hole-x-offset-mm="40" data-hole-y-offset-mm="0" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="112.45" cy="54.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="11" data-hole-radius-mm="40.8"/>
+  <circle cx="83.6" cy="123.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="11" data-hole-x-offset-mm="0" data-hole-y-offset-mm="40" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="144.8" cy="83.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="12" data-hole-radius-mm="61.2"/>
+  <circle cx="63.6" cy="43.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="12" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-40" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="126.875" cy="126.875" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="13" data-hole-radius-mm="61.2"/>
+  <circle cx="103.6" cy="43.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="13" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-40" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="83.6" cy="144.8" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="14" data-hole-radius-mm="61.2"/>
+  <circle cx="43.6" cy="63.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="14" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="-20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="40.325" cy="126.875" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="15" data-hole-radius-mm="61.2"/>
+  <circle cx="123.6" cy="63.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="15" data-hole-x-offset-mm="40" data-hole-y-offset-mm="-20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="22.4" cy="83.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="16" data-hole-radius-mm="61.2"/>
+  <circle cx="43.6" cy="103.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="16" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="40.325" cy="40.325" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="17" data-hole-radius-mm="61.2"/>
+  <circle cx="123.6" cy="103.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="17" data-hole-x-offset-mm="40" data-hole-y-offset-mm="20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="83.6" cy="22.4" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="18" data-hole-radius-mm="61.2"/>
+  <circle cx="63.6" cy="123.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="18" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="40" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(10 112)">
-  <circle cx="126.875" cy="40.325" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="19" data-hole-radius-mm="61.2"/>
+  <circle cx="103.6" cy="123.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="19" data-hole-x-offset-mm="20" data-hole-y-offset-mm="40" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="43.6" cy="43.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="20" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="-40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="123.6" cy="43.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="21" data-hole-x-offset-mm="40" data-hole-y-offset-mm="-40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="43.6" cy="123.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="22" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="123.6" cy="123.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="23" data-hole-x-offset-mm="40" data-hole-y-offset-mm="40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="83.6" cy="23.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="24" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-60" data-hole-radius-mm="60"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="23.6" cy="83.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="25" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="0" data-hole-radius-mm="60"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="143.6" cy="83.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="26" data-hole-x-offset-mm="60" data-hole-y-offset-mm="0" data-hole-radius-mm="60"/>
+  </g>
+  <g transform="translate(10 112)">
+  <circle cx="83.6" cy="143.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="27" data-hole-x-offset-mm="0" data-hole-y-offset-mm="60" data-hole-radius-mm="60"/>
   </g>
   <g transform="translate(132 92)">
   <path d="M 199.85 107.6 L 207.08 112.487 L 206.72 117.363 L 198.852 121.136 L 198.077 125.597 L 204.215 131.801 L 202.911 136.512 L 194.457 138.678 L 192.828 142.903 L 197.637 150.184 L 195.439 154.551 L 186.725 155.026 L 184.303 158.851 L 187.599 166.932 L 184.592 170.786 L 175.953 169.551 L 172.831 172.831 L 174.487 181.399 L 170.786 184.592 L 162.553 181.696 L 158.851 184.303 L 158.805 193.03 L 154.551 195.439 L 147.042 190.993 L 142.903 192.828 L 141.154 201.378 L 136.512 202.911 L 130.015 197.085 L 125.597 198.077 L 122.214 206.122 L 117.363 206.72 L 112.126 199.739 L 107.6 199.85 L 102.713 207.08 L 97.837 206.72 L 94.064 198.852 L 89.603 198.077 L 83.399 204.215 L 78.688 202.911 L 76.522 194.457 L 72.297 192.828 L 65.016 197.637 L 60.649 195.439 L 60.174 186.725 L 56.349 184.303 L 48.268 187.599 L 44.414 184.592 L 45.649 175.953 L 42.369 172.831 L 33.801 174.487 L 30.608 170.786 L 33.504 162.553 L 30.897 158.851 L 22.17 158.805 L 19.761 154.551 L 24.207 147.042 L 22.372 142.903 L 13.822 141.154 L 12.289 136.512 L 18.115 130.015 L 17.123 125.597 L 9.078 122.214 L 8.48 117.363 L 15.461 112.126 L 15.35 107.6 L 8.12 102.713 L 8.48 97.837 L 16.348 94.064 L 17.123 89.603 L 10.985 83.399 L 12.289 78.688 L 20.743 76.522 L 22.372 72.297 L 17.563 65.016 L 19.761 60.649 L 28.475 60.174 L 30.897 56.349 L 27.601 48.268 L 30.608 44.414 L 39.247 45.649 L 42.369 42.369 L 40.713 33.801 L 44.414 30.608 L 52.647 33.504 L 56.349 30.897 L 56.395 22.17 L 60.649 19.761 L 68.158 24.207 L 72.297 22.372 L 74.046 13.822 L 78.688 12.289 L 85.185 18.115 L 89.603 17.123 L 92.986 9.078 L 97.837 8.48 L 103.074 15.461 L 107.6 15.35 L 112.487 8.12 L 117.363 8.48 L 121.136 16.348 L 125.597 17.123 L 131.801 10.985 L 136.512 12.289 L 138.678 20.743 L 142.903 22.372 L 150.184 17.563 L 154.551 19.761 L 155.026 28.475 L 158.851 30.897 L 166.932 27.601 L 170.786 30.608 L 169.551 39.247 L 172.831 42.369 L 181.399 40.713 L 184.592 44.414 L 181.696 52.647 L 184.303 56.349 L 193.03 56.395 L 195.439 60.649 L 190.993 68.158 L 192.828 72.297 L 201.378 74.046 L 202.911 78.688 L 197.085 85.185 L 198.077 89.603 L 206.122 92.986 L 206.72 97.837 L 199.739 103.074 Z" class="cut gear-outline" data-teeth="32" data-pitch-radius-mm="96" data-root-radius-mm="92.25" data-outer-radius-mm="99.6"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="107.6" cy="107.6" r="2.5" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="5.0"/>
+  <circle cx="107.6" cy="107.6" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
   </g>
   <g transform="translate(132 92)">
   <circle cx="107.6" cy="107.6" r="96" class="score pitch-circle"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="128" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="0" data-hole-radius-mm="20.4"/>
+  <circle cx="107.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-20" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="107.6" cy="128" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="1" data-hole-radius-mm="20.4"/>
+  <circle cx="87.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="87.2" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="2" data-hole-radius-mm="20.4"/>
+  <circle cx="127.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="107.6" cy="87.2" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="3" data-hole-radius-mm="20.4"/>
+  <circle cx="107.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="0" data-hole-y-offset-mm="20" data-hole-radius-mm="20"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="148.4" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="4" data-hole-radius-mm="40.8"/>
+  <circle cx="87.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="4" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="136.45" cy="136.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="5" data-hole-radius-mm="40.8"/>
+  <circle cx="127.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="5" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="107.6" cy="148.4" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="6" data-hole-radius-mm="40.8"/>
+  <circle cx="87.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="6" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="78.75" cy="136.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="7" data-hole-radius-mm="40.8"/>
+  <circle cx="127.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="7" data-hole-x-offset-mm="20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="66.8" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="8" data-hole-radius-mm="40.8"/>
+  <circle cx="107.6" cy="67.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="8" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-40" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="78.75" cy="78.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="9" data-hole-radius-mm="40.8"/>
+  <circle cx="67.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="9" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="0" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="107.6" cy="66.8" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="10" data-hole-radius-mm="40.8"/>
+  <circle cx="147.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="10" data-hole-x-offset-mm="40" data-hole-y-offset-mm="0" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="136.45" cy="78.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="11" data-hole-radius-mm="40.8"/>
+  <circle cx="107.6" cy="147.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="11" data-hole-x-offset-mm="0" data-hole-y-offset-mm="40" data-hole-radius-mm="40"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="168.8" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="12" data-hole-radius-mm="61.2"/>
+  <circle cx="87.6" cy="67.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="12" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-40" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="150.875" cy="150.875" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="13" data-hole-radius-mm="61.2"/>
+  <circle cx="127.6" cy="67.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="13" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-40" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="107.6" cy="168.8" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="14" data-hole-radius-mm="61.2"/>
+  <circle cx="67.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="14" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="-20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="64.325" cy="150.875" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="15" data-hole-radius-mm="61.2"/>
+  <circle cx="147.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="15" data-hole-x-offset-mm="40" data-hole-y-offset-mm="-20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="46.4" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="16" data-hole-radius-mm="61.2"/>
+  <circle cx="67.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="16" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="64.325" cy="64.325" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="17" data-hole-radius-mm="61.2"/>
+  <circle cx="147.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="17" data-hole-x-offset-mm="40" data-hole-y-offset-mm="20" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="107.6" cy="46.4" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="18" data-hole-radius-mm="61.2"/>
+  <circle cx="87.6" cy="147.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="18" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="40" data-hole-radius-mm="44.721"/>
   </g>
   <g transform="translate(132 92)">
-  <circle cx="150.875" cy="64.325" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="19" data-hole-radius-mm="61.2"/>
+  <circle cx="127.6" cy="147.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="19" data-hole-x-offset-mm="20" data-hole-y-offset-mm="40" data-hole-radius-mm="44.721"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="67.6" cy="67.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="20" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="-40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="147.6" cy="67.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="21" data-hole-x-offset-mm="40" data-hole-y-offset-mm="-40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="67.6" cy="147.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="22" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="147.6" cy="147.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="23" data-hole-x-offset-mm="40" data-hole-y-offset-mm="40" data-hole-radius-mm="56.569"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="107.6" cy="47.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="24" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-60" data-hole-radius-mm="60"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="47.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="25" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="0" data-hole-radius-mm="60"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="167.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="26" data-hole-x-offset-mm="60" data-hole-y-offset-mm="0" data-hole-radius-mm="60"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="107.6" cy="167.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="27" data-hole-x-offset-mm="0" data-hole-y-offset-mm="60" data-hole-radius-mm="60"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="87.6" cy="47.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="28" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-60" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="127.6" cy="47.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="29" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-60" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="47.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="30" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="-20" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="167.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="31" data-hole-x-offset-mm="60" data-hole-y-offset-mm="-20" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="47.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="32" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="20" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="167.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="33" data-hole-x-offset-mm="60" data-hole-y-offset-mm="20" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="87.6" cy="167.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="34" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="60" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="127.6" cy="167.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="35" data-hole-x-offset-mm="20" data-hole-y-offset-mm="60" data-hole-radius-mm="63.246"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="67.6" cy="47.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="36" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="-60" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="147.6" cy="47.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="37" data-hole-x-offset-mm="40" data-hole-y-offset-mm="-60" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="47.6" cy="67.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="38" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="-40" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="167.6" cy="67.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="39" data-hole-x-offset-mm="60" data-hole-y-offset-mm="-40" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="47.6" cy="147.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="40" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="40" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="167.6" cy="147.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="41" data-hole-x-offset-mm="60" data-hole-y-offset-mm="40" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="67.6" cy="167.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="42" data-hole-x-offset-mm="-40" data-hole-y-offset-mm="60" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="147.6" cy="167.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="43" data-hole-x-offset-mm="40" data-hole-y-offset-mm="60" data-hole-radius-mm="72.111"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="107.6" cy="27.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="44" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-80" data-hole-radius-mm="80"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="27.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="45" data-hole-x-offset-mm="-80" data-hole-y-offset-mm="0" data-hole-radius-mm="80"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="187.6" cy="107.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="46" data-hole-x-offset-mm="80" data-hole-y-offset-mm="0" data-hole-radius-mm="80"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="107.6" cy="187.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="47" data-hole-x-offset-mm="0" data-hole-y-offset-mm="80" data-hole-radius-mm="80"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="87.6" cy="27.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="48" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-80" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="127.6" cy="27.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="49" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-80" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="27.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="50" data-hole-x-offset-mm="-80" data-hole-y-offset-mm="-20" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="187.6" cy="87.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="51" data-hole-x-offset-mm="80" data-hole-y-offset-mm="-20" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="27.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="52" data-hole-x-offset-mm="-80" data-hole-y-offset-mm="20" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="187.6" cy="127.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="53" data-hole-x-offset-mm="80" data-hole-y-offset-mm="20" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="87.6" cy="187.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="54" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="80" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="127.6" cy="187.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="55" data-hole-x-offset-mm="20" data-hole-y-offset-mm="80" data-hole-radius-mm="82.462"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="47.6" cy="47.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="56" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="-60" data-hole-radius-mm="84.853"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="167.6" cy="47.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="57" data-hole-x-offset-mm="60" data-hole-y-offset-mm="-60" data-hole-radius-mm="84.853"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="47.6" cy="167.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="58" data-hole-x-offset-mm="-60" data-hole-y-offset-mm="60" data-hole-radius-mm="84.853"/>
+  </g>
+  <g transform="translate(132 92)">
+  <circle cx="167.6" cy="167.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="59" data-hole-x-offset-mm="60" data-hole-y-offset-mm="60" data-hole-radius-mm="84.853"/>
   </g>
 </svg>

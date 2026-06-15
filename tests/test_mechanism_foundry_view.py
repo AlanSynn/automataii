@@ -348,8 +348,8 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
     assert captured
     assert captured[0][0] == "cam_follower"
     assert captured[0][1]["grid_system_enabled"] is True
-    assert captured[0][1]["grid_cell_cm"] == 2.04
-    assert captured[0][1]["grid_pitch_choice"] == "ms4n"
+    assert captured[0][1]["grid_cell_cm"] == 2.0
+    assert captured[0][1]["grid_pitch_choice"] == "2cm"
     assert captured[0][1]["physical_profile_key"] == "motionsmith-ms4n"
     assert "__foundry_snapshot__" in captured[0][1]
     snapshot = captured[0][1]["__foundry_snapshot__"]
@@ -792,7 +792,7 @@ def test_foundry_render_uses_view_grid_context_overlay_for_preview_and_snapshot(
 
     view = MechanismFoundryView()
     view.set_synced_mechanism("sync_gear", "gear_train")
-    view.set_grid_system(False, 2.04)
+    view.set_grid_system(False, 2.0)
     view.current_parameters.pop("grid_system_enabled", None)
     view.current_parameters["gear1_teeth"] = 12.0
     view.current_parameters["gear2_teeth"] = 18.0
@@ -806,8 +806,7 @@ def test_foundry_render_uses_view_grid_context_overlay_for_preview_and_snapshot(
     assert view._last_rendered_state.metadata["gear2_teeth"] == 18
     assert snapshot is not None
     assert (
-        snapshot["positions"]["gear2_center"][0]
-        - snapshot["positions"]["gear1_center"][0]
+        snapshot["positions"]["gear2_center"][0] - snapshot["positions"]["gear1_center"][0]
     ) == pytest.approx(92.0)
 
 
@@ -853,7 +852,7 @@ def test_foundry_grid_snap_handles_bad_cell_and_value(qapp):
     view.set_grid_system(True, "bad-cell")
     view._on_parameter_changed("input_link", math.nan, label, False)
 
-    assert view._grid_cell_cm == 2.04
+    assert view._grid_cell_cm == 2.0
     assert math.isfinite(view.current_parameters["input_link"])
 
 
@@ -912,7 +911,7 @@ def test_foundry_sync_payload_filters_nonfinite_and_preserves_output_mode(qapp):
     assert payload["good"] == 12.0
     assert payload[view.OUTPUT_POINT_MODE_KEY] == "joint_b"
     assert payload["input_angle"] == 0.0
-    assert payload["grid_cell_cm"] == 2.04
+    assert payload["grid_cell_cm"] == 2.0
     assert "bad_nan" not in payload
     assert "bad_inf" not in payload
     assert "bool_value" not in payload

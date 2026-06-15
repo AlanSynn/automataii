@@ -7,6 +7,7 @@ into the Design tab with correct parameter mapping.
 
 from __future__ import annotations
 
+import inspect
 import math
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -17,6 +18,16 @@ import pytest
 
 class TestMechanismInstantiationService:
     """Test MechanismInstantiationService Foundry export functionality."""
+
+    def test_instantiation_service_uses_2cm_physical_context_by_default(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+
+        assert service._grid_cell_cm == pytest.approx(2.0)
+        assert service._grid_pitch_choice == "2cm"
 
     def test_create_layer_data_from_foundry_four_bar(self):
         """Test creating layer data from Foundry four-bar export."""
@@ -97,8 +108,8 @@ class TestMechanismInstantiationService:
 
         # Verify parameter mapping
         params = layer_data["params"]
-        assert params["base_radius"] == pytest.approx(40.8)
-        assert params["eccentricity"] == pytest.approx(20.4)
+        assert params["base_radius"] == pytest.approx(40.0)
+        assert params["eccentricity"] == pytest.approx(20.0)
         assert params["follower_rod_length"] == 100.0  # follower_length -> follower_rod_length
         assert params["cam_lobes"] == 1
         assert params["profile_harmonic"] == 0.5
@@ -476,6 +487,7 @@ class TestMechanismInstantiationService:
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
             MechanismInstantiationService,
         )
+        from automataii.shared.physical_kit import DEFAULT_HOLE_DIAMETER_MM
 
         service = MechanismInstantiationService()
         service.set_grid_system(False, 3.33)
@@ -492,14 +504,17 @@ class TestMechanismInstantiationService:
         assert params["grid_system_enabled"] is False
         assert params["grid_cell_cm"] == pytest.approx(3.33)
         assert params["physical_profile_key"]
+        assert params["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
         assert params["gear1_teeth"] == 13
         assert params["gear2_teeth"] == 17
         assert graphics_data["params"]["grid_system_enabled"] is False
+        assert graphics_data["params"]["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
 
     def test_candidate_layers_inherit_disabled_grid_context(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
             MechanismInstantiationService,
         )
+        from automataii.shared.physical_kit import DEFAULT_HOLE_DIAMETER_MM
 
         service = MechanismInstantiationService()
         service.set_grid_system(False, 2.75)
@@ -519,6 +534,7 @@ class TestMechanismInstantiationService:
         assert params["grid_system_enabled"] is False
         assert params["grid_cell_cm"] == pytest.approx(2.75)
         assert params["physical_profile_key"]
+        assert params["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
         assert params["gear1_teeth"] == 13
         assert params["gear2_teeth"] == 17
 
@@ -662,8 +678,8 @@ class TestMechanismInstantiationService:
             {"crank_length": float("nan"), "rod_length": -1.0, "gas_pressure": "bad"},
         )
 
-        assert cam["base_radius"] == pytest.approx(40.8)
-        assert cam["eccentricity"] == pytest.approx(20.4)
+        assert cam["base_radius"] == pytest.approx(40.0)
+        assert cam["eccentricity"] == pytest.approx(20.0)
         assert cam["follower_rod_length"] == pytest.approx(100.0)
         assert cam["cam_lobes"] == 1
         assert cam["profile_harmonic"] == pytest.approx(0.5)
@@ -838,6 +854,20 @@ class TestMechanismDesignTabImport:
 
 
 class TestMechanismDesignGridSettings:
+    def test_design_tab_grid_defaults_use_2cm_pitch_choice(self):
+        from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
+
+        tab = MechanismDesignTab.__new__(MechanismDesignTab)
+
+        assert MechanismDesignTab._extract_grid_settings_from_foundry_parameters(
+            tab,
+            {"grid_system_enabled": True},
+        ) == (True, 2.0)
+        source = inspect.getsource(
+            MechanismDesignTab._extract_grid_settings_from_foundry_parameters
+        )
+        assert '"ms4n"' not in source
+
     def test_snap_lengths_to_grid_2_5cm_for_four_bar(self):
         from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 
@@ -1311,11 +1341,11 @@ class TestMechanismDesignTabFoundryUpdate:
                 map_foundry_params_to_internal=MagicMock(
                     return_value={
                         "gear1_teeth": 20,
-                "gear2_teeth": 10,
-                "r1": 60.0,
-                "r2": 48.0,
-                "gear1_radius": 60.0,
-                "gear2_radius": 48.0,
+                        "gear2_teeth": 10,
+                        "r1": 60.0,
+                        "r2": 48.0,
+                        "gear1_radius": 60.0,
+                        "gear2_radius": 48.0,
                     }
                 )
             ),
