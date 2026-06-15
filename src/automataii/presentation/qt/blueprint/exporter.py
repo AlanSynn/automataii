@@ -477,17 +477,21 @@ class BlueprintExporter:
             )
 
         elif mech_type == "gear":
-            r1 = _finite_float(_first_value(params, "r1", "gear1_radius", default=0.0)) * scale_factor
-            r2 = _finite_float(_first_value(params, "r2", "gear2_radius", default=0.0)) * scale_factor
+            r1 = (
+                _finite_float(_first_value(params, "r1", "gear1_radius", default=0.0))
+                * scale_factor
+            )
+            r2 = (
+                _finite_float(_first_value(params, "r2", "gear2_radius", default=0.0))
+                * scale_factor
+            )
             profile = physical_profile_from_params(params)
             clearance = gear_clearance_from_params(params, profile=profile) * scale_factor
 
             dimensions_text += "Gear Dimensions (mm):\n"
             dimensions_text += f'  Gear 1 Radius: {r1:.1f} mm ({r1 / mm_per_inch:.2f}")\n'
             dimensions_text += f'  Gear 2 Radius: {r2:.1f} mm ({r2 / mm_per_inch:.2f}")\n'
-            dimensions_text += (
-                f"  Center Distance: {gear_center_distance(r1, r2, clearance, profile=profile):.1f} mm\n"
-            )
+            dimensions_text += f"  Center Distance: {gear_center_distance(r1, r2, clearance, profile=profile):.1f} mm\n"
             dimensions_text += f"  Gear Ratio: {r2 / r1:.2f}:1\n" if r1 else "  Gear Ratio: n/a\n"
 
         elif mech_type == "planetary_gear":
@@ -796,8 +800,14 @@ class BlueprintExporter:
             instructions += "4. Smooth edges for proper follower contact\n"
             instructions += f"5. Install follower guide {rod_length:.1f} mm above cam center\n"
         elif mech_type == "gear":
-            r1 = _finite_float(_first_value(params, "r1", "gear1_radius", default=0.0)) * scale_factor
-            r2 = _finite_float(_first_value(params, "r2", "gear2_radius", default=0.0)) * scale_factor
+            r1 = (
+                _finite_float(_first_value(params, "r1", "gear1_radius", default=0.0))
+                * scale_factor
+            )
+            r2 = (
+                _finite_float(_first_value(params, "r2", "gear2_radius", default=0.0))
+                * scale_factor
+            )
             profile = physical_profile_from_params(params)
             grid_enabled = grid_enabled_from_params(params)
             teeth1 = gear_teeth_from_params(
@@ -828,9 +838,7 @@ class BlueprintExporter:
             instructions += "Gear 2:\n"
             instructions += f"  - Pitch diameter: {2 * r2:.1f} mm\n"
             instructions += f"  - Estimated teeth: {teeth2}\n"
-            instructions += (
-                f"Center distance: {gear_center_distance(r1, r2, clearance, profile=profile):.1f} mm\n\n"
-            )
+            instructions += f"Center distance: {gear_center_distance(r1, r2, clearance, profile=profile):.1f} mm\n\n"
             instructions += "Assembly:\n"
             instructions += "1. Mount bearings at specified center distance\n"
             instructions += "2. Install gears on shafts\n"

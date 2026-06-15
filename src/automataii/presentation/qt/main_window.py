@@ -921,9 +921,7 @@ class AutomataDesigner(QMainWindow):
                 context.grid_cell_cm,
                 context.grid_pitch_choice,
             )
-        self._ensure_physical_context_store().context_changed.connect(
-            self._apply_physical_context
-        )
+        self._ensure_physical_context_store().context_changed.connect(self._apply_physical_context)
         self._apply_physical_context(self._physical_context)
 
         # Connect menu actions using ActionManager
@@ -2963,9 +2961,13 @@ class AutomataDesigner(QMainWindow):
 
     def _apply_physical_context(self, context: PhysicalKitContext) -> None:
         """Fan out the single runtime physical context to context-aware tabs."""
-        if hasattr(self, "options_tab") and self.options_tab and hasattr(
-            self.options_tab,
-            "set_grid_system_input",
+        if (
+            hasattr(self, "options_tab")
+            and self.options_tab
+            and hasattr(
+                self.options_tab,
+                "set_grid_system_input",
+            )
         ):
             self.options_tab.set_grid_system_input(
                 context.enabled,

@@ -44,7 +44,9 @@ class PhysicalKitContextStore(QObject):
     def context(self) -> PhysicalKitContext:
         return self._context
 
-    def set_context(self, context: PhysicalKitContext, *, force: bool = False) -> PhysicalKitContext:
+    def set_context(
+        self, context: PhysicalKitContext, *, force: bool = False
+    ) -> PhysicalKitContext:
         """Replace the context and notify subscribers when it changes."""
         if not force and context == self._context:
             return self._context

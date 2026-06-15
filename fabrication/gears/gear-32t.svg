@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     width="215.2mm" height="225.2mm"
+     viewBox="0 0 215.2 225.2"
+     data-profile-key="motionsmith-ms4n"
+     data-grid-pitch-mm="20.4"
+     data-hole-diameter-mm="5.0">
+  <title>Automataii fabrication gear 32 teeth</title>
+  <desc>MS4N-compatible G32 slow/large gear with 5 mm axle and linkage/bracket holes.</desc>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
+      .drill { fill: none; stroke: #0071bc; stroke-width: 0.2; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #777777; stroke-width: 0.15; stroke-dasharray: 2 1; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 4px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 3px; }
+      .paper { fill: #ffffff; stroke: none; }
+    </style>
+  </defs>
+  <path d="M 199.85 107.6 L 207.08 112.487 L 206.72 117.363 L 198.852 121.136 L 198.077 125.597 L 204.215 131.801 L 202.911 136.512 L 194.457 138.678 L 192.828 142.903 L 197.637 150.184 L 195.439 154.551 L 186.725 155.026 L 184.303 158.851 L 187.599 166.932 L 184.592 170.786 L 175.953 169.551 L 172.831 172.831 L 174.487 181.399 L 170.786 184.592 L 162.553 181.696 L 158.851 184.303 L 158.805 193.03 L 154.551 195.439 L 147.042 190.993 L 142.903 192.828 L 141.154 201.378 L 136.512 202.911 L 130.015 197.085 L 125.597 198.077 L 122.214 206.122 L 117.363 206.72 L 112.126 199.739 L 107.6 199.85 L 102.713 207.08 L 97.837 206.72 L 94.064 198.852 L 89.603 198.077 L 83.399 204.215 L 78.688 202.911 L 76.522 194.457 L 72.297 192.828 L 65.016 197.637 L 60.649 195.439 L 60.174 186.725 L 56.349 184.303 L 48.268 187.599 L 44.414 184.592 L 45.649 175.953 L 42.369 172.831 L 33.801 174.487 L 30.608 170.786 L 33.504 162.553 L 30.897 158.851 L 22.17 158.805 L 19.761 154.551 L 24.207 147.042 L 22.372 142.903 L 13.822 141.154 L 12.289 136.512 L 18.115 130.015 L 17.123 125.597 L 9.078 122.214 L 8.48 117.363 L 15.461 112.126 L 15.35 107.6 L 8.12 102.713 L 8.48 97.837 L 16.348 94.064 L 17.123 89.603 L 10.985 83.399 L 12.289 78.688 L 20.743 76.522 L 22.372 72.297 L 17.563 65.016 L 19.761 60.649 L 28.475 60.174 L 30.897 56.349 L 27.601 48.268 L 30.608 44.414 L 39.247 45.649 L 42.369 42.369 L 40.713 33.801 L 44.414 30.608 L 52.647 33.504 L 56.349 30.897 L 56.395 22.17 L 60.649 19.761 L 68.158 24.207 L 72.297 22.372 L 74.046 13.822 L 78.688 12.289 L 85.185 18.115 L 89.603 17.123 L 92.986 9.078 L 97.837 8.48 L 103.074 15.461 L 107.6 15.35 L 112.487 8.12 L 117.363 8.48 L 121.136 16.348 L 125.597 17.123 L 131.801 10.985 L 136.512 12.289 L 138.678 20.743 L 142.903 22.372 L 150.184 17.563 L 154.551 19.761 L 155.026 28.475 L 158.851 30.897 L 166.932 27.601 L 170.786 30.608 L 169.551 39.247 L 172.831 42.369 L 181.399 40.713 L 184.592 44.414 L 181.696 52.647 L 184.303 56.349 L 193.03 56.395 L 195.439 60.649 L 190.993 68.158 L 192.828 72.297 L 201.378 74.046 L 202.911 78.688 L 197.085 85.185 L 198.077 89.603 L 206.122 92.986 L 206.72 97.837 L 199.739 103.074 Z" class="cut gear-outline" data-teeth="32" data-pitch-radius-mm="96" data-root-radius-mm="92.25" data-outer-radius-mm="99.6"/>
+  <circle cx="107.6" cy="107.6" r="2.5" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="5.0"/>
+  <circle cx="107.6" cy="107.6" r="96" class="score pitch-circle"/>
+  <circle cx="128" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="0" data-hole-radius-mm="20.4"/>
+  <circle cx="107.6" cy="128" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="1" data-hole-radius-mm="20.4"/>
+  <circle cx="87.2" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="2" data-hole-radius-mm="20.4"/>
+  <circle cx="107.6" cy="87.2" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="3" data-hole-radius-mm="20.4"/>
+  <circle cx="148.4" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="4" data-hole-radius-mm="40.8"/>
+  <circle cx="136.45" cy="136.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="5" data-hole-radius-mm="40.8"/>
+  <circle cx="107.6" cy="148.4" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="6" data-hole-radius-mm="40.8"/>
+  <circle cx="78.75" cy="136.45" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="7" data-hole-radius-mm="40.8"/>
+  <circle cx="66.8" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="8" data-hole-radius-mm="40.8"/>
+  <circle cx="78.75" cy="78.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="9" data-hole-radius-mm="40.8"/>
+  <circle cx="107.6" cy="66.8" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="10" data-hole-radius-mm="40.8"/>
+  <circle cx="136.45" cy="78.75" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="1" data-hole-index="11" data-hole-radius-mm="40.8"/>
+  <circle cx="168.8" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="12" data-hole-radius-mm="61.2"/>
+  <circle cx="150.875" cy="150.875" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="13" data-hole-radius-mm="61.2"/>
+  <circle cx="107.6" cy="168.8" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="14" data-hole-radius-mm="61.2"/>
+  <circle cx="64.325" cy="150.875" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="15" data-hole-radius-mm="61.2"/>
+  <circle cx="46.4" cy="107.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="16" data-hole-radius-mm="61.2"/>
+  <circle cx="64.325" cy="64.325" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="17" data-hole-radius-mm="61.2"/>
+  <circle cx="107.6" cy="46.4" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="18" data-hole-radius-mm="61.2"/>
+  <circle cx="150.875" cy="64.325" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="2" data-hole-index="19" data-hole-radius-mm="61.2"/>
+  <text x="107.6" y="213.2" class="label" text-anchor="middle">G32 slow/large / 32T</text>
+</svg>

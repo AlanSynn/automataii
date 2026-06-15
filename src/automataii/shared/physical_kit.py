@@ -249,7 +249,9 @@ def physical_context_from_settings(
         choice = None
     if choice is None:
         choice = nearest_pitch_choice(grid_cell_cm, profile=profile)
-    cell_cm = choice.pitch_cm if enabled_value else max(0.1, finite_float(grid_cell_cm, choice.pitch_cm))
+    cell_cm = (
+        choice.pitch_cm if enabled_value else max(0.1, finite_float(grid_cell_cm, choice.pitch_cm))
+    )
     return PhysicalKitContext(
         enabled=enabled_value,
         grid_cell_cm=cell_cm,
@@ -369,7 +371,11 @@ def gear_teeth_from_params(
                 if enabled
                 else freeform_gear_teeth_for_radius(params[key], default_teeth, profile=profile)
             )
-    return nearest_gear_teeth(default_teeth, profile=profile) if enabled else max(1, int(default_teeth))
+    return (
+        nearest_gear_teeth(default_teeth, profile=profile)
+        if enabled
+        else max(1, int(default_teeth))
+    )
 
 
 def nearest_gear_teeth(
@@ -591,7 +597,9 @@ def snap_parameter_value(
             )
         if key == "cam_lobes":
             return float(
-                min(profile.cam_presets, key=lambda p: abs(p.lobes - finite_float(value, 1.0))).lobes
+                min(
+                    profile.cam_presets, key=lambda p: abs(p.lobes - finite_float(value, 1.0))
+                ).lobes
             )
         if key == "profile_harmonic":
             return nearest_float(

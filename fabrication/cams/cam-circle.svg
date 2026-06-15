@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     width="97.6mm" height="109.6mm"
+     viewBox="0 0 97.6 109.6"
+     data-profile-key="motionsmith-ms4n"
+     data-grid-pitch-mm="20.4"
+     data-hole-diameter-mm="5.0">
+  <title>Automataii fabrication cam circle</title>
+  <desc>Circle / steady cam profile with 5 mm axle hole for the physical Automataii kit.</desc>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
+      .drill { fill: none; stroke: #0071bc; stroke-width: 0.2; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #777777; stroke-width: 0.15; stroke-dasharray: 2 1; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 4px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 3px; }
+      .paper { fill: #ffffff; stroke: none; }
+    </style>
+  </defs>
+  <path d="M 89.6 48.8 L 89.561 50.58 L 89.445 52.356 L 89.251 54.125 L 88.98 55.885 L 88.633 57.631 L 88.21 59.36 L 87.712 61.069 L 87.139 62.754 L 86.494 64.413 L 85.777 66.043 L 84.99 67.639 L 84.134 69.2 L 83.21 70.722 L 82.221 72.202 L 81.169 73.637 L 80.055 75.026 L 78.881 76.364 L 77.65 77.65 L 76.364 78.881 L 75.026 80.055 L 73.637 81.169 L 72.202 82.221 L 70.722 83.21 L 69.2 84.134 L 67.639 84.99 L 66.043 85.777 L 64.413 86.494 L 62.754 87.139 L 61.069 87.712 L 59.36 88.21 L 57.631 88.633 L 55.885 88.98 L 54.125 89.251 L 52.356 89.445 L 50.58 89.561 L 48.8 89.6 L 47.02 89.561 L 45.244 89.445 L 43.475 89.251 L 41.715 88.98 L 39.969 88.633 L 38.24 88.21 L 36.531 87.712 L 34.846 87.139 L 33.187 86.494 L 31.557 85.777 L 29.961 84.99 L 28.4 84.134 L 26.878 83.21 L 25.398 82.221 L 23.963 81.169 L 22.574 80.055 L 21.236 78.881 L 19.95 77.65 L 18.719 76.364 L 17.545 75.026 L 16.431 73.637 L 15.379 72.202 L 14.39 70.722 L 13.466 69.2 L 12.61 67.639 L 11.823 66.043 L 11.106 64.413 L 10.461 62.754 L 9.888 61.069 L 9.39 59.36 L 8.967 57.631 L 8.62 55.885 L 8.349 54.125 L 8.155 52.356 L 8.039 50.58 L 8 48.8 L 8.039 47.02 L 8.155 45.244 L 8.349 43.475 L 8.62 41.715 L 8.967 39.969 L 9.39 38.24 L 9.888 36.531 L 10.461 34.846 L 11.106 33.187 L 11.823 31.557 L 12.61 29.961 L 13.466 28.4 L 14.39 26.878 L 15.379 25.398 L 16.431 23.963 L 17.545 22.574 L 18.719 21.236 L 19.95 19.95 L 21.236 18.719 L 22.574 17.545 L 23.963 16.431 L 25.398 15.379 L 26.878 14.39 L 28.4 13.466 L 29.961 12.61 L 31.557 11.823 L 33.187 11.106 L 34.846 10.461 L 36.531 9.888 L 38.24 9.39 L 39.969 8.967 L 41.715 8.62 L 43.475 8.349 L 45.244 8.155 L 47.02 8.039 L 48.8 8 L 50.58 8.039 L 52.356 8.155 L 54.125 8.349 L 55.885 8.62 L 57.631 8.967 L 59.36 9.39 L 61.069 9.888 L 62.754 10.461 L 64.413 11.106 L 66.043 11.823 L 67.639 12.61 L 69.2 13.466 L 70.722 14.39 L 72.202 15.379 L 73.637 16.431 L 75.026 17.545 L 76.364 18.719 L 77.65 19.95 L 78.881 21.236 L 80.055 22.574 L 81.169 23.963 L 82.221 25.398 L 83.21 26.878 L 84.134 28.4 L 84.99 29.961 L 85.777 31.557 L 86.494 33.187 L 87.139 34.846 L 87.712 36.531 L 88.21 38.24 L 88.633 39.969 L 88.98 41.715 L 89.251 43.475 L 89.445 45.244 L 89.561 47.02 Z" class="cut cam-outline" data-cam-key="circle" data-base-radius-mm="40.8" data-eccentricity-mm="0"/>
+  <circle cx="48.8" cy="48.8" r="2.5" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="5.0"/>
+  <line x1="48.8" y1="48.8" x2="89.6" y2="48.8" class="score cam-base-radius"/>
+  <circle cx="48.8" cy="48.8" r="40.8" class="score cam-base-circle"/>
+  <text x="48.8" y="96.6" class="label" text-anchor="middle">Circle / steady</text>
+</svg>

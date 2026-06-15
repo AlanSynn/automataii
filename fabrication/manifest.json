@@ -1,0 +1,224 @@
+{
+  "generated_at": "reproducible",
+  "generated_by": "scripts/generate_fabrication_templates.py",
+  "grid_cell_cm": 2.04,
+  "grid_pitch_mm": 20.4,
+  "hole_diameter_mm": 5.0,
+  "managed_files": [
+    "README.md",
+    "cams/cam-circle.svg",
+    "cams/cam-eccentric.svg",
+    "cams/cam-oval.svg",
+    "cams/cam-pear.svg",
+    "gears/gear-16t.svg",
+    "gears/gear-20t.svg",
+    "gears/gear-24t.svg",
+    "gears/gear-32t.svg",
+    "linkages/linkage-2-cell.svg",
+    "linkages/linkage-4-cell.svg",
+    "linkages/linkage-6-cell.svg",
+    "linkages/linkage-8-cell.svg",
+    "manifest.json",
+    "sheets/01-gear-set.svg",
+    "sheets/02-linkage-set.svg",
+    "sheets/03-cam-set.svg",
+    "sheets/04-prototype-set-a.svg",
+    "sheets/05-prototype-set-b.svg"
+  ],
+  "parts": {
+    "cams": [
+      {
+        "base_radius_mm": 40.8,
+        "eccentricity_mm": 0.0,
+        "hole_diameter_mm": 5.0,
+        "key": "circle",
+        "label": "Circle / steady",
+        "path": "cams/cam-circle.svg"
+      },
+      {
+        "base_radius_mm": 40.8,
+        "eccentricity_mm": 15.3,
+        "hole_diameter_mm": 5.0,
+        "key": "eccentric",
+        "label": "Eccentric / bounce",
+        "path": "cams/cam-eccentric.svg"
+      },
+      {
+        "base_radius_mm": 40.8,
+        "eccentricity_mm": 10.2,
+        "hole_diameter_mm": 5.0,
+        "key": "oval",
+        "label": "Oval / smooth rise",
+        "path": "cams/cam-oval.svg"
+      },
+      {
+        "base_radius_mm": 40.8,
+        "eccentricity_mm": 20.4,
+        "hole_diameter_mm": 5.0,
+        "key": "pear",
+        "label": "Pear / slow-fast",
+        "path": "cams/cam-pear.svg"
+      }
+    ],
+    "gears": [
+      {
+        "attachment_hole_count": 4,
+        "attachment_radii_mm": [
+          20.4
+        ],
+        "hole_diameter_mm": 5.0,
+        "key": "g16",
+        "label": "G16 fast/small",
+        "outer_radius_mm": 51.6,
+        "path": "gears/gear-16t.svg",
+        "pitch_radius_mm": 48.0,
+        "root_radius_mm": 44.25,
+        "teeth": 16
+      },
+      {
+        "attachment_hole_count": 12,
+        "attachment_radii_mm": [
+          20.4,
+          40.8
+        ],
+        "hole_diameter_mm": 5.0,
+        "key": "g20",
+        "label": "G20 medium-fast",
+        "outer_radius_mm": 63.6,
+        "path": "gears/gear-20t.svg",
+        "pitch_radius_mm": 60.0,
+        "root_radius_mm": 56.25,
+        "teeth": 20
+      },
+      {
+        "attachment_hole_count": 20,
+        "attachment_radii_mm": [
+          20.4,
+          40.8,
+          61.2
+        ],
+        "hole_diameter_mm": 5.0,
+        "key": "g24",
+        "label": "G24 medium",
+        "outer_radius_mm": 75.6,
+        "path": "gears/gear-24t.svg",
+        "pitch_radius_mm": 72.0,
+        "root_radius_mm": 68.25,
+        "teeth": 24
+      },
+      {
+        "attachment_hole_count": 20,
+        "attachment_radii_mm": [
+          20.4,
+          40.8,
+          61.2
+        ],
+        "hole_diameter_mm": 5.0,
+        "key": "g32",
+        "label": "G32 slow/large",
+        "outer_radius_mm": 99.6,
+        "path": "gears/gear-32t.svg",
+        "pitch_radius_mm": 96.0,
+        "root_radius_mm": 92.25,
+        "teeth": 32
+      }
+    ],
+    "linkages": [
+      {
+        "cells": 2,
+        "hole_count": 3,
+        "hole_diameter_mm": 5.0,
+        "label": "2-cell linkage",
+        "length_mm": 40.8,
+        "path": "linkages/linkage-2-cell.svg",
+        "pitch_mm": 20.4
+      },
+      {
+        "cells": 4,
+        "hole_count": 5,
+        "hole_diameter_mm": 5.0,
+        "label": "4-cell linkage",
+        "length_mm": 81.6,
+        "path": "linkages/linkage-4-cell.svg",
+        "pitch_mm": 20.4
+      },
+      {
+        "cells": 6,
+        "hole_count": 7,
+        "hole_diameter_mm": 5.0,
+        "label": "6-cell linkage",
+        "length_mm": 122.4,
+        "path": "linkages/linkage-6-cell.svg",
+        "pitch_mm": 20.4
+      },
+      {
+        "cells": 8,
+        "hole_count": 9,
+        "hole_diameter_mm": 5.0,
+        "label": "8-cell linkage",
+        "length_mm": 163.2,
+        "path": "linkages/linkage-8-cell.svg",
+        "pitch_mm": 20.4
+      }
+    ]
+  },
+  "profile_key": "motionsmith-ms4n",
+  "schema_version": "automataii.fabrication.v1",
+  "sheets": [
+    {
+      "contains": [
+        "gears"
+      ],
+      "height_mm": 320.0,
+      "key": "01-gear-set",
+      "label": "Gear set",
+      "path": "sheets/01-gear-set.svg",
+      "width_mm": 420.0
+    },
+    {
+      "contains": [
+        "linkages"
+      ],
+      "height_mm": 320.0,
+      "key": "02-linkage-set",
+      "label": "Linkage set",
+      "path": "sheets/02-linkage-set.svg",
+      "width_mm": 420.0
+    },
+    {
+      "contains": [
+        "cams"
+      ],
+      "height_mm": 320.0,
+      "key": "03-cam-set",
+      "label": "Cam set",
+      "path": "sheets/03-cam-set.svg",
+      "width_mm": 420.0
+    },
+    {
+      "contains": [
+        "gears",
+        "linkages",
+        "cams"
+      ],
+      "height_mm": 320.0,
+      "key": "04-prototype-set-a",
+      "label": "Prototype set A",
+      "path": "sheets/04-prototype-set-a.svg",
+      "width_mm": 420.0
+    },
+    {
+      "contains": [
+        "gears",
+        "linkages",
+        "cams"
+      ],
+      "height_mm": 320.0,
+      "key": "05-prototype-set-b",
+      "label": "Prototype set B",
+      "path": "sheets/05-prototype-set-b.svg",
+      "width_mm": 420.0
+    }
+  ],
+  "source_ssot": "automataii.shared.physical_kit"
+}

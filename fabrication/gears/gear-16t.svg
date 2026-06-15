@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     width="119.2mm" height="129.2mm"
+     viewBox="0 0 119.2 129.2"
+     data-profile-key="motionsmith-ms4n"
+     data-grid-pitch-mm="20.4"
+     data-hole-diameter-mm="5.0">
+  <title>Automataii fabrication gear 16 teeth</title>
+  <desc>MS4N-compatible G16 fast/small gear with 5 mm axle and linkage/bracket holes.</desc>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
+      .drill { fill: none; stroke: #0071bc; stroke-width: 0.2; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #777777; stroke-width: 0.15; stroke-dasharray: 2 1; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 4px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 3px; }
+      .paper { fill: #ffffff; stroke: none; }
+    </style>
+  </defs>
+  <path d="M 103.85 59.6 L 110.952 64.658 L 110.209 69.667 L 101.945 72.445 L 100.482 76.534 L 105.107 83.924 L 102.504 88.267 L 93.806 87.672 L 90.889 90.889 L 92.335 99.487 L 88.267 102.504 L 80.459 98.625 L 76.534 100.482 L 74.579 108.978 L 69.667 110.209 L 63.937 103.637 L 59.6 103.85 L 54.542 110.952 L 49.533 110.209 L 46.755 101.945 L 42.666 100.482 L 35.276 105.107 L 30.933 102.504 L 31.528 93.806 L 28.311 90.889 L 19.713 92.335 L 16.696 88.267 L 20.575 80.459 L 18.718 76.534 L 10.222 74.579 L 8.991 69.667 L 15.563 63.937 L 15.35 59.6 L 8.248 54.542 L 8.991 49.533 L 17.255 46.755 L 18.718 42.666 L 14.093 35.276 L 16.696 30.933 L 25.394 31.528 L 28.311 28.311 L 26.865 19.713 L 30.933 16.696 L 38.741 20.575 L 42.666 18.718 L 44.621 10.222 L 49.533 8.991 L 55.263 15.563 L 59.6 15.35 L 64.658 8.248 L 69.667 8.991 L 72.445 17.255 L 76.534 18.718 L 83.924 14.093 L 88.267 16.696 L 87.672 25.394 L 90.889 28.311 L 99.487 26.865 L 102.504 30.933 L 98.625 38.741 L 100.482 42.666 L 108.978 44.621 L 110.209 49.533 L 103.637 55.263 Z" class="cut gear-outline" data-teeth="16" data-pitch-radius-mm="48" data-root-radius-mm="44.25" data-outer-radius-mm="51.6"/>
+  <circle cx="59.6" cy="59.6" r="2.5" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="5.0"/>
+  <circle cx="59.6" cy="59.6" r="48" class="score pitch-circle"/>
+  <circle cx="80" cy="59.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="0" data-hole-radius-mm="20.4"/>
+  <circle cx="59.6" cy="80" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="1" data-hole-radius-mm="20.4"/>
+  <circle cx="39.2" cy="59.6" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="2" data-hole-radius-mm="20.4"/>
+  <circle cx="59.6" cy="39.2" r="2.5" class="drill linkage-hole bracket-hole" data-hole-role="linkage-bracket" data-hole-diameter-mm="5.0" data-hole-ring="0" data-hole-index="3" data-hole-radius-mm="20.4"/>
+  <text x="59.6" y="117.2" class="label" text-anchor="middle">G16 fast/small / 16T</text>
+</svg>
