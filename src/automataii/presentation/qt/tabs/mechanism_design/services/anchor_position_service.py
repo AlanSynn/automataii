@@ -26,6 +26,11 @@ from automataii.presentation.qt.tabs.cam_geometry import (
     cam_follower_base_scene,
     cam_scene_unit_scale,
 )
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
 
 from .transform_service import TransformService
 
@@ -158,7 +163,9 @@ class AnchorPositionService:
         params = layer_data.get("params", {})
         r1 = params.get("r1", 30)
         r2 = params.get("r2", 50)
-        distance = r1 + r2
+        profile = physical_profile_from_params(params)
+        clearance = gear_clearance_from_params(params, profile=profile)
+        distance = gear_center_distance(r1, r2, clearance, profile=profile)
 
         gear1_center_orig = np.array([0, 0])
         gear2_center_orig = np.array([distance, 0])

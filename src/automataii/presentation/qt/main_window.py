@@ -16,6 +16,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QCloseEvent, QFont, QPainterPath
 from PyQt6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QGraphicsItem,
     QGraphicsPixmapItem,
@@ -53,6 +54,7 @@ from automataii.presentation.qt.animation import AcceleratedAnimationScheduler
 from automataii.presentation.qt.graphics_items.part_item import CharacterPartItem
 from automataii.presentation.qt.kinematics.ik_manager import IKManager
 from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in models_pydantic
+from automataii.presentation.qt.physical_context_store import PhysicalKitContextStore
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
 from automataii.presentation.qt.tabs.landing_tab import LandingTab
@@ -69,6 +71,9 @@ from automataii.presentation.qt.windows.components import (
     WorkspaceLayoutManager,
     get_default_project_dir,
     get_project_storage_dir,
+)
+from automataii.shared.physical_kit import (
+    PhysicalKitContext,
 )
 from automataii.utils.config import AppConfig
 from automataii.utils.paths import resolve_path
@@ -621,8 +626,8 @@ class AutomataDesigner(QMainWindow):
         self.dark_style = DARK_STYLE
 
         self.visualization_layer_x_offset = 10.0  # Horizontal offset for visualization layers
-        self._grid_system_enabled = True
-        self._grid_cell_size_cm = 2.5
+        self._physical_context_store = PhysicalKitContextStore(parent=self)
+        self._options_dialog: QDialog | None = None
         self._auto_scale_character_to_dummy_next_load = False
         self._suppress_project_data_cleared_ui_once = False
         self._character_swap_load_in_progress = False
@@ -700,6 +705,51 @@ class AutomataDesigner(QMainWindow):
         self.statusBar().showMessage("Ready")
         logging.info("AutomataDesigner initialized.")
 
+    def _ensure_physical_context_store(self) -> PhysicalKitContextStore:
+        """Return the single runtime physical context owner, creating it for test shims."""
+        store = self.__dict__.get("_physical_context_store")
+        if isinstance(store, PhysicalKitContextStore):
+            return store
+        store = PhysicalKitContextStore()
+        self.__dict__["_physical_context_store"] = store
+        return store
+
+    @property
+    def _physical_context(self) -> PhysicalKitContext:
+        return self._ensure_physical_context_store().context
+
+    @property
+    def _grid_system_enabled(self) -> bool:
+        return self._physical_context.enabled
+
+    @_grid_system_enabled.setter
+    def _grid_system_enabled(self, value: object) -> None:
+        self._ensure_physical_context_store().update_from_settings(enabled=value)
+
+    @property
+    def _grid_cell_size_cm(self) -> float:
+        return self._physical_context.grid_cell_cm
+
+    @_grid_cell_size_cm.setter
+    def _grid_cell_size_cm(self, value: object) -> None:
+        self._ensure_physical_context_store().update_from_settings(grid_cell_cm=value)
+
+    @property
+    def _grid_pitch_choice(self) -> str:
+        return self._physical_context.grid_pitch_choice
+
+    @_grid_pitch_choice.setter
+    def _grid_pitch_choice(self, value: object) -> None:
+        self._ensure_physical_context_store().update_from_settings(grid_pitch_choice=value)
+
+    @property
+    def _physical_profile(self):
+        return self._physical_context.profile
+
+    @_physical_profile.setter
+    def _physical_profile(self, value: object) -> None:
+        self._ensure_physical_context_store().update_from_settings(profile=value)
+
     def set_updater(self, updater):
         """Set the auto-updater instance"""
         self.updater = updater
@@ -766,11 +816,11 @@ class AutomataDesigner(QMainWindow):
             self.mechanism_foundry_tab.setObjectName("tab_mechanism_foundry")
             self.tab_widget.addTab(self.mechanism_foundry_tab, "Mechanism Foundry")
 
-        # --- Tab 5: Options ---
+        # --- App options ---
+        # Options remain a single live widget/signal source, but are opened from
+        # the top-level Options menu instead of taking a workflow tab slot.
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         self.options_tab.setObjectName("tab_options")
-        if not self.experiment_mode:
-            self.tab_widget.addTab(self.options_tab, "Options")
 
         # --- Connect Signals from LandingTab ---
         self.landing_tab.image_selected.connect(self._handle_landing_image_selected)
@@ -831,6 +881,8 @@ class AutomataDesigner(QMainWindow):
             self.editor_tab.toggle_part_properties_panel_visibility
         )
         self.options_tab.setting_changed.connect(self._handle_option_change)
+        if hasattr(self.options_tab, "physicalContextChanged"):
+            self.options_tab.physicalContextChanged.connect(self._handle_physical_context_change)
         # Connect advanced processing visibility toggle
         if hasattr(self.options_tab, "advancedProcessingVisibilityChanged") and hasattr(
             self.image_proc_tab, "_toggle_detailed_processing_visibility"
@@ -863,11 +915,16 @@ class AutomataDesigner(QMainWindow):
                 logging.exception("Failed to connect physics snap mode option")
 
         if hasattr(self.options_tab, "set_grid_system_input"):
+            context = self._physical_context
             self.options_tab.set_grid_system_input(
-                self._grid_system_enabled,
-                self._grid_cell_size_cm,
+                context.enabled,
+                context.grid_cell_cm,
+                context.grid_pitch_choice,
             )
-        self._apply_grid_system_settings()
+        self._ensure_physical_context_store().context_changed.connect(
+            self._apply_physical_context
+        )
+        self._apply_physical_context(self._physical_context)
 
         # Connect menu actions using ActionManager
         self.action_manager.connect_action("new_project", self.new_project_ssot)
@@ -890,6 +947,7 @@ class AutomataDesigner(QMainWindow):
         self.action_manager.connect_action("redo", self.redo_ssot)
         self.action_manager.connect_action("check_updates", self.check_for_updates)
         self.action_manager.connect_action("about", self.show_about_dialog)
+        self.action_manager.connect_action("preferences", self.show_options_dialog)
         self.action_manager.connect_action("save_workspace_layout", self.save_workspace_layout)
         self.action_manager.connect_action(
             "restore_workspace_layout", self.restore_workspace_layout
@@ -2807,15 +2865,12 @@ class AutomataDesigner(QMainWindow):
             setting_name == "unit_system"
         ):  # Assuming this will be the setting_name from OptionsTab
             self._handle_unit_changed(str(value))
-        elif setting_name == "grid_system_enabled":
-            self._grid_system_enabled = bool(value)
-            self._apply_grid_system_settings()
-        elif setting_name == "grid_cell_size_cm":
-            try:
-                self._grid_cell_size_cm = max(0.1, float(value))
-            except (TypeError, ValueError):
-                self._grid_cell_size_cm = 2.5
-            self._apply_grid_system_settings()
+        elif setting_name in {"grid_system_enabled", "grid_cell_size_cm", "grid_pitch_choice"}:
+            logging.debug(
+                "MainWindow: ignored legacy grid setting_changed %s; "
+                "physicalContextChanged is the runtime mutation path.",
+                setting_name,
+            )
         elif setting_name == "performance_preset":
             try:
                 preset = str(value)
@@ -2833,6 +2888,21 @@ class AutomataDesigner(QMainWindow):
                 logging.warning("ImageProcessingTab does not have set_debug_mode method.")
         else:
             logging.warning(f"Unhandled option change: {setting_name}")
+
+    def show_options_dialog(self) -> None:
+        """Open the live Options settings panel from the menubar."""
+        if self._options_dialog is None:
+            dialog = QDialog(self)
+            dialog.setObjectName("optionsDialog")
+            dialog.setWindowTitle("Options")
+            dialog.resize(520, 640)
+            layout = QVBoxLayout(dialog)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.addWidget(self.options_tab)
+            self._options_dialog = dialog
+        self._options_dialog.show()
+        self._options_dialog.raise_()
+        self._options_dialog.activateWindow()
 
     def show_about_dialog(self):
         """Displays the 'About' dialog."""
@@ -2882,19 +2952,52 @@ class AutomataDesigner(QMainWindow):
 
         self.statusBar().showMessage(f"Display unit set to {unit}", 3000)
 
+    def _handle_physical_context_change(self, context: object) -> None:
+        """Adopt the typed physical context emitted by Options."""
+        if isinstance(context, PhysicalKitContext):
+            self._ensure_physical_context_store().set_context(context)
+
     def _apply_grid_system_settings(self) -> None:
-        enabled = bool(self._grid_system_enabled)
-        cell_cm = max(0.1, float(self._grid_cell_size_cm))
+        """Compatibility wrapper for older tests/callers; store owns the context."""
+        self._apply_physical_context(self._physical_context)
+
+    def _apply_physical_context(self, context: PhysicalKitContext) -> None:
+        """Fan out the single runtime physical context to context-aware tabs."""
+        if hasattr(self, "options_tab") and self.options_tab and hasattr(
+            self.options_tab,
+            "set_grid_system_input",
+        ):
+            self.options_tab.set_grid_system_input(
+                context.enabled,
+                context.grid_cell_cm,
+                context.grid_pitch_choice,
+            )
 
         if hasattr(self, "mechanism_foundry_tab") and self.mechanism_foundry_tab:
-            setter = getattr(self.mechanism_foundry_tab, "set_grid_system", None)
+            setter = getattr(self.mechanism_foundry_tab, "set_physical_context", None)
             if callable(setter):
-                setter(enabled, cell_cm)
+                setter(context)
+            else:
+                profile_setter = getattr(self.mechanism_foundry_tab, "set_physical_profile", None)
+                if callable(profile_setter):
+                    profile_setter(context.profile)
+                grid_setter = getattr(self.mechanism_foundry_tab, "set_grid_system", None)
+                if callable(grid_setter):
+                    grid_setter(context.enabled, context.grid_cell_cm)
 
         if hasattr(self, "mechanism_design_tab") and self.mechanism_design_tab:
-            setter = getattr(self.mechanism_design_tab, "configure_grid_system", None)
+            setter = getattr(self.mechanism_design_tab, "set_physical_context", None)
             if callable(setter):
-                setter(enabled, cell_cm)
+                setter(context)
+            else:
+                grid_setter = getattr(self.mechanism_design_tab, "configure_grid_system", None)
+                if callable(grid_setter):
+                    grid_setter(
+                        context.enabled,
+                        context.grid_cell_cm,
+                        profile=context.profile,
+                        pitch_choice_key=context.grid_pitch_choice,
+                    )
 
     def _handle_project_manager_error(self, error_message: str):
         """Handles error signals from the ProjectDataManager."""

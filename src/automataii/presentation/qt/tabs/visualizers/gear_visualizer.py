@@ -19,6 +19,12 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
 )
 
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
+
 from .protocol import BaseMechanismVisualizer
 
 if TYPE_CHECKING:
@@ -57,6 +63,7 @@ class GearVisualizer(BaseMechanismVisualizer):
         """
         to_scene_coords = self._get_transform_function(mechanism_data, transform_function)
         params = mechanism_data.get("params", {})
+        profile = physical_profile_from_params(params)
 
         if not to_scene_coords or not params:
             return []
@@ -64,8 +71,10 @@ class GearVisualizer(BaseMechanismVisualizer):
         r1 = params.get("r1", 30)
         r2 = params.get("r2", 50)
 
-        # Gear centers in original coordinates - gears touching
-        distance = r1 + r2
+        # Gear centers in original coordinates - gears touching with the shared
+        # physical-kit clearance contract.
+        clearance = gear_clearance_from_params(params, profile=profile)
+        distance = gear_center_distance(r1, r2, clearance, profile=profile)
         gear1_center_orig = np.array([0, 0])
         gear2_center_orig = np.array([distance, 0])
 
@@ -119,6 +128,7 @@ class GearVisualizer(BaseMechanismVisualizer):
             gear2_center_orig,
             r1,
             r2,
+            params,
         )
 
         return visual_items
@@ -261,6 +271,7 @@ class GearVisualizer(BaseMechanismVisualizer):
         gear2_center_orig: np.ndarray,
         r1: float,
         r2: float,
+        params: dict[str, Any],
     ) -> None:
         """Add diagnostic overlays for gear mechanism.
 
@@ -278,6 +289,7 @@ class GearVisualizer(BaseMechanismVisualizer):
             r2: Gear 2 radius in original units
         """
         try:
+            profile = physical_profile_from_params(params)
             dashed = QPen(QColor("#7f8c8d"), 1, Qt.PenStyle.DashLine)
 
             # Pitch circles
@@ -303,7 +315,12 @@ class GearVisualizer(BaseMechanismVisualizer):
 
             # Center distance check
             d_orig = float(np.linalg.norm(gear2_center_orig - gear1_center_orig))
-            desired = float(r1 + r2)
+            desired = gear_center_distance(
+                r1,
+                r2,
+                gear_clearance_from_params(params, profile=profile),
+                profile=profile,
+            )
             mismatch = abs(d_orig - desired)
 
             if mismatch > 0.5:

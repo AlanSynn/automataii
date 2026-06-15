@@ -2,16 +2,25 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import TypeVar
 
 from automataii.application.mechanism_transfer import (
     MechanismTransferPackage,
     MechanismTransferService,
     TransferValidationError,
 )
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
+    allowed_linkage_lengths_mm,
+)
 
 from .catalog import MechanismEntry, MechanismParameter
 from .mechanism_types import canonical_mechanism_type, is_visible_foundry_mechanism_type
 from .service import MechanismCatalogService
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -51,78 +60,202 @@ class MechanismConfiguration:
         return values
 
 
-MECHANISM_CONFIGS: dict[str, MechanismConfiguration] = {
-    "four_bar": MechanismConfiguration(
-        mechanism_type="four_bar",
-        parameter_specs=(
-            ParameterSpec(
-                "ground_link", "Ground Link (mm)", 30.0, 600.0, 150.0, "float", "mm", step=1.0
+def build_mechanism_configs(
+    profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+    grid_cell_cm: float = DEFAULT_GRID_CELL_CM,
+) -> dict[str, MechanismConfiguration]:
+    """Build Foundry defaults from the active physical-kit profile."""
+
+    linkage_lengths_mm = allowed_linkage_lengths_mm(grid_cell_cm, profile=profile)
+    if not linkage_lengths_mm:
+        raise ValueError("PhysicalKitProfile must define at least one linkage length cell")
+    if not profile.gear_presets:
+        raise ValueError("PhysicalKitProfile must define at least one gear preset")
+    if not profile.cam_presets:
+        raise ValueError("PhysicalKitProfile must define at least one cam preset")
+
+    def _at(values: Sequence[T], index: int) -> T:
+        return values[min(index, len(values) - 1)]
+
+    min_linkage_mm = min(linkage_lengths_mm)
+    max_linkage_mm = max(linkage_lengths_mm)
+    gear_teeth = tuple(preset.teeth for preset in profile.gear_presets)
+    min_gear_teeth = min(gear_teeth)
+    max_gear_teeth = max(gear_teeth)
+    default_cam = _at(profile.cam_presets, 1).params_mm(grid_cell_cm)
+
+    return {
+        "four_bar": MechanismConfiguration(
+            mechanism_type="four_bar",
+            parameter_specs=(
+                ParameterSpec(
+                    "ground_link",
+                    "Ground Link (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 3),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "input_link",
+                    "Input Link (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 0),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "coupler_link",
+                    "Coupler Link (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 2),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "output_link",
+                    "Output Link (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 2),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
             ),
-            ParameterSpec(
-                "input_link", "Input Link (mm)", 10.0, 300.0, 40.0, "float", "mm", step=1.0
-            ),
-            ParameterSpec(
-                "coupler_link", "Coupler Link (mm)", 20.0, 500.0, 120.0, "float", "mm", step=1.0
-            ),
-            ParameterSpec(
-                "output_link", "Output Link (mm)", 20.0, 500.0, 130.0, "float", "mm", step=1.0
-            ),
+            extra_defaults={"input_angle": 30.0},
         ),
-        extra_defaults={"input_angle": 30.0},
-    ),
-    "slider_crank": MechanismConfiguration(
-        mechanism_type="slider_crank",
-        parameter_specs=(
-            ParameterSpec(
-                "crank_length", "Crank Length (mm)", 40.0, 160.0, 80.0, "float", "mm", step=1.0
+        "slider_crank": MechanismConfiguration(
+            mechanism_type="slider_crank",
+            parameter_specs=(
+                ParameterSpec(
+                    "crank_length",
+                    "Crank Length (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 1),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "rod_length",
+                    "Rod Length (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 3),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "gas_pressure",
+                    "Gas Pressure (kPa)",
+                    50.0,
+                    2000.0,
+                    500.0,
+                    "float",
+                    "kPa",
+                    step=10.0,
+                ),
             ),
-            ParameterSpec(
-                "rod_length", "Rod Length (mm)", 50.0, 220.0, 140.0, "float", "mm", step=1.0
-            ),
-            ParameterSpec(
-                "gas_pressure", "Gas Pressure (kPa)", 50.0, 2000.0, 500.0, "float", "kPa", step=10.0
-            ),
+            extra_defaults={"input_angle": 30.0},
         ),
-        extra_defaults={"input_angle": 30.0},
-    ),
-    "cam_follower": MechanismConfiguration(
-        mechanism_type="cam_follower",
-        parameter_specs=(
-            ParameterSpec(
-                "cam_radius", "Cam Radius (mm)", 20.0, 150.0, 60.0, "float", "mm", step=1.0
+        "cam_follower": MechanismConfiguration(
+            mechanism_type="cam_follower",
+            parameter_specs=(
+                ParameterSpec(
+                    "cam_radius",
+                    "Cam Radius (mm)",
+                    _at(linkage_lengths_mm, 0),
+                    _at(linkage_lengths_mm, 3),
+                    default_cam["base_radius"],
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "cam_offset",
+                    "Cam Offset (mm)",
+                    0.0,
+                    _at(linkage_lengths_mm, 1),
+                    default_cam["eccentricity"],
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "follower_length",
+                    "Follower Length (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 3),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec("cam_lobes", "Cam Lobes", 1, 4, 1, "int", "lobes", step=1.0),
+                ParameterSpec(
+                    "profile_harmonic",
+                    "Profile Variation",
+                    0.0,
+                    0.8,
+                    default_cam["profile_harmonic"],
+                    "float",
+                    "ratio",
+                    step=0.05,
+                ),
             ),
-            ParameterSpec(
-                "cam_offset", "Cam Offset (mm)", 5.0, 60.0, 20.0, "float", "mm", step=1.0
-            ),
-            ParameterSpec(
-                "follower_length",
-                "Follower Length (mm)",
-                30.0,
-                200.0,
-                100.0,
-                "float",
-                "mm",
-                step=1.0,
-            ),
-            ParameterSpec("cam_lobes", "Cam Lobes", 1, 4, 1, "int", "lobes", step=1.0),
-            ParameterSpec(
-                "profile_harmonic", "Profile Variation", 0.0, 0.8, 0.3, "float", "ratio", step=0.05
-            ),
+            extra_defaults={"input_angle": 30.0},
         ),
-        extra_defaults={"input_angle": 30.0},
-    ),
-    "gear_train": MechanismConfiguration(
-        mechanism_type="gear_train",
-        parameter_specs=(
-            ParameterSpec("gear1_teeth", "Drive Gear Teeth", 8, 24, 12, "int", "teeth", step=1.0),
-            ParameterSpec("gear2_teeth", "Driven Gear Teeth", 8, 24, 18, "int", "teeth", step=1.0),
-            ParameterSpec(
-                "input_torque", "Input Torque (Nm)", 10.0, 1000.0, 200.0, "float", "Nm", step=10.0
+        "gear_train": MechanismConfiguration(
+            mechanism_type="gear_train",
+            parameter_specs=(
+                ParameterSpec(
+                    "gear1_teeth",
+                    "Drive Gear Teeth",
+                    min_gear_teeth,
+                    max_gear_teeth,
+                    _at(profile.gear_presets, 0).teeth,
+                    "int",
+                    "teeth",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "gear2_teeth",
+                    "Driven Gear Teeth",
+                    min_gear_teeth,
+                    max_gear_teeth,
+                    _at(profile.gear_presets, 2).teeth,
+                    "int",
+                    "teeth",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "input_torque",
+                    "Input Torque (Nm)",
+                    10.0,
+                    1000.0,
+                    200.0,
+                    "float",
+                    "Nm",
+                    step=10.0,
+                ),
             ),
+            extra_defaults={"input_angle": 30.0},
         ),
-        extra_defaults={"input_angle": 30.0},
-    ),
-}
+    }
+
+
+# Compatibility defaults for tests/legacy callers only. Runtime Foundry views
+# use instance-level configs built from the app-owned physical context.
+MECHANISM_CONFIGS: dict[str, MechanismConfiguration] = build_mechanism_configs()
 
 
 def _build_entry_from_config(
@@ -159,67 +292,78 @@ def _build_entry_from_config(
     )
 
 
-_FALLBACK_ITEMS: Sequence[MechanismItem] = (
-    MechanismItem(
-        category_key="__fallback__",
-        mechanism_key="four_bar",
-        display_name="Four-Bar Linkage",
-        entry=_build_entry_from_config(
-            key="four_bar",
+def build_fallback_items(
+    configs: Mapping[str, MechanismConfiguration],
+) -> Sequence[MechanismItem]:
+    return (
+        MechanismItem(
+            category_key="__fallback__",
+            mechanism_key="four_bar",
             display_name="Four-Bar Linkage",
-            description="Classic four-bar mechanism for converting rotary to oscillating motion.",
-            mech_type="four_bar_linkage",
-            config=MECHANISM_CONFIGS["four_bar"],
+            entry=_build_entry_from_config(
+                key="four_bar",
+                display_name="Four-Bar Linkage",
+                description="Classic four-bar mechanism for converting rotary to oscillating motion.",
+                mech_type="four_bar_linkage",
+                config=configs["four_bar"],
+            ),
+            mechanism_type="four_bar",
         ),
-        mechanism_type="four_bar",
-    ),
-    MechanismItem(
-        category_key="__fallback__",
-        mechanism_key="slider_crank",
-        display_name="Slider-Crank",
-        entry=_build_entry_from_config(
-            key="slider_crank",
+        MechanismItem(
+            category_key="__fallback__",
+            mechanism_key="slider_crank",
             display_name="Slider-Crank",
-            description="Converts rotary motion into reciprocating motion with a piston.",
-            mech_type="slider_crank",
-            config=MECHANISM_CONFIGS["slider_crank"],
+            entry=_build_entry_from_config(
+                key="slider_crank",
+                display_name="Slider-Crank",
+                description="Converts rotary motion into reciprocating motion with a piston.",
+                mech_type="slider_crank",
+                config=configs["slider_crank"],
+            ),
+            mechanism_type="slider_crank",
         ),
-        mechanism_type="slider_crank",
-    ),
-    MechanismItem(
-        category_key="__fallback__",
-        mechanism_key="cam_follower",
-        display_name="Cam-Follower",
-        entry=_build_entry_from_config(
-            key="cam_follower",
+        MechanismItem(
+            category_key="__fallback__",
+            mechanism_key="cam_follower",
             display_name="Cam-Follower",
-            description="Basic cam mechanism with follower for motion control.",
-            mech_type="cam_follower",
-            config=MECHANISM_CONFIGS["cam_follower"],
+            entry=_build_entry_from_config(
+                key="cam_follower",
+                display_name="Cam-Follower",
+                description="Basic cam mechanism with follower for motion control.",
+                mech_type="cam_follower",
+                config=configs["cam_follower"],
+            ),
+            mechanism_type="cam_follower",
         ),
-        mechanism_type="cam_follower",
-    ),
-    MechanismItem(
-        category_key="__fallback__",
-        mechanism_key="gear_train",
-        display_name="Gear Train",
-        entry=_build_entry_from_config(
-            key="gear_train",
+        MechanismItem(
+            category_key="__fallback__",
+            mechanism_key="gear_train",
             display_name="Gear Train",
-            description="Two meshing gears for speed and torque conversion.",
-            mech_type="gear_train",
-            config=MECHANISM_CONFIGS["gear_train"],
+            entry=_build_entry_from_config(
+                key="gear_train",
+                display_name="Gear Train",
+                description="Two meshing gears for speed and torque conversion.",
+                mech_type="gear_train",
+                config=configs["gear_train"],
+            ),
+            mechanism_type="gear_train",
         ),
-        mechanism_type="gear_train",
-    ),
-)
+    )
 
 
 class MechanismFoundryController:
     """Controller coordinating catalog and configuration data for the Foundry tab."""
 
-    def __init__(self, service: MechanismCatalogService | None = None) -> None:
+    def __init__(
+        self,
+        service: MechanismCatalogService | None = None,
+        *,
+        physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+        grid_cell_cm: float = DEFAULT_GRID_CELL_CM,
+    ) -> None:
         self._service = service or MechanismCatalogService()
+        self._configs = build_mechanism_configs(physical_profile, grid_cell_cm)
+        self._fallback_items = build_fallback_items(self._configs)
         self._mechanisms: list[MechanismItem] = []
         self._load_catalog_items()
         self._ensure_fallback_items()
@@ -254,7 +398,10 @@ class MechanismFoundryController:
 
     def get_configuration(self, mechanism_type: str | None = None) -> MechanismConfiguration | None:
         target = mechanism_type or (self._selection.mechanism_type if self._selection else None)
-        return self.default_configuration(target)
+        if target is None:
+            return None
+        canonical_type = self._map_catalog_type(target)
+        return self._configs.get(canonical_type or target)
 
     def initial_parameters(self, mechanism_type: str | None = None) -> dict[str, float]:
         config = self.get_configuration(mechanism_type)
@@ -262,14 +409,20 @@ class MechanismFoundryController:
 
     @staticmethod
     def default_configuration(mechanism_type: str | None) -> MechanismConfiguration | None:
+        """Return the default-kit configuration for legacy/static callers.
+
+        New runtime code should use an instance created with the active
+        ``PhysicalKitProfile``/grid pitch and call ``get_configuration``.
+        """
         if mechanism_type is None:
             return None
         canonical_type = MechanismFoundryController._map_catalog_type(mechanism_type)
-        return MECHANISM_CONFIGS.get(canonical_type or mechanism_type)
+        return build_mechanism_configs().get(canonical_type or mechanism_type)
 
     @staticmethod
     def fallback_items() -> Sequence[MechanismItem]:
-        return _FALLBACK_ITEMS
+        """Return default-kit fallback items for legacy/static callers."""
+        return build_fallback_items(build_mechanism_configs())
 
     def _load_catalog_items(self) -> None:
         try:
@@ -279,7 +432,7 @@ class MechanismFoundryController:
         for category in categories:
             for entry_key, entry in category.mechanisms.items():
                 mechanism_type = self._map_catalog_type(entry.mech_type)
-                if mechanism_type not in MECHANISM_CONFIGS:
+                if mechanism_type not in self._configs:
                     continue
                 if not is_visible_foundry_mechanism_type(mechanism_type):
                     continue
@@ -295,7 +448,7 @@ class MechanismFoundryController:
 
     def _ensure_fallback_items(self) -> None:
         existing_types = {item.mechanism_type for item in self._mechanisms}
-        for fallback in _FALLBACK_ITEMS:
+        for fallback in self._fallback_items:
             if not is_visible_foundry_mechanism_type(fallback.mechanism_type):
                 continue
             if fallback.mechanism_type not in existing_types:

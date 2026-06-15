@@ -86,7 +86,7 @@ def main() -> None:
     parser.add_argument(
         "--experiment",
         action="store_true",
-        help="Enable experimental mode (hides Mechanism Foundry and Options tabs).",
+        help="Enable experimental mode (hides Mechanism Foundry tab; Options remain in the menu).",
     )
     parser.add_argument(
         "--editing", action="store_true", help="Enable interactive segmentation editing mode."

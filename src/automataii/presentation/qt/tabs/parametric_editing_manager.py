@@ -35,6 +35,14 @@ from automataii.presentation.qt.tabs.parametric.components import (
     ParameterMapper,
     VisualUpdater,
 )
+from automataii.shared.physical_kit import (
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
+    gear_center_distance,
+    grid_enabled_from_params,
+    physical_profile_from_params,
+    snap_gear_params,
+)
 
 if TYPE_CHECKING:
     pass
@@ -75,12 +83,26 @@ class ParametricEditingManager:
         self.physics_snap_mode = "balanced"
 
         # Initialize components
-        self._parameter_mapper = ParameterMapper()
+        self._physical_profile: PhysicalKitProfile = getattr(
+            parent_tab,
+            "_physical_profile",
+            DEFAULT_PHYSICAL_KIT_PROFILE,
+        )
+        self._parameter_mapper = ParameterMapper(self._physical_profile)
         self._animation_coordinator = AnimationCoordinator()
         self._visual_updater = VisualUpdater()
 
         # Logger
         self._logger = logging.getLogger(__name__)
+
+    def set_physical_profile(self, profile: PhysicalKitProfile) -> None:
+        self._physical_profile = profile
+        self._parameter_mapper.set_physical_profile(profile)
+
+    def _profile_for_params(self, params: dict[str, Any]) -> PhysicalKitProfile:
+        if "physical_profile_key" in params:
+            return physical_profile_from_params(params)
+        return self._physical_profile
 
     def _initialize_parametric_system(self) -> None:
         """Initialize the parametric editing system."""
@@ -554,8 +576,13 @@ class ParametricEditingManager:
         if not np.isfinite(d) or d < 1e-9:
             return False
 
-        clearance = 2.0 if self.physics_snap_mode in ("fast", "balanced") else 0.0
-        desired = max(0.0, r1 + r2 + clearance)
+        profile = self._profile_for_params(params)
+        clearance = (
+            profile.default_gear_clearance_mm
+            if self.physics_snap_mode in ("fast", "balanced")
+            else 0.0
+        )
+        desired = max(0.0, gear_center_distance(r1, r2, clearance, profile=profile))
 
         if abs(d - desired) <= 0.25:
             return False
@@ -1032,6 +1059,8 @@ class ParametricEditingManager:
         num_frames = 100
         has_explicit_radii = "gear1_radius" in params or "gear2_radius" in params
 
+        if grid_enabled_from_params(params):
+            params.update(snap_gear_params(params, profile=self._profile_for_params(params)))
         r1 = float(params.get("gear1_radius", params.get("r1", 30)))
         r2 = float(params.get("gear2_radius", params.get("r2", 50)))
         if r1 <= 0:

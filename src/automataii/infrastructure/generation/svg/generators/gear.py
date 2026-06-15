@@ -13,6 +13,14 @@ import math
 from typing import Any
 
 from automataii.domain.generation.layout import ScaledBounds
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    gear_teeth_for_radius,
+    gear_teeth_from_params,
+    grid_enabled_from_params,
+    physical_profile_from_params,
+)
 
 
 class GearSVGGenerator:
@@ -28,7 +36,6 @@ class GearSVGGenerator:
     """
 
     # Manufacturing specifications
-    MODULE_MM = 2.0  # Standard gear module
     HUB_RATIO = 0.4  # Hub diameter = 40% of gear diameter
     SHAFT_DIAMETER_MM = 6.0
     MIN_TEETH = 8
@@ -58,6 +65,8 @@ class GearSVGGenerator:
 
         r1 = mm.get("r1_mm", 30.0)
         r2 = mm.get("r2_mm", 20.0)
+        gear_params = self._gear_params_for_mm(mech_data, r1, r2)
+        profile = physical_profile_from_params(gear_params)
 
         # Get centers from key_points or calculate
         kp = mech_data.get("key_points", {})
@@ -70,7 +79,8 @@ class GearSVGGenerator:
             c2 = (float(x2) * factor, float(y2) * factor)
         else:
             c1 = (0.0, 0.0)
-            c2 = (r1 + r2, 0.0)
+            clearance = gear_clearance_from_params(gear_params, profile=profile)
+            c2 = (gear_center_distance(r1, r2, clearance, profile=profile), 0.0)
 
         # Calculate bounds
         xs = [c1[0] - r1, c1[0] + r1, c2[0] - r2, c2[0] + r2]
@@ -93,9 +103,30 @@ class GearSVGGenerator:
         r1p = r1 * scale
         r2p = r2 * scale
 
-        # Calculate teeth
-        teeth1 = max(int(2 * r1 / self.MODULE_MM), self.MIN_TEETH)
-        teeth2 = max(int(2 * r2 / self.MODULE_MM), self.MIN_TEETH)
+        grid_enabled = grid_enabled_from_params(gear_params)
+        teeth1 = max(
+            gear_teeth_from_params(
+                gear_params,
+                ("gear1_teeth",),
+                ("gear1_radius", "r1", "r1_mm"),
+                16,
+                enabled=grid_enabled,
+                profile=profile,
+            ),
+            self.MIN_TEETH,
+        )
+        teeth2 = max(
+            gear_teeth_from_params(
+                gear_params,
+                ("gear2_teeth",),
+                ("gear2_radius", "r2", "r2_mm"),
+                24,
+                enabled=grid_enabled,
+                profile=profile,
+            ),
+            self.MIN_TEETH,
+        )
+        clearance = gear_clearance_from_params(gear_params, profile=profile)
 
         parts = [self._generate_gradients()]
 
@@ -113,13 +144,23 @@ class GearSVGGenerator:
               stroke="#666" stroke-width="0.8" stroke-dasharray="3,3"/>
         <text x="{(c1p[0] + c2p[0]) / 2:.1f}" y="{(c1p[1] + c2p[1]) / 2 - 8:.1f}"
               font-size="7" text-anchor="middle" fill="#666">
-              Center: {r1 + r2:.1f}mm
+              Center: {gear_center_distance(r1, r2, clearance, profile=profile):.1f}mm
         </text>
         """)
 
         # Gear ratio and specs panel
         gear_ratio = r1 / r2 if r2 > 0 else 1.0
-        parts.append(self._generate_spec_panel(bounds, r1, r2, teeth1, teeth2, gear_ratio))
+        parts.append(
+            self._generate_spec_panel(
+                bounds,
+                r1,
+                r2,
+                teeth1,
+                teeth2,
+                gear_ratio,
+                profile.gear_radius_per_tooth_mm,
+            )
+        )
 
         return "".join(parts)
 
@@ -147,6 +188,7 @@ class GearSVGGenerator:
 
         rs = mm.get("r_sun_mm", 20.0)
         rp = mm.get("r_planet_mm", 12.0)
+        profile = physical_profile_from_params(mech_data.get("params", mech_data))
         rr = rs + 2 * rp  # Ring gear radius
         num_planets = 3
 
@@ -190,14 +232,14 @@ class GearSVGGenerator:
         """)
 
         # Sun gear (center)
-        sun_teeth = max(int(2 * rs / self.MODULE_MM), self.MIN_TEETH)
+        sun_teeth = max(gear_teeth_for_radius(rs, profile=profile), self.MIN_TEETH)
         parts.append(
             self._generate_detailed_gear(cp, rsp, sun_teeth, "sun-gradient", "Sun", rs, scale)
         )
 
         # Planet gears
         planet_orbit_r = rs + rp
-        planet_teeth = max(int(2 * rp / self.MODULE_MM), self.MIN_TEETH)
+        planet_teeth = max(gear_teeth_for_radius(rp, profile=profile), self.MIN_TEETH)
 
         for i in range(num_planets):
             angle = (2 * math.pi * i) / num_planets
@@ -336,6 +378,7 @@ class GearSVGGenerator:
         teeth1: int,
         teeth2: int,
         gear_ratio: float,
+        radius_per_tooth_mm: float,
     ) -> str:
         """Generate gear specifications panel."""
         return f"""
@@ -352,7 +395,7 @@ class GearSVGGenerator:
                 • Diameter: {2 * r1:.1f}mm ({teeth1} teeth)
             </text>
             <text x="{bounds.width - 155}" y="62" font-size="6">
-                • Module: {self.MODULE_MM:.1f}mm
+                • Radius pitch: {radius_per_tooth_mm:.1f}mm/tooth
             </text>
             <text x="{bounds.width - 155}" y="87" font-size="7" font-weight="bold" fill="#8e44ad">
                 Gear 2 (Driven):
@@ -361,7 +404,7 @@ class GearSVGGenerator:
                 • Diameter: {2 * r2:.1f}mm ({teeth2} teeth)
             </text>
             <text x="{bounds.width - 155}" y="109" font-size="6">
-                • Module: {self.MODULE_MM:.1f}mm
+                • Radius pitch: {radius_per_tooth_mm:.1f}mm/tooth
             </text>
             <text x="{bounds.width - 155}" y="130" font-size="7" font-weight="bold" fill="#e74c3c">
                 Ratio: {gear_ratio:.2f}:1
@@ -378,3 +421,29 @@ class GearSVGGenerator:
                 if n in rwp:
                     mm[n] = float(rwp[n])
         return mm
+
+    def _gear_params_for_mm(
+        self,
+        mech_data: dict[str, Any],
+        r1_mm: float,
+        r2_mm: float,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        for source_key in ("params", "parameters"):
+            source = mech_data.get(source_key, {})
+            if isinstance(source, dict):
+                params.update(source)
+        real_world_params = mech_data.get("real_world_params", {})
+        if isinstance(real_world_params, dict):
+            params.update(real_world_params)
+            if "gear_clearance_mm" in real_world_params:
+                params["gear_clearance"] = real_world_params["gear_clearance_mm"]
+            if "mesh_clearance_mm" in real_world_params:
+                params["mesh_clearance"] = real_world_params["mesh_clearance_mm"]
+        params.setdefault("r1", r1_mm)
+        params.setdefault("r2", r2_mm)
+        params.setdefault("gear1_radius", r1_mm)
+        params.setdefault("gear2_radius", r2_mm)
+        params.setdefault("r1_mm", r1_mm)
+        params.setdefault("r2_mm", r2_mm)
+        return params

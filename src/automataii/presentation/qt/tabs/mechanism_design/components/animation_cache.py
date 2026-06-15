@@ -26,6 +26,11 @@ from automataii.presentation.qt.mechanism_parameter_utils import (
 from automataii.presentation.qt.mechanism_parameter_utils import (
     positive_finite_float as _positive_finite_float,
 )
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
 
 if TYPE_CHECKING:
     pass
@@ -371,9 +376,11 @@ class GearCache:
         key_points: dict[str, Any] | None = None,
     ) -> GearCache:
         """Create cache from gear parameters."""
+        profile = physical_profile_from_params(params)
         r1 = _positive_finite_float(params.get("r1", params.get("gear1_radius", 30)), 1.0)
         r2 = _positive_finite_float(params.get("r2", params.get("gear2_radius", 50)), 1.0)
-        distance = r1 + r2
+        clearance = gear_clearance_from_params(params, profile=profile)
+        distance = gear_center_distance(r1, r2, clearance, profile=profile)
         key_points = key_points or {}
         gear_data = gear_data or {}
         gear1_center = _first_point(

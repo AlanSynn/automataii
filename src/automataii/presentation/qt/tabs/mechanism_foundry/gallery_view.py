@@ -4,22 +4,40 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QGridLayout,
     QLabel,
+    QLayout,
     QScrollArea,
+    QSpacerItem,
     QVBoxLayout,
     QWidget,
 )
 
 from automataii.application.mechanism_foundry import ContentLoader, MechanismFoundryController
 from automataii.presentation.qt.tabs.mechanism_foundry.gallery_thumbnail import GalleryThumbnail
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
+)
 
 
 class GalleryView(QWidget):
     mechanism_selected = pyqtSignal(str)
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        controller: MechanismFoundryController | None = None,
+        physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+        grid_cell_cm: float = DEFAULT_GRID_CELL_CM,
+    ):
         super().__init__(parent)
-        self.controller = MechanismFoundryController()
+        self.controller = controller or MechanismFoundryController(
+            physical_profile=physical_profile,
+            grid_cell_cm=grid_cell_cm,
+        )
         self.content_loader = ContentLoader()
+        self._grid_layout: QGridLayout | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -60,7 +78,26 @@ class GalleryView(QWidget):
         grid_layout = QGridLayout()
         grid_layout.setSpacing(16)
         grid_layout.setContentsMargins(0, 0, 0, 0)
+        self._grid_layout = grid_layout
+        self._populate_gallery(grid_layout)
 
+        scroll_layout.addLayout(grid_layout)
+        scroll_layout.addStretch()
+
+        scroll_area.setWidget(scroll_widget)
+        layout.addWidget(scroll_area)
+
+    def _on_thumbnail_clicked(self, mechanism_type: str) -> None:
+        self.mechanism_selected.emit(mechanism_type)
+
+    def set_controller(self, controller: MechanismFoundryController) -> None:
+        """Refresh gallery content from the active Foundry controller instance."""
+        self.controller = controller
+        if self._grid_layout is not None:
+            self._clear_layout(self._grid_layout)
+            self._populate_gallery(self._grid_layout)
+
+    def _populate_gallery(self, grid_layout: QGridLayout) -> None:
         mechanisms = self.controller.list_mechanisms()
         columns = 3
         row = 0
@@ -87,14 +124,20 @@ class GalleryView(QWidget):
                 col = 0
                 row += 1
 
-        scroll_layout.addLayout(grid_layout)
-        scroll_layout.addStretch()
-
-        scroll_area.setWidget(scroll_widget)
-        layout.addWidget(scroll_area)
-
-    def _on_thumbnail_clicked(self, mechanism_type: str) -> None:
-        self.mechanism_selected.emit(mechanism_type)
+    @staticmethod
+    def _clear_layout(layout: QLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            if item is None:
+                break
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+            child_layout = item.layout()
+            if child_layout is not None:
+                GalleryView._clear_layout(child_layout)
+            if isinstance(item, QSpacerItem):
+                del item
 
     @staticmethod
     def _build_gallery_description(goal: str, gallery_summary: str | None) -> str:

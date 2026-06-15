@@ -181,6 +181,7 @@ class TestMenuActions:
             "new_project",
             "export",
             "check_updates",
+            "preferences",
         ]
 
         for action_id in expected_actions:
@@ -303,10 +304,55 @@ class TestProductionBranding:
                 "Path Editor",
                 "Mechanism Design",
                 "Mechanism Foundry",
-                "Options",
             ]
             assert "Lab" not in tab_titles
+            assert "Options" not in tab_titles
+            menu_titles = [action.text().replace("&", "") for action in window.menuBar().actions()]
+            assert "Options" in menu_titles
+            assert window.action_manager.get_action("preferences") is not None
             assert not hasattr(window, "lab_tab")
+        finally:
+            window.close()
+        assert app is not None
+
+    def test_options_menu_opens_reusable_live_preferences_dialog(self):
+        from PyQt6.QtWidgets import QApplication, QDialog
+
+        from automataii.presentation.qt.main_window import AutomataDesigner
+
+        app = QApplication.instance() or QApplication([])
+        window = AutomataDesigner(experiment_mode=True)
+        try:
+            tab_titles = [
+                window.tab_widget.tabText(index) for index in range(window.tab_widget.count())
+            ]
+            assert "Options" not in tab_titles
+
+            preferences_action = window.action_manager.get_action("preferences")
+            assert preferences_action is not None
+
+            preferences_action.trigger()
+            app.processEvents()
+
+            dialog = window.findChild(QDialog, "optionsDialog")
+            assert dialog is window._options_dialog
+            assert dialog is not None
+            assert dialog.isVisible()
+            assert window.options_tab.parentWidget() is dialog
+
+            window.options_tab.grid_pitch_combo.setCurrentIndex(
+                window.options_tab.grid_pitch_combo.findData("2_5cm")
+            )
+            assert window._grid_pitch_choice == "2_5cm"
+            assert window._grid_cell_size_cm == 2.5
+
+            dialog.close()
+            app.processEvents()
+            preferences_action.trigger()
+            app.processEvents()
+
+            assert window._options_dialog is dialog
+            assert dialog.isVisible()
         finally:
             window.close()
         assert app is not None

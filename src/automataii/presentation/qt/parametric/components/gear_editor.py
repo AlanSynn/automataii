@@ -15,6 +15,16 @@ import numpy as np
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QColor
 
+from automataii.shared.physical_kit import (
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    gear_center_distance,
+    gear_clearance_from_params,
+    gear_teeth_for_radius,
+    nearest_gear_radius_mm,
+    physical_profile_from_params,
+    snap_gear_params,
+)
+
 from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
 
 
@@ -42,6 +52,12 @@ def _is_finite_point(point: QPointF) -> bool:
     return math.isfinite(point.x()) and math.isfinite(point.y())
 
 
+def _profile_for_params(params: dict[str, Any]):
+    if "physical_profile_key" in params:
+        return physical_profile_from_params(params)
+    return DEFAULT_PHYSICAL_KIT_PROFILE
+
+
 class GearEditor(MechanismEditor):
     """Editor for gear mechanisms with position and size control."""
 
@@ -64,12 +80,18 @@ class GearEditor(MechanismEditor):
         )
         params["r1"] = float(params["gear1_radius"])
         params["r2"] = float(params["gear2_radius"])
+        profile = _profile_for_params(params)
         clearance = _nonnegative_finite_float(
-            params.get("gear_clearance", params.get("mesh_clearance", 2.0)),
-            2.0,
+            params.get(
+                "gear_clearance",
+                params.get("mesh_clearance", profile.default_gear_clearance_mm),
+            ),
+            profile.default_gear_clearance_mm,
         )
         params["gear_clearance"] = clearance
         params["mesh_clearance"] = clearance
+        if self._physical_grid_enabled():
+            params.update(snap_gear_params(params, profile=profile))
 
         if "gear1_x" not in params or "gear1_y" not in params:
             g1 = key_points.get("gear1_center")
@@ -94,7 +116,16 @@ class GearEditor(MechanismEditor):
 
         params.setdefault("gear1_x", 0.0)
         params.setdefault("gear1_y", 0.0)
-        params.setdefault("gear2_x", 100.0)
+        params.setdefault(
+            "gear2_x",
+            float(params.get("gear1_x", 0.0))
+            + gear_center_distance(
+                params.get("gear1_radius"),
+                params.get("gear2_radius"),
+                gear_clearance_from_params(params, profile=profile),
+                profile=profile,
+            ),
+        )
         params.setdefault("gear2_y", 0.0)
 
         # Gear 1 (driver) handles
@@ -115,6 +146,18 @@ class GearEditor(MechanismEditor):
 
         self._create_mesh_handle()
         self._sync_gear_handle_positions()
+
+    def _physical_grid_enabled(self) -> bool:
+        params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
+        raw_value = params.get(
+            "grid_system_enabled",
+            self.mechanism_data.get("grid_system_enabled", True)
+            if hasattr(self, "mechanism_data")
+            else True,
+        )
+        if isinstance(raw_value, str):
+            return raw_value.strip().lower() not in {"0", "false", "no", "off", ""}
+        return bool(raw_value)
 
     def _create_gear_handles(
         self, gear_id: str, center: QPointF, radius: float, is_driver: bool
@@ -205,6 +248,13 @@ class GearEditor(MechanismEditor):
 
         # Match handle constraints for direct callback invocations as well as GUI drags.
         new_radius = max(20.0, min(150.0, new_radius))
+        profile = _profile_for_params(self.mechanism_data["params"])
+        if self._physical_grid_enabled():
+            new_radius = nearest_gear_radius_mm(new_radius, profile=profile)
+            self.mechanism_data["params"][f"{gear_id}_teeth"] = gear_teeth_for_radius(
+                new_radius,
+                profile=profile,
+            )
 
         self.mechanism_data["params"][f"{gear_id}_radius"] = new_radius
         self.mechanism_data["params"]["r1" if gear_id == "gear1" else "r2"] = new_radius
@@ -239,7 +289,11 @@ class GearEditor(MechanismEditor):
         half_distance = (new_pos.x() - center1.x()) * direction_x + (
             new_pos.y() - center1.y()
         ) * direction_y
-        desired_distance = max(r1 + r2, half_distance * 2.0)
+        profile = _profile_for_params(params)
+        desired_distance = max(
+            gear_center_distance(r1, r2, 0.0, profile=profile),
+            half_distance * 2.0,
+        )
         clearance = max(0.0, desired_distance - r1 - r2)
         params["gear_clearance"] = clearance
         params["mesh_clearance"] = clearance
@@ -303,14 +357,20 @@ class GearEditor(MechanismEditor):
     def _auto_adjust_gear_mesh(self) -> None:
         """Automatically adjust gear positions for proper meshing."""
         params = self.mechanism_data["params"]
+        profile = _profile_for_params(params)
+        if self._physical_grid_enabled():
+            params.update(snap_gear_params(params, profile=profile))
 
         center1 = np.array([params["gear1_x"], params["gear1_y"]])
         center2 = np.array([params["gear2_x"], params["gear2_y"]])
         r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1")), 40.0)
         r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2")), 60.0)
         clearance = _nonnegative_finite_float(
-            params.get("gear_clearance", params.get("mesh_clearance", 2.0)),
-            2.0,
+            params.get(
+                "gear_clearance",
+                params.get("mesh_clearance", profile.default_gear_clearance_mm),
+            ),
+            profile.default_gear_clearance_mm,
         )
         params["gear1_radius"] = r1
         params["gear2_radius"] = r2
@@ -320,7 +380,7 @@ class GearEditor(MechanismEditor):
         params["mesh_clearance"] = clearance
 
         current_distance = np.linalg.norm(center2 - center1)
-        ideal_distance = r1 + r2 + clearance
+        ideal_distance = gear_center_distance(r1, r2, clearance, profile=profile)
 
         if abs(current_distance - ideal_distance) > 0.1:
             direction = (
@@ -342,6 +402,9 @@ class GearEditor(MechanismEditor):
     def _simulate_gear_motion(self) -> dict[str, Any]:
         """Simulate gear motion."""
         params = self.mechanism_data["params"]
+        profile = _profile_for_params(params)
+        if self._physical_grid_enabled():
+            params.update(snap_gear_params(params, profile=profile))
 
         r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1")), 40.0)
         r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2")), 60.0)

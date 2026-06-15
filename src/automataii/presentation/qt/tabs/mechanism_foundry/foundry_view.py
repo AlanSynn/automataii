@@ -47,6 +47,30 @@ from automataii.presentation.qt.tabs.mechanism_foundry.gallery_view import Galle
 from automataii.presentation.qt.tabs.mechanism_foundry.sensemaking_panel import (
     MechanismSensemakingPanel,
 )
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitContext,
+    PhysicalKitProfile,
+    freeform_gear_radius_for_teeth,
+    freeform_gear_teeth_for_radius,
+    gear_center_distance,
+    gear_pair_from_params,
+    gear_teeth_for_radius,
+    gear_teeth_from_params,
+    grid_enabled_from_params,
+    grid_step_mm,
+    nearest_gear_teeth,
+    nearest_pitch_choice,
+    physical_context_from_params,
+    physical_context_from_settings,
+    physical_profile_from_params,
+    snap_parameter_value,
+    snap_physical_params,
+)
+from automataii.shared.physical_kit import (
+    finite_float as physical_finite_float,
+)
 
 if TYPE_CHECKING:
     from automataii.application.mechanism_foundry.path_cache import PathCache
@@ -106,17 +130,45 @@ class _GearTrainPreviewMechanism:
     """Lightweight Foundry-only mechanism for gear train preview/export."""
 
     mechanism_type = "gear_train"
-    _module = 3.0
+
+    @staticmethod
+    def _freeform_pair_from_params(
+        parameters: dict[str, float],
+        profile: PhysicalKitProfile,
+    ) -> tuple[int, float, int, float]:
+        teeth1 = gear_teeth_from_params(
+            parameters,
+            ("gear1_teeth",),
+            ("gear1_radius", "r1"),
+            16,
+            enabled=False,
+            profile=profile,
+        )
+        teeth2 = gear_teeth_from_params(
+            parameters,
+            ("gear2_teeth",),
+            ("gear2_radius", "r2"),
+            24,
+            enabled=False,
+            profile=profile,
+        )
+        return (
+            teeth1,
+            freeform_gear_radius_for_teeth(teeth1, profile=profile),
+            teeth2,
+            freeform_gear_radius_for_teeth(teeth2, profile=profile),
+        )
 
     def compute_state(self, parameters: dict[str, float], input_angle: float) -> MechanismState:
         if not isinstance(parameters, dict):
             parameters = {}
-        teeth1 = _positive_finite_float(parameters.get("gear1_teeth", 12.0), 12.0)
-        teeth2 = _positive_finite_float(parameters.get("gear2_teeth", 18.0), 18.0)
-
-        r1 = teeth1 * self._module
-        r2 = teeth2 * self._module
-        center_distance = r1 + r2 + 2.0
+        profile = physical_profile_from_params(parameters)
+        if grid_enabled_from_params(parameters):
+            teeth1, r1, teeth2, r2 = gear_pair_from_params(parameters, profile=profile)
+        else:
+            teeth1, r1, teeth2, r2 = self._freeform_pair_from_params(parameters, profile)
+        clearance = parameters.get("gear_clearance", parameters.get("mesh_clearance"))
+        center_distance = gear_center_distance(r1, r2, clearance, profile=profile)
 
         g1 = (-center_distance / 2.0, 0.0)
         g2 = (center_distance / 2.0, 0.0)
@@ -135,7 +187,14 @@ class _GearTrainPreviewMechanism:
                 "gear2_indicator_end": p2,
             },
             safety_status=SafetyStatus(SafetyLevel.SAFE, "Gear mesh nominal"),
-            metadata={"r1": r1, "r2": r2, "theta1": theta1, "theta2": theta2},
+            metadata={
+                "gear1_teeth": teeth1,
+                "gear2_teeth": teeth2,
+                "r1": r1,
+                "r2": r2,
+                "theta1": theta1,
+                "theta2": theta2,
+            },
         )
 
 
@@ -198,12 +257,14 @@ class MechanismFoundryView(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
 
-        self.controller = MechanismFoundryController()
-        self.current_mechanism: Mechanism | None = None
-        self.current_parameters: dict[str, float] = {}
-        self.current_angle: float = 30.0
         self._grid_system_enabled = True
-        self._grid_cell_cm = 2.5
+        self._grid_cell_cm = DEFAULT_GRID_CELL_CM
+        self._grid_pitch_choice = nearest_pitch_choice(DEFAULT_GRID_CELL_CM).key
+        self._physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE
+        self.controller = self._build_controller()
+        self.current_mechanism: Mechanism | None = None
+        self.current_parameters: dict[str, object] = {}
+        self.current_angle: float = 30.0
         self._grid_items: list[QGraphicsItem] = []
         self._parameter_specs_by_key: dict[str, ParameterSpec] = {}
 
@@ -295,13 +356,24 @@ class MechanismFoundryView(QWidget):
         """Normalize mechanism type aliases to controller configuration keys."""
         return str(canonical_mechanism_type(mechanism_type))
 
+    def _build_controller(self) -> MechanismFoundryController:
+        return MechanismFoundryController(
+            physical_profile=self._physical_profile,
+            grid_cell_cm=self._grid_cell_cm,
+        )
+
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         self.stacked_widget = QStackedWidget()
 
-        self.gallery_view = GalleryView(self)
+        self.gallery_view = GalleryView(
+            self,
+            controller=self.controller,
+            physical_profile=self._physical_profile,
+            grid_cell_cm=self._grid_cell_cm,
+        )
         self.gallery_view.mechanism_selected.connect(self._on_gallery_mechanism_selected)
         self.stacked_widget.addWidget(self.gallery_view)
 
@@ -529,9 +601,77 @@ class MechanismFoundryView(QWidget):
                 params[key] = numeric_value
 
         params["input_angle"] = _finite_float(self.current_angle, 0.0)
-        params["grid_system_enabled"] = self._grid_system_enabled
-        params["grid_cell_cm"] = _positive_finite_float(self._grid_cell_cm, 0.1, minimum=0.0)
+        context = physical_context_from_params(
+            self._effective_physical_parameters(self.current_parameters),
+            default_enabled=self._grid_system_enabled,
+            default_grid_cell_cm=self._grid_cell_cm,
+        )
+        params.update(context.as_params())
         return params
+
+    def _physical_context_overlay(self) -> dict[str, object]:
+        return {
+            "grid_system_enabled": self._grid_system_enabled,
+            "grid_cell_cm": self._grid_cell_cm,
+            "grid_pitch_choice": self._grid_pitch_choice,
+            "physical_profile_key": self._physical_profile.key,
+        }
+
+    def _effective_physical_parameters(
+        self,
+        parameters: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Merge current Foundry physical context into params at compute/export boundaries."""
+        effective = self._physical_context_overlay()
+        if isinstance(parameters, dict):
+            effective.update(parameters)
+        return effective
+
+    def _apply_physical_context_overrides(self, parameters: dict[str, object]) -> None:
+        """Persist source context flags from Design sync without requiring visible sliders."""
+        for key in (
+            "grid_system_enabled",
+            "grid_cell_cm",
+            "grid_pitch_choice",
+            "physical_profile_key",
+        ):
+            if key in parameters:
+                self.current_parameters[key] = parameters[key]
+
+    def _sync_physical_context_from_params(self, parameters: dict[str, object]) -> None:
+        """Adopt physical-grid context received from Design before snapping/rendering."""
+        if not any(
+            key in parameters
+            for key in (
+                "grid_system_enabled",
+                "grid_cell_cm",
+                "grid_pitch_choice",
+                "physical_profile_key",
+            )
+        ):
+            return
+
+        context = physical_context_from_params(
+            self._effective_physical_parameters(parameters),
+            default_enabled=self._grid_system_enabled,
+            default_grid_cell_cm=self._grid_cell_cm,
+        )
+        profile_changed = context.profile != self._physical_profile
+        cell_changed = abs(context.grid_cell_cm - self._grid_cell_cm) > 1e-9
+        enabled_changed = context.enabled != self._grid_system_enabled
+        pitch_changed = context.grid_pitch_choice != self._grid_pitch_choice
+
+        self._grid_system_enabled = context.enabled
+        self._grid_cell_cm = context.grid_cell_cm
+        self._grid_pitch_choice = context.grid_pitch_choice
+        self._physical_profile = context.profile
+        self._apply_physical_context_overrides(context.as_params())
+
+        if profile_changed or cell_changed:
+            self._refresh_controller_for_physical_context()
+        if profile_changed or cell_changed or enabled_changed or pitch_changed:
+            self._draw_grid()
+            self._state_cache_valid = False
 
     def _capture_export_snapshot(self) -> dict[str, object] | None:
         """Capture current rendered mechanism geometry for Design import fidelity."""
@@ -546,7 +686,7 @@ class MechanismFoundryView(QWidget):
         ):
             try:
                 state = self.current_mechanism.compute_state(
-                    self.current_parameters,
+                    self._effective_physical_parameters(self.current_parameters),
                     self.current_angle,
                 )
             except Exception:
@@ -1057,7 +1197,7 @@ class MechanismFoundryView(QWidget):
 
     @property
     def _grid_step_mm(self) -> float:
-        return max(0.1, _positive_finite_float(self._grid_cell_cm, 0.1) * 10.0)
+        return grid_step_mm(self._grid_cell_cm)
 
     @staticmethod
     def _is_length_spec(spec: ParameterSpec | None) -> bool:
@@ -1070,16 +1210,22 @@ class MechanismFoundryView(QWidget):
         spec = self._parameter_specs_by_key.get(param_key)
         default = _finite_float(spec.default_value, 0.0) if spec else 0.0
         raw_value = _finite_float(value, default)
-        if not self._grid_system_enabled or not self._is_length_spec(spec):
+        context = physical_context_from_params(
+            self._effective_physical_parameters(self.current_parameters),
+            default_enabled=self._grid_system_enabled,
+            default_grid_cell_cm=self._grid_cell_cm,
+        )
+        if not context.enabled:
             return raw_value
 
-        step_mm = self._grid_step_mm
-        if raw_value > 0.0:
-            snapped_units = max(1, int((raw_value / step_mm) + 0.5))
-            snapped = snapped_units * step_mm
-        else:
-            snapped = round(raw_value / step_mm) * step_mm
-
+        mechanism_type = self._current_controller_mechanism_type()
+        snapped = snap_parameter_value(
+            mechanism_type,
+            param_key,
+            raw_value,
+            context.grid_cell_cm,
+            profile=context.profile,
+        )
         if spec:
             min_value = _finite_float(spec.min_value, snapped)
             max_value = _finite_float(spec.max_value, snapped)
@@ -1091,15 +1237,25 @@ class MechanismFoundryView(QWidget):
         return float(snapped)
 
     def _apply_grid_snap_to_current_parameters(self) -> None:
-        """Apply current grid snapping policy to all length parameters."""
-        if not self._grid_system_enabled:
+        """Apply current physical-kit snapping policy to current parameters."""
+        context = physical_context_from_params(
+            self._effective_physical_parameters(self.current_parameters),
+            default_enabled=self._grid_system_enabled,
+            default_grid_cell_cm=self._grid_cell_cm,
+        )
+        if not context.enabled:
             return
 
+        mechanism_type = self._current_controller_mechanism_type()
+        snapped_params = snap_physical_params(
+            mechanism_type,
+            self.current_parameters,
+            context.grid_cell_cm,
+            enabled=True,
+            profile=context.profile,
+        )
         changed = False
         for key, spec in self._parameter_specs_by_key.items():
-            if not self._is_length_spec(spec):
-                continue
-
             current = self.current_parameters.get(key)
             if current is None:
                 continue
@@ -1108,7 +1264,8 @@ class MechanismFoundryView(QWidget):
             if not math.isfinite(current_value):
                 continue
 
-            snapped = self._snap_parameter_value_if_needed(key, current_value)
+            snapped_raw = snapped_params.get(key, current_value)
+            snapped = _finite_float(snapped_raw, current_value)
             if abs(snapped - current_value) < 1e-6:
                 continue
 
@@ -1129,12 +1286,78 @@ class MechanismFoundryView(QWidget):
             self._state_cache_valid = False
             self._render_mechanism()
 
-    def set_grid_system(self, enabled: bool, cell_cm: float) -> None:
-        """Configure grid visibility and snapping in Foundry."""
-        self._grid_system_enabled = bool(enabled)
-        self._grid_cell_cm = _positive_finite_float(cell_cm, 0.1, minimum=0.0)
+    def set_physical_context(self, context: PhysicalKitContext) -> None:
+        """Apply the app-owned physical context to Foundry render/snapping caches."""
+        previous_profile = self._physical_profile
+        previous_grid_cell_cm = self._grid_cell_cm
+        changed = (
+            context.enabled != self._grid_system_enabled
+            or abs(context.grid_cell_cm - self._grid_cell_cm) > 1e-9
+            or context.grid_pitch_choice != self._grid_pitch_choice
+            or context.profile != self._physical_profile
+        )
+        if not changed:
+            self._apply_physical_context_overrides(context.as_params())
+            return
+
+        self._grid_system_enabled = context.enabled
+        self._grid_cell_cm = context.grid_cell_cm
+        self._grid_pitch_choice = context.grid_pitch_choice
+        self._physical_profile = context.profile
+        self._apply_physical_context_overrides(context.as_params())
+        if (
+            previous_profile != self._physical_profile
+            or abs(previous_grid_cell_cm - self._grid_cell_cm) > 1e-9
+        ):
+            self._refresh_controller_for_physical_context()
         self._draw_grid()
         self._apply_grid_snap_to_current_parameters()
+        self._state_cache_valid = False
+        self._render_mechanism()
+
+    def set_grid_system(self, enabled: bool, cell_cm: float) -> None:
+        """Compatibility wrapper; app-level PhysicalKitContext is preferred."""
+        self.set_physical_context(
+            physical_context_from_settings(
+                enabled,
+                physical_finite_float(cell_cm, DEFAULT_GRID_CELL_CM),
+                profile=self._physical_profile,
+            )
+        )
+
+    def set_physical_profile(self, profile: PhysicalKitProfile) -> None:
+        """Compatibility wrapper; app-level PhysicalKitContext is preferred."""
+        self.set_physical_context(
+            physical_context_from_settings(
+                self._grid_system_enabled,
+                self._grid_cell_cm,
+                self._grid_pitch_choice,
+                profile=profile,
+            )
+        )
+
+    def _refresh_controller_for_physical_context(self) -> None:
+        """Rebuild controller-backed defaults after physical grid/profile changes."""
+        current_type = self._current_controller_mechanism_type()
+        self.controller = self._build_controller()
+        if self.gallery_view is not None:
+            self.gallery_view.set_controller(self.controller)
+
+        if current_type == "unknown":
+            return
+
+        config = self.controller.get_configuration(current_type)
+        if config is None:
+            return
+
+        if self.parameter_sliders:
+            self._rebuild_parameter_sliders(tuple(config.parameter_specs))
+        else:
+            self._parameter_specs_by_key = {
+                spec.key: spec for spec in tuple(config.parameter_specs)
+            }
+        if self.info_panel is not None:
+            self._update_info_panel(current_type, config)
 
     def _apply_pending_parameter(self) -> None:
         """Apply debounced parameter change."""
@@ -1210,7 +1433,8 @@ class MechanismFoundryView(QWidget):
 
         try:
             state = self.current_mechanism.compute_state(
-                self.current_parameters, self.current_angle
+                self._effective_physical_parameters(self.current_parameters),
+                self.current_angle,
             )
             self._last_rendered_state = state
             self._last_rendered_mechanism = self.current_mechanism
@@ -1790,7 +2014,8 @@ class MechanismFoundryView(QWidget):
         ):
             try:
                 state = self.current_mechanism.compute_state(
-                    self.current_parameters, self.current_angle
+                    self._effective_physical_parameters(self.current_parameters),
+                    self.current_angle,
                 )
             except Exception:
                 return None
@@ -1883,22 +2108,57 @@ class MechanismFoundryView(QWidget):
                 mapped["input_angle"] = input_angle
 
         elif mechanism_type == "gear_train":
-            # Prefer live radii from Design editing over stale tooth-count params.
+            grid_enabled = grid_enabled_from_params(parameters, self._grid_system_enabled)
+            source_profile = physical_profile_from_params(
+                self._effective_physical_parameters(parameters)
+            )
+
+            # Prefer live radii from Design editing over stale tooth-count params
+            # only while physical-kit snapping is active. With the grid disabled,
+            # preserve explicit freeform teeth so Design <-> Foundry sync does
+            # not silently collapse custom gears back to presets.
             gear1_radius = _pick_float("gear1_radius", "r1")
-            if gear1_radius is not None and gear1_radius > 0.0:
-                mapped["gear1_teeth"] = float(round(gear1_radius / 3.0))
+            if grid_enabled and gear1_radius is not None and gear1_radius > 0.0:
+                mapped["gear1_teeth"] = float(
+                    gear_teeth_for_radius(gear1_radius, profile=source_profile)
+                )
             else:
                 gear1_teeth = _pick_float("gear1_teeth")
                 if gear1_teeth is not None:
-                    mapped["gear1_teeth"] = gear1_teeth
+                    mapped["gear1_teeth"] = (
+                        float(nearest_gear_teeth(gear1_teeth, profile=source_profile))
+                        if grid_enabled
+                        else float(max(1, int(round(gear1_teeth))))
+                    )
+                elif gear1_radius is not None and gear1_radius > 0.0:
+                    mapped["gear1_teeth"] = float(
+                        freeform_gear_teeth_for_radius(
+                            gear1_radius,
+                            profile=source_profile,
+                        )
+                    )
 
             gear2_radius = _pick_float("gear2_radius", "r2")
-            if gear2_radius is not None and gear2_radius > 0.0:
-                mapped["gear2_teeth"] = float(round(gear2_radius / 3.0))
+            if grid_enabled and gear2_radius is not None and gear2_radius > 0.0:
+                mapped["gear2_teeth"] = float(
+                    gear_teeth_for_radius(gear2_radius, profile=source_profile)
+                )
             else:
                 gear2_teeth = _pick_float("gear2_teeth")
                 if gear2_teeth is not None:
-                    mapped["gear2_teeth"] = gear2_teeth
+                    mapped["gear2_teeth"] = (
+                        float(nearest_gear_teeth(gear2_teeth, profile=source_profile))
+                        if grid_enabled
+                        else float(max(1, int(round(gear2_teeth))))
+                    )
+                elif gear2_radius is not None and gear2_radius > 0.0:
+                    mapped["gear2_teeth"] = float(
+                        freeform_gear_teeth_for_radius(
+                            gear2_radius,
+                            24,
+                            profile=source_profile,
+                        )
+                    )
 
             input_torque = _pick_float("input_torque")
             if input_torque is not None:
@@ -1977,6 +2237,8 @@ class MechanismFoundryView(QWidget):
                 with blocked_signals(self.angle_slider):
                     self.angle_slider.setValue(int(self.current_angle))
                 self.angle_label.setText(f"{int(self.current_angle)}°")
+
+            self._sync_physical_context_from_params(parameters)
 
             config = None
             if self.current_mechanism:

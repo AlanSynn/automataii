@@ -29,6 +29,7 @@ def _create_cam_editor_with_scaled_transform() -> CamEditor:
     mechanism_data = {
         "type": "cam",
         "params": {
+            "grid_system_enabled": False,
             "center_x": 0.0,
             "center_y": 0.0,
             "base_radius": 25.0,
@@ -53,6 +54,7 @@ def _create_cam_editor_with_identity_transform(
         "cam_scale_factor": cam_scale_factor,
         "rod_length_multiplier": rod_length_multiplier,
         "params": {
+            "grid_system_enabled": False,
             "center_x": 0.0,
             "center_y": 0.0,
             "base_radius": 25.0,
@@ -176,6 +178,7 @@ def test_cam_follower_handle_uses_scene_vertical_rod_under_rotated_transform(qap
     mechanism_data = {
         "type": "cam",
         "params": {
+            "grid_system_enabled": False,
             "center_x": 0.0,
             "center_y": 0.0,
             "base_radius": 25.0,

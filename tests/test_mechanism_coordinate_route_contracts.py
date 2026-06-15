@@ -125,6 +125,32 @@ def test_recommendation_cam_route_aligns_contact_and_center_aliases() -> None:
     assert cast(float, _params(layer_data)["center_y"]) + contact_y == pytest.approx(100.0)
 
 
+def test_recommendation_cam_route_honors_grid_disabled_freeform_params() -> None:
+    service = MechanismInstantiationService()
+    service.set_path_converter(qpainterpath_to_numpy_array)
+    path = _target_rect_path()
+
+    layer_data, _graphics_data = service.create_layer_data_from_recommendation(
+        mechanism_data={
+            "type": "Cam & Follower",
+            "parameters": {
+                "base_radius": 25.0,
+                "eccentricity": 10.0,
+                "follower_rod_length": 40.0,
+                "grid_system_enabled": False,
+            },
+        },
+        target_path=path,
+        fallback_position=[400.0, 300.0],
+    )
+
+    params = _params(layer_data)
+    assert params["grid_system_enabled"] is False
+    assert params["base_radius"] == 25.0
+    assert params["eccentricity"] == 10.0
+    assert "physical_cam_preset" not in params
+
+
 def test_candidate_cam_route_synchronizes_scene_center_aliases() -> None:
     service = MechanismInstantiationService()
     service.set_path_converter(qpainterpath_to_numpy_array)

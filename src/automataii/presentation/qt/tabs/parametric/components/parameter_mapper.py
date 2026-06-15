@@ -17,6 +17,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from automataii.shared.physical_kit import (
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
+    gear_center_distance,
+    grid_enabled_from_params,
+    physical_profile_from_params,
+    snap_gear_params,
+)
+
 if TYPE_CHECKING:
     pass
 
@@ -108,9 +117,20 @@ class ParameterMapper:
     Time Complexity: O(1) for all operations
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+    ) -> None:
         """Initialize parameter mapper."""
-        pass
+        self._physical_profile = physical_profile
+
+    def set_physical_profile(self, profile: PhysicalKitProfile) -> None:
+        self._physical_profile = profile
+
+    def _profile_for_params(self, params: dict[str, Any]) -> PhysicalKitProfile:
+        if "physical_profile_key" in params:
+            return physical_profile_from_params(params)
+        return self._physical_profile
 
     def ensure_mechanism_parameters(
         self,
@@ -481,6 +501,9 @@ class ParameterMapper:
         params["gear2_radius"] = radius_2
         params["r1"] = radius_1
         params["r2"] = radius_2
+        profile = self._profile_for_params(params)
+        if grid_enabled_from_params(params):
+            params.update(snap_gear_params(params, profile=profile))
 
         if isinstance(full_sim_data.get("gear_data"), dict) and to_scene:
             self._extract_gear_positions_from_simulation(params, full_sim_data, to_scene)
@@ -543,7 +566,11 @@ class ParameterMapper:
 
         params["gear1_x"] = gear1_x
         params["gear1_y"] = gear1_y
-        params["gear2_x"] = _finite_float(params.get("gear2_x"), gear1_x + r1 + r2 + 2.0)
+        profile = self._profile_for_params(params)
+        params["gear2_x"] = _finite_float(
+            params.get("gear2_x"),
+            gear1_x + gear_center_distance(r1, r2, params.get("gear_clearance"), profile=profile),
+        )
         params["gear2_y"] = _finite_float(params.get("gear2_y"), gear1_y)
 
     def _setup_planetary_gear_parameters(

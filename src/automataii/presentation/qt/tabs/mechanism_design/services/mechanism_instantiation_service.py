@@ -25,6 +25,24 @@ from automataii.presentation.qt.tabs.mechanism_design.services.foundry_scene_con
     mark_scene_space,
     sync_fourbar_scene_params_from_key_points,
 )
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    GEAR_PRESETS,
+    PhysicalKitContext,
+    PhysicalKitProfile,
+    freeform_gear_radius_for_teeth,
+    gear_center_distance,
+    gear_clearance_from_params,
+    gear_radius_for_teeth,
+    grid_cell_cm_from_params,
+    grid_enabled_from_params,
+    nearest_gear_teeth,
+    physical_context_from_settings,
+    physical_profile_from_params,
+    snap_cam_params,
+    snap_gear_params,
+)
 from automataii.utils.paths import resolve_path
 
 # Mapping from display names to internal mechanism types
@@ -177,10 +195,56 @@ class MechanismInstantiationService:
     def __init__(self) -> None:
         """Initialize service."""
         self._qpainterpath_to_numpy: Any = None
+        self._physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE
+        self._grid_system_enabled = True
+        self._grid_cell_cm = DEFAULT_GRID_CELL_CM
+        self._grid_pitch_choice = "ms4n"
 
     def set_path_converter(self, converter: Any) -> None:
         """Set the QPainterPath to numpy converter function."""
         self._qpainterpath_to_numpy = converter
+
+    def set_physical_profile(self, profile: PhysicalKitProfile) -> None:
+        """Set the active physical-kit profile for runtime snapping."""
+        self._physical_profile = profile
+
+    def set_physical_context(self, context: PhysicalKitContext) -> None:
+        """Set the active grid/profile context for newly created layers."""
+        self._grid_system_enabled = context.enabled
+        self._grid_cell_cm = context.grid_cell_cm
+        self._grid_pitch_choice = context.grid_pitch_choice
+        self._physical_profile = context.profile
+
+    def set_grid_system(
+        self,
+        enabled: bool,
+        cell_cm: float,
+        *,
+        pitch_choice_key: str | None = None,
+        profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+    ) -> None:
+        """Set grid defaults used when recommendations omit physical-kit params."""
+        self.set_physical_context(
+            physical_context_from_settings(
+                enabled,
+                cell_cm,
+                pitch_choice_key,
+                profile=profile,
+            )
+        )
+
+    def _profile_for_params(self, params: dict[str, Any]) -> PhysicalKitProfile:
+        if "physical_profile_key" in params:
+            return physical_profile_from_params(params)
+        return self._physical_profile
+
+    def _apply_physical_context_defaults(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Inject current grid/profile defaults without overriding explicit payload state."""
+        params.setdefault("grid_system_enabled", self._grid_system_enabled)
+        params.setdefault("grid_cell_cm", self._grid_cell_cm)
+        params.setdefault("grid_pitch_choice", self._grid_pitch_choice)
+        params.setdefault("physical_profile_key", self._physical_profile.key)
+        return params
 
     def map_mechanism_type(self, display_type: str, original_json_type: str | None = None) -> str:
         """
@@ -533,6 +597,7 @@ class MechanismInstantiationService:
         raw_params = mechanism_data.get("parameters", {})
         raw_params = raw_params if isinstance(raw_params, dict) else {}
         params = raw_params.copy()
+        self._apply_physical_context_defaults(params)
         reverse_direction = _bool_flag(
             mechanism_data.get(
                 "reverse_direction",
@@ -583,6 +648,9 @@ class MechanismInstantiationService:
             self._configure_cam_layer(
                 layer_data, graphics_data, effective_target_path, fallback_position
             )
+        elif internal_type == "gear" and grid_enabled_from_params(layer_data["params"]):
+            profile = self._profile_for_params(layer_data["params"])
+            layer_data["params"].update(snap_gear_params(layer_data["params"], profile=profile))
 
         return layer_data, graphics_data
 
@@ -619,6 +687,9 @@ class MechanismInstantiationService:
         )
         if not isinstance(params, dict):
             params = {}
+        else:
+            params = dict(params)
+        self._apply_physical_context_defaults(params)
         reverse_direction = _bool_flag(
             candidate_data.get(
                 "reverse_direction",
@@ -660,6 +731,9 @@ class MechanismInstantiationService:
         # Apply CAM-specific configuration
         if internal_type == "cam":
             self._configure_cam_candidate(layer_data, effective_target_path)
+        elif internal_type == "gear" and grid_enabled_from_params(layer_data["params"]):
+            profile = self._profile_for_params(layer_data["params"])
+            layer_data["params"].update(snap_gear_params(layer_data["params"], profile=profile))
 
         return layer_data
 
@@ -686,15 +760,38 @@ class MechanismInstantiationService:
             layer_data["params"]["base_radius"] = auto_params["base_radius"]
             layer_data["params"]["eccentricity"] = auto_params["eccentricity"]
             layer_data["params"]["follower_rod_length"] = auto_params["follower_rod_length"]
-            layer_data["params"]["center_x"] = auto_params["center_x"]
-            layer_data["params"]["center_y"] = auto_params["center_y"]
-            self._sync_cam_center_aliases(layer_data, auto_params["cam_position"])
+            if grid_enabled_from_params(layer_data["params"]):
+                profile = self._profile_for_params(layer_data["params"])
+                layer_data["params"].update(
+                    snap_cam_params(
+                        layer_data["params"],
+                        grid_cell_cm_from_params(layer_data["params"]),
+                        profile=profile,
+                    )
+                )
             layer_data["cam_scale_factor"] = 1.0  # No scaling needed for auto-generated
             layer_data["rod_length_multiplier"] = auto_params["rod_length_multiplier"]
             layer_data["is_auto_generated_cam"] = True
+            cam_pos, params_update = self.calculate_cam_position_from_path(
+                path,
+                auto_params["cam_position"],
+                params=layer_data["params"],
+                cam_scale_factor=1.0,
+            )
+            layer_data["params"].update(params_update)
+            self._sync_cam_center_aliases(layer_data, cam_pos)
         else:
             # Standard cam configuration for non-vertical paths
             params = layer_data.get("params", {})
+            if grid_enabled_from_params(params):
+                profile = self._profile_for_params(params)
+                params.update(
+                    snap_cam_params(
+                        params,
+                        grid_cell_cm_from_params(params),
+                        profile=profile,
+                    )
+                )
             base_radius = _positive_finite_float(params.get("base_radius", 40.0), 40.0)
             eccentricity = _positive_finite_float(params.get("eccentricity", 20.0), 20.0)
 
@@ -739,12 +836,26 @@ class MechanismInstantiationService:
             layer_data["params"]["base_radius"] = auto_params["base_radius"]
             layer_data["params"]["eccentricity"] = auto_params["eccentricity"]
             layer_data["params"]["follower_rod_length"] = auto_params["follower_rod_length"]
-            layer_data["params"]["center_x"] = auto_params["center_x"]
-            layer_data["params"]["center_y"] = auto_params["center_y"]
-            self._sync_cam_center_aliases(layer_data, auto_params["cam_position"])
+            if grid_enabled_from_params(layer_data["params"]):
+                profile = self._profile_for_params(layer_data["params"])
+                layer_data["params"].update(
+                    snap_cam_params(
+                        layer_data["params"],
+                        grid_cell_cm_from_params(layer_data["params"]),
+                        profile=profile,
+                    )
+                )
             layer_data["cam_scale_factor"] = 1.0
             layer_data["rod_length_multiplier"] = auto_params["rod_length_multiplier"]
             layer_data["is_auto_generated_cam"] = True
+            cam_pos, params_update = self.calculate_cam_position_from_path(
+                path,
+                auto_params["cam_position"],
+                params=layer_data["params"],
+                cam_scale_factor=1.0,
+            )
+            layer_data["params"].update(params_update)
+            self._sync_cam_center_aliases(layer_data, cam_pos)
         else:
             # Standard cam configuration.  First derive lift/scale, then use
             # the same contact-height rule as visual rendering for placement.
@@ -760,6 +871,15 @@ class MechanismInstantiationService:
 
             # Calculate scale factor based on user's path dimensions
             params = layer_data.get("params", {})
+            if grid_enabled_from_params(params):
+                profile = self._profile_for_params(params)
+                params.update(
+                    snap_cam_params(
+                        params,
+                        grid_cell_cm_from_params(params),
+                        profile=profile,
+                    )
+                )
             base_radius = _positive_finite_float(params.get("base_radius", 40.0), 40.0)
             eccentricity = _positive_finite_float(params.get("eccentricity", 20.0), 20.0)
             cam_scale_factor = self.calculate_cam_scale_factor(path, base_radius, eccentricity)
@@ -1031,9 +1151,20 @@ class MechanismInstantiationService:
             params.setdefault("profile_harmonic", 0.3)
 
         elif internal_type == "gear":
-            r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1", 36.0)), 36.0)
-            r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2", 54.0)), 54.0)
-            center_distance = max(10.0, r1 + r2 + 2.0)
+            profile = self._profile_for_params(params)
+            if grid_enabled_from_params(params):
+                params.update(snap_gear_params(params, profile=profile))
+            r1 = _positive_finite_float(params.get("gear1_radius", params.get("r1", 48.0)), 48.0)
+            r2 = _positive_finite_float(params.get("gear2_radius", params.get("r2", 72.0)), 72.0)
+            center_distance = max(
+                10.0,
+                gear_center_distance(
+                    r1,
+                    r2,
+                    params.get("gear_clearance", params.get("mesh_clearance")),
+                    profile=profile,
+                ),
+            )
             layer_data["key_points"] = {
                 "gear1_center": [pos[0] - center_distance / 2.0, pos[1]],
                 "gear2_center": [pos[0] + center_distance / 2.0, pos[1]],
@@ -1108,6 +1239,16 @@ class MechanismInstantiationService:
             Parameters with internal naming convention
         """
         params: dict[str, Any] = {}
+        grid_enabled = grid_enabled_from_params(foundry_params)
+        profile = physical_profile_from_params(foundry_params)
+        if "grid_system_enabled" in foundry_params:
+            params["grid_system_enabled"] = grid_enabled
+        if "grid_cell_cm" in foundry_params:
+            params["grid_cell_cm"] = grid_cell_cm_from_params(foundry_params)
+        if "grid_pitch_choice" in foundry_params:
+            params["grid_pitch_choice"] = foundry_params["grid_pitch_choice"]
+        if "physical_profile_key" in foundry_params:
+            params["physical_profile_key"] = profile.key
 
         normalized_type = _normalize_foundry_type(foundry_type)
 
@@ -1163,12 +1304,49 @@ class MechanismInstantiationService:
                     params["output_point_mode"] = "contact_point"
 
         elif normalized_type == "gear_train":
-            params["gear1_teeth"] = _positive_int(foundry_params.get("gear1_teeth", 12), 12)
-            params["gear2_teeth"] = _positive_int(foundry_params.get("gear2_teeth", 18), 18)
-            params["r1"] = params["gear1_teeth"] * 3  # tooth * module
-            params["r2"] = params["gear2_teeth"] * 3
+            gear_presets = profile.gear_presets or GEAR_PRESETS
+            default_gear1 = gear_presets[0].teeth
+            default_gear2 = gear_presets[min(2, len(gear_presets) - 1)].teeth
+            gear1_raw = foundry_params.get("gear1_teeth", default_gear1)
+            gear2_raw = foundry_params.get("gear2_teeth", default_gear2)
+            gear1_teeth = _positive_int(gear1_raw, default_gear1)
+            gear2_teeth = _positive_int(gear2_raw, default_gear2)
+            if grid_enabled:
+                gear1_teeth = nearest_gear_teeth(gear1_teeth, profile=profile)
+                gear2_teeth = nearest_gear_teeth(gear2_teeth, profile=profile)
+                radius_1 = gear_radius_for_teeth(gear1_teeth, profile=profile)
+                radius_2 = gear_radius_for_teeth(gear2_teeth, profile=profile)
+            else:
+                default_radius_1 = freeform_gear_radius_for_teeth(
+                    gear1_teeth,
+                    profile=profile,
+                )
+                default_radius_2 = freeform_gear_radius_for_teeth(
+                    gear2_teeth,
+                    profile=profile,
+                )
+                radius_1 = _positive_finite_float(
+                    foundry_params.get(
+                        "gear1_radius",
+                        foundry_params.get("r1", default_radius_1),
+                    ),
+                    default_radius_1,
+                )
+                radius_2 = _positive_finite_float(
+                    foundry_params.get(
+                        "gear2_radius",
+                        foundry_params.get("r2", default_radius_2),
+                    ),
+                    default_radius_2,
+                )
+            params["gear1_teeth"] = gear1_teeth
+            params["gear2_teeth"] = gear2_teeth
+            params["r1"] = radius_1
+            params["r2"] = radius_2
             params["gear1_radius"] = float(params["r1"])
             params["gear2_radius"] = float(params["r2"])
+            params["gear_clearance"] = gear_clearance_from_params(foundry_params, profile=profile)
+            params["mesh_clearance"] = params["gear_clearance"]
             if "input_torque" in foundry_params:
                 params["input_torque"] = _finite_float(foundry_params["input_torque"], 0.0)
             if "input_angle" in foundry_params:
@@ -1196,5 +1374,15 @@ class MechanismInstantiationService:
         else:
             # Copy params as-is for unknown types
             params = dict(foundry_params)
+
+        if normalized_type == "cam_follower" and grid_enabled:
+            profile = self._profile_for_params(params)
+            params.update(
+                snap_cam_params(
+                    params,
+                    grid_cell_cm_from_params(foundry_params),
+                    profile=profile,
+                )
+            )
 
         return params

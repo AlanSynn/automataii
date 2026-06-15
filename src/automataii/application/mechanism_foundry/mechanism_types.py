@@ -17,7 +17,9 @@ MECHANISM_TYPE_ALIASES: dict[str, str] = {
     "slidercrank": "slider_crank",
 }
 
-VISIBLE_FOUNDRY_MECHANISM_TYPES: frozenset[str] = frozenset({"four_bar", "cam_follower"})
+VISIBLE_FOUNDRY_MECHANISM_TYPES: frozenset[str] = frozenset(
+    {"four_bar", "cam_follower", "gear_train"}
+)
 
 
 def normalize_mechanism_type_key(mechanism_type: object) -> str:

@@ -35,7 +35,7 @@ EXPECTED_FOUNDRY_TO_DESIGN_TYPES = {
     "slider_crank": "4_bar_linkage",
 }
 
-VISIBLE_FOUNDRY_TYPES = {"four_bar", "cam_follower"}
+VISIBLE_FOUNDRY_TYPES = {"four_bar", "cam_follower", "gear_train"}
 
 RENDERABLE_DESIGN_TYPES = {"4_bar_linkage", "cam", "gear", "planetary_gear"}
 

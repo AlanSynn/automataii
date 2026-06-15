@@ -19,6 +19,11 @@ from automataii.presentation.qt.mechanism_parameter_utils import (
     finite_float,
     positive_finite_float,
 )
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
 
 
 class SimulationRegenerator:
@@ -229,10 +234,20 @@ class SimulationRegenerator:
         """Regenerate gear mesh simulation."""
         try:
             # Gear parameters
+            profile = physical_profile_from_params(params)
             r1 = params.get("r1", 30.0)
             r2 = params.get("r2", 20.0)
             c1 = np.array(params.get("center1", [0, 0]), dtype=float)
-            c2 = np.array(params.get("center2", [r1 + r2, 0]), dtype=float)
+            default_distance = gear_center_distance(
+                r1,
+                r2,
+                gear_clearance_from_params(params, profile=profile),
+                profile=profile,
+            )
+            c2 = np.array(
+                params.get("center2", [default_distance, 0]),
+                dtype=float,
+            )
 
             gear_ratio = r1 / r2 if r2 > 0 else 1.0
 

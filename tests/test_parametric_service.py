@@ -82,6 +82,30 @@ def test_gear_defaults_without_simulation() -> None:
     assert params["gear2_x"] > params["gear1_x"]
 
 
+def test_gear_setup_honors_string_false_grid_flag() -> None:
+    service = ParametricParameterService()
+    params = {
+        "r1": 36.0,
+        "r2": 54.0,
+        "gear1_teeth": 12,
+        "gear2_teeth": 18,
+        "grid_system_enabled": "false",
+    }
+    context = ParametricContext(
+        mechanism_type="gear",
+        params=params,
+        full_simulation_data={},
+        transform_params={},
+    )
+
+    service.ensure_parameters(context)
+
+    assert params["gear1_radius"] == 36.0
+    assert params["gear2_radius"] == 54.0
+    assert params["gear1_teeth"] == 12
+    assert params["gear2_teeth"] == 18
+
+
 def test_planetary_defaults_include_editor_aliases() -> None:
     service = ParametricParameterService()
     params = {"r_sun": 20.0, "r_planet": 30.0, "arm_length": 15.0}
@@ -225,11 +249,59 @@ def test_parameter_mapper_sanitizes_gear_radius_aliases_and_positions() -> None:
 
     mapper.ensure_mechanism_parameters(layer_data, "gear")
 
-    assert params["gear1_radius"] == 40.0
+    assert params["gear1_radius"] == 48.0
     assert params["gear2_radius"] == 60.0
+    assert params["gear1_teeth"] == 16
+    assert params["gear2_teeth"] == 20
     assert params["gear1_x"] == 400.0
     assert params["gear1_y"] == 300.0
-    assert params["gear2_x"] == 502.0
+    assert params["gear2_x"] == 510.0
+
+
+def test_parameter_mapper_honors_string_false_grid_flag() -> None:
+    from automataii.presentation.qt.tabs.parametric.components.parameter_mapper import (
+        ParameterMapper,
+    )
+
+    mapper = ParameterMapper()
+    params = {
+        "r1": 36.0,
+        "r2": 54.0,
+        "gear1_teeth": 12,
+        "gear2_teeth": 18,
+        "grid_system_enabled": "false",
+    }
+
+    mapper.ensure_mechanism_parameters({"params": params}, "gear")
+
+    assert params["gear1_radius"] == 36.0
+    assert params["gear2_radius"] == 54.0
+    assert params["gear1_teeth"] == 12
+    assert params["gear2_teeth"] == 18
+
+
+def test_parametric_manager_regenerate_gear_honors_string_false_grid_flag() -> None:
+    from automataii.presentation.qt.tabs.parametric_editing_manager import (
+        ParametricEditingManager,
+    )
+
+    manager = ParametricEditingManager.__new__(ParametricEditingManager)
+    layer_data: dict[str, object] = {}
+    params = {
+        "grid_system_enabled": "false",
+        "gear1_radius": 36.0,
+        "gear2_radius": 54.0,
+        "gear1_teeth": 12,
+        "gear2_teeth": 18,
+    }
+
+    manager._regenerate_gear_simulation(layer_data, params)
+
+    assert params["gear1_radius"] == 36.0
+    assert params["gear2_radius"] == 54.0
+    assert params["gear1_teeth"] == 12
+    assert params["gear2_teeth"] == 18
+    assert "gear_data" in layer_data["full_simulation_data"]
 
 
 def test_parameter_mapper_uses_valid_gear_radius_alias_when_primary_is_bad() -> None:
@@ -247,9 +319,11 @@ def test_parameter_mapper_uses_valid_gear_radius_alias_when_primary_is_bad() -> 
 
     mapper.ensure_mechanism_parameters({"params": params}, "gear")
 
-    assert params["gear1_radius"] == 12.0
-    assert params["gear2_radius"] == 24.0
-    assert params["gear2_x"] == 438.0
+    assert params["gear1_radius"] == 48.0
+    assert params["gear2_radius"] == 48.0
+    assert params["gear1_teeth"] == 16
+    assert params["gear2_teeth"] == 16
+    assert params["gear2_x"] == 498.0
 
 
 def test_parameter_mapper_rejects_non_finite_radius_transform() -> None:
@@ -271,8 +345,8 @@ def test_parameter_mapper_rejects_non_finite_radius_transform() -> None:
         to_scene=to_scene,
     )
 
-    assert params["gear1_radius"] == 10.0
-    assert params["gear2_radius"] == 20.0
+    assert params["gear1_radius"] == 48.0
+    assert params["gear2_radius"] == 48.0
     assert math.isfinite(params["gear2_x"])
 
 
@@ -299,7 +373,7 @@ def test_parameter_mapper_ignores_malformed_gear_simulation_centers() -> None:
     )
 
     assert gear_params["gear1_x"] == 400.0
-    assert gear_params["gear2_x"] == 502.0
+    assert gear_params["gear2_x"] == 510.0
 
     planetary_params: dict[str, float] = {}
     mapper.ensure_mechanism_parameters(

@@ -36,6 +36,11 @@ from PyQt6.QtWidgets import (
 from scipy.spatial.distance import directed_hausdorff
 
 from automataii.presentation.qt.tabs.cam_geometry import build_pear_cam_profile
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
 from automataii.utils.paths import resolve_path
 
 logger = logging.getLogger(__name__)
@@ -1516,7 +1521,22 @@ class MechanismRecommendationDialog(QDialog):
                 gear1_center = point_array(key_points.get("gear1_center"))
                 gear2_center = point_array(key_points.get("gear2_center"))
                 c1_orig = gear1_center if gear1_center is not None else np.array([0.0, 0.0])
-                c2_orig = gear2_center if gear2_center is not None else np.array([r1 + r2, 0.0])
+                profile = physical_profile_from_params(params)
+                c2_orig = (
+                    gear2_center
+                    if gear2_center is not None
+                    else np.array(
+                        [
+                            gear_center_distance(
+                                r1,
+                                r2,
+                                gear_clearance_from_params(params, profile=profile),
+                                profile=profile,
+                            ),
+                            0.0,
+                        ]
+                    )
+                )
                 thetas = np.linspace(0, 2 * np.pi, 20)
                 g1_points = c1_orig + r1 * np.array([np.cos(thetas), np.sin(thetas)]).T
                 g2_points = c2_orig + r2 * np.array([np.cos(thetas), np.sin(thetas)]).T

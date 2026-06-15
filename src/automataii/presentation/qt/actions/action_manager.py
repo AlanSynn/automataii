@@ -162,6 +162,15 @@ class ActionManager(QObject):
         )
         undo_action.setShortcuts([QKeySequence(QKeySequence.StandardKey.Undo)])
 
+        # Options actions
+        self.create_action(
+            action_id="preferences",
+            text="&Preferences...",
+            tooltip="Open application options",
+            shortcut=QKeySequence(QKeySequence.StandardKey.Preferences),
+            status_tip="Open application options",
+        )
+
         # Help actions
         self.create_action(
             action_id="about",
@@ -366,6 +375,11 @@ class ActionManager(QObject):
         assert edit_menu is not None
         edit_menu.addAction(self.get_action("undo"))
         edit_menu.addAction(self.get_action("redo"))
+
+        # Options menu
+        options_menu = menubar.addMenu("&Options")
+        assert options_menu is not None
+        options_menu.addAction(self.get_action("preferences"))
 
         # Help menu
         help_menu = menubar.addMenu("&Help")

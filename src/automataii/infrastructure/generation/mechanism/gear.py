@@ -7,6 +7,14 @@ from typing import Any
 from PyQt6.QtCore import QPointF
 
 from automataii.infrastructure.generation.mechanism.base import BaseMechanism
+from automataii.shared.physical_kit import (
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
+    gear_center_distance,
+    gear_radius_for_teeth,
+    gear_teeth_for_radius,
+    nearest_gear_teeth,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +39,8 @@ class Gear(BaseMechanism):
         num_teeth2: int | None = None,
         gear_distance_offset: float = 0,  # Additional distance between gear centers beyond r1+r2
         angle_deg1: float = 0,  # Initial angle of gear1 (for drawing teeth)
+        *,
+        profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
     ) -> dict[str, Any] | None:
         """
         Generates data for a pair of simple spur gears.
@@ -57,15 +67,11 @@ class Gear(BaseMechanism):
 
         gears_data_list = []
 
-        # Estimate number of teeth if not provided (e.g., 1 tooth per 5-10 units of circumference)
-        # Module (m) = Diameter / NumTeeth. Or NumTeeth = Pi * Diameter / (Pi * m)
-        # Let's assume a default module or tooth size for estimation.
-        # Pitch = Pi * Module. Roughly, tooth width ~ Pitch / 2.
-        # Let tooth width be ~5-10 units. So, Circumference / (tooth_width * 2) = NumTeeth
-        default_tooth_pitch_approx = 15  # Approximate pitch (circumferential distance per tooth)
-
         if num_teeth1 is None:
-            num_teeth1 = max(3, int((2 * math.pi * r1) / default_tooth_pitch_approx))
+            num_teeth1 = gear_teeth_for_radius(r1, profile=profile)
+        else:
+            num_teeth1 = nearest_gear_teeth(num_teeth1, profile=profile)
+        r1 = gear_radius_for_teeth(num_teeth1, profile=profile)
 
         gear1_center = center_pos
         gear1_data = {
@@ -80,15 +86,23 @@ class Gear(BaseMechanism):
 
         if r2 > 0:  # Generate a second gear
             if num_teeth2 is None:
-                num_teeth2 = max(3, int((2 * math.pi * r2) / default_tooth_pitch_approx))
+                num_teeth2 = gear_teeth_for_radius(r2, profile=profile)
+            else:
+                num_teeth2 = nearest_gear_teeth(num_teeth2, profile=profile)
+            r2 = gear_radius_for_teeth(num_teeth2, profile=profile)
             # Guard against division by zero if caller explicitly passed 0
             if num_teeth2 < 1:
-                num_teeth2 = max(3, int((2 * math.pi * r2) / default_tooth_pitch_approx))
+                num_teeth2 = gear_teeth_for_radius(r2, profile=profile)
 
             # Position second gear relative to the first
             # Assume they are meshing externally, typically along x-axis for default placement
-            total_radius_sum = r1 + r2
-            gear2_center_x = gear1_center.x() + total_radius_sum + gear_distance_offset
+            total_radius_sum = gear_center_distance(
+                r1,
+                r2,
+                gear_distance_offset,
+                profile=profile,
+            )
+            gear2_center_x = gear1_center.x() + total_radius_sum
             gear2_center_y = gear1_center.y()  # Align centers vertically for simple pair
 
             # Angle of gear2: if meshing, teeth should align.

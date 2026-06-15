@@ -127,8 +127,9 @@ def test_foundry_sensemaking_resets_motion_point_when_selector_hidden(qapp):
     assert "Joint B" in _foundry_label_text(view, "evidenceLabel")
 
     gear_idx = view.mechanism_selector.findData("gear_train")
-    assert gear_idx < 0
-    view._load_mechanism("gear_train")
+    assert gear_idx >= 0
+    view.mechanism_selector.setCurrentIndex(gear_idx)
+    view._on_mechanism_changed(gear_idx)
 
     evidence = _foundry_label_text(view, "evidenceLabel")
     assert "Ratio" in evidence
@@ -347,14 +348,16 @@ def test_gallery_selection_syncs_selector_and_export_type(qapp):
     assert captured
     assert captured[0][0] == "cam_follower"
     assert captured[0][1]["grid_system_enabled"] is True
-    assert captured[0][1]["grid_cell_cm"] == 2.5
+    assert captured[0][1]["grid_cell_cm"] == 2.04
+    assert captured[0][1]["grid_pitch_choice"] == "ms4n"
+    assert captured[0][1]["physical_profile_key"] == "motionsmith-ms4n"
     assert "__foundry_snapshot__" in captured[0][1]
     snapshot = captured[0][1]["__foundry_snapshot__"]
     assert isinstance(snapshot, dict)
     assert "positions" in snapshot
 
 
-def test_foundry_selector_hides_deferred_mechanisms(qapp):
+def test_foundry_selector_exposes_physical_kit_mechanisms(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
     view = MechanismFoundryView()
@@ -362,8 +365,8 @@ def test_foundry_selector_hides_deferred_mechanisms(qapp):
         view.mechanism_selector.itemData(i) for i in range(view.mechanism_selector.count())
     }
 
-    assert visible_types == {"four_bar", "cam_follower"}
-    assert view.mechanism_selector.findData("gear_train") < 0
+    assert visible_types == {"four_bar", "cam_follower", "gear_train"}
+    assert view.mechanism_selector.findData("gear_train") >= 0
     assert view.mechanism_selector.findData("planetary_gear") < 0
     assert view.mechanism_selector.findData("slider_crank") < 0
 
@@ -459,7 +462,29 @@ def test_length_parameter_snaps_to_2_5cm_grid_when_enabled(qapp):
     assert view.current_parameters["input_link"] == 41.0
 
 
-def test_length_parameter_half_grid_stays_on_positive_grid_cell(qapp):
+def test_grid_pitch_change_rebuilds_foundry_controller_configs(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("four_bar")
+    assert idx >= 0
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+
+    view.set_grid_system(True, 2.5)
+
+    config = view.controller.get_configuration("four_bar")
+    assert config is not None
+    assert config.initial_parameters()["input_link"] == 50.0
+    assert config.initial_parameters()["ground_link"] == 200.0
+    assert view._parameter_specs_by_key["input_link"].default_value == 50.0
+    assert view._parameter_specs_by_key["ground_link"].max_value == 200.0
+    assert view.current_parameters["input_link"] == 50.0
+    assert view.gallery_view is not None
+    assert view.gallery_view.controller is view.controller
+
+
+def test_cam_offset_can_snap_to_half_grid_cam_preset(qapp):
     from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
 
     view = MechanismFoundryView()
@@ -473,7 +498,7 @@ def test_length_parameter_half_grid_stays_on_positive_grid_cell(qapp):
     view.set_grid_system(True, 2.5)
     view._on_parameter_changed("cam_offset", 12.5, label, False)
 
-    assert view.current_parameters["cam_offset"] == 25.0
+    assert view.current_parameters["cam_offset"] == 12.5
 
 
 def test_motion_modes_label_populates_for_four_bar(qapp):
@@ -502,8 +527,44 @@ def test_map_design_params_to_foundry_gear_prefers_live_radii(qapp):
         },
     )
 
-    assert mapped["gear1_teeth"] == 15.0
-    assert mapped["gear2_teeth"] == 25.0
+    assert mapped["gear1_teeth"] == 16.0
+    assert mapped["gear2_teeth"] == 24.0
+
+
+def test_map_design_params_to_foundry_gear_honors_grid_disabled_freeform_teeth(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    mapped = view._map_design_params_to_foundry(
+        "gear_train",
+        {
+            "grid_system_enabled": False,
+            "gear1_teeth": 12.0,
+            "gear2_teeth": 18.0,
+            "gear1_radius": 45.0,
+            "gear2_radius": 75.0,
+        },
+    )
+
+    assert mapped["gear1_teeth"] == 12.0
+    assert mapped["gear2_teeth"] == 18.0
+
+
+def test_map_design_params_to_foundry_gear_honors_string_false_grid_flag(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    mapped = view._map_design_params_to_foundry(
+        "gear_train",
+        {
+            "grid_system_enabled": "false",
+            "gear1_teeth": 12.0,
+            "gear2_teeth": 18.0,
+        },
+    )
+
+    assert mapped["gear1_teeth"] == 12.0
+    assert mapped["gear2_teeth"] == 18.0
 
 
 def test_map_design_params_to_foundry_gear_keeps_radii_when_output_mode_present(qapp):
@@ -519,8 +580,8 @@ def test_map_design_params_to_foundry_gear_keeps_radii_when_output_mode_present(
         },
     )
 
-    assert mapped["gear1_teeth"] == 15.0
-    assert mapped["gear2_teeth"] == 25.0
+    assert mapped["gear1_teeth"] == 16.0
+    assert mapped["gear2_teeth"] == 24.0
     assert mapped["output_point_mode"] == "contact_point"
 
 
@@ -545,8 +606,8 @@ def test_map_design_params_to_foundry_skips_invalid_preferred_values(qapp):
         },
     )
 
-    assert gear["gear1_teeth"] == 12.0
-    assert gear["gear2_teeth"] == 25.0
+    assert gear["gear1_teeth"] == 16.0
+    assert gear["gear2_teeth"] == 24.0
     assert "cam_radius" not in cam
     assert cam["cam_offset"] == 20.0
     assert cam["follower_length"] == 100.0
@@ -670,8 +731,84 @@ def test_foundry_preview_mechanisms_sanitize_nonfinite_inputs(qapp):
         for value in position
     ]
     assert all(math.isfinite(value) for value in all_values)
-    assert gear_state.metadata["r1"] == 36.0
+    assert gear_state.metadata["r1"] == 48.0
     assert slider_state.metadata["rod_length"] > slider_state.metadata["crank_length"]
+
+
+def test_foundry_gear_preview_preserves_disabled_grid_freeform_teeth(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import (
+        _GearTrainPreviewMechanism,
+    )
+
+    state = _GearTrainPreviewMechanism().compute_state(
+        {"grid_system_enabled": False, "gear1_teeth": 12, "gear2_teeth": 18},
+        0,
+    )
+
+    assert state.metadata["gear1_teeth"] == 12
+    assert state.metadata["gear2_teeth"] == 18
+    assert state.metadata["r1"] == pytest.approx(36.0)
+    assert state.metadata["r2"] == pytest.approx(54.0)
+    assert (
+        state.positions["gear2_center"][0] - state.positions["gear1_center"][0]
+    ) == pytest.approx(92.0)
+
+
+def test_foundry_update_from_design_preserves_disabled_grid_freeform_teeth(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    view.set_synced_mechanism("sync_gear", "gear_train")
+
+    assert view._grid_system_enabled is True
+
+    view.update_from_design_tab(
+        "sync_gear",
+        {
+            "grid_system_enabled": False,
+            "gear1_teeth": 12.0,
+            "gear2_teeth": 18.0,
+            "input_angle": 0.0,
+        },
+    )
+
+    assert view._grid_system_enabled is False
+    assert view._grid_items == []
+    assert view.current_parameters["grid_system_enabled"] is False
+    assert view._build_sync_payload_parameters()["grid_system_enabled"] is False
+    assert view.current_parameters["gear1_teeth"] == pytest.approx(12.0)
+    assert view.current_parameters["gear2_teeth"] == pytest.approx(18.0)
+    assert view._last_rendered_state is not None
+    assert view._last_rendered_state.metadata["r1"] == pytest.approx(36.0)
+    assert view._last_rendered_state.metadata["r2"] == pytest.approx(54.0)
+    assert (
+        view._last_rendered_state.positions["gear2_center"][0]
+        - view._last_rendered_state.positions["gear1_center"][0]
+    ) == pytest.approx(92.0)
+
+
+def test_foundry_render_uses_view_grid_context_overlay_for_preview_and_snapshot(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    view.set_synced_mechanism("sync_gear", "gear_train")
+    view.set_grid_system(False, 2.04)
+    view.current_parameters.pop("grid_system_enabled", None)
+    view.current_parameters["gear1_teeth"] = 12.0
+    view.current_parameters["gear2_teeth"] = 18.0
+    view._state_cache_valid = False
+
+    view._render_mechanism()
+    snapshot = view._capture_export_snapshot()
+
+    assert view._last_rendered_state is not None
+    assert view._last_rendered_state.metadata["gear1_teeth"] == 12
+    assert view._last_rendered_state.metadata["gear2_teeth"] == 18
+    assert snapshot is not None
+    assert (
+        snapshot["positions"]["gear2_center"][0]
+        - snapshot["positions"]["gear1_center"][0]
+    ) == pytest.approx(92.0)
 
 
 def test_foundry_mapping_and_sync_skip_nonfinite_design_values(qapp):
@@ -691,7 +828,7 @@ def test_foundry_mapping_and_sync_skip_nonfinite_design_values(qapp):
         },
     )
 
-    assert mapped == {"gear1_teeth": 12.0, "gear2_teeth": 18.0}
+    assert mapped == {"gear1_teeth": 16.0, "gear2_teeth": 20.0}
 
     view.set_synced_mechanism("sync_gear", "gear_train")
     previous_angle = view.current_angle
@@ -716,7 +853,7 @@ def test_foundry_grid_snap_handles_bad_cell_and_value(qapp):
     view.set_grid_system(True, "bad-cell")
     view._on_parameter_changed("input_link", math.nan, label, False)
 
-    assert view._grid_cell_cm == 0.1
+    assert view._grid_cell_cm == 2.04
     assert math.isfinite(view.current_parameters["input_link"])
 
 
@@ -775,7 +912,7 @@ def test_foundry_sync_payload_filters_nonfinite_and_preserves_output_mode(qapp):
     assert payload["good"] == 12.0
     assert payload[view.OUTPUT_POINT_MODE_KEY] == "joint_b"
     assert payload["input_angle"] == 0.0
-    assert payload["grid_cell_cm"] == 0.1
+    assert payload["grid_cell_cm"] == 2.04
     assert "bad_nan" not in payload
     assert "bad_inf" not in payload
     assert "bool_value" not in payload

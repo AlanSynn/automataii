@@ -38,6 +38,11 @@ from automataii.presentation.qt.tabs.cam_geometry import (
     cam_follower_base_scene,
     cam_scene_unit_scale,
 )
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
 
 
 def _cosmetic_pen(
@@ -1100,6 +1105,7 @@ class MechanismVisualsFactory:
         params = mechanism_data.get("params", {})
         if not params:
             return []
+        profile = physical_profile_from_params(params)
 
         to_scene_coords = transform_function or self._get_scene_transform_function(mechanism_data)
 
@@ -1138,7 +1144,8 @@ class MechanismVisualsFactory:
                 gear1_center_orig = np.array(key_points["gear1_center"], dtype=float)
                 gear2_center_orig = np.array(key_points["gear2_center"], dtype=float)
             else:
-                distance = r1 + r2
+                clearance = gear_clearance_from_params(params, profile=profile)
+                distance = gear_center_distance(r1, r2, clearance, profile=profile)
                 gear1_center_orig = np.array([0.0, 0.0], dtype=float)
                 gear2_center_orig = np.array([distance, 0.0], dtype=float)
 
@@ -1259,10 +1266,20 @@ class MechanismVisualsFactory:
             visual_items.append(pc2)
             if use_scene_geometry:
                 d_orig = float(QLineF(gear1_center_scene, gear2_center_scene).length())
-                desired = float(r1_screen + r2_screen)
+                desired = gear_center_distance(
+                    r1_screen,
+                    r2_screen,
+                    gear_clearance_from_params(params, profile=profile),
+                    profile=profile,
+                )
             else:
                 d_orig = float(np.linalg.norm(gear2_center_orig - gear1_center_orig))
-                desired = float(r1 + r2)
+                desired = gear_center_distance(
+                    r1,
+                    r2,
+                    gear_clearance_from_params(params, profile=profile),
+                    profile=profile,
+                )
             mismatch = abs(d_orig - desired)
             if mismatch > 0.5:
                 warn = self.scene.addText(f"Center distance off by {mismatch:.1f}")

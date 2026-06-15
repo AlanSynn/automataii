@@ -16,6 +16,11 @@ from typing import Any
 import numpy as np
 
 from automataii.presentation.qt.mechanism_parameter_utils import positive_finite_float
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
 
 
 @dataclass
@@ -172,14 +177,23 @@ class PhysicsSnapper:
         params = layer_data.get("parameters", {})
 
         try:
+            profile = physical_profile_from_params(params)
             r1 = params.get("r1", 30.0)
             r2 = params.get("r2", 20.0)
             c1 = np.array(params.get("center1", [0, 0]), dtype=float)
-            c2 = np.array(params.get("center2", [r1 + r2, 0]), dtype=float)
+            required_distance = gear_center_distance(
+                r1,
+                r2,
+                gear_clearance_from_params(params, profile=profile),
+                profile=profile,
+            )
+            c2 = np.array(
+                params.get("center2", [required_distance, 0]),
+                dtype=float,
+            )
 
             # Calculate current center distance
             current_distance = np.linalg.norm(c2 - c1)
-            required_distance = r1 + r2
 
             error = abs(current_distance - required_distance)
 

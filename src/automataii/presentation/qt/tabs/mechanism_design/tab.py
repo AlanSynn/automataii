@@ -114,6 +114,20 @@ from automataii.presentation.qt.tabs.mechanism_design.services.foundry_scene_con
     rebuild_fourbar_scene_geometry_from_params,
 )
 from automataii.presentation.qt.tabs.mechanism_visuals_factory import MechanismVisualsFactory
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitContext,
+    PhysicalKitProfile,
+    gear_center_distance,
+    grid_enabled_from_params,
+    grid_step_mm,
+    physical_context_from_params,
+    physical_context_from_settings,
+    physical_profile_from_params,
+    snap_gear_params,
+    snap_physical_params,
+)
 from automataii.utils.paths import resolve_path
 
 
@@ -231,6 +245,10 @@ class MechanismDesignTab(QWidget):
         self.mechanism_paths: dict[str, QPainterPath] = {}
         self.mechanism_instances: dict[str, Any] = {}
         self.interactive_handles: dict[str, list[QGraphicsItem]] = {}
+        self._grid_system_enabled = True
+        self._grid_cell_cm = DEFAULT_GRID_CELL_CM
+        self._grid_pitch_choice = "ms4n"
+        self._physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE
         # Delegated to Presenter: mechanism_layers, mechanism_enabled_state,
         # parametric_handles, path_data, part_enabled_state, parts_data
 
@@ -267,8 +285,6 @@ class MechanismDesignTab(QWidget):
         self._pending_character_rebind = False
         self._skeleton_cache_generation = 0
         self._required_rebind_skeleton_generation: int | None = None
-        self._grid_system_enabled = True
-        self._grid_cell_cm = 2.5
 
         # Feature-flagged presenter
         self._presenter = None
@@ -408,6 +424,7 @@ class MechanismDesignTab(QWidget):
         self._anchor_movement_handler = AnchorMovementHandler()
         self._visual_item_manager = VisualItemManager()
         self._mechanism_instantiation = MechanismInstantiationService()
+        self._mechanism_instantiation.set_physical_profile(self._physical_profile)
         self._mechanism_instantiation.set_path_converter(utils_qpainterpath_to_numpy_array)
         self._handle_position_coordinator = HandlePositionCoordinator()
         self._handle_position_coordinator.set_rotation_handle_class(RotationHandle)
@@ -1788,7 +1805,7 @@ class MechanismDesignTab(QWidget):
 
     @property
     def _grid_step_mm(self) -> float:
-        return max(0.1, float(getattr(self, "_grid_cell_cm", 2.5)) * 10.0)
+        return grid_step_mm(getattr(self, "_grid_cell_cm", DEFAULT_GRID_CELL_CM))
 
     @staticmethod
     def _normalize_foundry_mechanism_type(mechanism_type: str) -> str:
@@ -1845,78 +1862,62 @@ class MechanismDesignTab(QWidget):
         mechanism_type: str,
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        if not bool(getattr(self, "_grid_system_enabled", False)):
-            return dict(params)
-
-        snapped = dict(params)
-        step_mm = self._grid_step_mm
-        for key in self._length_param_keys_for_foundry_type(mechanism_type):
-            if key not in snapped:
-                continue
-            try:
-                raw_value = float(snapped[key])
-                if raw_value > 0.0:
-                    # Python's round() uses bankers rounding, so half-grid values
-                    # such as 12.5mm at a 25mm grid can round to 0. Keep positive
-                    # mechanism lengths on at least one grid cell.
-                    snapped_units = max(1, int((raw_value / step_mm) + 0.5))
-                    snapped[key] = snapped_units * step_mm
-                else:
-                    snapped[key] = round(raw_value / step_mm) * step_mm
-            except (TypeError, ValueError):
-                continue
-
-        for lower_key, upper_key in (
-            ("l1", "L1"),
-            ("l2", "L2"),
-            ("l3", "L3"),
-            ("l4", "L4"),
-        ):
-            if lower_key in snapped and upper_key in snapped:
-                try:
-                    snapped[upper_key] = float(snapped[lower_key])
-                except (TypeError, ValueError):
-                    continue
-            elif lower_key in snapped:
-                try:
-                    snapped[upper_key] = float(snapped[lower_key])
-                except (TypeError, ValueError):
-                    continue
-            elif upper_key in snapped:
-                try:
-                    snapped[lower_key] = float(snapped[upper_key])
-                except (TypeError, ValueError):
-                    continue
-        return snapped
+        return dict(
+            snap_physical_params(
+                mechanism_type,
+                params,
+                getattr(self, "_grid_cell_cm", DEFAULT_GRID_CELL_CM),
+                enabled=bool(getattr(self, "_grid_system_enabled", False)),
+                profile=getattr(self, "_physical_profile", DEFAULT_PHYSICAL_KIT_PROFILE),
+            )
+        )
 
     def _extract_grid_settings_from_foundry_parameters(
         self,
         parameters: dict[str, Any],
     ) -> tuple[bool, float] | None:
-        has_setting = "grid_system_enabled" in parameters or "grid_cell_cm" in parameters
+        has_setting = (
+            "grid_system_enabled" in parameters
+            or "grid_cell_cm" in parameters
+            or "grid_pitch_choice" in parameters
+            or "physical_profile_key" in parameters
+        )
         if not has_setting:
             return None
 
-        raw_enabled = parameters.get(
-            "grid_system_enabled", getattr(self, "_grid_system_enabled", True)
+        params = dict(parameters)
+        params.setdefault("grid_system_enabled", getattr(self, "_grid_system_enabled", True))
+        params.setdefault("grid_cell_cm", getattr(self, "_grid_cell_cm", DEFAULT_GRID_CELL_CM))
+        params.setdefault("grid_pitch_choice", getattr(self, "_grid_pitch_choice", "ms4n"))
+        params.setdefault(
+            "physical_profile_key",
+            getattr(self, "_physical_profile", DEFAULT_PHYSICAL_KIT_PROFILE).key,
         )
-        try:
-            if isinstance(raw_enabled, str):
-                enabled = raw_enabled.strip().lower() not in {"0", "false", "no", "off", ""}
-            else:
-                enabled = bool(raw_enabled)
-            cell_cm = max(
-                0.1, float(parameters.get("grid_cell_cm", getattr(self, "_grid_cell_cm", 2.5)))
-            )
-            return enabled, cell_cm
-        except (TypeError, ValueError):
-            return bool(getattr(self, "_grid_system_enabled", True)), float(
-                getattr(self, "_grid_cell_cm", 2.5)
-            )
+        context = physical_context_from_params(params)
+        return context.enabled, context.grid_cell_cm
 
-    def configure_grid_system(self, enabled: bool, cell_cm: float) -> None:
-        self._grid_system_enabled = bool(enabled)
-        self._grid_cell_cm = max(0.1, float(cell_cm))
+    def configure_grid_system(
+        self,
+        enabled: bool,
+        cell_cm: float,
+        *,
+        profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE,
+        pitch_choice_key: str | None = None,
+    ) -> None:
+        context = physical_context_from_settings(
+            enabled,
+            cell_cm,
+            pitch_choice_key,
+            profile=profile,
+        )
+        self._grid_system_enabled = context.enabled
+        self._grid_cell_cm = context.grid_cell_cm
+        self._grid_pitch_choice = context.grid_pitch_choice
+        self._physical_profile = context.profile
+        if hasattr(self, "_mechanism_instantiation") and self._mechanism_instantiation:
+            self._mechanism_instantiation.set_physical_context(context)
+        if hasattr(self, "parametric_manager") and self.parametric_manager:
+            self.parametric_manager.set_physical_profile(self._physical_profile)
 
         if (
             hasattr(self, "mechanism_view")
@@ -1928,7 +1929,7 @@ class MechanismDesignTab(QWidget):
                 self._grid_cell_cm,
             )
 
-        if not self._grid_system_enabled or not self.mechanism_layers:
+        if not self.mechanism_layers:
             return
 
         changed_ids: list[str] = []
@@ -1936,11 +1937,19 @@ class MechanismDesignTab(QWidget):
             params = layer_data.get("params")
             if not isinstance(params, dict):
                 continue
-            snapped = self._snap_lengths_to_grid(
-                str(layer_data.get("type", "")),
-                params,
+            before = dict(params)
+            params.update(context.as_params())
+            snapped = (
+                self._snap_lengths_to_grid(
+                    str(layer_data.get("type", "")),
+                    params,
+                )
+                if self._grid_system_enabled
+                else dict(params)
             )
             if snapped == params:
+                if before != params:
+                    changed_ids.append(mechanism_id)
                 continue
             layer_data["params"] = snapped
             changed_ids.append(mechanism_id)
@@ -1956,6 +1965,15 @@ class MechanismDesignTab(QWidget):
 
         if changed_ids and self.mechanism_scene:
             self.mechanism_scene.update()
+
+    def set_physical_context(self, context: PhysicalKitContext) -> None:
+        """Apply the app-owned physical context to Design caches and services."""
+        self.configure_grid_system(
+            context.enabled,
+            context.grid_cell_cm,
+            profile=context.profile,
+            pitch_choice_key=context.grid_pitch_choice,
+        )
 
     # --- Foundry Integration ---
 
@@ -1992,9 +2010,13 @@ class MechanismDesignTab(QWidget):
             import_params,
         )
         if grid_settings:
-            self.configure_grid_system(*grid_settings)
-        import_params.pop("grid_system_enabled", None)
-        import_params.pop("grid_cell_cm", None)
+            context = physical_context_from_params(import_params)
+            self.configure_grid_system(
+                grid_settings[0],
+                grid_settings[1],
+                profile=context.profile,
+                pitch_choice_key=context.grid_pitch_choice,
+            )
         import_params = MechanismDesignTab._snap_lengths_to_grid(
             self,
             mechanism_type,
@@ -2103,10 +2125,13 @@ class MechanismDesignTab(QWidget):
             update_params,
         )
         if grid_settings:
-            self.configure_grid_system(*grid_settings)
-        update_params.pop("grid_system_enabled", None)
-        update_params.pop("grid_cell_cm", None)
-
+            context = physical_context_from_params(update_params)
+            self.configure_grid_system(
+                grid_settings[0],
+                grid_settings[1],
+                profile=context.profile,
+                pitch_choice_key=context.grid_pitch_choice,
+            )
         layer_data = self.mechanism_layers[mechanism_id]
 
         # Suppress signal emission to prevent infinite loop
@@ -2250,14 +2275,25 @@ class MechanismDesignTab(QWidget):
         if not isinstance(params, dict):
             return
 
-        r1 = positive_finite_param(params, "gear1_radius", "r1", default=36.0)
-        r2 = positive_finite_param(params, "gear2_radius", "r2", default=54.0)
+        profile = physical_profile_from_params(params)
+        if grid_enabled_from_params(params):
+            params.update(snap_gear_params(params, profile=profile))
+        r1 = positive_finite_param(params, "gear1_radius", "r1", default=48.0)
+        r2 = positive_finite_param(params, "gear2_radius", "r2", default=72.0)
         params["r1"] = r1
         params["r2"] = r2
         params["gear1_radius"] = r1
         params["gear2_radius"] = r2
 
-        center_distance = max(10.0, r1 + r2 + 2.0)
+        center_distance = max(
+            10.0,
+            gear_center_distance(
+                r1,
+                r2,
+                params.get("gear_clearance", params.get("mesh_clearance")),
+                profile=profile,
+            ),
+        )
         gear1_center = MechanismDesignTab._gear_center_from_layer(
             layer_data, "gear1_center", "gear1_x", "gear1_y"
         )

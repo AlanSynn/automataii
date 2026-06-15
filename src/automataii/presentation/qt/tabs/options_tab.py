@@ -12,6 +12,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    GRID_PITCH_CHOICES,
+    grid_cell_cm_for_pitch_choice,
+    nearest_pitch_choice,
+    physical_context_from_settings,
+)
+
 
 class OptionsTab(QWidget):
     """Tab for application options and settings."""
@@ -31,12 +39,15 @@ class OptionsTab(QWidget):
     physicsSnapModeChanged = pyqtSignal(str)  # NEW: Physics snap intensity changes
     gridSystemEnabledChanged = pyqtSignal(bool)
     gridCellSizeChanged = pyqtSignal(float)
+    gridPitchChoiceChanged = pyqtSignal(str)
+    physicalContextChanged = pyqtSignal(object)
 
     def __init__(self, initial_anim_duration: float = 2.0, parent=None):
         super().__init__(parent)
         self._initial_anim_duration = initial_anim_duration
         self._scroll_area: QScrollArea | None = None
         self._content_widget: QWidget | None = None
+        self._grid_pitch_syncing = False
         self._init_ui()
 
     def _init_ui(self):
@@ -223,15 +234,30 @@ class OptionsTab(QWidget):
         self.grid_system_check.setToolTip("Enable grid snapping for Foundry and Mechanism Design.")
         unit_settings_layout.addRow(self.grid_system_check)
 
+        self.grid_pitch_combo = QComboBox()
+        for choice in GRID_PITCH_CHOICES:
+            self.grid_pitch_combo.addItem(choice.label, choice.key)
+        default_pitch = nearest_pitch_choice(DEFAULT_GRID_CELL_CM)
+        default_index = self.grid_pitch_combo.findData(default_pitch.key)
+        if default_index >= 0:
+            self.grid_pitch_combo.setCurrentIndex(default_index)
+        self.grid_pitch_combo.currentIndexChanged.connect(self._on_grid_pitch_choice_changed)
+        self.grid_pitch_combo.setToolTip(
+            "Choose a physical pegboard pitch. The MS4N preset is 20.4 mm (2.04 cm)."
+        )
+        unit_settings_layout.addRow("Physical Board Pitch:", self.grid_pitch_combo)
+
         self.grid_cell_size_spin = QDoubleSpinBox()
         self.grid_cell_size_spin.setRange(0.5, 20.0)
-        self.grid_cell_size_spin.setSingleStep(0.5)
-        self.grid_cell_size_spin.setDecimals(1)
+        self.grid_cell_size_spin.setSingleStep(0.01)
+        self.grid_cell_size_spin.setDecimals(2)
         self.grid_cell_size_spin.setSuffix(" cm")
-        self.grid_cell_size_spin.setValue(2.5)
+        self.grid_cell_size_spin.setValue(DEFAULT_GRID_CELL_CM)
+        self.grid_cell_size_spin.setReadOnly(True)
+        self.grid_cell_size_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
         self.grid_cell_size_spin.valueChanged.connect(self._on_grid_cell_size_changed)
         self.grid_cell_size_spin.setToolTip(
-            "Grid cell size used for length snapping in centimeters."
+            "Read-only pitch display. Choose one of the supported physical board presets above."
         )
         unit_settings_layout.addRow("Grid Cell Size:", self.grid_cell_size_spin)
 
@@ -258,13 +284,54 @@ class OptionsTab(QWidget):
         self.setting_changed.emit("unit_system", unit_text)  # Also emit through generic signal
 
     def _on_grid_system_toggled(self, enabled: bool) -> None:
+        self.grid_pitch_combo.setEnabled(enabled)
         self.grid_cell_size_spin.setEnabled(enabled)
-        self.gridSystemEnabledChanged.emit(enabled)
-        self.setting_changed.emit("grid_system_enabled", enabled)
+        self.physicalContextChanged.emit(self._current_physical_context())
 
     def _on_grid_cell_size_changed(self, value: float) -> None:
-        self.gridCellSizeChanged.emit(float(value))
-        self.setting_changed.emit("grid_cell_size_cm", float(value))
+        if self._grid_pitch_syncing:
+            return
+        choice = nearest_pitch_choice(float(value))
+        self._set_pitch_choice(choice.key, emit=True)
+
+    def _on_grid_pitch_choice_changed(self, index: int) -> None:
+        key = self.grid_pitch_combo.itemData(index)
+        self._set_pitch_choice(key, emit=True)
+
+    def _set_pitch_choice(self, key: object, *, emit: bool) -> None:
+        choice = next(
+            (candidate for candidate in GRID_PITCH_CHOICES if candidate.key == key),
+            None,
+        )
+        if choice is None:
+            return
+
+        self._grid_pitch_syncing = True
+        previous_combo = self.grid_pitch_combo.blockSignals(True)
+        previous_spin = self.grid_cell_size_spin.blockSignals(True)
+        try:
+            index = self.grid_pitch_combo.findData(choice.key)
+            if index >= 0:
+                self.grid_pitch_combo.setCurrentIndex(index)
+            self.grid_cell_size_spin.setValue(choice.pitch_cm)
+        finally:
+            self.grid_cell_size_spin.blockSignals(previous_spin)
+            self.grid_pitch_combo.blockSignals(previous_combo)
+            self._grid_pitch_syncing = False
+
+        if emit:
+            self.physicalContextChanged.emit(self._current_physical_context())
+
+    def _current_physical_context(self):
+        return physical_context_from_settings(
+            self.grid_system_check.isChecked(),
+            self.grid_cell_size_spin.value(),
+            self.grid_pitch_combo.currentData(),
+        )
+
+    def _sync_grid_pitch_combo(self, value_cm: float) -> None:
+        choice = nearest_pitch_choice(value_cm)
+        self._set_pitch_choice(choice.key, emit=False)
 
     def _on_timing_profile_changed(self, text: str):
         # Normalize to code-friendly names
@@ -306,6 +373,18 @@ class OptionsTab(QWidget):
         label = mapping.get(str(mode).strip().lower(), "Balanced")
         self.physics_snap_combo.setCurrentText(label)
 
-    def set_grid_system_input(self, enabled: bool, cell_size_cm: float) -> None:
+    def set_grid_system_input(
+        self,
+        enabled: bool,
+        cell_size_cm: float,
+        pitch_choice_key: str | None = None,
+    ) -> None:
         self.grid_system_check.setChecked(bool(enabled))
-        self.grid_cell_size_spin.setValue(float(cell_size_cm))
+        key = pitch_choice_key or nearest_pitch_choice(float(cell_size_cm)).key
+        cell_cm = grid_cell_cm_for_pitch_choice(key, cell_size_cm)
+        self._set_pitch_choice(key, emit=False)
+        previous = self.grid_cell_size_spin.blockSignals(True)
+        self.grid_cell_size_spin.setValue(cell_cm)
+        self.grid_cell_size_spin.blockSignals(previous)
+        self.grid_pitch_combo.setEnabled(bool(enabled))
+        self.grid_cell_size_spin.setEnabled(bool(enabled))

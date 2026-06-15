@@ -97,11 +97,15 @@ class TestMechanismInstantiationService:
 
         # Verify parameter mapping
         params = layer_data["params"]
-        assert params["base_radius"] == 60.0  # cam_radius -> base_radius
-        assert params["eccentricity"] == 20.0  # cam_offset -> eccentricity
+        assert params["base_radius"] == pytest.approx(40.8)
+        assert params["eccentricity"] == pytest.approx(20.4)
         assert params["follower_rod_length"] == 100.0  # follower_length -> follower_rod_length
-        assert params["cam_lobes"] == 2
-        assert params["profile_harmonic"] == 0.4
+        assert params["cam_lobes"] == 1
+        assert params["profile_harmonic"] == 0.5
+        assert params["physical_cam_preset"] == "pear"
+        assert params["rise_deg"] == 150.0
+        assert params["high_dwell_deg"] == 45.0
+        assert params["return_deg"] == 75.0
         assert params["output_point_mode"] == "contact_point"
         assert params["reverse_direction"] is True
 
@@ -303,12 +307,48 @@ class TestMechanismInstantiationService:
             {"gear1_teeth": "12", "gear2_teeth": "18"},
         )
 
+        assert params["gear1_teeth"] == 16
+        assert params["gear2_teeth"] == 20
+        assert params["r1"] == 48.0
+        assert params["r2"] == 60.0
+        assert params["gear1_radius"] == 48.0
+        assert params["gear2_radius"] == 60.0
+
+    def test_map_foundry_gear_honors_grid_disabled_freeform_teeth(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        params = service.map_foundry_params_to_internal(
+            "gear_train",
+            {"gear1_teeth": 12, "gear2_teeth": 18, "grid_system_enabled": False},
+        )
+
+        assert params["grid_system_enabled"] is False
         assert params["gear1_teeth"] == 12
         assert params["gear2_teeth"] == 18
-        assert params["r1"] == 36
-        assert params["r2"] == 54
         assert params["gear1_radius"] == 36.0
         assert params["gear2_radius"] == 54.0
+
+    def test_create_foundry_gear_honors_grid_disabled_freeform_teeth(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="gear_train",
+            parameters={"gear1_teeth": 12, "gear2_teeth": 18, "grid_system_enabled": False},
+            pivot_point=(0.0, 0.0),
+            scene_position=(400.0, 300.0),
+        )
+
+        assert layer_data["params"]["grid_system_enabled"] is False
+        assert layer_data["params"]["gear1_radius"] == 36.0
+        assert layer_data["params"]["gear2_radius"] == 54.0
+        assert layer_data["key_points"]["gear1_center"] == [354.0, 300.0]
+        assert layer_data["key_points"]["gear2_center"] == [446.0, 300.0]
 
     def test_map_foundry_params_rejects_malformed_type_payload(self):
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
@@ -432,6 +472,77 @@ class TestMechanismInstantiationService:
         assert math.isfinite(layer_data["cam_scale_factor"])
         assert graphics_data["transform_params"]["scale"] == 1.0
 
+    def test_recommendation_layers_inherit_disabled_grid_context(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        service.set_grid_system(False, 3.33)
+
+        layer_data, graphics_data = service.create_layer_data_from_recommendation(
+            mechanism_data={
+                "type": "Gears",
+                "parameters": {"gear1_teeth": 13, "gear2_teeth": 17},
+            },
+            target_path=None,
+        )
+
+        params = layer_data["params"]
+        assert params["grid_system_enabled"] is False
+        assert params["grid_cell_cm"] == pytest.approx(3.33)
+        assert params["physical_profile_key"]
+        assert params["gear1_teeth"] == 13
+        assert params["gear2_teeth"] == 17
+        assert graphics_data["params"]["grid_system_enabled"] is False
+
+    def test_candidate_layers_inherit_disabled_grid_context(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        service.set_grid_system(False, 2.75)
+
+        layer_data = service.create_layer_data_from_candidate(
+            candidate_data={
+                "type": "Gears",
+                "parameters": {"gear1_teeth": 13, "gear2_teeth": 17},
+            },
+            selected_part_name="arm",
+            target_path=None,
+            convert_params_fn=None,
+            extract_key_points_fn=None,
+        )
+
+        params = layer_data["params"]
+        assert params["grid_system_enabled"] is False
+        assert params["grid_cell_cm"] == pytest.approx(2.75)
+        assert params["physical_profile_key"]
+        assert params["gear1_teeth"] == 13
+        assert params["gear2_teeth"] == 17
+
+    def test_cam_recommendation_inherits_disabled_grid_context_without_snapping(self):
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        service.set_grid_system(False, 2.75)
+
+        layer_data, _graphics_data = service.create_layer_data_from_recommendation(
+            mechanism_data={
+                "type": "Cam & Follower",
+                "parameters": {"base_radius": 53.0, "eccentricity": 19.0},
+            },
+            target_path=None,
+        )
+
+        params = layer_data["params"]
+        assert params["grid_system_enabled"] is False
+        assert params["base_radius"] == pytest.approx(53.0)
+        assert params["eccentricity"] == pytest.approx(19.0)
+
     def test_cam_path_analysis_ignores_non_finite_converter_rows(self):
         from PyQt6.QtGui import QPainterPath
 
@@ -551,13 +662,14 @@ class TestMechanismInstantiationService:
             {"crank_length": float("nan"), "rod_length": -1.0, "gas_pressure": "bad"},
         )
 
-        assert cam["base_radius"] == pytest.approx(60.0)
-        assert cam["eccentricity"] == pytest.approx(20.0)
+        assert cam["base_radius"] == pytest.approx(40.8)
+        assert cam["eccentricity"] == pytest.approx(20.4)
         assert cam["follower_rod_length"] == pytest.approx(100.0)
         assert cam["cam_lobes"] == 1
-        assert cam["profile_harmonic"] == pytest.approx(0.3)
-        assert gear["gear1_teeth"] == 12
-        assert gear["gear2_teeth"] == 18
+        assert cam["profile_harmonic"] == pytest.approx(0.5)
+        assert cam["physical_cam_preset"] == "pear"
+        assert gear["gear1_teeth"] == 16
+        assert gear["gear2_teeth"] == 24
         assert slider["l2"] == pytest.approx(80.0)
         assert slider["l3"] == pytest.approx(140.0)
         assert slider["gas_pressure"] == pytest.approx(0.0)
@@ -741,10 +853,10 @@ class TestMechanismDesignGridSettings:
 
         assert snapped["l2"] == 50.0
         assert snapped["l3"] == 50.0
-        assert snapped["l4"] == 75.0
+        assert snapped["l4"] == 100.0
         assert snapped["L2"] == 50.0
         assert snapped["L3"] == 50.0
-        assert snapped["L4"] == 75.0
+        assert snapped["L4"] == 100.0
 
     def test_snap_lengths_to_grid_keeps_positive_lengths_on_grid(self):
         from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
@@ -759,10 +871,10 @@ class TestMechanismDesignGridSettings:
             {"l2": 12.5, "l3": 1.0},
         )
 
-        assert snapped["l2"] == 25.0
-        assert snapped["l3"] == 25.0
-        assert snapped["L2"] == 25.0
-        assert snapped["L3"] == 25.0
+        assert snapped["l2"] == 50.0
+        assert snapped["l3"] == 50.0
+        assert snapped["L2"] == 50.0
+        assert snapped["L3"] == 50.0
 
     def test_extract_grid_settings_from_foundry_payload(self):
         from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
@@ -1199,11 +1311,11 @@ class TestMechanismDesignTabFoundryUpdate:
                 map_foundry_params_to_internal=MagicMock(
                     return_value={
                         "gear1_teeth": 20,
-                        "gear2_teeth": 10,
-                        "r1": 60.0,
-                        "r2": 30.0,
-                        "gear1_radius": 60.0,
-                        "gear2_radius": 30.0,
+                "gear2_teeth": 10,
+                "r1": 60.0,
+                "r2": 48.0,
+                "gear1_radius": 60.0,
+                "gear2_radius": 48.0,
                     }
                 )
             ),
@@ -1227,20 +1339,20 @@ class TestMechanismDesignTabFoundryUpdate:
         updated_params = layer_data["params"]
         updated_key_points = layer_data["key_points"]
         assert updated_params["gear1_radius"] == pytest.approx(60.0)
-        assert updated_params["gear2_radius"] == pytest.approx(30.0)
-        assert updated_key_points["gear1_center"] == pytest.approx([54.0, 100.0])
-        assert updated_key_points["gear2_center"] == pytest.approx([146.0, 100.0])
-        assert updated_params["gear1_x"] == pytest.approx(54.0)
-        assert updated_params["gear2_x"] == pytest.approx(146.0)
+        assert updated_params["gear2_radius"] == pytest.approx(48.0)
+        assert updated_key_points["gear1_center"] == pytest.approx([45.0, 100.0])
+        assert updated_key_points["gear2_center"] == pytest.approx([155.0, 100.0])
+        assert updated_params["gear1_x"] == pytest.approx(45.0)
+        assert updated_params["gear2_x"] == pytest.approx(155.0)
 
         gear_data = layer_data["full_simulation_data"]["gear_data"]
-        assert gear_data["gear1_centers"][0] == pytest.approx([54.0, 100.0])
-        assert gear_data["gear2_centers"][0] == pytest.approx([146.0, 100.0])
+        assert gear_data["gear1_centers"][0] == pytest.approx([45.0, 100.0])
+        assert gear_data["gear2_centers"][0] == pytest.approx([155.0, 100.0])
 
         cache = cache_manager.get_gear_cache("gear_1")
         assert cache is not None
-        assert cache.gear1_center.tolist() == pytest.approx([54.0, 100.0])
-        assert cache.gear2_center.tolist() == pytest.approx([146.0, 100.0])
+        assert cache.gear1_center.tolist() == pytest.approx([45.0, 100.0])
+        assert cache.gear2_center.tolist() == pytest.approx([155.0, 100.0])
         build_cache.assert_called_once_with("gear_1", layer_data)
         fake_tab._render_mechanism_layer.assert_called_once_with("gear_1")
 

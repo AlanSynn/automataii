@@ -7,6 +7,15 @@ from typing import Any
 
 import numpy as np
 
+from automataii.shared.physical_kit import (
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    PhysicalKitProfile,
+    gear_center_distance,
+    grid_enabled_from_params,
+    physical_profile_from_params,
+    snap_gear_params,
+)
+
 ToSceneFn = Callable[[np.ndarray], Any] | None
 
 
@@ -18,6 +27,7 @@ class ParametricContext:
     transform_params: Mapping[str, Any]
     cam_position: Mapping[str, float] | None = None
     to_scene: ToSceneFn = None
+    physical_profile: PhysicalKitProfile = DEFAULT_PHYSICAL_KIT_PROFILE
 
 
 class ParametricParameterService:
@@ -174,6 +184,14 @@ class ParametricParameterService:
         sim_data = context.full_simulation_data
         params.setdefault("gear1_radius", params.get("r1"))
         params.setdefault("gear2_radius", params.get("r2"))
+        profile = (
+            physical_profile_from_params(params)
+            if "physical_profile_key" in params
+            else context.physical_profile
+        )
+        params.setdefault("physical_profile_key", profile.key)
+        if grid_enabled_from_params(params):
+            params.update(snap_gear_params(params, profile=profile))
 
         to_scene = context.to_scene
         if "gear_data" in sim_data and to_scene:
@@ -201,7 +219,12 @@ class ParametricParameterService:
         if "gear2_x" not in params:
             r1 = params.get("gear1_radius", params.get("r1", 40))
             r2 = params.get("gear2_radius", params.get("r2", 60))
-            params["gear2_x"] = params["gear1_x"] + r1 + r2 + 2
+            params["gear2_x"] = params["gear1_x"] + gear_center_distance(
+                r1,
+                r2,
+                params.get("gear_clearance"),
+                profile=physical_profile_from_params(params),
+            )
         params.setdefault("gear2_y", params.get("gear1_y", 300))
 
     # --- Planetary -----------------------------------------------------------

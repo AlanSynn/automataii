@@ -20,6 +20,12 @@ from PyQt6.QtWidgets import (
     QGraphicsPolygonItem,
 )
 
+from automataii.shared.physical_kit import (
+    gear_center_distance,
+    gear_clearance_from_params,
+    physical_profile_from_params,
+)
+
 from ..base import MechanismVisualizer
 
 
@@ -45,9 +51,10 @@ class GearVisualizer(MechanismVisualizer):
         params = self.extract_params(mechanism_data)
         if not params:
             return visual_items
+        profile = physical_profile_from_params(params)
 
         # Get gear parameters
-        gear_data = self._get_gear_data(mechanism_data, params)
+        gear_data = self._get_gear_data(mechanism_data, params, profile=profile)
         if not gear_data:
             return visual_items
 
@@ -124,7 +131,8 @@ class GearVisualizer(MechanismVisualizer):
             return
 
         params = self.extract_params(mechanism_data)
-        gear_data = self._get_gear_data(mechanism_data, params)
+        profile = physical_profile_from_params(params)
+        gear_data = self._get_gear_data(mechanism_data, params, profile=profile)
         if not gear_data:
             return
 
@@ -170,9 +178,16 @@ class GearVisualizer(MechanismVisualizer):
             visual_items[5].setPos(mesh_t)
 
     def _get_gear_data(
-        self, mechanism_data: dict[str, Any], params: dict[str, Any]
+        self,
+        mechanism_data: dict[str, Any],
+        params: dict[str, Any],
+        *,
+        profile: Any | None = None,
     ) -> tuple | None:
         """Extract gear data from mechanism_data."""
+        if profile is None:
+            profile = physical_profile_from_params(params)
+
         # Get centers
         key_points = mechanism_data.get("key_points", {})
 
@@ -190,7 +205,9 @@ class GearVisualizer(MechanismVisualizer):
             r1 = params.get("r1", params.get("gear1_radius", 50.0))
             r2 = params.get("r2", params.get("gear2_radius", 75.0))
             # Default: gear 2 to the right of gear 1
-            g2_center = np.array([g1_center[0] + r1 + r2, g1_center[1]])
+            clearance = gear_clearance_from_params(params, profile=profile)
+            distance = gear_center_distance(r1, r2, clearance, profile=profile)
+            g2_center = np.array([g1_center[0] + distance, g1_center[1]])
 
         # Get radii
         r1 = params.get("r1", params.get("gear1_radius", 50.0))

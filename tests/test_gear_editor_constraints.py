@@ -8,6 +8,13 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication, QGraphicsScene
 
 from automataii.presentation.qt.parametric.components.gear_editor import GearEditor
+from automataii.shared import physical_kit
+from automataii.shared.physical_kit import (
+    CamPreset,
+    GearPreset,
+    GridPitchChoice,
+    PhysicalKitProfile,
+)
 
 
 @pytest.fixture(scope="module")
@@ -50,8 +57,8 @@ def test_gear_mesh_handle_updates_clearance_and_center_distance(qapp):
     center2 = np.array([params["gear2_x"], params["gear2_y"]], dtype=float)
     center_distance = float(np.linalg.norm(center2 - center1))
 
-    assert params["gear_clearance"] == pytest.approx(40.0)
-    assert params["mesh_clearance"] == pytest.approx(40.0)
+    assert params["gear_clearance"] == pytest.approx(32.0)
+    assert params["mesh_clearance"] == pytest.approx(32.0)
     assert center_distance == pytest.approx(
         params["gear1_radius"] + params["gear2_radius"] + params["gear_clearance"]
     )
@@ -90,8 +97,9 @@ def test_gear_radius_drag_updates_radius_aliases_and_handle_constraints(qapp):
     editor._on_gear_radius_changed("gear2", QPointF(gear2_center.x() + 102.0, gear2_center.y()))
 
     params = editor.mechanism_data["params"]
-    assert params["gear2_radius"] == pytest.approx(102.0)
-    assert params["r2"] == pytest.approx(102.0)
+    assert params["gear2_radius"] == pytest.approx(96.0)
+    assert params["gear2_teeth"] == 32
+    assert params["r2"] == pytest.approx(96.0)
 
     center = QPointF(params["gear2_x"], params["gear2_y"])
     radius_handle = editor.handles["gear2_radius"]
@@ -105,3 +113,49 @@ def test_gear_radius_drag_updates_radius_aliases_and_handle_constraints(qapp):
     assert np.linalg.norm(center2 - center1) == pytest.approx(
         params["gear1_radius"] + params["gear2_radius"] + params["gear_clearance"]
     )
+
+
+def test_gear_editor_uses_profile_default_clearance(monkeypatch, qapp):
+    profile = PhysicalKitProfile(
+        key="clearance-kit",
+        label="Clearance kit",
+        default_pitch_mm=20.0,
+        grid_pitch_choices=(GridPitchChoice("2cm", "2.0 cm board", 20.0),),
+        linkage_length_cells=(2,),
+        gear_presets=(GearPreset("g12", "G12", 12), GearPreset("g16", "G16", 16)),
+        cam_presets=(
+            CamPreset("circle", "Circle", 1.0, 0.0, 1, 0.0, 90.0, 90.0, 90.0),
+        ),
+        gear_radius_per_tooth_mm=2.0,
+        default_gear_clearance_mm=7.0,
+    )
+    monkeypatch.setattr(physical_kit, "PHYSICAL_KIT_PROFILES", (profile,))
+
+    scene = QGraphicsScene()
+    editor = GearEditor("gear_profile_test", scene)
+    mechanism_data = {
+        "type": "gear",
+        "params": {
+            "physical_profile_key": "clearance-kit",
+            "grid_system_enabled": True,
+            "gear1_x": 0.0,
+            "gear1_y": 0.0,
+            "gear2_x": 60.0,
+            "gear2_y": 0.0,
+            "gear1_teeth": 12,
+            "gear2_teeth": 16,
+        },
+        "key_points": {},
+    }
+
+    editor.create_handles(mechanism_data)
+    params = editor.mechanism_data["params"]
+    assert params["gear_clearance"] == pytest.approx(7.0)
+    assert params["mesh_clearance"] == pytest.approx(7.0)
+
+    params.pop("gear_clearance")
+    params.pop("mesh_clearance")
+    editor._auto_adjust_gear_mesh()
+
+    assert params["gear_clearance"] == pytest.approx(7.0)
+    assert params["mesh_clearance"] == pytest.approx(7.0)

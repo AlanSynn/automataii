@@ -25,6 +25,12 @@ from automataii.presentation.qt.tabs.cam_geometry import (
     cam_follower_base_scene,
     cam_scene_unit_scale,
 )
+from automataii.shared.physical_kit import (
+    DEFAULT_GRID_CELL_CM,
+    DEFAULT_PHYSICAL_KIT_PROFILE,
+    physical_profile_from_params,
+    snap_cam_params,
+)
 
 from .base_editor import HandleStyle, MechanismEditor, ParametricHandle
 
@@ -34,6 +40,12 @@ class CamEditor(MechanismEditor):
 
     _MIN_TOTAL_RADIUS = 15.0
     _MAX_TOTAL_RADIUS = 130.0  # base_radius max (80) + eccentricity max (50)
+
+    def _physical_profile(self):
+        params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
+        if "physical_profile_key" in params:
+            return physical_profile_from_params(params)
+        return DEFAULT_PHYSICAL_KIT_PROFILE
 
     def create_handles(self, mechanism_data: dict[str, Any]) -> None:
         """Create handles for cam shape and follower rod."""
@@ -76,6 +88,14 @@ class CamEditor(MechanismEditor):
         params.setdefault("high_dwell_deg", 60.0)
         params.setdefault("return_deg", 30.0)
         params.setdefault("align_max_deg", 90.0)
+        if self._physical_grid_enabled():
+            params.update(
+                snap_cam_params(
+                    params,
+                    self._physical_grid_cell_cm(),
+                    profile=self._physical_profile(),
+                )
+            )
 
         self._create_cam_size_handle(params)
         self._create_follower_handle(params)
@@ -86,6 +106,30 @@ class CamEditor(MechanismEditor):
             )
         except Exception as e:
             logging.debug(f"[CAM-EDITOR] Skipped angle handles: {e}")
+
+    def _physical_grid_enabled(self) -> bool:
+        params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
+        raw_value = params.get(
+            "grid_system_enabled",
+            self.mechanism_data.get("grid_system_enabled", True)
+            if hasattr(self, "mechanism_data")
+            else True,
+        )
+        if isinstance(raw_value, str):
+            return raw_value.strip().lower() not in {"0", "false", "no", "off", ""}
+        return bool(raw_value)
+
+    def _physical_grid_cell_cm(self) -> float:
+        params = self.mechanism_data.get("params", {}) if hasattr(self, "mechanism_data") else {}
+        return finite_float(
+            params.get(
+                "grid_cell_cm",
+                self.mechanism_data.get("grid_cell_cm", DEFAULT_GRID_CELL_CM)
+                if hasattr(self, "mechanism_data")
+                else DEFAULT_GRID_CELL_CM,
+            ),
+            DEFAULT_GRID_CELL_CM,
+        )
 
     def _create_cam_size_handle(self, params: dict) -> None:
         """Create handle for adjusting cam size (base_radius and eccentricity).
@@ -194,6 +238,16 @@ class CamEditor(MechanismEditor):
 
         params["base_radius"] = new_base_radius
         params["eccentricity"] = new_eccentricity
+        if self._physical_grid_enabled():
+            params.update(
+                snap_cam_params(
+                    params,
+                    self._physical_grid_cell_cm(),
+                    profile=self._physical_profile(),
+                )
+            )
+            new_base_radius = positive_finite_float(params.get("base_radius"), new_base_radius)
+            new_eccentricity = max(0.0, finite_float(params.get("eccentricity"), new_eccentricity))
 
         # Keep the visual handle attached to the clamped physical outer radius.
         if "size" in self.handles:

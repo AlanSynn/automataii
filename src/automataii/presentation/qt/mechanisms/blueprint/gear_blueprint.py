@@ -6,6 +6,15 @@ Creates detailed manufacturing drawings for gear mechanisms.
 import math
 from typing import Any
 
+from automataii.shared.physical_kit import (
+    finite_float,
+    gear_center_distance,
+    gear_clearance_from_params,
+    gear_teeth_from_params,
+    grid_enabled_from_params,
+    physical_profile_from_params,
+)
+
 from .generator import BlueprintGenerator
 
 
@@ -29,17 +38,37 @@ class GearBlueprintGenerator(BlueprintGenerator):
         """Generate front view showing complete gear pair."""
         params = mechanism_data.get("params", {})
         viewport = self.views[0]  # Front view viewport
+        profile = physical_profile_from_params(params)
 
         # Gear parameters
-        r1 = params.get("gear1_radius", 30)
-        r2 = params.get("gear2_radius", 50)
+        r1 = finite_float(params.get("gear1_radius", params.get("r1", 30)), 30.0)
+        r2 = finite_float(params.get("gear2_radius", params.get("r2", 50)), 50.0)
         center1 = (viewport.x + 50, viewport.y + viewport.height / 2)
-        center2 = (center1[0] + r1 + r2 + 2, center1[1])  # Proper meshing distance
+        clearance = gear_clearance_from_params(params, profile=profile)
+        center2 = (
+            center1[0] + gear_center_distance(r1, r2, clearance, profile=profile),
+            center1[1],
+        )
 
         # Calculate tooth parameters
-        module = params.get("module", 2)  # Module (tooth size)
-        n1 = int(2 * r1 / module)  # Number of teeth
-        n2 = int(2 * r2 / module)
+        module = params.get("module", profile.gear_radius_per_tooth_mm)
+        grid_enabled = grid_enabled_from_params(params)
+        n1 = gear_teeth_from_params(
+            params,
+            ("gear1_teeth",),
+            ("gear1_radius", "r1"),
+            16,
+            enabled=grid_enabled,
+            profile=profile,
+        )
+        n2 = gear_teeth_from_params(
+            params,
+            ("gear2_teeth",),
+            ("gear2_radius", "r2"),
+            24,
+            enabled=grid_enabled,
+            profile=profile,
+        )
         pressure_angle = params.get("pressure_angle", 20)  # degrees
 
         gear_svg = f'''
@@ -86,7 +115,7 @@ class GearBlueprintGenerator(BlueprintGenerator):
         self.svg_elements.append(gear_svg)
 
         # Add dimensions
-        self._add_gear_dimensions(center1, center2, r1, r2)
+        self._add_gear_dimensions(center1, center2, r1, r2, clearance, profile)
 
     def _generate_gear_with_teeth(
         self,
@@ -247,7 +276,13 @@ class GearBlueprintGenerator(BlueprintGenerator):
         )
 
     def _add_gear_dimensions(
-        self, center1: tuple[float, float], center2: tuple[float, float], r1: float, r2: float
+        self,
+        center1: tuple[float, float],
+        center2: tuple[float, float],
+        r1: float,
+        r2: float,
+        clearance: float,
+        profile: Any,
     ):
         """Add detailed dimensions for gears."""
 
@@ -262,7 +297,7 @@ class GearBlueprintGenerator(BlueprintGenerator):
                 center1[1] + r1 + 25,
                 center2[0],
                 center2[1] + r2 + 25,
-                f"{r1 + r2 + 2:.1f}±0.05",
+                f"{gear_center_distance(r1, r2, clearance, profile=profile):.1f}±0.05",
                 10,
             )
         )
@@ -270,12 +305,14 @@ class GearBlueprintGenerator(BlueprintGenerator):
     def _add_tolerances(self, mechanism_data: dict[str, Any]):
         """Add gear-specific tolerances."""
         super()._add_tolerances(mechanism_data)
+        params = mechanism_data.get("params", {})
+        profile = physical_profile_from_params(params)
 
         gear_tolerances = f"""
         <g id="gear-tolerances" font-size="6" font-family="Arial">
             <text x="140" y="280">GEAR SPECIFICATIONS:</text>
-            <text x="140" y="286">MODULE: {mechanism_data.get("params", {}).get("module", 2)}mm</text>
-            <text x="140" y="292">PRESSURE ANGLE: {mechanism_data.get("params", {}).get("pressure_angle", 20)}°</text>
+            <text x="140" y="286">RADIUS PITCH: {profile.gear_radius_per_tooth_mm:.1f}mm/tooth</text>
+            <text x="140" y="292">PRESSURE ANGLE: {params.get("pressure_angle", 20)}°</text>
             <text x="220" y="280">BACKLASH: 0.05-0.10mm</text>
             <text x="220" y="286">SURFACE FINISH: Ra 1.6</text>
             <text x="220" y="292">MATERIAL: {mechanism_data.get("material", "STEEL")} HRC 58-62</text>
