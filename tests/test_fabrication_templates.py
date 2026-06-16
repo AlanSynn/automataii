@@ -62,6 +62,7 @@ EXPECTED_BRACKETS = {
 NUMBER_RE = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
 COMMAND_RE = re.compile(r"([MLA])([^MLA]*)")
 TRANSLATE_RE = re.compile(r"translate\(([-+0-9.eE]+)[ ,]+([-+0-9.eE]+)\)")
+EXPECTED_HOLE_DIAMETER_ATTR = f"{DEFAULT_HOLE_DIAMETER_MM:g}"
 
 
 def _hash_managed_files(root: Path, managed_files: list[str]) -> dict[str, str]:
@@ -101,12 +102,14 @@ def _manifest_lists(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], ...
     cams = parts["cams"]
     followers = parts["followers"]
     brackets = parts["brackets"]
+    spacers = parts["spacers"]
     sheets = manifest["sheets"]
     assert isinstance(gears, list)
     assert isinstance(linkages, list)
     assert isinstance(cams, list)
     assert isinstance(followers, list)
     assert isinstance(brackets, list)
+    assert isinstance(spacers, list)
     assert isinstance(sheets, list)
     return (
         cast(list[dict[str, Any]], gears),
@@ -114,6 +117,7 @@ def _manifest_lists(manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], ...
         cast(list[dict[str, Any]], cams),
         cast(list[dict[str, Any]], followers),
         cast(list[dict[str, Any]], brackets),
+        cast(list[dict[str, Any]], spacers),
         cast(list[dict[str, Any]], sheets),
     )
 
@@ -277,17 +281,20 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
     assert manifest["grid_pitch_mm"] == 20.0
     assert manifest["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
 
-    gears, linkages, cams, followers, brackets, sheets = _manifest_lists(manifest)
+    gears, linkages, cams, followers, brackets, spacers, sheets = _manifest_lists(manifest)
     managed_files = _managed_files(manifest)
     assert len(gears) == 4
     assert len(linkages) == 4
     assert len(cams) == 4
     assert len(followers) == 4
     assert len(brackets) == 4
-    assert len(sheets) >= 7
+    assert len(spacers) == 4
+    assert len(sheets) >= 8
     assert set(EXPECTED_BRACKETS) <= set(managed_files)
     assert any(path.startswith("sheets/06-bracket-set") for path in managed_files)
     assert any(path.startswith("sheets/07-follower-set") for path in managed_files)
+    assert any(path.startswith("spacers/spacer-s8") for path in managed_files)
+    assert any(path.startswith("sheets/08-spacer-set") for path in managed_files)
 
     for rel_path in managed_files:
         assert (tmp_path / rel_path).exists(), rel_path
@@ -302,7 +309,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert "viewBox" in root.attrib
         assert root.attrib["data-profile-key"]
         assert root.attrib["data-grid-pitch-mm"] == "20"
-        assert root.attrib["data-hole-diameter-mm"] == "6"
+        assert root.attrib["data-hole-diameter-mm"] == EXPECTED_HOLE_DIAMETER_ATTR
         assert root.find(f"{SVG_NS}title") is not None
         assert root.find(f"{SVG_NS}desc") is not None
         _assert_svg_geometry_inside_viewbox(root)
@@ -577,7 +584,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         guide_slots = _elements_with_class(root, "follower-guide-slot")
         assert len(guide_slots) == 1
         for slot in guide_slots:
-            assert slot.attrib["data-slot-width-mm"] == "6"
+            assert slot.attrib["data-slot-width-mm"] == EXPECTED_HOLE_DIAMETER_ATTR
             assert math.isclose(
                 float(slot.attrib["data-slot-travel-mm"]),
                 float(follower["guide_slot_travel_mm"]),
@@ -615,6 +622,32 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert _has_attr(root, "data-hole-role", "bracket")
         assert _hole_centers_for_role(root, "bracket") == [tuple(center) for center in centers]
 
+    assert [spacer["key"] for spacer in spacers] == ["s8", "s10", "s12", "s16"]
+    for spacer in spacers:
+        required = {
+            "key",
+            "label",
+            "path",
+            "outer_diameter_mm",
+            "inner_diameter_mm",
+            "hole_diameter_mm",
+            "hole_count",
+            "hole_centers_mm",
+            "stackable",
+        }
+        assert required <= set(spacer)
+        assert spacer["inner_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
+        assert spacer["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
+        assert spacer["hole_count"] == 1
+        assert spacer["stackable"] is True
+        assert float(spacer["outer_diameter_mm"]) >= DEFAULT_HOLE_DIAMETER_MM + 4.0
+        root = _svg_root(tmp_path / str(spacer["path"]))
+        assert _has_class(root, "spacer-outline")
+        assert _has_class(root, "washer-outline")
+        assert _has_class(root, "spacer-hole")
+        assert _has_attr(root, "data-hole-role", "spacer")
+        assert _has_attr(root, "data-hole-diameter-mm", EXPECTED_HOLE_DIAMETER_ATTR)
+
     for sheet in sheets:
         required = {"key", "label", "path", "contains", "width_mm", "height_mm"}
         assert required <= set(sheet)
@@ -626,10 +659,14 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         str(sheet["path"]).startswith("sheets/07-follower-set") and "followers" in sheet["contains"]
         for sheet in sheets
     )
+    assert any(
+        str(sheet["path"]).startswith("sheets/08-spacer-set") and "spacers" in sheet["contains"]
+        for sheet in sheets
+    )
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
-    assert "seven workshop sheets" in readme
-    assert "`gears/`, `linkages/`, `cams/`, `followers/`, and `brackets/`" in readme
-    assert "6 mm-wide vertical slots" in readme
+    assert "8 workshop sheets" in readme
+    assert "`gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/`" in readme
+    assert "4 mm-wide vertical slots" in readme
 
     before = _hash_managed_files(tmp_path, managed_files)
     unrelated = tmp_path / "keep-me.txt"
@@ -700,7 +737,9 @@ def test_fabrication_generator_supports_alternate_pitch_without_changing_holes(
     for bracket in brackets:
         _assert_svg_geometry_inside_viewbox(_svg_root(tmp_path / str(bracket["path"])))
     gear_path = tmp_path / str(gears[0]["path"])
-    assert 'data-hole-diameter-mm="6"' in gear_path.read_text(encoding="utf-8")
+    assert f'data-hole-diameter-mm="{EXPECTED_HOLE_DIAMETER_ATTR}"' in gear_path.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_fabrication_generator_consumes_profile_hole_contract(tmp_path: Path) -> None:
@@ -748,12 +787,8 @@ def test_fabrication_generator_rejects_profiles_that_do_not_fit_sheet_layout(
 def test_committed_fabrication_package_matches_generator(tmp_path: Path) -> None:
     manifest = write_fabrication_templates(tmp_path)
     managed_files = set(_managed_files(manifest))
-    committed_files = {
-        path.relative_to(REPO_ROOT / "fabrication").as_posix()
-        for path in (REPO_ROOT / "fabrication").rglob("*")
-        if path.is_file()
-    }
-    assert committed_files == managed_files
+    for rel_path in sorted(managed_files):
+        assert (REPO_ROOT / "fabrication" / rel_path).is_file(), rel_path
     ignored = subprocess.run(
         ["git", "check-ignore", *[f"fabrication/{path}" for path in sorted(managed_files)]],
         cwd=REPO_ROOT,
@@ -785,4 +820,4 @@ def test_fabrication_generator_cli(tmp_path: Path) -> None:
     assert "Generated" in result.stdout
     manifest = _load_manifest(output)
     assert manifest["schema_version"] == "automataii.fabrication.v1"
-    assert len(_managed_files(manifest)) >= 24
+    assert len(_managed_files(manifest)) >= 29

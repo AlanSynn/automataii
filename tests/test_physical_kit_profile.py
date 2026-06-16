@@ -30,7 +30,7 @@ from automataii.shared.physical_kit import (
 def test_physical_kit_default_grid_and_variant_counts() -> None:
     assert DEFAULT_GRID_PITCH_MM == 20.0
     assert DEFAULT_GRID_CELL_CM == 2.0
-    assert DEFAULT_HOLE_DIAMETER_MM == 6.0
+    assert DEFAULT_HOLE_DIAMETER_MM == 4.0
     assert DEFAULT_PHYSICAL_KIT_PROFILE.default_pitch_mm == DEFAULT_GRID_PITCH_MM
     assert DEFAULT_PHYSICAL_KIT_PROFILE.hole_diameter_mm == DEFAULT_HOLE_DIAMETER_MM
     assert DEFAULT_PHYSICAL_KIT_PROFILE.grid_pitch_choices == GRID_PITCH_CHOICES

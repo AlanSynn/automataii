@@ -4,26 +4,27 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 
 ## Two supported workflows
 
-1. **Pre-fabricated prototyping kit** — cut/print the seven workshop sheets in `sheets/`, keep the parts as a classroom/workshop set, and mount them on the physical pegboard with the existing bracket hardware.
-2. **Self-fabrication** — use the individual SVGs in `gears/`, `linkages/`, `cams/`, `followers/`, and `brackets/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
+1. **Pre-fabricated prototyping kit** — cut/print the 8 workshop sheets in `sheets/`, keep the parts as a classroom/workshop set, and mount them on the physical pegboard with the existing bracket hardware.
+2. **Self-fabrication** — use the individual SVGs in `gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
 
 ## Physical assumptions
 
 - Default committed pitch: `20.0 mm` (`2.00 cm`) board spacing.
-- Nominal axle/linkage/bracket hole diameter: `6.0 mm`.
+- Nominal axle/linkage/bracket hole diameter: `4.0 mm`.
 - Gear presets: 12, 14, 16, 18 teeth.
 - Linkage lengths: 2, 4, 6, 8 board cells.
 - Cam presets: circle, eccentric, oval, pear.
 - Follower presets: round-nose, roller-pin, flat-shoe, linkage-output.
 - Bracket presets: 2-hole straight, 3-hole straight, L 3-hole, triangle 3-hole.
+- Spacer presets: 8, 10, 12, and 16 mm outside-diameter stackable washers.
 - Default profile key: `motionsmith-ms4n`. Legacy `ms4n` / `motionsmith-ms4n`
   identifiers are compatibility labels; the committed fabrication contract is
-  this 20.0 mm / 6.0 mm board unless a custom output directory is generated.
+  this 20.0 mm / 4.0 mm board unless a custom output directory is generated.
 - Red paths are cuts, blue circles are drill/cut holes, gray lines are score/reference geometry.
 - Gear attachment-hole pattern: larger gears use board-grid attachment holes where they fit.
-  Compact gears and cams use radial crank/linkage/handle holes only when a separate 6 mm
+  Compact gears and cams use radial crank/linkage/handle holes only when a separate 4 mm
   hole can preserve enough material around the axle.
-- Follower guide geometry: followers use 6 mm-wide vertical slots, not fixed round board holes,
+- Follower guide geometry: followers use 4 mm-wide vertical slots, not fixed round board holes,
   so fixed board pins/brackets can constrain the part while still allowing cam lift travel.
 
 ## Tolerance note
@@ -35,20 +36,21 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 `kit/` and `fabrication/` are intentionally separate physical-asset packages:
 
 - `kit/` contains the existing educational/module-oriented MS4N activity sheets, prompt cards, checks, and broad classroom materials.
-- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, linkage bars, cams, followers, brackets, and workshop cut sheets.
+- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, linkage bars, cams, followers, brackets, spacers, and workshop cut sheets.
 - Shared physical assumptions should come from `automataii.shared.physical_kit`; do not hand-edit generated `fabrication/` SVGs without updating the generator and sync test.
 
 ## Contents
 
 - `manifest.json` — machine-readable inventory and dimensions.
-- `gears/` — one SVG per gear preset; each gear includes a 6 mm axle hole and 6 mm linkage/bracket/crank/handle attachment holes.
+- `gears/` — one SVG per gear preset; each gear includes a 4 mm axle hole and 4 mm linkage/bracket/crank/handle attachment holes.
 - `linkages/` — one SVG per linkage length; holes are spaced on the board pitch.
-- `cams/` — one SVG per cam preset; each cam includes a 6 mm axle hole and 6 mm linkage/bracket/crank/handle attachment holes.
-- `followers/` — slotted cam follower parts with 6 mm guide slots and 6 mm linkage/output holes.
+- `cams/` — one SVG per cam preset; each cam includes a 4 mm axle hole and 4 mm linkage/bracket/crank/handle attachment holes.
+- `followers/` — slotted cam follower parts with 4 mm guide slots and 4 mm linkage/output holes.
 - `brackets/` — bracket plates for the pegboard/bracket assembly style shown in the reference image.
-- `sheets/` — seven workshop sheets for pre-fabricated sets.
+- `spacers/` — washer spacers for stack clearance between the board, gears, cams, links, and brackets.
+- `sheets/` — 8 workshop sheets for pre-fabricated sets.
 
-Managed files in this generated package: 29.
+Managed files in this generated package: 34.
 
 ## Regeneration
 

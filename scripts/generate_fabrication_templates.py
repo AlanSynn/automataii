@@ -3,7 +3,7 @@
 
 The committed ``fabrication/`` package is the default physical board pitch
 (20.0 mm).  The generator can also be used with alternate board pitches for
-custom output while preserving the nominal 6 mm bracket/axle hole contract.
+custom output while preserving the profile's bracket/axle hole contract.
 """
 
 from __future__ import annotations
@@ -99,6 +99,14 @@ class BracketPreset:
     outline_points_mm: tuple[tuple[float, float], ...] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SpacerPreset:
+    key: str
+    label: str
+    path: str
+    outer_diameter_mm: float
+
+
 BRACKET_PRESETS: tuple[BracketPreset, ...] = (
     BracketPreset(
         "2-hole-straight",
@@ -126,6 +134,13 @@ BRACKET_PRESETS: tuple[BracketPreset, ...] = (
         ((10.0, 10.0), (30.0, 10.0), (10.0, 30.0)),
         ((3.0, 3.0), (39.0, 3.0), (3.0, 39.0)),
     ),
+)
+
+SPACER_PRESETS: tuple[SpacerPreset, ...] = (
+    SpacerPreset("s8", "S8 micro spacer", "spacers/spacer-s8.svg", 8.0),
+    SpacerPreset("s10", "S10 standard spacer", "spacers/spacer-s10.svg", 10.0),
+    SpacerPreset("s12", "S12 wide spacer", "spacers/spacer-s12.svg", 12.0),
+    SpacerPreset("s16", "S16 isolation spacer", "spacers/spacer-s16.svg", 16.0),
 )
 
 
@@ -348,7 +363,7 @@ def _gear_attachment_offsets(
 
     Larger gears use board-grid offsets so brackets and linkages align directly to
     the 20 mm pegboard pitch. Compact gears get a four-hole crank/handle ring only
-    when a separate 6 mm hole can fit without overlapping the axle.
+    when a separate profile-sized hole can fit without overlapping the axle.
     """
     max_attachment_radius = geometry.root_radius_mm - spec.hole_radius_mm - 4.0
     minimum_separate_hole_radius = spec.hole_diameter_mm + 2.0
@@ -836,6 +851,77 @@ def _bracket_template(preset: BracketPreset, spec: FabricationSpec) -> SvgTempla
     )
 
 
+def _spacer_elements(
+    preset: SpacerPreset, spec: FabricationSpec, *, label: bool = True
+) -> tuple[list[str], dict[str, object], float, float]:
+    outer_radius = preset.outer_diameter_mm / 2.0
+    if outer_radius <= spec.hole_radius_mm:
+        raise ValueError(
+            f"Spacer {preset.key!r} outer diameter must exceed "
+            f"{_fmt(spec.hole_diameter_mm)} mm hole diameter"
+        )
+    margin = 4.0
+    cx = outer_radius + margin
+    cy = outer_radius + margin
+    elements = [
+        _circle(
+            cx,
+            cy,
+            outer_radius,
+            "cut spacer-outline washer-outline",
+            extra={
+                "spacer_key": preset.key,
+                "outer_diameter_mm": _fmt(preset.outer_diameter_mm),
+                "inner_diameter_mm": spec.hole_diameter_attr,
+            },
+        ),
+        _circle(
+            cx,
+            cy,
+            spec.hole_radius_mm,
+            "drill spacer-hole axle-hole linkage-hole bracket-hole",
+            extra={
+                "hole_role": "spacer",
+                "hole_diameter_mm": spec.hole_diameter_attr,
+                "hole_index": 0,
+            },
+        ),
+    ]
+    height = preset.outer_diameter_mm + margin * 2.0
+    if label:
+        elements.append(_text(cx, height + 6.0, preset.label))
+        height += 10.0
+    width = preset.outer_diameter_mm + margin * 2.0
+    metadata: dict[str, object] = {
+        "key": preset.key,
+        "label": preset.label,
+        "path": preset.path,
+        "outer_diameter_mm": round(preset.outer_diameter_mm, 3),
+        "inner_diameter_mm": spec.hole_diameter_mm,
+        "hole_diameter_mm": spec.hole_diameter_mm,
+        "hole_count": 1,
+        "hole_centers_mm": [[round(cx, 3), round(cy, 3)]],
+        "stackable": True,
+    }
+    return elements, metadata, width, height
+
+
+def _spacer_template(preset: SpacerPreset, spec: FabricationSpec) -> SvgTemplate:
+    elements, metadata, width, height = _spacer_elements(preset, spec)
+    return SvgTemplate(
+        path=preset.path,
+        title=f"Automataii fabrication spacer {preset.key}",
+        desc=(
+            f"{preset.label} washer spacer with {_fmt(spec.hole_diameter_mm)} mm center hole "
+            "for axle/linkage/bracket clearance stacks."
+        ),
+        width_mm=width,
+        height_mm=height,
+        elements=tuple(elements),
+        metadata=metadata,
+    )
+
+
 def _cam_params_for_preset(preset: CamPreset, spec: FabricationSpec) -> dict[str, float]:
     return dict(preset.params_mm(spec.pitch_mm / 10.0))
 
@@ -1093,7 +1179,7 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
 
     gear_sheet = _sheet_label(
         "01 Gear set",
-        "Gears include 6 mm axle + linkage/bracket/crank/handle holes",
+        f"Gears include {_fmt(spec.hole_diameter_mm)} mm axle + linkage/bracket/crank/handle holes",
     )
     gear_positions = [(12.0, 28.0), (118.0, 28.0), (12.0, 150.0), (144.0, 150.0)]
     for gear_preset, (x, y) in zip(spec.profile.gear_presets, gear_positions, strict=True):
@@ -1180,7 +1266,8 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
 
     bracket_sheet = _sheet_label(
         "06 Bracket set",
-        f"Bracket plates match the {pitch_mm:.0f} mm pegboard pitch and 6 mm holes",
+        f"Bracket plates match the {pitch_mm:.0f} mm pegboard pitch and "
+        f"{_fmt(spec.hole_diameter_mm)} mm holes",
     )
     bracket_positions = [(12.0, 30.0), (12.0, 62.0), (12.0, 96.0), (72.0, 96.0)]
     for bracket_preset, (x, y) in zip(BRACKET_PRESETS, bracket_positions, strict=True):
@@ -1192,7 +1279,8 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
 
     follower_sheet = _sheet_label(
         "07 Follower set",
-        "Slotted cam followers: guide on fixed 6 mm pins, output holes move with the cam",
+        "Slotted cam followers: guide on fixed "
+        f"{_fmt(spec.hole_diameter_mm)} mm pins, output holes move with the cam",
     )
     follower_positions = [(10.0, 30.0), (110.0, 30.0), (210.0, 30.0), (310.0, 30.0)]
     for follower_preset, (x, y) in zip(
@@ -1206,6 +1294,19 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
         _sheet_template("07-follower-set", "Follower set", ["followers"], follower_sheet, spec)
     )
 
+    spacer_sheet = _sheet_label(
+        "08 Spacer set",
+        f"Stackable washer spacers for {_fmt(spec.hole_diameter_mm)} mm axle/linkage hardware",
+    )
+    spacer_copies_per_size = 8
+    for row, spacer_preset in enumerate(SPACER_PRESETS):
+        y = 34.0 + row * 34.0
+        spacer_sheet.append(_text(12.0, y + 5.0, spacer_preset.label, class_name="tiny", anchor="start"))
+        for col in range(spacer_copies_per_size):
+            elements, _, _, _ = _spacer_elements(spacer_preset, spec, label=False)
+            spacer_sheet.extend(_translate(element, 86.0 + col * 30.0, y) for element in elements)
+    sheets.append(_sheet_template("08-spacer-set", "Spacer set", ["spacers"], spacer_sheet, spec))
+
     return sheets
 
 
@@ -1217,6 +1318,7 @@ def _readme_text(spec: FabricationSpec, manifest: dict[str, object]) -> str:
     gear_teeth = ", ".join(str(preset.teeth) for preset in spec.profile.gear_presets)
     linkage_lengths = ", ".join(str(cells) for cells in spec.profile.linkage_length_cells)
     cam_names = ", ".join(preset.key for preset in spec.profile.cam_presets)
+    sheet_count = len(manifest["sheets"]) if isinstance(manifest["sheets"], list) else 0
 
     return f"""# Automataii fabrication templates
 
@@ -1224,8 +1326,8 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 
 ## Two supported workflows
 
-1. **Pre-fabricated prototyping kit** — cut/print the seven workshop sheets in `sheets/`, keep the parts as a classroom/workshop set, and mount them on the physical pegboard with the existing bracket hardware.
-2. **Self-fabrication** — use the individual SVGs in `gears/`, `linkages/`, `cams/`, `followers/`, and `brackets/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
+1. **Pre-fabricated prototyping kit** — cut/print the {sheet_count} workshop sheets in `sheets/`, keep the parts as a classroom/workshop set, and mount them on the physical pegboard with the existing bracket hardware.
+2. **Self-fabrication** — use the individual SVGs in `gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
 
 ## Physical assumptions
 
@@ -1236,14 +1338,15 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 - Cam presets: {cam_names}.
 - Follower presets: round-nose, roller-pin, flat-shoe, linkage-output.
 - Bracket presets: 2-hole straight, 3-hole straight, L 3-hole, triangle 3-hole.
+- Spacer presets: 8, 10, 12, and 16 mm outside-diameter stackable washers.
 - Default profile key: `{spec.profile.key}`. Legacy `ms4n` / `motionsmith-ms4n`
   identifiers are compatibility labels; the committed fabrication contract is
-  this 20.0 mm / 6.0 mm board unless a custom output directory is generated.
+  this 20.0 mm / {spec.hole_diameter_mm:.1f} mm board unless a custom output directory is generated.
 - Red paths are cuts, blue circles are drill/cut holes, gray lines are score/reference geometry.
 - Gear attachment-hole pattern: larger gears use board-grid attachment holes where they fit.
-  Compact gears and cams use radial crank/linkage/handle holes only when a separate 6 mm
+  Compact gears and cams use radial crank/linkage/handle holes only when a separate {_fmt(spec.hole_diameter_mm)} mm
   hole can preserve enough material around the axle.
-- Follower guide geometry: followers use 6 mm-wide vertical slots, not fixed round board holes,
+- Follower guide geometry: followers use {_fmt(spec.hole_diameter_mm)} mm-wide vertical slots, not fixed round board holes,
   so fixed board pins/brackets can constrain the part while still allowing cam lift travel.
 
 ## Tolerance note
@@ -1255,18 +1358,19 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 `kit/` and `fabrication/` are intentionally separate physical-asset packages:
 
 - `kit/` contains the existing educational/module-oriented MS4N activity sheets, prompt cards, checks, and broad classroom materials.
-- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, linkage bars, cams, followers, brackets, and workshop cut sheets.
+- `fabrication/` is the nominal-millimetre manufacturing package for the constrained physical parts requested here: gears, linkage bars, cams, followers, brackets, spacers, and workshop cut sheets.
 - Shared physical assumptions should come from `automataii.shared.physical_kit`; do not hand-edit generated `fabrication/` SVGs without updating the generator and sync test.
 
 ## Contents
 
 - `manifest.json` — machine-readable inventory and dimensions.
-- `gears/` — one SVG per gear preset; each gear includes a 6 mm axle hole and 6 mm linkage/bracket/crank/handle attachment holes.
+- `gears/` — one SVG per gear preset; each gear includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
 - `linkages/` — one SVG per linkage length; holes are spaced on the board pitch.
-- `cams/` — one SVG per cam preset; each cam includes a 6 mm axle hole and 6 mm linkage/bracket/crank/handle attachment holes.
-- `followers/` — slotted cam follower parts with 6 mm guide slots and 6 mm linkage/output holes.
+- `cams/` — one SVG per cam preset; each cam includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
+- `followers/` — slotted cam follower parts with {_fmt(spec.hole_diameter_mm)} mm guide slots and {_fmt(spec.hole_diameter_mm)} mm linkage/output holes.
 - `brackets/` — bracket plates for the pegboard/bracket assembly style shown in the reference image.
-- `sheets/` — seven workshop sheets for pre-fabricated sets.
+- `spacers/` — washer spacers for stack clearance between the board, gears, cams, links, and brackets.
+- `sheets/` — {sheet_count} workshop sheets for pre-fabricated sets.
 
 Managed files in this generated package: {managed_count}.
 
@@ -1348,6 +1452,7 @@ def write_fabrication_templates(
     cam_templates = [_cam_template(preset, spec) for preset in profile.cam_presets]
     follower_templates = [_follower_template(preset, spec) for preset in profile.follower_presets]
     bracket_templates = [_bracket_template(preset, spec) for preset in BRACKET_PRESETS]
+    spacer_templates = [_spacer_template(preset, spec) for preset in SPACER_PRESETS]
     sheet_templates = _build_sheets(spec)
 
     all_svg_templates = [
@@ -1356,6 +1461,7 @@ def write_fabrication_templates(
         *cam_templates,
         *follower_templates,
         *bracket_templates,
+        *spacer_templates,
         *sheet_templates,
     ]
     managed_files = sorted(
@@ -1378,6 +1484,7 @@ def write_fabrication_templates(
             "cams": [template.metadata for template in cam_templates],
             "followers": [template.metadata for template in follower_templates],
             "brackets": [template.metadata for template in bracket_templates],
+            "spacers": [template.metadata for template in spacer_templates],
         },
         "sheets": [template.metadata for template in sheet_templates],
         "managed_files": managed_files,

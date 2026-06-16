@@ -196,7 +196,7 @@ class SensemakingService:
             focus="A driven gear carries an off-center pin that pulls a linkage arm.",
             chain="gear ratio → crank pin orbit → linkage swing",
             motion_question="Does the linkage need a bigger swing, different timing, or less force?",
-            kit_move="Use a 6 mm crank hole and a loose bracket so the link can rotate freely.",
+            kit_move="Use a 4 mm crank hole and a loose bracket so the link can rotate freely.",
         ),
         "slider_crank": MechanismStory(
             mechanism_type="slider_crank",

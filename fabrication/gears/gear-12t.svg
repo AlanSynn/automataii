@@ -4,9 +4,9 @@
      viewBox="0 0 55.6 65.6"
      data-profile-key="motionsmith-ms4n"
      data-grid-pitch-mm="20"
-     data-hole-diameter-mm="6">
+     data-hole-diameter-mm="4">
   <title>Automataii fabrication gear 12 teeth</title>
-  <desc>G12 micro gear with 6 mm axle and linkage/bracket/crank/handle holes.</desc>
+  <desc>G12 micro gear with 4 mm axle and linkage/bracket/crank/handle holes.</desc>
   <defs>
     <style>
       .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
@@ -18,11 +18,11 @@
     </style>
   </defs>
   <path d="M 43.925 27.8 L 47.431 30.384 L 46.925 32.925 L 42.698 33.971 L 41.765 35.862 L 43.508 39.853 L 41.801 41.801 L 37.616 40.593 L 35.863 41.765 L 35.377 46.093 L 32.925 46.925 L 29.905 43.787 L 27.8 43.925 L 25.216 47.431 L 22.675 46.925 L 21.629 42.698 L 19.738 41.765 L 15.747 43.508 L 13.799 41.801 L 15.007 37.616 L 13.835 35.862 L 9.507 35.377 L 8.675 32.925 L 11.813 29.905 L 11.675 27.8 L 8.169 25.216 L 8.675 22.675 L 12.902 21.629 L 13.835 19.738 L 12.092 15.747 L 13.799 13.799 L 17.984 15.007 L 19.737 13.835 L 20.223 9.507 L 22.675 8.675 L 25.695 11.813 L 27.8 11.675 L 30.384 8.169 L 32.925 8.675 L 33.971 12.902 L 35.863 13.835 L 39.853 12.092 L 41.801 13.799 L 40.593 17.984 L 41.765 19.737 L 46.093 20.223 L 46.925 22.675 L 43.787 25.695 Z" class="cut gear-outline" data-teeth="12" data-pitch-radius-mm="18" data-root-radius-mm="16.125" data-outer-radius-mm="19.8" data-attachment-hole-pattern="radial"/>
-  <circle cx="27.8" cy="27.8" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
+  <circle cx="27.8" cy="27.8" r="2" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="4"/>
   <circle cx="27.8" cy="27.8" r="18" class="score pitch-circle"/>
-  <circle cx="36.925" cy="27.8" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="9.125" data-hole-y-offset-mm="0" data-hole-radius-mm="9.125"/>
-  <circle cx="27.8" cy="36.925" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="0" data-hole-y-offset-mm="9.125" data-hole-radius-mm="9.125"/>
-  <circle cx="18.675" cy="27.8" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="-9.125" data-hole-y-offset-mm="0" data-hole-radius-mm="9.125"/>
-  <circle cx="27.8" cy="18.675" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="-0" data-hole-y-offset-mm="-9.125" data-hole-radius-mm="9.125"/>
+  <circle cx="37.925" cy="27.8" r="2" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="4" data-hole-index="0" data-hole-x-offset-mm="10.125" data-hole-y-offset-mm="0" data-hole-radius-mm="10.125"/>
+  <circle cx="27.8" cy="37.925" r="2" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="4" data-hole-index="1" data-hole-x-offset-mm="0" data-hole-y-offset-mm="10.125" data-hole-radius-mm="10.125"/>
+  <circle cx="17.675" cy="27.8" r="2" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="4" data-hole-index="2" data-hole-x-offset-mm="-10.125" data-hole-y-offset-mm="0" data-hole-radius-mm="10.125"/>
+  <circle cx="27.8" cy="17.675" r="2" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="4" data-hole-index="3" data-hole-x-offset-mm="-0" data-hole-y-offset-mm="-10.125" data-hole-radius-mm="10.125"/>
   <text x="27.8" y="53.6" class="label" text-anchor="middle">G12 micro / 12T</text>
 </svg>

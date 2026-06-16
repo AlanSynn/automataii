@@ -3,7 +3,7 @@
   "generated_by": "scripts/generate_fabrication_templates.py",
   "grid_cell_cm": 2.0,
   "grid_pitch_mm": 20.0,
-  "hole_diameter_mm": 6.0,
+  "hole_diameter_mm": 4.0,
   "managed_files": [
     "README.md",
     "brackets/bracket-2-hole-straight.svg",
@@ -33,7 +33,12 @@
     "sheets/04-prototype-set-a.svg",
     "sheets/05-prototype-set-b.svg",
     "sheets/06-bracket-set.svg",
-    "sheets/07-follower-set.svg"
+    "sheets/07-follower-set.svg",
+    "sheets/08-spacer-set.svg",
+    "spacers/spacer-s10.svg",
+    "spacers/spacer-s12.svg",
+    "spacers/spacer-s16.svg",
+    "spacers/spacer-s8.svg"
   ],
   "parts": {
     "brackets": [
@@ -49,7 +54,7 @@
           ]
         ],
         "hole_count": 2,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "2-hole-straight",
         "label": "2-hole straight bracket",
         "path": "brackets/bracket-2-hole-straight.svg",
@@ -71,7 +76,7 @@
           ]
         ],
         "hole_count": 3,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "3-hole-straight",
         "label": "3-hole straight bracket",
         "path": "brackets/bracket-3-hole-straight.svg",
@@ -93,7 +98,7 @@
           ]
         ],
         "hole_count": 3,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "l-3-hole",
         "label": "L 3-hole bracket",
         "path": "brackets/bracket-l-3-hole.svg",
@@ -115,7 +120,7 @@
           ]
         ],
         "hole_count": 3,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "triangle-3-hole",
         "label": "Triangle 3-hole bracket",
         "path": "brackets/bracket-triangle-3-hole.svg",
@@ -126,20 +131,20 @@
       {
         "attachment_hole_centers_mm": [
           [
-            7.071,
-            7.071
+            12.0,
+            0.0
           ],
           [
-            -7.071,
-            7.071
+            0.0,
+            12.0
           ],
           [
-            -7.071,
-            -7.071
+            -12.0,
+            0.0
           ],
           [
-            7.071,
-            -7.071
+            -0.0,
+            -12.0
           ]
         ],
         "attachment_hole_count": 4,
@@ -153,7 +158,7 @@
         "cam_lobes": 1,
         "eccentricity_mm": 0.0,
         "high_dwell_deg": 270.0,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "circle",
         "label": "Circle / steady",
         "path": "cams/cam-circle.svg",
@@ -167,20 +172,20 @@
       {
         "attachment_hole_centers_mm": [
           [
+            12.0,
+            0.0
+          ],
+          [
             -11.087,
             -4.592
           ],
           [
-            -4.592,
-            -11.087
+            -0.0,
+            -12.0
           ],
           [
-            4.592,
-            -11.087
-          ],
-          [
-            11.087,
-            -4.592
+            8.485,
+            -8.485
           ]
         ],
         "attachment_hole_count": 4,
@@ -194,7 +199,7 @@
         "cam_lobes": 1,
         "eccentricity_mm": 5.0,
         "high_dwell_deg": 60.0,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "eccentric",
         "label": "Eccentric / bounce",
         "path": "cams/cam-eccentric.svg",
@@ -208,20 +213,20 @@
       {
         "attachment_hole_centers_mm": [
           [
-            6.199,
-            14.967
+            6.582,
+            15.891
           ],
           [
-            -6.199,
-            14.967
+            -6.582,
+            15.891
           ],
           [
-            -6.199,
-            -14.967
+            -6.582,
+            -15.891
           ],
           [
-            6.199,
-            -14.967
+            6.582,
+            -15.891
           ]
         ],
         "attachment_hole_count": 4,
@@ -235,7 +240,7 @@
         "cam_lobes": 2,
         "eccentricity_mm": 6.0,
         "high_dwell_deg": 30.0,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "oval",
         "label": "Oval / smooth rise",
         "path": "cams/cam-oval.svg",
@@ -249,20 +254,20 @@
       {
         "attachment_hole_centers_mm": [
           [
-            -12.934,
-            -5.358
+            -14.782,
+            -6.123
           ],
           [
-            -5.358,
-            -12.934
+            -6.123,
+            -14.782
           ],
           [
-            5.358,
-            -12.934
+            6.123,
+            -14.782
           ],
           [
-            12.934,
-            -5.358
+            14.782,
+            -6.123
           ]
         ],
         "attachment_hole_count": 4,
@@ -276,7 +281,7 @@
         "cam_lobes": 1,
         "eccentricity_mm": 9.0,
         "high_dwell_deg": 45.0,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "pear",
         "label": "Pear / slow-fast",
         "path": "cams/cam-pear.svg",
@@ -298,13 +303,13 @@
         "guide_slot_centers_mm": [
           [
             0.0,
-            39.0
+            40.0
           ]
         ],
         "guide_slot_count": 1,
         "guide_slot_travel_mm": 20.0,
-        "guide_slot_width_mm": 6.0,
-        "hole_diameter_mm": 6.0,
+        "guide_slot_width_mm": 4.0,
+        "hole_diameter_mm": 4.0,
         "key": "f3-round",
         "label": "3-cell round-nose follower",
         "output_hole_centers_mm": [
@@ -328,13 +333,13 @@
         "guide_slot_centers_mm": [
           [
             0.0,
-            39.0
+            40.0
           ]
         ],
         "guide_slot_count": 1,
         "guide_slot_travel_mm": 20.0,
-        "guide_slot_width_mm": 6.0,
-        "hole_diameter_mm": 6.0,
+        "guide_slot_width_mm": 4.0,
+        "hole_diameter_mm": 4.0,
         "key": "f4-roller",
         "label": "4-cell roller-pin follower",
         "output_hole_centers_mm": [
@@ -363,13 +368,13 @@
         "guide_slot_centers_mm": [
           [
             0.0,
-            76.5
+            77.5
           ]
         ],
         "guide_slot_count": 1,
         "guide_slot_travel_mm": 25.0,
-        "guide_slot_width_mm": 6.0,
-        "hole_diameter_mm": 6.0,
+        "guide_slot_width_mm": 4.0,
+        "hole_diameter_mm": 4.0,
         "key": "f5-flat",
         "label": "5-cell flat-shoe follower",
         "output_hole_centers_mm": [
@@ -397,13 +402,13 @@
         "guide_slot_centers_mm": [
           [
             0.0,
-            94.0
+            95.0
           ]
         ],
         "guide_slot_count": 1,
         "guide_slot_travel_mm": 30.0,
-        "guide_slot_width_mm": 6.0,
-        "hole_diameter_mm": 6.0,
+        "guide_slot_width_mm": 4.0,
+        "hole_diameter_mm": 4.0,
         "key": "f6-linkage-output",
         "label": "6-cell linkage-output follower",
         "output_hole_centers_mm": [
@@ -431,20 +436,20 @@
       {
         "attachment_hole_centers_mm": [
           [
-            9.125,
+            10.125,
             0.0
           ],
           [
             0.0,
-            9.125
+            10.125
           ],
           [
-            -9.125,
+            -10.125,
             0.0
           ],
           [
             -0.0,
-            -9.125
+            -10.125
           ]
         ],
         "attachment_hole_count": 4,
@@ -456,9 +461,9 @@
           "handle"
         ],
         "attachment_radii_mm": [
-          9.125
+          10.125
         ],
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "g12",
         "label": "G12 micro",
         "outer_radius_mm": 19.8,
@@ -470,20 +475,20 @@
       {
         "attachment_hole_centers_mm": [
           [
-            12.125,
+            13.125,
             0.0
           ],
           [
             0.0,
-            12.125
+            13.125
           ],
           [
-            -12.125,
+            -13.125,
             0.0
           ],
           [
             -0.0,
-            -12.125
+            -13.125
           ]
         ],
         "attachment_hole_count": 4,
@@ -495,9 +500,9 @@
           "handle"
         ],
         "attachment_radii_mm": [
-          12.125
+          13.125
         ],
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "g14",
         "label": "G14 compact",
         "outer_radius_mm": 22.8,
@@ -509,20 +514,20 @@
       {
         "attachment_hole_centers_mm": [
           [
-            15.125,
+            16.125,
             0.0
           ],
           [
             0.0,
-            15.125
+            16.125
           ],
           [
-            -15.125,
+            -16.125,
             0.0
           ],
           [
             -0.0,
-            -15.125
+            -16.125
           ]
         ],
         "attachment_hole_count": 4,
@@ -534,9 +539,9 @@
           "handle"
         ],
         "attachment_radii_mm": [
-          15.125
+          16.125
         ],
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "g16",
         "label": "G16 small",
         "outer_radius_mm": 25.8,
@@ -548,20 +553,20 @@
       {
         "attachment_hole_centers_mm": [
           [
-            18.125,
+            19.125,
             0.0
           ],
           [
             0.0,
-            18.125
+            19.125
           ],
           [
-            -18.125,
+            -19.125,
             0.0
           ],
           [
             -0.0,
-            -18.125
+            -19.125
           ]
         ],
         "attachment_hole_count": 4,
@@ -573,9 +578,9 @@
           "handle"
         ],
         "attachment_radii_mm": [
-          18.125
+          19.125
         ],
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "key": "g18",
         "label": "G18 medium",
         "outer_radius_mm": 28.8,
@@ -589,7 +594,7 @@
       {
         "cells": 2,
         "hole_count": 3,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "label": "2-cell linkage",
         "length_mm": 40.0,
         "path": "linkages/linkage-2-cell.svg",
@@ -598,7 +603,7 @@
       {
         "cells": 4,
         "hole_count": 5,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "label": "4-cell linkage",
         "length_mm": 80.0,
         "path": "linkages/linkage-4-cell.svg",
@@ -607,7 +612,7 @@
       {
         "cells": 6,
         "hole_count": 7,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "label": "6-cell linkage",
         "length_mm": 120.0,
         "path": "linkages/linkage-6-cell.svg",
@@ -616,11 +621,77 @@
       {
         "cells": 8,
         "hole_count": 9,
-        "hole_diameter_mm": 6.0,
+        "hole_diameter_mm": 4.0,
         "label": "8-cell linkage",
         "length_mm": 160.0,
         "path": "linkages/linkage-8-cell.svg",
         "pitch_mm": 20.0
+      }
+    ],
+    "spacers": [
+      {
+        "hole_centers_mm": [
+          [
+            8.0,
+            8.0
+          ]
+        ],
+        "hole_count": 1,
+        "hole_diameter_mm": 4.0,
+        "inner_diameter_mm": 4.0,
+        "key": "s8",
+        "label": "S8 micro spacer",
+        "outer_diameter_mm": 8.0,
+        "path": "spacers/spacer-s8.svg",
+        "stackable": true
+      },
+      {
+        "hole_centers_mm": [
+          [
+            9.0,
+            9.0
+          ]
+        ],
+        "hole_count": 1,
+        "hole_diameter_mm": 4.0,
+        "inner_diameter_mm": 4.0,
+        "key": "s10",
+        "label": "S10 standard spacer",
+        "outer_diameter_mm": 10.0,
+        "path": "spacers/spacer-s10.svg",
+        "stackable": true
+      },
+      {
+        "hole_centers_mm": [
+          [
+            10.0,
+            10.0
+          ]
+        ],
+        "hole_count": 1,
+        "hole_diameter_mm": 4.0,
+        "inner_diameter_mm": 4.0,
+        "key": "s12",
+        "label": "S12 wide spacer",
+        "outer_diameter_mm": 12.0,
+        "path": "spacers/spacer-s12.svg",
+        "stackable": true
+      },
+      {
+        "hole_centers_mm": [
+          [
+            12.0,
+            12.0
+          ]
+        ],
+        "hole_count": 1,
+        "hole_diameter_mm": 4.0,
+        "inner_diameter_mm": 4.0,
+        "key": "s16",
+        "label": "S16 isolation spacer",
+        "outer_diameter_mm": 16.0,
+        "path": "spacers/spacer-s16.svg",
+        "stackable": true
       }
     ]
   },
@@ -701,6 +772,16 @@
       "key": "07-follower-set",
       "label": "Follower set",
       "path": "sheets/07-follower-set.svg",
+      "width_mm": 420.0
+    },
+    {
+      "contains": [
+        "spacers"
+      ],
+      "height_mm": 320.0,
+      "key": "08-spacer-set",
+      "label": "Spacer set",
+      "path": "sheets/08-spacer-set.svg",
       "width_mm": 420.0
     }
   ],
