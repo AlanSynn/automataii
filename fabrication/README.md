@@ -45,7 +45,7 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 ## Contents
 
 - `manifest.json` — machine-readable inventory and dimensions.
-- `assembly/` — board-coordinate assembly guides, recipe data, and the 15x15 board map.
+- `assembly/` — board-coordinate assembly guides, recipe data, and the 15x15 hole / 225-hole board map.
 - `gears/` — one SVG per gear preset; each gear includes a 4 mm axle hole and 4 mm linkage/bracket/crank/handle attachment holes.
 - `linkages/` — one SVG per linkage length; holes are spaced on the board pitch.
 - `cams/` — one SVG per cam preset; each cam includes a 4 mm axle hole and 4 mm linkage/bracket/crank/handle attachment holes.

@@ -158,6 +158,7 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
         for element in board_root.iter()
         if "data-board-coord" in element.attrib
     }
+    assert len(board_coords) == len(BOARD_ROWS) * len(BOARD_COLUMNS) == 225
     assert "A1" in board_coords
     assert "O15" in board_coords
     board_circles = {
@@ -165,6 +166,7 @@ def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
         for element in board_root.iter(f"{SVG_NS}circle")
         if "data-board-coord" in element.attrib
     }
+    assert len(board_circles) == 225
     assert float(board_circles["A1"].attrib["r"]) == 2.0
     assert float(board_circles["A2"].attrib["cx"]) - float(board_circles["A1"].attrib["cx"]) == 20.0
     assert float(board_circles["B1"].attrib["cy"]) - float(board_circles["A1"].attrib["cy"]) == 20.0
