@@ -1453,11 +1453,11 @@ def _assembly_board_grid_elements(
 def _assembly_board_template(spec: FabricationSpec) -> SvgTemplate:
     board_size = spec.pitch_mm * (len(BOARD_COLUMNS) - 1)
     elements = [
-        _text(12.0, 14.0, "15x15 board coordinate map", anchor="start"),
+        _text(12.0, 14.0, "15x15 hole coordinate map", anchor="start"),
         _text(
             12.0,
             22.0,
-            "Use row letters and column numbers for every assembly step.",
+            "15 rows x 15 columns = 225 board holes.",
             class_name="tiny",
             anchor="start",
         ),
@@ -1472,14 +1472,14 @@ def _assembly_board_template(spec: FabricationSpec) -> SvgTemplate:
     ]
     return SvgTemplate(
         path="assembly/board-15x15.svg",
-        title="Automataii 15x15 assembly board map",
-        desc="Coordinate board used by Automataii fabrication assembly guides.",
+        title="Automataii 15x15 hole assembly board map",
+        desc="225-hole coordinate board used by Automataii fabrication assembly guides.",
         width_mm=330.0,
         height_mm=335.0,
         elements=tuple(elements),
         metadata={
             "key": "board-15x15",
-            "label": "15x15 assembly board map",
+            "label": "15x15 hole assembly board map",
             "path": "assembly/board-15x15.svg",
             "rows": len(BOARD_ROWS),
             "columns": len(BOARD_COLUMNS),
@@ -1708,11 +1708,12 @@ def _assembly_readme_text(assembly_package: dict[str, object]) -> str:
                 )
     return f"""# Automataii board assembly guides
 
-Use this folder when you already have the fabricated kit parts and want to build on the 15x15 board.
+Use this folder when you already have the fabricated kit parts and want to build on
+the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 
 ## How to use
 
-1. Open `board-15x15.svg` to identify row letters and column numbers.
+1. Open `board-15x15.svg` to identify the 225 row-letter/column-number holes.
 2. Pick one guide SVG.
 3. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
 4. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.

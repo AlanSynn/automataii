@@ -1,10 +1,11 @@
 # Automataii board assembly guides
 
-Use this folder when you already have the fabricated kit parts and want to build on the 15x15 board.
+Use this folder when you already have the fabricated kit parts and want to build on
+the 15x15 hole board (15 rows x 15 columns = 225 board holes).
 
 ## How to use
 
-1. Open `board-15x15.svg` to identify row letters and column numbers.
+1. Open `board-15x15.svg` to identify the 225 row-letter/column-number holes.
 2. Pick one guide SVG.
 3. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
 4. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.

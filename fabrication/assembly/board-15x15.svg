@@ -5,8 +5,8 @@
      data-profile-key="motionsmith-ms4n"
      data-grid-pitch-mm="20"
      data-hole-diameter-mm="4">
-  <title>Automataii 15x15 assembly board map</title>
-  <desc>Coordinate board used by Automataii fabrication assembly guides.</desc>
+  <title>Automataii 15x15 hole assembly board map</title>
+  <desc>225-hole coordinate board used by Automataii fabrication assembly guides.</desc>
   <defs>
     <style>
       .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
@@ -17,8 +17,8 @@
       .paper { fill: #ffffff; stroke: none; }
     </style>
   </defs>
-  <text x="12" y="14" class="label" text-anchor="start">15x15 board coordinate map</text>
-  <text x="12" y="22" class="tiny" text-anchor="start">Use row letters and column numbers for every assembly step.</text>
+  <text x="12" y="14" class="label" text-anchor="start">15x15 hole coordinate map</text>
+  <text x="12" y="22" class="tiny" text-anchor="start">15 rows x 15 columns = 225 board holes.</text>
   <g id="layer-board-grid">
   <rect x="26" y="38" width="288" height="288" class="score board-outline"/>
   <text x="30" y="35" class="tiny" text-anchor="middle">1</text>
