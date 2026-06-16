@@ -481,6 +481,12 @@ src/automataii/examples/
 !kit/**/*.json
 !kit/**/*.yaml
 
+# Fabrication blueprints are generated source assets and must remain trackable.
+!fabrication/
+!fabrication/**/*.svg
+!fabrication/**/*.json
+!fabrication/**/*.md
+
 *venv*
 tmp/
 .claude/

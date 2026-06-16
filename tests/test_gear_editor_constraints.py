@@ -57,8 +57,8 @@ def test_gear_mesh_handle_updates_clearance_and_center_distance(qapp):
     center2 = np.array([params["gear2_x"], params["gear2_y"]], dtype=float)
     center_distance = float(np.linalg.norm(center2 - center1))
 
-    assert params["gear_clearance"] == pytest.approx(32.0)
-    assert params["mesh_clearance"] == pytest.approx(32.0)
+    assert params["gear_clearance"] == pytest.approx(52.0)
+    assert params["mesh_clearance"] == pytest.approx(52.0)
     assert center_distance == pytest.approx(
         params["gear1_radius"] + params["gear2_radius"] + params["gear_clearance"]
     )
@@ -81,9 +81,7 @@ def test_gear_center_drag_rejects_non_finite_position(qapp):
 
     assert params["gear1_x"] == pytest.approx(original_x)
     assert params["gear1_y"] == pytest.approx(original_y)
-    assert editor.mechanism_data["key_points"]["gear1_center"] == pytest.approx(
-        original_key_point
-    )
+    assert editor.mechanism_data["key_points"]["gear1_center"] == pytest.approx(original_key_point)
     assert editor.handles["gear1_center"].scenePos().x() == pytest.approx(original_pos.x())
     assert editor.handles["gear1_center"].scenePos().y() == pytest.approx(original_pos.y())
     assert np.isfinite([params["gear1_x"], params["gear1_y"]]).all()
@@ -97,9 +95,9 @@ def test_gear_radius_drag_updates_radius_aliases_and_handle_constraints(qapp):
     editor._on_gear_radius_changed("gear2", QPointF(gear2_center.x() + 102.0, gear2_center.y()))
 
     params = editor.mechanism_data["params"]
-    assert params["gear2_radius"] == pytest.approx(96.0)
-    assert params["gear2_teeth"] == 32
-    assert params["r2"] == pytest.approx(96.0)
+    assert params["gear2_radius"] == pytest.approx(48.0)
+    assert params["gear2_teeth"] == 24
+    assert params["r2"] == pytest.approx(48.0)
 
     center = QPointF(params["gear2_x"], params["gear2_y"])
     radius_handle = editor.handles["gear2_radius"]
@@ -123,9 +121,7 @@ def test_gear_editor_uses_profile_default_clearance(monkeypatch, qapp):
         grid_pitch_choices=(GridPitchChoice("2cm", "2.0 cm board", 20.0),),
         linkage_length_cells=(2,),
         gear_presets=(GearPreset("g12", "G12", 12), GearPreset("g16", "G16", 16)),
-        cam_presets=(
-            CamPreset("circle", "Circle", 1.0, 0.0, 1, 0.0, 90.0, 90.0, 90.0),
-        ),
+        cam_presets=(CamPreset("circle", "Circle", 1.0, 0.0, 1, 0.0, 90.0, 90.0, 90.0),),
         gear_radius_per_tooth_mm=2.0,
         default_gear_clearance_mm=7.0,
     )

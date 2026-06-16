@@ -14,10 +14,14 @@
     "cams/cam-eccentric.svg",
     "cams/cam-oval.svg",
     "cams/cam-pear.svg",
+    "followers/follower-flat-shoe.svg",
+    "followers/follower-linkage-output.svg",
+    "followers/follower-roller-pin.svg",
+    "followers/follower-round-nose.svg",
+    "gears/gear-12t.svg",
     "gears/gear-16t.svg",
     "gears/gear-20t.svg",
     "gears/gear-24t.svg",
-    "gears/gear-32t.svg",
     "linkages/linkage-2-cell.svg",
     "linkages/linkage-4-cell.svg",
     "linkages/linkage-6-cell.svg",
@@ -28,7 +32,8 @@
     "sheets/03-cam-set.svg",
     "sheets/04-prototype-set-a.svg",
     "sheets/05-prototype-set-b.svg",
-    "sheets/06-bracket-set.svg"
+    "sheets/06-bracket-set.svg",
+    "sheets/07-follower-set.svg"
   ],
   "parts": {
     "brackets": [
@@ -161,11 +166,76 @@
           "handle"
         ],
         "base_radius_mm": 40.0,
+        "cam_lobes": 1,
         "eccentricity_mm": 0.0,
+        "high_dwell_deg": 270.0,
         "hole_diameter_mm": 6.0,
         "key": "circle",
         "label": "Circle / steady",
-        "path": "cams/cam-circle.svg"
+        "path": "cams/cam-circle.svg",
+        "physical_cam_preset": "circle",
+        "profile_harmonic": 0.0,
+        "profile_sample_count": 144,
+        "profile_source": "automataii.domain.mechanisms.cam.profile.build_pear_cam_profile_from_params",
+        "return_deg": 45.0,
+        "rise_deg": 45.0
+      },
+      {
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            -20.0,
+            -20.0
+          ],
+          [
+            20.0,
+            -20.0
+          ],
+          [
+            0.0,
+            -40.0
+          ],
+          [
+            -20.0,
+            -40.0
+          ],
+          [
+            20.0,
+            -40.0
+          ]
+        ],
+        "attachment_hole_count": 8,
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "base_radius_mm": 40.0,
+        "cam_lobes": 1,
+        "eccentricity_mm": 15.0,
+        "high_dwell_deg": 60.0,
+        "hole_diameter_mm": 6.0,
+        "key": "eccentric",
+        "label": "Eccentric / bounce",
+        "path": "cams/cam-eccentric.svg",
+        "physical_cam_preset": "eccentric",
+        "profile_harmonic": 0.0,
+        "profile_sample_count": 144,
+        "profile_source": "automataii.domain.mechanisms.cam.profile.build_pear_cam_profile_from_params",
+        "return_deg": 90.0,
+        "rise_deg": 90.0
       },
       {
         "attachment_hole_centers_mm": [
@@ -206,23 +276,11 @@
             -40.0
           ],
           [
-            40.0,
-            0.0
-          ],
-          [
             0.0,
             40.0
-          ],
-          [
-            40.0,
-            -20.0
-          ],
-          [
-            40.0,
-            20.0
           ]
         ],
-        "attachment_hole_count": 13,
+        "attachment_hole_count": 10,
         "attachment_kinds": [
           "linkage",
           "bracket",
@@ -230,70 +288,29 @@
           "handle"
         ],
         "base_radius_mm": 40.0,
-        "eccentricity_mm": 15.0,
-        "hole_diameter_mm": 6.0,
-        "key": "eccentric",
-        "label": "Eccentric / bounce",
-        "path": "cams/cam-eccentric.svg"
-      },
-      {
-        "attachment_hole_centers_mm": [
-          [
-            0.0,
-            -20.0
-          ],
-          [
-            -20.0,
-            0.0
-          ],
-          [
-            20.0,
-            0.0
-          ],
-          [
-            0.0,
-            20.0
-          ],
-          [
-            -20.0,
-            -20.0
-          ],
-          [
-            20.0,
-            -20.0
-          ],
-          [
-            -20.0,
-            20.0
-          ],
-          [
-            20.0,
-            20.0
-          ],
-          [
-            40.0,
-            0.0
-          ]
-        ],
-        "attachment_hole_count": 9,
-        "attachment_kinds": [
-          "linkage",
-          "bracket",
-          "crank",
-          "handle"
-        ],
-        "base_radius_mm": 40.0,
+        "cam_lobes": 2,
         "eccentricity_mm": 10.0,
+        "high_dwell_deg": 30.0,
         "hole_diameter_mm": 6.0,
         "key": "oval",
         "label": "Oval / smooth rise",
-        "path": "cams/cam-oval.svg"
+        "path": "cams/cam-oval.svg",
+        "physical_cam_preset": "oval",
+        "profile_harmonic": 0.25,
+        "profile_sample_count": 144,
+        "profile_source": "automataii.domain.mechanisms.cam.profile.build_pear_cam_profile_from_params",
+        "return_deg": 120.0,
+        "rise_deg": 120.0
       },
       {
         "attachment_hole_centers_mm": [
           [
             0.0,
             -20.0
+          ],
+          [
+            -20.0,
+            0.0
           ],
           [
             20.0,
@@ -304,23 +321,31 @@
             20.0
           ],
           [
+            -20.0,
+            -20.0
+          ],
+          [
             20.0,
             -20.0
           ],
           [
+            0.0,
+            -40.0
+          ],
+          [
             -20.0,
-            20.0
+            -40.0
           ],
           [
             20.0,
-            20.0
+            -40.0
           ],
           [
             0.0,
-            40.0
+            -60.0
           ]
         ],
-        "attachment_hole_count": 7,
+        "attachment_hole_count": 10,
         "attachment_kinds": [
           "linkage",
           "bracket",
@@ -328,14 +353,263 @@
           "handle"
         ],
         "base_radius_mm": 40.0,
+        "cam_lobes": 1,
         "eccentricity_mm": 20.0,
+        "high_dwell_deg": 45.0,
         "hole_diameter_mm": 6.0,
         "key": "pear",
         "label": "Pear / slow-fast",
-        "path": "cams/cam-pear.svg"
+        "path": "cams/cam-pear.svg",
+        "physical_cam_preset": "pear",
+        "profile_harmonic": 0.5,
+        "profile_sample_count": 144,
+        "profile_source": "automataii.domain.mechanisms.cam.profile.build_pear_cam_profile_from_params",
+        "return_deg": 75.0,
+        "rise_deg": 150.0
+      }
+    ],
+    "followers": [
+      {
+        "body_height_mm": 200.0,
+        "body_width_mm": 34.0,
+        "contact_kind": "rounded",
+        "contact_style": "round_nose",
+        "foot_width_mm": 36.0,
+        "guide_slot_centers_mm": [
+          [
+            0.0,
+            93.0
+          ],
+          [
+            0.0,
+            157.0
+          ]
+        ],
+        "guide_slot_count": 2,
+        "guide_slot_travel_mm": 50.0,
+        "guide_slot_width_mm": 6.0,
+        "hole_diameter_mm": 6.0,
+        "key": "round-nose",
+        "label": "Round-nose sliding follower",
+        "output_hole_centers_mm": [
+          [
+            0.0,
+            20.0
+          ],
+          [
+            0.0,
+            40.0
+          ]
+        ],
+        "output_hole_count": 2,
+        "path": "followers/follower-round-nose.svg",
+        "pitch_mm": 20.0,
+        "roller_axle": false,
+        "roller_axle_hole_centers_mm": []
+      },
+      {
+        "body_height_mm": 200.0,
+        "body_width_mm": 34.0,
+        "contact_kind": "rounded",
+        "contact_style": "roller_pin",
+        "foot_width_mm": 36.0,
+        "guide_slot_centers_mm": [
+          [
+            0.0,
+            93.0
+          ],
+          [
+            0.0,
+            157.0
+          ]
+        ],
+        "guide_slot_count": 2,
+        "guide_slot_travel_mm": 50.0,
+        "guide_slot_width_mm": 6.0,
+        "hole_diameter_mm": 6.0,
+        "key": "roller-pin",
+        "label": "Roller-pin sliding follower",
+        "output_hole_centers_mm": [
+          [
+            0.0,
+            20.0
+          ],
+          [
+            0.0,
+            40.0
+          ]
+        ],
+        "output_hole_count": 2,
+        "path": "followers/follower-roller-pin.svg",
+        "pitch_mm": 20.0,
+        "roller_axle": true,
+        "roller_axle_hole_centers_mm": [
+          [
+            0.0,
+            188.0
+          ]
+        ]
+      },
+      {
+        "body_height_mm": 200.0,
+        "body_width_mm": 34.0,
+        "contact_kind": "flat",
+        "contact_style": "flat_shoe",
+        "foot_width_mm": 60.0,
+        "guide_slot_centers_mm": [
+          [
+            0.0,
+            93.0
+          ],
+          [
+            0.0,
+            157.0
+          ]
+        ],
+        "guide_slot_count": 2,
+        "guide_slot_travel_mm": 50.0,
+        "guide_slot_width_mm": 6.0,
+        "hole_diameter_mm": 6.0,
+        "key": "flat-shoe",
+        "label": "Flat-shoe sliding follower",
+        "output_hole_centers_mm": [
+          [
+            0.0,
+            20.0
+          ],
+          [
+            0.0,
+            40.0
+          ]
+        ],
+        "output_hole_count": 2,
+        "path": "followers/follower-flat-shoe.svg",
+        "pitch_mm": 20.0,
+        "roller_axle": false,
+        "roller_axle_hole_centers_mm": []
+      },
+      {
+        "body_height_mm": 200.0,
+        "body_width_mm": 34.0,
+        "contact_kind": "rounded",
+        "contact_style": "linkage_output",
+        "foot_width_mm": 40.0,
+        "guide_slot_centers_mm": [
+          [
+            0.0,
+            93.0
+          ],
+          [
+            0.0,
+            157.0
+          ]
+        ],
+        "guide_slot_count": 2,
+        "guide_slot_travel_mm": 50.0,
+        "guide_slot_width_mm": 6.0,
+        "hole_diameter_mm": 6.0,
+        "key": "linkage-output",
+        "label": "Linkage-output sliding follower",
+        "output_hole_centers_mm": [
+          [
+            0.0,
+            20.0
+          ],
+          [
+            0.0,
+            40.0
+          ],
+          [
+            0.0,
+            60.0
+          ]
+        ],
+        "output_hole_count": 3,
+        "path": "followers/follower-linkage-output.svg",
+        "pitch_mm": 20.0,
+        "roller_axle": false,
+        "roller_axle_hole_centers_mm": []
       }
     ],
     "gears": [
+      {
+        "attachment_hole_centers_mm": [
+          [
+            14.5,
+            0.0
+          ],
+          [
+            0.0,
+            14.5
+          ],
+          [
+            -14.5,
+            0.0
+          ],
+          [
+            -0.0,
+            -14.5
+          ]
+        ],
+        "attachment_hole_count": 4,
+        "attachment_hole_pattern": "radial",
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "attachment_radii_mm": [
+          14.5
+        ],
+        "hole_diameter_mm": 6.0,
+        "key": "g12",
+        "label": "G12 compact",
+        "outer_radius_mm": 26.4,
+        "path": "gears/gear-12t.svg",
+        "pitch_radius_mm": 24.0,
+        "root_radius_mm": 21.5,
+        "teeth": 12
+      },
+      {
+        "attachment_hole_centers_mm": [
+          [
+            0.0,
+            -20.0
+          ],
+          [
+            -20.0,
+            0.0
+          ],
+          [
+            20.0,
+            0.0
+          ],
+          [
+            0.0,
+            20.0
+          ]
+        ],
+        "attachment_hole_count": 4,
+        "attachment_hole_pattern": "grid",
+        "attachment_kinds": [
+          "linkage",
+          "bracket",
+          "crank",
+          "handle"
+        ],
+        "attachment_radii_mm": [
+          20.0
+        ],
+        "hole_diameter_mm": 6.0,
+        "key": "g16",
+        "label": "G16 small",
+        "outer_radius_mm": 34.4,
+        "path": "gears/gear-16t.svg",
+        "pitch_radius_mm": 32.0,
+        "root_radius_mm": 29.5,
+        "teeth": 16
+      },
       {
         "attachment_hole_centers_mm": [
           [
@@ -372,6 +646,7 @@
           ]
         ],
         "attachment_hole_count": 8,
+        "attachment_hole_pattern": "grid",
         "attachment_kinds": [
           "linkage",
           "bracket",
@@ -383,117 +658,12 @@
           28.284
         ],
         "hole_diameter_mm": 6.0,
-        "key": "g16",
-        "label": "G16 fast/small",
-        "outer_radius_mm": 51.6,
-        "path": "gears/gear-16t.svg",
-        "pitch_radius_mm": 48.0,
-        "root_radius_mm": 44.25,
-        "teeth": 16
-      },
-      {
-        "attachment_hole_centers_mm": [
-          [
-            0.0,
-            -20.0
-          ],
-          [
-            -20.0,
-            0.0
-          ],
-          [
-            20.0,
-            0.0
-          ],
-          [
-            0.0,
-            20.0
-          ],
-          [
-            -20.0,
-            -20.0
-          ],
-          [
-            20.0,
-            -20.0
-          ],
-          [
-            -20.0,
-            20.0
-          ],
-          [
-            20.0,
-            20.0
-          ],
-          [
-            0.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            0.0
-          ],
-          [
-            40.0,
-            0.0
-          ],
-          [
-            0.0,
-            40.0
-          ],
-          [
-            -20.0,
-            -40.0
-          ],
-          [
-            20.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            -20.0
-          ],
-          [
-            40.0,
-            -20.0
-          ],
-          [
-            -40.0,
-            20.0
-          ],
-          [
-            40.0,
-            20.0
-          ],
-          [
-            -20.0,
-            40.0
-          ],
-          [
-            20.0,
-            40.0
-          ]
-        ],
-        "attachment_hole_count": 20,
-        "attachment_kinds": [
-          "linkage",
-          "bracket",
-          "crank",
-          "handle"
-        ],
-        "attachment_radii_mm": [
-          20.0,
-          28.284,
-          40.0,
-          44.721
-        ],
-        "hole_diameter_mm": 6.0,
         "key": "g20",
-        "label": "G20 medium-fast",
-        "outer_radius_mm": 63.6,
+        "label": "G20 medium",
+        "outer_radius_mm": 42.4,
         "path": "gears/gear-20t.svg",
-        "pitch_radius_mm": 60.0,
-        "root_radius_mm": 56.25,
+        "pitch_radius_mm": 40.0,
+        "root_radius_mm": 37.5,
         "teeth": 20
       },
       {
@@ -529,89 +699,10 @@
           [
             20.0,
             20.0
-          ],
-          [
-            0.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            0.0
-          ],
-          [
-            40.0,
-            0.0
-          ],
-          [
-            0.0,
-            40.0
-          ],
-          [
-            -20.0,
-            -40.0
-          ],
-          [
-            20.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            -20.0
-          ],
-          [
-            40.0,
-            -20.0
-          ],
-          [
-            -40.0,
-            20.0
-          ],
-          [
-            40.0,
-            20.0
-          ],
-          [
-            -20.0,
-            40.0
-          ],
-          [
-            20.0,
-            40.0
-          ],
-          [
-            -40.0,
-            -40.0
-          ],
-          [
-            40.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            40.0
-          ],
-          [
-            40.0,
-            40.0
-          ],
-          [
-            0.0,
-            -60.0
-          ],
-          [
-            -60.0,
-            0.0
-          ],
-          [
-            60.0,
-            0.0
-          ],
-          [
-            0.0,
-            60.0
           ]
         ],
-        "attachment_hole_count": 28,
+        "attachment_hole_count": 8,
+        "attachment_hole_pattern": "grid",
         "attachment_kinds": [
           "linkage",
           "bracket",
@@ -620,292 +711,16 @@
         ],
         "attachment_radii_mm": [
           20.0,
-          28.284,
-          40.0,
-          44.721,
-          56.569,
-          60.0
+          28.284
         ],
         "hole_diameter_mm": 6.0,
         "key": "g24",
-        "label": "G24 medium",
-        "outer_radius_mm": 75.6,
+        "label": "G24 large",
+        "outer_radius_mm": 50.4,
         "path": "gears/gear-24t.svg",
-        "pitch_radius_mm": 72.0,
-        "root_radius_mm": 68.25,
+        "pitch_radius_mm": 48.0,
+        "root_radius_mm": 45.5,
         "teeth": 24
-      },
-      {
-        "attachment_hole_centers_mm": [
-          [
-            0.0,
-            -20.0
-          ],
-          [
-            -20.0,
-            0.0
-          ],
-          [
-            20.0,
-            0.0
-          ],
-          [
-            0.0,
-            20.0
-          ],
-          [
-            -20.0,
-            -20.0
-          ],
-          [
-            20.0,
-            -20.0
-          ],
-          [
-            -20.0,
-            20.0
-          ],
-          [
-            20.0,
-            20.0
-          ],
-          [
-            0.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            0.0
-          ],
-          [
-            40.0,
-            0.0
-          ],
-          [
-            0.0,
-            40.0
-          ],
-          [
-            -20.0,
-            -40.0
-          ],
-          [
-            20.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            -20.0
-          ],
-          [
-            40.0,
-            -20.0
-          ],
-          [
-            -40.0,
-            20.0
-          ],
-          [
-            40.0,
-            20.0
-          ],
-          [
-            -20.0,
-            40.0
-          ],
-          [
-            20.0,
-            40.0
-          ],
-          [
-            -40.0,
-            -40.0
-          ],
-          [
-            40.0,
-            -40.0
-          ],
-          [
-            -40.0,
-            40.0
-          ],
-          [
-            40.0,
-            40.0
-          ],
-          [
-            0.0,
-            -60.0
-          ],
-          [
-            -60.0,
-            0.0
-          ],
-          [
-            60.0,
-            0.0
-          ],
-          [
-            0.0,
-            60.0
-          ],
-          [
-            -20.0,
-            -60.0
-          ],
-          [
-            20.0,
-            -60.0
-          ],
-          [
-            -60.0,
-            -20.0
-          ],
-          [
-            60.0,
-            -20.0
-          ],
-          [
-            -60.0,
-            20.0
-          ],
-          [
-            60.0,
-            20.0
-          ],
-          [
-            -20.0,
-            60.0
-          ],
-          [
-            20.0,
-            60.0
-          ],
-          [
-            -40.0,
-            -60.0
-          ],
-          [
-            40.0,
-            -60.0
-          ],
-          [
-            -60.0,
-            -40.0
-          ],
-          [
-            60.0,
-            -40.0
-          ],
-          [
-            -60.0,
-            40.0
-          ],
-          [
-            60.0,
-            40.0
-          ],
-          [
-            -40.0,
-            60.0
-          ],
-          [
-            40.0,
-            60.0
-          ],
-          [
-            0.0,
-            -80.0
-          ],
-          [
-            -80.0,
-            0.0
-          ],
-          [
-            80.0,
-            0.0
-          ],
-          [
-            0.0,
-            80.0
-          ],
-          [
-            -20.0,
-            -80.0
-          ],
-          [
-            20.0,
-            -80.0
-          ],
-          [
-            -80.0,
-            -20.0
-          ],
-          [
-            80.0,
-            -20.0
-          ],
-          [
-            -80.0,
-            20.0
-          ],
-          [
-            80.0,
-            20.0
-          ],
-          [
-            -20.0,
-            80.0
-          ],
-          [
-            20.0,
-            80.0
-          ],
-          [
-            -60.0,
-            -60.0
-          ],
-          [
-            60.0,
-            -60.0
-          ],
-          [
-            -60.0,
-            60.0
-          ],
-          [
-            60.0,
-            60.0
-          ]
-        ],
-        "attachment_hole_count": 60,
-        "attachment_kinds": [
-          "linkage",
-          "bracket",
-          "crank",
-          "handle"
-        ],
-        "attachment_radii_mm": [
-          20.0,
-          28.284,
-          40.0,
-          44.721,
-          56.569,
-          60.0,
-          63.246,
-          72.111,
-          80.0,
-          82.462,
-          84.853
-        ],
-        "hole_diameter_mm": 6.0,
-        "key": "g32",
-        "label": "G32 slow/large",
-        "outer_radius_mm": 99.6,
-        "path": "gears/gear-32t.svg",
-        "pitch_radius_mm": 96.0,
-        "root_radius_mm": 92.25,
-        "teeth": 32
       }
     ],
     "linkages": [
@@ -1014,6 +829,16 @@
       "key": "06-bracket-set",
       "label": "Bracket set",
       "path": "sheets/06-bracket-set.svg",
+      "width_mm": 420.0
+    },
+    {
+      "contains": [
+        "followers"
+      ],
+      "height_mm": 320.0,
+      "key": "07-follower-set",
+      "label": "Follower set",
+      "path": "sheets/07-follower-set.svg",
       "width_mm": 420.0
     }
   ],

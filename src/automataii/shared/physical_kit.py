@@ -15,7 +15,7 @@ from typing import SupportsFloat, SupportsIndex
 DEFAULT_GRID_PITCH_MM = 20.0
 DEFAULT_GRID_CELL_CM = DEFAULT_GRID_PITCH_MM / 10.0
 DEFAULT_HOLE_DIAMETER_MM = 6.0
-GEAR_RADIUS_PER_TOOTH_MM = 3.0
+GEAR_RADIUS_PER_TOOTH_MM = 2.0
 DEFAULT_GEAR_CLEARANCE_MM = 2.0
 LINKAGE_LENGTH_CELLS: tuple[int, ...] = (2, 4, 6, 8)
 _LOGGER = logging.getLogger(__name__)
@@ -69,6 +69,18 @@ class CamPreset:
 
 
 @dataclass(frozen=True, slots=True)
+class FollowerPreset:
+    key: str
+    label: str
+    contact_style: str
+    body_cells: int
+    guide_slot_travel_cells: float
+    output_hole_count: int
+    foot_width_cells: float
+    roller_axle: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class PhysicalKitProfile:
     """Named, explicit contract for the supported physical pegboard kit.
 
@@ -87,6 +99,7 @@ class PhysicalKitProfile:
     gear_radius_per_tooth_mm: float
     default_gear_clearance_mm: float
     hole_diameter_mm: float = DEFAULT_HOLE_DIAMETER_MM
+    follower_presets: tuple[FollowerPreset, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,10 +128,10 @@ GRID_PITCH_CHOICES: tuple[GridPitchChoice, ...] = (
 )
 
 GEAR_PRESETS: tuple[GearPreset, ...] = (
-    GearPreset("g16", "G16 fast/small", 16),
-    GearPreset("g20", "G20 medium-fast", 20),
-    GearPreset("g24", "G24 medium", 24),
-    GearPreset("g32", "G32 slow/large", 32),
+    GearPreset("g12", "G12 compact", 12),
+    GearPreset("g16", "G16 small", 16),
+    GearPreset("g20", "G20 medium", 20),
+    GearPreset("g24", "G24 large", 24),
 )
 
 CAM_PRESETS: tuple[CamPreset, ...] = (
@@ -126,6 +139,21 @@ CAM_PRESETS: tuple[CamPreset, ...] = (
     CamPreset("eccentric", "Eccentric / bounce", 2.0, 0.75, 1, 0.0, 90.0, 60.0, 90.0),
     CamPreset("oval", "Oval / smooth rise", 2.0, 0.5, 2, 0.25, 120.0, 30.0, 120.0),
     CamPreset("pear", "Pear / slow-fast", 2.0, 1.0, 1, 0.5, 150.0, 45.0, 75.0),
+)
+
+FOLLOWER_PRESETS: tuple[FollowerPreset, ...] = (
+    FollowerPreset("round-nose", "Round-nose sliding follower", "round_nose", 9, 2.5, 2, 1.8),
+    FollowerPreset("roller-pin", "Roller-pin sliding follower", "roller_pin", 9, 2.5, 2, 1.8, True),
+    FollowerPreset("flat-shoe", "Flat-shoe sliding follower", "flat_shoe", 9, 2.5, 2, 3.0),
+    FollowerPreset(
+        "linkage-output",
+        "Linkage-output sliding follower",
+        "linkage_output",
+        9,
+        2.5,
+        3,
+        2.0,
+    ),
 )
 
 DEFAULT_PHYSICAL_KIT_PROFILE = PhysicalKitProfile(
@@ -138,6 +166,7 @@ DEFAULT_PHYSICAL_KIT_PROFILE = PhysicalKitProfile(
     cam_presets=CAM_PRESETS,
     gear_radius_per_tooth_mm=GEAR_RADIUS_PER_TOOTH_MM,
     default_gear_clearance_mm=DEFAULT_GEAR_CLEARANCE_MM,
+    follower_presets=FOLLOWER_PRESETS,
 )
 
 PHYSICAL_KIT_PROFILES: tuple[PhysicalKitProfile, ...] = (DEFAULT_PHYSICAL_KIT_PROFILE,)

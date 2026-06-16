@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1"
+     width="68.8mm" height="78.8mm"
+     viewBox="0 0 68.8 78.8"
+     data-profile-key="motionsmith-ms4n"
+     data-grid-pitch-mm="20"
+     data-hole-diameter-mm="6">
+  <title>Automataii fabrication gear 12 teeth</title>
+  <desc>G12 compact gear with 6 mm axle and linkage/bracket/crank/handle holes.</desc>
+  <defs>
+    <style>
+      .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
+      .drill { fill: none; stroke: #0071bc; stroke-width: 0.2; stroke-miterlimit: 10; }
+      .score { fill: none; stroke: #777777; stroke-width: 0.15; stroke-dasharray: 2 1; }
+      .label { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 4px; }
+      .tiny { fill: #333333; font-family: Arial, Helvetica, sans-serif; font-size: 3px; }
+      .paper { fill: #ffffff; stroke: none; }
+    </style>
+  </defs>
+  <path d="M 55.9 34.4 L 60.574 37.846 L 59.9 41.233 L 54.263 42.628 L 53.02 45.15 L 55.345 50.471 L 53.068 53.068 L 47.488 51.457 L 45.15 53.02 L 44.503 58.79 L 41.233 59.9 L 37.206 55.716 L 34.4 55.9 L 30.954 60.574 L 27.567 59.9 L 26.172 54.263 L 23.65 53.02 L 18.329 55.345 L 15.732 53.068 L 17.343 47.488 L 15.78 45.15 L 10.01 44.503 L 8.9 41.233 L 13.084 37.206 L 12.9 34.4 L 8.226 30.954 L 8.9 27.567 L 14.537 26.172 L 15.78 23.65 L 13.455 18.329 L 15.732 15.732 L 21.312 17.343 L 23.65 15.78 L 24.297 10.01 L 27.567 8.9 L 31.594 13.084 L 34.4 12.9 L 37.846 8.226 L 41.233 8.9 L 42.628 14.537 L 45.15 15.78 L 50.471 13.455 L 53.068 15.732 L 51.457 21.312 L 53.02 23.65 L 58.79 24.297 L 59.9 27.567 L 55.716 31.594 Z" class="cut gear-outline" data-teeth="12" data-pitch-radius-mm="24" data-root-radius-mm="21.5" data-outer-radius-mm="26.4" data-attachment-hole-pattern="radial"/>
+  <circle cx="34.4" cy="34.4" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
+  <circle cx="34.4" cy="34.4" r="24" class="score pitch-circle"/>
+  <circle cx="48.9" cy="34.4" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="14.5" data-hole-y-offset-mm="0" data-hole-radius-mm="14.5"/>
+  <circle cx="34.4" cy="48.9" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="0" data-hole-y-offset-mm="14.5" data-hole-radius-mm="14.5"/>
+  <circle cx="19.9" cy="34.4" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="-14.5" data-hole-y-offset-mm="0" data-hole-radius-mm="14.5"/>
+  <circle cx="34.4" cy="19.9" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="-0" data-hole-y-offset-mm="-14.5" data-hole-radius-mm="14.5"/>
+  <text x="34.4" y="66.8" class="label" text-anchor="middle">G12 compact / 12T</text>
+</svg>

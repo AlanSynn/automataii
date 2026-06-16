@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     width="119.2mm" height="129.2mm"
-     viewBox="0 0 119.2 129.2"
+     width="84.8mm" height="94.8mm"
+     viewBox="0 0 84.8 94.8"
      data-profile-key="motionsmith-ms4n"
      data-grid-pitch-mm="20"
      data-hole-diameter-mm="6">
   <title>Automataii fabrication gear 16 teeth</title>
-  <desc>G16 fast/small gear with 6 mm axle and linkage/bracket/crank/handle holes.</desc>
+  <desc>G16 small gear with 6 mm axle and linkage/bracket/crank/handle holes.</desc>
   <defs>
     <style>
       .cut { fill: none; stroke: #ed1c24; stroke-width: 0.25; stroke-miterlimit: 10; }
@@ -17,16 +17,12 @@
       .paper { fill: #ffffff; stroke: none; }
     </style>
   </defs>
-  <path d="M 103.85 59.6 L 110.952 64.658 L 110.209 69.667 L 101.945 72.445 L 100.482 76.534 L 105.107 83.924 L 102.504 88.267 L 93.806 87.672 L 90.889 90.889 L 92.335 99.487 L 88.267 102.504 L 80.459 98.625 L 76.534 100.482 L 74.579 108.978 L 69.667 110.209 L 63.937 103.637 L 59.6 103.85 L 54.542 110.952 L 49.533 110.209 L 46.755 101.945 L 42.666 100.482 L 35.276 105.107 L 30.933 102.504 L 31.528 93.806 L 28.311 90.889 L 19.713 92.335 L 16.696 88.267 L 20.575 80.459 L 18.718 76.534 L 10.222 74.579 L 8.991 69.667 L 15.563 63.937 L 15.35 59.6 L 8.248 54.542 L 8.991 49.533 L 17.255 46.755 L 18.718 42.666 L 14.093 35.276 L 16.696 30.933 L 25.394 31.528 L 28.311 28.311 L 26.865 19.713 L 30.933 16.696 L 38.741 20.575 L 42.666 18.718 L 44.621 10.222 L 49.533 8.991 L 55.263 15.563 L 59.6 15.35 L 64.658 8.248 L 69.667 8.991 L 72.445 17.255 L 76.534 18.718 L 83.924 14.093 L 88.267 16.696 L 87.672 25.394 L 90.889 28.311 L 99.487 26.865 L 102.504 30.933 L 98.625 38.741 L 100.482 42.666 L 108.978 44.621 L 110.209 49.533 L 103.637 55.263 Z" class="cut gear-outline" data-teeth="16" data-pitch-radius-mm="48" data-root-radius-mm="44.25" data-outer-radius-mm="51.6"/>
-  <circle cx="59.6" cy="59.6" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
-  <circle cx="59.6" cy="59.6" r="48" class="score pitch-circle"/>
-  <circle cx="59.6" cy="39.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-20" data-hole-radius-mm="20"/>
-  <circle cx="39.6" cy="59.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
-  <circle cx="79.6" cy="59.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
-  <circle cx="59.6" cy="79.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="0" data-hole-y-offset-mm="20" data-hole-radius-mm="20"/>
-  <circle cx="39.6" cy="39.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="4" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
-  <circle cx="79.6" cy="39.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="5" data-hole-x-offset-mm="20" data-hole-y-offset-mm="-20" data-hole-radius-mm="28.284"/>
-  <circle cx="39.6" cy="79.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="6" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
-  <circle cx="79.6" cy="79.6" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="7" data-hole-x-offset-mm="20" data-hole-y-offset-mm="20" data-hole-radius-mm="28.284"/>
-  <text x="59.6" y="117.2" class="label" text-anchor="middle">G16 fast/small / 16T</text>
+  <path d="M 71.9 42.4 L 76.634 45.772 L 76.139 49.111 L 70.63 50.963 L 69.654 53.689 L 72.738 58.616 L 71.003 61.512 L 65.204 61.115 L 63.26 63.26 L 64.223 68.992 L 61.512 71.003 L 56.306 68.417 L 53.689 69.654 L 52.386 75.319 L 49.111 76.139 L 45.292 71.758 L 42.4 71.9 L 39.028 76.634 L 35.689 76.139 L 33.837 70.63 L 31.111 69.654 L 26.184 72.738 L 23.288 71.003 L 23.685 65.204 L 21.54 63.26 L 15.808 64.223 L 13.797 61.512 L 16.383 56.306 L 15.146 53.689 L 9.481 52.386 L 8.661 49.111 L 13.042 45.292 L 12.9 42.4 L 8.166 39.028 L 8.661 35.689 L 14.17 33.837 L 15.146 31.111 L 12.062 26.184 L 13.797 23.288 L 19.596 23.685 L 21.54 21.54 L 20.577 15.808 L 23.288 13.797 L 28.494 16.383 L 31.111 15.146 L 32.414 9.481 L 35.689 8.661 L 39.508 13.042 L 42.4 12.9 L 45.772 8.166 L 49.111 8.661 L 50.963 14.17 L 53.689 15.146 L 58.616 12.062 L 61.512 13.797 L 61.115 19.596 L 63.26 21.54 L 68.992 20.577 L 71.003 23.288 L 68.417 28.494 L 69.654 31.111 L 75.319 32.414 L 76.139 35.689 L 71.758 39.508 Z" class="cut gear-outline" data-teeth="16" data-pitch-radius-mm="32" data-root-radius-mm="29.5" data-outer-radius-mm="34.4" data-attachment-hole-pattern="grid"/>
+  <circle cx="42.4" cy="42.4" r="3" class="drill axle-hole" data-hole-role="axle" data-hole-diameter-mm="6"/>
+  <circle cx="42.4" cy="42.4" r="32" class="score pitch-circle"/>
+  <circle cx="42.4" cy="22.4" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="0" data-hole-x-offset-mm="0" data-hole-y-offset-mm="-20" data-hole-radius-mm="20"/>
+  <circle cx="22.4" cy="42.4" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="1" data-hole-x-offset-mm="-20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
+  <circle cx="62.4" cy="42.4" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="2" data-hole-x-offset-mm="20" data-hole-y-offset-mm="0" data-hole-radius-mm="20"/>
+  <circle cx="42.4" cy="62.4" r="3" class="drill linkage-hole bracket-hole crank-hole handle-hole" data-hole-role="linkage-bracket-crank-handle" data-attachment-kinds="linkage bracket crank handle" data-hole-diameter-mm="6" data-hole-index="3" data-hole-x-offset-mm="0" data-hole-y-offset-mm="20" data-hole-radius-mm="20"/>
+  <text x="42.4" y="82.8" class="label" text-anchor="middle">G16 small / 16T</text>
 </svg>
