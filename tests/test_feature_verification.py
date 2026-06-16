@@ -295,16 +295,17 @@ class TestProductionBranding:
         app = QApplication.instance() or QApplication([])
         window = AutomataDesigner(experiment_mode=False)
         try:
+            window.reset_workspace_layout()
             tab_titles = [
                 window.tab_widget.tabText(index) for index in range(window.tab_widget.count())
             ]
             assert tab_titles == [
-                "Welcome",
                 "Character Selection",
                 "Path Editor",
                 "Mechanism Design",
                 "Mechanism Foundry",
             ]
+            assert not hasattr(window, "landing_tab")
             assert "Lab" not in tab_titles
             assert "Options" not in tab_titles
             menu_titles = [action.text().replace("&", "") for action in window.menuBar().actions()]

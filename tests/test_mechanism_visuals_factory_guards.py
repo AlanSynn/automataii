@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QGraphicsPolygonItem,
     QGraphicsRectItem,
     QGraphicsScene,
+    QGraphicsTextItem,
 )
 
 from automataii.presentation.qt.mechanisms.visualization.base import VisualizationConfig
@@ -131,6 +132,57 @@ def test_fourbar_visuals_use_foundry_scene_key_points_without_simulation_data(
     assert (follower.p2().x(), follower.p2().y()) == pytest.approx((460.0, 345.0))
 
 
+def test_fourbar_diagnostics_hidden_by_default_in_non_debug_ui(qapp: QApplication) -> None:
+    scene = QGraphicsScene()
+    layer_data = {
+        "params": {"l1": 100.0, "l2": 40.0, "l3": 80.0, "l4": 90.0},
+        "full_simulation_data": {
+            "joint_positions": {
+                "p1_positions": [[0.0, 0.0], [0.0, 0.0]],
+                "p2_positions": [[100.0, 0.0], [100.0, 0.0]],
+                "p3_positions": [[40.0, 0.0], [30.0, 10.0]],
+                "p4_positions": [[80.0, 30.0], [78.0, 25.0]],
+            }
+        },
+    }
+
+    items = MechanismVisualsFactory(scene).create_4bar_linkage_visuals(
+        layer_data,
+        transform_function=_identity,
+    )
+
+    assert items
+    assert not any(
+        isinstance(item, QGraphicsTextItem) and "μ_min" in item.toPlainText()
+        for item in scene.items()
+    )
+
+
+def test_fourbar_diagnostics_can_be_enabled_for_debug_ui(qapp: QApplication) -> None:
+    scene = QGraphicsScene()
+    layer_data = {
+        "params": {"l1": 100.0, "l2": 40.0, "l3": 80.0, "l4": 90.0},
+        "full_simulation_data": {
+            "joint_positions": {
+                "p1_positions": [[0.0, 0.0], [0.0, 0.0]],
+                "p2_positions": [[100.0, 0.0], [100.0, 0.0]],
+                "p3_positions": [[40.0, 0.0], [30.0, 10.0]],
+                "p4_positions": [[80.0, 30.0], [78.0, 25.0]],
+            }
+        },
+    }
+
+    MechanismVisualsFactory(scene, show_diagnostics=True).create_4bar_linkage_visuals(
+        layer_data,
+        transform_function=_identity,
+    )
+
+    assert any(
+        isinstance(item, QGraphicsTextItem) and "μ_min" in item.toPlainText()
+        for item in scene.items()
+    )
+
+
 def test_cam_visual_animator_and_output_use_rotated_scene_vertical_follower(
     qapp: QApplication,
 ) -> None:
@@ -176,6 +228,101 @@ def test_cam_visual_animator_and_output_use_rotated_scene_vertical_follower(
     assert output is not None
     assert output.x() == pytest.approx(-25.0)
     assert output.y() == pytest.approx(-40.0)
+
+
+def test_gear_linkage_visuals_survive_export_and_animate(
+    qapp: QApplication,
+) -> None:
+    from automataii.shared.physical_kit import DEFAULT_HOLE_DIAMETER_MM
+
+    scene = QGraphicsScene()
+    layer_data = {
+        "type": "gear",
+        "coordinate_space": "scene",
+        "source": "foundry",
+        "params": {
+            "gear1_x": 0.0,
+            "gear1_y": 0.0,
+            "gear2_x": 100.0,
+            "gear2_y": 0.0,
+            "gear1_radius": 30.0,
+            "gear2_radius": 50.0,
+            "r1": 30.0,
+            "r2": 50.0,
+            "gear_linkage_enabled": True,
+            "linkage_pin_radius": 999.0,
+            "linkage_arm_length": 40.0,
+        },
+        "key_points": {
+            "gear1_center": [0.0, 0.0],
+            "gear2_center": [100.0, 0.0],
+        },
+    }
+
+    visual_items = MechanismVisualsFactory(scene).create_gear_visuals(layer_data)
+    layer_data["visual_items"] = visual_items
+
+    linkage_items = {item.data(0): item for item in visual_items if hasattr(item, "data")}
+    assert isinstance(linkage_items.get("gear_linkage_arm"), QGraphicsLineItem)
+    assert isinstance(linkage_items.get("gear_linkage_pin"), QGraphicsEllipseItem)
+    assert isinstance(linkage_items.get("gear_linkage_end"), QGraphicsEllipseItem)
+
+    arm = linkage_items["gear_linkage_arm"]
+    assert isinstance(arm, QGraphicsLineItem)
+    before = arm.line()
+    expected_pin_x = 100.0 + 50.0 - (DEFAULT_HOLE_DIAMETER_MM / 2.0)
+    assert before.p1().x() == pytest.approx(expected_pin_x)
+    assert before.p2().x() == pytest.approx(expected_pin_x + 40.0)
+
+    animator = MechanismVisualAnimator(get_scene_transform=lambda _layer: _identity)
+    animator.update_visuals("gear_linkage_1", np.pi / 2.0, layer_data)
+
+    after = arm.line()
+    assert after.p1().x() != pytest.approx(before.p1().x())
+    assert after.p1().y() != pytest.approx(before.p1().y())
+
+
+def test_gear_linkage_output_uses_linkage_end(
+    qapp: QApplication,
+) -> None:
+    from automataii.shared.physical_kit import DEFAULT_HOLE_DIAMETER_MM
+
+    layer_data = {
+        "type": "gear",
+        "coordinate_space": "scene",
+        "source": "foundry",
+        "params": {
+            "gear1_radius": 30.0,
+            "gear2_radius": 50.0,
+            "r1": 30.0,
+            "r2": 50.0,
+            "gear_linkage_enabled": True,
+            "linkage_pin_radius": 999.0,
+            "linkage_arm_length": 40.0,
+        },
+        "key_points": {
+            "gear1_center": [0.0, 0.0],
+            "gear2_center": [100.0, 0.0],
+        },
+        "full_simulation_data": {
+            "gear_data": {
+                "tracking_points": [[999.0, 999.0]],
+            },
+        },
+    }
+
+    calculator = MechanismOutputCalculator(get_scene_transform=lambda _layer: _identity)
+    output = calculator.calculate_output(
+        mech_type="gear",
+        params=layer_data["params"],
+        time=0.0,
+        layer_data=layer_data,
+    )
+
+    assert output is not None
+    expected_pin_x = 100.0 + 50.0 - (DEFAULT_HOLE_DIAMETER_MM / 2.0)
+    assert output.x() == pytest.approx(expected_pin_x + 40.0)
+    assert output.y() == pytest.approx(0.0)
 
 
 def test_cam_visual_animator_honors_reverse_direction_phase(

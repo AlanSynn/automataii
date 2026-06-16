@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import QListWidgetItem, QMessageBox
+from PyQt6.QtWidgets import QGraphicsItem, QListWidgetItem, QMessageBox
 
 if TYPE_CHECKING:
     from PyQt6.QtWidgets import QGraphicsScene, QListWidget
@@ -241,7 +241,7 @@ class PartsDataManager(QObject):
         # Update QListWidget selection
         for i in range(self._parts_list.count()):
             list_item = self._parts_list.item(i)
-            if list_item and list_item.text() == part_name:
+            if list_item and list_item.data(Qt.ItemDataRole.UserRole) == part_name:
                 self._parts_list.setCurrentItem(
                     list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect
                 )
@@ -320,6 +320,8 @@ class PartsDataManager(QObject):
                 project_dir=project_dir,
                 debug_mode=debug_mode,
             )
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            item.setToolTip("Select this part, then use Start Drawing Path to animate it.")
 
             self._editor_scene.addItem(item)
             created_editor_items[part_name] = item

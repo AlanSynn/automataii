@@ -11,6 +11,9 @@ MECHANISM_TYPE_ALIASES: dict[str, str] = {
     "cam_follower": "cam_follower",
     "gear": "gear_train",
     "gear_train": "gear_train",
+    "gear_linkage": "gear_linkage",
+    "gear+linkage": "gear_linkage",
+    "gear_linkage_train": "gear_linkage",
     "planetary_gear": "gear_train",
     "slider_crank": "slider_crank",
     "slider-crank": "slider_crank",
@@ -18,7 +21,7 @@ MECHANISM_TYPE_ALIASES: dict[str, str] = {
 }
 
 VISIBLE_FOUNDRY_MECHANISM_TYPES: frozenset[str] = frozenset(
-    {"four_bar", "cam_follower", "gear_train"}
+    {"four_bar", "cam_follower", "gear_train", "gear_linkage"}
 )
 
 

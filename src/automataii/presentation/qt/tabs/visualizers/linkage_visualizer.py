@@ -80,8 +80,8 @@ class FourBarVisualizer(BaseMechanismVisualizer):
         # Create pivots
         self._create_pivots(visual_items, p1_t, p2_t, p3_t, p4_t, p_coupler_t)
 
-        # Add diagnostics overlay
-        self._add_transmission_angle_overlay(visual_items, mechanism_data, p2_t)
+        if bool(kwargs.get("show_diagnostics", False)):
+            self._add_transmission_angle_overlay(visual_items, mechanism_data, p2_t)
 
         return visual_items
 

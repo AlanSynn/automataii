@@ -24,10 +24,19 @@ from automataii.presentation.qt.mechanism_parameter_utils import (
     finite_param as _finite_param,
 )
 from automataii.presentation.qt.mechanism_parameter_utils import (
+    gear_linkage_arm_length as _gear_linkage_arm_length,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    gear_linkage_pin_radius as _gear_linkage_pin_radius,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
     positive_finite_float as _positive_finite_float,
 )
 from automataii.presentation.qt.mechanism_parameter_utils import (
     positive_finite_param as _positive_finite_param,
+)
+from automataii.presentation.qt.mechanism_parameter_utils import (
+    truthy_param as _truthy_param,
 )
 from automataii.presentation.qt.tabs.cam_geometry import (
     cam_contact_local_from_profile,
@@ -523,26 +532,43 @@ class MechanismOutputCalculator:
         gear_data = full_sim_data.get("gear_data", {})
         to_scene_coords = self._get_scene_transform(layer_data)
 
-        if gear_data and "tracking_points" in gear_data and to_scene_coords:
-            tracking_points = gear_data["tracking_points"]
-            num_frames = len(tracking_points)
-            if num_frames > 0:
-                normalized_time = (time / (2 * np.pi)) % 1.0
-                frame_index = int(normalized_time * (num_frames - 1))
-                frame_index = max(0, min(frame_index, num_frames - 1))
-
-                tracking_point = np.array(tracking_points[frame_index])
-                return to_scene_coords(tracking_point)
-
-        # Fallback to manual calculation
         r1 = _positive_finite_param(params, "r1", "gear1_radius", default=30.0)
+        r2 = _positive_finite_param(params, "r2", "gear2_radius", default=50.0)
         key_points = layer_data.get("key_points", {})
 
         if to_scene_coords:
             gear1_center = _point_array(key_points.get("gear1_center"))
             if gear1_center is None:
                 gear1_center = np.array([0.0, 0.0])
+            gear2_center = _point_array(key_points.get("gear2_center"))
+            if gear2_center is None:
+                gear2_center = gear1_center + np.array([r1 + r2, 0.0], dtype=float)
             theta1 = time
+            if _truthy_param(params.get("gear_linkage_enabled", False)):
+                theta2 = -theta1 * (r1 / r2 if abs(r2) > 1e-9 else 1.0)
+                pin_radius = _gear_linkage_pin_radius(params, r2)
+                arm_length = _gear_linkage_arm_length(params)
+                pin_orig = gear2_center + np.array(
+                    [pin_radius * math.cos(theta2), pin_radius * math.sin(theta2)],
+                    dtype=float,
+                )
+                linkage_end = pin_orig + np.array(
+                    [arm_length * math.cos(theta2), arm_length * math.sin(theta2)],
+                    dtype=float,
+                )
+                return to_scene_coords(linkage_end)
+
+            if gear_data and "tracking_points" in gear_data:
+                tracking_points = gear_data["tracking_points"]
+                num_frames = len(tracking_points)
+                if num_frames > 0:
+                    normalized_time = (time / (2 * np.pi)) % 1.0
+                    frame_index = int(normalized_time * (num_frames - 1))
+                    frame_index = max(0, min(frame_index, num_frames - 1))
+
+                    tracking_point = np.array(tracking_points[frame_index])
+                    return to_scene_coords(tracking_point)
+
             output_point_orig = gear1_center + np.array([r1 * np.cos(theta1), r1 * np.sin(theta1)])
             return to_scene_coords(output_point_orig)
 

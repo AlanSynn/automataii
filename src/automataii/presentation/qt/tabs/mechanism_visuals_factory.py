@@ -29,7 +29,10 @@ from automataii.config.z_indices import (
 from automataii.presentation.qt.mechanism_parameter_utils import (
     finite_float,
     finite_param,
+    gear_linkage_arm_length,
+    gear_linkage_pin_radius,
     positive_finite_float,
+    truthy_param,
 )
 from automataii.presentation.qt.tabs.cam_geometry import (
     build_pear_cam_profile,
@@ -122,13 +125,15 @@ def _first_point(*points: np.ndarray | None) -> np.ndarray | None:
 class MechanismVisualsFactory:
     """Factory for creating visual representations of mechanisms."""
 
-    def __init__(self, scene: QGraphicsScene):
+    def __init__(self, scene: QGraphicsScene, *, show_diagnostics: bool = False):
         """Initialize the factory with a graphics scene.
 
         Args:
             scene: The QGraphicsScene where visual items will be added
+            show_diagnostics: Whether to render engineering diagnostic overlays.
         """
         self.scene = scene
+        self.show_diagnostics = show_diagnostics
 
     def create_4bar_linkage_visuals(
         self, mechanism_data: dict, transform_function=None
@@ -354,59 +359,72 @@ class MechanismVisualsFactory:
         coupler_marker.setZValue(Z_SELECTION_MARKER)
         coupler_marker.setToolTip("Coupler Point (follows path)")
         visual_items.append(coupler_marker)
-        # --- Diagnostics overlay: Transmission angle (guardrail) ---
-        try:
-            jp = mechanism_data.get("full_simulation_data", {}).get("joint_positions", {})
-            if jp and all(
-                k in jp and len(jp[k]) > 0
-                for k in ("p1_positions", "p2_positions", "p3_positions", "p4_positions")
-            ):
-                mu_min = 180.0
-                for i in range(min(len(jp["p3_positions"]), len(jp["p4_positions"]))):
-                    p3_i = np.array(jp["p3_positions"][i], dtype=float)
-                    p4_i = np.array(jp["p4_positions"][i], dtype=float)
-                    p2_i = np.array(jp["p2_positions"][i], dtype=float)
-                    v_c = p4_i - p3_i  # coupler
-                    v_r = p4_i - p2_i  # rocker
-                    n_c = np.linalg.norm(v_c)
-                    n_r = np.linalg.norm(v_r)
-                    if n_c < 1e-6 or n_r < 1e-6:
-                        continue
-                    cos_mu = float(np.clip(np.dot(v_c, v_r) / (n_c * n_r), -1.0, 1.0))
-                    mu = math.degrees(math.acos(cos_mu))
-                    if mu > 180:
-                        mu = 180.0
-                    if mu < mu_min:
-                        mu_min = mu
-                color = QColor("#2ecc71")
-                status = "SAFE"
-                if mu_min < 20.0 or mu_min > 160.0:
-                    color = QColor("#e74c3c")
-                    status = "CRITICAL"
-                elif mu_min < 40.0 or mu_min > 140.0:
-                    color = QColor("#f1c40f")
-                    status = "CAUTION"
-                halo_center = p2_t
-                radius = 24.0
-                halo = self.scene.addEllipse(
-                    halo_center.x() - radius,
-                    halo_center.y() - radius,
-                    radius * 2,
-                    radius * 2,
-                    _cosmetic_pen(color, 5),
-                    QBrush(Qt.BrushStyle.NoBrush),
-                )
-                halo.setZValue(30)
-                visual_items.append(halo)
-                label = self.scene.addText(f"μ_min={mu_min:.0f}° {status}")
-                label.setDefaultTextColor(color)
-                label.setPos(halo_center.x() + radius + 6, halo_center.y() - 8)
-                label.setZValue(31)
-                visual_items.append(label)
-        except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
+        if self.show_diagnostics:
+            self._add_transmission_angle_overlay(visual_items, mechanism_data, p2_t)
 
         return visual_items
+
+    def _add_transmission_angle_overlay(
+        self,
+        visual_items: list[QGraphicsItem],
+        mechanism_data: dict,
+        p2_t: QPointF,
+    ) -> None:
+        """Add transmission-angle diagnostics for debug builds only."""
+        try:
+            jp = mechanism_data.get("full_simulation_data", {}).get("joint_positions", {})
+            if not (
+                jp
+                and all(
+                    k in jp and len(jp[k]) > 0
+                    for k in ("p1_positions", "p2_positions", "p3_positions", "p4_positions")
+                )
+            ):
+                return
+            mu_min = 180.0
+            for i in range(min(len(jp["p3_positions"]), len(jp["p4_positions"]))):
+                p3_i = np.array(jp["p3_positions"][i], dtype=float)
+                p4_i = np.array(jp["p4_positions"][i], dtype=float)
+                p2_i = np.array(jp["p2_positions"][i], dtype=float)
+                v_c = p4_i - p3_i  # coupler
+                v_r = p4_i - p2_i  # rocker
+                n_c = np.linalg.norm(v_c)
+                n_r = np.linalg.norm(v_r)
+                if n_c < 1e-6 or n_r < 1e-6:
+                    continue
+                cos_mu = float(np.clip(np.dot(v_c, v_r) / (n_c * n_r), -1.0, 1.0))
+                mu = math.degrees(math.acos(cos_mu))
+                if mu > 180:
+                    mu = 180.0
+                if mu < mu_min:
+                    mu_min = mu
+            color = QColor("#2ecc71")
+            status = "SAFE"
+            if mu_min < 20.0 or mu_min > 160.0:
+                color = QColor("#e74c3c")
+                status = "CRITICAL"
+            elif mu_min < 40.0 or mu_min > 140.0:
+                color = QColor("#f1c40f")
+                status = "CAUTION"
+            halo_center = p2_t
+            radius = 24.0
+            halo = self.scene.addEllipse(
+                halo_center.x() - radius,
+                halo_center.y() - radius,
+                radius * 2,
+                radius * 2,
+                _cosmetic_pen(color, 5),
+                QBrush(Qt.BrushStyle.NoBrush),
+            )
+            halo.setZValue(30)
+            visual_items.append(halo)
+            label = self.scene.addText(f"μ_min={mu_min:.0f}° {status}")
+            label.setDefaultTextColor(color)
+            label.setPos(halo_center.x() + radius + 6, halo_center.y() - 8)
+            label.setZValue(31)
+            visual_items.append(label)
+        except Exception:
+            logging.debug("Suppressed exception", exc_info=True)
 
     def create_5bar_linkage_visuals(
         self, mechanism_data: dict, transform_function=None
@@ -930,45 +948,45 @@ class MechanismVisualsFactory:
         except Exception:
             logging.debug("Suppressed exception", exc_info=True)
 
-        # Return visual items
-        # --- Diagnostics overlay: High-curvature highlight on cam profile ---
-        try:
-            pts = cam_points_local
-            if pts is not None and len(pts) >= 5 and "cam_transform_function" in mechanism_data:
-                k_values = []
-                for i in range(1, len(pts) - 2):
-                    x1, y1 = pts[i - 1]
-                    x2, y2 = pts[i]
-                    x3, y3 = pts[i + 1]
-                    dx1, dy1 = x2 - x1, y2 - y1
-                    dx2, dy2 = x3 - x2, y3 - y2
-                    num = abs(dx1 * dy2 - dy1 * dx2)
-                    den = (dx1 * dx1 + dy1 * dy1) ** 1.5 + 1e-6
-                    k = num / den
-                    k_values.append(k)
-                if k_values:
-                    import numpy as _np
+        if self.show_diagnostics:
+            # --- Diagnostics overlay: High-curvature highlight on cam profile ---
+            try:
+                pts = cam_points_local
+                if pts is not None and len(pts) >= 5 and "cam_transform_function" in mechanism_data:
+                    k_values = []
+                    for i in range(1, len(pts) - 2):
+                        x1, y1 = pts[i - 1]
+                        x2, y2 = pts[i]
+                        x3, y3 = pts[i + 1]
+                        dx1, dy1 = x2 - x1, y2 - y1
+                        dx2, dy2 = x3 - x2, y3 - y2
+                        num = abs(dx1 * dy2 - dy1 * dx2)
+                        den = (dx1 * dx1 + dy1 * dy1) ** 1.5 + 1e-6
+                        k = num / den
+                        k_values.append(k)
+                    if k_values:
+                        import numpy as _np
 
-                    k_arr = _np.array(k_values)
-                    thr = float(_np.percentile(k_arr, 90))
-                    highlight = QPainterPath()
-                    tf = mechanism_data["cam_transform_function"]
-                    for i, kval in enumerate(k_values, start=1):
-                        if kval >= thr:
-                            p = pts[i]
-                            sp = tf(p)
-                            if highlight.isEmpty():
-                                highlight.moveTo(sp)
-                            else:
-                                highlight.lineTo(sp)
-                    if not highlight.isEmpty():
-                        hp = QGraphicsPathItem(highlight)
-                        hp.setPen(QPen(QColor("#e74c3c"), 3, Qt.PenStyle.SolidLine))
-                        hp.setZValue(25)
-                        self.scene.addItem(hp)
-                        visual_items.append(hp)
-        except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
+                        k_arr = _np.array(k_values)
+                        thr = float(_np.percentile(k_arr, 90))
+                        highlight = QPainterPath()
+                        tf = mechanism_data["cam_transform_function"]
+                        for i, kval in enumerate(k_values, start=1):
+                            if kval >= thr:
+                                p = pts[i]
+                                sp = tf(p)
+                                if highlight.isEmpty():
+                                    highlight.moveTo(sp)
+                                else:
+                                    highlight.lineTo(sp)
+                        if not highlight.isEmpty():
+                            hp = QGraphicsPathItem(highlight)
+                            hp.setPen(QPen(QColor("#e74c3c"), 3, Qt.PenStyle.SolidLine))
+                            hp.setZValue(25)
+                            self.scene.addItem(hp)
+                            visual_items.append(hp)
+            except Exception:
+                logging.debug("Suppressed exception", exc_info=True)
 
         return visual_items
 
@@ -1243,55 +1261,110 @@ class MechanismVisualsFactory:
         )
         gear2_pivot.setZValue(20)
         visual_items.append(gear2_pivot)
-        # --- Diagnostics overlay: pitch circles and center distance check ---
-        try:
-            dashed = _cosmetic_pen("#7f8c8d", 1, Qt.PenStyle.DashLine)
-            pc1 = self.scene.addEllipse(
-                gear1_center_scene.x() - r1_screen,
-                gear1_center_scene.y() - r1_screen,
-                r1_screen * 2,
-                r1_screen * 2,
-                dashed,
-            )
-            pc1.setZValue(12)
-            visual_items.append(pc1)
-            pc2 = self.scene.addEllipse(
-                gear2_center_scene.x() - r2_screen,
-                gear2_center_scene.y() - r2_screen,
-                r2_screen * 2,
-                r2_screen * 2,
-                dashed,
-            )
-            pc2.setZValue(12)
-            visual_items.append(pc2)
+
+        if truthy_param(params.get("gear_linkage_enabled", False)):
+            pin_radius = gear_linkage_pin_radius(params, r2)
+            arm_length = gear_linkage_arm_length(params)
+            theta1 = math.radians(finite_param(params, "input_angle", default=0.0))
+            theta2 = -theta1 * (r1 / r2 if abs(r2) > 1e-9 else 1.0)
+
             if use_scene_geometry:
-                d_orig = float(QLineF(gear1_center_scene, gear2_center_scene).length())
-                desired = gear_center_distance(
-                    r1_screen,
-                    r2_screen,
-                    gear_clearance_from_params(params, profile=profile),
-                    profile=profile,
+                scene_scale = r2_screen / max(r2, 1e-9)
+                pin_scene = gear2_center_scene + QPointF(
+                    pin_radius * scene_scale * math.cos(theta2),
+                    pin_radius * scene_scale * math.sin(theta2),
+                )
+                end_scene = pin_scene + QPointF(
+                    arm_length * scene_scale * math.cos(theta2),
+                    arm_length * scene_scale * math.sin(theta2),
                 )
             else:
-                d_orig = float(np.linalg.norm(gear2_center_orig - gear1_center_orig))
-                desired = gear_center_distance(
-                    r1,
-                    r2,
-                    gear_clearance_from_params(params, profile=profile),
-                    profile=profile,
+                assert to_scene_coords is not None
+                pin_orig = gear2_center_orig + np.array(
+                    [pin_radius * math.cos(theta2), pin_radius * math.sin(theta2)],
+                    dtype=float,
                 )
-            mismatch = abs(d_orig - desired)
-            if mismatch > 0.5:
-                warn = self.scene.addText(f"Center distance off by {mismatch:.1f}")
-                warn.setDefaultTextColor(QColor("#e74c3c"))
-                warn.setPos(
-                    (gear1_center_scene.x() + gear2_center_scene.x()) / 2.0,
-                    gear1_center_scene.y() - 20,
+                end_orig = pin_orig + np.array(
+                    [arm_length * math.cos(theta2), arm_length * math.sin(theta2)],
+                    dtype=float,
                 )
-                warn.setZValue(30)
-                visual_items.append(warn)
-        except Exception:
-            logging.debug("Suppressed exception", exc_info=True)
+                pin_scene = to_scene_coords(pin_orig)
+                end_scene = to_scene_coords(end_orig)
+
+            linkage_arm = self.scene.addLine(
+                QLineF(pin_scene, end_scene),
+                _cosmetic_pen("#d62728", 5),
+            )
+            linkage_arm.setData(0, "gear_linkage_arm")
+            linkage_arm.setZValue(22)
+            visual_items.append(linkage_arm)
+
+            for key, point, color in (
+                ("gear_linkage_pin", pin_scene, QColor("#ff9896")),
+                ("gear_linkage_end", end_scene, QColor("#d62728")),
+            ):
+                marker = self.scene.addEllipse(
+                    point.x() - 5.0,
+                    point.y() - 5.0,
+                    10.0,
+                    10.0,
+                    _cosmetic_pen("#7f1d1d", 2),
+                    QBrush(color),
+                )
+                marker.setData(0, key)
+                marker.setZValue(23)
+                visual_items.append(marker)
+
+        if self.show_diagnostics:
+            # --- Diagnostics overlay: pitch circles and center distance check ---
+            try:
+                dashed = _cosmetic_pen("#7f8c8d", 1, Qt.PenStyle.DashLine)
+                pc1 = self.scene.addEllipse(
+                    gear1_center_scene.x() - r1_screen,
+                    gear1_center_scene.y() - r1_screen,
+                    r1_screen * 2,
+                    r1_screen * 2,
+                    dashed,
+                )
+                pc1.setZValue(12)
+                visual_items.append(pc1)
+                pc2 = self.scene.addEllipse(
+                    gear2_center_scene.x() - r2_screen,
+                    gear2_center_scene.y() - r2_screen,
+                    r2_screen * 2,
+                    r2_screen * 2,
+                    dashed,
+                )
+                pc2.setZValue(12)
+                visual_items.append(pc2)
+                if use_scene_geometry:
+                    d_orig = float(QLineF(gear1_center_scene, gear2_center_scene).length())
+                    desired = gear_center_distance(
+                        r1_screen,
+                        r2_screen,
+                        gear_clearance_from_params(params, profile=profile),
+                        profile=profile,
+                    )
+                else:
+                    d_orig = float(np.linalg.norm(gear2_center_orig - gear1_center_orig))
+                    desired = gear_center_distance(
+                        r1,
+                        r2,
+                        gear_clearance_from_params(params, profile=profile),
+                        profile=profile,
+                    )
+                mismatch = abs(d_orig - desired)
+                if mismatch > 0.5:
+                    warn = self.scene.addText(f"Center distance off by {mismatch:.1f}")
+                    warn.setDefaultTextColor(QColor("#e74c3c"))
+                    warn.setPos(
+                        (gear1_center_scene.x() + gear2_center_scene.x()) / 2.0,
+                        gear1_center_scene.y() - 20,
+                    )
+                    warn.setZValue(30)
+                    visual_items.append(warn)
+            except Exception:
+                logging.debug("Suppressed exception", exc_info=True)
 
         return visual_items
 

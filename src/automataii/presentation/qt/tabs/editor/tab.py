@@ -4,6 +4,7 @@ from typing import Any
 from PyQt6.QtCore import QPointF, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QPainterPath
 from PyQt6.QtWidgets import (
+    QGraphicsItem,
     QGraphicsScene,
     QLabel,
     QListWidget,
@@ -701,6 +702,8 @@ class EditorTab(QWidget):
             item = CharacterPartItem(
                 part_info=p_info, project_dir=project_dir, debug_mode=self.debug_mode
             )  # Pass debug_mode
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+            item.setToolTip("Select this part, then use Start Drawing Path to animate it.")
 
             # Parts are cropped images that should start at 0° rotation
             # The skeleton joint angles are for the bones, not the visual parts
@@ -1223,7 +1226,7 @@ class EditorTab(QWidget):
         # Update the QListWidget selection to match the view
         for i in range(self.parts_list.count()):
             list_item = self.parts_list.item(i)
-            if list_item.text() == part_name:
+            if list_item.data(Qt.ItemDataRole.UserRole) == part_name:
                 self.parts_list.setCurrentItem(
                     list_item, Qt.ItemSelectionModel.SelectionFlag.ClearAndSelect
                 )
@@ -1459,8 +1462,7 @@ class EditorTab(QWidget):
 
         # Calculate bounding box of all parts
         combined_rect = None
-        for part_info in self.current_editor_items.values():
-            part_item = part_info.get("graphics_item")
+        for part_item in self.current_editor_items.values():
             if part_item and part_item.scene():
                 part_rect = part_item.sceneBoundingRect()
                 if combined_rect is None:

@@ -365,10 +365,28 @@ def test_foundry_selector_exposes_physical_kit_mechanisms(qapp):
         view.mechanism_selector.itemData(i) for i in range(view.mechanism_selector.count())
     }
 
-    assert visible_types == {"four_bar", "cam_follower", "gear_train"}
+    assert visible_types == {"four_bar", "cam_follower", "gear_train", "gear_linkage"}
     assert view.mechanism_selector.findData("gear_train") >= 0
+    assert view.mechanism_selector.findData("gear_linkage") >= 0
     assert view.mechanism_selector.findData("planetary_gear") < 0
     assert view.mechanism_selector.findData("slider_crank") < 0
+
+
+def test_foundry_gear_linkage_renders_linkage_arm(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    idx = view.mechanism_selector.findData("gear_linkage")
+    assert idx >= 0
+
+    view.mechanism_selector.setCurrentIndex(idx)
+    view._on_mechanism_changed(idx)
+    view._render_mechanism()
+
+    assert view._current_controller_mechanism_type() == "gear_linkage"
+    assert view._last_rendered_state is not None
+    assert "linkage_pin" in view._last_rendered_state.positions
+    assert "gear_linkage_arm" in view.visual_items_cache
 
 
 def test_foundry_view_type_aliases_ignore_case_and_whitespace(qapp):
@@ -565,6 +583,30 @@ def test_map_design_params_to_foundry_gear_honors_string_false_grid_flag(qapp):
 
     assert mapped["gear1_teeth"] == 12.0
     assert mapped["gear2_teeth"] == 18.0
+
+
+def test_map_design_params_to_foundry_gear_linkage_preserves_gear_and_linkage_params(qapp):
+    from automataii.presentation.qt.tabs.mechanism_foundry.foundry_view import MechanismFoundryView
+
+    view = MechanismFoundryView()
+    mapped = view._map_design_params_to_foundry(
+        "gear_linkage",
+        {
+            "gear1_radius": 18.0,
+            "gear2_radius": 27.0,
+            "grid_system_enabled": False,
+            "linkage_pin_radius": 12.0,
+            "linkage_arm_length": 40.0,
+            "input_angle": 45.0,
+        },
+    )
+
+    assert mapped["gear1_teeth"] > 0.0
+    assert mapped["gear2_teeth"] > 0.0
+    assert mapped["gear_linkage_enabled"] == 1.0
+    assert mapped["linkage_pin_radius"] == 12.0
+    assert mapped["linkage_arm_length"] == 40.0
+    assert mapped["input_angle"] == 45.0
 
 
 def test_map_design_params_to_foundry_gear_keeps_radii_when_output_mode_present(qapp):

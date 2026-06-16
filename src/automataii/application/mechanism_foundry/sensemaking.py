@@ -190,6 +190,14 @@ class SensemakingService:
             motion_question="Should the character move faster, slower, or the other way?",
             kit_move="Count teeth before assembly and leave spacer clearance for free rotation.",
         ),
+        "gear_linkage": MechanismStory(
+            mechanism_type="gear_linkage",
+            title="Gear + linkage",
+            focus="A driven gear carries an off-center pin that pulls a linkage arm.",
+            chain="gear ratio → crank pin orbit → linkage swing",
+            motion_question="Does the linkage need a bigger swing, different timing, or less force?",
+            kit_move="Use a 6 mm crank hole and a loose bracket so the link can rotate freely.",
+        ),
         "slider_crank": MechanismStory(
             mechanism_type="slider_crank",
             title="Slider-crank",
@@ -231,6 +239,15 @@ class SensemakingService:
                 "gear2_center",
                 "gear2_center",
                 selectable=False,
+            ),
+        ),
+        "gear_linkage": (
+            SensemakingMotionPoint("Linkage pin", "linkage_pin", "linkage_pin", "Linkage pin"),
+            SensemakingMotionPoint(
+                "Linkage end",
+                "linkage_end",
+                "linkage_end",
+                "Linkage end",
             ),
         ),
         "slider_crank": (
@@ -673,10 +690,16 @@ class SensemakingService:
                 "Preview geometry is updating; compare the refreshed trace next.",
             )
 
-        if mechanism_type == "gear_train":
+        if mechanism_type in {"gear_train", "gear_linkage"}:
             teeth1 = cls._positive_number(current_parameters.get("gear1_teeth"), 12.0)
             teeth2 = cls._positive_number(current_parameters.get("gear2_teeth"), 18.0)
             ratio = teeth1 / teeth2 if teeth2 else 0.0
+            if mechanism_type == "gear_linkage":
+                arm = cls._positive_number(current_parameters.get("linkage_arm_length"), 40.0)
+                return (
+                    "Watch the linkage pin/end: the driven gear now creates a crank motion.",
+                    f"Ratio {teeth1:.0f}:{teeth2:.0f}; linkage arm length {arm:.0f} mm sets reach.",
+                )
             return (
                 "Watch the driven gear: speed changes, direction stays reversed.",
                 f"Ratio {teeth1:.0f}:{teeth2:.0f}; output turns about {ratio:.2f}× per input turn.",

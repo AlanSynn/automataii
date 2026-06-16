@@ -117,19 +117,19 @@ class GearVisualizer(BaseMechanismVisualizer):
         self._create_center_pivot(visual_items, gear1_center_scene)
         self._create_center_pivot(visual_items, gear2_center_scene)
 
-        # Add diagnostics overlay
-        self._add_gear_diagnostics(
-            visual_items,
-            gear1_center_scene,
-            gear2_center_scene,
-            r1_screen,
-            r2_screen,
-            gear1_center_orig,
-            gear2_center_orig,
-            r1,
-            r2,
-            params,
-        )
+        if bool(kwargs.get("show_diagnostics", False)):
+            self._add_gear_diagnostics(
+                visual_items,
+                gear1_center_scene,
+                gear2_center_scene,
+                r1_screen,
+                r2_screen,
+                gear1_center_orig,
+                gear2_center_orig,
+                r1,
+                r2,
+                params,
+            )
 
         return visual_items
 

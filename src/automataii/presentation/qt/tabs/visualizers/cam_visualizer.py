@@ -128,7 +128,8 @@ class CamVisualizer(BaseMechanismVisualizer):
         self._create_follower(visual_items, mechanism_data, cam_to_scene)
         self._create_cam_center(visual_items, cam_to_scene)
         self._create_follower_rod(visual_items, mechanism_data, cam_to_scene)
-        self._add_curvature_diagnostics(visual_items, mechanism_data, cam_to_scene)
+        if bool(kwargs.get("show_diagnostics", False)):
+            self._add_curvature_diagnostics(visual_items, mechanism_data, cam_to_scene)
 
         return visual_items
 

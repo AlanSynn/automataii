@@ -57,7 +57,6 @@ from automataii.presentation.qt.models import PartInfo  # ProjectFileModel is in
 from automataii.presentation.qt.physical_context_store import PhysicalKitContextStore
 from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
-from automataii.presentation.qt.tabs.landing_tab import LandingTab
 from automataii.presentation.qt.tabs.mechanism_design.tab import MechanismDesignTab
 from automataii.presentation.qt.tabs.mechanism_foundry import MechanismFoundryView
 from automataii.presentation.qt.tabs.options_tab import OptionsTab
@@ -780,50 +779,55 @@ class AutomataDesigner(QMainWindow):
         self.tab_widget.setObjectName("mainTabWidget")
         self.tab_widget.setTabBar(ScrollableTabBar(self.tab_widget))
         self.tab_widget.setUsesScrollButtons(False)
-        self.tab_widget.setElideMode(Qt.TextElideMode.ElideNone)
+        self.tab_widget.setElideMode(Qt.TextElideMode.ElideRight)
         main_layout.addWidget(self.tab_widget)
 
-        # --- Tab 0: Landing Page ---
-        self.landing_tab = LandingTab(self, experiment_mode=self.experiment_mode)
-        self.landing_tab.setObjectName("tab_welcome")
-        welcome_title = "1. Welcome" if self.experiment_mode else "Welcome"
-        self.tab_widget.addTab(self.landing_tab, welcome_title)
-
-        # --- Tab 1: Image Processing ---
+        # --- Tab 0: Image Processing / Character Selection ---
         self.image_proc_tab = ImageProcessingTab(self, editing_mode=self.editing_mode)
         self.image_proc_tab.setObjectName("tab_character_selection")
-        character_title = (
-            "2. Character Selection" if self.experiment_mode else "Character Selection"
-        )
+        character_title = "1. Character Selection" if self.experiment_mode else "Character Selection"
         self.tab_widget.addTab(self.image_proc_tab, character_title)
+        self.tab_widget.setTabToolTip(
+            self.tab_widget.indexOf(self.image_proc_tab),
+            "Character Selection — choose one of the sample drawings or load your own image",
+        )
 
-        # --- Tab 2: Editor & Simulation ---
+        # --- Tab 1: Editor & Simulation ---
         self.editor_tab = EditorTab(self)
         self.editor_tab.setObjectName("tab_path_editor")
-        path_title = "3. Path Editor" if self.experiment_mode else "Path Editor"
+        path_title = "2. Path Editor" if self.experiment_mode else "Path Editor"
         self.tab_widget.addTab(self.editor_tab, path_title)
+        self.tab_widget.setTabToolTip(
+            self.tab_widget.indexOf(self.editor_tab),
+            "Path Editor — draw motion paths on character parts",
+        )
 
-        # --- Tab 3: Mechanism Design ---
+        # --- Tab 2: Mechanism Design ---
         self.mechanism_design_tab = MechanismDesignTab(self)
         self.mechanism_design_tab.setObjectName("tab_mechanism_design")
-        mechanism_title = "4. Mechanism Design" if self.experiment_mode else "Mechanism Design"
+        mechanism_title = "3. Mechanism Design" if self.experiment_mode else "Mechanism Design"
         self.tab_widget.addTab(self.mechanism_design_tab, mechanism_title)
+        self.tab_widget.setTabToolTip(
+            self.tab_widget.indexOf(self.mechanism_design_tab),
+            "Mechanism Design — attach and tune mechanisms",
+        )
 
-        # --- Tab 4: Mechanism Foundry ---
+        # --- Tab 3: Mechanism Foundry ---
         self.mechanism_foundry_tab = None
         if not self.experiment_mode:
             self.mechanism_foundry_tab = MechanismFoundryView(self)
             self.mechanism_foundry_tab.setObjectName("tab_mechanism_foundry")
             self.tab_widget.addTab(self.mechanism_foundry_tab, "Mechanism Foundry")
+            self.tab_widget.setTabToolTip(
+                self.tab_widget.indexOf(self.mechanism_foundry_tab),
+                "Mechanism Foundry — simulate linkage, cam, and gear mechanisms",
+            )
 
         # --- App options ---
         # Options remain a single live widget/signal source, but are opened from
         # the top-level Options menu instead of taking a workflow tab slot.
         self.options_tab = OptionsTab(initial_anim_duration=self.ik_manager.animation_duration)
         self.options_tab.setObjectName("tab_options")
-
-        # --- Connect Signals from LandingTab ---
-        self.landing_tab.image_selected.connect(self._handle_landing_image_selected)
 
         # --- Connect Signals from ImageProcessingTab ---
         self.image_proc_tab.parts_generated.connect(self.handle_parts_generated_from_tab)
@@ -1338,44 +1342,6 @@ class AutomataDesigner(QMainWindow):
                 "Error",
                 "SkeletonManager not initialized. Cannot process skeleton.",
             )
-
-    @pyqtSlot(str)
-    def _handle_landing_image_selected(self, image_path: str):
-        """Handles image selection from the landing tab."""
-        logging.info(f"MainWindow: Landing tab selected image: {image_path}")
-
-        if hasattr(self, "image_proc_tab") and self.image_proc_tab is not None:
-            # Load the image in the image processing tab
-            loaded_successfully = self.image_proc_tab._load_image_from_path(image_path)
-
-            if loaded_successfully:
-                # Switch to the image processing tab
-                for i in range(self.tab_widget.count()):
-                    if self.tab_widget.widget(i) == self.image_proc_tab:
-                        self.tab_widget.setCurrentIndex(i)
-                        logging.info(
-                            f"MainWindow: Switched to Image Processing Tab and loaded {Path(image_path).name}"
-                        )
-                        self.statusBar().showMessage(f"Loaded: {Path(image_path).name}", 3000)
-                        # Ensure detailed processing group is hidden on this specific transition
-                        if hasattr(
-                            self.image_proc_tab,
-                            "_toggle_detailed_processing_visibility",
-                        ):
-                            self.image_proc_tab._toggle_detailed_processing_visibility(False)
-                        break
-            else:
-                logging.error(
-                    f"MainWindow: Failed to load image {image_path} in ImageProcessingTab."
-                )
-                QMessageBox.warning(
-                    self,
-                    "Image Load Error",
-                    f"Could not load the selected image: {Path(image_path).name}",
-                )
-        else:
-            logging.error("MainWindow: image_proc_tab is not available or not initialized.")
-            QMessageBox.critical(self, "Error", "Image Processing Tab is not available.")
 
     @pyqtSlot()
     def switch_to_editor_tab(self):

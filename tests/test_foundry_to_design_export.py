@@ -150,6 +150,33 @@ class TestMechanismInstantiationService:
         assert "gear1_center" in layer_data["key_points"]
         assert "gear2_center" in layer_data["key_points"]
 
+    def test_create_layer_data_from_foundry_gear_linkage_keeps_linkage_contract(self):
+        """Gear+linkage exports should remain recognizable in Design as a gear linkage."""
+        from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (
+            MechanismInstantiationService,
+        )
+
+        service = MechanismInstantiationService()
+        layer_data = service.create_layer_data_from_foundry(
+            mechanism_type="gear_linkage",
+            parameters={
+                "gear1_teeth": 12,
+                "gear2_teeth": 18,
+                "linkage_pin_radius": 12.0,
+                "linkage_arm_length": 40.0,
+                "input_angle": 30.0,
+            },
+            pivot_point=(0.0, 0.0),
+            part_name=None,
+        )
+
+        assert layer_data is not None
+        assert layer_data["type"] == "gear"
+        assert layer_data["source_type"] == "gear_linkage"
+        assert layer_data["params"]["gear_linkage_enabled"] is True
+        assert layer_data["params"]["linkage_pin_radius"] == pytest.approx(12.0)
+        assert layer_data["params"]["linkage_arm_length"] == pytest.approx(40.0)
+
     def test_create_layer_data_from_foundry_slider_crank(self):
         """Slider-crank exports should map to a valid internal 4-bar payload."""
         from automataii.presentation.qt.tabs.mechanism_design.services.mechanism_instantiation_service import (

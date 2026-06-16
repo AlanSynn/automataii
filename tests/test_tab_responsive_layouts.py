@@ -11,6 +11,7 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QGraphicsItem,
     QGraphicsScene,
     QScrollArea,
     QSizePolicy,
@@ -18,7 +19,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from automataii.domain.project.models import PartInfoModel
+from automataii.presentation.qt.models import PartInfo
 from automataii.presentation.qt.tabs.editor.components.ui_builder import EditorTabUIBuilder
+from automataii.presentation.qt.tabs.editor.tab import EditorTab
 from automataii.presentation.qt.tabs.image_processing_tab import ImageProcessingTab
 from automataii.presentation.qt.tabs.mechanism_design.mechanism_design_tab_layout import (
     MechanismDesignTabLayout,
@@ -74,6 +78,46 @@ def test_editor_tab_control_panel_is_resizable() -> None:
     assert scroll_area.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Fixed
 
 
+def test_start_drawing_button_is_prominent() -> None:
+    _ = _get_app()
+
+    host = QWidget()
+    scene = QGraphicsScene(host)
+    editor_view = EditorView(scene, host)
+
+    builder = EditorTabUIBuilder(host, editor_view)
+    refs = builder.build()
+
+    button = refs.define_motion_path_btn
+    assert "Start Drawing" in button.text()
+    assert button.minimumHeight() >= 44
+
+
+def test_editor_character_parts_are_not_directly_movable(tmp_path: Path) -> None:
+    _ = _get_app()
+
+    image_path = tmp_path / "head.png"
+    pixmap = QPixmap(12, 12)
+    pixmap.fill()
+    assert pixmap.save(str(image_path))
+
+    part = PartInfo.from_pydantic(
+        PartInfoModel(
+            name="head",
+            roi=[0.0, 0.0, 12.0, 12.0],
+            image_path="head.png",
+            local_pivot_offset=[6.0, 6.0],
+        ),
+        project_dir=tmp_path,
+    )
+    tab = EditorTab(_DummyMainWindow(project_dir=tmp_path))
+
+    tab.set_parts_data({"head": part})
+
+    item = tab.current_editor_items["head"]
+    assert not bool(item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+
+
 def test_mechanism_design_control_panel_is_resizable() -> None:
     _ = _get_app()
 
@@ -106,6 +150,74 @@ def test_image_processing_uses_splitter_with_scrollable_controls() -> None:
     assert isinstance(left_widget, QScrollArea)
     assert left_widget.minimumWidth() < left_widget.maximumWidth()
     assert left_widget.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+
+
+def test_image_processing_exposes_two_sample_image_buttons() -> None:
+    _ = _get_app()
+
+    tab = ImageProcessingTab(_DummyMainWindow())
+
+    assert len(tab.sample_image_buttons) == 2
+    assert all(button.text().startswith("Use ") for button in tab.sample_image_buttons)
+
+
+def test_image_processing_exposes_user_visible_output_location(tmp_path: Path) -> None:
+    _ = _get_app()
+
+    tab = ImageProcessingTab(_DummyMainWindow())
+    tab.output_dir = None
+    tab._output_dir_user_selected = False
+    tab._default_output_root = lambda: tmp_path / "Automataii Characters"  # type: ignore[method-assign]
+    tab.input_image_path = str(tmp_path / "robot sketch.png")
+
+    output_dir = tab._ensure_output_dir()
+
+    assert output_dir.parent == tmp_path / "Automataii Characters"
+    assert tab.output_location_label is not None
+    assert str(output_dir) in tab.output_location_label.text()
+
+
+def test_parts_generation_uses_visible_output_directory(tmp_path: Path, monkeypatch) -> None:
+    _ = _get_app()
+
+    char_dir = tmp_path / "char"
+    char_dir.mkdir()
+    texture_path = char_dir / "texture.png"
+    mask_path = char_dir / "mask.png"
+    char_cfg_path = char_dir / "char_cfg.yaml"
+    assert cv2.imwrite(str(texture_path), np.zeros((4, 4, 3), dtype=np.uint8))
+    assert cv2.imwrite(str(mask_path), np.zeros((4, 4), dtype=np.uint8))
+    char_cfg_path.write_text("skeleton: []\n", encoding="utf-8")
+
+    class _FakeExtractor:
+        def __init__(self, *, char_dir: str, output_dir: str) -> None:
+            self.char_dir = char_dir
+            self.output_dir = output_dir
+
+        def process(self) -> None:
+            Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+            (Path(self.output_dir) / "parts_info.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "automataii.presentation.qt.tabs.image_processing_tab.BodyPartsExtractor",
+        _FakeExtractor,
+    )
+
+    output_dir = tmp_path / "exports"
+    tab = ImageProcessingTab(_DummyMainWindow())
+    tab.current_annotation_results = {
+        "texture_path": str(texture_path),
+        "char_cfg_path": str(char_cfg_path),
+    }
+    tab.current_temp_char_dir = str(char_dir)
+    tab.output_dir = str(output_dir)
+
+    emitted: list[str] = []
+    tab.parts_generated.connect(lambda _data, path: emitted.append(path))
+
+    assert tab.create_parts_from_skeleton(show_success_dialog=False) is True
+    assert (output_dir / "parts_info.json").exists()
+    assert emitted == [str(output_dir)]
 
 
 def test_image_processing_load_image_does_not_auto_assign_character(monkeypatch) -> None:

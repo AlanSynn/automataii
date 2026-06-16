@@ -72,6 +72,7 @@ FOUNDRY_TO_DESIGN_TYPE_MAPPING: dict[str, str] = {
     "four_bar": "4_bar_linkage",
     "cam_follower": "cam",
     "gear_train": "gear",
+    "gear_linkage": "gear",
     "slider_crank": "4_bar_linkage",  # Approximate with 4-bar for now
 }
 
@@ -81,6 +82,8 @@ FOUNDRY_TYPE_ALIASES: dict[str, str] = {
     "4_bar_linkage": "four_bar",
     "cam": "cam_follower",
     "gear": "gear_train",
+    "gear+linkage": "gear_linkage",
+    "gear_linkage_train": "gear_linkage",
     "slider-crank": "slider_crank",
     "slidercrank": "slider_crank",
 }
@@ -1308,7 +1311,7 @@ class MechanismInstantiationService:
                 elif normalized_mode == "contact_point":
                     params["output_point_mode"] = "contact_point"
 
-        elif normalized_type == "gear_train":
+        elif normalized_type in {"gear_train", "gear_linkage"}:
             gear_presets = profile.gear_presets or GEAR_PRESETS
             default_gear1 = gear_presets[0].teeth
             default_gear2 = gear_presets[min(2, len(gear_presets) - 1)].teeth
@@ -1356,6 +1359,18 @@ class MechanismInstantiationService:
                 params["input_torque"] = _finite_float(foundry_params["input_torque"], 0.0)
             if "input_angle" in foundry_params:
                 params["input_angle"] = _finite_float(foundry_params["input_angle"], 0.0)
+            if normalized_type == "gear_linkage":
+                params["gear_linkage_enabled"] = True
+                if "linkage_pin_radius" in foundry_params:
+                    params["linkage_pin_radius"] = _positive_finite_float(
+                        foundry_params["linkage_pin_radius"],
+                        radius_2 * 0.72,
+                    )
+                if "linkage_arm_length" in foundry_params:
+                    params["linkage_arm_length"] = _positive_finite_float(
+                        foundry_params["linkage_arm_length"],
+                        grid_cell_cm_from_params(foundry_params) * 20.0,
+                    )
 
         elif normalized_type == "slider_crank":
             # Approximate slider-crank with a 4-bar payload for current Design internals.

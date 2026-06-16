@@ -22,8 +22,8 @@ def _create_window_with_tabs() -> tuple[QMainWindow, QTabWidget]:
     window.setCentralWidget(central)
 
     entries = [
-        ("tab_welcome", "Welcome"),
         ("tab_character_selection", "Character"),
+        ("tab_path_editor", "Path"),
         ("tab_mechanism_design", "Mechanism Design"),
     ]
     for tab_id, label in entries:
@@ -81,6 +81,25 @@ def test_scrollable_tab_bar_disables_native_overflow_buttons() -> None:
 
     assert tabs.usesScrollButtons() is False
     assert tab_bar.usesScrollButtons() is False
+    assert app is not None
+
+
+def test_scrollable_tab_bar_caps_primary_workflow_tab_widths() -> None:
+    app = QApplication.instance() or QApplication([])
+    tabs = QTabWidget()
+    tab_bar = ScrollableTabBar(tabs)
+    tabs.setTabBar(tab_bar)
+    for label in (
+        "Character Selection",
+        "Path Editor",
+        "Mechanism Design",
+        "Mechanism Foundry",
+    ):
+        tabs.addTab(QWidget(), label)
+
+    widths = [tab_bar.tabSizeHint(index).width() for index in range(tab_bar.count())]
+
+    assert max(widths) <= ScrollableTabBar.MAX_TAB_WIDTH
     assert app is not None
 
 
@@ -145,15 +164,16 @@ def test_experiment_mode_hides_foundry_and_options_tabs() -> None:
 
     window = AutomataDesigner(experiment_mode=True)
     try:
+        window.reset_workspace_layout()
         tab_titles = [window.tab_widget.tabText(index) for index in range(window.tab_widget.count())]
 
         assert tab_titles == [
-            "1. Welcome",
-            "2. Character Selection",
-            "3. Path Editor",
-            "4. Mechanism Design",
+            "1. Character Selection",
+            "2. Path Editor",
+            "3. Mechanism Design",
         ]
         assert window.mechanism_foundry_tab is None
+        assert not hasattr(window, "landing_tab")
         assert not hasattr(window, "lab_tab")
     finally:
         window.close()

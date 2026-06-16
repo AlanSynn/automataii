@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import QTabBar, QWidget
 
@@ -10,11 +10,36 @@ from PyQt6.QtWidgets import QTabBar, QWidget
 class ScrollableTabBar(QTabBar):
     """A compact tab bar that scrolls through tabs without native ``<>`` buttons."""
 
+    MAX_TAB_WIDTH = 150
+    MIN_TAB_WIDTH = 88
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setUsesScrollButtons(False)
-        self.setElideMode(Qt.TextElideMode.ElideNone)
+        self.setElideMode(Qt.TextElideMode.ElideRight)
         self.setExpanding(False)
+        self.setStyleSheet(
+            """
+            QTabBar::tab {
+                padding: 6px 9px;
+                margin-right: 1px;
+            }
+            """
+        )
+
+    def tabSizeHint(self, index: int) -> QSize:
+        """Cap wide labels against current width so primary tabs stay visible."""
+        size = super().tabSizeHint(index)
+        tab_count = max(1, self.count())
+        available_width = max(0, self.width() - 12)
+        target_width = self.MAX_TAB_WIDTH
+        if available_width:
+            target_width = max(
+                self.MIN_TAB_WIDTH,
+                min(self.MAX_TAB_WIDTH, available_width // tab_count),
+            )
+        size.setWidth(max(self.MIN_TAB_WIDTH, min(size.width(), target_width)))
+        return size
 
     def wheelEvent(self, event: QWheelEvent | None) -> None:
         """Move to the neighboring tab when users scroll on the tab strip."""

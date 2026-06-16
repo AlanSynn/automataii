@@ -179,22 +179,55 @@ class _GearTrainPreviewMechanism:
         p1 = (g1[0] + r1 * math.cos(theta1), g1[1] + r1 * math.sin(theta1))
         p2 = (g2[0] + r2 * math.cos(theta2), g2[1] + r2 * math.sin(theta2))
 
+        positions = {
+            "gear1_center": g1,
+            "gear2_center": g2,
+            "gear1_indicator_end": p1,
+            "gear2_indicator_end": p2,
+        }
+        metadata: dict[str, object] = {
+            "gear1_teeth": teeth1,
+            "gear2_teeth": teeth2,
+            "r1": r1,
+            "r2": r2,
+            "theta1": theta1,
+            "theta2": theta2,
+        }
+        has_linkage = bool(parameters.get("gear_linkage_enabled")) or any(
+            key in parameters for key in ("linkage_arm_length", "linkage_pin_radius")
+        )
+        if has_linkage:
+            default_pin_radius = min(r2 * 0.72, grid_step_mm(parameters.get("grid_cell_cm", 2.0)))
+            pin_radius = min(
+                max(1.0, _positive_finite_float(parameters.get("linkage_pin_radius"), default_pin_radius)),
+                max(1.0, r2 - (profile.hole_diameter_mm / 2.0)),
+            )
+            arm_length = _positive_finite_float(
+                parameters.get("linkage_arm_length"),
+                grid_step_mm(parameters.get("grid_cell_cm", 2.0)) * 2.0,
+            )
+            linkage_pin = (
+                g2[0] + pin_radius * math.cos(theta2),
+                g2[1] + pin_radius * math.sin(theta2),
+            )
+            linkage_end = (
+                linkage_pin[0] + arm_length * math.cos(theta2),
+                linkage_pin[1] + arm_length * math.sin(theta2),
+            )
+            positions["linkage_pin"] = linkage_pin
+            positions["linkage_end"] = linkage_end
+            metadata.update(
+                {
+                    "has_linkage": True,
+                    "linkage_pin_radius": pin_radius,
+                    "linkage_arm_length": arm_length,
+                }
+            )
+
         return MechanismState(
-            positions={
-                "gear1_center": g1,
-                "gear2_center": g2,
-                "gear1_indicator_end": p1,
-                "gear2_indicator_end": p2,
-            },
+            positions=positions,
             safety_status=SafetyStatus(SafetyLevel.SAFE, "Gear mesh nominal"),
-            metadata={
-                "gear1_teeth": teeth1,
-                "gear2_teeth": teeth2,
-                "r1": r1,
-                "r2": r2,
-                "theta1": theta1,
-                "theta2": theta2,
-            },
+            metadata=metadata,
         )
 
 
@@ -727,10 +760,10 @@ class MechanismFoundryView(QWidget):
         if not self.current_mechanism:
             return
 
-        # Always export the actually loaded mechanism type, not stale selector UI state.
-        mechanism_type = self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
-        if not mechanism_type and self.mechanism_selector:
-            mechanism_type = self.mechanism_selector.currentData()
+        # Export the controller selection so gear+linkage stays distinct from plain gear train.
+        mechanism_type = self._current_controller_mechanism_type()
+        if not mechanism_type and self.current_mechanism:
+            mechanism_type = self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
         if not mechanism_type:
             return
 
@@ -888,7 +921,7 @@ class MechanismFoundryView(QWidget):
             self.current_mechanism = FourBarMechanism()
         elif canonical_type == "cam_follower":
             self.current_mechanism = CamFollowerMechanism()
-        elif canonical_type == "gear_train":
+        elif canonical_type in {"gear_train", "gear_linkage"}:
             self.current_mechanism = _GearTrainPreviewMechanism()
         elif canonical_type == "slider_crank":
             self.current_mechanism = _SliderCrankPreviewMechanism()
@@ -974,7 +1007,7 @@ class MechanismFoundryView(QWidget):
             params = self._build_sync_payload_parameters()
             self.mechanism_parameters_changed.emit(
                 self.synced_mechanism_id,
-                self.current_mechanism.mechanism_type,
+                self._current_controller_mechanism_type(),
                 params,
             )
 
@@ -1009,12 +1042,14 @@ class MechanismFoundryView(QWidget):
         self.motion_modes_label.setText(text)
 
     def _current_controller_mechanism_type(self) -> str:
-        if self.current_mechanism is not None:
-            return self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
         if self.mechanism_selector is not None:
             selected = self.mechanism_selector.currentData()
             if isinstance(selected, str):
-                return self._to_controller_mechanism_type(selected)
+                selected_type = self._to_controller_mechanism_type(selected)
+                if selected_type:
+                    return selected_type
+        if self.current_mechanism is not None:
+            return self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
         return "unknown"
 
     def _selected_motion_point_label(self) -> str:
@@ -1197,7 +1232,7 @@ class MechanismFoundryView(QWidget):
 
     @property
     def _grid_step_mm(self) -> float:
-        return grid_step_mm(self._grid_cell_cm)
+        return float(grid_step_mm(self._grid_cell_cm))
 
     @staticmethod
     def _is_length_spec(spec: ParameterSpec | None) -> bool:
@@ -1364,7 +1399,7 @@ class MechanismFoundryView(QWidget):
         self._render_mechanism()
 
         if self.current_mechanism:
-            config_type = self._to_controller_mechanism_type(self.current_mechanism.mechanism_type)
+            config_type = self._current_controller_mechanism_type()
             config = self.controller.get_configuration(config_type)
             if config:
                 self._update_info_panel(config_type, config)
@@ -1375,7 +1410,7 @@ class MechanismFoundryView(QWidget):
                 params = self._build_sync_payload_parameters()
                 self.mechanism_parameters_changed.emit(
                     self.synced_mechanism_id,
-                    self.current_mechanism.mechanism_type,
+                    self._current_controller_mechanism_type(),
                     params,
                 )
 
@@ -1390,7 +1425,7 @@ class MechanismFoundryView(QWidget):
             params = self._build_sync_payload_parameters()
             self.mechanism_parameters_changed.emit(
                 self.synced_mechanism_id,
-                self.current_mechanism.mechanism_type,
+                self._current_controller_mechanism_type(),
                 params,
             )
 
@@ -1461,7 +1496,7 @@ class MechanismFoundryView(QWidget):
             self._show_default_paths(state)
         elif mechanism_type == "cam_follower":
             self._draw_cam_mechanism_optimized(state)
-        elif mechanism_type == "gear_train":
+        elif mechanism_type in {"gear_train", "gear_linkage"}:
             self._draw_gear_mechanism_optimized(state)
         elif mechanism_type == "slider_crank":
             self._draw_slider_crank_mechanism_optimized(state)
@@ -1493,12 +1528,8 @@ class MechanismFoundryView(QWidget):
             coupler_x = self.current_parameters.get("p_x", 0.0)
         if coupler_y is None:
             coupler_y = self.current_parameters.get("p_y", 0.0)
-        try:
-            cp_x = float(coupler_x)
-            cp_y = float(coupler_y)
-        except (TypeError, ValueError):
-            cp_x = 0.0
-            cp_y = 0.0
+        cp_x = _finite_float(coupler_x, 0.0)
+        cp_y = _finite_float(coupler_y, 0.0)
 
         dx = p4x - p3x
         dy = p4y - p3y
@@ -1744,6 +1775,40 @@ class MechanismFoundryView(QWidget):
             item.setData(0, "mechanism_item")
             cache["gear_mesh_line"] = item
         cache["gear_mesh_line"].setLine(g1[0], g1[1], g2[0], g2[1])
+
+        has_linkage = bool(metadata.get("has_linkage"))
+        linkage_pin = positions.get("linkage_pin")
+        linkage_end = positions.get("linkage_end")
+        if has_linkage and linkage_pin and linkage_end:
+            if "gear_linkage_arm" not in cache:
+                arm_pen = QPen(QColor("#d62728"), 5, Qt.PenStyle.SolidLine)
+                arm_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                item = self.scene.addLine(0, 0, 0, 0, arm_pen)
+                item.setData(0, "mechanism_item")
+                item.setZValue(20)
+                cache["gear_linkage_arm"] = item
+            cache["gear_linkage_arm"].setLine(
+                linkage_pin[0],
+                linkage_pin[1],
+                linkage_end[0],
+                linkage_end[1],
+            )
+
+            for key, point, color in (
+                ("gear_linkage_pin", linkage_pin, QColor("#ff9896")),
+                ("gear_linkage_end", linkage_end, QColor("#d62728")),
+            ):
+                if key not in cache:
+                    item = self.scene.addEllipse(0, 0, 1, 1, QPen(QColor("#7f1d1d"), 2), QBrush(color))
+                    item.setData(0, "mechanism_item")
+                    item.setZValue(21)
+                    cache[key] = item
+                cache[key].setRect(point[0] - 5.0, point[1] - 5.0, 10.0, 10.0)
+        else:
+            for key in ("gear_linkage_arm", "gear_linkage_pin", "gear_linkage_end"):
+                item = cache.pop(key, None)
+                if item is not None and item.scene() == self.scene:
+                    self.scene.removeItem(item)
 
     def _draw_slider_crank_mechanism_optimized(self, state: MechanismState) -> None:
         """Optimized drawing for slider-crank preview using item caching."""
@@ -2107,7 +2172,7 @@ class MechanismFoundryView(QWidget):
             if input_angle is not None:
                 mapped["input_angle"] = input_angle
 
-        elif mechanism_type == "gear_train":
+        elif mechanism_type in {"gear_train", "gear_linkage"}:
             grid_enabled = grid_enabled_from_params(parameters, self._grid_system_enabled)
             source_profile = physical_profile_from_params(
                 self._effective_physical_parameters(parameters)
@@ -2166,6 +2231,14 @@ class MechanismFoundryView(QWidget):
             input_angle = _pick_float("input_angle")
             if input_angle is not None:
                 mapped["input_angle"] = input_angle
+            if mechanism_type == "gear_linkage":
+                mapped["gear_linkage_enabled"] = 1.0
+                linkage_pin_radius = _pick_float("linkage_pin_radius")
+                if linkage_pin_radius is not None:
+                    mapped["linkage_pin_radius"] = linkage_pin_radius
+                linkage_arm_length = _pick_float("linkage_arm_length")
+                if linkage_arm_length is not None:
+                    mapped["linkage_arm_length"] = linkage_arm_length
 
         elif mechanism_type == "slider_crank":
             crank_length = _pick_float("crank_length", "l2")
@@ -2218,7 +2291,7 @@ class MechanismFoundryView(QWidget):
         # Suppress signal emission to prevent infinite loop
         self._suppress_sync_signal = True
         try:
-            mechanism_type = self.current_mechanism.mechanism_type if self.current_mechanism else ""
+            mechanism_type = self._current_controller_mechanism_type()
             try:
                 mapped_params = self._map_design_params_to_foundry(mechanism_type, parameters)
             except Exception:
@@ -2242,9 +2315,7 @@ class MechanismFoundryView(QWidget):
 
             config = None
             if self.current_mechanism:
-                config_type = self._to_controller_mechanism_type(
-                    self.current_mechanism.mechanism_type
-                )
+                config_type = self._current_controller_mechanism_type()
                 config = self.controller.get_configuration(config_type)
 
             # Update current parameters and slider UI.
@@ -2256,10 +2327,9 @@ class MechanismFoundryView(QWidget):
                     if isinstance(value, str) and value:
                         self.current_parameters[key] = value  # type: ignore[assignment]
                         if self.current_mechanism:
-                            canonical_type = self._to_controller_mechanism_type(
-                                self.current_mechanism.mechanism_type
+                            self._refresh_motion_point_selector(
+                                self._current_controller_mechanism_type()
                             )
-                            self._refresh_motion_point_selector(canonical_type)
                     continue
 
                 if key not in self.current_parameters:
@@ -2302,9 +2372,7 @@ class MechanismFoundryView(QWidget):
 
         selector_type = canonical_mechanism_type(mechanism_type)
 
-        current_selector_type = ""
-        if self.current_mechanism:
-            current_selector_type = canonical_mechanism_type(self.current_mechanism.mechanism_type)
+        current_selector_type = self._current_controller_mechanism_type()
 
         if current_selector_type != selector_type:
             self._load_mechanism(selector_type)

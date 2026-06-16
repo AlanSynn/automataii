@@ -326,7 +326,10 @@ class MechanismDesignTab(QWidget):
         self.visualization_adapter: VisualizationAdapter | None = None
         if VISUALIZATION_AVAILABLE:
             self.visualization_adapter = VisualizationAdapter(self.mechanism_scene)
-        self.visuals_factory = MechanismVisualsFactory(self.mechanism_scene)
+        self.visuals_factory = MechanismVisualsFactory(
+            self.mechanism_scene,
+            show_diagnostics=self.debug_mode,
+        )
         self._mvp_presenter.set_scene(self.mechanism_scene)  # Initializes scene batcher for perf
 
         # Connect MVP presenter signals
@@ -1828,6 +1831,9 @@ class MechanismDesignTab(QWidget):
             "cam_follower": "cam_follower",
             "gear": "gear_train",
             "gear_train": "gear_train",
+            "gear_linkage": "gear_linkage",
+            "gear+linkage": "gear_linkage",
+            "gear_linkage_train": "gear_linkage",
         }.get(mechanism_type, mechanism_type)
 
     @staticmethod

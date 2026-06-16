@@ -31,8 +31,11 @@ from PyQt6.QtWidgets import (
 
 from automataii.presentation.qt.mechanism_parameter_utils import (
     finite_param,
+    gear_linkage_arm_length,
+    gear_linkage_pin_radius,
     positive_finite_float,
     positive_finite_param,
+    truthy_param,
 )
 from automataii.presentation.qt.tabs.cam_geometry import (
     cam_contact_local_from_rotated_profile,
@@ -805,6 +808,50 @@ class MechanismVisualAnimator:
                     r2_screen * math.cos(theta2), r2_screen * math.sin(theta2)
                 )
                 visual_items[3].setLine(QLineF(g2_center_scene, end2))
+
+        if not truthy_param(params.get("gear_linkage_enabled", False)):
+            return
+
+        linkage_items = {item.data(0): item for item in visual_items if hasattr(item, "data")}
+        arm = linkage_items.get("gear_linkage_arm")
+        pin_marker = linkage_items.get("gear_linkage_pin")
+        end_marker = linkage_items.get("gear_linkage_end")
+        if not (
+            isinstance(arm, QGraphicsLineItem)
+            and isinstance(pin_marker, QGraphicsEllipseItem)
+            and isinstance(end_marker, QGraphicsEllipseItem)
+        ):
+            return
+
+        pin_radius = gear_linkage_pin_radius(params, r2)
+        arm_length = gear_linkage_arm_length(params)
+
+        if use_scene_geometry:
+            scene_scale = r2_screen / max(r2, 1e-9)
+            pin_scene = g2_center_scene + QPointF(
+                pin_radius * scene_scale * math.cos(theta2),
+                pin_radius * scene_scale * math.sin(theta2),
+            )
+            end_scene = pin_scene + QPointF(
+                arm_length * scene_scale * math.cos(theta2),
+                arm_length * scene_scale * math.sin(theta2),
+            )
+        else:
+            assert to_scene_coords is not None
+            pin_orig = gear2_center + np.array(
+                [pin_radius * math.cos(theta2), pin_radius * math.sin(theta2)],
+                dtype=float,
+            )
+            end_orig = pin_orig + np.array(
+                [arm_length * math.cos(theta2), arm_length * math.sin(theta2)],
+                dtype=float,
+            )
+            pin_scene = to_scene_coords(pin_orig)
+            end_scene = to_scene_coords(end_orig)
+
+        arm.setLine(QLineF(pin_scene, end_scene))
+        pin_marker.setRect(pin_scene.x() - 5.0, pin_scene.y() - 5.0, 10.0, 10.0)
+        end_marker.setRect(end_scene.x() - 5.0, end_scene.y() - 5.0, 10.0, 10.0)
 
     def _update_planetary_gear_visuals(
         self,

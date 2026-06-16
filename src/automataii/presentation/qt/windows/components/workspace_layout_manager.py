@@ -147,6 +147,12 @@ class WorkspaceLayoutManager(QObject):
         if not stored_order:
             return
 
+        current_order = self.get_current_tab_order()
+        current_ids = set(current_order)
+        if any(tab_id not in current_ids for tab_id in stored_order):
+            self._settings.remove("workspace/tab_order")
+            return
+
         self._restoring_tabs = True
         try:
             for target_index, tab_id in enumerate(stored_order):

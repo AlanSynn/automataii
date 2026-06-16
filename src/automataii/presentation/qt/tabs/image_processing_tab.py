@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -8,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSettings, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
     QGraphicsScene,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -40,7 +42,7 @@ from automataii.presentation.qt.shared import blocked_signals
 from automataii.presentation.qt.tabs.image_processing.components import SkeletonToolsHandler
 from automataii.presentation.qt.widgets.common.styles import StyleFactory
 from automataii.presentation.qt.widgets.processing_steps_group import ProcessingStepsGroup
-from automataii.utils.paths import get_session_temp_dir
+from automataii.utils.paths import get_session_temp_dir, resolve_path
 
 
 class ImageProcessingTab(QWidget):
@@ -63,6 +65,13 @@ class ImageProcessingTab(QWidget):
         self._input_source: str | None = None
         self.auto_assign_on_input: bool = False
         self.assign_character_btn: QPushButton | None = None
+        self.sample_image_buttons: list[QPushButton] = []
+        self._settings = QSettings("MotionSmith", "CharacterOutput")
+        saved_output_dir = self._settings.value("output_dir", "", str)
+        self.output_dir: str | None = saved_output_dir or None
+        self._output_dir_user_selected: bool = bool(saved_output_dir)
+        self.output_location_label: QLabel | None = None
+        self.choose_output_dir_btn: QPushButton | None = None
 
         self.image_proc_scene = QGraphicsScene(self)
         self.image_proc_view = ImageProcessingView(self.image_proc_scene, self)
@@ -100,8 +109,20 @@ class ImageProcessingTab(QWidget):
         input_layout.setSpacing(10)
         self.load_image_btn = QPushButton("Load Image File")
         self.capture_image_btn = QPushButton("Capture Camera")
+        sample_label = QLabel("Or start with a sample:")
+        sample_label.setStyleSheet("font-weight: bold; color: #495057;")
         input_layout.addWidget(self.load_image_btn)
         input_layout.addWidget(self.capture_image_btn)
+        input_layout.addWidget(sample_label)
+        self.sample_image_buttons = []
+        for sample_path in self._sample_image_paths(limit=2):
+            button = QPushButton(f"Use {sample_path.stem.title()} Sample")
+            button.setToolTip(f"Load sample image: {sample_path.name}")
+            button.clicked.connect(
+                lambda _checked=False, path=sample_path: self._load_sample_image(path)
+            )
+            input_layout.addWidget(button)
+            self.sample_image_buttons.append(button)
         panel_layout.addWidget(input_group)
 
         panel_layout.addWidget(self.processing_steps_group)
@@ -168,6 +189,21 @@ class ImageProcessingTab(QWidget):
         self.assign_character_btn.clicked.connect(self._assign_character_from_image)
         char_layout.addWidget(self.assign_character_btn)
         panel_layout.addWidget(char_group)
+
+        output_group = QGroupBox("Download / Output Location")
+        output_layout = QVBoxLayout(output_group)
+        self.output_location_label = QLabel()
+        self.output_location_label.setWordWrap(True)
+        self.output_location_label.setObjectName("characterOutputLocationLabel")
+        self.choose_output_dir_btn = QPushButton("Choose Save Folder…")
+        self.choose_output_dir_btn.setToolTip(
+            "Choose where generated character parts and parts_info.json will be saved"
+        )
+        self.choose_output_dir_btn.clicked.connect(self._choose_output_folder)
+        output_layout.addWidget(self.output_location_label)
+        output_layout.addWidget(self.choose_output_dir_btn)
+        panel_layout.addWidget(output_group)
+        self._update_output_location_label()
 
         panel_layout.addStretch()
 
@@ -322,6 +358,113 @@ class ImageProcessingTab(QWidget):
         self.zoom_reset_btn.clicked.connect(self.image_proc_view.reset_view)
         self.update_button_states()
 
+    def _sample_image_paths(self, *, limit: int = 2) -> list[Path]:
+        """Return bundled sample drawings for the sample-first character flow."""
+        search_dirs: list[Path] = []
+        for raw in ("examples", "src/examples", "resources/examples/raw"):
+            try:
+                candidate = Path(resolve_path(raw))
+            except Exception:
+                continue
+            if candidate.exists() and candidate not in search_dirs:
+                search_dirs.append(candidate)
+
+        supported = {".png", ".jpg", ".jpeg", ".bmp"}
+        samples: list[Path] = []
+        seen: set[Path] = set()
+        preferred_names = ("girl", "boy")
+        for base in search_dirs:
+            if not base.is_dir():
+                continue
+            files = [
+                path
+                for path in base.iterdir()
+                if path.is_file() and path.suffix.lower() in supported
+            ]
+            files.sort(key=lambda path: (
+                preferred_names.index(path.stem.lower())
+                if path.stem.lower() in preferred_names
+                else len(preferred_names),
+                path.name.lower(),
+            ))
+            for path in files:
+                resolved = path.resolve()
+                if resolved in seen:
+                    continue
+                samples.append(path)
+                seen.add(resolved)
+                if len(samples) >= limit:
+                    return samples
+        return samples
+
+    def _is_bundled_sample_path(self, image_path: str) -> bool:
+        try:
+            target = Path(image_path).resolve()
+        except Exception:
+            return False
+        return any(target == sample.resolve() for sample in self._sample_image_paths())
+
+    def _load_sample_image(self, image_path: Path) -> bool:
+        """Load and auto-apply a bundled sample image from Character Selection."""
+        path = str(image_path)
+        if not image_path.exists():
+            QMessageBox.warning(self, "Sample Missing", f"Could not find sample image:\n{path}")
+            return False
+        if not self.image_proc_view.load_image(path):
+            QMessageBox.warning(self, "Load Error", f"Could not load sample image:\n{path}")
+            return False
+        self._on_input_ready(
+            image_path=path,
+            source="sample",
+            status_prefix="Loaded sample image",
+        )
+        self._auto_apply_loaded_image_to_editor()
+        return True
+
+    def _default_output_root(self) -> Path:
+        downloads = Path.home() / "Downloads"
+        base = downloads if downloads.exists() else Path.home()
+        return base / "Automataii Characters"
+
+    @staticmethod
+    def _safe_output_name(raw_name: str) -> str:
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._-")
+        return name or "character"
+
+    def _ensure_output_dir(self) -> Path:
+        if self.output_dir:
+            output_dir = Path(self.output_dir)
+        else:
+            source_name = Path(self.input_image_path).stem if self.input_image_path else "character"
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_dir = (
+                self._default_output_root()
+                / f"{self._safe_output_name(source_name)}_{timestamp}"
+            )
+            self.output_dir = str(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self._update_output_location_label()
+        return output_dir
+
+    def _choose_output_folder(self) -> None:
+        initial = self.output_dir or str(self._default_output_root())
+        chosen = QFileDialog.getExistingDirectory(self, "Choose Save Folder", initial)
+        if not chosen:
+            return
+        self.output_dir = chosen
+        self._output_dir_user_selected = True
+        self._settings.setValue("output_dir", chosen)
+        self._update_output_location_label()
+
+    def _update_output_location_label(self) -> None:
+        if self.output_location_label is None:
+            return
+        if self.output_dir:
+            label = f"Will save generated parts to:\n{self.output_dir}"
+        else:
+            label = f"Default save folder:\n{self._default_output_root()}"
+        self.output_location_label.setText(label)
+
     def _infer_character_dir(self, image_path: str) -> str:
         potential_char_dir = os.path.dirname(image_path)
         if (
@@ -341,6 +484,9 @@ class ImageProcessingTab(QWidget):
         self.current_annotation_results = None
         self.current_temp_char_dir = None
         self.skeleton_data = None
+        if not self._output_dir_user_selected:
+            self.output_dir = None
+            self._update_output_location_label()
         if self.image_proc_view:
             self.image_proc_view.load_skeleton(None)
         if self.editing_mode and hasattr(self, "manual_segmentation_btn"):
@@ -666,7 +812,7 @@ class ImageProcessingTab(QWidget):
         if self.image_proc_view.load_image(image_path):
             self._on_input_ready(
                 image_path=image_path,
-                source="file",
+                source="sample" if self._is_bundled_sample_path(image_path) else "file",
                 status_prefix="Loaded input image",
             )
             self._auto_apply_loaded_image_to_editor()
@@ -908,7 +1054,9 @@ class ImageProcessingTab(QWidget):
             )
             return False
 
-        self.main_window.statusBar().showMessage("Generating character parts...", 5000)
+        status_bar = self.main_window.statusBar() if self.main_window else None
+        if status_bar:
+            status_bar.showMessage("Generating character parts...", 5000)
 
         progress_dialog = QProgressDialog("Generating body parts...", "Cancel", 0, 0, self)
         progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
@@ -917,8 +1065,7 @@ class ImageProcessingTab(QWidget):
         QApplication.processEvents()  # Ensure dialog shows
 
         try:
-            bpe_output_dir = Path(self.current_temp_char_dir) / "bpe_output"
-            bpe_output_dir.mkdir(parents=True, exist_ok=True)
+            bpe_output_dir = self._ensure_output_dir()
 
             # Keep annotation-generated texture/mask coordinate system intact.
             # Only refresh texture/image from input when dimensions exactly match
@@ -952,10 +1099,15 @@ class ImageProcessingTab(QWidget):
 
             progress_dialog.close()
             msg_parts_generated = "Character parts generated successfully"
-            if self.main_window.debug_mode:
-                msg_parts_generated += f"in: {actual_bpe_output_dir_from_extractor}"
+            msg_parts_generated += f"\nSaved to:\n{actual_bpe_output_dir_from_extractor}"
             if show_success_dialog:
                 QMessageBox.information(self, "Parts Generated", msg_parts_generated)
+            status_bar = self.main_window.statusBar() if self.main_window else None
+            if status_bar:
+                status_bar.showMessage(
+                    f"Character parts saved to {actual_bpe_output_dir_from_extractor}",
+                    8000,
+                )
 
             if self.current_annotation_results:
                 # Pass the actual_bpe_output_dir_from_extractor where parts_info.json resides
@@ -1211,8 +1363,11 @@ class ImageProcessingTab(QWidget):
             canvas_h = max(1, int(round(max_y - min_y)))
             canvas = np.zeros((canvas_h, canvas_w, 4), dtype=np.uint8)
 
-            for _z, x, y, w, h, image_path in sorted(layered_parts, key=lambda item: item[0]):
-                src = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+            for _z, x, y, w, h, part_image_path in sorted(
+                layered_parts,
+                key=lambda item: item[0],
+            ):
+                src = cv2.imread(str(part_image_path), cv2.IMREAD_UNCHANGED)
                 if src is None:
                     continue
 
@@ -1368,6 +1523,9 @@ class ImageProcessingTab(QWidget):
         self.current_annotation_results = None
         self.skeleton_data = None
         self._input_source = None
+        if not self._output_dir_user_selected:
+            self.output_dir = None
+        self._update_output_location_label()
 
         # Update UI state
         self.update_button_states()

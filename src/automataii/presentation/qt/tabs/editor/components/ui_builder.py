@@ -208,23 +208,33 @@ class EditorTabUIBuilder:
         motion_path_buttons_layout = QHBoxLayout()
         motion_path_buttons_layout.setSpacing(8)
 
-        define_motion_path_btn = QPushButton("Start Drawing")
+        define_motion_path_btn = QPushButton("✏️ Start Drawing Path")
         define_motion_path_btn.setCheckable(True)
         define_motion_path_btn.setToolTip(
             "Toggle mode to draw a motion path for the selected part."
         )
         define_motion_path_btn.setEnabled(False)
-        define_motion_path_btn.setStyleSheet(StyleFactory.action_button_checked_style())
+        define_motion_path_btn.setMinimumHeight(46)
+        define_motion_path_btn.setStyleSheet(
+            StyleFactory.action_button_checked_style()
+            + """
+            QPushButton {
+                font-size: 15px;
+                font-weight: 700;
+                padding: 10px 16px;
+            }
+            """
+        )
 
         clear_motion_path_btn = QPushButton("Clear")
         clear_motion_path_btn.setToolTip("Clear the motion path for the selected part.")
         clear_motion_path_btn.setEnabled(False)
         clear_motion_path_btn.setStyleSheet(StyleFactory.danger_button_style())
 
-        motion_path_buttons_layout.addStretch()
         motion_path_buttons_layout.addWidget(define_motion_path_btn)
         motion_path_buttons_layout.addWidget(clear_motion_path_btn)
-        motion_path_buttons_layout.addStretch()
+        motion_path_buttons_layout.setStretch(0, 3)
+        motion_path_buttons_layout.setStretch(1, 1)
         motion_path_layout.addLayout(motion_path_buttons_layout)
 
         # Info label

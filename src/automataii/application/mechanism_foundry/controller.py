@@ -250,6 +250,52 @@ def build_mechanism_configs(
             ),
             extra_defaults={"input_angle": 30.0},
         ),
+        "gear_linkage": MechanismConfiguration(
+            mechanism_type="gear_linkage",
+            parameter_specs=(
+                ParameterSpec(
+                    "gear1_teeth",
+                    "Drive Gear Teeth",
+                    min_gear_teeth,
+                    max_gear_teeth,
+                    _at(profile.gear_presets, 0).teeth,
+                    "int",
+                    "teeth",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "gear2_teeth",
+                    "Driven Gear Teeth",
+                    min_gear_teeth,
+                    max_gear_teeth,
+                    _at(profile.gear_presets, 1).teeth,
+                    "int",
+                    "teeth",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "linkage_pin_radius",
+                    "Linkage Pin Radius (mm)",
+                    profile.hole_diameter_mm,
+                    _at(linkage_lengths_mm, 1),
+                    grid_cell_cm * 10.0,
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+                ParameterSpec(
+                    "linkage_arm_length",
+                    "Linkage Arm Length (mm)",
+                    min_linkage_mm,
+                    max_linkage_mm,
+                    _at(linkage_lengths_mm, 1),
+                    "float",
+                    "mm",
+                    step=1.0,
+                ),
+            ),
+            extra_defaults={"input_angle": 30.0, "gear_linkage_enabled": 1.0},
+        ),
     }
 
 
@@ -348,6 +394,21 @@ def build_fallback_items(
             ),
             mechanism_type="gear_train",
         ),
+        MechanismItem(
+            category_key="__fallback__",
+            mechanism_key="gear_linkage",
+            display_name="Gear + Linkage",
+            entry=_build_entry_from_config(
+                key="gear_linkage",
+                display_name="Gear + Linkage",
+                description=(
+                    "Meshing gears with an off-center crank hole driving a linkage arm."
+                ),
+                mech_type="gear_linkage",
+                config=configs["gear_linkage"],
+            ),
+            mechanism_type="gear_linkage",
+        ),
     )
 
 
@@ -367,7 +428,10 @@ class MechanismFoundryController:
         self._mechanisms: list[MechanismItem] = []
         self._load_catalog_items()
         self._ensure_fallback_items()
-        self._mechanisms.sort(key=lambda item: item.display_name)
+        order = {"four_bar": 0, "cam_follower": 1, "gear_train": 2, "gear_linkage": 3}
+        self._mechanisms.sort(
+            key=lambda item: (order.get(item.mechanism_type, 99), item.display_name)
+        )
         self._selection: MechanismItem | None = self._mechanisms[0] if self._mechanisms else None
 
     @property

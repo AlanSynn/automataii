@@ -149,7 +149,7 @@ class MotionPathManager(QObject):
         if not part_name or not checked:
             self._editor_view.set_mode("select")
             if self._define_btn:
-                self._define_btn.setText("Start Drawing")
+                self._define_btn.setText("✏️ Start Drawing Path")
             if self._info_label:
                 self._info_label.setVisible(False)
             if checked and self._define_btn:
@@ -188,7 +188,7 @@ class MotionPathManager(QObject):
             self._editor_view.start_define_motion_path(target_item, is_closed=is_closed)
 
         if self._define_btn:
-            self._define_btn.setText("Stop Drawing")
+            self._define_btn.setText("■ Stop Drawing")
         if self._info_label:
             self._info_label.setVisible(True)
 
@@ -449,8 +449,7 @@ class MotionPathManager(QObject):
             # which would call set_mode("select") and clear vertex handles
             self._define_btn.blockSignals(True)
             self._define_btn.setChecked(False)
-            self._define_btn.setText("Start Drawing")
-            self._define_btn.setStyleSheet("")
+            self._define_btn.setText("✏️ Start Drawing Path")
             self._define_btn.blockSignals(False)
         if self._info_label:
             self._info_label.setVisible(False)
