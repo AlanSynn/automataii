@@ -498,7 +498,7 @@ def test_cam_offset_can_snap_to_half_grid_cam_preset(qapp):
     view.set_grid_system(True, 2.5)
     view._on_parameter_changed("cam_offset", 12.5, label, False)
 
-    assert view.current_parameters["cam_offset"] == 12.5
+    assert view.current_parameters["cam_offset"] == 11.25
 
 
 def test_motion_modes_label_populates_for_four_bar(qapp):
@@ -527,8 +527,8 @@ def test_map_design_params_to_foundry_gear_prefers_live_radii(qapp):
         },
     )
 
-    assert mapped["gear1_teeth"] == 24.0
-    assert mapped["gear2_teeth"] == 24.0
+    assert mapped["gear1_teeth"] == 18.0
+    assert mapped["gear2_teeth"] == 18.0
 
 
 def test_map_design_params_to_foundry_gear_honors_grid_disabled_freeform_teeth(qapp):
@@ -580,8 +580,8 @@ def test_map_design_params_to_foundry_gear_keeps_radii_when_output_mode_present(
         },
     )
 
-    assert mapped["gear1_teeth"] == 24.0
-    assert mapped["gear2_teeth"] == 24.0
+    assert mapped["gear1_teeth"] == 18.0
+    assert mapped["gear2_teeth"] == 18.0
     assert mapped["output_point_mode"] == "contact_point"
 
 
@@ -607,7 +607,7 @@ def test_map_design_params_to_foundry_skips_invalid_preferred_values(qapp):
     )
 
     assert gear["gear1_teeth"] == 12.0
-    assert gear["gear2_teeth"] == 24.0
+    assert gear["gear2_teeth"] == 18.0
     assert "cam_radius" not in cam
     assert cam["cam_offset"] == 20.0
     assert cam["follower_length"] == 100.0
@@ -731,7 +731,7 @@ def test_foundry_preview_mechanisms_sanitize_nonfinite_inputs(qapp):
         for value in position
     ]
     assert all(math.isfinite(value) for value in all_values)
-    assert gear_state.metadata["r1"] == 24.0
+    assert gear_state.metadata["r1"] == 18.0
     assert slider_state.metadata["rod_length"] > slider_state.metadata["crank_length"]
 
 
@@ -747,11 +747,11 @@ def test_foundry_gear_preview_preserves_disabled_grid_freeform_teeth(qapp):
 
     assert state.metadata["gear1_teeth"] == 12
     assert state.metadata["gear2_teeth"] == 18
-    assert state.metadata["r1"] == pytest.approx(24.0)
-    assert state.metadata["r2"] == pytest.approx(36.0)
+    assert state.metadata["r1"] == pytest.approx(18.0)
+    assert state.metadata["r2"] == pytest.approx(27.0)
     assert (
         state.positions["gear2_center"][0] - state.positions["gear1_center"][0]
-    ) == pytest.approx(62.0)
+    ) == pytest.approx(47.0)
 
 
 def test_foundry_update_from_design_preserves_disabled_grid_freeform_teeth(qapp):
@@ -779,12 +779,12 @@ def test_foundry_update_from_design_preserves_disabled_grid_freeform_teeth(qapp)
     assert view.current_parameters["gear1_teeth"] == pytest.approx(12.0)
     assert view.current_parameters["gear2_teeth"] == pytest.approx(18.0)
     assert view._last_rendered_state is not None
-    assert view._last_rendered_state.metadata["r1"] == pytest.approx(24.0)
-    assert view._last_rendered_state.metadata["r2"] == pytest.approx(36.0)
+    assert view._last_rendered_state.metadata["r1"] == pytest.approx(18.0)
+    assert view._last_rendered_state.metadata["r2"] == pytest.approx(27.0)
     assert (
         view._last_rendered_state.positions["gear2_center"][0]
         - view._last_rendered_state.positions["gear1_center"][0]
-    ) == pytest.approx(62.0)
+    ) == pytest.approx(47.0)
 
 
 def test_foundry_render_uses_view_grid_context_overlay_for_preview_and_snapshot(qapp):
@@ -807,7 +807,7 @@ def test_foundry_render_uses_view_grid_context_overlay_for_preview_and_snapshot(
     assert snapshot is not None
     assert (
         snapshot["positions"]["gear2_center"][0] - snapshot["positions"]["gear1_center"][0]
-    ) == pytest.approx(62.0)
+    ) == pytest.approx(47.0)
 
 
 def test_foundry_mapping_and_sync_skip_nonfinite_design_values(qapp):
@@ -827,7 +827,7 @@ def test_foundry_mapping_and_sync_skip_nonfinite_design_values(qapp):
         },
     )
 
-    assert mapped == {"gear1_teeth": 12.0, "gear2_teeth": 20.0}
+    assert mapped == {"gear1_teeth": 12.0, "gear2_teeth": 18.0}
 
     view.set_synced_mechanism("sync_gear", "gear_train")
     previous_angle = view.current_angle

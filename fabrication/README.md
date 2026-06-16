@@ -11,7 +11,7 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 
 - Default committed pitch: `20.0 mm` (`2.00 cm`) board spacing.
 - Nominal axle/linkage/bracket hole diameter: `6.0 mm`.
-- Gear presets: 12, 16, 20, 24 teeth.
+- Gear presets: 12, 14, 16, 18 teeth.
 - Linkage lengths: 2, 4, 6, 8 board cells.
 - Cam presets: circle, eccentric, oval, pear.
 - Follower presets: round-nose, roller-pin, flat-shoe, linkage-output.
@@ -21,8 +21,8 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
   this 20.0 mm / 6.0 mm board unless a custom output directory is generated.
 - Red paths are cuts, blue circles are drill/cut holes, gray lines are score/reference geometry.
 - Gear attachment-hole pattern: larger gears use board-grid attachment holes where they fit.
-  The compact 12T gear intentionally uses a radial four-hole crank/linkage/handle ring because
-  a full 20 mm grid ring would not preserve enough material around 6 mm holes.
+  Compact gears and cams use radial crank/linkage/handle holes only when a separate 6 mm
+  hole can preserve enough material around the axle.
 - Follower guide geometry: followers use 6 mm-wide vertical slots, not fixed round board holes,
   so fixed board pins/brackets can constrain the part while still allowing cam lift travel.
 

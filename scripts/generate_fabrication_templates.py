@@ -13,6 +13,7 @@ import json
 import math
 import sys
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -346,12 +347,13 @@ def _gear_attachment_offsets(
     """Return linkage/bracket/handle holes that remain inside the gear root profile.
 
     Larger gears use board-grid offsets so brackets and linkages align directly to
-    the 20 mm pegboard pitch. The smallest 12T gear cannot physically fit a full
-    20 mm ring while preserving 6 mm holes and material margins, so it gets a
-    four-hole crank/handle ring inside the root circle instead of silently having
-    no useful attachment holes.
+    the 20 mm pegboard pitch. Compact gears get a four-hole crank/handle ring only
+    when a separate 6 mm hole can fit without overlapping the axle.
     """
     max_attachment_radius = geometry.root_radius_mm - spec.hole_radius_mm - 4.0
+    minimum_separate_hole_radius = spec.hole_diameter_mm + 2.0
+    if max_attachment_radius < minimum_separate_hole_radius:
+        return ()
     grid_offsets = _grid_attachment_offsets(max_attachment_radius, spec.pitch_mm)
     if len(grid_offsets) >= 4:
         return grid_offsets
@@ -598,16 +600,12 @@ def _follower_guide_slot_centers(
     body_height: float,
     travel_mm: float,
     hole_diameter_mm: float,
-) -> tuple[float, float]:
+    *,
+    roller_axle: bool = False,
+) -> tuple[float, ...]:
     half_total_slot = (travel_mm + hole_diameter_mm) / 2.0
-    first = top_y + body_height * 0.47
-    second = top_y + body_height * 0.78
-    minimum_gap = half_total_slot * 2.0 + 8.0
-    if second - first < minimum_gap:
-        midpoint = (first + second) / 2.0
-        first = midpoint - minimum_gap / 2.0
-        second = midpoint + minimum_gap / 2.0
-    return first, second
+    bottom_clearance = 28.0 if roller_axle else 8.0
+    return (top_y + body_height - half_total_slot - bottom_clearance,)
 
 
 def _slot_path(cx: float, cy: float, travel_mm: float, radius: float) -> str:
@@ -622,10 +620,10 @@ def _follower_elements(
 ) -> tuple[list[str], dict[str, object], float, float]:
     pitch_mm = spec.pitch_mm
     scale = pitch_mm / DEFAULT_PHYSICAL_KIT_PROFILE.default_pitch_mm
-    body_width = 34.0 * scale
+    body_width = 14.0 * scale
     foot_width = max(body_width, preset.foot_width_cells * pitch_mm)
-    foot_height = 18.0 * scale
-    body_height = preset.body_cells * pitch_mm + pitch_mm
+    foot_height = 10.0 * scale
+    body_height = preset.body_cells * pitch_mm
     travel_mm = preset.guide_slot_travel_cells * pitch_mm
     margin = 8.0 * scale
     label_pad = 12.0 if label else 0.0
@@ -639,6 +637,7 @@ def _follower_elements(
         body_height,
         travel_mm,
         spec.hole_diameter_mm,
+        roller_axle=preset.roller_axle,
     )
     contact_y = top_y + body_height
     contact_kind = "flat" if preset.contact_style == "flat_shoe" else "rounded"
@@ -881,10 +880,13 @@ def _cam_attachment_offsets(
     max_radius: float,
 ) -> tuple[tuple[float, float], ...]:
     """Return linkage/bracket/handle holes that fit inside the shared cam profile."""
+    minimum_separate_hole_radius = spec.hole_diameter_mm + 2.0
     candidates = _grid_attachment_offsets(max_radius - spec.hole_radius_mm - 4.0, spec.pitch_mm)
 
     def fits(offset: tuple[float, float], margin: float) -> bool:
         dx, dy = offset
+        if math.hypot(dx, dy) < minimum_separate_hole_radius:
+            return False
         local_x, local_y = _drawing_offset_to_local(dx, dy)
         theta = math.atan2(local_y, local_x)
         available = max(spec.hole_radius_mm + 1.0, _profile_radius_at(profile, theta))
@@ -896,10 +898,37 @@ def _cam_attachment_offsets(
     relaxed = tuple(offset for offset in candidates if fits(offset, 1.0))
     if len(relaxed) >= 4:
         return relaxed
-    fallback_radius = _min_profile_radius(profile) - spec.hole_radius_mm - 4.0
-    return tuple(
-        offset for offset in _radial_attachment_offsets(fallback_radius, 4) if fits(offset, 1.0)
+    minimum_pair_distance = spec.hole_diameter_mm + 2.0
+    radial_candidates: list[tuple[float, tuple[tuple[float, float], ...], float]] = []
+    for radius in (
+        max_radius - spec.hole_radius_mm - 4.0,
+        spec.pitch_mm * 0.8,
+        spec.pitch_mm * 0.7,
+        spec.pitch_mm * 0.6,
+        spec.pitch_mm * 0.5,
+        minimum_separate_hole_radius,
+    ):
+        if radius < minimum_separate_hole_radius:
+            continue
+        radial_offsets = tuple(
+            offset for offset in _radial_attachment_offsets(radius, 16) if fits(offset, 1.0)
+        )
+        for candidate in combinations(radial_offsets, 4):
+            pair_distances = [
+                math.dist(first, second)
+                for idx, first in enumerate(candidate)
+                for second in candidate[idx + 1 :]
+            ]
+            min_pair_distance = min(pair_distances)
+            if min_pair_distance >= minimum_pair_distance:
+                radial_candidates.append((radius, candidate, min_pair_distance))
+    if not radial_candidates:
+        return ()
+    _, selected, _ = max(
+        radial_candidates,
+        key=lambda item: (item[0], item[2], sum(math.dist((0.0, 0.0), point) for point in item[1])),
     )
+    return selected
 
 
 def _cam_outline_path(points: list[tuple[float, float]]) -> str:
@@ -1212,8 +1241,8 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
   this 20.0 mm / 6.0 mm board unless a custom output directory is generated.
 - Red paths are cuts, blue circles are drill/cut holes, gray lines are score/reference geometry.
 - Gear attachment-hole pattern: larger gears use board-grid attachment holes where they fit.
-  The compact 12T gear intentionally uses a radial four-hole crank/linkage/handle ring because
-  a full 20 mm grid ring would not preserve enough material around 6 mm holes.
+  Compact gears and cams use radial crank/linkage/handle holes only when a separate 6 mm
+  hole can preserve enough material around the axle.
 - Follower guide geometry: followers use 6 mm-wide vertical slots, not fixed round board holes,
   so fixed board pins/brackets can constrain the part while still allowing cam lift travel.
 

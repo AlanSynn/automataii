@@ -309,7 +309,8 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
 
     assert [gear["teeth"] for gear in gears] == [preset.teeth for preset in GEAR_PRESETS]
     assert int(gears[0]["teeth"]) == 12
-    assert float(gears[0]["outer_radius_mm"]) * 2.0 <= 55.0
+    assert float(gears[0]["outer_radius_mm"]) * 2.0 <= 42.0
+    assert float(gears[-1]["outer_radius_mm"]) * 2.0 <= 60.0
     for gear in gears:
         required = {
             "key",
@@ -329,8 +330,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert required <= set(gear)
         assert gear["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
         assert gear["attachment_hole_count"] >= 4
-        expected_pattern = "radial" if int(gear["teeth"]) == 12 else "grid"
-        assert gear["attachment_hole_pattern"] == expected_pattern
+        assert gear["attachment_hole_pattern"] == "radial"
         assert len(gear["attachment_hole_centers_mm"]) == gear["attachment_hole_count"]
         assert gear["attachment_kinds"] == ["linkage", "bracket", "crank", "handle"]
         assert gear["attachment_radii_mm"] == sorted(
@@ -340,6 +340,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
             }
         )
         for x, y in gear["attachment_hole_centers_mm"]:
+            assert math.hypot(float(x), float(y)) >= DEFAULT_HOLE_DIAMETER_MM + 2.0
             assert (
                 math.hypot(float(x), float(y)) + DEFAULT_HOLE_DIAMETER_MM / 2.0 + 4.0
                 <= float(gear["root_radius_mm"]) + 0.001
@@ -445,6 +446,11 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert cam["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
         assert cam["attachment_hole_count"] >= 4
         assert cam["attachment_kinds"] == ["linkage", "bracket", "crank", "handle"]
+        for x, y in cam["attachment_hole_centers_mm"]:
+            assert math.hypot(float(x), float(y)) >= DEFAULT_HOLE_DIAMETER_MM + 2.0
+        for idx, first in enumerate(cam["attachment_hole_centers_mm"]):
+            for second in cam["attachment_hole_centers_mm"][idx + 1 :]:
+                assert math.dist(first, second) >= DEFAULT_HOLE_DIAMETER_MM + 2.0
         root = _svg_root(tmp_path / str(cam["path"]))
         assert _has_class(root, "cam-outline")
         assert _has_class(root, "axle-hole")
@@ -523,9 +529,11 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert follower["contact_style"] == follower_preset.contact_style
         assert follower["pitch_mm"] == round(pitch_mm, 3)
         assert follower["hole_diameter_mm"] == DEFAULT_HOLE_DIAMETER_MM
-        assert follower["guide_slot_count"] == 2
+        assert follower["guide_slot_count"] == 1
         assert follower["guide_slot_width_mm"] == DEFAULT_HOLE_DIAMETER_MM
         assert float(follower["guide_slot_travel_mm"]) >= max_cam_lift
+        assert follower["body_width_mm"] <= 14.0
+        assert follower["foot_width_mm"] <= pitch_mm
         assert follower["output_hole_count"] == follower_preset.output_hole_count
         assert len(follower["output_hole_centers_mm"]) == follower_preset.output_hole_count
         slot_half_height = (
@@ -567,7 +575,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
         assert _has_attr(root, "data-hole-role", "guide-slot")
         assert _has_attr(root, "data-hole-role", "linkage-output")
         guide_slots = _elements_with_class(root, "follower-guide-slot")
-        assert len(guide_slots) == 2
+        assert len(guide_slots) == 1
         for slot in guide_slots:
             assert slot.attrib["data-slot-width-mm"] == "6"
             assert math.isclose(

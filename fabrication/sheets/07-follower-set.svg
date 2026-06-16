@@ -20,69 +20,51 @@
   <text x="12" y="12" class="label" text-anchor="start">07 Follower set</text>
   <text x="12" y="18" class="tiny" text-anchor="start">Slotted cam followers: guide on fixed 6 mm pins, output holes move with the cam</text>
   <g transform="translate(10 30)">
-  <path d="M 9 25 A 17 17 0 0 1 43 25 L 43 191 A 17 17 0 0 1 9 191 Z" class="cut follower-outline" data-follower-key="round-nose" data-contact-style="round_nose" data-pitch-mm="20" data-guide-slot-travel-mm="50"/>
+  <path d="M 10 15 A 7 7 0 0 1 24 15 L 24 61 A 7 7 0 0 1 10 61 Z" class="cut follower-outline" data-follower-key="f3-round" data-contact-style="round_nose" data-pitch-mm="20" data-guide-slot-travel-mm="20"/>
   </g>
   <g transform="translate(10 30)">
-  <circle cx="26" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
+  <circle cx="17" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
   </g>
   <g transform="translate(10 30)">
-  <circle cx="26" cy="48" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="1" data-hole-y-mm="40"/>
-  </g>
-  <g transform="translate(10 30)">
-  <path d="M 23 76 A 3 3 0 0 1 29 76 L 29 126 A 3 3 0 0 1 23 126 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="93"/>
-  </g>
-  <g transform="translate(10 30)">
-  <path d="M 23 140 A 3 3 0 0 1 29 140 L 29 190 A 3 3 0 0 1 23 190 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="1" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="157"/>
+  <path d="M 14 37 A 3 3 0 0 1 20 37 L 20 57 A 3 3 0 0 1 14 57 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="20" data-slot-center-y-mm="39"/>
   </g>
   <g transform="translate(110 30)">
-  <path d="M 9 25 A 17 17 0 0 1 43 25 L 43 191 A 17 17 0 0 1 9 191 Z" class="cut follower-outline" data-follower-key="roller-pin" data-contact-style="roller_pin" data-pitch-mm="20" data-guide-slot-travel-mm="50"/>
+  <path d="M 10 15 A 7 7 0 0 1 24 15 L 24 81 A 7 7 0 0 1 10 81 Z" class="cut follower-outline" data-follower-key="f4-roller" data-contact-style="roller_pin" data-pitch-mm="20" data-guide-slot-travel-mm="20"/>
   </g>
   <g transform="translate(110 30)">
-  <circle cx="26" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
+  <circle cx="17" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
   </g>
   <g transform="translate(110 30)">
-  <circle cx="26" cy="48" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="1" data-hole-y-mm="40"/>
+  <path d="M 14 37 A 3 3 0 0 1 20 37 L 20 57 A 3 3 0 0 1 14 57 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="20" data-slot-center-y-mm="39"/>
   </g>
   <g transform="translate(110 30)">
-  <path d="M 23 76 A 3 3 0 0 1 29 76 L 29 126 A 3 3 0 0 1 23 126 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="93"/>
-  </g>
-  <g transform="translate(110 30)">
-  <path d="M 23 140 A 3 3 0 0 1 29 140 L 29 190 A 3 3 0 0 1 23 190 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="1" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="157"/>
-  </g>
-  <g transform="translate(110 30)">
-  <circle cx="26" cy="196" r="3" class="drill roller-axle-hole follower-contact-hole" data-hole-role="roller-axle" data-hole-diameter-mm="6" data-contact-style="roller_pin"/>
+  <circle cx="17" cy="76" r="3" class="drill roller-axle-hole follower-contact-hole" data-hole-role="roller-axle" data-hole-diameter-mm="6" data-contact-style="roller_pin"/>
   </g>
   <g transform="translate(210 30)">
-  <path d="M 21 25 L 38 8 L 55 25 L 55 190 L 68 190 L 68 208 L 8 208 L 8 190 L 21 190 Z" class="cut follower-outline" data-follower-key="flat-shoe" data-contact-style="flat_shoe" data-pitch-mm="20" data-guide-slot-travel-mm="50"/>
+  <path d="M 11 15 L 18 8 L 25 15 L 25 98 L 28 98 L 28 108 L 8 108 L 8 98 L 11 98 Z" class="cut follower-outline" data-follower-key="f5-flat" data-contact-style="flat_shoe" data-pitch-mm="20" data-guide-slot-travel-mm="25"/>
   </g>
   <g transform="translate(210 30)">
-  <circle cx="38" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
+  <circle cx="18" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
   </g>
   <g transform="translate(210 30)">
-  <circle cx="38" cy="48" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="1" data-hole-y-mm="40"/>
+  <circle cx="18" cy="48" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="1" data-hole-y-mm="40"/>
   </g>
   <g transform="translate(210 30)">
-  <path d="M 35 76 A 3 3 0 0 1 41 76 L 41 126 A 3 3 0 0 1 35 126 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="93"/>
-  </g>
-  <g transform="translate(210 30)">
-  <path d="M 35 140 A 3 3 0 0 1 41 140 L 41 190 A 3 3 0 0 1 35 190 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="1" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="157"/>
+  <path d="M 15 72 A 3 3 0 0 1 21 72 L 21 97 A 3 3 0 0 1 15 97 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="25" data-slot-center-y-mm="76.5"/>
   </g>
   <g transform="translate(310 30)">
-  <path d="M 11 25 A 17 17 0 0 1 45 25 L 45 191 A 17 17 0 0 1 11 191 Z" class="cut follower-outline" data-follower-key="linkage-output" data-contact-style="linkage_output" data-pitch-mm="20" data-guide-slot-travel-mm="50"/>
+  <path d="M 10 15 A 7 7 0 0 1 24 15 L 24 121 A 7 7 0 0 1 10 121 Z" class="cut follower-outline" data-follower-key="f6-linkage-output" data-contact-style="linkage_output" data-pitch-mm="20" data-guide-slot-travel-mm="30"/>
   </g>
   <g transform="translate(310 30)">
-  <circle cx="28" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
+  <circle cx="17" cy="28" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="0" data-hole-y-mm="20"/>
   </g>
   <g transform="translate(310 30)">
-  <circle cx="28" cy="48" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="1" data-hole-y-mm="40"/>
+  <circle cx="17" cy="48" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="1" data-hole-y-mm="40"/>
   </g>
   <g transform="translate(310 30)">
-  <circle cx="28" cy="68" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="2" data-hole-y-mm="60"/>
+  <circle cx="17" cy="68" r="3" class="drill linkage-hole follower-output-hole" data-hole-role="linkage-output" data-hole-diameter-mm="6" data-hole-index="2" data-hole-y-mm="60"/>
   </g>
   <g transform="translate(310 30)">
-  <path d="M 25 76 A 3 3 0 0 1 31 76 L 31 126 A 3 3 0 0 1 25 126 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="93"/>
-  </g>
-  <g transform="translate(310 30)">
-  <path d="M 25 140 A 3 3 0 0 1 31 140 L 31 190 A 3 3 0 0 1 25 190 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="1" data-slot-width-mm="6" data-slot-travel-mm="50" data-slot-center-y-mm="157"/>
+  <path d="M 14 87 A 3 3 0 0 1 20 87 L 20 117 A 3 3 0 0 1 14 117 Z" class="cut guide-slot follower-guide-slot" data-slot-role="guide" data-hole-role="guide-slot" data-slot-index="0" data-slot-width-mm="6" data-slot-travel-mm="30" data-slot-center-y-mm="94"/>
   </g>
 </svg>

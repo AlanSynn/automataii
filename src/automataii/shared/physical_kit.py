@@ -15,7 +15,7 @@ from typing import SupportsFloat, SupportsIndex
 DEFAULT_GRID_PITCH_MM = 20.0
 DEFAULT_GRID_CELL_CM = DEFAULT_GRID_PITCH_MM / 10.0
 DEFAULT_HOLE_DIAMETER_MM = 6.0
-GEAR_RADIUS_PER_TOOTH_MM = 2.0
+GEAR_RADIUS_PER_TOOTH_MM = 1.5
 DEFAULT_GEAR_CLEARANCE_MM = 2.0
 LINKAGE_LENGTH_CELLS: tuple[int, ...] = (2, 4, 6, 8)
 _LOGGER = logging.getLogger(__name__)
@@ -128,31 +128,31 @@ GRID_PITCH_CHOICES: tuple[GridPitchChoice, ...] = (
 )
 
 GEAR_PRESETS: tuple[GearPreset, ...] = (
-    GearPreset("g12", "G12 compact", 12),
+    GearPreset("g12", "G12 micro", 12),
+    GearPreset("g14", "G14 compact", 14),
     GearPreset("g16", "G16 small", 16),
-    GearPreset("g20", "G20 medium", 20),
-    GearPreset("g24", "G24 large", 24),
+    GearPreset("g18", "G18 medium", 18),
 )
 
 CAM_PRESETS: tuple[CamPreset, ...] = (
-    CamPreset("circle", "Circle / steady", 2.0, 0.0, 1, 0.0, 45.0, 270.0, 45.0),
-    CamPreset("eccentric", "Eccentric / bounce", 2.0, 0.75, 1, 0.0, 90.0, 60.0, 90.0),
-    CamPreset("oval", "Oval / smooth rise", 2.0, 0.5, 2, 0.25, 120.0, 30.0, 120.0),
-    CamPreset("pear", "Pear / slow-fast", 2.0, 1.0, 1, 0.5, 150.0, 45.0, 75.0),
+    CamPreset("circle", "Circle / steady", 0.75, 0.0, 1, 0.0, 45.0, 270.0, 45.0),
+    CamPreset("eccentric", "Eccentric / bounce", 0.75, 0.25, 1, 0.0, 90.0, 60.0, 90.0),
+    CamPreset("oval", "Oval / smooth rise", 0.8, 0.3, 2, 0.2, 120.0, 30.0, 120.0),
+    CamPreset("pear", "Pear / slow-fast", 0.9, 0.45, 1, 0.35, 150.0, 45.0, 75.0),
 )
 
 FOLLOWER_PRESETS: tuple[FollowerPreset, ...] = (
-    FollowerPreset("round-nose", "Round-nose sliding follower", "round_nose", 9, 2.5, 2, 1.8),
-    FollowerPreset("roller-pin", "Roller-pin sliding follower", "roller_pin", 9, 2.5, 2, 1.8, True),
-    FollowerPreset("flat-shoe", "Flat-shoe sliding follower", "flat_shoe", 9, 2.5, 2, 3.0),
+    FollowerPreset("f3-round", "3-cell round-nose follower", "round_nose", 3, 1.0, 1, 0.9),
+    FollowerPreset("f4-roller", "4-cell roller-pin follower", "roller_pin", 4, 1.0, 1, 0.9, True),
+    FollowerPreset("f5-flat", "5-cell flat-shoe follower", "flat_shoe", 5, 1.25, 2, 1.0),
     FollowerPreset(
-        "linkage-output",
-        "Linkage-output sliding follower",
+        "f6-linkage-output",
+        "6-cell linkage-output follower",
         "linkage_output",
-        9,
-        2.5,
+        6,
+        1.5,
         3,
-        2.0,
+        0.9,
     ),
 )
 

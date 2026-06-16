@@ -249,13 +249,13 @@ def test_parameter_mapper_sanitizes_gear_radius_aliases_and_positions() -> None:
 
     mapper.ensure_mechanism_parameters(layer_data, "gear")
 
-    assert params["gear1_radius"] == 40.0
-    assert params["gear2_radius"] == 48.0
-    assert params["gear1_teeth"] == 20
-    assert params["gear2_teeth"] == 24
+    assert params["gear1_radius"] == 27.0
+    assert params["gear2_radius"] == 27.0
+    assert params["gear1_teeth"] == 18
+    assert params["gear2_teeth"] == 18
     assert params["gear1_x"] == 400.0
     assert params["gear1_y"] == 300.0
-    assert params["gear2_x"] == 490.0
+    assert params["gear2_x"] == 456.0
 
 
 def test_parameter_mapper_honors_string_false_grid_flag() -> None:
@@ -319,11 +319,11 @@ def test_parameter_mapper_uses_valid_gear_radius_alias_when_primary_is_bad() -> 
 
     mapper.ensure_mechanism_parameters({"params": params}, "gear")
 
-    assert params["gear1_radius"] == 24.0
+    assert params["gear1_radius"] == 18.0
     assert params["gear2_radius"] == 24.0
     assert params["gear1_teeth"] == 12
-    assert params["gear2_teeth"] == 12
-    assert params["gear2_x"] == 450.0
+    assert params["gear2_teeth"] == 16
+    assert params["gear2_x"] == 444.0
 
 
 def test_parameter_mapper_rejects_non_finite_radius_transform() -> None:
@@ -345,8 +345,8 @@ def test_parameter_mapper_rejects_non_finite_radius_transform() -> None:
         to_scene=to_scene,
     )
 
-    assert params["gear1_radius"] == 24.0
-    assert params["gear2_radius"] == 24.0
+    assert params["gear1_radius"] == 18.0
+    assert params["gear2_radius"] == 21.0
     assert math.isfinite(params["gear2_x"])
 
 
@@ -373,7 +373,7 @@ def test_parameter_mapper_ignores_malformed_gear_simulation_centers() -> None:
     )
 
     assert gear_params["gear1_x"] == 400.0
-    assert gear_params["gear2_x"] == 490.0
+    assert gear_params["gear2_x"] == 456.0
 
     planetary_params: dict[str, float] = {}
     mapper.ensure_mechanism_parameters(

@@ -57,8 +57,8 @@ def test_gear_mesh_handle_updates_clearance_and_center_distance(qapp):
     center2 = np.array([params["gear2_x"], params["gear2_y"]], dtype=float)
     center_distance = float(np.linalg.norm(center2 - center1))
 
-    assert params["gear_clearance"] == pytest.approx(52.0)
-    assert params["mesh_clearance"] == pytest.approx(52.0)
+    assert params["gear_clearance"] == pytest.approx(86.0)
+    assert params["mesh_clearance"] == pytest.approx(86.0)
     assert center_distance == pytest.approx(
         params["gear1_radius"] + params["gear2_radius"] + params["gear_clearance"]
     )
@@ -95,9 +95,9 @@ def test_gear_radius_drag_updates_radius_aliases_and_handle_constraints(qapp):
     editor._on_gear_radius_changed("gear2", QPointF(gear2_center.x() + 102.0, gear2_center.y()))
 
     params = editor.mechanism_data["params"]
-    assert params["gear2_radius"] == pytest.approx(48.0)
-    assert params["gear2_teeth"] == 24
-    assert params["r2"] == pytest.approx(48.0)
+    assert params["gear2_radius"] == pytest.approx(27.0)
+    assert params["gear2_teeth"] == 18
+    assert params["r2"] == pytest.approx(27.0)
 
     center = QPointF(params["gear2_x"], params["gear2_y"])
     radius_handle = editor.handles["gear2_radius"]

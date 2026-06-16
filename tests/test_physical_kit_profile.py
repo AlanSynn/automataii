@@ -38,7 +38,7 @@ def test_physical_kit_default_grid_and_variant_counts() -> None:
     assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_presets == GEAR_PRESETS
     assert DEFAULT_PHYSICAL_KIT_PROFILE.cam_presets == CAM_PRESETS
     assert DEFAULT_PHYSICAL_KIT_PROFILE.follower_presets == FOLLOWER_PRESETS
-    assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_radius_per_tooth_mm == 2.0
+    assert DEFAULT_PHYSICAL_KIT_PROFILE.gear_radius_per_tooth_mm == 1.5
     assert DEFAULT_PHYSICAL_KIT_PROFILE.default_gear_clearance_mm == 2.0
     assert {choice.key: choice.pitch_mm for choice in GRID_PITCH_CHOICES} == {
         "2cm": 20.0,
@@ -55,7 +55,13 @@ def test_physical_kit_default_grid_and_variant_counts() -> None:
         "flat_shoe",
         "linkage_output",
     }
-    assert all(preset.guide_slot_travel_cells >= 2.5 for preset in FOLLOWER_PRESETS)
+    assert tuple(preset.body_cells for preset in FOLLOWER_PRESETS) == (3, 4, 5, 6)
+    assert tuple(preset.guide_slot_travel_cells for preset in FOLLOWER_PRESETS) == (
+        1.0,
+        1.0,
+        1.25,
+        1.5,
+    )
 
 
 def test_linkage_lengths_follow_selected_board_pitch() -> None:
@@ -83,11 +89,11 @@ def test_unknown_physical_profile_key_warns_before_defaulting(
 
 
 def test_gear_presets_are_limited_and_radius_backed() -> None:
-    assert allowed_gear_teeth() == (12, 16, 20, 24)
-    assert gear_radius_for_teeth(12) == 24.0
-    assert gear_radius_for_teeth(24) == 48.0
-    assert gear_teeth_for_radius(45.0) == 24
-    assert nearest_gear_radius_mm(45.0) == 48.0
+    assert allowed_gear_teeth() == (12, 14, 16, 18)
+    assert gear_radius_for_teeth(12) == 18.0
+    assert gear_radius_for_teeth(18) == 27.0
+    assert gear_teeth_for_radius(45.0) == 18
+    assert nearest_gear_radius_mm(45.0) == 27.0
 
 
 def test_helpers_accept_explicit_physical_profile_variants() -> None:
@@ -143,18 +149,18 @@ def test_gear_snapping_preserves_physical_pair_contract() -> None:
         {"gear1_teeth": "12", "gear2_teeth": "18"},
     )
     assert snapped_from_teeth["gear1_teeth"] == 12
-    assert snapped_from_teeth["gear2_teeth"] == 20
-    assert snapped_from_teeth["gear1_radius"] == 24.0
-    assert snapped_from_teeth["gear2_radius"] == 40.0
+    assert snapped_from_teeth["gear2_teeth"] == 18
+    assert snapped_from_teeth["gear1_radius"] == 18.0
+    assert snapped_from_teeth["gear2_radius"] == 27.0
 
     snapped_from_radii = snap_physical_params(
         "gear_train",
         {"gear1_radius": 45.0, "gear2_radius": 75.0},
     )
-    assert snapped_from_radii["gear1_teeth"] == 24
-    assert snapped_from_radii["gear2_teeth"] == 24
-    assert snapped_from_radii["r1"] == 48.0
-    assert snapped_from_radii["r2"] == 48.0
+    assert snapped_from_radii["gear1_teeth"] == 18
+    assert snapped_from_radii["gear2_teeth"] == 18
+    assert snapped_from_radii["r1"] == 27.0
+    assert snapped_from_radii["r2"] == 27.0
 
 
 def test_linkage_and_cam_snapping_use_board_pitch() -> None:
