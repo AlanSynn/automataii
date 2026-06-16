@@ -54,6 +54,7 @@ a = Analysis(
             project_path("src", "automataii", "presentation", "qt", "fonts"),
             "automataii/presentation/qt/fonts",
         ),
+        (project_path("fabrication"), "fabrication"),
         (project_path("resources"), "resources/"),  # Includes resources/data/*.json
         *existing_datas(
             [

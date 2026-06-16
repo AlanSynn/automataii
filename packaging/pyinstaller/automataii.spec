@@ -12,6 +12,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from scripts.pyinstaller_datas import existing_datas
+
 from automataii.utils.update_config import (
     AUTOMATIC_CHECKS_ENV,
     configured_appcast_url,
@@ -111,6 +112,7 @@ a = Analysis(
             project_path("src", "automataii", "presentation", "qt", "fonts"),
             "automataii/presentation/qt/fonts",
         ),
+        (project_path("fabrication"), "fabrication"),
         (project_path("resources"), "resources"),  # Includes resources/data/*.json
         *existing_datas(
             [

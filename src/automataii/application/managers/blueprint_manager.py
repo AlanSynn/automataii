@@ -163,7 +163,7 @@ class BlueprintExportManager(QObject):
                 parent_widget,
                 "Export Blueprint",
                 "blueprint.svg",
-                "SVG Files (*.svg);;PDF Files (*.pdf);;All Files (*)",
+                "SVG Files (*.svg);;All Files (*)",
             )
             return file_path if file_path else None
         except Exception as e:

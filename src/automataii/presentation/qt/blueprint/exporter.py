@@ -62,96 +62,108 @@ class BlueprintExporter:
 
     # ---------- Public API ----------
 
-    def export_all(self) -> None:
-        """Export all parts and mechanisms using the composer-driven pipeline."""
-        try:
-            from PyQt6.QtWidgets import (
-                QButtonGroup,
-                QDialog,
-                QDialogButtonBox,
-                QLabel,
-                QRadioButton,
-                QVBoxLayout,
-            )
+    def _choose_fabrication_export_mode(self) -> str | None:
+        """Return the requested fabrication export direction."""
+        from PyQt6.QtWidgets import (
+            QButtonGroup,
+            QDialog,
+            QDialogButtonBox,
+            QLabel,
+            QRadioButton,
+            QVBoxLayout,
+        )
 
+        dialog = QDialog(self._parent)
+        dialog.setWindowTitle("Export Fabrication")
+        dialog.setModal(True)
+        dialog.resize(430, 220)
+
+        layout = QVBoxLayout()
+        title_label = QLabel("Choose what you want to export:")
+        title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+        layout.addWidget(title_label)
+
+        option_group = QButtonGroup()
+        assembly_radio = QRadioButton("Board Assembly Guide")
+        assembly_radio.setToolTip("Step-by-step 15x15 board guide for fabricated kit parts")
+        assembly_radio.setChecked(True)
+        option_group.addButton(assembly_radio, 0)
+        layout.addWidget(assembly_radio)
+
+        parts_radio = QRadioButton("Make Parts / Cut Sheets")
+        parts_radio.setToolTip("SVG blueprint/cut-sheet export for making components")
+        option_group.addButton(parts_radio, 1)
+        layout.addWidget(parts_radio)
+
+        info_label = QLabel(
+            "Board guides use board coordinates and part IDs. Cut sheets are for making parts."
+        )
+        info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
+        layout.addWidget(info_label)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        dialog.setLayout(layout)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return "assembly" if assembly_radio.isChecked() else "parts"
+
+    def export_all(self) -> None:
+        """Export board assembly guides or make-parts cut sheets."""
+        try:
+            from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+            from automataii.application.fabrication import FabricationAssemblyGuideExporter
             from automataii.application.managers import BlueprintExportManager
 
-            logging.info("[BLUEPRINT] Using composer-backed blueprint export flow")
+            logging.info("[BLUEPRINT] Using fabrication export flow")
+            export_mode = self._choose_fabrication_export_mode()
+            if export_mode is None:
+                return
 
-            # Show unit system selection dialog
-            unit_dialog = QDialog(self._parent)
-            unit_dialog.setWindowTitle("Select Unit System")
-            unit_dialog.setModal(True)
-            unit_dialog.resize(350, 200)
-
-            layout = QVBoxLayout()
-
-            # Title
-            title_label = QLabel("Choose the unit system for your blueprint:")
-            title_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
-            layout.addWidget(title_label)
-
-            # Unit options
-            unit_group = QButtonGroup()
-
-            metric_radio = QRadioButton("Metric (millimeters)")
-            metric_radio.setToolTip("Dimensions will be shown in millimeters (mm)")
-            metric_radio.setChecked(True)  # Default to metric
-            unit_group.addButton(metric_radio, 0)
-            layout.addWidget(metric_radio)
-
-            imperial_radio = QRadioButton("Imperial (inches/feet)")
-            imperial_radio.setToolTip("Dimensions will be shown in inches and feet")
-            unit_group.addButton(imperial_radio, 1)
-            layout.addWidget(imperial_radio)
-
-            # Info text
-            info_label = QLabel(
-                "\nMetric is recommended for precision manufacturing.\nImperial can be useful for woodworking projects."
-            )
-            info_label.setStyleSheet("color: #666; font-size: 11px; margin-top: 10px;")
-            layout.addWidget(info_label)
-
-            # Dialog buttons
-            button_box = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-            )
-            button_box.accepted.connect(unit_dialog.accept)
-            button_box.rejected.connect(unit_dialog.reject)
-            layout.addWidget(button_box)
-
-            unit_dialog.setLayout(layout)
-
-            if unit_dialog.exec() != QDialog.DialogCode.Accepted:
-                return  # User cancelled
-
-            # Get selected unit system
-            unit_system = "imperial" if imperial_radio.isChecked() else "metric"
-            unit_label = "Imperial" if unit_system == "imperial" else "Metric"
+            if export_mode == "assembly":
+                output_dir = QFileDialog.getExistingDirectory(
+                    self._parent,
+                    "Export Board Assembly Guide",
+                    "fabrication-assembly-guide",
+                )
+                if not output_dir:
+                    return
+                result = FabricationAssemblyGuideExporter("fabrication").export_guides(output_dir)
+                QMessageBox.information(
+                    self._parent,
+                    "Board Assembly Guide Exported",
+                    "Board assembly guide exported successfully!\n\n"
+                    f"Guides: {len(result.recipe_keys)}\n"
+                    f"Files: {len(result.copied_files)}\n"
+                    f"Folder: {result.package_dir}",
+                )
+                return
 
             blueprint_manager = BlueprintExportManager.get_instance()
 
-            # Safely collect part items with validation
             try:
                 part_items = self._collect_part_items()
             except Exception as e:
                 logging.error(f"[BLUEPRINT] Failed to collect part items: {e}")
                 part_items = []
 
-            # Safely get mechanism layers
             try:
                 mechanism_layers_raw = self._get_mechanism_layers() or {}
             except Exception as e:
                 logging.error(f"[BLUEPRINT] Failed to get mechanism layers: {e}")
                 mechanism_layers_raw = {}
 
-            # CRITICAL FIX: Apply scale enhancement before optimization
             logging.info("[BLUEPRINT] Calculating screen-to-blueprint scale for all mechanisms...")
             try:
                 screen_scale_info = self.calculate_screen_to_blueprint_scale()
             except Exception as e:
                 logging.error(f"[BLUEPRINT] Error calculating screen scale: {e}")
-                # Use safe defaults
                 screen_scale_info = {
                     "pixels_per_mm": 2.78,
                     "mm_per_pixel": 0.36,
@@ -169,8 +181,6 @@ class BlueprintExporter:
                 mechanism_layers = mechanism_layers_raw
 
             if not part_items and not mechanism_layers:
-                from PyQt6.QtWidgets import QMessageBox
-
                 QMessageBox.warning(
                     self._parent,
                     "Blueprint Export",
@@ -179,7 +189,6 @@ class BlueprintExporter:
                 )
                 return
 
-            # Log scale factor information for debugging
             for mech_id, mech_data in mechanism_layers.items():
                 scale_factor = mech_data.get("total_scale_factor", "N/A")
                 logging.info(
@@ -187,15 +196,14 @@ class BlueprintExporter:
                 )
 
             logging.info(
-                "[BLUEPRINT] Export request: %s parts, %s mechanisms, unit_system=%s",
+                "[BLUEPRINT] Cut-sheet export request: %s parts, %s mechanisms",
                 len(part_items),
                 len(mechanism_layers),
-                unit_system,
             )
 
             with telemetry_span(
                 "ui.blueprint.export_all",
-                unit_system=unit_system,
+                unit_system="metric",
                 mechanism_count=len(mechanism_layers),
                 part_count=len(part_items),
             ) as span:
@@ -205,33 +213,27 @@ class BlueprintExporter:
                     parent_widget=self._parent,
                     single_large_page=True,
                     snapshot_png_bytes=None,
-                    unit_system=unit_system,  # Pass unit system to blueprint manager
+                    unit_system="metric",
                 )
                 span.set(status="success" if success else "failure")
 
             if success:
-                logging.info("[BLUEPRINT] Blueprint export completed via composer pipeline")
-                from PyQt6.QtWidgets import QMessageBox
-
+                logging.info("[BLUEPRINT] Cut-sheet export completed via composer pipeline")
                 QMessageBox.information(
                     self._parent,
-                    "Blueprint Export Complete",
-                    f"Blueprint exported successfully!\n\n"
+                    "Cut Sheets Exported",
+                    f"Make-parts cut sheets exported successfully!\n\n"
                     f"Parts: {len(part_items)}\n"
                     f"Mechanisms: {len(mechanism_layers)}\n"
-                    f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n"
-                    f"Units: {unit_label}\n\n"
-                    "The blueprint uses the large-format layout with measured part outlines\n"
-                    "and current mechanism details.",
+                    f"Scale: {screen_scale_info.get('mm_per_pixel', 0.36):.3f} mm/pixel\n\n"
+                    "Use these sheets to make components, then use Board Assembly Guide to build.",
                 )
             else:
-                logging.warning("[BLUEPRINT] Blueprint export failed")
-                from PyQt6.QtWidgets import QMessageBox
-
+                logging.warning("[BLUEPRINT] Cut-sheet export failed")
                 QMessageBox.warning(
                     self._parent,
-                    "Blueprint Export Failed",
-                    "Blueprint export failed.\nCheck the console for details.",
+                    "Cut Sheets Export Failed",
+                    "Cut-sheet export failed.\nCheck the console for details.",
                 )
 
         except ImportError as e:
@@ -240,18 +242,18 @@ class BlueprintExporter:
 
             QMessageBox.critical(
                 self._parent,
-                "Blueprint Export Error",
-                "Blueprint export functionality is not available.\n"
+                "Fabrication Export Error",
+                "Fabrication export functionality is not available.\n"
                 "Some required modules may be missing.\n\n"
                 f"Error: {str(e)}",
             )
         except Exception as e:
-            logging.error(f"[BLUEPRINT] Blueprint export unexpected error: {e}")
+            logging.error(f"[BLUEPRINT] Fabrication export unexpected error: {e}")
             from PyQt6.QtWidgets import QMessageBox
 
             QMessageBox.critical(
                 self._parent,
-                "Blueprint Export Error",
+                "Fabrication Export Error",
                 f"An unexpected error occurred while exporting:\n\n{str(e)}",
             )
 

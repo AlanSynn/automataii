@@ -4,8 +4,11 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 
 ## Two supported workflows
 
-1. **Pre-fabricated prototyping kit** — cut/print the 8 workshop sheets in `sheets/`, keep the parts as a classroom/workshop set, and mount them on the physical pegboard with the existing bracket hardware.
+1. **Board assembly** — open `assembly/`, choose a guide SVG, and follow the board-coordinate step cards with the pre-fabricated kit parts.
 2. **Self-fabrication** — use the individual SVGs in `gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
+
+For a repeatable workshop set, cut/print the 8 workshop sheets in `sheets/`,
+sort the parts, then use the matching `assembly/` guide.
 
 ## Physical assumptions
 
@@ -42,6 +45,7 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 ## Contents
 
 - `manifest.json` — machine-readable inventory and dimensions.
+- `assembly/` — board-coordinate assembly guides, recipe data, and the 15x15 board map.
 - `gears/` — one SVG per gear preset; each gear includes a 4 mm axle hole and 4 mm linkage/bracket/crank/handle attachment holes.
 - `linkages/` — one SVG per linkage length; holes are spaced on the board pitch.
 - `cams/` — one SVG per cam preset; each cam includes a 4 mm axle hole and 4 mm linkage/bracket/crank/handle attachment holes.
@@ -50,7 +54,7 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 - `spacers/` — washer spacers for stack clearance between the board, gears, cams, links, and brackets.
 - `sheets/` — 8 workshop sheets for pre-fabricated sets.
 
-Managed files in this generated package: 34.
+Managed files in this generated package: 41.
 
 ## Regeneration
 

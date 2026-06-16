@@ -3,6 +3,7 @@
 These tests intentionally exercise the bottom-up path that starts with Foundry/factory
 mechanism type strings and ends in Design-tab layer/render dispatch types.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from automataii.application.mechanism_foundry import MechanismFoundryController
+from automataii.application.mechanism_foundry import MechanismFoundryController, MechanismItem
 from automataii.application.mechanism_transfer import (
     MechanismTransferService,
     TransferValidationError,
@@ -32,21 +33,26 @@ EXPECTED_FOUNDRY_TO_DESIGN_TYPES = {
     "four_bar": "4_bar_linkage",
     "cam_follower": "cam",
     "gear_train": "gear",
+    "gear_linkage": "gear",
     "slider_crank": "4_bar_linkage",
 }
 
-VISIBLE_FOUNDRY_TYPES = {"four_bar", "cam_follower", "gear_train"}
+VISIBLE_FOUNDRY_TYPES = {"four_bar", "cam_follower", "gear_train", "gear_linkage"}
 
 RENDERABLE_DESIGN_TYPES = {"4_bar_linkage", "cam", "gear", "planetary_gear"}
 
 
-def _controller_items_by_type() -> dict[str, object]:
+def _controller_items_by_type() -> dict[str, MechanismItem]:
     controller = MechanismFoundryController()
     return {item.mechanism_type: item for item in controller.list_mechanisms()}
 
 
-@pytest.mark.parametrize("foundry_type,design_type", sorted(EXPECTED_FOUNDRY_TO_DESIGN_TYPES.items()))
-def test_foundry_factory_creates_renderable_design_layer(foundry_type: str, design_type: str) -> None:
+@pytest.mark.parametrize(
+    "foundry_type,design_type", sorted(EXPECTED_FOUNDRY_TO_DESIGN_TYPES.items())
+)
+def test_foundry_factory_creates_renderable_design_layer(
+    foundry_type: str, design_type: str
+) -> None:
     """Every Foundry-exposed type should map to an explicit renderable Design type."""
     controller = MechanismFoundryController()
     defaults = controller.initial_parameters(foundry_type)
@@ -136,7 +142,9 @@ def test_legacy_transfer_spec_accepts_foundry_export_contract(foundry_type: str)
     assert spec_validate_export_type(foundry_type)
 
 
-@pytest.mark.parametrize("unsupported_type", ["six_bar_linkage", "planetary_gear", "unknown_custom"])
+@pytest.mark.parametrize(
+    "unsupported_type", ["six_bar_linkage", "planetary_gear", "unknown_custom"]
+)
 def test_foundry_factory_rejects_unsupported_types_without_4bar_fallback(
     unsupported_type: str,
 ) -> None:

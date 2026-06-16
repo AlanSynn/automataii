@@ -37,6 +37,7 @@ from automataii.shared.physical_kit import (
 SVG_NS = "{http://www.w3.org/2000/svg}"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_TOP_LEVEL_KEYS = {
+    "assembly",
     "schema_version",
     "profile_key",
     "grid_pitch_mm",
@@ -283,6 +284,7 @@ def test_fabrication_generator_inventory_svg_contract_and_idempotence(tmp_path: 
 
     gears, linkages, cams, followers, brackets, spacers, sheets = _manifest_lists(manifest)
     managed_files = _managed_files(manifest)
+    assert len(managed_files) == len(set(managed_files))
     assert len(gears) == 4
     assert len(linkages) == 4
     assert len(cams) == 4

@@ -28,6 +28,12 @@ from automataii.domain.mechanisms.cam.profile import (  # noqa: E402
     build_pear_cam_profile_from_params,
     cam_profile_to_drawing_points,
 )
+from automataii.shared.fabrication_assembly import (  # noqa: E402
+    ASSEMBLY_SCHEMA_VERSION,
+    BOARD_COLUMNS,
+    BOARD_ROWS,
+    build_default_assembly_package,
+)
 from automataii.shared.physical_kit import (  # noqa: E402
     DEFAULT_GRID_CELL_CM,
     DEFAULT_PHYSICAL_KIT_PROFILE,
@@ -255,6 +261,30 @@ def _text(
         f"  <text {_attrs(x=_fmt(x), y=_fmt(y), class_=class_name, text_anchor=anchor)}>"
         f"{escape(value)}</text>"
     )
+
+
+def _rect(
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    class_name: str,
+    *,
+    extra: dict[str, object] | None = None,
+    style: str | None = None,
+) -> str:
+    attrs = _attrs(
+        x=_fmt(x),
+        y=_fmt(y),
+        width=_fmt(width),
+        height=_fmt(height),
+        class_=class_name,
+    )
+    if style is not None:
+        attrs = f'{attrs} style="{escape(style)}"'
+    if extra:
+        attrs = f"{attrs} {_data_attrs(**extra)}"
+    return f"  <rect {attrs}/>"
 
 
 def _rounded_capsule_path(x1: float, y: float, x2: float, radius: float) -> str:
@@ -928,7 +958,10 @@ def _cam_params_for_preset(preset: CamPreset, spec: FabricationSpec) -> dict[str
 
 def _cam_local_profile(preset: CamPreset, spec: FabricationSpec) -> np.ndarray:
     params = _cam_params_for_preset(preset, spec)
-    return build_pear_cam_profile_from_params(params, num_samples=CAM_PROFILE_SAMPLE_COUNT)
+    return np.asarray(
+        build_pear_cam_profile_from_params(params, num_samples=CAM_PROFILE_SAMPLE_COUNT),
+        dtype=float,
+    )
 
 
 def _max_profile_radius(profile: np.ndarray) -> float:
@@ -1301,13 +1334,399 @@ def _build_sheets(spec: FabricationSpec) -> list[SvgTemplate]:
     spacer_copies_per_size = 8
     for row, spacer_preset in enumerate(SPACER_PRESETS):
         y = 34.0 + row * 34.0
-        spacer_sheet.append(_text(12.0, y + 5.0, spacer_preset.label, class_name="tiny", anchor="start"))
+        spacer_sheet.append(
+            _text(12.0, y + 5.0, spacer_preset.label, class_name="tiny", anchor="start")
+        )
         for col in range(spacer_copies_per_size):
             elements, _, _, _ = _spacer_elements(spacer_preset, spec, label=False)
             spacer_sheet.extend(_translate(element, 86.0 + col * 30.0, y) for element in elements)
     sheets.append(_sheet_template("08-spacer-set", "Spacer set", ["spacers"], spacer_sheet, spec))
 
     return sheets
+
+
+def _part_label(part_id: str) -> str:
+    _, _, key = part_id.partition(":")
+    if key.startswith("g") and key[1:].isdigit():
+        return f"G{key[1:]}"
+    if key.startswith("linkage-"):
+        return key.replace("linkage-", "L").replace("-cell", "")
+    if key.startswith("s") and key[1:].isdigit():
+        return f"S{key[1:]}"
+    return key.replace("-", " ").title()
+
+
+def _step_coord_labels(step: dict[str, object]) -> list[str]:
+    coords = step.get("coords", [])
+    if not isinstance(coords, list):
+        return []
+    return [str(coord) for coord in coords]
+
+
+def _step_part_ids(step: dict[str, object]) -> list[str]:
+    parts = step.get("parts", [])
+    if not isinstance(parts, list):
+        return []
+    ids: list[str] = []
+    for item in parts:
+        if isinstance(item, dict) and isinstance(item.get("part"), str):
+            ids.append(str(item["part"]))
+    return ids
+
+
+def _step_stack_layers(step: dict[str, object]) -> list[dict[str, object]]:
+    stack = step.get("stack", [])
+    if not isinstance(stack, list):
+        return []
+    return [layer for layer in stack if isinstance(layer, dict)]
+
+
+def _step_ghost_parts(step: dict[str, object]) -> list[str]:
+    visual = step.get("visual_state")
+    if not isinstance(visual, dict) or not isinstance(visual.get("ghost_parts"), list):
+        return []
+    return [str(part) for part in visual["ghost_parts"]]
+
+
+def _coord_to_board_xy(coord: str, x: float, y: float, size: float) -> tuple[float, float]:
+    row = coord[0].upper()
+    col = int(coord[1:])
+    pitch = size / 14.0
+    return x + (col - 1) * pitch, y + BOARD_ROWS.index(row) * pitch
+
+
+def _layout_box(step: int, zone: str, x: float, y: float, width: float, height: float) -> str:
+    return _rect(
+        x,
+        y,
+        width,
+        height,
+        "layout-box",
+        extra={
+            "layout_box": f"{step},{zone},{_fmt(x)},{_fmt(y)},{_fmt(width)},{_fmt(height)}",
+            "step": step,
+            "zone": zone,
+        },
+        style="fill:none;stroke:none",
+    )
+
+
+def _assembly_step_panel_height(step: dict[str, object]) -> float:
+    part_rows = max(1, len(_step_part_ids(step)))
+    stack_rows = len(_step_stack_layers(step))
+    ghost_rows = len(_step_ghost_parts(step))
+    row_count = max(6, part_rows, stack_rows, ghost_rows + 3)
+    return 32.0 + row_count * 8.0
+
+
+def _assembly_board_grid_elements(
+    *,
+    x: float,
+    y: float,
+    size: float,
+    hole_radius: float = 0.72,
+    highlighted: list[str] | None = None,
+    step: int | None = None,
+) -> list[str]:
+    highlighted = highlighted or []
+    pitch = size / 14.0
+    elements: list[str] = [_rect(x - 4.0, y - 4.0, size + 8.0, size + 8.0, "score board-outline")]
+    for col in BOARD_COLUMNS:
+        elements.append(_text(x + (col - 1) * pitch, y - 7.0, str(col), class_name="tiny"))
+    for row_index, row in enumerate(BOARD_ROWS):
+        elements.append(_text(x - 7.0, y + row_index * pitch + 1.0, row, class_name="tiny"))
+    for row_index, row in enumerate(BOARD_ROWS):
+        for col in BOARD_COLUMNS:
+            label = f"{row}{col}"
+            cx = x + (col - 1) * pitch
+            cy = y + row_index * pitch
+            class_name = "drill board-hole"
+            extra: dict[str, object] = {"board_coord": label}
+            if step is not None:
+                extra["step"] = step
+            if label in highlighted:
+                class_name = "drill board-hole active-board-hole"
+            elements.append(_circle(cx, cy, hole_radius, class_name, extra=extra))
+    return elements
+
+
+def _assembly_board_template(spec: FabricationSpec) -> SvgTemplate:
+    board_size = spec.pitch_mm * (len(BOARD_COLUMNS) - 1)
+    elements = [
+        _text(12.0, 14.0, "15x15 board coordinate map", anchor="start"),
+        _text(
+            12.0,
+            22.0,
+            "Use row letters and column numbers for every assembly step.",
+            class_name="tiny",
+            anchor="start",
+        ),
+        '  <g id="layer-board-grid">',
+        *_assembly_board_grid_elements(
+            x=30.0,
+            y=42.0,
+            size=board_size,
+            hole_radius=spec.hole_diameter_mm / 2.0,
+        ),
+        "  </g>",
+    ]
+    return SvgTemplate(
+        path="assembly/board-15x15.svg",
+        title="Automataii 15x15 assembly board map",
+        desc="Coordinate board used by Automataii fabrication assembly guides.",
+        width_mm=330.0,
+        height_mm=335.0,
+        elements=tuple(elements),
+        metadata={
+            "key": "board-15x15",
+            "label": "15x15 assembly board map",
+            "path": "assembly/board-15x15.svg",
+            "rows": len(BOARD_ROWS),
+            "columns": len(BOARD_COLUMNS),
+        },
+    )
+
+
+def _stack_label(layer: dict[str, object]) -> str:
+    role = str(layer.get("role", ""))
+    label = str(layer.get("label", role))
+    if role in {"spacer", "top-spacer"}:
+        return label.replace(" spacer", "")
+    if role == "moving-part":
+        part = str(layer.get("part", ""))
+        return _part_label(part)
+    if role == "paper-fastener":
+        return "Fastener"
+    if role == "fastener-tabs":
+        return "Loose tabs"
+    return label
+
+
+def _assembly_step_panel(recipe: dict[str, object], step: dict[str, object], y: float) -> list[str]:
+    recipe_key = str(recipe["key"])
+    mechanism_type = str(recipe["mechanism_type"])
+    raw_step_n = step.get("n")
+    step_n = raw_step_n if isinstance(raw_step_n, int) else 0
+    title = str(step["title"])
+    instruction = str(step["instruction"])
+    check = str(step["check"])
+    coords = _step_coord_labels(step)
+    part_ids = _step_part_ids(step)
+    stack_layers = _step_stack_layers(step)
+    ghost_parts = _step_ghost_parts(step)
+    panel_height = _assembly_step_panel_height(step)
+    content_height = panel_height - 30.0
+    board_x, board_y, board_size = 106.0, y + 18.0, 58.0
+
+    elements: list[str] = [
+        _rect(8.0, y, 404.0, panel_height, "score step-card"),
+        _text(14.0, y + 10.0, f"Step {step_n}: {title}", anchor="start"),
+        _layout_box(step_n, "parts", 14.0, y + 16.0, 78.0, content_height),
+        _layout_box(step_n, "board", 100.0, y + 16.0, 78.0, content_height),
+        _layout_box(step_n, "stack", 188.0, y + 16.0, 78.0, content_height),
+        _layout_box(step_n, "check", 278.0, y + 16.0, 122.0, content_height),
+        f'  <g id="layer-callouts-step-{step_n}" data-step="{step_n}" data-recipe-key="{escape(recipe_key)}">',
+        _text(18.0, y + 24.0, "Parts", class_name="tiny", anchor="start"),
+    ]
+    if part_ids:
+        for idx, part in enumerate(part_ids):
+            elements.append(
+                _text(
+                    20.0,
+                    y + 33.0 + idx * 8.0,
+                    _part_label(part),
+                    class_name="tiny",
+                    anchor="start",
+                )
+            )
+    else:
+        elements.append(_text(20.0, y + 33.0, "Fastener", class_name="tiny", anchor="start"))
+    elements.append("  </g>")
+
+    elements.extend(
+        [
+            f'  <g id="layer-board-grid-step-{step_n}" data-step="{step_n}" data-recipe-key="{escape(recipe_key)}">',
+            *_assembly_board_grid_elements(
+                x=board_x, y=board_y, size=board_size, highlighted=coords, step=step_n
+            ),
+            "  </g>",
+            f'  <g id="layer-previous-step-ghost-step-{step_n}" data-step="{step_n}">',
+        ]
+    )
+    for idx, part in enumerate(ghost_parts):
+        elements.append(
+            _text(103.0, y + 81.0 + idx * 5.0, _part_label(part), class_name="tiny", anchor="start")
+        )
+    elements.append("  </g>")
+
+    elements.append(
+        f'  <g id="layer-new-part-highlight-step-{step_n}" data-step="{step_n}" '
+        f'data-app-mechanism="{escape(mechanism_type)}">'
+    )
+    for coord in coords:
+        cx, cy = _coord_to_board_xy(coord, board_x, board_y, board_size)
+        elements.append(
+            _circle(
+                cx,
+                cy,
+                2.3,
+                "score new-part-highlight",
+                extra={
+                    "step": step_n,
+                    "recipe_key": recipe_key,
+                    "board_coord": coord,
+                    "app_mechanism": mechanism_type,
+                },
+            )
+        )
+    elements.append("  </g>")
+
+    elements.extend(
+        [
+            f'  <g id="layer-stack-diagram-step-{step_n}" data-step="{step_n}">',
+            _text(192.0, y + 24.0, "Stack", class_name="tiny", anchor="start"),
+        ]
+    )
+    for idx, layer in enumerate(stack_layers):
+        layer_y = y + 31.0 + idx * 7.0
+        layer_role = str(layer.get("role", "layer"))
+        layer_part = str(layer.get("part", ""))
+        elements.append(
+            _rect(
+                194.0,
+                layer_y - 4.5,
+                28.0,
+                4.0,
+                "score stack-layer",
+                extra={
+                    "step": step_n,
+                    "stack_layer": idx + 1,
+                    "stack_role": layer_role,
+                    "part_key": layer_part,
+                },
+            )
+        )
+        elements.append(
+            _text(228.0, layer_y, _stack_label(layer), class_name="tiny", anchor="start")
+        )
+    elements.append("  </g>")
+
+    coord_text = ", ".join(coords)
+    part_text = " ".join(_part_label(part) for part in part_ids)
+    elements.extend(
+        [
+            f'  <g id="layer-labels-step-{step_n}" data-step="{step_n}" data-board-coord="{escape(coord_text)}" data-part-key="{escape(part_text)}">',
+            _text(282.0, y + 25.0, f"Where: {coord_text}", class_name="tiny", anchor="start"),
+            _text(282.0, y + 36.0, instruction, class_name="tiny", anchor="start"),
+            _text(282.0, y + 58.0, f"Check: {check}", class_name="tiny", anchor="start"),
+            "  </g>",
+            f'  <g id="layer-fasteners-step-{step_n}" data-step="{step_n}"></g>',
+            f'  <g id="layer-spacers-step-{step_n}" data-step="{step_n}"></g>',
+            f'  <g id="layer-motion-arrows-step-{step_n}" data-step="{step_n}">',
+            _path(
+                f"M 364 {y + 70:.3f} L 386 {y + 70:.3f} L 380 {y + 66:.3f} M 386 {y + 70:.3f} L 380 {y + 74:.3f}",
+                "score motion-arrow",
+            ),
+            "  </g>",
+        ]
+    )
+    return elements
+
+
+def _assembly_recipe_template(recipe: dict[str, object], spec: FabricationSpec) -> SvgTemplate:
+    steps = recipe.get("steps", [])
+    step_dicts = (
+        [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
+    )
+    panel_gap = 6.0
+    height = 52.0 + sum(_assembly_step_panel_height(step) + panel_gap for step in step_dicts)
+    elements: list[str] = [
+        _text(10.0, 12.0, str(recipe["title"]), anchor="start"),
+        _text(
+            10.0,
+            20.0,
+            "Follow one card at a time. Keep fasteners loose until motion is smooth.",
+            class_name="tiny",
+            anchor="start",
+        ),
+        '  <g id="layer-board-grid"></g>',
+        '  <g id="layer-previous-step-ghost"></g>',
+        '  <g id="layer-existing-parts"></g>',
+        '  <g id="layer-new-part-highlight"></g>',
+        '  <g id="layer-fasteners"></g>',
+        '  <g id="layer-spacers"></g>',
+        '  <g id="layer-motion-arrows"></g>',
+        '  <g id="layer-callouts"></g>',
+        '  <g id="layer-labels"></g>',
+        '  <g id="layer-stack-diagram"></g>',
+    ]
+    current_y = 28.0
+    for step in step_dicts:
+        elements.extend(_assembly_step_panel(recipe, step, current_y))
+        current_y += _assembly_step_panel_height(step) + panel_gap
+    return SvgTemplate(
+        path=str(recipe["guide_svg"]),
+        title=f"Automataii assembly guide {recipe['key']}",
+        desc=f"Board-coordinate assembly guide for {recipe['title']}.",
+        width_mm=420.0,
+        height_mm=height,
+        elements=tuple(elements),
+        metadata={
+            "key": recipe["key"],
+            "label": recipe["title"],
+            "path": recipe["guide_svg"],
+            "mechanism_type": recipe["mechanism_type"],
+            "step_count": len(step_dicts),
+            "schema_version": ASSEMBLY_SCHEMA_VERSION,
+        },
+    )
+
+
+def _assembly_templates(
+    assembly_package: dict[str, object],
+    spec: FabricationSpec,
+) -> list[SvgTemplate]:
+    templates = [_assembly_board_template(spec)]
+    raw_recipes = assembly_package.get("recipes", [])
+    recipes = (
+        [recipe for recipe in raw_recipes if isinstance(recipe, dict)]
+        if isinstance(raw_recipes, list)
+        else []
+    )
+    templates.extend(_assembly_recipe_template(recipe, spec) for recipe in recipes)
+    return templates
+
+
+def _assembly_readme_text(assembly_package: dict[str, object]) -> str:
+    recipes = assembly_package.get("recipes", [])
+    recipe_rows: list[str] = []
+    if isinstance(recipes, list):
+        for recipe in recipes:
+            if isinstance(recipe, dict):
+                recipe_rows.append(
+                    f"- `{recipe['key']}` — {recipe['title']} ({len(recipe.get('steps', []))} steps)"
+                )
+    return f"""# Automataii board assembly guides
+
+Use this folder when you already have the fabricated kit parts and want to build on the 15x15 board.
+
+## How to use
+
+1. Open `board-15x15.svg` to identify row letters and column numbers.
+2. Pick one guide SVG.
+3. Follow one step card at a time: place the fastener, add spacers, add the part, then run the check.
+4. Keep paper fasteners loose enough for rotation or sliding before flattening the tabs.
+
+## Guides
+
+{chr(10).join(recipe_rows)}
+
+## Data contract
+
+- `recipes.json` is the semantic source of truth for board coordinates, parts, stack order, and app visual mappings.
+- Guide SVGs are render targets. They include `data-step`, `data-board-coord`, `data-part-key`, `data-stack-layer`, `data-layout-box`, and `data-app-mechanism` metadata for tests and future app previews.
+- Self-fabrication cut sheets stay in the sibling part and `sheets/` folders.
+"""
 
 
 def _readme_text(spec: FabricationSpec, manifest: dict[str, object]) -> str:
@@ -1326,8 +1745,11 @@ This directory contains fabrication-ready SVG masters for the physical Automatai
 
 ## Two supported workflows
 
-1. **Pre-fabricated prototyping kit** — cut/print the {sheet_count} workshop sheets in `sheets/`, keep the parts as a classroom/workshop set, and mount them on the physical pegboard with the existing bracket hardware.
+1. **Board assembly** — open `assembly/`, choose a guide SVG, and follow the board-coordinate step cards with the pre-fabricated kit parts.
 2. **Self-fabrication** — use the individual SVGs in `gears/`, `linkages/`, `cams/`, `followers/`, `brackets/`, and `spacers/` to make replacement or custom parts with a laser cutter, CNC router, 3D-print workflow, scroll saw, table saw plus drill jig, or similar shop process.
+
+For a repeatable workshop set, cut/print the {sheet_count} workshop sheets in `sheets/`,
+sort the parts, then use the matching `assembly/` guide.
 
 ## Physical assumptions
 
@@ -1364,6 +1786,7 @@ These files are nominal geometry, not material-specific kerf compensation. Befor
 ## Contents
 
 - `manifest.json` — machine-readable inventory and dimensions.
+- `assembly/` — board-coordinate assembly guides, recipe data, and the 15x15 board map.
 - `gears/` — one SVG per gear preset; each gear includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
 - `linkages/` — one SVG per linkage length; holes are spaced on the board pitch.
 - `cams/` — one SVG per cam preset; each cam includes a {_fmt(spec.hole_diameter_mm)} mm axle hole and {_fmt(spec.hole_diameter_mm)} mm linkage/bracket/crank/handle attachment holes.
@@ -1455,7 +1878,7 @@ def write_fabrication_templates(
     spacer_templates = [_spacer_template(preset, spec) for preset in SPACER_PRESETS]
     sheet_templates = _build_sheets(spec)
 
-    all_svg_templates = [
+    fabrication_svg_templates = [
         *gear_templates,
         *linkage_templates,
         *cam_templates,
@@ -1464,12 +1887,7 @@ def write_fabrication_templates(
         *spacer_templates,
         *sheet_templates,
     ]
-    managed_files = sorted(
-        [template.path for template in all_svg_templates] + ["README.md", "manifest.json"]
-    )
-    previous_managed_files = _existing_managed_files(output_path)
-
-    manifest: dict[str, object] = {
+    base_manifest: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "profile_key": profile.key,
         "grid_pitch_mm": _round_float(spec.pitch_mm),
@@ -1487,6 +1905,44 @@ def write_fabrication_templates(
             "spacers": [template.metadata for template in spacer_templates],
         },
         "sheets": [template.metadata for template in sheet_templates],
+        "managed_files": [],
+    }
+    assembly_package = build_default_assembly_package(base_manifest, profile=profile)
+    assembly_templates = _assembly_templates(assembly_package, spec)
+    all_svg_templates = [*fabrication_svg_templates, *assembly_templates]
+    raw_recipes = assembly_package.get("recipes", [])
+    recipe_guide_paths = {
+        str(recipe.get("guide_svg"))
+        for recipe in raw_recipes
+        if isinstance(recipe, dict) and isinstance(recipe.get("guide_svg"), str)
+    }
+    assembly_files = [
+        "assembly/README.md",
+        "assembly/recipes.json",
+        *[template.path for template in assembly_templates],
+    ]
+    managed_file_candidates = [
+        *[template.path for template in all_svg_templates],
+        "README.md",
+        "manifest.json",
+        *assembly_files,
+    ]
+    managed_files = sorted(dict.fromkeys(managed_file_candidates))
+    previous_managed_files = _existing_managed_files(output_path)
+
+    manifest: dict[str, object] = {
+        **base_manifest,
+        "assembly": {
+            "schema_version": ASSEMBLY_SCHEMA_VERSION,
+            "recipes_source": "assembly/recipes.json",
+            "board_map": "assembly/board-15x15.svg",
+            "guide_files": [
+                template.path
+                for template in assembly_templates
+                if template.path in recipe_guide_paths
+            ],
+            "files": assembly_files,
+        },
         "managed_files": managed_files,
     }
 
@@ -1496,6 +1952,11 @@ def write_fabrication_templates(
             output_path / template.path,
             _svg_document(template, spec),
         )
+    _write_text(
+        output_path / "assembly" / "recipes.json",
+        json.dumps(assembly_package, indent=2, sort_keys=True) + "\n",
+    )
+    _write_text(output_path / "assembly" / "README.md", _assembly_readme_text(assembly_package))
     _write_text(
         output_path / "manifest.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     )

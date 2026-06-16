@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+# ruff: noqa: F821
 
 """
 Lightweight PyInstaller spec for direct CLI builds.
@@ -9,19 +9,20 @@ repository layout.
 """
 
 a = Analysis(
-    ['src/automataii/__main__.py'],
-    pathex=['src'],
+    ["src/automataii/__main__.py"],
+    pathex=["src"],
     binaries=[],
     datas=[
-        ('resources', 'resources'),
-        ('models', 'models'),
-        ('models/onnx', 'models/onnx'),
+        ("fabrication", "fabrication"),
+        ("resources", "resources"),
+        ("models", "models"),
+        ("models/onnx", "models/onnx"),
     ],
     hiddenimports=[
-        'PyQt6.sip',
-        'PyQt6.QtGui',
-        'PyQt6.QtCore',
-        'PyQt6.QtWidgets',
+        "PyQt6.sip",
+        "PyQt6.QtGui",
+        "PyQt6.QtCore",
+        "PyQt6.QtWidgets",
     ],
     hookspath=[],
     hooksconfig={},
@@ -37,7 +38,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='MotionSmith',
+    name="MotionSmith",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -56,11 +57,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='MotionSmith',
+    name="MotionSmith",
 )
 app = BUNDLE(
     coll,
-    name='MotionSmith.app',
-    icon='resources/icons/AppIcon.icns',
-    bundle_identifier='app.motionsmith.motionsmith',
+    name="MotionSmith.app",
+    icon="resources/icons/AppIcon.icns",
+    bundle_identifier="app.motionsmith.motionsmith",
 )

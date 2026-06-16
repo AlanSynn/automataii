@@ -41,7 +41,7 @@ class MechanismTransferPackage:
 
 
 SUPPORTED_EXPORT_TYPES: frozenset[str] = frozenset(
-    ["four_bar", "cam_follower", "gear_train", "slider_crank"]
+    ["four_bar", "cam_follower", "gear_train", "gear_linkage", "slider_crank"]
 )
 
 

@@ -415,6 +415,15 @@ def test_pyinstaller_specs_add_project_root_before_helper_import():
         )
 
 
+def test_pyinstaller_specs_bundle_fabrication_assets():
+    specs = ("automataii.spec", "automataii-experiment.spec", "app.spec")
+
+    for spec_name in specs:
+        spec_text = (Path("packaging") / "pyinstaller" / spec_name).read_text(encoding="utf-8")
+
+        assert "fabrication" in spec_text
+
+
 def test_experiment_fast_pyinstaller_command_omits_spec_invalid_noupx(tmp_path):
     spec_file = tmp_path / "automataii-experiment.spec"
     spec_file.write_text("# spec", encoding="utf-8")

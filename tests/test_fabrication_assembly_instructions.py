@@ -1,0 +1,306 @@
+from __future__ import annotations
+
+import inspect
+import json
+import shutil
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+from scripts.generate_fabrication_templates import write_fabrication_templates
+
+import automataii.application.fabrication.assembly_export as assembly_export
+from automataii.application.fabrication import FabricationAssemblyGuideExporter
+from automataii.application.managers.blueprint_manager import BlueprintExportManager
+from automataii.application.mechanism_foundry.mechanism_types import (
+    VISIBLE_FOUNDRY_MECHANISM_TYPES,
+)
+from automataii.presentation.qt.blueprint.exporter import BlueprintExporter
+from automataii.shared.fabrication_assembly import (
+    ASSEMBLY_SCHEMA_VERSION,
+    BOARD_COLUMNS,
+    BOARD_ROWS,
+    manifest_part_index,
+    validate_assembly_package,
+)
+
+SVG_NS = "{http://www.w3.org/2000/svg}"
+EXPECTED_RECIPE_KEYS = {
+    "gear-train-basic",
+    "cam-follower-basic",
+    "four-bar-basic",
+    "gear-linkage-crank",
+}
+REQUIRED_LAYER_IDS = {
+    "layer-board-grid",
+    "layer-previous-step-ghost",
+    "layer-existing-parts",
+    "layer-new-part-highlight",
+    "layer-fasteners",
+    "layer-spacers",
+    "layer-motion-arrows",
+    "layer-callouts",
+    "layer-labels",
+    "layer-stack-diagram",
+}
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
+
+
+def _svg_root(path: Path) -> ET.Element:
+    return ET.parse(path).getroot()
+
+
+def _text_content(root: ET.Element) -> str:
+    return "\n".join(element.text or "" for element in root.iter(f"{SVG_NS}text"))
+
+
+def _layout_boxes(root: ET.Element) -> list[tuple[int, str, float, float, float, float]]:
+    boxes: list[tuple[int, str, float, float, float, float]] = []
+    for element in root.iter():
+        raw = element.attrib.get("data-layout-box")
+        if not raw:
+            continue
+        step_text, zone, x_text, y_text, width_text, height_text = raw.split(",")
+        boxes.append(
+            (
+                int(step_text),
+                zone,
+                float(x_text),
+                float(y_text),
+                float(width_text),
+                float(height_text),
+            )
+        )
+    return boxes
+
+
+def _overlaps(
+    first: tuple[float, float, float, float], second: tuple[float, float, float, float]
+) -> bool:
+    ax, ay, aw, ah = first
+    bx, by, bw, bh = second
+    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+
+def test_assembly_recipe_package_schema_references_and_bidirectionality(tmp_path: Path) -> None:
+    manifest = write_fabrication_templates(tmp_path)
+    package = _load_json(tmp_path / "assembly" / "recipes.json")
+
+    validate_assembly_package(package, manifest)
+    assert package["schema_version"] == ASSEMBLY_SCHEMA_VERSION
+    assert package["board"] == {
+        "columns": 15,
+        "column_labels": [str(column) for column in BOARD_COLUMNS],
+        "origin": "top-left",
+        "row_labels": list(BOARD_ROWS),
+        "rows": 15,
+    }
+    assert package["hardware"]["part_hole_diameter_mm"] == 4.0
+    assert package["hardware"]["fastener"] == "paper-fastener"
+
+    part_index = manifest_part_index(manifest)
+    assert "linkages:linkage-2-cell" in part_index
+    recipes = cast(list[dict[str, Any]], package["recipes"])
+    assert {recipe["key"] for recipe in recipes} == EXPECTED_RECIPE_KEYS
+
+    for recipe in recipes:
+        assert recipe["mechanism_type"] in VISIBLE_FOUNDRY_MECHANISM_TYPES
+        assert recipe["app_mapping"]["mechanism_type"] in VISIBLE_FOUNDRY_MECHANISM_TYPES
+        assert (tmp_path / recipe["guide_svg"]).is_file()
+        steps = cast(list[dict[str, Any]], recipe["steps"])
+        assert [step["n"] for step in steps] == list(range(1, len(steps) + 1))
+        for step in steps:
+            assert step["app_mapping"]["mechanism_type"] in VISIBLE_FOUNDRY_MECHANISM_TYPES
+            assert step["app_mapping"]["mechanism_type"] == recipe["mechanism_type"]
+            coords = cast(list[str], step["coords"])
+            assert coords
+            for coord in coords:
+                assert coord[0] in BOARD_ROWS
+                assert int(coord[1:]) in BOARD_COLUMNS
+            stack = cast(list[dict[str, Any]], step["stack"])
+            orders = [layer["order"] for layer in stack]
+            assert orders == sorted(orders)
+            roles = {str(layer["role"]) for layer in stack}
+            if step["action"] in {"add-part", "add-linkage", "add-guide", "test-motion"}:
+                assert "paper-fastener" in roles
+                assert {"spacer", "top-spacer"} & roles
+            physical_parts = {
+                str(part["part"]) for part in cast(list[dict[str, Any]], step["parts"])
+            } | {str(layer["part"]) for layer in stack if isinstance(layer.get("part"), str)}
+            active_parts = set(cast(list[str], step["visual_state"]["active_parts"]))
+            highlight_ids = set(cast(list[str], step["app_mapping"]["highlight_ids"]))
+            assert active_parts <= physical_parts
+            assert highlight_ids <= physical_parts
+            for part in physical_parts:
+                assert part in part_index
+
+    gear_recipe = next(recipe for recipe in recipes if recipe["key"] == "gear-train-basic")
+    compat = gear_recipe["compatibility"][0]
+    assert compat["compatible"] is True
+    assert 1.0 <= float(compat["board_distance_cells"]) <= 3.0
+    assert abs(float(compat["error_mm"])) <= float(compat["tolerance_mm"])
+
+
+def test_assembly_svg_cards_have_testable_layers_and_non_overlapping_layout(
+    tmp_path: Path,
+) -> None:
+    manifest = write_fabrication_templates(tmp_path)
+    package = _load_json(tmp_path / "assembly" / "recipes.json")
+    managed_files = set(cast(list[str], manifest["managed_files"]))
+
+    board_root = _svg_root(tmp_path / "assembly" / "board-15x15.svg")
+    board_coords = {
+        element.attrib["data-board-coord"]
+        for element in board_root.iter()
+        if "data-board-coord" in element.attrib
+    }
+    assert "A1" in board_coords
+    assert "O15" in board_coords
+    board_circles = {
+        element.attrib["data-board-coord"]: element
+        for element in board_root.iter(f"{SVG_NS}circle")
+        if "data-board-coord" in element.attrib
+    }
+    assert float(board_circles["A1"].attrib["r"]) == 2.0
+    assert float(board_circles["A2"].attrib["cx"]) - float(board_circles["A1"].attrib["cx"]) == 20.0
+    assert float(board_circles["B1"].attrib["cy"]) - float(board_circles["A1"].attrib["cy"]) == 20.0
+
+    for recipe in cast(list[dict[str, Any]], package["recipes"]):
+        guide_svg = str(recipe["guide_svg"])
+        assert guide_svg in managed_files
+        root = _svg_root(tmp_path / guide_svg)
+        ids = {element.attrib.get("id") for element in root.iter()}
+        assert REQUIRED_LAYER_IDS <= ids
+        assert any("data-step" in element.attrib for element in root.iter())
+        assert any("data-board-coord" in element.attrib for element in root.iter())
+        assert any("data-part-key" in element.attrib for element in root.iter())
+        assert any("data-stack-layer" in element.attrib for element in root.iter())
+        assert any("data-app-mechanism" in element.attrib for element in root.iter())
+        visible_text = _text_content(root)
+        assert "Metric" not in visible_text
+        assert "Imperial" not in visible_text
+        assert "inch" not in visible_text.lower()
+        assert "mm" not in visible_text.lower()
+
+        by_step: dict[int, list[tuple[str, float, float, float, float]]] = {}
+        for step, zone, x, y, width, height in _layout_boxes(root):
+            by_step.setdefault(step, []).append((zone, x, y, width, height))
+        assert by_step
+        for boxes in by_step.values():
+            for idx, first in enumerate(boxes):
+                for second in boxes[idx + 1 :]:
+                    assert not _overlaps(first[1:], second[1:]), (first, second)
+
+
+def test_application_exporter_lists_and_copies_board_guides(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+
+    summaries = exporter.list_guides()
+    assert {summary.key for summary in summaries} == EXPECTED_RECIPE_KEYS
+    assert all(summary.step_count >= 4 for summary in summaries)
+    missing_guide = tmp_path / "assembly" / "04-gear-linkage-crank.svg"
+    missing_guide.unlink()
+    assert {
+        summary.key for summary in FabricationAssemblyGuideExporter(tmp_path).list_guides()
+    } == EXPECTED_RECIPE_KEYS - {"gear-linkage-crank"}
+    write_fabrication_templates(tmp_path)
+    for mechanism_type in VISIBLE_FOUNDRY_MECHANISM_TYPES:
+        assert exporter.find_guides_for_mechanism(mechanism_type), mechanism_type
+    assert exporter.find_guides_for_mechanism("gear+linkage")[0].key == "gear-linkage-crank"
+    resolved = exporter.resolve_app_state_to_guide(
+        "gear+linkage",
+        active_part_ids={"linkages:linkage-4-cell"},
+    )
+    assert resolved is not None
+    assert resolved.key == "gear-linkage-crank"
+
+    output_dir = tmp_path / "exported-guides"
+    result = exporter.export_guides(output_dir, recipe_keys={"gear-train-basic"})
+
+    assert result.recipe_keys == ("gear-train-basic",)
+    assert result.output_dir == output_dir
+    assert result.package_dir == output_dir / "assembly"
+    assert (output_dir / "assembly" / "recipes.json").is_file()
+    assert (output_dir / "assembly" / "README.md").is_file()
+    assert (output_dir / "assembly" / "board-15x15.svg").is_file()
+    assert (output_dir / "assembly" / "01-gear-train-basic.svg").is_file()
+    assert len(result.copied_files) == 4
+    reloaded = FabricationAssemblyGuideExporter(output_dir)
+    reloaded_summaries = reloaded.list_guides()
+    assert [summary.key for summary in reloaded_summaries] == ["gear-train-basic"]
+    for summary in reloaded_summaries:
+        assert (output_dir / summary.guide_svg).is_file()
+    assert reloaded.find_guides_for_mechanism("gear_train")[0].key == "gear-train-basic"
+
+    exporter.export_guides(output_dir)
+    assert (output_dir / "assembly" / "04-gear-linkage-crank.svg").is_file()
+    exporter.export_guides(output_dir, recipe_keys={"cam-follower-basic"})
+    assert not (output_dir / "assembly" / "04-gear-linkage-crank.svg").exists()
+    assert [
+        summary.key for summary in FabricationAssemblyGuideExporter(output_dir).list_guides()
+    ] == ["cam-follower-basic"]
+
+
+def test_application_exporter_resolves_relative_root_through_packaged_base(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_root = tmp_path / "bundle"
+    write_fabrication_templates(bundle_root / "fabrication")
+
+    def fake_resolve_path(relative_path: str | Path) -> Path:
+        return bundle_root / relative_path
+
+    monkeypatch.setattr(assembly_export, "resolve_path", fake_resolve_path)
+
+    exporter = FabricationAssemblyGuideExporter("fabrication")
+
+    assert exporter.fabrication_root == bundle_root / "fabrication"
+    assert exporter.recipes_path == bundle_root / "fabrication" / "assembly" / "recipes.json"
+    assert {summary.key for summary in exporter.list_guides()} == EXPECTED_RECIPE_KEYS
+
+
+def test_application_exporter_rejects_recipe_path_traversal(tmp_path: Path) -> None:
+    write_fabrication_templates(tmp_path)
+    recipes_path = tmp_path / "assembly" / "recipes.json"
+    package = _load_json(recipes_path)
+    recipes = cast(list[dict[str, Any]], package["recipes"])
+    recipes[0]["guide_svg"] = "../manifest.json"
+    recipes_path.write_text(json.dumps(package), encoding="utf-8")
+
+    exporter = FabricationAssemblyGuideExporter(tmp_path)
+    with pytest.raises(ValueError, match="Unsafe assembly guide path"):
+        exporter.export_guides(tmp_path / "exported-guides", recipe_keys={"gear-train-basic"})
+
+
+def test_fabrication_export_surface_splits_board_guide_from_cut_sheets() -> None:
+    blueprint_source = inspect.getsource(BlueprintExporter)
+    manager_source = inspect.getsource(BlueprintExportManager._get_save_file_path)
+
+    assert "Board Assembly Guide" in blueprint_source
+    assert "Make Parts / Cut Sheets" in blueprint_source
+    assert "FabricationAssemblyGuideExporter" in blueprint_source
+    assert "PDF Files" not in manager_source
+    assert "SVG Files (*.svg);;All Files (*)" in manager_source
+
+
+def test_committed_assembly_package_exists_and_matches_generator(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    generated_root = tmp_path / "generated"
+    manifest = write_fabrication_templates(generated_root)
+    managed_files = cast(list[str], manifest["managed_files"])
+    assert len(managed_files) == len(set(managed_files))
+    for rel_path in cast(list[str], manifest["managed_files"]):
+        source = generated_root / rel_path
+        committed = repo_root / "fabrication" / rel_path
+        assert committed.is_file(), rel_path
+        assert committed.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
+
+    copied_root = tmp_path / "copy"
+    shutil.copytree(repo_root / "fabrication" / "assembly", copied_root)
+    assert (copied_root / "recipes.json").is_file()

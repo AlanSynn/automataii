@@ -1,4 +1,24 @@
 {
+  "assembly": {
+    "board_map": "assembly/board-15x15.svg",
+    "files": [
+      "assembly/README.md",
+      "assembly/recipes.json",
+      "assembly/board-15x15.svg",
+      "assembly/01-gear-train-basic.svg",
+      "assembly/02-cam-follower-basic.svg",
+      "assembly/03-four-bar-basic.svg",
+      "assembly/04-gear-linkage-crank.svg"
+    ],
+    "guide_files": [
+      "assembly/01-gear-train-basic.svg",
+      "assembly/02-cam-follower-basic.svg",
+      "assembly/03-four-bar-basic.svg",
+      "assembly/04-gear-linkage-crank.svg"
+    ],
+    "recipes_source": "assembly/recipes.json",
+    "schema_version": "automataii.fabrication.assembly.v1"
+  },
   "generated_at": "reproducible",
   "generated_by": "scripts/generate_fabrication_templates.py",
   "grid_cell_cm": 2.0,
@@ -6,6 +26,13 @@
   "hole_diameter_mm": 4.0,
   "managed_files": [
     "README.md",
+    "assembly/01-gear-train-basic.svg",
+    "assembly/02-cam-follower-basic.svg",
+    "assembly/03-four-bar-basic.svg",
+    "assembly/04-gear-linkage-crank.svg",
+    "assembly/README.md",
+    "assembly/board-15x15.svg",
+    "assembly/recipes.json",
     "brackets/bracket-2-hole-straight.svg",
     "brackets/bracket-3-hole-straight.svg",
     "brackets/bracket-l-3-hole.svg",
