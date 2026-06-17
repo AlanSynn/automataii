@@ -203,13 +203,12 @@ jobs:
         run: |
           uv sync --group build
 
-      - name: Build signed Windows distribution
+      - name: Prepare Windows signing certificate
+        timeout-minutes: 5
         env:
           WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-          WINDOWS_SIGNTOOL_PATH: ${{ secrets.WINDOWS_SIGNTOOL_PATH }}
           WINDOWS_ALLOW_TEST_CERTIFICATE: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish_external && '1' || '' }}
-          PYTHONUNBUFFERED: "1"
         run: |
           if ($env:WINDOWS_ALLOW_TEST_CERTIFICATE -eq "1") {
             Write-Warning "Using an ephemeral self-signed Windows test certificate. This artifact is runnable smoke evidence, not a trusted public release."
@@ -235,6 +234,13 @@ jobs:
             Write-Error "WINDOWS_CERT_PFX and WINDOWS_CERT_PASSWORD are required for signed Windows releases."
             exit 1
           }
+
+      - name: Build signed Windows distribution
+        timeout-minutes: 45
+        env:
+          WINDOWS_SIGNTOOL_PATH: ${{ secrets.WINDOWS_SIGNTOOL_PATH }}
+          PYTHONUNBUFFERED: "1"
+        run: |
           uv run python -u scripts/build_windows.py --sign --certificate windows-cert.pfx --cert-password-env WINDOWS_CERT_PASSWORD --verify-signature
 
       - name: Smoke Windows executable
