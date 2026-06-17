@@ -201,9 +201,8 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "WINDOWS_CERT_PASSWORD",
         "WINDOWS_SIGNTOOL_PATH",
         "WINDOWS_ALLOW_TEST_CERTIFICATE",
-        "openssl req -x509",
-        "openssl pkcs12 -export",
-        "Created ephemeral Windows test signing certificate",
+        "Public, test-only PFX",
+        "Loaded public Windows test signing certificate",
         "python -u scripts/build_windows.py",
         "permissions:\n  contents: read",
         "permissions:\n      contents: write",
@@ -230,7 +229,7 @@ def test_windows_build_regression_files_are_release_ready() -> None:
         "MotionSmith.exe --scenario blueprint-export",
         "dist/MotionSmith-windows.zip",
         "PyInstaller is not a cross-compiler",
-        "not a trusted public release signature",
+        "trusted public release",
         "WinSparkle download is SHA256-verified",
     ):
         assert required in docs

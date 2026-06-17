@@ -51,9 +51,10 @@ Required only for `.github/workflows/release.yml` full build:
 - `SPARKLE_PUBLIC_ED_KEY`
 - `SPARKLE_PRIVATE_ED_KEY` if publishing OTA in the same workflow
 
-Manual `workflow_dispatch` runs with `publish_external=false` can fall back to an ephemeral
-self-signed Windows test certificate when the Windows PFX secrets are absent. That proves the
-Windows build/sign/run path on `windows-latest`, but it is not a trusted public release signature.
+Manual `workflow_dispatch` runs with `publish_external=false` can fall back to a public,
+test-only self-signed Windows certificate that is trusted only inside the disposable runner. That
+proves the Windows build/sign/run path on `windows-latest`, but it is not a trusted public release
+signature.
 
 ## Local signed Windows build
 
