@@ -245,7 +245,7 @@ jobs:
         run: |
           $buildArgs = @("--sign", "--certificate", "windows-cert.pfx", "--cert-password-env", "WINDOWS_CERT_PASSWORD")
           if ($env:WINDOWS_TEST_CERTIFICATE_MODE -eq "1") {
-            Write-Warning "Skipping trust-chain signature verification for the public test certificate; checking Authenticode signature presence instead."
+            Write-Warning "Skipping trust-chain signature verification for the non-production test certificate; checking Authenticode signature presence instead."
           } else {
             $buildArgs += "--verify-signature"
           }
