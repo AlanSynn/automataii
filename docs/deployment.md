@@ -54,6 +54,9 @@ Required only for `.github/workflows/release.yml` full build:
 Manual `workflow_dispatch` runs with `publish_external=false` can fall back to a public,
 test-only self-signed Windows certificate. That proves the Windows build/sign/run path on
 `windows-latest` and checks the Authenticode signature is present, but it is not a trusted public release signature.
+Those non-publishing smoke runs skip the signed macOS DMG job so Windows evidence can be collected
+without Apple signing secrets. Tagged releases and `publish_external=true` runs still require the
+macOS signing/notarization secrets.
 
 ## Local signed Windows build
 

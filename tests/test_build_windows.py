@@ -197,6 +197,7 @@ def test_windows_build_regression_files_are_release_ready() -> None:
 
     for required in (
         "uv sync --group build",
+        "github.event_name != 'workflow_dispatch' || inputs.publish_external",
         "WINDOWS_CERT_PFX",
         "WINDOWS_CERT_PASSWORD",
         "WINDOWS_SIGNTOOL_PATH",
