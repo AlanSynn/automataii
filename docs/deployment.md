@@ -52,9 +52,8 @@ Required only for `.github/workflows/release.yml` full build:
 - `SPARKLE_PRIVATE_ED_KEY` if publishing OTA in the same workflow
 
 Manual `workflow_dispatch` runs with `publish_external=false` can fall back to a public,
-test-only self-signed Windows certificate that is trusted only inside the disposable runner. That
-proves the Windows build/sign/run path on `windows-latest`, but it is not a trusted public release
-signature.
+test-only self-signed Windows certificate. That proves the Windows build/sign/run path on
+`windows-latest` and checks the Authenticode signature is present, but it is not a trusted public release signature.
 
 ## Local signed Windows build
 
@@ -78,10 +77,10 @@ dist/MotionSmith-windows.zip
 
 For GitHub Actions, store `WINDOWS_CERT_PFX` as base64 PFX content and
 `WINDOWS_CERT_PASSWORD` as the PFX password. Production/tagged releases fail before upload if
-either secret is missing, so unsigned Windows artifacts are not published by accident. The Windows
-job also expands the signed zip and runs `MotionSmith.exe --scenario blueprint-export` on the
-Windows runner before uploading the artifact. The bundled WinSparkle download is SHA256-verified
-before its DLL is staged and signed.
+either secret is missing, so unsigned Windows artifacts are not published by accident. Production
+builds also run SignTool trust-chain verification. The Windows job expands the signed zip and runs
+`MotionSmith.exe --scenario blueprint-export` on the Windows runner before uploading the artifact.
+The bundled WinSparkle download is SHA256-verified before its DLL is staged and signed.
 
 ## Local signed/notarized macOS build
 
