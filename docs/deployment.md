@@ -232,5 +232,25 @@ Use the local path only after confirming the DMG is signed, notarized, and built
 
 - Pages deployment credentials are configured for Actions.
 - Sparkle EdDSA signing and public verification credentials are configured for Actions.
-- Full CI macOS signing remains blocked until `MACOS_CERT_P12` and `MACOS_CERT_PASSWORD` are available in Actions.
+- Full CI macOS signing/notarization remains blocked until `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `KEYCHAIN_PASSWORD`, `MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD` are available in Actions.
+- GitHub-hosted macOS runners create a fresh temporary notary profile per run; profile-only notarization without Apple ID credentials is not supported for public releases.
 - The deploy-only workflow does not need Apple signing/notarization secrets because it never builds the app.
+
+## Automatic GitHub release on push
+
+Pushes to `main` run `.github/workflows/auto-release.yml`:
+
+- default bump: `0.0.1` patch (`v0.1.0` -> `v0.1.1`)
+- bigger bump: include `[minor]`, `#minor`, `release: minor`, or `bump: minor` in the commit message (`v0.1.9` -> `v0.2.0`)
+- the workflow commits the new `pyproject.toml` version and creates `vX.Y.Z`
+- without `RELEASE_BOT_TOKEN`, it explicitly dispatches `release.yml` because GitHub suppresses most workflow runs caused by `GITHUB_TOKEN`
+- with `RELEASE_BOT_TOKEN`, the PAT-created tag push triggers `release.yml`, so explicit dispatch is skipped to avoid duplicate releases
+- if production signing secrets are missing, it fails before changing `pyproject.toml` or creating a tag
+
+`release.yml` builds the GitHub Release in Actions for strict `vX.Y.Z` tags only. It only publishes the Sparkle/Pages OTA payload when `ota_smoke_passed=true`; auto push releases dispatch with `ota_smoke_passed=false`.
+
+Required production signing secrets before public releases can pass:
+
+- macOS: `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `KEYCHAIN_PASSWORD`, `MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`; `APPLE_NOTARY_PROFILE` is optional and defaults to `MotionSmithNotary`
+- Windows: CA-issued `WINDOWS_CERT_PFX` and `WINDOWS_CERT_PASSWORD`
+- Optional if branch protection blocks the built-in token: `RELEASE_BOT_TOKEN` with contents/tag-push permission

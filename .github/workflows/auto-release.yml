@@ -1,0 +1,143 @@
+name: Auto Version and Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version-and-dispatch:
+    if: ${{ github.actor != 'github-actions[bot]' && !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_BOT_TOKEN || github.token }}
+
+      - name: Preflight production signing secrets
+        id: preflight
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          missing=()
+          for name in \
+            MACOS_CERT_P12 \
+            MACOS_CERT_PASSWORD \
+            KEYCHAIN_PASSWORD \
+            MACOS_SIGN_IDENTITY \
+            APPLE_ID \
+            APPLE_TEAM_ID \
+            APPLE_APP_SPECIFIC_PASSWORD \
+            WINDOWS_CERT_PFX \
+            WINDOWS_CERT_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            printf '::error::Missing production signing secret(s): %s\n' "${missing[*]}"
+            exit 1
+          fi
+          if [[ -n "${RELEASE_BOT_TOKEN:-}" ]]; then
+            echo "release_via_tag_push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_via_tag_push=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump pyproject version
+        id: bump
+        env:
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          pyproject = Path("pyproject.toml")
+          text = pyproject.read_text(encoding="utf-8")
+          raw_tags = subprocess.run(
+              ["git", "tag", "--list", "v*"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          versions = [
+              tuple(map(int, match.groups()))
+              for tag in raw_tags
+              if (match := re.fullmatch(r"v([0-9]+)\.([0-9]+)\.([0-9]+)", tag))
+          ]
+          if versions:
+              base = ".".join(str(part) for part in max(versions))
+          else:
+              match = re.search(r'^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text, re.M)
+              if not match:
+                  raise SystemExit("pyproject.toml version must be x.y.z")
+              base = match.group(1)
+
+          major, minor, patch = map(int, base.split("."))
+          message = os.environ.get("HEAD_MESSAGE", "").lower()
+          if any(mark in message for mark in ("[minor]", "#minor", "release: minor", "bump: minor")):
+              minor += 1
+              patch = 0
+          else:
+              patch += 1
+          version = f"{major}.{minor}.{patch}"
+
+          updated, count = re.subn(
+              r'^version\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+"',
+              f'version = "{version}"',
+              text,
+              count=1,
+              flags=re.M,
+          )
+          if count != 1:
+              raise SystemExit("pyproject.toml must contain one version = \"x.y.z\" entry")
+          pyproject.write_text(updated, encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+              output.write(f"tag=v{version}\n")
+          PY
+
+      - name: Commit and tag version
+        env:
+          RELEASE_TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git commit -m "chore(release): ${RELEASE_TAG}"
+          git tag -a "$RELEASE_TAG" -m "MotionSmith ${RELEASE_TAG}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          git push origin "$RELEASE_TAG"
+
+      - name: Dispatch signed release build
+        if: ${{ steps.preflight.outputs.release_via_tag_push != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          gh workflow run release.yml \
+            --ref "$RELEASE_TAG" \
+            -f version="$RELEASE_TAG" \
+            -f publish_external=true \
+            -f ota_smoke_passed=false

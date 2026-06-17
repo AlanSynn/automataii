@@ -11,12 +11,12 @@ on:
         required: true
         default: 'v0.1.0'
       publish_external:
-        description: 'Publish GitHub Release and MotionSmith Pages OTA payload'
+        description: 'Publish GitHub Release'
         required: true
         default: false
         type: boolean
       ota_smoke_passed:
-        description: 'Manual attestation: matching staged/preflight old-to-new Sparkle OTA smoke test passed for this version/key/payload shape'
+        description: 'Also publish MotionSmith Pages OTA payload after matching old-to-new Sparkle OTA smoke evidence'
         required: true
         default: false
         type: boolean
@@ -29,14 +29,36 @@ env:
   MOTIONSMITH_UPDATE_BASE_URL: 'https://alansynn.com/motionsmith/'
 
 jobs:
+  validate-release-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Validate release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="$INPUT_VERSION"
+          fi
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release version must be vX.Y.Z: $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   build-macos:
+    needs: validate-release-ref
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_external }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -90,8 +112,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          MOTIONSMITH_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-          MOTIONSMITH_OTA_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && '1' || '' }}
+          MOTIONSMITH_VERSION: ${{ needs.validate-release-ref.outputs.version }}
+          MOTIONSMITH_OTA_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && inputs.ota_smoke_passed && '1' || '' }}
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY || secrets.SPARKLE_PUBLIC_KEY }}
           SPARKLE_FRAMEWORK_PATH: ${{ steps.sparkle.outputs.sparkle_framework }}
         run: |
@@ -99,27 +121,24 @@ jobs:
             echo "::error::MACOS_SIGN_IDENTITY is required for a signed macOS release."
             exit 1
           fi
+          if [[ -z "${APPLE_ID:-}" || -z "${APPLE_TEAM_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+            echo "::error::GitHub release notarization requires APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so this runner can create a temporary notarytool profile."
+            exit 1
+          fi
           if [[ -z "${APPLE_NOTARY_PROFILE:-}" ]]; then
-            if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
-              export APPLE_NOTARY_PROFILE="MotionSmithNotary"
-            else
-              echo "::error::Set APPLE_NOTARY_PROFILE, or provide APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD so CI can create a temporary keychain profile."
-              exit 1
-            fi
+            export APPLE_NOTARY_PROFILE="MotionSmithNotary"
           fi
-          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
-            xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
-          fi
+          xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
           uv run python scripts/build_macos.py --arch universal2 --sign "$MACOS_SIGN_IDENTITY" --notarize --verify-release --strict-distribution
 
       - name: Generate signed Sparkle appcast payload
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && inputs.ota_smoke_passed }}
         env:
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY || secrets.SPARKLE_PRIVATE_KEY }}
           OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
         run: |
           if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
-            echo "::error::publish_external requires ota_smoke_passed=true as manual attestation for matching staged/preflight OTA evidence."
+            echo "::error::ota_smoke_passed=true is required to publish the Sparkle OTA payload."
             exit 1
           fi
           if [[ -z "${SPARKLE_PRIVATE_ED_KEY:-}" ]]; then
@@ -132,7 +151,7 @@ jobs:
             --download-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
             --link "$MOTIONSMITH_UPDATE_BASE_URL" \
             --expected-artifact MotionSmith-macos-universal2.dmg \
-            --expected-version "${{ inputs.version }}" \
+            --expected-version "${{ needs.validate-release-ref.outputs.version }}" \
             --sparkle-generate-appcast "${{ steps.sparkle.outputs.generate_appcast }}" \
             --private-key-env SPARKLE_PRIVATE_ED_KEY
 
@@ -149,19 +168,20 @@ jobs:
           path: dist/MotionSmith-macos-*.dmg
 
       - name: Upload signed Sparkle appcast payload
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external && inputs.ota_smoke_passed }}
         uses: actions/upload-artifact@v4
         with:
           name: sparkle-appcast-payload
           path: signed-appcast/**
 
   build-linux:
+    needs: validate-release-ref
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -188,12 +208,13 @@ jobs:
           path: dist/*.AppImage
 
   build-windows:
+    needs: validate-release-ref
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -328,9 +349,9 @@ jobs:
           Write-Host "Windows portable exe smoke passed with manifest: $manifest"
 
   create-release:
-    needs: [build-macos, build-linux, build-windows, smoke-windows-portable]
+    needs: [validate-release-ref, build-macos, build-linux, build-windows, smoke-windows-portable]
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_external }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_external) }}
     permissions:
       contents: write
     steps:
@@ -340,20 +361,22 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: Validate generated production appcast payload
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
         env:
           OTA_SMOKE_PASSED: ${{ inputs.ota_smoke_passed }}
         run: |
           if [[ "$OTA_SMOKE_PASSED" != "true" ]]; then
-            echo "::error::publish_external requires ota_smoke_passed=true as manual attestation for matching staged/preflight OTA evidence."
+            echo "::error::ota_smoke_passed=true is required to validate the Sparkle OTA payload."
             exit 1
           fi
           python3 scripts/validate_appcast.py sparkle-appcast-payload/appcast.xml \
             --expected-artifact MotionSmith-macos-universal2.dmg \
-            --expected-version "${{ inputs.version }}" \
+            --expected-version "${{ needs.validate-release-ref.outputs.version }}" \
             --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
             --payload-dir sparkle-appcast-payload
 
       - name: Preflight MotionSmith Pages publishing access
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
         env:
           MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
           MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
@@ -362,9 +385,23 @@ jobs:
           python3 scripts/publish_ota_pages.py preflight
 
       - name: Create Release
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.ota_smoke_passed) }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
+          tag_name: ${{ needs.validate-release-ref.outputs.version }}
+          files: |
+            macos-dmg/*
+            linux-appimage/*
+            windows-release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release with OTA payload
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate-release-ref.outputs.version }}
           files: |
             macos-dmg/*
             linux-appimage/*
@@ -375,6 +412,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish OTA payload to MotionSmith Pages repository
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ota_smoke_passed }}
         env:
           MOTIONSMITH_PAGES_TOKEN: ${{ secrets.MOTIONSMITH_PAGES_TOKEN }}
           MOTIONSMITH_PAGES_DEPLOY_KEY: ${{ secrets.MOTIONSMITH_PAGES_DEPLOY_KEY }}
@@ -382,7 +420,7 @@ jobs:
         run: |
           python3 scripts/publish_ota_pages.py publish \
             --payload-dir sparkle-appcast-payload \
-            --version "${{ inputs.version }}" \
+            --version "${{ needs.validate-release-ref.outputs.version }}" \
             --expected-artifact MotionSmith-macos-universal2.dmg \
             --expected-url-prefix "$MOTIONSMITH_UPDATE_BASE_URL" \
             --appcast-url "${MOTIONSMITH_UPDATE_BASE_URL%/}/appcast.xml" \
